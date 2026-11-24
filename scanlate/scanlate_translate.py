@@ -273,9 +273,21 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
     return _matched_answer(text, ids, previous_context)
 
 
+def previous_page_block(lines) -> str:
+    """The prompt section for the page before this one ([{"source", "english"}], english
+    possibly empty); "" for none. It is context only, so the answer must not contain it."""
+    if not lines:
+        return ""
+    rows = [f"{i}. {line['source']}" + (f" => {line['english']}" if line.get("english") else "")
+            for i, line in enumerate(lines, 1)]
+    return ("The previous page, given only so pronouns, names and a sentence that continues onto "
+            "this page come out right. Do not translate these lines and do not answer for them; a "
+            "line without '=>' was not translated yet:\n" + "\n".join(rows))
+
+
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None, character_notes: str = "",
-                           page_image: dict | None = None) -> str:
+                           page_image: dict | None = None, previous_lines=None) -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
     OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
@@ -301,6 +313,10 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
                 and (b.get("source_text") or "").strip()]
     if not eligible:
         return previous_context
+    # Standing reference and the page before share the notes argument, which every request
+    # already places after the glossary.
+    character_notes = "\n\n".join(
+        part for part in (character_notes, previous_page_block(previous_lines)) if part)
     # Each region goes out under an explicit key and is applied through a
     # key -> region map (translate_regions_by_id): a short, reordered or
     # padded answer applies nothing, never a shifted one.

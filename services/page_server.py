@@ -374,14 +374,31 @@ def _store_page(drama_id: int, data: bytes, ext: str):
     return page
 
 
-def _page_extras(drama, config: dict, engine, image: bytes) -> dict:
-    """Character notes and the page picture, as a Scanlate run sends them. A
-    failure here only costs that quality, never the translation."""
-    from services import extension_service
+def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language: str = "",
+                 glossary=None, reread: bool = False) -> dict:
+    """Character notes and the page picture, as a Scanlate run sends them, with the built-in
+    comic glossary's entries for this page appended to the notes. `reread` first gives
+    hard-to-read text a second look with the picture model (page_reread_service), before the
+    glossary is matched against it. A failure here only costs that quality, never the
+    translation."""
+    from services import comic_glossary_service, extension_service, page_reread_service
+    language = _page_source_language(drama, language)
     try:
-        return extension_service.page_extras(drama, config, engine, image)
+        extras = extension_service.page_extras(drama, config, engine, image)
     except Exception:
-        return {}
+        extras = {}
+    if reread:
+        try:
+            page_reread_service.reread(bubbles, image, language,
+                                       (extras.get("page_image") or {}).get("readers"))
+        except Exception:
+            pass
+    try:
+        extras["character_notes"] = comic_glossary_service.with_reference(
+            extras.get("character_notes", ""), language, bubbles, glossary)
+    except Exception:
+        pass
+    return extras
 
 
 def _lines_without_english(bubbles) -> list:
@@ -395,7 +412,8 @@ def _lines_without_english(bubbles) -> list:
 
 
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
-                         image: bytes = b"", in_order: bool = True) -> float:
+                         image: bytes = b"", in_order: bool = True, language: str = "",
+                         turn=page_turns.UNORDERED) -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
@@ -403,6 +421,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     import db
     from scanlate import scanlate_translate
     engine = _build_engine(config)
+    turn.keep(bubbles)
     if not bubbles:
         return 0.0
     if engine is None:
@@ -411,7 +430,11 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     started = time.monotonic()
     glossary = (db.list_run_glossary_terms(drama) or None) if drama else None
     usage = _usage_cb(drama, config, engine)
-    extras = _page_extras(drama, config, engine, image)
+    # A stored page already saved its read, so a corrected reading would disagree with the copy
+    # the library keeps; only a page nothing is saved for (Quick read) gets the second look.
+    extras = _page_extras(drama, config, engine, image, bubbles, language, glossary,
+                          reread=not in_order)
+    extras["previous_lines"] = turn.previous_lines()
     try:
         page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
                                       wait_for_turn=in_order, **extras)
@@ -429,7 +452,8 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         try:
             scanlate_translate.translate_page_bubbles(
                 missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
-                usage_cb=usage, character_notes=extras.get("character_notes", ""))
+                usage_cb=usage, character_notes=extras.get("character_notes", ""),
+                previous_lines=extras["previous_lines"])
         except Exception:
             pass  # the first call's own note already says why; this is a second chance only
         left = len(_lines_without_english(bubbles))
@@ -440,7 +464,8 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
 
 
 def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, source_url: str,
-                       config: dict, member: bool = False, image: bytes = b"") -> list:
+                       config: dict, member: bool = False, image: bytes = b"",
+                       language: str = "") -> list:
     """Fills only the untranslated bubbles of a stored page. Returns notes."""
     import db
 
@@ -455,7 +480,8 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
     try:
         page_turns.translate_in_chain(drama_id, source_url, missing, engine, drama, glossary,
                                       _usage_cb(drama, config, engine),
-                                      **_page_extras(drama, config, engine, image))
+                                      **_page_extras(drama, config, engine, image, missing, language,
+                                                     glossary))
     except Exception as e:
         return [["warning", f"translation failed ({failure_detail(e, member)})"]]
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
@@ -630,7 +656,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             page, drama_pk = _stored(page, drama_id)
             with turn.translating():
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
-                                                 config, member, image=data)
+                                                 config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
                 data, reuse_saved, reuse_notes, drama_pk, page["id"])
 
@@ -639,11 +665,10 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, in_order=store)
+                                                     notes, member, data, store, source_language, turn)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
-            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style,
-                                             typeset_max_width)
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)
             seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)
