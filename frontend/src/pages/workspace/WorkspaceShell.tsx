@@ -31,7 +31,6 @@ import { TitleViewSwitch } from './TitleViewSwitch'
 import { TITLE_VIEW_PREF, asTitleView, defaultTitleView, hasSimpleView, opensSimpleStage, titleViewPref, trimsStages, type TitleView } from './titleView'
 import { titleKind } from './titleKind'
 import { usePersistedState } from '../../hooks/usePersistedState'
-import { isMember, useSession } from '../../hooks/useSession'
 import { StageContext, type StageContextValue } from './StageContext'
 import { useDrama } from './useDrama'
 import './workspace.css'
@@ -86,9 +85,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
   const twoViews = !!drama && !!kind && hasSimpleView(kind) && (kind !== 'novel' || drama.media_type === 'novel')
   const stored = kind === 'novel' ? storedNovel : kind === 'comic' ? storedComic : storedAv
   const store = kind === 'novel' ? storeNovel : kind === 'comic' ? storeComic : storeAv
-  // A member's view is not theirs to switch (see TitleViewSwitch), so an old Full choice on this browser is set aside.
-  const member = isMember(useSession())
-  const view = member && kind ? defaultTitleView(kind) : asTitleView(stored, kind ? defaultTitleView(kind) : 'full')
+  const view = asTitleView(stored, kind ? defaultTitleView(kind) : 'full')
   // A link that names a stage always opens the stage; Simple there keeps the stage and leaves out its advanced controls.
   const simple = twoViews && !!kind && trimsStages(kind) && view === 'simple'
   // A Simple page's buttons open these stages; the stage tab strip would drop a Simple reader into the full workspace.
