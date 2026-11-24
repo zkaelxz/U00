@@ -135,7 +135,7 @@ ENGINE_NOTES = {
     "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
     "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
     "openai": "Paid, cloud; GPT-6 models, billed per token.",
-    "ollama": "Free and private; local Gemma 4 on your GPU.",
+    "ollama": "Free on this PC with a local model; hosted Gemma 4 31B is paid.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
