@@ -31,9 +31,9 @@ const RULES: { name: string; re: RegExp; allowed?: (file: string) => boolean; wh
   // Only client.ts's uploadProgressFetch, whose Response goes back through send() for CSRF, 401 and errors.
   { name: 'XMLHttpRequest', re: /\bXMLHttpRequest\b/, allowed: (f) => f === CLIENT, where: 'api/client.ts' },
   { name: 'navigator.sendBeacon', re: /\bsendBeacon\b/ },
-  // The one push stream (a GET: no CSRF token or local header to add; a 401
+  // The push streams (a GET: no CSRF token or local header to add; a 401
   // shows up on the pages' own GETs, which go through client.ts).
-  { name: 'EventSource', re: /\bEventSource\b/, allowed: (f) => f === '/src/api/eventStream.ts', where: 'api/eventStream.ts' },
+  { name: 'EventSource', re: /\bEventSource\b/, allowed: (f) => f === '/src/api/eventStream.ts' || f === '/src/api/watchParty.ts', where: 'api/eventStream.ts or api/watchParty.ts' },
   { name: 'WebSocket', re: /\bWebSocket\b/ },
   { name: 'native form submission (<form action/method>)', re: /<form\b[^>]*\b(action|method)\s*=/ },
   { name: 'fetch credentials override', re: /\bcredentials\s*:/ },
