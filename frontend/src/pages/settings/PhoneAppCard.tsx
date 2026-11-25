@@ -1,5 +1,5 @@
 /*
- * Settings > My account and look > Phone app: the Android app's own switches (alerts, link offer). Shown only
+ * Settings > My account and look > Phone app: the Android app's own switches (alerts and the copied-link offer). Shown only
  * inside the app; they are saved on the phone, not on the PC.
  */
 import { useState } from 'react'
@@ -26,6 +26,11 @@ export function PhoneAppCard() {
           name="alerts_on"
           label="Alerts on this phone"
           help="Shows finished titles, failed jobs and live channels as phone notifications when the app is closed. A tap opens the page. Checks run about every 15 minutes, and every 3 minutes for two hours after you leave the app."
+        />
+        <ShellToggle
+          name="clipboard_offer_on"
+          label="Offer to subtitle or read a copied link"
+          help="When you open Baihe with a video or comic link just copied, asks once per link whether to subtitle it or Quick read it. Android may show its own 'pasted from your clipboard' note when Baihe looks."
         />
       </div>
     </Card>
