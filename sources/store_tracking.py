@@ -426,26 +426,37 @@ def mark_checked(source: str, series_id: str, error: str | None = None):
                      "WHERE source=? AND series_id=?", (time.time(), redact_for_storage(error), source, series_id))
 
 
-def list_notifications(include_dismissed: bool = False) -> list:
-    q = "SELECT * FROM chapter_notifications"
+_OWN_DISMISSAL = ("EXISTS (SELECT 1 FROM chapter_notification_dismissals d "
+                  "WHERE d.notification_id = n.id AND d.user_id = ?)")
+
+
+def list_notifications(include_dismissed: bool = False, user_id: int = 0) -> list:
+    """The new-chapter notices as `user_id` (0: the PC itself) sees them: `dismissed` is true when
+    the notice was dismissed for everyone or by this account."""
+    q = ("SELECT n.id, n.source, n.series_id, n.chapter_id, n.title, n.created_at, "
+         f"(n.dismissed != 0 OR {_OWN_DISMISSAL}) AS dismissed FROM chapter_notifications n")
+    args = [user_id]
     if not include_dismissed:
-        q += " WHERE dismissed=0"
-    q += " ORDER BY id DESC"
+        q += f" WHERE n.dismissed = 0 AND NOT {_OWN_DISMISSAL}"
+        args.append(user_id)
+    q += " ORDER BY n.id DESC"
     with connect() as conn:
-        return [dict(r) for r in conn.execute(q)]
+        return [dict(r) for r in conn.execute(q, args)]
 
 
-def new_chapter_counts_by_drama() -> dict:
-    """{drama_id: undismissed new-chapter notifications} for tracked series
+def new_chapter_counts_by_drama(user_id: int = 0) -> dict:
+    """{drama_id: new-chapter notifications this account has not dismissed} for tracked series
     linked to a title, in one query, for the Library's unread badge."""
     with connect() as conn:
         rows = conn.execute(
             "SELECT t.drama_id AS drama_id, COUNT(*) AS n FROM chapter_notifications n "
             "JOIN tracked_series t ON t.source=n.source AND t.series_id=n.series_id "
-            "WHERE n.dismissed=0 AND t.drama_id IS NOT NULL GROUP BY t.drama_id")
+            f"WHERE n.dismissed=0 AND NOT {_OWN_DISMISSAL} AND t.drama_id IS NOT NULL "
+            "GROUP BY t.drama_id", (user_id,))
         return {r["drama_id"]: r["n"] for r in rows}
 
 
-def dismiss_notification(notification_id: int):
+def dismiss_notification(notification_id: int, user_id: int = 0):
     with connect() as conn:
-        conn.execute("UPDATE chapter_notifications SET dismissed=1 WHERE id=?", (notification_id,))
+        conn.execute("INSERT OR IGNORE INTO chapter_notification_dismissals (notification_id, user_id) "
+                     "VALUES (?, ?)", (notification_id, user_id))

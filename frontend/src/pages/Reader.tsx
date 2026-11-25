@@ -39,6 +39,7 @@ import { ActionError, EditToggle } from './reader/ReaderAction'
 import { ListenWatch } from './reader/ListenWatch'
 import { useLiveFrame } from './reader/useLiveRefresh'
 import { ChapterJump } from './reader/ReaderChapters'
+import { SaveBookCard } from './reader/SaveBookCard'
 import { ReaderTermPanels } from './reader/ReaderTermTools'
 import { lineEditPatch } from './reader/readerLineEdit'
 import { LINES_CHANGED_MESSAGE } from './workspace/stages/review/reviewLogic'
@@ -563,6 +564,7 @@ export default function ReaderPage({ id, page: routePage }: { id: number; page: 
                 onEngine={setEngine}
               />
               <NotesSection dramaId={id} />
+              <SaveBookCard id={id} canRead={holds(session, 'lines.read')} />
             </div>
           )}
           {phone && page !== null && (

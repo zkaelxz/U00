@@ -121,7 +121,7 @@ function SpendLimitField({ range, value, disabled, onChange }: { range: readonly
   )
 }
 
-export default function LivePage() {
+export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const pc = usePcOnly()
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
@@ -136,7 +136,7 @@ export default function LivePage() {
     return () => { alive = false }
   }, [])
   const [fastHelpId, balancedHelpId] = [useId(), useId()]
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState(initialUrl)
   const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)

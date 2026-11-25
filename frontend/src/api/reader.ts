@@ -24,8 +24,9 @@ import type {
   ReaderWikiList,
   ReaderWikiUpdateResult,
   RichDeckDownload,
+  WatchBookmark,
 } from '../types/reader'
-import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
+import { apiUrl, deleteJson, fetchBody, getJson, patchJson, postJson, queryOf, type Fetch } from './client'
 import { dispositionFilename } from './export'
 
 const root = (id: number) => `/api/reader/dramas/${id}`
@@ -99,6 +100,12 @@ export const readerApi = {
     postJson<ReaderProgress>(`${root(id)}/progress`, { page, chapter_size }, f),
   notes: (id: number, f?: Fetch) => getJson<ReaderNotes>(`${root(id)}/notes`, f),
   saveNotes: (id: number, notes: string, f?: Fetch) => postJson<ReaderNotes>(`${root(id)}/notes`, { notes }, f),
+  bookmarks: (id: number, f?: Fetch) => getJson<{ bookmarks: WatchBookmark[] }>(`${root(id)}/bookmarks`, f),
+  addBookmark: (id: number, at_seconds: number, note = '', f?: Fetch) =>
+    postJson<WatchBookmark>(`${root(id)}/bookmarks`, { at_seconds, note }, f),
+  setBookmarkNote: (id: number, bookmarkId: number, note: string, f?: Fetch) =>
+    patchJson<WatchBookmark>(`${root(id)}/bookmarks/${bookmarkId}`, { note }, f),
+  deleteBookmark: (id: number, bookmarkId: number, f?: Fetch) => deleteJson<{ id: number }>(`${root(id)}/bookmarks/${bookmarkId}`, f),
   media: (id: number, f?: Fetch) => getJson<ReaderMediaAvailability>(`${root(id)}/media`, f),
   lookup: (id: number, body: ReaderLookupRequest, f?: Fetch) =>
     postJson<ReaderLookupResult>(`${root(id)}/lookup`, body, f),

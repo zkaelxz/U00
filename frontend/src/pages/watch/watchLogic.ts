@@ -30,6 +30,25 @@ export function currentLine<T extends Timed>(ordered: readonly T[], time: number
   return i === null ? null : ordered[i]
 }
 
+/** A stretch with no line this long (an intro, music, a long pause) is worth a Skip quiet button; shorter ones are
+ *  ordinary pauses between lines. */
+export const QUIET_MIN_S = 4
+/** Where Skip quiet lands before the next line starts, so its first word is not clipped. */
+export const QUIET_LEAD_S = 0.5
+
+/** Where Skip quiet would go from this time: just before the next line, when no line is being spoken and the next one
+ *  is at least QUIET_MIN_S away. Null while a line is being spoken, in a short pause, and after the last line. Only
+ *  the line that started last is checked, so a longer line it overlaps is not noticed; the skip stays inside quiet
+ *  that the lines show. */
+export function quietSkip(ordered: readonly Pick<ReviewLine, 'start' | 'end'>[], time: number): number | null {
+  const i = activeIndex(ordered, time)
+  const next = ordered[(i ?? -1) + 1]
+  if (!next) return null
+  const from = i === null ? 0 : Math.max(time, ordered[i].end)
+  if (time < from || next.start - time < QUIET_MIN_S) return null
+  return next.start - QUIET_LEAD_S
+}
+
 /** The line Loop line repeats: the one being spoken, unless it ends at or before its start, which would put the sound
  *  back to its start at every frame and stop it. */
 export function loopLineAt<T extends Timed & Pick<ReviewLine, 'end'>>(ordered: readonly T[], time: number): T | null {
@@ -84,6 +103,22 @@ export function attentionIndex(ordered: Pick<ReviewLine, 'flag' | 'mark'>[], fro
   return null
 }
 
+/** The lines still to check, in spoken order: the ones Review's risk view lists that nobody has said look right since. */
+export function linesToCheck<T extends Pick<ReviewLine, 'id' | 'reviewed'>>(ordered: T[], riskIds: ReadonlySet<number>): T[] {
+  return ordered.filter((l) => riskIds.has(l.id) && !l.reviewed)
+}
+
+/** The position in `checks` of the next (or previous) line to check after the spoken line at `from` in `ordered`. */
+export function checkStep(checks: Pick<ReviewLine, 'id'>[], lineIndex: ReadonlyMap<number, number>, from: number | null, direction: 1 | -1): number | null {
+  const at = checks.map((l) => lineIndex.get(l.id) ?? -1)
+  if (direction === 1) {
+    const i = at.findIndex((n) => from === null || n > from)
+    return i < 0 ? null : i
+  }
+  for (let i = at.length - 1; i >= 0; i--) if (from === null || at[i] < from) return i
+  return null
+}
+
 export type Verdict = 'good' | 'wrong' | 'mixed'
 
 /** What pressing a verdict on a line does: Good checks the line (pressed again, unchecks it); Wrong and Mixed set that
@@ -95,6 +130,17 @@ export function verdictChange(line: Pick<ReviewLine, 'reviewed' | 'mark'>, verdi
 
 export const lineHeading = (l: Timed) => `Line #${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 export const rowMeta = (l: Timed) => `#${lineNumber(l.idx)} · ${clockTenths(l.start)}`
+
+/** How many colours a speaker can take before one repeats; the CSS defines exactly this many. */
+export const SPEAKER_COLOURS = 6
+
+/** Each speaker's colour slot, by first line spoken: hashing the name could give two of a drama's few speakers the
+ *  same colour, and a rename must not recolour the lines. Lines with no speaker get none. */
+export function speakerSlots(ordered: readonly Pick<ReviewLine, 'speaker'>[]): Map<string, number> {
+  const slots = new Map<string, number>()
+  for (const l of ordered) if (l.speaker && !slots.has(l.speaker)) slots.set(l.speaker, slots.size % SPEAKER_COLOURS)
+  return slots
+}
 
 /** "Audio drama · Chinese to English": the kind of title and its languages, from the shared labels; empty when the
  *  title has neither. */

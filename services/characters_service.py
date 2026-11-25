@@ -340,9 +340,7 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
         entry = get_voice_bank_entry(entry_id)
         if entry is None or db.voice_bank_clip_path(entry.get("clip_filename") or "") is None:
             return _series_voice_skipped(drama_id, f"bank entry {entry_id} or its clip is missing")
-        # Background runs have no acting principal, so a private voice is skipped there too.
-        acting = acting_principal()
-        if entry.get("is_private") and not (acting and ownership_service.sees_private_voices(acting)):
+        if entry.get("is_private") and not _private_voice_allowed(drama):
             return _series_voice_skipped(drama_id, f"bank entry {entry_id} is private")
         engine = entry.get("clone_engine") or ""
         if engine and not dub.clone_engine_supports_language(engine, _source_language(drama)):
@@ -354,6 +352,21 @@ def apply_series_voice(drama_id: int, speaker_label: str) -> bool:
     except Exception as exc:
         voice_clone_service._log_auto_clips_problem(drama_id, exc)
         return False
+
+
+def _private_voice_allowed(drama: dict) -> bool:
+    """Whether a private bank voice may be given to this title. A request decides by who is asking.
+    With no acting principal (the PC owner, auth off, a background run) the title's owner decides:
+    a title of the PC or of an admin may use private voices, a member's title may not, so a member's
+    background run never brings in a voice they cannot see."""
+    acting = acting_principal()
+    if acting is not None:
+        return ownership_service.sees_private_voices(acting)
+    owner = drama.get("owner_user_id")
+    if owner is None:
+        return True
+    user = db.auth_get_user(owner)
+    return bool(user and user["is_admin"])
 
 
 # --- C02: recurring-voice suggestions ("sounds like X") ------------------------

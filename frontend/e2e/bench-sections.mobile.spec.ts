@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test'
 
-import { DEFAULT_OPEN, SECTIONS, benchTab, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
+import { DEFAULT_OPEN, SECTIONS, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
 import { hitHeight, installHitArea } from './hitArea'
+import { expectPickedTab } from './tabPicker'
 import { enableDeveloperMode } from './sourceHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
@@ -23,26 +24,24 @@ test('headings are 44px tall and nothing scrolls sideways', async ({ page }) => 
   await openBench(page)
   await expectExpanded(page, DEFAULT_OPEN)
   for (const title of SECTIONS) {
-    expect(await hitHeight(benchTab(page, title)), `${title} tab`).toBeGreaterThanOrEqual(44)
     await selectTab(page, title)
-    expect(await hitHeight(toggle(page, title)), title).toBeGreaterThanOrEqual(44)
+    expect(await hitHeight(page.locator('.ui-tab-picker-btn')), `${title} picker`).toBeGreaterThanOrEqual(44)
+    // Quality is a plain Section (a details summary), not a bench section with a toggle button.
+    const heading = title === 'Quality' ? page.locator('summary').filter({ hasText: 'Quality' }) : toggle(page, title)
+    expect(await hitHeight(heading), title).toBeGreaterThanOrEqual(44)
     expect(await noSideways(page)).toBeLessThanOrEqual(0)
   }
-  // The tab row may scroll sideways on its own; the page never does.
-  const row = await page.getByRole('tablist', { name: 'Benchmark Lab' }).evaluate((e) => getComputedStyle(e).overflowX)
-  expect(row).toBe('auto')
 })
 
 test('a tap folds a section, the choice survives a reload and the help opens on a tap', async ({ page }) => {
   await openBench(page)
   await toggle(page, 'Golden sets').tap()
-  await benchTab(page, 'Run a benchmark').tap()
-  await expect(benchTab(page, 'Run a benchmark')).toHaveAttribute('aria-selected', 'true')
+  await selectTab(page, 'Run a benchmark')
   await expectExpanded(page, { 'Golden sets': false, 'Run a benchmark': true })
   await page.reload()
   await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
   // The last tab is remembered too.
-  await expect(benchTab(page, 'Run a benchmark')).toHaveAttribute('aria-selected', 'true')
+  await expectPickedTab(page, 'Benchmark Lab', 'Run a benchmark')
   await expectExpanded(page, { ...DEFAULT_OPEN, 'Golden sets': false })
 
   const help = page.getByRole('button', { name: 'Help: Run a benchmark' })

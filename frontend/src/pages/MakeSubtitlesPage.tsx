@@ -11,7 +11,7 @@ import { AddBox } from './makeSubtitles/AddBox'
 import { clearHandoff, peekHandoff } from './makeSubtitles/addBoxModel'
 import { sourcesHref } from './sources/manageTabs'
 
-export default function MakeSubtitlesPage() {
+export default function MakeSubtitlesPage({ link = null }: { link?: string | null }) {
   const [handoff] = useState(() => peekHandoff('run-file'))
   useEffect(() => clearHandoff(handoff), [handoff])
   return (
@@ -21,7 +21,7 @@ export default function MakeSubtitlesPage() {
       meta="Search by name, or add a video link, a file or a title by hand."
       actions={<ButtonLink href={sourcesHref('manage')}>Manage sources</ButtonLink>}
     >
-      <AddBox place="page" request={handoff?.request ?? null} />
+      <AddBox place="page" request={handoff?.request ?? null} initialLink={link} />
       <p className="muted">Looking on official platforms or baihehub? <a href={routeHref({ name: 'discover' })}>Open Discover</a>.</p>
     </PageShell>
   )
