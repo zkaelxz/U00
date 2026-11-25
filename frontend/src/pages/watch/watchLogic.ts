@@ -84,6 +84,22 @@ export function attentionIndex(ordered: Pick<ReviewLine, 'flag' | 'mark'>[], fro
   return null
 }
 
+/** The lines still to check, in spoken order: the ones Review's risk view lists that nobody has said look right since. */
+export function linesToCheck<T extends Pick<ReviewLine, 'id' | 'reviewed'>>(ordered: T[], riskIds: ReadonlySet<number>): T[] {
+  return ordered.filter((l) => riskIds.has(l.id) && !l.reviewed)
+}
+
+/** The position in `checks` of the next (or previous) line to check after the spoken line at `from` in `ordered`. */
+export function checkStep(checks: Pick<ReviewLine, 'id'>[], lineIndex: ReadonlyMap<number, number>, from: number | null, direction: 1 | -1): number | null {
+  const at = checks.map((l) => lineIndex.get(l.id) ?? -1)
+  if (direction === 1) {
+    const i = at.findIndex((n) => from === null || n > from)
+    return i < 0 ? null : i
+  }
+  for (let i = at.length - 1; i >= 0; i--) if (from === null || at[i] < from) return i
+  return null
+}
+
 export type Verdict = 'good' | 'wrong' | 'mixed'
 
 /** What pressing a verdict on a line does: Good checks the line (pressed again, unchecks it); Wrong and Mixed set that

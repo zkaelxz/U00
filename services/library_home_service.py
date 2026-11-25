@@ -5,6 +5,7 @@ the pages they link to always agree. Risky-line counts are the expensive part (e
 only the most recently changed titles that wait for a check are counted.
 """
 
+import db
 from services import library_service, queue_service, review_lines_service, series_auto_service
 
 _COMIC_MEDIA_TYPES = ("manga", "manhwa", "manhua")
@@ -57,7 +58,8 @@ def _failed_items(items: list) -> list:
 def get_home(principal=None) -> dict:
     dramas = library_service.list_library_dramas(principal=principal)
     by_id = {d["id"]: d for d in dramas}
-    items = queue_service.get_queue(principal)["items"]
+    queue = queue_service.get_queue(principal)
+    items = queue["items"]
 
     needs: list = []
     taken: set = set()
@@ -69,7 +71,8 @@ def get_home(principal=None) -> dict:
     for hold in series_auto_service.held_series(principal):
         needs.append({"drama_id": None, "title": hold["name"], "media_type": None, "content_mode": None,
                       "has_cover_art": False, "updated_at": None, "kind": "series_hold", "step": None,
-                      "reason": hold["hold"], "risk_count": None, "series_id": hold["series_id"]})
+                      "reason": hold["hold"], "risk_count": None, "series_id": hold["series_id"],
+                      "hold_kind": hold["hold_kind"]})
 
     to_check = [d for d in _newest_first(dramas)
                 if d["id"] not in taken and _lines_done(d) and d.get("status") != "exported"
@@ -90,13 +93,22 @@ def get_home(principal=None) -> dict:
     running.sort(key=lambda r: (r["status"] != "running",))
     busy = {r["drama_id"] for r in running}
 
-    ready = [{**_row(d), "read_percent": d.get("read_percent") or 0.0}
-             for d in _newest_first(dramas)
+    ready = [d for d in _newest_first(dramas)
              if d["id"] not in taken and d["id"] not in busy
              and (d.get("read_percent") or 0.0) < _FINISHED_PERCENT
              and (_pages_done(d) if _is_comic(d.get("media_type"))
                   else _lines_done(d) and (d.get("status") == "exported" or d["id"] in checked_clean))]
+    # Started ones first: picking up where you stopped is the likelier reason to open the shelf.
+    ready.sort(key=lambda d: (d.get("read_percent") or 0.0) <= 0)
 
     return {"needs_you": needs[:SHELF_LIMIT], "needs_you_count": len(needs),
             "running": running[:SHELF_LIMIT], "running_count": len(running),
-            "ready": ready[:SHELF_LIMIT], "ready_count": len(ready)}
+            "ready": [_ready_entry(d) for d in ready[:SHELF_LIMIT]], "ready_count": len(ready),
+            "can_control_queue": bool(queue.get("can_control"))}
+
+
+def _ready_entry(d: dict) -> dict:
+    comic = _is_comic(d.get("media_type"))
+    length = None if comic else (db.line_reading_stats(d["id"])[1] or None)
+    return {**_row(d), "read_percent": d.get("read_percent") or 0.0,
+            "length_seconds": length, "page_count": d.get("page_count") or 0}

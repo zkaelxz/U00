@@ -14,6 +14,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
 import { serverReachable } from '../chunkReload'
 import { Field } from '../components/Field'
+import { ALL_TITLES_ID, HomeShelves } from '../components/HomeShelves'
 import { LibraryList } from '../components/LibraryList'
 import { SameTitleNote } from '../components/SameTitleNote'
 import { Section } from '../components/Section'
@@ -523,8 +524,6 @@ export default function LibraryPage() {
           {canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
-          {/* A phone opens the box on its own page, so the first title card stays on the first screen. */}
-          {phone && <ButtonLink variant="primary" href={addHref}>Add</ButtonLink>}
         </>
       )}
     >
@@ -552,6 +551,8 @@ export default function LibraryPage() {
       {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
       {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
+      <HomeShelves reloadKey={reloadKey} total={stats.data?.total_dramas ?? null} />
+
       <ContinueShelf
         continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || listFailure?.reload === reloadKey}
         phone={phone} reloadKey={reloadKey}
@@ -563,6 +564,7 @@ export default function LibraryPage() {
         </p>
       )}
 
+      <span id={ALL_TITLES_ID} />
       {!phone && bar}
       {!(phone && bar) && resultLine}
       <LibraryList

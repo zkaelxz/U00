@@ -17,7 +17,7 @@ def _title(name, lines=(("你好", "Hello", None),), media_type="streamer_vod", 
 def _queue(monkeypatch, items):
     full = [{"id": n, "drama_id": d, "step": step, "status": status, "job_id": None, "reason": reason,
              "started_at": None} for n, (d, step, status, reason) in enumerate(items, start=1)]
-    monkeypatch.setattr(queue_service, "get_queue", lambda principal: {"items": full})
+    monkeypatch.setattr(queue_service, "get_queue", lambda principal: {"items": full, "can_control": True})
 
 
 def _ids(shelf):
@@ -102,3 +102,14 @@ def test_each_shelf_is_cut_but_its_count_is_whole(isolated_db, monkeypatch):
         _title(f"T{n}")
     out = home.get_home()
     assert len(out["ready"]) == home.SHELF_LIMIT and out["ready_count"] == home.SHELF_LIMIT + 2
+
+
+def test_a_started_title_comes_first_on_ready_with_its_length(isolated_db, monkeypatch):
+    _queue(monkeypatch, [])
+    older, newer = _title("Older"), _title("Newer")
+    rows = [{**d, "line_count": 1, "translated_count": 1, "read_percent": 40.0 if d["id"] == older else 0.0}
+            for d in db.list_dramas()]
+    monkeypatch.setattr(home.library_service, "list_library_dramas", lambda principal=None: rows)
+    ready = home.get_home()["ready"]
+    assert _ids(ready)[0] == older and set(_ids(ready)) == {older, newer}
+    assert ready[0]["length_seconds"] == 1.0 and ready[0]["read_percent"] == 40.0

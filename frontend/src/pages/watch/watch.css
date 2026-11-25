@@ -26,8 +26,23 @@
 .watch-player .review-stage { max-height: min(48vh, 34rem); }
 /* Seeking is the main control here, so it gets the whole row and the tools go under it. Full screen lays out its own bar. */
 .watch-player .review-player-frame:not(.is-fullscreen) .review-seek { flex-basis: 100%; }
-.watch-resume { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
-.watch-resume p { margin: 0; }
+/* Over a picture it is a pill on the picture's top, so it costs the phone no row; an audio strip has nothing to cover. */
+.watch-player { position: relative; }
+.watch-resume.is-over { position: absolute; top: var(--space-3); left: var(--space-3); z-index: 2; }
+.watch-resume {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); width: fit-content; max-width: calc(100% - 2 * var(--space-3));
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-4); border-radius: var(--radius-pill);
+  background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-pop);
+}
+.watch-resume p { margin: 0; font-size: var(--text-sm); }
+.watch-resume button { border-radius: var(--radius-pill); }
+.watch-back-actions { display: inline-flex; align-items: center; gap: var(--space-2); }
+.watch-check { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); }
+.watch-check-count { margin: 0; }
+.watch-check-actions { display: inline-flex; gap: var(--space-2); }
+.watch-check-actions button { min-height: 44px; min-width: 44px; }
+.watch-now-check { display: grid; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); background: var(--warn-soft); }
+.watch-now-check p { margin: 0; }
 .watch-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 .watch-now { gap: var(--space-2); }

@@ -1157,6 +1157,32 @@ test.describe('with sound', () => {
   })
 })
 
+test.describe('lines to check', () => {
+  test.beforeEach(() => seedCheckLines({ warnings: true, audio: true }))
+
+  test('the bar counts the risky lines, steps to each in place, and It\'s fine takes one off', async ({ page }) => {
+    await page.goto('/#/watch/3')
+    const bar = page.getByRole('group', { name: 'Lines to check' })
+    await expect(bar).toContainText('3 lines to check')
+    await bar.getByRole('button', { name: 'Go to the next one' }).click()
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #7 · /)
+    const check = now(page).getByTestId('watch-now-check')
+    await expect(check).toContainText('Check 1 of 3')
+    await check.getByRole('button', { name: "It's fine" }).click()
+    await expect(bar).toContainText('2 lines to check')
+    await expect(check).toHaveCount(0)
+    await bar.getByRole('button', { name: 'Go to the next one' }).click()
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #12 · /)
+    await expect(check).toContainText('Check 1 of 2')
+    await check.getByRole('button', { name: 'Fix the English' }).click()
+    await expect(field(page)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await bar.getByRole('button', { name: 'Previous line to check' }).click()
+    // Nothing to check before line 12 now, so it goes round to the last one.
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #24 · /)
+  })
+})
+
 test('a title without sound says there is nothing to play and still lists its lines', async ({ page }) => {
   seedCheckLines({ warnings: false })
   await page.goto('/#/watch/3')

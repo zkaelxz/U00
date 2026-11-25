@@ -661,7 +661,8 @@ class LibraryShelfTitle(BaseModel):
 
 class LibraryNeedsYouEntry(BaseModel):
     """`kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
-    series_hold (a series' auto-run stopped for the person; `drama_id` is null and `series_id` names it)."""
+    series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
+    `hold_kind` says why: review after the first episode, stopped, ceiling or queue)."""
     drama_id: Optional[int] = None
     title: str
     media_type: Optional[str] = None
@@ -673,6 +674,7 @@ class LibraryNeedsYouEntry(BaseModel):
     reason: Optional[str] = None
     risk_count: Optional[int] = None
     series_id: Optional[int] = None
+    hold_kind: Optional[str] = None
 
 
 class LibraryRunningEntry(LibraryShelfTitle):
@@ -683,7 +685,10 @@ class LibraryRunningEntry(LibraryShelfTitle):
 
 
 class LibraryReadyEntry(LibraryShelfTitle):
+    """`length_seconds`: where the last line ends (null for a comic, or a title with no timed lines)."""
     read_percent: float
+    length_seconds: Optional[float] = None
+    page_count: int = 0
 
 
 class LibraryHome(BaseModel):
@@ -694,6 +699,7 @@ class LibraryHome(BaseModel):
     running_count: int
     ready: List[LibraryReadyEntry]
     ready_count: int
+    can_control_queue: bool
 
 
 class LibraryFilterOptions(BaseModel):

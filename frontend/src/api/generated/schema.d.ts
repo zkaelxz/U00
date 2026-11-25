@@ -21822,6 +21822,8 @@ export interface components {
          * @description Each list is cut to a few entries; the `_count` fields say how many there are in all.
          */
         LibraryHome: {
+            /** Can Control Queue */
+            can_control_queue: boolean;
             /** Needs You */
             needs_you: components["schemas"]["LibraryNeedsYouEntry"][];
             /** Needs You Count */
@@ -21843,7 +21845,8 @@ export interface components {
         /**
          * LibraryNeedsYouEntry
          * @description `kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
-         *     series_hold (a series' auto-run stopped for the person; `drama_id` is null and `series_id` names it).
+         *     series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
+         *     `hold_kind` says why: review after the first episode, stopped, ceiling or queue).
          */
         LibraryNeedsYouEntry: {
             /** Content Mode */
@@ -21852,6 +21855,8 @@ export interface components {
             drama_id: number | null;
             /** Has Cover Art */
             has_cover_art: boolean;
+            /** Hold Kind */
+            hold_kind: string | null;
             /** Kind */
             kind: string;
             /** Media Type */
@@ -21902,7 +21907,10 @@ export interface components {
             /** Items */
             items: components["schemas"]["LibraryPreset"][];
         };
-        /** LibraryReadyEntry */
+        /**
+         * LibraryReadyEntry
+         * @description `length_seconds`: where the last line ends (null for a comic, or a title with no timed lines).
+         */
         LibraryReadyEntry: {
             /** Content Mode */
             content_mode: string | null;
@@ -21910,8 +21918,15 @@ export interface components {
             drama_id: number;
             /** Has Cover Art */
             has_cover_art: boolean;
+            /** Length Seconds */
+            length_seconds: number | null;
             /** Media Type */
             media_type: string | null;
+            /**
+             * Page Count
+             * @default 0
+             */
+            page_count: number;
             /** Read Percent */
             read_percent: number;
             /** Title */
