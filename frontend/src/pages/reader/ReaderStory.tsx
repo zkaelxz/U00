@@ -25,6 +25,7 @@ import { useAction } from './useReaderAction'
 import { ENGINE_PICKER_ID, EngineLine, EnginePicker } from './ReaderEngine'
 import { trimHistory } from './readerPrefsStore'
 import type { ChosenForYou } from '../../hooks/useChosenForYou'
+import { Paged } from '../../components/ShowMore'
 
 type Common = {
   dramaId: number
@@ -130,26 +131,34 @@ function RecapAndMap({ dramaId, page, chapterSize, boundary, engine, paid }: Omi
             <>
               <h2 className="subhead">Characters</h2>
               <EditInTranslate dramaId={dramaId} focus="characters" />
-              <ul>
-                {map.characters.map((c, i) => (
-                  <li key={`${String(c.name)}-${i}`}>
-                    <strong>{String(c.name ?? '')}</strong>
-                    {c.role ? <span className="muted"> · {String(c.role)}</span> : null}
-                    {c.description ? <div>{String(c.description)}</div> : null}
-                  </li>
-                ))}
-              </ul>
-              {map.relationships.length > 0 && (
-                <>
-                  <h2 className="subhead">Relationships</h2>
+              <Paged items={map.characters} testId="characters-more">
+                {(visible) => (
                   <ul>
-                    {map.relationships.map((r, i) => (
-                      <li key={i}>
-                        {String(r.from ?? '')} → {String(r.to ?? '')}: {String(r.relation ?? '')}
-                        {r.note ? <span className="muted"> ({String(r.note)})</span> : null}
+                    {visible.map((c, i) => (
+                      <li key={`${String(c.name)}-${i}`}>
+                        <strong>{String(c.name ?? '')}</strong>
+                        {c.role ? <span className="muted"> · {String(c.role)}</span> : null}
+                        {c.description ? <div>{String(c.description)}</div> : null}
                       </li>
                     ))}
                   </ul>
+                )}
+              </Paged>
+              {map.relationships.length > 0 && (
+                <>
+                  <h2 className="subhead">Relationships</h2>
+                  <Paged items={map.relationships} testId="relationships-more">
+                    {(visible) => (
+                      <ul>
+                        {visible.map((r, i) => (
+                          <li key={i}>
+                            {String(r.from ?? '')} → {String(r.to ?? '')}: {String(r.relation ?? '')}
+                            {r.note ? <span className="muted"> ({String(r.note)})</span> : null}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Paged>
                 </>
               )}
               {map.mermaid && (
@@ -276,15 +285,19 @@ function WikiSection({ dramaId, boundary, engines, engine, paid }: {
       )}
       {wiki && entries.length === 0 && <p className="muted">No wiki entries yet. Update the wiki to build it.</p>}
       {entries.length > 0 && (
-        <ul className="reader-wiki">
-          {entries.map((e, i) => (
-            <li key={e.id ?? i}>
-              <strong>{e.name}</strong>
-              {e.entry_type && <span className="badge">{tidy(e.entry_type)}</span>}
-              {e.description && <div>{e.description}</div>}
-            </li>
-          ))}
-        </ul>
+        <Paged items={entries} resetKey={type} testId="wiki-more">
+          {(visible) => (
+            <ul className="reader-wiki">
+              {visible.map((e, i) => (
+                <li key={e.id ?? i}>
+                  <strong>{e.name}</strong>
+                  {e.entry_type && <span className="badge">{tidy(e.entry_type)}</span>}
+                  {e.description && <div>{e.description}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Paged>
       )}
       {entries.length > 0 && (
         <div className="actions">

@@ -135,3 +135,15 @@ export function groupTitles<T extends GroupableTitle>(
       key, label: g.label, seriesId: g.seriesId, items: sortTitles(g.items, inGroup), mix: mediaMix(g.items),
     }))
 }
+
+/** The first `limit` titles across the groups, in the order they are drawn; a group with none of them left is dropped. */
+export function limitGroups<T extends GroupableTitle>(groups: readonly TitleGroup<T>[], limit: number): TitleGroup<T>[] {
+  let left = limit
+  const out: TitleGroup<T>[] = []
+  for (const g of groups) {
+    if (left <= 0) break
+    out.push(left >= g.items.length ? g : { ...g, items: g.items.slice(0, left) })
+    left -= g.items.length
+  }
+  return out
+}
