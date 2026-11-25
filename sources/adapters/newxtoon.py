@@ -43,6 +43,10 @@ _CHAPTER_PATH = re.compile(r"^/comics/([0-9]{1,12})/chapters/([0-9]{1,12})/?$")
 
 LayoutChanged = layout_changed_class("NewXToon")
 
+# Search cards put "<age> ago <title> <latest ep> <views> <n>" in one link's text.
+_CARD_AGE = re.compile(r"^\d+\s*(?:초|분|시간|일|주|개월|달|년)\s*전\s+")
+_CARD_STATS = re.compile(r"\s+\d+\s*화(?:\s+[\d,]+)*\s*$")
+
 _SITE_SUFFIX = re.compile(r"\s*[—–-]\s*뉴엑스툰\s*$")
 
 
@@ -57,6 +61,10 @@ def _is_ad(url: str) -> bool:
 
 def _clean(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def _card_title(text: str) -> str:
+    return _CARD_STATS.sub("", _CARD_AGE.sub("", text)).strip()
 
 
 @register
@@ -98,7 +106,7 @@ class NewXToonSource(SourceAdapter):
             if not m or m.group(1) in seen:
                 continue
             img = a.find("img")
-            title = _clean(a.get("title") or a.get_text() or (img.get("alt") if img else ""))
+            title = _card_title(_clean(a.get("title") or a.get_text(" ") or (img.get("alt") if img else "")))
             if not title:
                 continue
             seen.add(m.group(1))

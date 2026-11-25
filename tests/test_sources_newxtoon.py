@@ -60,6 +60,13 @@ class TestSearch:
         assert results[0].cover_url == "https://files.example.invalid/c12.jpg"
         assert results[1].cover_url == ""
 
+    def test_card_text_is_stripped_to_the_series_title(self):
+        card = ('<html><body><a href="/comics/31"><img src="https://files.example.invalid/c31.jpg">'
+                '<span>5시간 전</span><span>꽃은 밤을 걷는다</span><span>99화</span>'
+                '<span>6,774</span><span>1</span></a></body></html>')
+        a, _ = _adapter({f"{BASE}/search?q=x": html(card)})
+        assert [r.title for r in a.search("x")] == ["꽃은 밤을 걷는다"]
+
     def test_later_pages_are_empty_without_a_request(self):
         a, _ = _adapter({})
         assert a.search("x", page=2) == []
