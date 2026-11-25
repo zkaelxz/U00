@@ -201,9 +201,9 @@ function BenchmarkContent({ compare }: { compare?: string }) {
         </p>
       )}
 
+      {panel('quality', <QualitySection />)}
       {panel('sets', (
         <>
-      <QualitySection />
       {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
         </>
       ))}
