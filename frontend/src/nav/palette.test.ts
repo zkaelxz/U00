@@ -21,12 +21,12 @@ const entry = (label: string, keywords = ''): PaletteEntry => ({ id: label, labe
 describe('paletteEntries', () => {
   it('lists the menu pages and always Library and Settings', () => {
     const l = labels(paletteEntries(member, { name: 'library' }))
-    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Find']))
+    expect(l).toEqual(expect.arrayContaining(['Library', 'Settings', 'Find & Add']))
   })
 
   it('leaves out pages the person hid, but never Library or Settings', () => {
-    const l = labels(paletteEntries({ ...member, hidden: ['discover', 'library', 'settings'] }, { name: 'library' }))
-    expect(l).not.toContain('Find')
+    const l = labels(paletteEntries({ ...member, hidden: ['make-subtitles', 'library', 'settings'] }, { name: 'library' }))
+    expect(l).not.toContain('Find & Add')
     expect(l).toContain('Library')
     expect(l).toContain('Settings')
   })
@@ -109,17 +109,17 @@ const owner_: NavContext = {
 }
 
 describe('page keywords', () => {
-  it('finds Find by the old names Sources and Discover', () => {
+  it('finds Find & Add by the old names Sources and Discover', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
-    expect(labels(filterEntries(entries, 'sources'))).toContain('Find')
-    expect(labels(filterEntries(entries, 'discover'))).toContain('Find')
+    expect(labels(filterEntries(entries, 'sources'))).toContain('Find & Add')
+    expect(labels(filterEntries(entries, 'discover'))).toContain('Find & Add')
   })
 
-  it('finds Add by what people type, and by its old name', () => {
+  it('finds Find & Add by what people type, and by its old name', () => {
     const entries = paletteEntries(owner_, { name: 'library' })
-    expect(labels(filterEntries(entries, 'srt'))).toContain('Add')
-    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Add')
-    expect(labels(filterEntries(entries, 'quick translate'))).toContain('Add')
+    expect(labels(filterEntries(entries, 'srt'))).toContain('Find & Add')
+    expect(labels(filterEntries(entries, 'transcribe'))[0]).toBe('Find & Add')
+    expect(labels(filterEntries(entries, 'quick translate'))).toContain('Find & Add')
   })
 
   it('finds Benchmark Lab by its keywords only where the page is listed', () => {

@@ -34,7 +34,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',
   translate: 'translate text',
-  'make-subtitles': 'transcribe srt whisper audio video file link new title quick translate',
+  'make-subtitles': 'find add search sources discover transcribe srt whisper audio video file link new title quick translate',
   discover: 'find titles online discover sources download novel chapters comics sites',
   live: 'stream youtube captions',
   updates: 'new chapters live channels scheduled streams whats new',
