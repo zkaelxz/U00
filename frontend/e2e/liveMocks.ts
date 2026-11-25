@@ -199,7 +199,7 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     Object.assign(row, r.postDataJSON())
     return json(route, row)
   })
-  await page.route('**/api/live/sessions', (route) => {
+  await page.route(/\/api\/live\/sessions(\?everyone=true)?$/, (route) => {
     const r = route.request()
     if (r.method() === 'GET') {
       return m.state.sessionsFail
