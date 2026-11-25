@@ -20,7 +20,7 @@ export function QualitySection({ openSignal }: { openSignal?: number }) {
 
   const gate = data ? gateStatus(data) : null
   return (
-    <Section title="Quality" storageKey="diagnostics.quality" summary={data ? qualitySummary(data) : undefined}
+    <Section title="Quality" storageKey="benchmark.quality" summary={data ? qualitySummary(data) : undefined}
       openSignal={openSignal}>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!data || !gate ? (

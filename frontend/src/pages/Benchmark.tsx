@@ -40,6 +40,7 @@ import { SweepCard } from './benchmark/SweepCard'
 import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
+import { QualitySection } from './diagnostics/QualitySection'
 import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
 import './benchmark/benchmark.css'
 
@@ -202,6 +203,7 @@ function BenchmarkContent({ compare }: { compare?: string }) {
 
       {panel('sets', (
         <>
+      <QualitySection />
       {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
         </>
       ))}
