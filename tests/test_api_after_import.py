@@ -17,6 +17,7 @@ from services import auth_service, model_readiness_service, page_run_service, sc
 def away(isolated_db, monkeypatch):
     monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **kw: None)
     monkeypatch.setattr(scanlate_pages_service, "default_engine", lambda *a, **kw: "claude")
+    monkeypatch.setattr(page_run_service, "require_cap_for_after_import", lambda engine, model: None)
     calls = []
     monkeypatch.setattr(page_run_service, "start_after_import",
                         lambda principal, did, engine, lines, **kw: calls.append((did, engine, lines, kw))

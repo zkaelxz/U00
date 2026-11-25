@@ -195,6 +195,7 @@ def start_after_import(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
         engine, _model = engine_for_caller(request, None, default, None)
         require_engines_allowed(request, engine)
         model_readiness_service.require_ready(at_pc, model_readiness_service.for_scanlate, drama_id, "auto", False)
+        page_run_service.require_cap_for_after_import(engine, None)
         return page_run_service.start_after_import(request.state.principal, drama_id, engine, None,
                                                    at_pc=at_pc, text_allowed=True)
     default = translate_run_service.run_engine_name(drama_id)
@@ -208,8 +209,9 @@ def start_after_import(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     lines = page_run_service.lines_choice(drama_id, {})
     if not lines["one_narrator"]:
         require_engines_allowed(request, lines["engine"], model=lines.get("model"))
+    page_run_service.require_cap_for_after_import(engine, model)
     local = is_local_request(request)
     return page_run_service.start_after_import(
-        request.state.principal, drama_id, engine, lines, at_pc=at_pc,
+        request.state.principal, drama_id, engine, lines, at_pc=at_pc, model=model,
         # The text step is PC-only: with sign-in on, only a request from the PC may add it.
         text_allowed=local or not is_auth_enabled(request.app))

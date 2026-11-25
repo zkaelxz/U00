@@ -407,6 +407,7 @@ def test_a_comic_import_is_followed_by_one_scanlate_run_over_the_untranslated_pa
         seen.append(kw)
         return jobs._start(f"scanlate_{drama_id}")
     monkeypatch.setattr(scanlate_run_service, "start_run", scanlate)
+    monkeypatch.setattr(runs, "require_cap_for_after_import", lambda engine, model: None)
     did = _bare("Comic", media_type="manhua")
     jobs._start(f"sourceimport_{did}")                 # as the chapter import started it
     view = runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True)
@@ -475,12 +476,34 @@ def test_a_novel_after_import_run_needs_the_pc_and_a_title_without_lines(novel):
     with pytest.raises(ForbiddenError):
         runs.start_after_import(None, did, "ollama", {}, at_pc=False, text_allowed=False)
     has_lines = _drama("Has lines", media_type="novel")
+    novel.calls["state"]["lines"] = True
+    with pytest.raises(ConflictError):
+        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True, text_allowed=True)
+    novel.calls["state"].update(lines=False, text=True)       # the title's own text, no chapters to rebuild it from
     with pytest.raises(ConflictError):
         runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True, text_allowed=True)
     other = _drama("Audio", lines=(), media_type="audio_drama")
     with pytest.raises(InvalidInputError):
         runs.start_after_import(None, other, "ollama", {}, at_pc=True, text_allowed=True)
     assert _flow(did) == [] and _flow(has_lines) == [] and _flow(other) == []
+
+
+def test_a_novel_with_chapters_and_text_skips_the_text_step(novel):
+    did = _drama("Novel", lines=(), media_type="novel")
+    novel.calls["state"].update(chapters=3, text=True)
+    runs.start_after_import(None, did, "ollama", {}, at_pc=False, text_allowed=False, model="m")
+    assert [s for s, _ in _flow(did)] == ["follow", "lines", "names", "run_translate"]
+
+
+def test_the_tick_needs_a_monthly_cap_when_the_engine_is_billed(monkeypatch):
+    from lib.errors import UnsupportedOperationError
+    from services import translate_run_service
+    monkeypatch.setattr(translate_run_service, "engine_cap_applies", lambda *a: True)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0)
+    with pytest.raises(UnsupportedOperationError):
+        runs.require_cap_for_after_import("claude", None)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5)
+    runs.require_cap_for_after_import("claude", None)
 
 
 def test_the_scanlate_step_is_held_to_the_adders_paid_engine_permission(isolated_db, monkeypatch):
