@@ -234,6 +234,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/next` | library.read |
+| `POST /api/dramas/{drama_id}/next/prepare` | jobs.start |
 | `GET /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |

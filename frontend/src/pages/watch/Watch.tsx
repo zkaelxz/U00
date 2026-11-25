@@ -34,6 +34,7 @@ import { holds } from '../diagnostics/adminUsers'
 import { lineEditPatch } from '../reader/readerLineEdit'
 import { stageLabel } from '../workspace/stages'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
+import { NextCard } from './NextCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
@@ -308,6 +309,7 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
+            {original && <NextCard id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && ordered.length > 0 && (
               <NowCard
                 line={fixLine ?? current}
