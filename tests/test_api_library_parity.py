@@ -82,3 +82,13 @@ def test_clear_history_is_pc_only(isolated_db):
                         raise_server_exceptions=False)
     assert remote.post("/api/library/history/clear", json={"confirm": True}).status_code in (401, 403)
     assert len(db.list_reading_history()) == 1
+
+
+def test_home_shelves_name_a_ready_title_and_no_file_names(client):
+    from core import Line
+    did = db.create_drama(title_en="Ready one", media_type="streamer_vod", cover_art_filename="cover.png")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello")])
+    body = client.get("/api/library/home").json()
+    assert [(r["drama_id"], r["title"], r["has_cover_art"]) for r in body["ready"]] == [(did, "Ready one", True)]
+    assert body["needs_you"] == [] and body["running"] == [] and body["ready_count"] == 1
+    assert "cover.png" not in str(body)

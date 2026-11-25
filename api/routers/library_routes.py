@@ -19,10 +19,10 @@ from engine_backends import shared
 from api.auth import local_only, require_permission
 from api.schemas import (
     CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
-    LibraryContinueResponse, LibraryDashboard, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
+    LibraryContinueResponse, LibraryDashboard, LibraryHome, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibraryVoicePrivate, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
-from services import library_service, novel_files_service, voice_clone_service
+from services import library_home_service, library_service, novel_files_service, voice_clone_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -150,6 +150,12 @@ def get_history(request: Request, limit: int = Query(25, ge=1, le=100)):
             responses=_ERR, summary="Continue reading: partly-read dramas, most recent first")
 def get_continue(request: Request, limit: int = Query(8, ge=1, le=50)):
     return {"items": library_service.list_continue_reading(limit, principal=request.state.principal)}
+
+
+@router.get("/home", dependencies=[require_permission("library.read")], response_model=LibraryHome, responses=_ERR,
+            summary="The Library's shelves: what needs you, what is running, what is ready")
+def get_home(request: Request):
+    return library_home_service.get_home(principal=request.state.principal)
 
 
 @router.get("/filter-options", dependencies=[require_permission("library.read")], response_model=LibraryFilterOptions,
