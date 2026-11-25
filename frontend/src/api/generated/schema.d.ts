@@ -4145,6 +4145,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: start Live captions on a stream page's link */
+        post: operations["post_live_api_ext_bridge_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/novel": {
         parameters: {
             query?: never;
@@ -45911,6 +45928,26 @@ export interface operations {
         };
     };
     get_health_api_ext_bridge_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_live_api_ext_bridge_live_post: {
         parameters: {
             query?: never;
             header?: never;
