@@ -590,3 +590,74 @@ def test_dark_caption_lettering_gets_a_light_thin_outline_not_a_fat_dark_one():
     art.draw_caption(light, box, "TITLE", {"fill": (240, 240, 240), "glow": None})
     inked = lambda im: int((np.asarray(im.convert("L")) < 100).sum())
     assert inked(dark) < inked(light)                                       # no dark outline fattening the dark fill
+
+
+def test_one_misread_glyph_of_a_title_inside_the_caption_is_dropped():
+    # 察 of the title read as 祭: not in the caption's text, yet only a piece of the title.
+    glyph = _region("bubble", "祭", 10, 10, 30, 30)
+    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_a_title_glyph_read_with_its_furigana_is_dropped():
+    glyph = _region("bubble", "超視\nちょう\nてい", 10, 10, 60, 30)
+    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+
+
+def test_a_one_kana_balloon_inside_a_caption_is_kept():
+    balloon = _region("bubble", "え？", 10, 10, 30, 30)
+    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
+    assert scanlate.drop_parts_of_captions([balloon], [caption]) == [balloon]
+
+
+def test_title_glyphs_boxed_as_balloons_do_not_count_toward_the_caption_limit():
+    regions = [_region("bubble", t) for t in ("祭", "三", "覚", "え", "")] + [_region("sign", "新連載")]
+    assert scanlate._balloons_with_lines(regions) == 0
+    assert scanlate._balloons_with_lines([_region("bubble", "あれ？"), _region("thought", "糸が")]) == 2
+
+
+def _mid_grey_wall_with_dark_and_white_title():
+    page = np.full((400, 700, 3), 165, np.uint8)
+    cv2.line(page, (0, 120), (699, 120), (60, 60, 60), 6)                     # a rail across the wall
+    cv2.putText(page, "DARK", (80, 140), cv2.FONT_HERSHEY_SIMPLEX, 3, (10, 10, 10), 14)
+    cv2.putText(page, "WHITE", (80, 280), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 14)
+    cv2.line(page, (0, 330), (699, 230), (250, 250, 250), 1)                  # a light ray across it
+    return page
+
+
+def test_white_and_dark_title_words_on_a_mid_grey_wall_are_both_painted_out():
+    page = _mid_grey_wall_with_dark_and_white_title()
+    mask = art.caption_mask(page, {"x": 60, "y": 50, "w": 520, "h": 260})
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+    assert mask[gray < 30].mean() > 0.9 * 255                                 # the dark word
+    assert mask[gray > 240][:2000].mean() > 0.6 * 255                         # the white word
+    assert not mask[120, 650]                                                 # the rail past the title
+
+
+def test_the_paper_of_a_box_beside_a_title_on_a_mid_grey_wall_is_kept():
+    page = _mid_grey_wall_with_dark_and_white_title()
+    page[0:400, 600:700] = 255                                                # a narration box's paper
+    mask = art.caption_mask(page, {"x": 60, "y": 50, "w": 560, "h": 260})
+    assert not mask[100:300, 640:700].any()
+
+
+def test_heavy_black_lettering_that_fills_its_box_on_pale_art_is_erased(monkeypatch):
+    # The black strokes are most of the box, so the box read as a dark ground: the pale art
+    # between the letters was painted out instead, and the letters stayed as black blocks.
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint",
+                        lambda roi, mask, hf_token=None, allow_download=True: np.full_like(roi, 170))
+    page = np.full((300, 700, 3), 170, np.uint8)
+    for x in range(0, 700, 37):
+        cv2.line(page, (x, 0), (x + 60, 299), (90, 90, 90), 1)                 # the art's own lines
+    cv2.putText(page, "NEW", (60, 220), cv2.FONT_HERSHEY_SIMPLEX, 5.5, (25, 25, 25), 45)
+    box = {"x": 60, "y": 70, "w": 500, "h": 170}
+    scanlate_inpaint.inpaint_region(None, box, image=page, backend="ml", on_art=True)
+    erased = cv2.cvtColor(page[70:240, 60:560], cv2.COLOR_BGR2GRAY)
+    assert (erased < 50).mean() < 0.02
+
+
+def test_a_black_strip_with_white_lettering_is_not_taken_for_heavy_black_lettering():
+    page = np.full((300, 200, 3), 170, np.uint8)
+    page[20:280, 80:120] = 0
+    assert scanlate_inpaint._heavy_dark_lettering(page, 80, 20, 40, 260) is None

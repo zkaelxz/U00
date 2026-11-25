@@ -329,7 +329,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_english_text(bubbles, source_language)
     flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
-    if art_captions and _within_caption_limit(len(bubbles), art_captions_max_regions):
+    if art_captions and _within_caption_limit(_balloons_with_lines(bubbles), art_captions_max_regions):
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
                                             ocr_backend)
@@ -354,6 +354,15 @@ _ENGLISH_MIN_LETTERS = 4
 
 def _within_caption_limit(region_count: int, limit: int | None) -> bool:
     return limit is None or region_count <= limit
+
+
+def _balloons_with_lines(regions: list) -> int:
+    """How many regions are balloons holding at least two letters. A title drawn on the art
+    comes back from the detector as a scatter of one-glyph balloons and signs; counted as
+    balloons they put a title page over the caption limit, so the caption that joins the
+    title was never read and each glyph was translated alone."""
+    return sum(1 for r in regions if (r.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+               and sum(c.isalpha() for c in r.get("source_text") or "") >= 2)
 
 
 def flag_english_text(regions: list, source_language: str) -> int:
@@ -478,12 +487,22 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     def is_caption_lettering(region, caption):
         # Letters only: OCR adds a stray digit or mark to a lone glyph ("的\n7").
         letters = [c for c in (region.get("source_text") or "") if c.isalpha()]
-        return bool(letters) and all(c in (caption.get("source_text") or "") for c in letters)
+        # The reading aid printed beside a title's kanji (ちょう) is read with the glyph but
+        # is not in the caption's text, which is read from the large lettering alone.
+        core = [c for c in letters if not _is_hiragana(c)] or letters
+        if len(core) == 1 and not _is_hiragana(core[0]):
+            # One glyph cut out of a stylised title is often misread (察 as 祭).
+            return True
+        return bool(core) and all(c in (caption.get("source_text") or "") for c in core)
 
     return [r for r in regions
             if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
                                          or is_caption_lettering(r, c))
                        for c in captions)]
+
+
+def _is_hiragana(c: str) -> bool:
+    return "\u3041" <= c <= "\u309f"
 
 
 def with_captions(regions: list, captions: list) -> list:

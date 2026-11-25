@@ -218,9 +218,18 @@ _STRIP_GAP_COLUMNS = 6
 
 
 def widen_to_dark_strip(img, box: dict) -> dict:
-    """`box` stretched sideways to the ends of the dark banner strip it sits on, or `box`
-    itself when it is not a wide, short, dark strip. OCR often stops short of the last glyphs
-    of a banner line, and the lettering left past the box showed under the English."""
+    """`box` stretched along the dark banner strip it sits on to the strip's ends, or `box`
+    itself when it is not a long, narrow, dark strip. OCR often stops short of the last glyphs
+    of a banner line, and the lettering left past the box showed under the English. A strip
+    of vertical lettering is stretched up and down the same way."""
+    if box["h"] >= _STRIP_MIN_ASPECT * box["w"]:
+        turned = _widen_wide_strip(np.ascontiguousarray(img.swapaxes(0, 1)), {**box, "x": box["y"], "y": box["x"],
+                                                         "w": box["h"], "h": box["w"]})
+        return {**box, "y": turned["x"], "h": turned["w"]}
+    return _widen_wide_strip(img, box)
+
+
+def _widen_wide_strip(img, box: dict) -> dict:
     import cv2
     h, w = img.shape[:2]
     x0, y0 = max(0, box["x"]), max(0, box["y"])
@@ -250,10 +259,13 @@ _STRIP_LETTER_GRAY = 70
 
 def _dark_strip_inpaint(roi):
     """`roi` (BGR) with the lettering of a dark banner strip painted out from the strip's own
-    dark ground, or None when the crop is not a wide, short, dark strip. LaMa painted the
-    surrounding art over a strip like this, so the English lost its dark ground."""
+    dark ground, or None when the crop is not a long, narrow, dark strip (either way up). LaMa
+    painted the surrounding art over a strip like this, so the English lost its dark ground."""
     import cv2
     h, w = roi.shape[:2]
+    if h >= _STRIP_MIN_ASPECT * w:
+        turned = _dark_strip_inpaint(np.ascontiguousarray(roi.swapaxes(0, 1)))
+        return None if turned is None else np.ascontiguousarray(turned.swapaxes(0, 1))
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     if w < _STRIP_MIN_ASPECT * h or float(np.median(gray)) > _PLAIN_GROUND_MAX_GRAY:
         return None
@@ -262,6 +274,39 @@ def _dark_strip_inpaint(roi):
     mask = cv2.dilate(mask, np.ones((5, 5), np.uint8))
     mask[~rows] = 0
     return cv2.inpaint(roi, mask, 3, cv2.INPAINT_TELEA)
+
+
+# Black lettering this close to its own darkest level is the letters' ink; the art's lines
+# round it vary more and are thinner than a heavy stroke.
+_HEAVY_INK_SPREAD = 12
+_HEAVY_STROKE_PX = 7
+_HEAVY_GROW_PX = 11
+_GROUND_RING_PX = 16
+
+
+def _heavy_dark_lettering(img, x: int, y: int, bw: int, bh: int):
+    """uint8 mask (255 = erase) of black lettering so heavy that it is most of its box, set on
+    lighter art, or None. The box then reads as a dark ground, and the pale art between the
+    letters was painted out instead of the letters, which stayed as black blocks. A black
+    strip or banner is a ground of its own (near-black through), so it is not this."""
+    import cv2
+    gray = cv2.cvtColor(img[y:y + bh, x:x + bw], cv2.COLOR_BGR2GRAY)
+    if not background_is_dark(gray) or float(np.median(gray)) <= _PLAIN_GROUND_MAX_GRAY:
+        return None
+    ih, iw = img.shape[:2]
+    r = _GROUND_RING_PX
+    x0, y0, x1, y1 = max(0, x - r), max(0, y - r), min(iw, x + bw + r), min(ih, y + bh + r)
+    around = cv2.cvtColor(img[y0:y1, x0:x1], cv2.COLOR_BGR2GRAY)
+    outside = np.ones(around.shape, bool)
+    outside[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = False
+    if not outside.any() or background_is_dark(around[outside]):
+        return None
+    level = float(np.percentile(gray, 10))
+    ink = (gray <= level + _HEAVY_INK_SPREAD).astype(np.uint8) * 255
+    ink = cv2.morphologyEx(ink, cv2.MORPH_OPEN, np.ones((_HEAVY_STROKE_PX, _HEAVY_STROKE_PX), np.uint8))
+    if not ink.any():
+        return None
+    return cv2.dilate(ink, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (_HEAVY_GROW_PX, _HEAVY_GROW_PX)))
 
 
 def _fill_enclosed_holes(mask):
@@ -933,6 +978,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     elif inside is None and on_art and is_coloured_art(roi) and _pale_pixels(roi).any():
         # An outline-only mask left the letters' fill and glow behind as ghosts.
         mask = _dark_art_lettering_mask(roi)
+    elif inside is None and on_art and (heavy := _heavy_dark_lettering(img, x, y, bw, bh)) is not None:
+        mask = heavy
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
         inpainted_roi = _dark_art_inpaint(img, x, y, bw, bh, backend, hf_token)
     fallback_error = None

@@ -150,6 +150,22 @@ class TestOrientation:
         box = {"x": 120, "y": 40, "w": 90, "h": 230}
         assert scanlate_regions.estimate_text_orientation(gray, box, "ja") == "vertical"
 
+    def test_columns_with_furigana_between_them_are_vertical(self):
+        # The reading aids beside each column filled the gap between the columns, so a
+        # narration box of two columns was read as horizontal and cut into pieces.
+        gray = np.full((500, 400), 255, np.uint8)
+        for col_x in (110, 180, 250):
+            for k in range(4):
+                y = 80 + k * 52
+                cv2.rectangle(gray, (col_x, y), (col_x + 34, y + 34), 0, 3)
+                cv2.line(gray, (col_x + 4, y + 17), (col_x + 30, y + 17), 0, 3)
+            for k in (0, 2):
+                y = 85 + k * 52
+                cv2.rectangle(gray, (col_x - 24, y), (col_x - 12, y + 12), 0, 2)
+                cv2.rectangle(gray, (col_x - 24, y + 16), (col_x - 12, y + 28), 0, 2)
+        box = {"x": 60, "y": 50, "w": 260, "h": 300}
+        assert scanlate_regions.estimate_text_orientation(gray, box, "ja") == "vertical"
+
     def test_the_balloon_outline_in_the_corners_is_not_lettering(self, tmp_path):
         img = np.full((400, 400), 255, np.uint8)
         cv2.ellipse(img, (200, 200), (150, 60), 0, 0, 360, 0, 3)
@@ -516,6 +532,13 @@ class TestStripWideningAndRulesOnSky:
         wide = scanlate_inpaint.widen_to_dark_strip(page, box)
         assert wide["x"] == 20 and wide["x"] + wide["w"] >= 298
 
+    def test_a_tall_box_on_a_vertical_strip_is_stretched_up_and_down(self):
+        page = np.full((400, 120, 3), (180, 190, 230), np.uint8)
+        page[20:300, 30:60] = (10, 0, 0)
+        box = {"x": 35, "y": 20, "w": 20, "h": 150}
+        tall = scanlate_inpaint.widen_to_dark_strip(page, box)
+        assert (tall["x"], tall["w"]) == (35, 20) and tall["y"] == 20 and tall["y"] + tall["h"] >= 298
+
     def test_a_box_on_light_paper_or_a_tall_box_is_left_alone(self):
         page = np.full((200, 400, 3), 240, np.uint8)
         page[:, 100:300] = (10, 0, 0)
@@ -542,6 +565,16 @@ class TestDarkStripErase:
         out = scanlate_inpaint._dark_strip_inpaint(roi)
         assert (cv2.cvtColor(out[4:36], cv2.COLOR_BGR2GRAY) < 60).all()
         assert (out[:3] == roi[:3]).all()                                   # art above the strip untouched
+
+    def test_a_tall_strip_of_vertical_lettering_keeps_its_dark_ground(self):
+        roi = np.full((400, 40, 3), (200, 190, 230), np.uint8)
+        roi[:, 4:36] = (12, 0, 0)
+        for y in range(20, 380, 40):
+            for dy in (0, 10, 20):                                         # a glyph's strokes
+                cv2.line(roi, (12, y + dy), (28, y + dy), (255, 255, 255), 2)
+        out = scanlate_inpaint._dark_strip_inpaint(roi)
+        assert (cv2.cvtColor(out[:, 4:36], cv2.COLOR_BGR2GRAY) < 60).all()
+        assert (out[:, :3] == roi[:, :3]).all()
 
     def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
         assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None

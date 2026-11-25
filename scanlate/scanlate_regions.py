@@ -404,10 +404,35 @@ def estimate_text_orientation(gray, box: dict, language: str) -> str:
             return "horizontal"
         if aspect <= 1.0 / limit:
             return "vertical"
-        col_gap, row_gap = _widest_gap(cols), _widest_gap(rows)
+        main = _without_reading_aids(letters)
+        col_gap, row_gap = _widest_gap(main.any(axis=0)), _widest_gap(main.any(axis=1))
         if col_gap != row_gap:
             return "vertical" if col_gap > row_gap else "horizontal"
     return "vertical" if box["h"] > 1.2 * box["w"] else "horizontal"
+
+
+# Furigana and other reading aids are about half the height of the glyphs they gloss.
+_READING_AID_OF_GLYPH = 0.6
+
+
+def _without_reading_aids(letters):
+    """`letters` without the small marks that stand in no column of the glyphs: furigana set
+    between two vertical columns. It fills the gap that tells the columns apart, and the
+    balloon was read as horizontal and cut into pieces. Small kana and marks inside a column
+    (っ, ？) share its glyphs' columns and stay."""
+    import cv2
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(letters.astype(np.uint8), connectivity=8)
+    if n <= 2:
+        return letters
+    spans = np.maximum(stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT])
+    big = spans >= _READING_AID_OF_GLYPH * float(np.percentile(spans, 90))
+    in_glyph_columns = np.zeros(letters.shape[1], bool)
+    for i in np.flatnonzero(big) + 1:
+        in_glyph_columns[stats[i, cv2.CC_STAT_LEFT]:stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]] = True
+    aids = [i for i in np.flatnonzero(~big) + 1
+            if not in_glyph_columns[stats[i, cv2.CC_STAT_LEFT]:
+                                    stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]].any()]
+    return letters & ~np.isin(labels, aids) if aids else letters
 
 
 def _panel_for_box(box: dict, panels: list):
