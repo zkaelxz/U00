@@ -60,6 +60,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/ab/next` | admin.diagnostics |
 | `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/suggest` | admin.diagnostics |
 | `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
@@ -190,6 +191,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/quality` | admin.diagnostics |
+| `GET /api/diagnostics/quality/history` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |

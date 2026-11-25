@@ -78,6 +78,35 @@ def next_pair(run_a: int, run_b: int, rng=None) -> dict:
             "ticket": _ticket(first["case_id"], left["session_id"], right["session_id"])}
 
 
+# Only the newest finished runs are paired, so the suggestion stays about models the owner still cares about.
+SUGGEST_RECENT_RUNS = 12
+
+
+def suggest_pair() -> dict:
+    """The two finished runs of one stage that have the most cases left to pick between, so a blind
+    session starts without the owner choosing runs. `found` is False when no two runs qualify."""
+    done = [s for s in db.list_benchmark_sessions(limit=60)
+            if s.get("status") == "done" and s.get("stage") != "ocr"]
+    best = None
+    for stage in {s["stage"] for s in done}:
+        runs = [s for s in done if s["stage"] == stage][:SUGGEST_RECENT_RUNS]
+        for i, newer in enumerate(runs):
+            for older in runs[i + 1:]:
+                # The same model twice only differs by chance, which is not worth a pick.
+                if (newer.get("engine"), newer.get("model")) == (older.get("engine"), older.get("model")):
+                    continue
+                lo, hi = sorted((newer["id"], older["id"]))
+                picked = {p["case_id"] for p in db.list_benchmark_picks([lo, hi])
+                          if (p["session_a"], p["session_b"]) == (lo, hi)}
+                pairs = _pairs(lo, hi)
+                remaining = sum(1 for p in pairs if p[0]["case_id"] not in picked)
+                # Runs are newest first, so a tie keeps the pair found first, the most recent.
+                if remaining and (best is None or remaining > best["remaining"]):
+                    best = {"found": True, "run_a": lo, "run_b": hi, "stage": stage,
+                            "remaining": remaining, "total": len(pairs)}
+    return best or {"found": False}
+
+
 def record_pick(ticket: str, choice: str) -> dict:
     if choice not in CHOICES:
         raise InvalidInputError("Pick left, right or tie.")
