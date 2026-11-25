@@ -10,7 +10,7 @@ describe('Bookmarks', () => {
   it('offers the tap and says the list is private to whoever may save', () => {
     const html = render(true)
     expect(html).toContain('Bookmark this moment')
-    expect(html).toContain('Yours are shown only to you.')
+    expect(html).toContain('Each account sees only its own.')
   })
 
   it('draws nothing for someone who cannot save and has none', () => {

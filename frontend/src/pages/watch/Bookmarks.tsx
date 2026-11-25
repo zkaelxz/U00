@@ -64,7 +64,7 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
       </header>
       {status && <p className="watch-now-status" role="status">{status}</p>}
       {items.length === 0 ? (
-        <p className="muted">Nothing saved yet. Yours are shown only to you.</p>
+        <p className="muted">Nothing saved yet. Each account sees only its own.</p>
       ) : (
         <ul className="watch-bookmarks">
           {items.map((b) => (
