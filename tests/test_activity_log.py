@@ -3,7 +3,6 @@ import time
 
 import pytest
 
-import background_jobs
 import db
 from jobs import job_launch, job_runner, job_table
 from services import activity_service
