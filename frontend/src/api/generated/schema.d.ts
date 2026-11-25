@@ -11413,6 +11413,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/notifications/{notification_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo dismissing one new-chapter notification */
+        post: operations["post_restore_api_sources_notifications__notification_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/profiles": {
         parameters: {
             query?: never;
@@ -68609,6 +68626,46 @@ export interface operations {
         };
     };
     post_dismiss_api_sources_notifications__notification_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceNotification"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_restore_api_sources_notifications__notification_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;

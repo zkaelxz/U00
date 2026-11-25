@@ -460,3 +460,11 @@ def dismiss_notification(notification_id: int, user_id: int = 0):
     with connect() as conn:
         conn.execute("INSERT OR IGNORE INTO chapter_notification_dismissals (notification_id, user_id) "
                      "VALUES (?, ?)", (notification_id, user_id))
+
+
+def restore_notification(notification_id: int, user_id: int = 0):
+    """Undoes this account's own dismissal; a notice dismissed for everyone (`dismissed=1`,
+    set when its series is untracked) stays dismissed."""
+    with connect() as conn:
+        conn.execute("DELETE FROM chapter_notification_dismissals WHERE notification_id = ? AND user_id = ?",
+                     (notification_id, user_id))
