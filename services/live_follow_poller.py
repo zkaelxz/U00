@@ -474,6 +474,8 @@ def _auto_start(row, stream_id):
         opts = follows._options(row, strict=True)
     except InvalidInputError:
         return "not started: a saved Live option is no longer valid"
+    if live_service.join_running_stream(follows.stream_url(row)):
+        return "already captioned by a running Live session"
     refusal = _gate_refusal(opts["engine"] or live_service.LIVE_DEFAULT_ENGINE, opts["model"])
     if refusal:
         return refusal

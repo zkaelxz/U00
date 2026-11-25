@@ -406,6 +406,8 @@ class LiveOllamaCheck(BaseModel):
 
 class LiveSessionStarted(BaseModel):
     session_id: str
+    # True: this stream was already being captioned, so the caller watches that session.
+    joined: bool = False
 
 
 class LiveCue(BaseModel):
