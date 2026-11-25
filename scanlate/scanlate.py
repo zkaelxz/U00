@@ -315,7 +315,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         # Classical-CV style guess (see sample_text_style()), reviewable
         # per bubble before render.
         style = sample_text_style(image_path, b, image=gray)
-        b["font_category"] = style["suggested_style"]
+        b["font_category"] = _font_category(b, style)
         b["ink_ratio"] = style.get("ink_ratio")
         b["irregular"] = style.get("irregular")
         b.update(translated_text="", font_size=suggest_font_size(gray, b), skip=False,
@@ -340,6 +340,18 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         notes.append(("error", f"OCR failed on {ocr_failed} of {len(bubbles)} regions. Check "
                                "that the OCR backend is installed (Diagnostics)."))
     return bubbles, notes
+
+
+BALLOON_KINDS = SHAPE_FITTED_KINDS + ("narration",)
+BALLOON_FONT_CATEGORY = "regular"
+
+
+def _font_category(region: dict, style: dict) -> str:
+    """Speech, thought and narration all take one face: furigana and mixed glyph
+    sizes read as handwriting to the style guess, so a page's balloons swapped
+    between two faces at random. Signs, effects and lettering on the art keep
+    the face their own lettering suggests."""
+    return BALLOON_FONT_CATEGORY if region.get("kind") in BALLOON_KINDS else style["suggested_style"]
 
 
 # The small circles that trail a thought balloon's tail are read as the letters
