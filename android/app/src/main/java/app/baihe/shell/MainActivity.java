@@ -34,11 +34,10 @@ public class MainActivity extends Activity {
     private WebView web;
     /** When the server was last asked for a newer build; 0 before the first ask. */
     private static final long UPDATE_RECHECK_MS = 60_000;
+    /** While the app stays open, a build the PC fetches later is still noticed. */
+    private static final long UPDATE_POLL_MS = 5 * 60_000;
     private long updateCheckedAt;
     private boolean updateOffered;
-    // A silently downloaded update, installed once the app goes to the background so
-    // Android's restart of the app doesn't land in the middle of reading.
-    private volatile File pendingUpdate;
     private View customView;
     private WebChromeClient.CustomViewCallback customViewCallback;
 
@@ -270,15 +269,17 @@ public class MainActivity extends Activity {
         // Reopening the app resumes the same process and WebView, so no page load fires again;
         // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
         long now = System.currentTimeMillis();
-        if (updateOffered || pendingUpdate != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
+        if (updateOffered || AppUpdate.pending != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
         updateCheckedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
             long offered = AppUpdate.check(address, cookie);
+            // A failed ask (no network, a restarting PC) is tried again at the next chance, not a minute later.
+            if (offered == AppUpdate.CHECK_FAILED) updateCheckedAt = 0;
             if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) return;
             if (AppUpdate.canUpdateSilently(getApplicationContext())) {
                 File apk = updateFile();
-                if (AppUpdate.download(address, cookie, apk)) pendingUpdate = apk;
+                if (AppUpdate.download(address, cookie, apk)) AppUpdate.pending = apk;
             } else {
                 runOnUiThread(() -> offerUpdate(address, cookie));
             }
@@ -305,18 +306,35 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
                     File apk = updateFile();
                     if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);
+                    else runOnUiThread(() -> android.widget.Toast.makeText(this,
+                            "Could not download the update. Try again in a minute.", android.widget.Toast.LENGTH_LONG).show());
                 }).start())
                 .setNegativeButton(android.R.string.cancel, null)
                 .setOnDismissListener(d -> updateOffered = false)
                 .show();
     }
 
+    private final Runnable poll = new Runnable() {
+        @Override
+        public void run() {
+            String address = savedAddress();
+            String shown = web.getUrl();
+            if (address != null && shown != null && ServerAddress.sameOrigin(address, shown)) checkForUpdate(address);
+            web.postDelayed(this, UPDATE_POLL_MS);
+        }
+    };
+
     @Override
     protected void onResume() {
         super.onResume();
-        String address = savedAddress();
-        String shown = web.getUrl();
-        if (address != null && shown != null && ServerAddress.sameOrigin(address, shown)) checkForUpdate(address);
+        web.removeCallbacks(poll);
+        poll.run();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        web.removeCallbacks(poll);
     }
 
     private File updateFile() {
@@ -326,13 +344,15 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        AppUpdate.screenStarted();
+    }
+
+    @Override
     protected void onStop() {
         super.onStop();
-        File apk = pendingUpdate;
-        if (apk == null) return;
-        pendingUpdate = null;
-        Context app = getApplicationContext();
-        new Thread(() -> AppUpdate.install(app, apk)).start();
+        AppUpdate.screenStopped(this);
     }
 
     private SharedPreferences prefs() {
