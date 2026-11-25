@@ -201,6 +201,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                rememberPlace(url, view.getTitle());
                 if (translateOn && !translateRestoring) web.evaluateJavascript(PageTranslate.ON, null);
                 if (quickAfterLoad) {
                     quickAfterLoad = false;
@@ -517,6 +518,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Pictures from my gallery");
         menu.getMenu().add("Ad block list");
         menu.getMenu().add("Follow this series");
+        menu.getMenu().add("Pick up where I left off");
         List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
         String here = ServerAddress.browsable(web.getUrl());
         menu.getMenu().add(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page");
@@ -540,7 +542,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
             else if ("Follow this series".equals(title)) followSeries();
+            else if ("Pick up where I left off".equals(title)) pickUp();
             else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
+            else if (title.startsWith("Saved chapters")) showSaved();
             else if (title.startsWith("Bookmarks")) showBookmarks();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
@@ -550,6 +554,90 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return true;
         });
         menu.show();
+    }
+
+    private String lastRemembered = "";
+
+    /** Tells the PC which page of a public site is open, so this account's other phones can go on from it. */
+    private void rememberPlace(String url, String title) {
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        // No query: it can hold a login token, and this goes to the PC and into its backups.
+        String link = ServerAddress.publicSourceUrl(url);
+        if (server.isEmpty() || token.isEmpty() || link.isEmpty() || link.equals(lastRemembered)
+                || GrabBookmarks.isSite(link) || ServerAddress.sameOrigin(server, link)) return;
+        lastRemembered = link;
+        sender.execute(() -> {
+            try {
+                new BaiheClient(server, token).rememberPage(link, title);
+            } catch (BaiheClient.BridgeException e) {
+                // Only a convenience: a missed save is not worth interrupting the reader.
+            }
+        });
+    }
+
+    /** Lists the page this account last read on each site, from any of its phones; tap one to open it. */
+    private void pickUp() {
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Asking Baihe where you left off...");
+        sender.execute(() -> {
+            try {
+                List<String[]> pages = new BaiheClient(server, token).lastPages();
+                runOnUiThread(() -> showPlaces(pages));
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
+    }
+
+    private void showPlaces(List<String[]> pages) {
+        if (pages.isEmpty()) {
+            say("Nothing yet. Pages you read in Grab show up here, on every phone you sign in on.");
+            return;
+        }
+        String[] names = new String[pages.size()];
+        for (int i = 0; i < names.length; i++) {
+            String[] page = pages.get(i);
+            names[i] = page[0] + (page[2].isEmpty() ? "" : ": " + page[2]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Where you left off")
+                .setItems(names, (d, which) -> {
+                    String link = ServerAddress.browsable(pages.get(which)[1]);
+                    if (link != null) web.loadUrl(link);
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    /** Chapters saved for offline reading: tap to read, hold to delete. */
+    private void showSaved() {
+        List<SavedChapters.Saved> saved = SavedChapters.list(SavedChapters.root(this));
+        if (saved.isEmpty()) {
+            say("No saved chapters. In Quick read, hold a page and choose Save to phone.");
+            return;
+        }
+        String[] names = new String[saved.size()];
+        for (int i = 0; i < names.length; i++) names[i] = saved.get(i).title + " (" + saved.get(i).pages + " pages)";
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Saved chapters (hold one to delete it)")
+                .setItems(names, (d, which) -> startActivity(new Intent(this, QuickReadActivity.class)
+                        .putExtra(QuickReadActivity.EXTRA_SAVED, saved.get(which).dir.getName())))
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.getListView().setOnItemLongClickListener((parent, view, which, id) -> {
+            SavedChapters.delete(saved.get(which).dir);
+            dialog.dismiss();
+            say("Deleted from this phone.");
+            return true;
+        });
+        dialog.show();
     }
 
     private static final String KEY_BOOKMARKS = "bookmarks";
@@ -1328,7 +1416,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
         boolean continuing = partsContinuing;
         boolean moreParts = followingParts && chaptersLeft > 1;
-        if (!continuing) QuickReadSession.begin();
+        if (!continuing) {
+            QuickReadSession.begin();
+            QuickReadSession.setTitle(runName);
+        }
         QuickReadSession.onCancel(this::cancelGrab);
         long readStarted = System.currentTimeMillis();
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);

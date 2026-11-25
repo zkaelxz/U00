@@ -5,6 +5,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import type { ReviewLine } from '../../types/review'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
+import { StudyLine } from './StudyLine'
 import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix, type Verdict } from './watchLogic'
 
 const NOW_HINT = 'Press play to see lines here.'
@@ -13,6 +14,8 @@ const NO_ENGLISH = 'No English yet'
 export interface NowCardProps {
   /** The open fix's line while one is open, else the line being spoken (null before the first). */
   line: ReviewLine | null
+  /** The title, for the study breakdown; absent where there is none to ask. */
+  dramaId?: number
   /** The title's language, for a line that does not carry its own. */
   sourceLanguage: string
   canEdit: boolean
@@ -47,7 +50,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
@@ -63,6 +66,8 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
             {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}
           </p>
           {line.zh && <p className="watch-now-zh" lang={line.lang || sourceLanguage}>{line.zh}</p>}
+          {/* Keyed by line so the next line starts closed rather than showing the last breakdown. */}
+          {dramaId !== undefined && line.zh && !fix && <StudyLine key={line.id} dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
           {fix ? (
             <form
               className="watch-now-form"

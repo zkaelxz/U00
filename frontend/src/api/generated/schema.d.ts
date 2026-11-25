@@ -4247,6 +4247,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/last-page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: remember the page this account is reading on a site */
+        post: operations["post_last_page_api_ext_bridge_last_page_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/last-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the page this account last read on each site */
+        post: operations["post_last_pages_api_ext_bridge_last_pages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/live": {
         parameters: {
             query?: never;
@@ -4809,6 +4843,23 @@ export interface paths {
         put?: never;
         /** Ignore one waiting name; it is not offered again for this title */
         post: operations["reject_glossary_inbox_api_glossary_dramas__drama_id__inbox_reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Ignore: put the ignored spellings back in the inbox */
+        post: operations["restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8364,6 +8415,23 @@ export interface paths {
         };
         /** One caption track as WebVTT, from the current lines */
         get: operations["get_caption_track_api_reader_dramas__drama_id__captions__track__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/lines/{line_id}/study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One line's words with readings and meanings (local data only, no paid call) */
+        get: operations["get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -21195,6 +21263,11 @@ export interface components {
             /** Term */
             term: string;
         };
+        /** GlossaryInboxRestore */
+        GlossaryInboxRestore: {
+            /** Terms */
+            terms: string[];
+        };
         /** GlossaryInstructions */
         GlossaryInstructions: {
             /** Project Instructions */
@@ -32310,6 +32383,31 @@ export interface components {
          *     caller's, and the key is resolved on the PC.
          */
         StrongerLineTryRequest: Record<string, never>;
+        /** StudyLine */
+        StudyLine: {
+            /** Language */
+            language: string;
+            /** Line Id */
+            line_id: number;
+            /** Needs Install */
+            needs_install: string | null;
+            /** Original */
+            original: string;
+            /** Words */
+            words: components["schemas"]["StudyWord"][];
+        };
+        /** StudyWord */
+        StudyWord: {
+            /**
+             * Meanings
+             * @default []
+             */
+            meanings: string[];
+            /** Reading */
+            reading: string | null;
+            /** Word */
+            word: string;
+        };
         /** StyleApplyRequest */
         StyleApplyRequest: {
             /** Apply */
@@ -46412,6 +46510,46 @@ export interface operations {
             };
         };
     };
+    post_last_page_api_ext_bridge_last_page_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_last_pages_api_ext_bridge_last_pages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     post_live_api_ext_bridge_live_post: {
         parameters: {
             query?: never;
@@ -48012,6 +48150,50 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["GlossaryInboxReject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxRestore"];
             };
         };
         responses: {
@@ -59053,6 +59235,47 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                     "text/vtt": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyLine"];
                 };
             };
             /** @description Not Found */

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { expectTargetsAtLeast44 } from './hitArea'
-import { SCREENS, cue, expectSwitchKeepsItsSize, mockLive, openLive } from './liveMocks'
+import { SCREENS, cue, expectSwitchKeepsItsSize, mockLive, openLive, openMoreOptions } from './liveMocks'
 import { expectNoSidewaysScroll } from './mockHelpers'
 
 // Phone project (390x844, touch): the Live page fits the screen and its
@@ -18,6 +18,7 @@ async function smallTargets(page: Page) {
 test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').tap()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).toBeVisible()
   await expectNoSidewaysScroll(page)
@@ -40,6 +41,7 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
 test('live page on a phone: the model picker fits and is a 44px target', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('AI engine', { exact: true }).selectOption('ollama')
   await expect(live.getByLabel('Model', { exact: true })).toBeVisible()
   await expectNoSidewaysScroll(page)
@@ -56,6 +58,7 @@ test('live page on a phone: the model picker fits and is a 44px target', async (
 test('a switch inside a field keeps its own size on a phone', async ({ page }) => {
   await mockLive(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').tap()
   await expectSwitchKeepsItsSize(live)
 })
