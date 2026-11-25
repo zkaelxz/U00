@@ -8372,6 +8372,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reader/dramas/{drama_id}/lines/{line_id}/study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One line's words with readings and meanings (local data only, no paid call) */
+        get: operations["get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reader/dramas/{drama_id}/lookup": {
         parameters: {
             query?: never;
@@ -32266,6 +32283,31 @@ export interface components {
          *     caller's, and the key is resolved on the PC.
          */
         StrongerLineTryRequest: Record<string, never>;
+        /** StudyLine */
+        StudyLine: {
+            /** Language */
+            language: string;
+            /** Line Id */
+            line_id: number;
+            /** Needs Install */
+            needs_install: string | null;
+            /** Original */
+            original: string;
+            /** Words */
+            words: components["schemas"]["StudyWord"][];
+        };
+        /** StudyWord */
+        StudyWord: {
+            /**
+             * Meanings
+             * @default []
+             */
+            meanings: string[];
+            /** Reading */
+            reading: string | null;
+            /** Word */
+            word: string;
+        };
         /** StyleApplyRequest */
         StyleApplyRequest: {
             /** Apply */
@@ -58986,6 +59028,47 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                     "text/vtt": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyLine"];
                 };
             };
             /** @description Not Found */

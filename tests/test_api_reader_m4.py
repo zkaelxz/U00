@@ -80,6 +80,7 @@ ROUTES = [
     ("DELETE", "/bookmarks/{bookmark_id}", None),
     ("GET", "/captions/Source", None),
     ("POST", "/lookup", {"page": 1}),
+    ("GET", "/lines/1/study", None),
     ("GET", "/vocab", None),
     ("POST", "/vocab/rich", {"words": ["猫"]}),
     ("GET", "/vocab/export.csv", None),
@@ -113,7 +114,7 @@ def test_every_reader_route_is_covered():
     app = create_app(ApiSettings())
     paths = {(sorted(m)[0], p[len(BASE) + len("/{drama_id}"):])
              for _r, p, m, _d in api_auth.iter_route_declarations(app) if p.startswith(BASE)}
-    listed = {(m, p.replace("/Source", "/{track}").replace("/English", "/{track}"))
+    listed = {(m, p.replace("/Source", "/{track}").replace("/English", "/{track}").replace("/lines/1/", "/lines/{line_id}/"))
               for m, p, _b in ROUTES}
     assert paths == listed
 
