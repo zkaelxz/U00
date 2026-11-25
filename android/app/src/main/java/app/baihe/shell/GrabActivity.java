@@ -517,6 +517,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Pictures from my gallery");
         menu.getMenu().add("Ad block list");
         menu.getMenu().add("Follow this series");
+        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
+        String here = ServerAddress.browsable(web.getUrl());
+        menu.getMenu().add(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page");
+        menu.getMenu().add(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
@@ -536,6 +540,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
             else if ("Follow this series".equals(title)) followSeries();
+            else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
+            else if (title.startsWith("Bookmarks")) showBookmarks();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
             else if ("Add to queue".equals(title)) askAddToQueue();
@@ -544,6 +550,48 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return true;
         });
         menu.show();
+    }
+
+    private static final String KEY_BOOKMARKS = "bookmarks";
+
+    private void toggleBookmark() {
+        String link = ServerAddress.browsable(web.getUrl());
+        if (link == null) {
+            say("Open a page first.");
+            return;
+        }
+        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
+        boolean had = GrabBookmarks.has(marks, link);
+        marks = had ? GrabBookmarks.without(marks, link) : GrabBookmarks.with(marks, web.getTitle(), link);
+        prefs().edit().putString(KEY_BOOKMARKS, GrabBookmarks.serialize(marks)).apply();
+        say(had ? "Bookmark removed." : "Bookmarked.", had ? GrabUi.Kind.INFO : GrabUi.Kind.OK);
+    }
+
+    /** Tap opens a bookmark; a long press removes it. */
+    private void showBookmarks() {
+        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
+        if (marks.isEmpty()) {
+            say("No bookmarks yet. More > Bookmark this page saves one.");
+            return;
+        }
+        String[] names = new String[marks.size()];
+        for (int i = 0; i < names.length; i++) {
+            GrabBookmarks.Mark mark = marks.get(i);
+            names[i] = (GrabBookmarks.isSite(mark.url) ? "Site: " : "") + mark.name;
+        }
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Bookmarks (hold one to remove it)")
+                .setItems(names, (d, which) -> web.loadUrl(marks.get(which).url))
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.getListView().setOnItemLongClickListener((parent, view, which, id) -> {
+            String left = GrabBookmarks.serialize(GrabBookmarks.without(marks, marks.get(which).url));
+            prefs().edit().putString(KEY_BOOKMARKS, left).apply();
+            dialog.dismiss();
+            say("Bookmark removed.");
+            return true;
+        });
+        dialog.show();
     }
 
     /** Has the PC watch this site's series for new chapters; the phone then pings when one arrives. */
