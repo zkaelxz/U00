@@ -17,10 +17,10 @@ router = APIRouter(prefix="/api/activity", tags=["activity"])
 @router.get("", dependencies=[require_permission("library.read")], response_model=ActivityList,
             summary="Finished jobs, newest first")
 def get_activity(request: Request, limit: int = Query(50, ge=1, le=100), before_id: int | None = Query(None, ge=1)):
-    return activity_service.list_activity(request.state.principal, limit, before_id)
+    return activity_service.list_activity(principal=request.state.principal, limit=limit, before_id=before_id)
 
 
 @router.get("/gpu-daily", dependencies=[require_permission("library.read")], response_model=GpuDaily,
             summary="GPU time per day for the last days")
 def get_gpu_daily(request: Request, days: int = Query(30, ge=1, le=365)):
-    return activity_service.gpu_daily(request.state.principal, days)
+    return activity_service.gpu_daily(principal=request.state.principal, days=days)
