@@ -27,7 +27,8 @@ import {
 import { countDramas, dramaName, hideLibraryBar, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
-import { Paged, ShowMore, useShowMore } from './ShowMore'
+import { Paged, ShowMore } from './ShowMore'
+import { useShowMore } from '../hooks/useShowMore'
 import { buttonClass } from './uiClasses'
 import { useLatest } from '../hooks/useLatest'
 
