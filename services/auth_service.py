@@ -36,6 +36,7 @@ from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError,
                                      UnsupportedOperationError)
 import paid_limits
+from jobs import user_caps
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -307,6 +308,8 @@ def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None,
                 is_self=actor_id is not None and user["id"] == actor_id,
                 has_own_ollama_key=user["id"] in with_key,
                 last_seen_at=_last_seen_at(user["id"]),
+                daily_job_limit=None if user["is_admin"] else user_caps.jobs_per_day(user["id"]),
+                jobs_today=user_caps.jobs_today(user["id"]),
                 month_paid_spend_usd=round(spend.get(user["id"], 0.0), 6),
                 monthly_paid_cap_usd=None if user["is_admin"] or cap is None else float(cap))
 
@@ -512,6 +515,28 @@ def admin_set_paid_limit(user_id: int, monthly_cap_usd, actor_id=None) -> dict:
     db.auth_update_user(user_id, monthly_paid_cap_usd=monthly_cap_usd)
     write_audit(actor_id, "user.paid_limit",
                 f"user {user_id}: " + ("none" if monthly_cap_usd is None else f"${monthly_cap_usd:.2f}"))
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
+MAX_MEMBER_JOBS_PER_DAY = 10000
+
+
+def admin_set_job_limit(user_id: int, jobs_per_day, actor_id=None) -> dict:
+    """The People screen's daily limit on the background jobs a member starts (None clears it); returns
+    the admin_list_users row. Beside the running and waiting caps in jobs/user_caps.py, which are the
+    same for everyone. Only on a member account: an admin has none (409), which also rules out the
+    caller's own account."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't set your own limit.")
+    if row["is_admin"]:
+        raise ConflictError("Admins have no daily job limit.")
+    if jobs_per_day is not None and (isinstance(jobs_per_day, bool) or not isinstance(jobs_per_day, int)
+                                     or not 0 < jobs_per_day <= MAX_MEMBER_JOBS_PER_DAY):
+        raise InvalidInputError(f"Enter a whole number from 1 to {MAX_MEMBER_JOBS_PER_DAY:,}, or clear it.")
+    user_caps.set_jobs_per_day(user_id, jobs_per_day)
+    write_audit(actor_id, "user.job_limit",
+                f"user {user_id}: " + ("none" if jobs_per_day is None else f"{jobs_per_day} a day"))
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 

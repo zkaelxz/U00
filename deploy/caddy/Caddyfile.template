@@ -170,7 +170,7 @@
 		# an admin-only name never reaches the app.
 		not {
 			method POST
-			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/display-name /api/admin/users/*/devices/*/revoke
+			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/job-limit /api/admin/users/*/display-name /api/admin/users/*/devices/*/revoke
 			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
 		}
 		# Delete a deactivated member (owner decision 2026-11-25). A regexp,

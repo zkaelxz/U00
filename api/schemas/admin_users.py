@@ -29,6 +29,10 @@ class AdminUser(BaseModel):
     monthly_paid_cap_usd: Optional[float] = None
     # Epoch seconds of the newest request from any of their devices; None with no sign-in on record.
     last_seen_at: Optional[float] = None
+    # A member's own limit on the background jobs they start in a day (None: none; always None for an
+    # admin), and how many they started today.
+    daily_job_limit: Optional[int] = None
+    jobs_today: int = 0
 
 
 class AdminDevice(BaseModel):

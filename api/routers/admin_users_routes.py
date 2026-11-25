@@ -16,6 +16,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     DELETE /api/admin/users/{user_id}/permissions/{permission}  take it away
     POST /api/admin/users/{user_id}/display-name     set or clear a person's optional name
     POST /api/admin/users/{user_id}/paid-limit       set or clear a member's monthly paid-engine limit
+    POST /api/admin/users/{user_id}/job-limit        set or clear a member's daily limit on jobs they start
     GET  /api/admin/audit                            newest first, paged
 
 The two reads are `admin.users.read`, the writes `admin.users` (both held
@@ -45,7 +46,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.schemas import AdminDeviceList, AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage
-from api.schemas import AdminAddUserRequest, AdminDisplayNameRequest, MemberKeyRemoved, MemberPaidLimitRequest
+from api.schemas import AdminAddUserRequest, AdminDisplayNameRequest, MemberJobLimitRequest, MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store
 from services import auth_service, member_key_service
@@ -175,6 +176,14 @@ def set_user_paid_limit(body: MemberPaidLimitRequest, request: Request, response
     mark_no_store(response)
     return auth_service.admin_set_paid_limit(user_id, body.monthly_cap_usd,
                                              actor_id=principal_user_id(request))
+
+
+@router.post("/users/{user_id}/job-limit", dependencies=_ADMIN, response_model=AdminUser,
+             summary="Set or clear a member's own daily limit on the jobs they start")
+def set_user_job_limit(body: MemberJobLimitRequest, request: Request, response: Response,
+                       user_id: int = _UserId):
+    mark_no_store(response)
+    return auth_service.admin_set_job_limit(user_id, body.jobs_per_day, actor_id=principal_user_id(request))
 
 
 @router.get("/audit", dependencies=_READ, response_model=AuditPage,

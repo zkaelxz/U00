@@ -34,6 +34,7 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/a
           ("POST", "/api/admin/users/{id}/permissions/{permission}"),
           ("DELETE", "/api/admin/users/{id}/permissions/{permission}"),
           ("POST", "/api/admin/users/{id}/paid-limit"),
+          ("POST", "/api/admin/users/{id}/job-limit"),
           ("POST", "/api/admin/users/{id}/display-name"),
           ("GET", "/api/admin/users/{id}/devices"),
           ("POST", "/api/admin/users/{id}/devices/{session_id}/revoke"),
@@ -946,6 +947,40 @@ def test_an_admin_has_no_limit_of_their_own(isolated_db):
         r = c.post(_limit_url(target["id"]), headers=_h(s), json={"monthly_cap_usd": 5})
         assert r.status_code == 409
     assert not _audit("user.paid_limit")
+
+
+def _job_limit_url(user_id):
+    return f"/api/admin/users/{user_id}/job-limit"
+
+
+def test_remote_admin_sets_and_clears_a_members_daily_job_limit_with_audit(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, _ = _member()
+    r = c.post(_job_limit_url(m["id"]), headers=_h(s), json={"jobs_per_day": 5})
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    assert (r.json()["daily_job_limit"], r.json()["jobs_today"]) == (5, 0)
+    r = c.post(_job_limit_url(m["id"]), headers=_h(s), json={"jobs_per_day": None})
+    assert r.status_code == 200 and r.json()["daily_job_limit"] is None
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("user.job_limit")] == [
+        (a["id"], f"user {m['id']}: none"), (a["id"], f"user {m['id']}: 5 a day")]
+
+
+@pytest.mark.parametrize("value", [0, -1, 10001, "5", True, 2.5])
+def test_a_daily_job_limit_must_be_a_whole_number_above_zero(isolated_db, value):
+    c = loopback_client(_app())
+    _a, s = _admin()
+    m, _ = _member()
+    assert c.post(_job_limit_url(m["id"]), headers=_h(s), json={"jobs_per_day": value}).status_code == 422
+
+
+def test_an_admin_has_no_daily_job_limit(isolated_db):
+    c = loopback_client(_app())
+    a, s = _admin()
+    other, _ = _admin("second@example.com")
+    for target in (a, other):
+        assert c.post(_job_limit_url(target["id"]), headers=_h(s), json={"jobs_per_day": 5}).status_code == 409
+    assert not _audit("user.job_limit")
 
 
 _PAID_TEXT = {"text": "你好", "engine": "claude", "source_language": "zh", "target_language": "en"}

@@ -29,6 +29,10 @@ export const setUserActive = (id: number, active: boolean, f?: Fetch) =>
 export const revokeUserSessions = (id: number, f?: Fetch) =>
   postJson<AdminSessionsRevoked>(`${BASE}/users/${id}/revoke-sessions`, undefined, f)
 
+/** A member's own limit on the jobs they start in a day; null clears it. */
+export const setUserJobLimit = (id: number, jobsPerDay: number | null, f?: Fetch) =>
+  postJson<AdminUser>(`${BASE}/users/${id}/job-limit`, { jobs_per_day: jobsPerDay }, f)
+
 /** One person's signed-in devices, most recently used first. */
 export const listUserDevices = (id: number, f?: Fetch) =>
   getJson<{ devices: AdminDevice[] }>(`${BASE}/users/${id}/devices`, f)

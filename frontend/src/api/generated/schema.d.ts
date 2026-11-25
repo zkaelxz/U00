@@ -141,6 +141,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}/job-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or clear a member's own daily limit on the jobs they start */
+        post: operations["set_user_job_limit_api_admin_users__user_id__job_limit_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/ollama-key": {
         parameters: {
             query?: never;
@@ -13582,6 +13599,8 @@ export interface components {
             active_sessions: number;
             /** Created At */
             created_at: string | null;
+            /** Daily Job Limit */
+            daily_job_limit: number | null;
             /**
              * Display Name
              * @default
@@ -13604,6 +13623,11 @@ export interface components {
             is_admin: boolean;
             /** Is Self */
             is_self: boolean;
+            /**
+             * Jobs Today
+             * @default 0
+             */
+            jobs_today: number;
             /** Last Seen At */
             last_seen_at: number | null;
             /**
@@ -23946,6 +23970,14 @@ export interface components {
         MediaUrlDownloadStarted: {
             /** Job Id */
             job_id: string;
+        };
+        /**
+         * MemberJobLimitRequest
+         * @description A member's own limit on the background jobs they start in a day; null clears it.
+         */
+        MemberJobLimitRequest: {
+            /** Jobs Per Day */
+            jobs_per_day: number | null;
         };
         /** MemberKeyRemoved */
         MemberKeyRemoved: {
@@ -34870,6 +34902,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdminDisplayNameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_job_limit_api_admin_users__user_id__job_limit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberJobLimitRequest"];
             };
         };
         responses: {

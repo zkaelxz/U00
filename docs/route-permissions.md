@@ -15,6 +15,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/admin/users/{user_id}/devices` | admin.users.read |
 | `POST /api/admin/users/{user_id}/devices/{session_id}/revoke` | admin.users |
 | `POST /api/admin/users/{user_id}/display-name` | admin.users |
+| `POST /api/admin/users/{user_id}/job-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
 | `POST /api/admin/users/{user_id}/paid-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
