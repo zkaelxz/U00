@@ -1,4 +1,4 @@
-"""Schemas for Diagnostics > "Quality" (GET /api/diagnostics/quality): the newest release check result, each score against its baseline. Numbers, fixed words and booleans only."""
+"""Schemas for Benchmark Lab "Quality" (GET /api/diagnostics/quality): the newest release check result, each score against its baseline. Numbers, fixed words and booleans only."""
 
 from typing import List, Literal, Optional
 
