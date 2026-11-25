@@ -176,10 +176,10 @@ class TestTextOnlyModel:
                                           vad_parameters={"threshold": 0.5, "min_silence_duration_ms": 2000})
         segs = list(segments)
         assert info.duration == 40.0
-        # The 20 s span is capped at 15 s, so four spans in batches of two.
+        # The 20 s span is capped at 15 s, so four spans in one batch.
         assert [round(s.start, 1) for s in segs][:2] == [1.0, 5.0]
         assert all(s.end - s.start <= text_only_whisper.SPAN_CAP_S for s in segs)
-        assert len(segs) == 4 and model.batches == [2, 2]
+        assert len(segs) == 4 and model.batches == [4]
         assert all(s.words is None for s in segs)
 
     def test_without_the_detector_it_hears_fixed_windows(self):

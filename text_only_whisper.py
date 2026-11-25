@@ -25,9 +25,9 @@ SPAN_CAP_S = 15.0
 SPAN_PAD_MS = 200
 # With the detector off, back-to-back windows of Whisper's own length.
 WINDOW_S = 30.0
-# Spans decoded together. Batch 8 peaked at 15 GB of VRAM on the V100 through the pipeline;
-# 2 keeps the model near large-v3's footprint so it can run beside Live.
-BATCH_SIZE = 2
+# Spans decoded together. On the V100 Thai test, batches of 1, 2 and 4 wrote the same text and
+# 4 peaked at 4.0 GB of torch memory (72 s for 600 s); batch 8 through the pipeline took 15 GB.
+BATCH_SIZE = 4
 # A 15 s span holds well under this many tokens of Thai; a decode that reaches it is looping.
 MAX_NEW_TOKENS = 220
 # Files the model loads, all inert data. The repo also holds training logs and
