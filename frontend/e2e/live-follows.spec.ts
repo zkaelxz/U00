@@ -147,11 +147,11 @@ test('the bell link opens Live with that channel picked', async ({ page }) => {
   await page.route('**/api/notifications', (route) => route.fulfill({ json: { items: [
     { id: 2, at: Date.now() / 1000, kind: 'live', text: 'Channel 4 is live now', follow_id: 4, action: 'start_live', starts_at: null, target: { page: 'live', follow_id: 4, drama_id: null, series_id: null } },
   ] } }))
-  await page.goto('/#/jobs')
+  // Opened from Live itself: the route changes under the mounted page, which then picks the channel.
+  const live = await openLive(page)
   await page.getByRole('button', { name: /Alerts/ }).click()
   await page.getByRole('link', { name: 'Open' }).click()
   await expect(page).toHaveURL(/#\/live\?follow=4$/)
-  const live = page.getByRole('region', { name: 'Live' })
   await expect(live.getByTestId('live-now-card')).toHaveAttribute('data-picked', 'true')
   // The picked channel's row is open, the other stays folded.
   await live.getByText('Followed channels').click()
