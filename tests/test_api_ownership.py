@@ -68,6 +68,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
     "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
     "user_id": "a user account, not an owned item (admin.users only)",
+    "bookmark_id": "a Watch bookmark: the route is under {drama_id} (guarded), and the service scopes it to the "
+                   "title and the caller's own account (404 otherwise)",
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
     "device_token_id": "an extension device token: the own route scopes it to the caller's "
