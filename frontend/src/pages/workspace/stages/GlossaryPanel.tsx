@@ -26,6 +26,7 @@ import { InstructionsEditor } from './GlossaryInstructions'
 import { GlossaryRetranslateAction } from './GlossaryRetranslate'
 import { SuggestSpellings } from './GlossarySpellings'
 import { AddressTermsPanel } from './GlossaryAddressTerms'
+import { GlossaryInbox } from './GlossaryInbox'
 import { PossibleNames, SimilarSpellings } from './GlossaryVariants'
 import { NameReportPanel } from './NameReportPanel'
 import { VtuberNames } from './VtuberNames'
@@ -531,6 +532,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
       ))}
       {panel('names', (
         <>
+      <GlossaryInbox onAdded={() => setReloads((n) => n + 1)} />
       <PossibleNames hasSeries={seriesId != null} onCreated={() => setReloads((n) => n + 1)} />
       <AddressTermsPanel onAdded={() => setReloads((n) => n + 1)} />
       {similarFor === null && suggestFor === null && hasTerms && (

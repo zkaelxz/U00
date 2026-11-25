@@ -32,7 +32,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
-                         GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
+                         GlossaryInbox, GlossaryInboxAccept, GlossaryInboxReject, GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
                          NameFixResult,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
                          NameReportCancelRequest, NameReportRunResult, NameReportStatus,
@@ -44,7 +44,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          NovelGlossaryStatus, WordReplacement, WordReplacementDeleteResult,
                          WordReplacementWrite, error_responses)
 from services import (address_terms_service, word_replacement_service, export_service, glossary_name_report_service, glossary_service, name_fix_service,
-                      glossary_spelling_service, glossary_variants_service)
+                      glossary_inbox_service, glossary_spelling_service, glossary_variants_service)
 from lib.errors import ForbiddenError, InvalidInputError
 
 router = APIRouter(prefix="/api/glossary", tags=["glossary"])
@@ -206,6 +206,31 @@ def apply_name_fixes(body: NameFixRequest, drama_id: int = Path(ge=1)):
             responses=error_responses(404))
 def get_name_clusters(drama_id: int = Path(ge=1)):
     return glossary_variants_service.discover_names(drama_id)
+
+
+# lines.read, not library.read: the examples are source line text.
+@router.get("/dramas/{drama_id}/inbox", dependencies=[require_permission("lines.read")],
+            response_model=GlossaryInbox,
+            summary="Names the app found after translate runs, waiting for Add or Ignore",
+            responses=error_responses(404))
+def get_glossary_inbox(drama_id: int = Path(ge=1)):
+    return glossary_inbox_service.get_inbox(drama_id)
+
+
+@router.post("/dramas/{drama_id}/inbox/accept", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryInbox,
+             summary="Add one waiting name to the glossary with the English the user typed",
+             responses=error_responses(404, 409, 422))
+def accept_glossary_inbox(body: GlossaryInboxAccept, drama_id: int = Path(ge=1)):
+    return glossary_inbox_service.accept(drama_id, body.term, body.translation)
+
+
+@router.post("/dramas/{drama_id}/inbox/reject", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryInbox,
+             summary="Ignore one waiting name; it is not offered again for this title",
+             responses=error_responses(404))
+def reject_glossary_inbox(body: GlossaryInboxReject, drama_id: int = Path(ge=1)):
+    return glossary_inbox_service.reject(drama_id, body.term)
 
 
 # --- Name check across all titles -----------------------------------------------------
