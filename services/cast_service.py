@@ -64,10 +64,16 @@ def create_link(principal, drama_id: int) -> dict:
     (the route's path guard) and the copy must exist and be in a format a TV opens."""
     # Visible to the caller in the Guest sense too: the route's path guard asks only that they may edit.
     ownership_service.require_visible(principal, "drama", drama_id)
+    uid = ownership_service.user_id(principal)
+    # Fetches see the title as the member (no admin override): refuse here what could never play.
+    if uid is not None:
+        member = auth_service.member_principal(uid)
+        # None would read as "auth off" to can_see_drama, so an unknown account is refused first.
+        if member is None or not ownership_service.can_see_drama(member, drama_id):
+            raise NotFoundError("Title not found.")
     if status(drama_id)["state"] != READY:
         raise ConflictError("The subtitled copy of this title is not ready to cast.")
     secret = secrets.token_urlsafe(32)
-    uid = ownership_service.user_id(principal)
     now = time.time()
     with _lock:
         _prune(now)
@@ -79,6 +85,12 @@ def create_link(principal, drama_id: int) -> dict:
             raise ConflictError("Too many cast links are open. Try again later.")
         _links[_digest(secret)] = {"drama_id": drama_id, "user_id": uid, "expires": now + LINK_SECONDS}
     return {"path": f"/api/cast/video?k={secret}", "expires_in": LINK_SECONDS}
+
+
+def end_links_for(user_id: int) -> None:
+    with _lock:
+        for key in [k for k, v in _links.items() if v["user_id"] == user_id]:
+            del _links[key]
 
 
 def _may_still(entry: dict) -> bool:

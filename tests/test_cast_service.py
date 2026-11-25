@@ -10,7 +10,7 @@ import db
 from api.api_config import ApiSettings
 from api.server import create_app
 from lib.errors import ConflictError, NotFoundError
-from services import artifact_service, cast_service
+from services import artifact_service, cast_service, ownership_service
 
 
 @pytest.fixture(autouse=True)
@@ -96,11 +96,55 @@ def test_a_link_stops_when_its_account_loses_media_stream_or_is_deactivated(isol
     principal = auth_service.member_principal(uid)
     secret = cast_service.create_link(principal, did)["path"].split("k=")[1]
     assert cast_service.resolve(secret)[2] == uid
-    db.auth_revoke_permission(uid, "media.stream")
+    auth_service.revoke_permission(uid, "media.stream")
     with pytest.raises(NotFoundError):
         cast_service.resolve(secret)
     db.auth_grant_permission(uid, "media.stream")
-    assert cast_service.resolve(secret)
+    with pytest.raises(NotFoundError):     # a re-grant does not revive it
+        cast_service.resolve(secret)
+    secret = cast_service.create_link(principal, did)["path"].split("k=")[1]
     db.auth_update_user(uid, is_active=0)
     with pytest.raises(NotFoundError):
         cast_service.resolve(secret)
+
+
+def test_signing_a_user_out_everywhere_ends_their_links(isolated_db):
+    from services import auth_service
+    uid = db.auth_create_user("tv2@example.com")
+    db.auth_grant_permission(uid, "media.stream")
+    did = _title()
+    secret = cast_service.create_link(auth_service.member_principal(uid), did)["path"].split("k=")[1]
+    assert cast_service.resolve(secret)
+    auth_service.revoke_all_for_user(uid)
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(secret)
+
+
+def test_a_link_cannot_be_made_for_a_title_the_member_view_cannot_see(isolated_db):
+    from services import auth_service
+    uid = db.auth_create_user("tv3@example.com")
+    other = db.auth_create_user("owner@example.com")
+    db.auth_grant_permission(other, "media.stream")
+    did = _title()
+    ownership_service.set_owner(None, "drama", did, other)
+    ownership_service.set_private(None, "drama", did, True)
+    member = auth_service.member_principal(uid)
+    with pytest.raises(NotFoundError):
+        cast_service.create_link(member, did)
+    owner_link = cast_service.create_link(auth_service.member_principal(other), did)["path"].split("k=")[1]
+    assert cast_service.resolve(owner_link)
+    ownership_service.set_private(None, "drama", did, False)
+    assert cast_service.create_link(member, did)
+
+
+def test_the_tv_fetch_counts_against_the_accounts_stream_cap(isolated_db, monkeypatch):
+    from api.routers import media_routes
+    from services import auth_service
+    uid = db.auth_create_user("tv4@example.com")
+    db.auth_grant_permission(uid, "media.stream")
+    did = _title()
+    secret = cast_service.create_link(auth_service.member_principal(uid), did)["path"].split("k=")[1]
+    client = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                        base_url="https://baihe.example.com", raise_server_exceptions=False)
+    monkeypatch.setattr(media_routes, "MAX_STREAMS_PER_USER", 0)
+    assert client.get(f"/api/cast/video?k={secret}").status_code == 429
