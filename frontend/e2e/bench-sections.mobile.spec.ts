@@ -26,8 +26,9 @@ test('headings are 44px tall and nothing scrolls sideways', async ({ page }) => 
   for (const title of SECTIONS) {
     await selectTab(page, title)
     expect(await hitHeight(page.locator('.ui-tab-picker-btn')), `${title} picker`).toBeGreaterThanOrEqual(44)
-    // Quality is a card, not a bench section: its heading is the plain Section toggle.
-    expect(await hitHeight(toggle(page, title)), title).toBeGreaterThanOrEqual(44)
+    // Quality is a plain Section (a details summary), not a bench section with a toggle button.
+    const heading = title === 'Quality' ? page.locator('summary').filter({ hasText: 'Quality' }) : toggle(page, title)
+    expect(await hitHeight(heading), title).toBeGreaterThanOrEqual(44)
     expect(await noSideways(page)).toBeLessThanOrEqual(0)
   }
 })
