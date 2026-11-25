@@ -7,7 +7,6 @@ import time
 
 import pytest
 
-import background_jobs
 from jobs import job_launch
 from services import (live_follow_poller as poller, live_follow_service as svc, live_service,
                       notification_service)

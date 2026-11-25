@@ -282,7 +282,6 @@ def test_viewer_sees_the_session_and_stop_only_leaves(live):
 
 
 def test_session_on_saved_cookies_is_not_joined_by_another_account(live):
-    from lib.errors import ConflictError
     a = _start(url="https://www.youtube.com/watch?v=abcdefghijk", use_saved_cookies=True)
     assert _wait(lambda: "out_dir" in live)
     live_service._sessions[a]["owner_user_id"] = 1

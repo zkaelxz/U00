@@ -35,7 +35,6 @@ import shutil
 import threading
 import time
 
-import background_jobs
 from jobs import job_launch
 import storage
 from services import live_follow_service as follows
@@ -450,7 +449,7 @@ def _gpu_full() -> bool:
 
 def _gate_refusal(engine, model, use_gpu=False) -> str:
     """Why an automatic start may not happen now, else ""."""
-    from services import line_ai_service, live_service, paid_job_service, settings_service
+    from services import line_ai_service, paid_job_service, settings_service
     from lib.errors import ServiceError
     if use_gpu and _gpu_full():
         return "not started: no GPU room right now"
