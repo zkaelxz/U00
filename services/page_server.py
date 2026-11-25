@@ -337,9 +337,30 @@ def _detect_notes(notes, member: bool) -> list:
              else engine_shared.redact_secrets(str(n[1]))] for n in (notes or [])]
 
 
-def _page_source_language(drama, requested):
+def _page_source_language(drama, requested, source_url: str = ""):
+    """The title's language, else the sender's, else the one Quick read's source adapter or
+    memory of the title gives. The phone and the extension send none for Quick read, and a
+    Japanese or Korean page once went to the Chinese reader and a "Chinese manga" prompt."""
+    from services import quick_read_cache
     return ((drama or {}).get("source_language")
-            or (requested or "").strip() or "zh")
+            or (requested or "").strip()
+            or (quick_read_cache.source_language(source_url) if source_url else "")
+            or (quick_read_cache.title_memory(quick_read_cache.title_key(source_url)).get("language")
+                if source_url else "")
+            or "zh")
+
+
+def _learn_page_language(bubbles, language: str, source_url: str) -> str:
+    """The language a guessed page turned out to be written in: kana read by the Chinese reader
+    means Japanese. It is kept for the title, so its next pages go to the right reader."""
+    from services import quick_read_cache
+    from sources.front_door import detect_language
+    found = detect_language("\n".join(b.get("source_text") or "" for b in bubbles))
+    if not source_url or found not in ("ja", "ko", "zh") or found == language:
+        return language
+    title = quick_read_cache.title_key(source_url)
+    quick_read_cache.remember_title(title, {**quick_read_cache.title_memory(title), "language": found})
+    return found
 
 
 # Quick read is timed per page, so the extra caption pass runs only on pages with
@@ -422,8 +443,12 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     does not wait for the title's previous page (page_turns.translate_in_chain)."""
     import db
     from scanlate import scanlate_translate
+    from services import quick_read_cache
     engine = _build_engine(config)
     turn.keep(bubbles)
+    language = _page_source_language(drama, language, source_url)
+    if not (in_order or drama or quick_read_cache.source_language(source_url)):
+        language = _learn_page_language(bubbles, language, source_url)
     if not bubbles:
         return 0.0
     if engine is None:
@@ -437,14 +462,26 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     extras = _page_extras(drama, config, engine, image, bubbles, language, glossary,
                           reread=not in_order)
     extras["previous_lines"] = turn.previous_lines()
+    # The prompt names the page's language; a Quick read page has no title to take it from.
+    meta = drama or {"source_language": language or "zh"}
+    title = "" if in_order else quick_read_cache.title_key(source_url)
+    chain_url = title or source_url
+    if title:
+        # Pages read side by side, and the next chapter of the same title, start from the names
+        # and pronouns earlier pages settled; kept on disk as long as Quick read's page cache.
+        page_turns.seed_title_memory(drama_id, chain_url, quick_read_cache.title_memory(title))
     try:
-        page_turns.translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage,
+        page_turns.translate_in_chain(drama_id, chain_url, bubbles, engine, meta, glossary, usage,
                                       wait_for_turn=in_order, **extras)
     except Exception as e:
         # The OCR text is still real and still useful, so it is returned rather than thrown
         # away -- the same choice the Scanlate pipeline makes on this failure.
         notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                  "the source text below was still read"])
+    if title:
+        learned = page_turns.title_memory(drama_id, chain_url)
+        if learned["names"] or learned["cast"]:
+            quick_read_cache.remember_title(title, {**quick_read_cache.title_memory(title), **learned})
     missing = _lines_without_english(bubbles)
     if missing:
         from applog import get_logger
@@ -453,7 +490,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                           len(missing), len(bubbles))
         try:
             scanlate_translate.translate_page_bubbles(
-                missing, engine, drama or {}, previous_context="", glossary_terms=glossary,
+                missing, engine, meta, previous_context="", glossary_terms=glossary,
                 usage_cb=usage, character_notes=extras.get("character_notes", ""),
                 previous_lines=extras["previous_lines"])
         except Exception:
@@ -622,7 +659,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     notes.append(["warning", "no drama chosen, so this page was not saved"])
 
             if reuse_saved is None and busy is None:
-                lang = _page_source_language(drama, source_language)
+                lang = _page_source_language(drama, source_language, source_url)
                 ocr_backend = config.get("ocr_backend") or None
                 read_started = time.monotonic()
                 bubbles, detect_notes = scanlate.detect_and_ocr_page(

@@ -44,18 +44,36 @@ _FLOW_NOTE = (" Write the English a skilled comic letterer would: short, natural
               "word-for-word gloss. Keep every name, detail, description and nuance: "
               "rephrase freely so it reads smoothly, but add nothing, drop nothing and "
               "keep each sentence's meaning. Keep each reply short enough for a speech "
-              "bubble, and spell each name one way.")
+              "bubble, and spell each name one way. Neighbouring regions are often one "
+              "sentence split across bubbles: translate them as that sentence, broken at "
+              "the same point, so each bubble reads on from the one before.")
+
+# Kae found comic English flattened into generic modern speech: a senpai became "my senior",
+# a wuxia sect elder spoke like an office manager.
+_TONE_NOTE = (" Keep the source's flavour: follow the glossary's forms of address, and where it "
+              "has none keep an honorific or term of address romanised (-san, -nim, senpai, "
+              "oppa, shixiong) rather than dropping or anglicising it; keep cultural terms, and "
+              "match the genre's voice (wuxia, xianxia, fantasy, romance, school) instead of "
+              "plain modern English.")
+# The picture call used to have no pronoun rule at all, and a girl drawn on the page could
+# still come out "he" when the source dropped the subject.
+_SEEN_NOTE = (" The source often drops who is meant: decide he or she from the art, the cast "
+              "list and the context; when none of them shows it, use the name or \"they\".")
 
 
 # A chapter read page by page, several pages at once, spelled one name three ways; the names
 # each answer reports are kept for the chapter and sent with its later pages.
 _MAX_CHAPTER_NAMES = 60
+# Where a reply's "cast" map rides in the names dict; no name written on a page has this form.
+CAST_KEY = "\0cast"
 _MAX_NAME_CHARS = 40
 
 
 def _answer_format(collect_names: bool) -> str:
     names = (', "names": {"<a person, place or group name exactly as written on this page>": '
-             '"<its English spelling>", ...}' if collect_names else "")
+             '"<its English spelling>", ...}, "cast": {"<English name of a character on this '
+             'page>": "she" or "he", only where the page or the context shows it}'
+             if collect_names else "")
     return ('Return ONLY a JSON object: {"translations": {"<id>": "<English text>", ...}, '
             '"context_summary": "1-2 sentence summary of what just happened, to carry into the '
             f'next page"{names}}}. Use every id exactly once, as given. No preamble, no markdown fences.')
@@ -67,6 +85,48 @@ def chapter_names_block(names: dict | None) -> str:
         return ""
     return ("Names already used on earlier pages of this chapter; spell them exactly the same: "
             + "; ".join(f"{source} → {english}" for source, english in names.items()))
+
+
+# Pronouns are settled by a majority of the pages that reported them, so one misread page
+# cannot flip a character; the cap bounds what one title keeps.
+_MAX_CAST = 60
+_PRONOUNS = {"she": "she", "her": "she", "female": "she", "he": "he", "him": "he", "male": "he"}
+
+
+def cast_block(cast: dict | None) -> str:
+    """The prompt section for characters whose pronouns earlier pages settled; "" for none."""
+    settled = settled_pronouns(cast)
+    if not settled:
+        return ""
+    return ("Characters of this title and their pronouns, from earlier pages; use them unless "
+            "this page clearly shows otherwise: "
+            + "; ".join(f"{name}: {pronoun}" for name, pronoun in settled.items()))
+
+
+def settled_pronouns(cast: dict | None) -> dict:
+    """{English name: "she"/"he"} for each character whose votes are not tied."""
+    out = {}
+    for name, votes in (cast or {}).items():
+        she, he = int(votes.get("she", 0)), int(votes.get("he", 0))
+        if she != he:
+            out[name] = "she" if she > he else "he"
+    return out
+
+
+def _keep_cast(found: dict, cast: dict, known_english) -> None:
+    """Adds this answer's pronoun votes to `cast`. Only a name the page's own translation or the
+    title's known names use counts, so a description ("the girl") never becomes a character."""
+    known = "\n".join(known_english)
+    for name, pronoun in found.items():
+        if not (isinstance(name, str) and isinstance(pronoun, str)):
+            continue
+        name, pronoun = name.strip(), _PRONOUNS.get(pronoun.strip().lower())
+        if not (name and pronoun and len(name) <= _MAX_NAME_CHARS and name in known):
+            continue
+        if name not in cast and len(cast) >= _MAX_CAST:
+            continue
+        votes = cast.setdefault(name, {})
+        votes[pronoun] = int(votes.get(pronoun, 0)) + 1
 
 
 def _keep_chapter_names(found: dict, chapter_names: dict, source_texts) -> None:
@@ -174,7 +234,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id." + _NAMES_NOTE + _BLIND_NOTE + _FLOW_NOTE + ocr_note
+        "order; each has an id." + _NAMES_NOTE + _BLIND_NOTE + _FLOW_NOTE + _TONE_NOTE + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         + _answer_format(names_out is not None)
     )
@@ -186,7 +246,8 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
 def _matched_answer(text, ids: list, previous_context: str, names_out: dict | None = None):
     """({id: translation}, new_context) from an engine's reply, or (None,
     previous_context) unless it names exactly the ids sent, each with a string.
-    `names_out` receives the reply's "names" map of an applied answer, unchecked."""
+    `names_out` receives the reply's "names" map of an applied answer, unchecked, and its
+    "cast" map under CAST_KEY."""
     import re
     from engine_backends.line_text import extract_first_json_value
     if not text:
@@ -206,6 +267,8 @@ def _matched_answer(text, ids: list, previous_context: str, names_out: dict | No
                    if isinstance(summary, str) and summary.strip() else previous_context)
     if names_out is not None and isinstance(data.get("names"), dict):
         names_out.update(data["names"])
+    if names_out is not None and isinstance(data.get("cast"), dict):
+        names_out.setdefault(CAST_KEY, {}).update(data["cast"])
     return got, new_context
 
 
@@ -303,7 +366,7 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
         "(tone, sound effects, who 'you' is). Translate only the listed regions, one answer per id; "
         "a site watermark, logo or address strip is not dialogue: answer \"\" (an empty string) for "
         "it, never a note about it, because your answer is typeset onto the page as written."
-        + _NAMES_NOTE + _FLOW_NOTE + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
+        + _NAMES_NOTE + _SEEN_NOTE + _FLOW_NOTE + _TONE_NOTE + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         + _answer_format(names_out is not None))
     max_tokens = min(max(1500, 200 * len(ids)), _MAX_TOKENS_PER_CALL)
     text, usage = ask_about_image(engine, prompt, image, mime, max_tokens=max_tokens)
@@ -327,7 +390,7 @@ def previous_page_block(lines) -> str:
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None, character_notes: str = "",
                            page_image: dict | None = None, previous_lines=None,
-                           chapter_names: dict | None = None) -> str:
+                           chapter_names: dict | None = None, cast: dict | None = None) -> str:
     """Translates a page's bubbles from their CURRENT source_text -- so an
     OCR mistake fixed by hand in the review step is what
     reaches the translation call, not the raw OCR output. Skipped regions
@@ -350,7 +413,9 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     so a picture can only add to the translation.
 
     `chapter_names` ({source spelling: English}) is sent as names to keep and gets the names
-    this page's answer reports, so the next page of the chapter spells them the same."""
+    this page's answer reports, so the next page of the chapter spells them the same. `cast`
+    ({English name: {"she": votes, "he": votes}}) is sent as the characters' pronouns and gets
+    this page's votes; it is only collected alongside `chapter_names`."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
@@ -360,7 +425,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     # already places after the glossary.
     character_notes = "\n\n".join(
         part for part in (character_notes, previous_page_block(previous_lines),
-                          chapter_names_block(chapter_names)) if part)
+                          chapter_names_block(chapter_names), cast_block(cast)) if part)
     found_names = {} if chapter_names is not None else None
     # Each region goes out under an explicit key and is applied through a
     # key -> region map (translate_regions_by_id): a short, reordered or
@@ -395,8 +460,11 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
             previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
             character_notes=character_notes, names_out=found_names)
+    found_cast = (found_names or {}).pop(CAST_KEY, None)
     if found_names and chapter_names is not None:
         _keep_chapter_names(found_names, chapter_names, (b["source_text"] for b in eligible))
+    if found_cast and cast is not None and result is not None:
+        _keep_cast(found_cast, cast, [*result.values(), *(chapter_names or {}).values()])
     if result is None:
         raise ValueError("The translation service's answer couldn't be matched to the bubbles "
                          "by id (unreadable, short, padded or with unknown ids) -- not applied, "
