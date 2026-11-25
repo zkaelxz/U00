@@ -9,10 +9,7 @@ const REFRESH_MS = 10_000
 export function useRunningSessions(watching: string | undefined, everyone: boolean) {
   const [running, setRunning] = useState<LiveSessionSummary[]>([])
   useEffect(() => {
-    if (!watching) {
-      setRunning([])
-      return
-    }
+    if (!watching) return
     let alive = true
     const read = () => listLive(everyone).then((list) => {
       if (alive) setRunning(list.filter((s) => isActive(s.status)))
@@ -24,7 +21,8 @@ export function useRunningSessions(watching: string | undefined, everyone: boole
       clearInterval(t)
     }
   }, [watching, everyone])
-  return running
+  // Nothing is watched: whatever was read before is stale, so it is not shown.
+  return watching ? running : []
 }
 
 const SITES: Record<string, string> = { youtube: 'YouTube', 'twitch-channel': 'Twitch', 'twitch-video': 'Twitch' }
