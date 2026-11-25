@@ -43,9 +43,9 @@ class TestRegistry:
         assert wm.whisper_model_fits_language(KEY, language) is allowed
         assert (wm.whisper_model_language_problem(KEY, language) is None) is allowed
 
-    def test_the_picker_payload_carries_the_reason_for_chinese_and_korean(self):
+    def test_the_picker_payload_carries_the_reason_for_every_other_language(self):
         payload = wm.whisper_language_exclusions()[KEY]
-        assert set(payload) == {"zh", "ko"} and "Japanese" in payload["zh"]
+        assert set(payload) == {"zh", "ko", "id", "th"} and "Japanese" in payload["zh"]
 
     def test_the_server_accepts_it_for_a_japanese_title_only(self, isolated_db):
         ja = isolated_db.create_drama(title_en="ja", source_language="ja")
@@ -70,9 +70,9 @@ class TestRegistry:
         with pytest.raises(InvalidInputError):
             compare_transcription_service._validate_candidate(zh, KEY, "whisper")
 
-    def test_only_kotoba_lacks_word_timestamps(self):
+    def test_only_kotoba_and_the_text_only_models_lack_word_timestamps(self):
         assert not wm.supports_word_timestamps(KEY)
-        for other in set(wm.WHISPER_MODELS) - {KEY}:
+        for other in set(wm.WHISPER_MODELS) - {KEY} - set(wm.TEXT_ONLY_REPOS):
             assert wm.supports_word_timestamps(other)
 
 

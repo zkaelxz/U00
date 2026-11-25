@@ -10,7 +10,7 @@ once with the title's source language.
 import re
 
 from sensitivity_preset import decode_kwargs
-from core import LANGUAGE_NAMES, LINE_LANGUAGES
+from core import CJK_LANGUAGES, LANGUAGE_NAMES, LINE_LANGUAGES
 from whisper_transcribe import WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS
 from whisper_hallucination import filter_hallucinated_segments
 from whisper_models import forget_gpu_model, is_gpu_error, load_whisper_model, supports_word_timestamps
@@ -26,6 +26,7 @@ _SCRIPTS = {
     "kana": re.compile(r"[぀-ヿㇰ-ㇿｦ-ﾟ]"),
     "han": re.compile(r"[㐀-䶿一-鿿豈-﫿]"),
     "latin": re.compile(r"[A-Za-zÀ-ɏ]"),
+    "thai": re.compile(r"[\u0e00-\u0e7f]"),
 }
 # Han and Latin are allowed everywhere: names, loanwords and quoted English
 # are normal inside Korean and Japanese speech.
@@ -34,6 +35,8 @@ _EXPECTED_SCRIPTS = {
     "ja": ("kana", "han", "latin"),
     "zh": ("han", "latin"),
     "en": ("latin",),
+    "id": ("latin",),
+    "th": ("thai", "latin"),
 }
 # Share of letters outside the expected scripts above which the text is taken
 # to be in another language (or hallucinated Cyrillic and the like).
@@ -41,7 +44,7 @@ _DISAGREE_SHARE = 0.5
 
 # Qwen3-ASR names the language it heard in English. The one place its names
 # and this app's codes are paired.
-QWEN_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
+QWEN_LANGUAGE_NAMES = {**{c: LANGUAGE_NAMES[c] for c in CJK_LANGUAGES}, "en": "English"}
 _QWEN_NAME_TO_CODE = {name.lower(): code for code, name in QWEN_LANGUAGE_NAMES.items()}
 # What a run_span returns for a language it heard but the app doesn't allow
 # (Qwen3-ASR knows 30), so the span is retried instead of kept as it came.
@@ -111,10 +114,18 @@ def transcribe_spans(spans, source_language, run_span, retry_span, cancel_check=
     return out
 
 
-def pick_allowed_language(probabilities, fallback):
+def detectable_languages(source_language) -> frozenset:
+    """The codes a span may be detected as. Indonesian and Thai count only on a title
+    in that language: offering them to every Chinese, Japanese or Korean title would
+    let a misheard span switch language where it never could before."""
+    return frozenset(CJK_LANGUAGES) | {"en"} | ({source_language} if source_language in LINE_LANGUAGES else set())
+
+
+def pick_allowed_language(probabilities, fallback, allowed=None):
     """The most probable code in `probabilities` ((code, probability) pairs)
-    that is a LINE_LANGUAGES code; `fallback` when none is."""
-    best = max(((p, c) for c, p in probabilities or [] if c in LINE_LANGUAGES),
+    that is in `allowed` (detectable_languages(fallback) when None); `fallback` when none is."""
+    allowed = detectable_languages(fallback) if allowed is None else allowed
+    best = max(((p, c) for c, p in probabilities or [] if c in allowed),
                default=None)
     return best[1] if best else fallback
 

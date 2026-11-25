@@ -11,15 +11,19 @@ from lib.atomic_write import atomic_write  # noqa: F401 -- re-exported: callers 
 from segment_splitting import words_for_text
 
 
-# The source languages the app handles, and the full names LLM and aligner
-# prompts use for them. Callers fall back to "Chinese" for anything else.
-SOURCE_LANGUAGES = ("zh", "ja", "ko")
-LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+# The source languages the app handles, and the full names LLM prompts use for
+# them. Callers fall back to "Chinese" for anything else.
+SOURCE_LANGUAGES = ("zh", "ja", "ko", "id", "th")
+LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "id": "Indonesian", "th": "Thai"}
+# The languages the Qwen3 speech models, the forced aligner and the word segmenters
+# were built and tested for. Indonesian and Thai were added for Whisper only: the
+# Qwen3 forced aligner lists neither, and no Baihe test covers Qwen3-ASR on them.
+CJK_LANGUAGES = ("zh", "ja", "ko")
 # What one line's spoken language (Line.lang) may be: a title can mix
 # speakers of several languages, English among them.
 LINE_LANGUAGES = SOURCE_LANGUAGES + ("en",)
 # The three-letter (ISO 639-2) tags media containers and Jellyfin read.
-ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor"}
+ISO_639_2 = {"en": "eng", "zh": "chi", "ja": "jpn", "ko": "kor", "id": "ind", "th": "tha"}
 
 
 # The per-line columns db.save_lines writes. `idx` is the line's current

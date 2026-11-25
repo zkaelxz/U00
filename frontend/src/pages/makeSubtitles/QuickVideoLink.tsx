@@ -19,7 +19,7 @@ import { useHolds } from '../../hooks/useHolds'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { routeHref } from '../../router'
 import type { QuickVideoRun, QuickVideoSettings } from '../../types/quickVideo'
-import { foundForLink, linkCanRun, NO_CAP_PLAN, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
+import { foundForLink, linkCanRun, previewRows, NO_CAP_PLAN, NO_PROFILE_PLAN, planForLink, type LinkProbeState } from './addBoxModel'
 import { settingText } from './makeSubtitlesFlow'
 import { canDeleteWatched, runText, visibleRuns } from './quickVideoRuns'
 
@@ -86,6 +86,13 @@ export function QuickVideoLinkPlan({ url, onStarted, onOnlyAdd, onClear }: {
             : plan === NO_CAP_PLAN ? <a href={routeHref({ name: 'settings', card: 'spending' })}>{plan}</a> : plan}
         </p>
       </div>
+      {canRun && profile && (
+        <dl className="add-box-preview" data-testid="add-preview">
+          {previewRows(probeShown, summary).map((r) => (
+            <div key={r.label}><dt>{r.label}</dt><dd>{r.value}</dd></div>
+          ))}
+        </dl>
+      )}
       {canRun && (
         <div className="make-subtitles-go">
           <button

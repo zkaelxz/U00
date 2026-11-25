@@ -8,8 +8,8 @@ functions are called, so there is one pipeline), with the caller's rights:
 a title is sent into only when the member can edit it, the title list shows
 only what they can see, the monthly spending cap applies, and the only URLs
 fetched are the picture addresses of a no-save Quick read (`fetch_url`), public
-hosts only (services/quick_read_fetch.py), plus the video link of `/video`, which the PC's
-yt-dlp downloads for Quick video translate (public hosts only, never the saved logins). The PC's own extension keeps using
+hosts only (services/quick_read_fetch.py), plus the video link of `/video` and the stream link of `/live`, which the PC's
+yt-dlp downloads or captures for Quick video translate (public hosts only, never the saved logins). The PC's own extension keeps using
 the loopback bridge with the shared token.
 
 Answers keep the bridge's `{"error": text}` shape so the extension reads
@@ -26,16 +26,17 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from services import page_server
-from api.auth import holds, require_device_token, require_engines_allowed
+from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
 from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import quick_video_service, translate_run_service
+from services import (live_service, model_readiness_service, quick_video_service,
+                      sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
 from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
-                        ServiceError)
+                        RateLimitedError, ServiceError, UnsupportedOperationError)
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])
@@ -250,6 +251,24 @@ async def post_report(request: Request):
         payload, principal=principal), needs=("library.read",))
 
 
+@router.post("/follow", dependencies=[require_device_token()],
+             summary="Device token: watch the series of a Grab page for new chapters")
+async def post_follow(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _follow(payload, principal), needs=("sources.import",))
+
+
+def _follow(payload: dict, principal) -> dict:
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise page_server.EndpointError(400, "url is required")
+    try:
+        return sources_tracking_service.follow_from_page(url, principal=principal)
+    except ServiceError as e:
+        status = 422 if isinstance(e, InvalidInputError) else 404 if isinstance(e, NotFoundError) else 409
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
+
+
 @router.post("/cancel", dependencies=[require_device_token()],
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):
@@ -257,7 +276,8 @@ async def post_cancel(request: Request):
 
 
 _VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),
-                 (DependencyUnavailableError, 503))
+                 (DependencyUnavailableError, 503), (UnsupportedOperationError, 400),
+                 (RateLimitedError, 429))
 _VIDEO_NEEDS = ("media.import_url", "jobs.start")
 
 
@@ -284,3 +304,43 @@ async def post_video(request: Request):
     holds_paid = holds(request, "engines.paid")
     return await _handle(request, lambda payload: _send_video(payload, principal, holds_paid),
                          needs=_VIDEO_NEEDS)
+
+
+def _start_live(request: Request, payload: dict, principal) -> dict:
+    """Starts Live on a stream page's link with the PC's own defaults: the form's language
+    default Whisper model and chunking, the engine a member may use, no delayed player and
+    no saved logins, as for any other device."""
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise page_server.EndpointError(400, "url is required")
+    options = live_service.form_options()
+    language = payload.get("source_language") or options["defaults"]["source_language"]
+    if not isinstance(language, str):
+        raise page_server.EndpointError(422, "source_language must be a language code")
+    whisper_size = options["language_whisper_defaults"].get(language) or options["defaults"]["whisper_size"]
+    chunk = live_service.LANGUAGE_CHUNK_DEFAULTS.get(language, {})
+    engine, model = engine_for_caller(request, None, live_service.LIVE_DEFAULT_ENGINE, None)
+    require_engines_allowed(request, engine, model=model)
+    require_cloud_model_allowed(request, (engine, model))
+    try:
+        model_readiness_service.require_ready(False, model_readiness_service.for_whisper_size, whisper_size)
+        started = live_service.start_session(
+            url.strip(), source_language=language, whisper_size=whisper_size,
+            segment_seconds=chunk.get("segment_seconds", options["defaults"]["segment_seconds"]),
+            overlap_seconds=chunk.get("overlap_seconds", options["defaults"]["overlap_seconds"]),
+            engine=engine, model=model, use_gpu=live_service.gpu_available(),
+            use_saved_cookies=False, principal=principal)
+    except ForbiddenError:
+        raise
+    except ServiceError as e:
+        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
+    return {"session_id": started["session_id"], "joined": bool(started.get("joined"))}
+
+
+@router.post("/live", dependencies=[require_device_token()],
+             summary="Device token: start Live captions on a stream page's link")
+async def post_live(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _start_live(request, payload, principal),
+                         needs=("media.import_url",))

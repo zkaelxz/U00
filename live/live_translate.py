@@ -73,6 +73,7 @@ import re
 import subprocess
 import threading
 import time
+import unicodedata
 from typing import Any
 
 import background_jobs
@@ -498,6 +499,9 @@ def force_cut_cjk(seg: dict) -> list:
             continue
         turns = [i for i in range(lo, hi + 1) if _script(text[i - 1]) != _script(text[i])]
         at = min(turns, key=lambda i: abs(i - even)) if turns else min(max(even, lo), hi)
+        # A Thai vowel or tone mark belongs to the letter before it.
+        while at < len(text) and unicodedata.category(text[at]) == "Mn":
+            at += 1
         cuts.append(at)
         last = at
     bounds = [0, *cuts, len(text)]
@@ -512,7 +516,7 @@ def force_cut_cjk(seg: dict) -> list:
 
 
 # One short everyday word per source language for the translator warm-up.
-_WARM_UP_TEXT = {"zh": "好的", "ja": "はい", "ko": "네"}
+_WARM_UP_TEXT = {"zh": "好的", "ja": "はい", "ko": "네", "id": "ya", "th": "ครับ"}
 
 # A few seconds: long enough to re-hear a word or short phrase cut at a
 # chunk boundary, short enough that the extra audio re-transcribed per

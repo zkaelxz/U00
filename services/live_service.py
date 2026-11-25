@@ -277,11 +277,19 @@ def _gb(mb: float) -> str:
     return f"{max(mb, 0) / 1024:.1f} GB"
 
 
+def gpu_available() -> bool:
+    """Whether an NVIDIA GPU is present, for a start that picks its own GPU setting."""
+    try:
+        return diagnostics_torch.nvidia_driver_info() is not None
+    except Exception:
+        return False
+
+
 def _language_whisper_defaults() -> dict:
     """Models the form starts on instead of its default for a language, so a stream in that
     language needs no change. Only models already on this PC: Live never starts a big download
-    on its own. Japanese (whisper-ja) and Korean (large-v3) get theirs only where an NVIDIA GPU
-    is present, since neither keeps up with a stream on a CPU."""
+    on its own. Japanese (whisper-ja), Korean and Indonesian (large-v3) and Thai (Thonburian) get
+    theirs only where an NVIDIA GPU is present, since none keeps up with a stream on a CPU."""
     out = {}
     if whisper_models.is_whisper_model_cached(whisper_models.BREEZE_KEY):
         out["zh"] = whisper_models.BREEZE_KEY
@@ -290,7 +298,8 @@ def _language_whisper_defaults() -> dict:
     except Exception:
         has_gpu = False
     if has_gpu:
-        for language, model in (("ja", "ja-1.5b"), ("ko", "large-v3")):
+        for language, model in (("ja", "ja-1.5b"), ("ko", "large-v3"), ("id", "large-v3"),
+                                ("th", whisper_models.THONBURIAN_KEY)):
             if whisper_models.is_whisper_model_cached(model):
                 out[language] = model
     return out

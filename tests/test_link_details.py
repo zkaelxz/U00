@@ -144,6 +144,7 @@ def test_video_link_probe_reads_metadata_only_and_returns_no_link(client, env):
     assert (body["kind"], body["title"], body["channel"], body["release_date"], body["is_live"]) \
         == ("video", "配信 #12", "Some Channel", "2026-03-01", False)
     assert body["series_suggestion"] == "Some Channel"
+    assert body["duration_seconds"] == 3600
     assert body["display_url"] == "https://www.youtube.com/watch"
     for leaked in (SECRET, "abcdefghijk", "secret", "manifest", "i.example", "127.0.0.1"):
         assert leaked not in r.text

@@ -54,7 +54,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
         "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "bge_m3": False, "lama_manga": False, "nemotron_diarization": False, "pyannote_diarization": False,
         "whisper_large_v3": False, "whisper_large_v3_turbo": False, "whisper_ja_1_5b": False,
         "whisper_kotoba_v2": False, "whisper_medium": False, "whisper_anime": False,
-        "whisper_breeze_asr_25": False}
+        "whisper_breeze_asr_25": False, "whisper_thonburian": False}
     assert body["models"][0]["job_id"] == "model_download_qwen3_asr"
 
 

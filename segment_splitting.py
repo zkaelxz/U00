@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from dataclasses import dataclass
 from typing import NamedTuple, Optional
 
@@ -19,10 +20,13 @@ SPLIT_MAX_CJK_CHARS = 40
 
 _SENTENCE_END_RE = re.compile(r"(?:[。！？!?…]+|\.+(?=\s|$))[\"'”’」』）)\]]*\s*")
 _CLAUSE_END_RE = re.compile(r"[,，、;；:：]+[\"'”’」』）)\]]*\s*")
-_CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯]")
+# Thai counts with CJK: it writes no spaces between words, so a line's length is
+# its letters, and the spaces it does write mark phrase ends. Its vowel and tone
+# marks sit above or below a letter and take no width, so only the letters count.
+_CJK_RE = re.compile(r"[぀-ヿ㐀-鿿가-힯\u0e01-\u0e30\u0e32\u0e33\u0e3f-\u0e46\u0e4f-\u0e5b]")
 # Only a space run touching CJK on at least one side is a phrase break; a space
 # between two Latin/digit tokens ("Q&A NG") stays inside its piece.
-_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯])")
+_CJK_SPACE_RE = re.compile(r"(?<=[぀-ヿ㐀-鿿가-힯\u0e00-\u0e7f])\s+|\s+(?=[぀-ヿ㐀-鿿가-힯\u0e00-\u0e7f])")
 
 
 # Pieces under either floor are folded into a neighbour when SplitRules is in use:
@@ -325,6 +329,16 @@ class _WordIndex:
                 pos += 1
             if not text.startswith(token, pos):
                 return None
+            if kept and pos == ce[-1] and unicodedata.category(token[0]) == "Mn":
+                # Whisper splits Thai (and other unspaced scripts) on byte-valid
+                # tokens, so a "word" can begin with a vowel or tone mark. A cut
+                # before it would leave that mark at the start of a line, on no letter.
+                kept[-1] = {**kept[-1], "word": str(kept[-1]["word"]) + token, "end": max(end, te[-1])}
+                pos += len(token)
+                ce[-1] = pos
+                te[-1] = max(end, te[-1])
+                cjk[-1] += len(_CJK_RE.findall(token))
+                continue
             kept.append(w)
             cs.append(pos)
             pos += len(token)

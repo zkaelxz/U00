@@ -34,6 +34,8 @@ final class BaiheClient {
     volatile UploadStats stats;
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
     volatile String fetchUserAgent;
+    /** Quick read only: read the pages again even when the PC remembers them (a "Redo this page"). */
+    volatile boolean redo;
     /** Quick read only: the page's language when its text showed it ("" lets the PC decide). */
     volatile String sourceLanguage = "";
 
@@ -136,6 +138,24 @@ final class BaiheClient {
     long sendVideo(String link) throws BridgeException {
         try {
             return call("POST", "/video", new JSONObject().put("url", link)).optLong("drama_id", 0);
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Asks the PC to watch this page's series for new chapters; returns the series title. */
+    String follow(String pageUrl) throws BridgeException {
+        try {
+            return call("POST", "/follow", new JSONObject().put("url", pageUrl)).optString("title", "");
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Starts Live captions on a stream page's link, in the stream's spoken language (zh, ja or ko). */
+    void startLive(String link, String language) throws BridgeException {
+        try {
+            call("POST", "/live", new JSONObject().put("url", link).put("source_language", language));
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
@@ -289,6 +309,7 @@ final class BaiheClient {
             body.put("typeset", true);
             if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
+            if (redo) body.put("redo", true);
         }
         return body;
     }

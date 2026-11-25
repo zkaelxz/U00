@@ -215,6 +215,12 @@ def _load_sudachi() -> Any:
     return _sudachi_tokenizer
 
 
+# Korean and Indonesian write spaces between words. Thai writes them between phrases
+# only, which is still the safest break without a Thai word segmenter installed;
+# jieba would cut Thai into single letters.
+_SPACE_SPLIT_LANGUAGES = ("ko", "id", "th")
+
+
 @_per_chunk
 def segment_words(text: str, language: str, chinese_script: str = "simplified"):
     """Just the words, in order, with no reading annotation -- for callers
@@ -223,7 +229,7 @@ def segment_words(text: str, language: str, chinese_script: str = "simplified"):
     exactly `text` for zh/ja. Korean is space-delimited already, so its
     words are simply the space-separated runs (spaces kept as their own
     items) -- no kiwipiepy needed for that."""
-    if language == "ko":
+    if language in _SPACE_SPLIT_LANGUAGES:
         return [w for w in re.split(r"(\s+)", text) if w]
     if language == "ja":
         sudachi = _load_sudachi()
@@ -289,6 +295,8 @@ def segment_ko(text: str):
 
 
 def segment_and_annotate(text: str, language: str, chinese_script: str = "simplified"):
+    if language in ("id", "th"):
+        return [(w, None) for w in segment_words(text, language)]
     if language == "ja":
         return segment_ja(text)
     if language == "ko":

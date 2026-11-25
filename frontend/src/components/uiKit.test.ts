@@ -85,7 +85,7 @@ describe('labels', () => {
 
   it('falls back to a tidy label and handles empty values', () => {
     expect(humanize('mediaType', 'brand_new_type')).toBe('Brand new type')
-    expect(humanize('language', 'th')).toBe('Th')
+    expect(humanize('language', 'vi')).toBe('Vi')
     expect(humanize('status', null)).toBe('')
     expect(humanize('status', undefined)).toBe('')
     expect(tidy('  NOT--started ')).toBe('Not started')
