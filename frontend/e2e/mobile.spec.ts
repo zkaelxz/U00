@@ -37,7 +37,7 @@ test('Library: cards, title opens the workspace', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toBeVisible()
   await expect(page.locator('.drama-grid')).toBeVisible()
-  await checkScreen(page, ['.drama-grid .drama-card', '.drama-card-foot .btn', '.library-page .btn-primary', '.continue-item .btn'])
+  await checkScreen(page, ['.drama-grid .drama-card', '.drama-card-foot .btn', '.phone-bar a', '.continue-item .btn'])
   await page.getByRole('region', { name: 'Titles' }).getByRole('link', { name: 'Signal', exact: true }).click()
   // No stage in the link: the workspace opens the drama's current stage
   // (Source for the seeded drama, which has no lines).
@@ -86,8 +86,8 @@ test('Library at 360px: no sideways scroll; Add, New title and Details open with
   await page.getByRole('button', { name: 'Filters' }).click()
   await expectTall(page, '.segmented label')
   await page.getByRole('button', { name: 'Close' }).click()
-  // A phone's Library has no Add box: its Add opens the Add page, whose "Add a title by hand" comes back with New title open.
-  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).click()
+  // A phone's Library has no Add box: the bar's Find & Add opens its page, whose "Add a title by hand" comes back with New title open.
+  await page.getByRole('navigation', { name: 'Quick' }).getByRole('link', { name: 'Find & Add', exact: true }).click()
   await expect(page).toHaveURL(/#\/make-subtitles$/)
   await expectNoSidewaysScroll(page)
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
