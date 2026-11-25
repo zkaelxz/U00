@@ -601,8 +601,8 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None):
     return live_translate.TermHints(hints, names)
 
 
-def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 10,
-                  overlap_seconds: float = live_translate.DEFAULT_OVERLAP_SECONDS,
+def start_session(url, source_language="zh", whisper_size="small", segment_seconds: float = 6,
+                  overlap_seconds: float = 1.5,
                   engine: Optional[str] = None, model: Optional[str] = None,
                   max_minutes: Optional[float] = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,

@@ -363,7 +363,7 @@ export default function LivePage() {
                   onChange={(e) => setOpt('segment_seconds', e.target.valueAsNumber)} />
               </Field>
               <Field label="Overlap" unit="s" help="Re-hears this much of the previous chunk so a sentence cut at a boundary is heard whole. 0 turns it off; at most half the chunk.">
-                <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={1} value={numValue(form.overlap_seconds)} disabled={active || busy}
+                <input type="number" min={opts.overlap_range[0]} max={opts.overlap_range[1]} step={0.5} value={numValue(form.overlap_seconds)} disabled={active || busy}
                   onChange={(e) => setOpt('overlap_seconds', e.target.valueAsNumber)} />
               </Field>
               <Field label="Stop after" unit="min" help="A hard cap on how long the session runs (and spends). Leave it blank to caption until the stream ends; the spend limit still applies.">
