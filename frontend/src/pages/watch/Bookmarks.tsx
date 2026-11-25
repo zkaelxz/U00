@@ -1,5 +1,5 @@
 /** The Watch page's bookmarks: one tap saves the moment being played, with a note you may add or change; a tap on one plays from there. */
-import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 import { ApiError } from '../../api/client'
 import { readerApi } from '../../api/reader'
@@ -8,6 +8,13 @@ import { formatClock } from '../../labels'
 import type { WatchBookmark } from '../../types/reader'
 
 const FAILED = 'The bookmark could not be saved. Try again in a moment.'
+// Long enough to notice a slip and tap Undo, short enough that the line does not linger.
+const UNDO_MS = 8000
+
+/** The list with `saved` placed in time order, ties by id. */
+export function withBookmark(all: WatchBookmark[], saved: WatchBookmark): WatchBookmark[] {
+  return [...all, saved].sort((a, b) => a.at_seconds - b.at_seconds || a.id - b.id)
+}
 
 export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   dramaId: number
@@ -18,6 +25,15 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   const [items, setItems] = useState<WatchBookmark[]>([])
   const [status, setStatus] = useState('')
   const [editing, setEditing] = useState<{ id: number; draft: string } | null>(null)
+  // Delete is one tap, so the last deleted bookmark (with its note) can be put back for a few seconds.
+  const [deleted, setDeleted] = useState<WatchBookmark | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const clearUndo = useCallback(() => {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    undoTimer.current = null
+    setDeleted(null)
+  }, [])
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -39,7 +55,7 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   const add = () => run(async () => {
     const at = mediaRef.current?.currentTime ?? 0
     const saved = await readerApi.addBookmark(dramaId, at)
-    setItems((all) => [...all, saved].sort((a, b) => a.at_seconds - b.at_seconds || a.id - b.id))
+    setItems((all) => withBookmark(all, saved))
     setStatus(`Bookmarked ${formatClock(saved.at_seconds)}.`)
   })
 
@@ -49,10 +65,21 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
     setEditing(null)
   })
 
-  const remove = (id: number) => run(async () => {
-    await readerApi.deleteBookmark(dramaId, id)
-    setItems((all) => all.filter((b) => b.id !== id))
+  const remove = (b: WatchBookmark) => run(async () => {
+    await readerApi.deleteBookmark(dramaId, b.id)
+    setItems((all) => all.filter((x) => x.id !== b.id))
     setEditing(null)
+    clearUndo()
+    setDeleted(b)
+    undoTimer.current = setTimeout(clearUndo, UNDO_MS)
+  })
+
+  const undoDelete = () => run(async () => {
+    if (!deleted) return
+    const saved = await readerApi.addBookmark(dramaId, deleted.at_seconds, deleted.note)
+    setItems((all) => withBookmark(all, saved))
+    clearUndo()
+    setStatus(`Bookmark at ${formatClock(saved.at_seconds)} restored.`)
   })
 
   if (!canEdit && items.length === 0) return null
@@ -62,7 +89,10 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
         <h2 className="card-title" id="watch-bookmarks-title">Bookmarks</h2>
         {canEdit && <button type="button" className={buttonClass()} onClick={() => void add()}>Bookmark this moment</button>}
       </header>
-      {status && <p className="watch-now-status" role="status">{status}</p>}
+      <p className="watch-now-status" role="status">
+        {deleted ? `Bookmark at ${formatClock(deleted.at_seconds)} deleted. ` : status}
+        {deleted && <button type="button" className={buttonClass()} onClick={() => void undoDelete()}>Undo</button>}
+      </p>
       {items.length === 0 ? (
         <p className="muted">Nothing saved yet. Each account sees only its own.</p>
       ) : (
@@ -75,7 +105,7 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
               {canEdit && editing?.id !== b.id && (
                 <span className="watch-bookmark-actions">
                   <button type="button" className={buttonClass()} onClick={() => setEditing({ id: b.id, draft: b.note })}>Note</button>
-                  <button type="button" className={buttonClass()} aria-label={`Delete the bookmark at ${formatClock(b.at_seconds)}`} onClick={() => void remove(b.id)}>Delete</button>
+                  <button type="button" className={buttonClass()} aria-label={`Delete the bookmark at ${formatClock(b.at_seconds)}`} onClick={() => void remove(b)}>Delete</button>
                 </span>
               )}
               {editing?.id === b.id && (
