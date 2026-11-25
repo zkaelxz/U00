@@ -86,3 +86,10 @@
   .live-watch[data-running] .live-video { grid-area: video; align-self: start; }
   .live-watch[data-running] .live-feed { grid-area: feed; }
 }
+
+/* The phone app floats the picture in a small window (picture-in-picture): the picture and its captions
+   fill it and everything else steps aside. Fixed on the card itself, so no other part of the page matters. */
+html.shell-pip .live-video { position: fixed; inset: 0; z-index: 2147483000; padding: 0; margin: 0; gap: 0; border: 0; border-radius: 0; background: black; }
+html.shell-pip .live-video > :not(.live-video-frame) { display: none; }
+html.shell-pip .live-video-frame { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+html.shell-pip body { overflow: hidden; }
