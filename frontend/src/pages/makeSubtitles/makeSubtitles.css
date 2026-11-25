@@ -18,7 +18,7 @@
 .add-box > * { margin: 0; }
 .add-box.is-dragging { border-style: dashed; border-color: var(--accent); }
 .add-box-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.add-box-row input[type="url"] { flex: 1 1 14rem; min-width: 0; min-height: 44px; }
+.add-box-row input:not([type="file"]) { flex: 1 1 14rem; min-width: 0; min-height: 44px; }
 .add-box-row .btn { min-height: 44px; }
 .add-box-found { display: grid; gap: var(--space-1); overflow-wrap: anywhere; }
 .add-box-found p, .add-box-quiet p { margin: 0; }

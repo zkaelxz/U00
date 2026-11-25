@@ -1,4 +1,4 @@
-/** The Add box: the one place to start a title, from a pasted link, a chosen or dropped file, or by hand. */
+/** The Find & Add box: the one place to find or start a title, from a name, a pasted link, a chosen or dropped file, or by hand. */
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { buttonClass } from '../../components/uiClasses'
@@ -6,7 +6,8 @@ import { useHolds } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
 import { MAX_URL_LEN } from '../libraryForm'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
-import { handOff, linkTaker, type FileRunRequest, type NewTitleStart } from './addBoxModel'
+import { handOff, linkFrom, linkTaker, type FileRunRequest, type NewTitleStart } from './addBoxModel'
+import { FindResults, type FindRequest } from './FindResults'
 import { FilePlan, FileRunNotice, FileRunStatus } from './MakeSubtitles'
 import { useFileRun } from './useFileRun'
 import { QuickVideoLinkPlan, QuickVideoRuns } from './QuickVideoLink'
@@ -39,14 +40,21 @@ export function AddBox({ place, onNewTitle, request = null }: {
   const taker = useMemo(() => linkTaker(setLink), [])
   useEffect(() => taker.cancel, [taker])
   const pasted = useRef(false)
+  // A name typed on the page is searched in Sources; the Library's box only takes links.
+  const [find, setFind] = useState<FindRequest | null>(null)
 
   const clearLink = () => {
     setText('')
     taker.clear()
   }
+  const submit = () => {
+    if (onPage && text.trim() && !linkFrom(text)) setFind((f) => ({ query: text.trim(), n: (f?.n ?? 0) + 1 }))
+    else taker.now(text)
+  }
   const pickFile = (f: File | null | undefined) => {
     if (!f) return
     clearLink()
+    setFind(null)
     run.setFile(f)
   }
   // Back to the empty box. The remembered language, translator and English variant stay as they were.
@@ -87,16 +95,18 @@ export function AddBox({ place, onNewTitle, request = null }: {
         {run.showingRun ? <FileRunStatus run={run} /> : (
           <>
             {!link && <FileRunNotice run={run} />}
-            <h2 className="card-title">Add something to translate</h2>
+            <h2 className="card-title">{onPage ? 'What do you want to add?' : 'Add something to translate'}</h2>
             <div className="add-box-row">
-              <label htmlFor={ADD_LINK_ID} className="visually-hidden">Paste a link</label>
+              <label htmlFor={ADD_LINK_ID} className="visually-hidden">{onPage ? 'A name, or a link' : 'Paste a link'}</label>
               <input
                 id={ADD_LINK_ID}
-                type="url"
-                inputMode="url"
+                type={onPage ? 'text' : 'url'}
+                inputMode={onPage ? undefined : 'url'}
+                enterKeyHint={onPage ? 'search' : undefined}
+                autoComplete={onPage ? 'off' : undefined}
                 value={text}
                 maxLength={MAX_URL_LEN}
-                placeholder="Paste a link"
+                placeholder={onPage ? 'A name, or a link' : 'Paste a link'}
                 onPaste={() => { pasted.current = true }}
                 onChange={(e) => {
                   setText(e.target.value)
@@ -105,14 +115,16 @@ export function AddBox({ place, onNewTitle, request = null }: {
                   pasted.current = false
                 }}
                 // Enter while an input method is composing only confirms the characters.
-                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); taker.now(text) } }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }}
               />
+              {onPage && <button type="button" className={buttonClass('primary')} disabled={!text.trim()} onClick={submit}>Search</button>}
               <button type="button" className={buttonClass('secondary')} title="Or drop an audio or video file on this box" onClick={chooseFile}>
                 Choose a file
               </button>
               <input ref={fileInput} type="file" className="visually-hidden" tabIndex={-1} aria-label="Audio or video file"
                 accept={UPLOAD_EXTENSIONS.join(',')} onChange={(e) => pickFile(e.target.files?.[0])} />
             </div>
+            {onPage && !link && !run.file && <p className="muted">A name searches your comic and novel sites. A link to a video or a page is read and added.</p>}
             {link ? (
               <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={canCreate ? () => newTitle({ link }) : undefined} onClear={clearLink} />
             ) : run.file || run.flow.phase === 'error' ? (
@@ -127,6 +139,7 @@ export function AddBox({ place, onNewTitle, request = null }: {
           </>
         )}
       </section>
+      {onPage && !link && !run.file && !run.showingRun && <FindResults request={find} />}
       {onPage && <QuickVideoRuns refreshKey={runsKey} />}
     </>
   )
