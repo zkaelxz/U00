@@ -151,6 +151,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
 
             @Override
+            public android.webkit.WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                if (!AdHosts.blocks(request.getUrl().getHost())) return null;
+                return new android.webkit.WebResourceResponse("text/plain", "utf-8",
+                        new java.io.ByteArrayInputStream(new byte[0]));
+            }
+
+            @Override
             public void onPageFinished(WebView view, String url) {
                 // The next chapter has loaded; the delay lets its reader start drawing pages.
                 if (!loadingNext) return;
