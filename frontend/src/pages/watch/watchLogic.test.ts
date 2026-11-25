@@ -4,7 +4,7 @@ import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
-  checkStep, linesToCheck,
+  checkStep, freshServerPlace, linesToCheck, newerPlace,
   attentionIndex, clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
   lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
   quietSkip, QUIET_LEAD_S, resumePoint, rowMeta, saveFix, SPEAKER_COLOURS, speakerSlots, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
@@ -470,5 +470,27 @@ describe('quietSkip', () => {
 
   it('has nothing to skip to after the last line', () => {
     expect(quietSkip(spoken, 70)).toBeNull()
+  })
+})
+
+describe('newerPlace', () => {
+  it("takes the account's place from another device only when it is newer than this browser's", () => {
+    expect(newerPlace({ seconds: 100, at: 2000 }, { seconds: 4360, at: 3000 })).toBe(4360)
+    expect(newerPlace({ seconds: 100, at: 4000 }, { seconds: 4360, at: 3000 })).toBe(100)
+    expect(newerPlace({ seconds: 100, at: 4000 }, null)).toBe(100)
+    expect(newerPlace({ seconds: 100, at: 4000 }, { seconds: 0, at: null })).toBe(100)
+  })
+  it('keeps a place saved before times were kept, and takes the server when this browser has none', () => {
+    expect(newerPlace({ seconds: 100, at: null }, { seconds: 4360, at: 3000 })).toBe(100)
+    expect(newerPlace({ seconds: 0, at: null }, { seconds: 4360, at: null })).toBe(4360)
+  })
+})
+
+describe('freshServerPlace', () => {
+  it('drops the account place this browser already sent or heard, whatever its time says', () => {
+    expect(freshServerPlace({ seconds: 300, at: 9000 }, 300)).toBeNull()
+    expect(freshServerPlace({ seconds: 300, at: 9000 }, 120)).toEqual({ seconds: 300, at: 9000 })
+    expect(freshServerPlace({ seconds: 300, at: 9000 }, null)).toEqual({ seconds: 300, at: 9000 })
+    expect(freshServerPlace(null, 300)).toBeNull()
   })
 })

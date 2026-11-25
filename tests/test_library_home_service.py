@@ -113,3 +113,12 @@ def test_a_started_title_comes_first_on_ready_with_its_length(isolated_db, monke
     ready = home.get_home()["ready"]
     assert _ids(ready)[0] == older and set(_ids(ready)) == {older, newer}
     assert ready[0]["length_seconds"] == 1.0 and ready[0]["read_percent"] == 40.0
+
+
+def test_a_ready_title_carries_where_this_account_stopped_watching(isolated_db, monkeypatch):
+    _queue(monkeypatch, [])
+    did = _title("Stream")
+    db.save_progress(did, audio_position_seconds=42.5, record_history=False, user_id=7)
+    mine = home.get_home({"user_id": 7})["ready"][0]
+    assert mine["watched_seconds"] == 42.5 and mine["watched_at"]
+    assert home.get_home(None)["ready"][0]["watched_seconds"] == 0.0
