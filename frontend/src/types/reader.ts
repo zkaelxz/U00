@@ -30,6 +30,8 @@ export type ReaderProgress = Schemas['ReaderProgress']
 
 export type ReaderNotes = Schemas['ReaderNotes']
 
+export type WatchBookmark = Schemas['WatchBookmark']
+
 export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 
 export type ReaderMediaAvailability = Schemas['ReaderMediaAvailability']

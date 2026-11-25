@@ -43,6 +43,7 @@ import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
@@ -304,6 +305,7 @@ export default function WatchPage({ id }: { id: number }) {
           <div className="watch-card-actions"><ButtonLink variant="primary" href={readHref(drama)}>Open the Reader</ButtonLink></div>
         </section>
       ) : drama && (
+        <>
         <div className="watch-layout">
           <div className="watch-main">
             {media === undefined || mediaError ? null : original ? (
@@ -422,6 +424,9 @@ export default function WatchPage({ id }: { id: number }) {
             {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
           </div>
         </div>
+        {/* Under both columns: a card that appears or changes above the lines would move them (and the page) under the person. */}
+        {original && <Bookmarks dramaId={id} mediaRef={mediaRef} canEdit={canEdit} onPlay={playFrom} />}
+        </>
       )}
     </PageShell>
   )
