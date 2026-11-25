@@ -119,6 +119,18 @@ class TestChapters:
         assert [c.chapter_id for c in chapters] == ["5", "10", "20", "30", "999"]
         assert chapters[2].title == "Ep 20"
 
+    def test_list_rows_use_their_title_span_and_the_hero_link_takes_its_json_title(self):
+        row = ('<a href="/comics/12/chapters/30" data-chapter-id="30" class="chapter-item">'
+               '<span><span class="truncate">99화</span><span>UP</span></span>'
+               '<span><span>2026.11.20</span><span>0</span></span></a>')
+        page = _series_page([], '<div data-chapters-url="/comics/12/chapters"></div>'
+                            '<a href="/comics/12/chapters/5" class="bg-brand">첫 화 보기</a>'
+                            f'<div data-chapter-list>{row}</div>').replace(
+            '<a href="/comics/12/chapters/999">elsewhere?</a>', "")
+        a, _ = _adapter({f"{BASE}/comics/12": html(page),
+                         f"{BASE}/comics/12/chapters?page=2": html(_chapters_json([(5, "프롤로그")], False))})
+        assert [(c.chapter_id, c.title) for c in a.get_chapters("12")] == [("5", "프롤로그"), ("30", "99화")]
+
     def test_a_277_chapter_series_is_listed_whole_in_reading_order(self):
         # 20 on the series page plus 13 JSON pages (the last holds 17); newest first, as the site lists them.
         ids = list(range(277, 0, -1))
