@@ -163,6 +163,35 @@ public class MainActivity extends Activity {
         return root;
     }
 
+    /** The clipboard can only be read while this window has focus (Android 10+). */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || customView != null || savedAddress() == null) return;
+        String link = ClipboardOffer.pending(this);
+        if (link != null) offerClipboardLink(link);
+    }
+
+    private void offerClipboardLink(String link) {
+        String address = savedAddress();
+        if (address == null || isFinishing() || isDestroyed()) return;
+        boolean video = LinkKind.of(link) == LinkKind.Kind.VIDEO;
+        new AlertDialog.Builder(this)
+                .setTitle(video ? "Subtitle this?" : "Read this?")
+                .setMessage(LinkKind.host(link))
+                .setPositiveButton(video ? "Subtitle" : "Quick read", (d, w) -> {
+                    if (video) {
+                        web.loadUrl(ShareLink.pageFor(address, link));
+                    } else {
+                        startActivity(new Intent(this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, link));
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
