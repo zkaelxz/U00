@@ -244,7 +244,7 @@ async def post_capture_summary(request: Request):
 async def post_report(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_page_report(
-        payload, principal=principal))
+        payload, principal=principal), needs=("library.read",))
 
 
 @router.post("/cancel", dependencies=[require_device_token()],

@@ -24,7 +24,7 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import ownership_service, quick_read_cache, quick_read_fetch
+from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch
 from lib.errors import ServiceError
 
 
@@ -316,21 +316,26 @@ def record_capture_summary(payload, principal=None) -> dict:
     return {"logged": True}
 
 
+_page_report_limiter = auth_service.SlidingWindowRateLimiter(10, 600)
+
+
 def record_page_report(payload, principal=None) -> dict:
     """POST /report: a Quick read page the reader marked wrong, saved with the other reports
-    on the PC. A member's reports are capped per person; the owner's are not."""
-    from lib.errors import ConflictError, InvalidInputError
+    on the PC. A device token always names a user, so every report counts against that user's
+    cap, and sending is limited to 10 per 10 minutes."""
+    from lib.errors import ConflictError, InvalidInputError, RateLimitedError
     from services import bug_report_service
-    reporter = None
-    if principal is not None:
-        user_id = principal.get("user_id") if isinstance(principal, dict) else None
-        reporter = f"user:{user_id}" if user_id is not None else "device"
+    user_id = principal.get("user_id") if isinstance(principal, dict) else None
+    reporter = f"user:{user_id}" if user_id is not None else "device"
     try:
+        _page_report_limiter.hit(reporter)
         saved = bug_report_service.create_page_report(payload, reporter=reporter)
     except InvalidInputError as e:
         raise page_server.EndpointError(400, e.message) from None
     except ConflictError as e:
         raise page_server.EndpointError(409, e.message) from None
+    except RateLimitedError as e:
+        raise page_server.EndpointError(429, e.message) from None
     return {"id": saved["id"]}
 
 

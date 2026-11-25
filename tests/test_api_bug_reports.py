@@ -502,3 +502,28 @@ def test_page_reports_count_against_a_members_cap(fakes):
     with pytest.raises(ConflictError):
         svc.create_page_report(_page_payload(), reporter="user:7")
     svc.create_page_report(_page_payload(), reporter="user:8")
+
+
+def test_page_report_addresses_lose_signed_paths_and_markdown_breakers(fakes):
+    saved = svc.create_page_report(_page_payload(
+        image_url="https://cdn.example.com/priv/AbCdEfGhIjKlMnOpQrStUv123456/05.jpg",
+        page_url="https://example.com/ch3#k=secret", chapter="Ch`3\r| x",
+        regions=[{"source_text": "a\r|b`c", "translated_text": "d"}]))
+    text = svc.get_report(saved["id"])["markdown"]
+    assert "AbCdEfGh" not in text and "k=secret" not in text and "\r" not in text
+    assert "`c" not in text.split("## Quick read page", 1)[1].split("Text regions")[1]
+
+
+def test_page_report_refuses_a_png_sent_as_a_jpeg(fakes):
+    import base64
+    from lib.errors import InvalidInputError
+    with pytest.raises(InvalidInputError):
+        svc.create_page_report(_page_payload(image="data:image/jpeg;base64," + base64.b64encode(_png()).decode()))
+
+
+def test_remote_page_reports_stop_before_the_owners_room_runs_out(fakes, monkeypatch):
+    from lib.errors import ConflictError
+    monkeypatch.setattr(svc, "MAX_REMOTE_TOTAL_BYTES", 1)
+    svc.create_page_report(_page_payload())          # the PC owner's own report still saves
+    with pytest.raises(ConflictError):
+        svc.create_page_report(_page_payload(), reporter="user:7")

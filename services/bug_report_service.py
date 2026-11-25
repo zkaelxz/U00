@@ -34,6 +34,7 @@ import threading
 
 import db
 import diagnostics_report
+from engine_backends.shared import display_url
 from lib.atomic_write import atomic_write
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from lib.no_window import NO_WINDOW
@@ -42,6 +43,8 @@ DIR_NAME = "bug_reports"
 MAX_REPORTS = 100
 MAX_REPORTS_PER_USER = 10
 MAX_TOTAL_BYTES = 250 * 1024 * 1024
+# Remote members stop here, so page pictures they send can never fill the folder the PC owner needs.
+MAX_REMOTE_TOTAL_BYTES = 150 * 1024 * 1024
 MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 MAX_JSON_BYTES = 256 * 1024
 LOG_TAIL_LINES = 40
@@ -283,7 +286,9 @@ def _fence(text: str) -> str:
 
 
 def _cell(text) -> str:
-    return str(text if text is not None else "").replace("|", "\\|").replace("\n", " ")
+    # A lone CR ends a table row and a backtick closes a code span in CommonMark.
+    return (str(text if text is not None else "").replace("|", "\\|").replace("\n", " ")
+            .replace("\r", " ").replace("`", "'"))
 
 
 def build_markdown(report: dict, include_server: bool = True) -> str:
@@ -427,8 +432,10 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
         # The cap is checked before any of the server-side work below runs.
         existing = _folders()
         root = _reports_dir()
-        if existing and _folder_bytes(root) + len(shot or b"") + sum(
-                len(t) for t in (extra_files or {}).values()) > MAX_TOTAL_BYTES:
+        extra_bytes = len(extra_markdown.encode("utf-8")) + sum(
+            len(t.encode("utf-8")) for t in (extra_files or {}).values())
+        limit = MAX_TOTAL_BYTES if reporter is None else MAX_REMOTE_TOTAL_BYTES
+        if existing and _folder_bytes(root) + len(shot or b"") + extra_bytes > limit:
             raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
         if reporter is not None:
             remote = _remote_reporters(existing)
@@ -567,15 +574,21 @@ def create_page_report(payload: dict, reporter: str | None = None) -> dict:
     image = payload.get("image")
     if not isinstance(image, str) or not image.startswith(_PAGE_IMAGE_PREFIX):
         raise InvalidInputError("A page report needs the page picture.")
+    # Checked before decoding, so an oversized body never allocates its decoded copy.
+    if len(image) - len(_PAGE_IMAGE_PREFIX) > (MAX_PAGE_IMAGE_BYTES * 4) // 3 + 4:
+        raise InvalidInputError("The page picture is empty or larger than 4 MB.")
     try:
         jpeg = base64.b64decode(image[len(_PAGE_IMAGE_PREFIX):], validate=True)
     except ValueError:
         raise InvalidInputError("The page picture could not be read.") from None
     if not jpeg or len(jpeg) > MAX_PAGE_IMAGE_BYTES:
         raise InvalidInputError("The page picture is empty or larger than 4 MB.")
+    if not jpeg.startswith(b"\xff\xd8\xff"):
+        raise InvalidInputError("The page picture must be a JPEG.")
     note = _scrub(payload.get("note"), 1000).strip()
-    page_url = _scrub_route(payload.get("page_url"), 300)
-    image_url = _scrub_route(payload.get("image_url"), 300)
+    # display_url, not _scrub_route: a signed address in the path is dropped, not just a query.
+    page_url = _scrub(display_url(str(payload.get("page_url") or "")[:2000]), 300)
+    image_url = _scrub(display_url(str(payload.get("image_url") or "")[:2000]), 300)
     chapter = _scrub(payload.get("chapter"), 200).strip()
     regions = [_page_region(r) for r in (payload.get("regions") or [])[:MAX_PAGE_REGIONS]
                if isinstance(r, dict)]
@@ -596,7 +609,7 @@ def create_page_report(payload: dict, reporter: str | None = None) -> dict:
                   for i, r in enumerate(regions)]
         lines.append("")
     if notes:
-        lines += ["### Notes from the PC\n"] + [f"- {_cell(n)}" for n in notes] + [""]
+        lines += ["### Notes the phone passed on\n"] + [f"- {_cell(n)}" for n in notes] + [""]
     return create_report(
         {"what_happened": "Quick read page report: " + (note or "(no note)"),
          "route": page_url, "include_server_log": False},
