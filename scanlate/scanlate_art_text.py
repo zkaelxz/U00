@@ -23,6 +23,12 @@ _NEUTRAL_INK_SATURATION = 50   # below this channel spread, ink is black or grey
 _NEUTRAL_INK_SHARE = 0.4       # the share of neutral ink from which the lettering counts as neutral
 _TAG_SATURATION = 100          # decoration this colourful is kept when the lettering is neutral
 _MASK_GROW = 27                # covers the glow around the letters
+# A ground whose median gray is below this but not dark (a dim wall, an overcast sky) can carry
+# lettering darker and lighter than itself in one title; only the dark part was erased, and
+# white or pale-grey words stayed under the English.
+_MID_GROUND_MAX_GRAY = 200
+_MID_GROUND_LIGHT_INK_LIFT = 50
+_HAIRLINE_PX = 5               # strokes thinner than this are rays and rules, not lettering
 # Stroke thickness over line height from which lettering counts as bold. CJK
 # print strokes run about 0.07-0.08 of the glyph height, heavy weights 0.12+.
 _BOLD_STROKE_RATIO = 0.10
@@ -69,6 +75,7 @@ def group_lines(lines: list) -> list:
                            "lines": [line]})
     return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
              "source_text": "".join(l["text"] for l in g["lines"]),
+             "line_boxes": [{k: l[k] for k in ("x", "y", "w", "h")} for l in g["lines"]],
              # The weakest line decides: one misread line makes the caption worth a second look.
              "ocr_confidence": min((l["conf"] for l in g["lines"] if "conf" in l), default=None)}
             for g in groups]
@@ -178,12 +185,45 @@ def caption_mask(page, box: dict):
         # counted as ink and was painted out with the title.
         if ink.any() and float((saturation[ink] < _NEUTRAL_INK_SATURATION).mean()) >= _NEUTRAL_INK_SHARE:
             ink &= saturation <= _TAG_SATURATION
+        median = float(np.median(gray[_inside(gray.shape, box, x0, y0)]))
+        if median < _MID_GROUND_MAX_GRAY:
+            ink |= gray > median + _MID_GROUND_LIGHT_INK_LIFT
+            ink = _without_marks_leaving(ink, (x0 > 0, y0 > 0, x1 < pw, y1 < ph))
     mask = np.zeros((ph, pw), np.uint8)
     inner = (ink & _inside(gray.shape, box, x0, y0)).astype(np.uint8) * 255
     mask[y0:y1, x0:x1] = cv2.dilate(inner, np.ones((_MASK_GROW, _MASK_GROW), np.uint8))
     for bx0, by0, bx1, by1 in decoration_blocks(page, box):
         mask[by0:by1, bx0:bx1] = 0
     return mask
+
+
+def _without_marks_leaving(ink, open_sides):
+    """`ink` without the marks that reach the edge of the crop on a side where the page goes
+    on (`open_sides`: left, top, right, bottom). The crop is the caption's box plus a margin,
+    so lettering stays inside it, while a window rail or the paper of a narration box beside
+    the title runs on out of it and is art to keep."""
+    import cv2
+    h, w = ink.shape
+    raw = ink.astype(np.uint8)
+    # Marks are told apart without long straight runs (a rail drawn through the lettering)
+    # or hairlines (a light ray crossing it): either joins the letters it touches into one
+    # mark that leaves the crop, and the whole title stayed.
+    runs = (cv2.morphologyEx(raw, cv2.MORPH_OPEN, np.ones((1, max(3, w // 2)), np.uint8))
+            | cv2.morphologyEx(raw, cv2.MORPH_OPEN, np.ones((max(3, h // 2), 1), np.uint8)))
+    solid = cv2.morphologyEx(raw, cv2.MORPH_OPEN, np.ones((_HAIRLINE_PX, _HAIRLINE_PX), np.uint8))
+    solid[cv2.dilate(runs, np.ones((5, 5), np.uint8)) > 0] = 0
+    count, labels = cv2.connectedComponents(solid, connectivity=8)
+    left, top, right, bottom = open_sides
+    leaving = set()
+    for edge, is_open in ((labels[:, 0], left), (labels[0, :], top),
+                          (labels[:, -1], right), (labels[-1, :], bottom)):
+        if is_open:
+            leaving.update(np.unique(edge).tolist())
+    leaving.discard(0)
+    keep_out = runs
+    if leaving:
+        keep_out = keep_out | np.isin(labels, list(leaving)).astype(np.uint8)
+    return ink & (cv2.dilate(keep_out, np.ones((5, 5), np.uint8)) == 0)
 
 
 def _inside(shape, box, x0, y0):

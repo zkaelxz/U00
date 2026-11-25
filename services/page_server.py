@@ -350,10 +350,12 @@ _ART_CAPTION_MAX_REGIONS = 4
 def _reads_art_captions(lang: str, ocr_backend) -> bool:
     """Title logos and banners drawn on the art have no balloon, so without this the
     detector boxes a fragment of them and the rest stays untranslated. Only the
-    OCR backends that read whole-page lines can find them; the others (manga-ocr)
-    would add a failure note to every page."""
+    OCR backends that read whole-page lines can find them; with another (manga-ocr, the
+    Japanese default) the lines come from RapidOCR's page models when they are already on
+    disk, and otherwise the pass would add a failure note to every page."""
     import ocr
-    return (ocr_backend or ocr.auto_ocr_backend(lang)) in ("rapidocr", "paddle")
+    from scanlate.scanlate import caption_line_backend
+    return caption_line_backend(lang, ocr_backend or ocr.auto_ocr_backend(lang)) is not None
 
 
 def _store_page(drama_id: int, data: bytes, ext: str):

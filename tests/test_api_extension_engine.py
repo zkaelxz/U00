@@ -317,5 +317,21 @@ def test_download_says_so_when_the_extension_files_are_missing(env, monkeypatch,
 @pytest.mark.parametrize("language,backend,expected", [
     ("zh", "rapidocr", True), ("ko", "paddle", True), ("ja", "manga_ocr", False)])
 def test_quick_read_looks_for_lettering_on_the_art_only_when_the_ocr_can(
-        language, backend, expected):
+        language, backend, expected, monkeypatch, tmp_path):
+    import ocr
+    monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
     assert page_server._reads_art_captions(language, backend) is expected
+
+
+def test_a_japanese_page_reads_its_titles_with_rapidocr_when_its_models_are_on_disk(
+        monkeypatch, tmp_path):
+    # Balloons are read with manga-ocr, one box at a time, so a title drawn on the art
+    # was never read as a whole and each glyph the detector boxed was translated alone.
+    import ocr
+    from scanlate import scanlate
+    monkeypatch.setattr(ocr, "rapidocr_model_path", lambda spec: str(tmp_path / spec["file"]))
+    for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL):
+        (tmp_path / spec["file"]).write_bytes(b"x")
+    assert page_server._reads_art_captions("ja", "manga_ocr") is True
+    assert scanlate.caption_line_backend("ja", "manga_ocr") == "rapidocr"
+    assert scanlate.caption_line_backend("ko", "manga_ocr") is None
