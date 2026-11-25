@@ -22,6 +22,9 @@ final class GrabBridge {
 
         /** The page held a novel chapter and no comic pages: its text, for a Quick read. */
         void onText(String text);
+
+        /** The language the page's own text and lang attribute point to ("zh", "ja", "ko" or ""). */
+        default void onLanguage(String language) {}
     }
 
     /** Past these the grab stops collecting and sends what it has. */
@@ -75,6 +78,9 @@ final class GrabBridge {
                 if (!title.isEmpty()) titles.add(title.length() > 300 ? title.substring(0, 300) : title);
             }
             JSONArray chapters = info.optJSONArray("chapters");
+            String sample = info.optString("sample", "");
+            listener.onLanguage(NovelText.pageLanguage(info.optString("lang", ""),
+                    sample.length() > 8000 ? sample.substring(0, 8000) : sample));
             listener.onBegin(titles, info.optInt("count", 0),
                     chapters == null ? new JSONArray() : chapters, info.optString("next", ""));
         } catch (Exception e) {

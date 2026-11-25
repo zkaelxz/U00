@@ -31,6 +31,8 @@ export interface NowCardProps {
   markBusy?: boolean
   /** Shown under the marks, for a line marked wrong: the "better wording" box. */
   feedback?: ReactNode
+  /** While the line is one still to check: where it is in the check list and why it is there. */
+  check?: { index: number; total: number; reason: string } | null
   fixButtonRef?: Ref<HTMLButtonElement>
   fieldRef?: Ref<HTMLTextAreaElement>
   /** The card itself takes focus after Save and play, so Space goes to the player rather than to a button. */
@@ -45,7 +47,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
@@ -102,6 +104,19 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
             </form>
           ) : (
             <>
+              {check && (
+                <div className="watch-now-check" data-testid="watch-now-check">
+                  <p><strong>Check {check.index} of {check.total}</strong> · {check.reason}</p>
+                  {canEdit && (
+                    <div className="watch-now-actions">
+                      <button type="button" className={buttonClass('primary')} onClick={onOpen}>Fix the English</button>
+                      {onMark && (
+                        <button type="button" className={buttonClass()} disabled={busy || markBusy || !line.en} onClick={(e) => press(e, () => onMark('good'))}>It's fine</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               <span className="watch-now-label">English</span>
               {canEdit ? (
                 <button

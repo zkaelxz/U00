@@ -26,3 +26,12 @@ export function pickScore(p: BenchmarkPickTotals | null | undefined): number | n
   const total = p.won + p.lost + p.tie
   return total >= PICKS_HEADLINE_MIN ? (p.won + p.tie / 2) / total : null
 }
+
+/** What the Start blind comparison button says after it looked for two runs. */
+export function blindStartText(s: { found: boolean; remaining?: number | null; total?: number | null }): string {
+  if (!s.found) {
+    return 'No two finished runs on the same cases gave different answers yet. Run two models on the same set in the Model Arena first.'
+  }
+  const left = s.remaining ?? 0
+  return `${left} of ${s.total ?? left} cases left to pick.`
+}

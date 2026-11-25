@@ -31,18 +31,18 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
+from api.auth import holds_paid_engines, is_at_pc, local_only, require_engines_allowed, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
-                         DramaSeriesUpdate, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleSettingSources,
+                         DramaSeriesUpdate, NextEpisode, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleLinkLookup, TitleLinkMatches, TitleSettingSources,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
 from services import extension_bridge_service, extension_title_service, page_server
 from services import (series_defaults_service, cover_art_service, drama_service, link_details_service, source_link_service,
-                      title_copy_service, title_restructure_service)
+                      next_episode_service, title_copy_service, title_restructure_service)
 from lib.errors import ForbiddenError, InvalidInputError
 from lib.storage_errors import require_readable
 
@@ -93,6 +93,14 @@ def _with_english_title(request: Request, result: dict) -> dict:
 def post_same_titles(payload: SameTitleQuery, request: Request):
     return SameTitleList(items=drama_service.find_same_titles(
         **payload.model_dump(), principal=request.state.principal))
+
+
+@router.post("/by-links", dependencies=[require_permission("library.read")], response_model=TitleLinkMatches,
+             summary="Which of these source page links already have a title the caller can see (Find & Add results)",
+             responses=error_responses(422))
+def post_titles_by_links(payload: TitleLinkLookup, request: Request):
+    return TitleLinkMatches(title_ids=drama_service.find_titles_by_links(
+        payload.urls, principal=request.state.principal))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,
@@ -248,3 +256,17 @@ def post_restructure(payload: TitleRestructureApplyRequest, request: Request,
         drama_id, payload.target_id, payload.kind, chapter_ids=payload.chapter_ids,
         move_duplicates=payload.move_duplicates, fingerprint=payload.fingerprint,
         confirm=payload.confirm, principal=request.state.principal)
+
+
+@router.get("/{drama_id}/next", dependencies=[require_permission("library.read")], response_model=NextEpisode,
+            summary="The title after this one in its series, and whether it is translated yet",
+            responses=error_responses(404))
+def get_next_episode(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return next_episode_service.get_next(request.state.principal, drama_id)
+
+
+@router.post("/{drama_id}/next/prepare", dependencies=[require_permission("jobs.start")], response_model=NextEpisode,
+             summary="Queue the next title's steps now, as the caller", responses=error_responses(403, 404, 409, 422))
+def post_prepare_next_episode(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return next_episode_service.prepare_next(request.state.principal, drama_id, holds_paid_engines(request),
+                                             at_pc=is_at_pc(request))

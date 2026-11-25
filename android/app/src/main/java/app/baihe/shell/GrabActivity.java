@@ -141,12 +141,55 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
+        // Pinch to zoom out (or in) on the site; without the built-in controls the page cannot be pinched at all.
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
+        // With multiple windows off, a pop-up replaces the page being read; on, onCreateWindow decides.
+        settings.setSupportMultipleWindows(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        AdHosts.setExtra(prefs().getString(KEY_EXTRA_ADS, ""));
+        web.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
+                // A tap on a real link may open a new window; anything a script opens by itself is a pop-up.
+                if (!userGesture || !(resultMsg.obj instanceof WebView.WebViewTransport)) return false;
+                WebView catcher = new WebView(GrabActivity.this);
+                catcher.setWebViewClient(new WebViewClient() {
+                    private boolean handled;
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        take(v, request.getUrl());
+                        return true;
+                    }
+
+                    @Override
+                    public void onPageStarted(WebView v, String url, Bitmap favicon) {
+                        take(v, Uri.parse(url));
+                    }
+
+                    private void take(WebView v, Uri uri) {
+                        if (handled) return;
+                        handled = true;
+                        boolean web = "https".equals(uri.getScheme()) || "http".equals(uri.getScheme());
+                        if (web && !AdHosts.blocks(uri.getHost())) GrabActivity.this.web.loadUrl(uri.toString());
+                        v.stopLoading();
+                        v.post(v::destroy);
+                    }
+                });
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(catcher);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
         web.addJavascriptInterface(bridge, "Baihe");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String scheme = request.getUrl().getScheme();
-                return !"https".equals(scheme) && !"http".equals(scheme);
+                if (!"https".equals(scheme) && !"http".equals(scheme)) return true;
+                // A redirect to an ad network is cut off, so the page stays where it is.
+                return request.isForMainFrame() && AdHosts.blocks(request.getUrl().getHost());
             }
 
             @Override
@@ -207,7 +250,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         chapters.setOnClickListener(v -> toggleChapters());
         quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
         quick.setOnClickListener(v -> {
-            if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
+            if (QuickReadSession.isDetached()) openReader();
+            else if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
             else startGrab(true);
         });
         ImageView more = new ImageView(this);
@@ -266,6 +310,53 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             web.loadUrl(url);
         }
+    }
+
+    private static final String KEY_EXTRA_ADS = "extra_ad_hosts";
+
+    /** Sites the built-in list misses; blocking one stops its pop-ups and its requests from loading. */
+    private void editAdList() {
+        EditText hosts = new EditText(this);
+        hosts.setHint("One site per line, like ads.example.com");
+        hosts.setText(prefs().getString(KEY_EXTRA_ADS, ""));
+        hosts.setMinLines(4);
+        hosts.setGravity(android.view.Gravity.TOP);
+        new AlertDialog.Builder(this)
+                .setTitle("Also block these sites")
+                .setView(hosts)
+                .setPositiveButton("Save", (d, w) -> {
+                    String saved = String.join("\n", AdHosts.parseExtra(hosts.getText().toString()));
+                    prefs().edit().putString(KEY_EXTRA_ADS, saved).apply();
+                    AdHosts.setExtra(saved);
+                    say("Blocking " + AdHosts.parseExtra(saved).size() + " more sites. Reload the page to see it.");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static final int REQUEST_GALLERY = 41;
+
+    private void pickGallery() {
+        Intent pick = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+                .addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(pick, "Pictures to translate"), REQUEST_GALLERY);
+    }
+
+    /** Picked pictures take the same road as ones shared from the gallery, so the title prompt and limits are shared. */
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_GALLERY || result != RESULT_OK || data == null) return;
+        ArrayList<Uri> picked = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) picked.add(data.getClipData().getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            picked.add(data.getData());
+        }
+        if (picked.isEmpty()) return;
+        Intent shared = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/*")
+                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, picked);
+        shareImages(shared);
     }
 
     /** What another app shared: a link opens in the browser, images go straight to Baihe. */
@@ -338,15 +429,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         say("Enter a title name.");
                         return;
                     }
-                    sendShared(uris, title, cut, server, token);
+                    sendShared(uris, title, cut, server, token, false);
                 })
+                // A screenshot of a page to read now: translated and shown, nothing saved, no title needed.
+                .setNeutralButton("Quick read", (d, w) -> sendShared(uris, "", cut, server, token, true))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
+    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token, boolean read) {
         grabbing = true;
         uploading = true;
+        quickRead = read;
+        if (read) {
+            runName = "Shared pictures";
+            runUrl = "";
+            cancelRequested = false;
+        }
         runOnUiThread(() -> {
             grab.setBusy(true);
             quick.setBusy(true);
@@ -373,8 +472,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 finishGrab("Could not read the shared images.");
                 return;
             }
-            upload(new BaiheClient(server, token), "", java.util.Collections.singletonList(title),
-                    null, images, unreadable, truncated);
+            BaiheClient client = new BaiheClient(server, token);
+            if (read) {
+                client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                read(client, "", images, unreadable, truncated);
+                return;
+            }
+            upload(client, "", java.util.Collections.singletonList(title), null, images, unreadable, truncated);
         });
     }
 
@@ -410,22 +514,94 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
+        menu.getMenu().add("Pictures from my gallery");
+        menu.getMenu().add("Ad block list");
+        menu.getMenu().add("Send video to Baihe");
+        menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
+        if (QuickReadSession.isDetached()) menu.getMenu().add("Stop translating");
+        else if (QuickReadSession.hasPages()) menu.getMenu().add("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)");
         menu.getMenu().add("Open Baihe");
         menu.getMenu().add("Settings");
         menu.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
             if ("Translate this page".equals(title)) setTranslate(true);
             else if ("Show original page".equals(title)) setTranslate(false);
+            else if ("Stop translating".equals(title)) cancelGrab();
+            else if (title.startsWith("Open Quick read")) openReader();
             else if ("Settings".equals(title)) showSettings();
+            else if ("Pictures from my gallery".equals(title)) pickGallery();
+            else if ("Ad block list".equals(title)) editAdList();
+            else if ("Send video to Baihe".equals(title)) sendVideo();
+            else if ("Start Live here".equals(title)) askStartLive();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
         menu.show();
+    }
+
+    /**
+     * Sends this page's link to Quick video translate on the PC, which downloads and subtitles it.
+     * Only the link goes: the phone's logins stay here, so a video that needs one will not download.
+     */
+    private void sendVideo() {
+        String link = ServerAddress.videoLink(web.getUrl());
+        if (link.isEmpty()) {
+            say("Open a video page on a public website first.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Sending the video link to Baihe...");
+        sender.execute(() -> {
+            try {
+                new BaiheClient(server, token).sendVideo(link);
+                say("Sent. Baihe is downloading and subtitling it; follow it in Baihe's Jobs.", GrabUi.Kind.OK);
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
+    }
+
+    /** Asks which language the stream speaks, then starts Live captions on it from the PC. */
+    private void askStartLive() {
+        String link = ServerAddress.videoLink(web.getUrl());
+        if (link.isEmpty()) {
+            say("Open a live stream page on a public website first.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        String[] codes = {"zh", "ja", "ko"};
+        new AlertDialog.Builder(this)
+                .setTitle("Start Live: what language is spoken?")
+                .setItems(new String[] {"Chinese", "Japanese", "Korean"}, (d, which) -> {
+                    say("Starting Live...");
+                    sender.execute(() -> {
+                        try {
+                            new BaiheClient(server, token).startLive(link, codes[which]);
+                            say("Live started on the PC. Watch it in Baihe's Live page.", GrabUi.Kind.OK);
+                        } catch (BaiheClient.BridgeException e) {
+                            say(e.getMessage(), GrabUi.Kind.BAD);
+                        }
+                    });
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void setTranslate(boolean on) {
@@ -597,6 +773,25 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     protected void onStart() {
         super.onStart();
         AppUpdate.screenStarted();
+        // The reader is destroyed after this screen is shown again, so it reports being left.
+        QuickReadSession.onDetach(() -> runOnUiThread(this::showReaderLeft));
+        showReaderLeft();
+    }
+
+    /** A reader left mid-grab: the grab shows it is still working, and Quick read opens the reader again. */
+    private void showReaderLeft() {
+        if (!QuickReadSession.isDetached()) return;
+        quick.setDanger(false);
+        quick.setLabel("Open reader", palette.onAccent, R.drawable.ic_quick);
+        say(backgroundLine(QuickReadSession.snapshot().size()), GrabUi.Kind.BUSY);
+    }
+
+    private static String backgroundLine(int ready) {
+        return "Still translating in the background: " + ready + " pages ready. More > Stop translating cancels it.";
+    }
+
+    private void openReader() {
+        startActivity(new Intent(this, QuickReadActivity.class));
     }
 
     @Override
@@ -607,6 +802,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     @Override
     protected void onDestroy() {
+        QuickReadSession.onDetach(null);
         GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
         sender.shutdownNow();
@@ -633,7 +829,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
-        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ");
+        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ")
+                || text.startsWith("Still translating");
         say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
     }
 
@@ -887,6 +1084,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
     private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
+    private volatile String pageLanguage = "";
     private JSONArray pageChapters = new JSONArray();
 
     private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
@@ -900,6 +1098,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageUrl = "";
     private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
+
+    @Override
+    public void onLanguage(String language) {
+        pageLanguage = language;
+    }
 
     @Override
     public void onBegin(List<String> titles, int count, JSONArray chapterLinks, String next) {
@@ -921,6 +1124,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
+        String language = pageLanguage;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -971,6 +1175,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
+            client.sourceLanguage = language;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -1063,6 +1268,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             Object lock = new Object();
             // A page's report text, found again by the very array that shows it.
             java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
+            // The picture as the phone sent it, kept beside the redraw so a tap can show the original art.
+            java.util.Map<byte[], byte[]> originalOf = new java.util.IdentityHashMap<>();
             List<List<byte[]>> held = new ArrayList<>();
             boolean[] finished = new boolean[n];
             for (int i = 0; i < n; i++) held.add(new ArrayList<>());
@@ -1088,9 +1295,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 String meta = metaOf.remove(jpeg);
                 if (meta != null) QuickReadActivity.writeReportText(this, name, meta);
+                byte[] originalArt = originalOf.remove(jpeg);
+                if (originalArt != null) QuickReadActivity.writeOriginal(this, name, originalArt);
                 shown[0]++;
                 QuickReadSession.add(name);
-                say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
+                        : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -1110,7 +1320,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
+                            : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                     try {
                         BaiheClient.PageListener onPage = page -> {
                             JSONObject wrapped;
@@ -1123,14 +1334,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             String meta = PageReport.meta(page, QuickRead.sourceUrl(batches.get(index), page.optString("key", "")),
                                     url, runName);
                             synchronized (lock) {
+                                boolean redrawn = !jpegs.isEmpty();
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
                                     byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
                                     if (original == null) return;
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
+                                byte[] originalArt = redrawn ? QuickRead.original(batches.get(index), page.optString("key", "")) : null;
                                 for (byte[] jpeg : jpegs) {
                                     metaOf.put(jpeg, meta);
+                                    if (originalArt != null) originalOf.put(jpeg, originalArt);
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }

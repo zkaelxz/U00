@@ -253,6 +253,7 @@ def deactivate_user(user_id: int, actor_id=None, keep_an_admin: bool = False,
     # A shared glossary group would otherwise keep shaping other people's
     # series with terms nobody who made them can still change.
     db.detach_shared_glossary_owner_groups(user_id)
+    _end_cast_links(user_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.deactivate", f"user {user_id}")
     return get_user(user_id)
@@ -625,6 +626,8 @@ def revoke_permission(user_id: int, permission: str, actor_id=None) -> dict:
     db.auth_revoke_permission(user_id, permission)
     if permission == "extension.send":
         _revoke_device_tokens(user_id, actor_id)
+    if permission == "media.stream":
+        _end_cast_links(user_id)
     _recheck_streams(user_id)   # an open event stream ends now if library.read went
     write_audit(actor_id, "permission.revoke", f"user {user_id}: {permission}")
     return get_user(user_id)
@@ -812,6 +815,16 @@ def _recheck_streams(user_id=None) -> None:
         pass   # never fail a revoke; the streams still re-check on their own
 
 
+def _end_cast_links(user_id: int) -> None:
+    """A cast link is a credential a TV holds with no session: it ends with "sign them out
+    everywhere", deactivation and losing media.stream, and a later re-grant doesn't revive it."""
+    try:
+        from services import cast_service   # it imports this module
+        cast_service.end_links_for(user_id)
+    except Exception:
+        pass   # never fail a revoke; the links still re-check the account on every fetch
+
+
 def revoke_session(session_id: int, user_id: int | None = None) -> bool:
     """`user_id` scopes the revoke to that user's own session."""
     ok = db.auth_delete_session(session_id, user_id)
@@ -830,6 +843,7 @@ def revoke_all_for_user(user_id: int, actor_id=None, member_only: bool = False) 
     if member_only and not n and (db.auth_get_user(user_id) or {}).get("is_admin"):
         raise ForbiddenError(ADMIN_AT_PC_ONLY)
     _revoke_device_tokens(user_id, actor_id)
+    _end_cast_links(user_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "session.revoke_all", f"user {user_id}: {n}")
     return n
@@ -938,6 +952,7 @@ def revoke_other_sessions(user_id: int, current_session_id: int, ip: str = "", *
     # Revoked only after the rotate: a token created on the old session id up to
     # then fails its own signed-in re-check or is caught here.
     _revoke_device_tokens(user_id, user_id)
+    _end_cast_links(user_id)
     _recheck_streams(user_id)
     if n:
         write_audit(user_id, "session.revoke_others", f"user {user_id}: {n} ip {ip_prefix(ip)}")

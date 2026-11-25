@@ -41,6 +41,20 @@ const byType = (tree: ReactNode, tag: string) => find(tree, (_p, type) => type =
 const refusedFix = (now: string | null): LineFix => ({ ...openFix(lines[1]), seen: now ?? 'Line 2', draft: 'Mine', conflict: true, now })
 
 describe('NowCard', () => {
+  it('says which check this is and why, with Fix the English and It\'s fine', () => {
+    const onOpen = vi.fn()
+    const onMark = vi.fn()
+    const tree = NowCard(props({ onOpen, onMark, check: { index: 2, total: 7, reason: 'Whisper was unsure here.' } }))
+    expect(html(props({ onMark, check: { index: 2, total: 7, reason: 'Whisper was unsure here.' } }))).toContain('Check 2 of 7</strong> · Whisper was unsure here.')
+    const fixIt = byText(tree, 'Fix the English')!
+    ;(fixIt.props.onClick as () => void)()
+    expect(onOpen).toHaveBeenCalled()
+    const fine = byText(tree, "It's fine")!
+    ;(fine.props.onClick as (e: { detail: number; currentTarget: { blur: () => void } }) => void)({ detail: 0, currentTarget: { blur: vi.fn() } })
+    expect(onMark).toHaveBeenCalledWith('good')
+    expect(byTestId(NowCard(props()), 'watch-now-check')).toBeNull()
+  })
+
   it('asks for play before the first line, with no box', () => {
     const out = html(props({ line: null }))
     expect(out).toContain('Press play to see lines here.')
@@ -143,7 +157,7 @@ describe('NowCard', () => {
   it('any other failure shows the usual error text and keeps the draft', () => {
     const error = new ApiError(500, { code: 'internal_error', message: 'Something went wrong.' }, 'POST')
     const out = html(props({ fix: { ...openFix(lines[1]), draft: 'Mine', error } }))
-    expect(out).toContain('<div class="banner error-banner" role="alert"><div><strong>Something went wrong inside Baihe. Details are in the app log.</strong></div></div>')
+    expect(out).toContain('<strong>Something went wrong inside Baihe. Details are in the app log.</strong>')
     expect(out).toContain('>Mine</textarea>')
   })
 

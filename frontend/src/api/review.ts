@@ -62,6 +62,17 @@ export async function listAllLines(id: number): Promise<ReviewLine[]> {
   return rows
 }
 
+// The ids of the lines Review's risk view lists (the Library's "Check N lines"), so Watch can count the same ones.
+export async function listRiskLineIds(id: number): Promise<Set<number>> {
+  const ids = new Set<number>()
+  for (let page = 1; ; page++) {
+    const r = await listLines(id, page, LINES_PAGE_SIZE, 'risk')
+    for (const l of r.lines) ids.add(l.id)
+    if (ids.size >= r.total || r.lines.length === 0) break
+  }
+  return ids
+}
+
 export const searchLines = (id: number, term: string, f?: Fetch) =>
   getJson<ReviewLine[]>(`${review(id)}/search?term=${encodeURIComponent(term)}&limit=200`, f)
 

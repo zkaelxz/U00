@@ -16,13 +16,13 @@ const noSideways = async (page: import('@playwright/test').Page) => {
 }
 
 for (const width of [390, 320]) {
-  test(`at ${width}: one Add button on the Library, the box on the Add page, and back with New title`, async ({ page }) => {
+  test(`at ${width}: the phone bar's Find & Add on the Library, the box on its page, and back with New title`, async ({ page }) => {
     await page.setViewportSize({ width, height: 844 })
     await mockAddLink(page, probeOf({ title: '【直播】第一回 a rather long stream title that has to wrap', platform: 'YouTube', channel: 'Some Channel' }))
     await page.goto('/')
     await expect(page.getByTestId('drama-count')).toBeVisible()
     await expect(page.getByRole('region', { name: 'Add' })).toHaveCount(0)
-    const add = page.locator('.page-head').getByRole('link', { name: 'Add', exact: true })
+    const add = page.getByRole('navigation', { name: 'Quick' }).getByRole('link', { name: 'Find & Add', exact: true })
     expect(await add.evaluate((n) => window.hitHeight(n))).toBeGreaterThanOrEqual(44)
     const card = (await page.locator('.drama-card').first().boundingBox())!
     expect(card.y, 'first title card starts on the first screen').toBeLessThan(844)

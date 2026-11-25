@@ -4,7 +4,7 @@ import type { Route } from '../../router'
 import type { JobPage, JobRecord } from '../../types/jobs'
 import { testJob } from '../../types/jobFixture'
 import {
-  NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts, withLinkedJob,
+  NO_FILTERS, effectiveStatus, filterJobs, jobLinks, kindGroup, normalizeFilters, normalizeSort, progressPercent, relativeTime, sortJobs, statusCounts, withLinkedJob,
   type JobFilters,
 } from './jobsFilter'
 
@@ -187,6 +187,11 @@ describe('links and display helpers', () => {
     expect(relativeTime(NOW - 300, NOW)).toBe('5 min ago')
     expect(relativeTime(NOW - 7200, NOW)).toBe('2 h ago')
     expect(relativeTime(NOW - 3 * 86_400, NOW)).toBe('3 d ago')
+  })
+  it('reads a stored sort defensively', () => {
+    expect(normalizeSort(null)).toEqual({ key: 'default', dir: 'desc' })
+    expect(normalizeSort({ key: 'duration', dir: 'asc' })).toEqual({ key: 'duration', dir: 'asc' })
+    expect(normalizeSort({ key: 'nope', dir: 5 })).toEqual({ key: 'default', dir: 'desc' })
   })
   it('reads stored filters defensively', () => {
     expect(normalizeFilters(null)).toEqual(NO_FILTERS)

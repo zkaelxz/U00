@@ -14,7 +14,8 @@ test.beforeEach(async ({ page }) => {
 
 test('the first title card is above the fold and the filters open in a sheet', async ({ page }) => {
   const viewport = page.viewportSize()!
-  const card = page.locator('.drama-card').first()
+  // The Ready shelf comes before the full list, so its first card is the one on the first screen when it has one.
+  const card = page.locator('.home-ready-card, .drama-card').first()
   const box = (await card.boundingBox())!
   expect(box.y + box.height, 'first card inside the viewport').toBeLessThanOrEqual(viewport.height)
   await expect(page.getByLabel('Sort by')).toBeHidden()
@@ -27,7 +28,7 @@ test('the first title card is above the fold and the filters open in a sheet', a
 })
 
 test('New title, opened from the Add page, keeps Create title and Discard draft on screen', async ({ page }) => {
-  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).tap()
+  await page.getByRole('navigation', { name: 'Quick' }).getByRole('link', { name: 'Find & Add', exact: true }).tap()
   await page.getByRole('button', { name: 'Add a title by hand' }).tap()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   const viewport = page.viewportSize()!
@@ -38,7 +39,7 @@ test('New title, opened from the Add page, keeps Create title and Discard draft 
 })
 
 test('help and small buttons keep a 44px hit area', async ({ page }) => {
-  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).tap()
+  await page.getByRole('navigation', { name: 'Quick' }).getByRole('link', { name: 'Find & Add', exact: true }).tap()
   await page.getByRole('button', { name: 'Add a title by hand' }).tap()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   expect(await hitHeight(sheet.locator('.field-help-btn').first())).toBeGreaterThanOrEqual(44)

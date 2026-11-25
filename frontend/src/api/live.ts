@@ -29,14 +29,17 @@ export const LIVE_LANGUAGES = [
   { code: 'zh', label: 'Chinese' },
   { code: 'ja', label: 'Japanese' },
   { code: 'ko', label: 'Korean' },
+  { code: 'id', label: 'Indonesian' },
+  { code: 'th', label: 'Thai' },
 ]
 const CHINESE_ONLY = 'Breeze-ASR-25 is a Taiwanese Mandarin model and is only for Chinese titles.'
 const JAPANESE_ONLY = 'The whisper-ja 1.5B model is a Japanese fine-tune and is only for Japanese titles.'
-export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3', 'breeze-asr-25', 'ja-1.5b']
+const THAI_ONLY = 'Thonburian is a Thai fine-tune and is only for Thai titles.'
+export const WHISPER_SIZES = ['tiny', 'base', 'small', 'medium', 'large-v3-turbo', 'large-v3', 'breeze-asr-25', 'ja-1.5b', 'thonburian-large-v3']
 // Figures from the 5-minute Chinese streamer test in docs/asr-experiments.md
 // (CPU) and the graphics-memory estimate in memory_headroom.py.
 export const WHISPER_HELP =
-  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher. large-v3 is the most accurate (about 3 GB download) and needs a GPU: on an RTX 4080 it took under 1 s for an 8 to 12 s chunk. breeze-asr-25 (Chinese streams only, about 3 GB download, needs a GPU) is what a Chinese stream starts on once it is downloaded. ja-1.5b (whisper-ja, about 3 GB download, Japanese streams only, needs a GPU) made the fewest errors on Japanese read speech in our test; its licence is not declared, so use it for personal work.'
+  'The default, small, keeps up with the stream on most PCs. large-v3-turbo is slower but more accurate: on our Chinese stream test it made about 16 character errors per 100 against small\'s 23, and took about 1.5 times as long. It needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and a 1.6 GB download the first time. medium is slower and less accurate than turbo on that test. tiny and base are faster still but rougher. large-v3 is the most accurate (about 3 GB download) and needs a GPU: on an RTX 4080 it took under 1 s for an 8 to 12 s chunk. breeze-asr-25 (Chinese streams only, about 3 GB download, needs a GPU) is what a Chinese stream starts on once it is downloaded. ja-1.5b (whisper-ja, about 3 GB download, Japanese streams only, needs a GPU) made the fewest errors on Japanese read speech in our test; its licence is not declared, so use it for personal work. thonburian-large-v3 (Thai streams only, about 3 GB download, needs a GPU) made fewer errors than large-v3 on our Thai stream test and is what a Thai stream starts on once it is downloaded; it writes text only, so each caption is timed by where speech was detected.'
 export const SEGMENT_RANGE: [number, number] = [3, 60]
 export const OVERLAP_RANGE: [number, number] = [0, 8]
 export const MAX_MINUTES_RANGE: [number, number] = [1, 240]
@@ -127,8 +130,9 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   whisper_sizes: WHISPER_SIZES,
   // The server's table (whisper_models.WHISPER_LANGUAGE_RULES) replaces this as soon as /api/live/options answers.
   whisper_exclusions: {
-    'ja-1.5b': { zh: JAPANESE_ONLY, ko: JAPANESE_ONLY },
-    'breeze-asr-25': { ja: CHINESE_ONLY, ko: CHINESE_ONLY },
+    'ja-1.5b': { zh: JAPANESE_ONLY, ko: JAPANESE_ONLY, id: JAPANESE_ONLY, th: JAPANESE_ONLY },
+    'breeze-asr-25': { ja: CHINESE_ONLY, ko: CHINESE_ONLY, id: CHINESE_ONLY, th: CHINESE_ONLY },
+    'thonburian-large-v3': { zh: THAI_ONLY, ja: THAI_ONLY, ko: THAI_ONLY, id: THAI_ONLY },
   },
   segment_range: SEGMENT_RANGE,
   overlap_range: OVERLAP_RANGE,
@@ -139,6 +143,7 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   default_model: LIVE_DEFAULT_MODEL,
   thinking_switch_engines: THINKING_SWITCH_ENGINES,
   language_whisper_defaults: {},
+  language_chunk_defaults: {},
   spend_limit_range: SPEND_LIMIT_RANGE,
   monthly_cap_set: false,
   defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }) =>
@@ -150,7 +155,7 @@ export const languageWhisperDefault = (opts: LiveFormOptions, language: string):
   opts.language_whisper_defaults?.[language] ?? opts.defaults.whisper_size
 
 /** For the presets' help: what each language's model is, when already downloaded (see language_whisper_defaults). */
-export const LANGUAGE_MODEL_NOTE = 'Chinese breeze-asr-25, Japanese ja-1.5b, Korean large-v3'
+export const LANGUAGE_MODEL_NOTE = 'Chinese breeze-asr-25, Japanese ja-1.5b, Korean and Indonesian large-v3, Thai thonburian-large-v3'
 
 export type CaptionPresetName = 'fast' | 'balanced'
 const CAPTION_PRESETS: Record<CaptionPresetName, Partial<LiveOptions>> = { fast: FAST_CAPTIONS, balanced: BALANCED_CAPTIONS }
@@ -173,7 +178,8 @@ export type StoredLiveOptions = LiveOptions & { caption_preset: CaptionPresetNam
 
 /** The form a browser starts on: the server's defaults over DEFAULT_FORM, with the model that suits `language` (the form's own language when omitted). */
 export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm => ({
-  ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
+  ...DEFAULT_FORM, ...opts.defaults, ...opts.language_chunk_defaults?.[language ?? opts.defaults.source_language],
+  whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
 })
 
 /** What a browser's remembered options keep when the settings are chosen for the viewer (a member, or another

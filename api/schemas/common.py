@@ -218,9 +218,10 @@ class NotificationTarget(BaseModel):
     (notification_service.clean_target). Never a URL or path; the app builds
     the link."""
     model_config = ConfigDict(extra="forbid")
-    page: Literal["glossary", "review", "series", "jobs"]
+    page: Literal["glossary", "review", "series", "jobs", "watch", "title", "live"]
     drama_id: Optional[StrictInt] = Field(None, ge=1)
     series_id: Optional[StrictInt] = Field(None, ge=1)
+    follow_id: Optional[StrictInt] = Field(None, ge=1)
 
 
 class SourcesUrlImportRequest(BaseModel):

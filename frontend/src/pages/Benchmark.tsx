@@ -38,6 +38,7 @@ import { ModelSummaryCard } from './benchmark/ModelSummaryCard'
 import { RunsCard } from './benchmark/RunsCard'
 import { SweepCard } from './benchmark/SweepCard'
 import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
+import { BlindStart } from './benchmark/BlindStart'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
 import { isRunActive } from './benchmark/benchmarkForm'
 import { QualitySection } from './diagnostics/QualitySection'
@@ -174,6 +175,7 @@ function BenchmarkContent({ compare }: { compare?: string }) {
           <p key={line}>{line}</p>
         ))}
       </div>
+      <BlindStart onStart={(ids) => setTarget({ kind: 'arena', runIds: ids })} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
       {jobError && jobId && !done && (
@@ -201,9 +203,9 @@ function BenchmarkContent({ compare }: { compare?: string }) {
         </p>
       )}
 
+      {panel('quality', <QualitySection />)}
       {panel('sets', (
         <>
-      <QualitySection />
       {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
         </>
       ))}

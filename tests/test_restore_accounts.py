@@ -615,6 +615,8 @@ def test_restored_chapter_marks_follow_the_email_match_and_a_strangers_are_dropp
     db.set_chapter_marks(did, ["a", "both"], read=True, user_id=a)
     db.set_chapter_marks(did, ["b", "both"], bookmarked=True, user_id=b)
     db.set_chapter_marks(did, ["gone"], read=True, user_id=gone)
+    for who, note in ((0, "pc"), (a, "a"), (b, "b"), (gone, "gone")):
+        db.add_watch_bookmark(did, who, 1.0, note, 10)
     data = _backup_bytes()
     _fresh_pc()
     live_b = auth_service.add_user("b@example.com")["id"]
@@ -630,5 +632,15 @@ def test_restored_chapter_marks_follow_the_email_match_and_a_strangers_are_dropp
     assert db.get_chapter_marks(did, live_b) == {"b": {"read": False, "bookmarked": True},
                                                  "both": {"read": False, "bookmarked": True}}
     assert db.get_chapter_marks(did, stranger) == {}
+    notes = lambda who: [x["note"] for x in db.list_watch_bookmarks(did, who)]   # noqa: E731
+    assert (notes(0), notes(live_a), notes(live_b), notes(stranger)) == (["pc"], ["a"], ["b"], [])
     # The next new account must not get an id the restored rows still name.
     assert auth_service.add_user("new@example.com")["id"] > max(a, b, gone)
+
+
+def test_a_restored_titles_bookmarks_keep_the_pc_remap_matched_accounts_and_drop_the_rest():
+    from services import drama_restore_service as drs
+    rows = [{"user_id": 0, "note": "pc"}, {"user_id": 7, "note": "matched"},
+            {"user_id": 8, "note": "stranger"}, {"user_id": None, "note": "null"}]
+    kept = drs._account_rows(rows, {7: 70})
+    assert [(r["user_id"], r["note"]) for r in kept] == [(0, "pc"), (70, "matched")]

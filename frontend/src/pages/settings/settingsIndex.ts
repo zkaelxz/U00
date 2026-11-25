@@ -66,6 +66,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     cards: [
       { id: 'sharing' },
       { id: 'display' },
+      { id: 'phone-app' },
       { id: 'customize-menu' },
       { id: 'devices' },
       { id: 'extension-devices' },
@@ -122,6 +123,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
 
   e('sharing', 'Sharing', 'share new items household library'),
   e('display', 'Display', 'page width layout wide full text size font zoom bigger smaller density compact comfortable spacing tight style soft frost'),
+  e('phone-app', 'Phone app', 'android alerts notifications notify phone tap open finished live channel clipboard link offer'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),

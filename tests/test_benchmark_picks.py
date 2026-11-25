@@ -215,3 +215,37 @@ class TestShownBesideScores:
         picks.record_pick(pair["ticket"], "left" if pair["left_text"] == "a0" else "right")
         out = picks.summary(a, b)
         assert (out["judge_agrees"], out["judge_disagrees"], out["judge_undecided"]) == (0, 0, 1)
+
+
+class TestSuggestedPair:
+    def _runs(self, outputs_by_model, stage="translation"):
+        case_ids = [db.create_benchmark_case(f"c{i}", stage, "novel", source_text=f"s{i}", reference_text=f"r{i}")
+                    for i in range(len(next(iter(outputs_by_model.values()))))]
+        sessions = {}
+        for model, outputs in outputs_by_model.items():
+            sid = db.create_benchmark_session({"stage": stage, "engine": "x", "model": model, "status": "done",
+                                               "case_count": len(case_ids)})
+            for cid, text in zip(case_ids, outputs):
+                db.save_benchmark_result(sid, {"id": cid, "label": f"c{cid}"}, {"output_text": text, "score": 0.5})
+            sessions[model] = sid
+        return case_ids, sessions
+
+    def test_nothing_to_suggest_without_two_finished_runs(self, isolated_db):
+        assert picks.suggest_pair() == {"found": False}
+
+    def test_two_models_on_the_same_cases_are_suggested_with_the_cases_left(self, isolated_db):
+        _ids, runs = self._runs({"m1": ["a", "b", "c"], "m2": ["a", "x", "y"]})
+        out = picks.suggest_pair()
+        assert out["found"] and {out["run_a"], out["run_b"]} == set(runs.values())
+        assert (out["remaining"], out["total"]) == (2, 2)
+
+    def test_the_same_model_twice_is_not_a_pair(self, isolated_db):
+        self._runs({"m1": ["a"]})
+        self._runs({"m1": ["b"]})
+        assert picks.suggest_pair() == {"found": False}
+
+    def test_a_pair_already_fully_picked_is_skipped(self, isolated_db):
+        ids, runs = self._runs({"m1": ["a"], "m2": ["b"]})
+        lo, hi = sorted(runs.values())
+        db.save_benchmark_pick(ids[0], lo, hi, "a")
+        assert picks.suggest_pair() == {"found": False}

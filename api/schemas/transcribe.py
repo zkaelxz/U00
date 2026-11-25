@@ -390,6 +390,8 @@ class LiveFormOptions(BaseModel):
     thinking_switch_engines: List[str]
     # {language: model} the form starts on for that language, only for models already downloaded.
     language_whisper_defaults: Dict[str, str] = {}
+    # {language: {segment_seconds, overlap_seconds}} the form starts on instead of `defaults` for that language.
+    language_chunk_defaults: Dict[str, Dict[str, float]] = {}
     spend_limit_range: List[float] = [0.1, 100.0]
     # True when a monthly cap is set: it bounds every session, so the per-session limit does not apply.
     monthly_cap_set: bool = False
@@ -485,6 +487,9 @@ class LiveSessionSummary(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     cue_count: int
+    # What the stream chips show: the language and the site, never the link.
+    source_language: Optional[str] = None
+    stream: Optional[LiveStreamRef] = None
 
 
 class LiveSessionStopped(BaseModel):

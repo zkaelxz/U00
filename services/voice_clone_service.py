@@ -769,7 +769,7 @@ def save_to_voice_bank(drama_id: int, speaker_label, name, notes: str = "") -> d
         voice_design=row.get("voice_design") or "",
         language=drama.get("source_language") or "zh", notes=(notes or "").strip(),
         source_drama=drama.get("title_en") or drama.get("title_zh") or f"title #{drama_id}",
-        source_speaker=display or speaker_label)
+        source_speaker=display or speaker_label, is_private=True)
     for e in characters_service.list_voice_bank():
         if e["id"] == entry_id:
             return e
@@ -799,7 +799,7 @@ def upload_to_voice_bank(name, client_filename, fileobj, ref_text: str = "",
         entry_id = db.save_voice_bank_entry(
             name.strip(), tmp, ref_text=(ref_text or "").strip(),
             clone_engine=_bank_engine(clone_engine), language=language or "zh",
-            notes=(notes or "").strip())
+            notes=(notes or "").strip(), is_private=True)
     finally:
         if os.path.exists(tmp):
             os.remove(tmp)

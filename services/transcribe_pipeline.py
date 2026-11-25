@@ -808,7 +808,8 @@ def _transcribe_pipeline(rep, audio_path, transcript_mode, transcript_text, sour
 
 
 _MODEL_DOWNLOAD_SIZES = {"large-v3": "~3 GB", "large-v3-turbo": "~1.6 GB", "large-v2": "~3 GB", "large-v1": "~3 GB",
-                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "kotoba-v2": "~1.5 GB", "breeze-asr-25": "~3.1 GB", "medium": "~1.5 GB", "small": "~500 MB",
+                         "large": "~3 GB", "ja-1.5b": "~3.1 GB", "kotoba-v2": "~1.5 GB", "breeze-asr-25": "~3.1 GB",
+                         "thonburian-large-v3": "~3.1 GB", "medium": "~1.5 GB", "small": "~500 MB",
                          "base": "~150 MB", "tiny": "~75 MB"}
 
 
@@ -822,9 +823,13 @@ def _refine_without_word_timestamps(segments, audio_path, language, use_gpu, rep
     timing, and a flag on every line would bury the ones that really need a check."""
     import forced_align
     import qwen3_native
-    problem = ("Mixed-language runs are not refined by the forced aligner." if mixed
-               else qwen3_native.aligner_language_problem(language)
-               or qwen3_native.transformers_problem("Qwen3 forced alignment"))
+    if mixed:
+        problem = "Mixed-language runs are not refined by the forced aligner."
+    elif language not in forced_align.ALIGNER_LANGUAGE_NAMES:
+        problem = f"the forced aligner does not cover {core_module.LANGUAGE_NAMES.get(language, language)}"
+    else:
+        problem = (qwen3_native.aligner_language_problem(language)
+                   or qwen3_native.transformers_problem("Qwen3 forced alignment"))
     if not problem:
         # Whisper has finished: its VRAM must be free before the aligner loads, or the
         # headroom check refuses the load while the transcription is already done.

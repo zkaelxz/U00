@@ -234,3 +234,181 @@ def test_an_unscored_banner_shaped_box_is_read_again_even_as_a_balloon():
 
 def test_a_tall_unscored_column_is_not_taken_for_a_banner():
     assert reread.hard_regions([_bubble("縦書きの文字です", None, w=40, h=400)]) == []
+
+
+class TestTitleMemory:
+    """Names, pronouns and language Quick read learns from a title's pages, kept across its
+    chapters (no saved series, so no glossary or cast list to take them from)."""
+
+    @staticmethod
+    def _reply(monkeypatch, replies, prompts):
+        import json
+        from engine_backends import llm_tasks
+
+        def call(engine, prompt, **kw):
+            prompts.append(prompt)
+            return json.dumps(replies[len(prompts) - 1])
+        monkeypatch.setattr(llm_tasks, "call_llm_json", call)
+
+    def test_a_pronoun_a_page_showed_is_sent_with_the_next_page(self, monkeypatch):
+        prompts = []
+        self._reply(monkeypatch, [
+            {"translations": {"0": "Mira, wait!"}, "context_summary": "x",
+             "names": {"ミラ": "Mira"}, "cast": {"Mira": "she", "the girl": "she", "Kenji": "he"}},
+            {"translations": {"0": "Got it."}, "context_summary": "y", "cast": {}},
+        ], prompts)
+        names, cast = {}, {}
+        scanlate_translate.translate_page_bubbles([_bubble("ミラ、待って！")], _Engine(),
+                                                  {"source_language": "ja"}, chapter_names=names,
+                                                  cast=cast)
+        # Only a name this page's English or the title's names use becomes a character.
+        assert cast == {"Mira": {"she": 1}}
+        assert '"cast"' in prompts[0] and "pronouns, from earlier pages" not in prompts[0]
+        scanlate_translate.translate_page_bubbles([_bubble("分かった")], _Engine(),
+                                                  {"source_language": "ja"}, chapter_names=names,
+                                                  cast=cast)
+        assert "Mira: she" in prompts[1]
+
+    def test_a_tied_pronoun_is_not_sent(self):
+        assert scanlate_translate.settled_pronouns({"Ren": {"she": 1, "he": 1},
+                                                    "Mira": {"she": 2, "he": 1}}) == {"Mira": "she"}
+        assert scanlate_translate.cast_block({"Ren": {"she": 1, "he": 1}}) == ""
+
+    def test_pages_in_flight_together_add_only_their_own_votes(self, monkeypatch):
+        def translate(bubbles, engine, meta, cast=None, **kw):
+            cast.setdefault("Mira", {})["she"] = cast.get("Mira", {}).get("she", 0) + 1
+            return "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+        page_turns.seed_title_memory(None, "t", {"cast": {"Mira": {"she": 2}}})
+        for _ in range(2):
+            page_turns.translate_in_chain(None, "t", [], object(), None, None, None,
+                                          wait_for_turn=False)
+        assert page_turns.title_memory(None, "t")["cast"] == {"Mira": {"she": 4}}
+
+    @pytest.mark.parametrize("url, title", [
+        ("https://rawkuma.net/manga/psycho-eyes/chapter-1/", "rawkuma:psycho-eyes"),
+        ("https://site.invalid/comic/abc-chapter-12", "site.invalid/comic/abc"),
+        ("https://site.invalid/comic/abc/ch-3/", "site.invalid/comic/abc"),
+        ("https://site.invalid/m/123/第3话", "site.invalid/m/123"),
+        # Nothing that reads as a chapter: the link stays its own title.
+        ("https://site.invalid/comic/12345/678.html", "https://site.invalid/comic/12345/678.html"),
+        ("https://site.invalid/12", "https://site.invalid/12"),
+    ])
+    def test_a_chapter_link_names_its_title(self, url, title):
+        from services import quick_read_cache
+        assert quick_read_cache.title_key(url) == title
+
+    def test_a_page_with_no_language_takes_its_sources_then_what_the_title_showed(self, isolated_db):
+        from services import page_server
+        assert page_server._page_source_language(
+            None, "", "https://rawkuma.net/manga/psycho-eyes/chapter-1/") == "ja"
+        url = "https://site.invalid/comic/abc/chapter-1"
+        assert page_server._page_source_language(None, "", url) == "zh"
+        # Kana read by the Chinese reader: the title is Japanese, and its next chapter knows it.
+        assert page_server._learn_page_language([_bubble("あの人は誰ですか")], "zh", url) == "ja"
+        assert page_server._page_source_language(None, "", url.replace("-1", "-2")) == "ja"
+        assert page_server._page_source_language(None, "ko", url) == "ko"
+        assert page_server._page_source_language({"source_language": "zh"}, "", url) == "zh"
+
+    def test_the_next_chapter_starts_from_what_the_last_one_learned(self, isolated_db, monkeypatch):
+        from services import page_server
+        seen = []
+
+        def translate(bubbles, engine, meta, chapter_names=None, cast=None, **kw):
+            seen.append((meta, dict(chapter_names), {k: dict(v) for k, v in cast.items()}))
+            chapter_names.setdefault("ミラ", "Mira")
+            cast.setdefault("Mira", {"she": 1})
+            for b in bubbles:
+                b["translated_text"] = "English"
+            return "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        base = "https://site.invalid/comic/abc/chapter-"
+        page_server._translate_read_page([_bubble("ミラ")], {}, None, None, base + "1", [], False,
+                                         b"", False, "ja")
+        # A restart forgets what is in memory; the title's memory on disk is still there.
+        with page_turns._context_lock:
+            page_turns._chapter_names.clear()
+            page_turns._cast.clear()
+        page_server._translate_read_page([_bubble("ミラ")], {}, None, None, base + "2", [], False,
+                                         b"", False, "ja")
+        assert seen[0] == ({"source_language": "ja"}, {}, {})
+        assert seen[1] == ({"source_language": "ja"}, {"ミラ": "Mira"}, {"Mira": {"she": 1}})
+
+
+class _Engine:
+    name = "claude"
+    supports_reference = True
+    client = object()
+
+
+@pytest.mark.parametrize("sent, used", [("ja", "ja"), ("KO", "ko"), ("en", ""), ("<x>", ""), (None, "")])
+def test_the_language_a_sender_read_off_the_page_reaches_the_reader(isolated_db, monkeypatch, sent, used):
+    import base64
+    from services import extension_bridge_service as bridge
+    from services import page_server
+    seen = []
+
+    def fake_translate(data, content_type, **kw):
+        seen.append(kw["source_language"])
+        return {"regions": [], "notes": []}
+    monkeypatch.setattr(page_server, "translate_image", fake_translate)
+    from PIL import Image
+    out = io.BytesIO()
+    picture = Image.new("RGB", (600, 900), (240, 240, 240))
+    picture.paste((10, 10, 10), (150, 225, 450, 450))   # a blank page is refused before reading
+    picture.save(out, "PNG")
+    image = {"key": "a", "data": base64.b64encode(out.getvalue()).decode(), "content_type": "image/png"}
+    bridge.run_images({"store": False, "filter_pages": False, "source_language": sent}, [image])
+    assert seen == [used]
+
+
+class _LLM:
+    supports_reference = True
+
+
+class TestEnglishOnlyAnswers:
+    def _llm(self, monkeypatch, answers):
+        """Each call to the engine answers with the next dict of {id: text}."""
+        import json
+        from engine_backends import llm_tasks
+        prompts = []
+
+        def fake(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            prompts.append(prompt)
+            return json.dumps({"translations": answers.pop(0), "context_summary": "s"})
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
+        return prompts
+
+    def test_prompt_demands_english_only(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [{"0": "Hi"}])
+        scanlate_translate.translate_regions_by_id({"0": "やあ"}, _LLM(), {"source_language": "ja"})
+        assert "English only" in prompts[0]
+
+    def test_a_leaked_term_is_asked_for_again_and_the_clean_answer_kept(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [{"0": "An accomplice of the Notice Criminal"}])
+        keyed = {"0": "予告犯の共犯者"}
+        result, leaking = scanlate_translate.recheck_source_script(
+            keyed, {"0": "An accomplice of the 予告犯 (Yokokuhan)"}, _LLM(), {"source_language": "ja"})
+        assert result == {"0": "An accomplice of the Notice Criminal"}
+        assert leaking == []
+        assert "予告犯 (Yokokuhan)" in prompts[0]
+
+    def test_a_retry_that_still_leaks_is_flagged_and_never_worse(self, monkeypatch):
+        self._llm(monkeypatch, [{"0": "The 予告犯 and 共犯 came"}])
+        result, leaking = scanlate_translate.recheck_source_script(
+            {"0": "x"}, {"0": "The 予告犯 came"}, _LLM(), {})
+        assert result == {"0": "The 予告犯 came"}
+        assert leaking == ["0"]
+
+    def test_clean_answers_cost_no_extra_call(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [])
+        result, leaking = scanlate_translate.recheck_source_script(
+            {"0": "x"}, {"0": "“Fine.” Murata Yusuke"}, _LLM(), {})
+        assert (result, leaking, prompts) == ({"0": "“Fine.” Murata Yusuke"}, [], [])
+
+    def test_quick_read_bubbles_get_the_clean_retry(self, monkeypatch):
+        self._llm(monkeypatch, [{"0": "Who is the 予告犯?"}, {"0": "Who is the Notice Criminal?"}])
+        bubbles = [_bubble("予告犯は誰？")]
+        scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
+        assert bubbles[0]["translated_text"] == "Who is the Notice Criminal?"

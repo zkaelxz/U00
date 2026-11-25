@@ -33,6 +33,7 @@ class MediaLinkProbe(BaseModel):
     channel: str = ""
     release_date: str = ""          # YYYY-MM-DD, "" = the link gives none
     is_live: bool = False
+    duration_seconds: Optional[int] = None   # None: the link gives no length (a live stream)
     summary: str = ""
     platform: str = ""
     series_suggestion: str = ""

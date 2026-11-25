@@ -21,9 +21,25 @@ final class ShareLink {
         return link.length() <= MAX_LINK ? link : null;
     }
 
-    /** Baihe address plus the Sources page with the link filled in. */
+    /** Baihe address plus the share picker with the link filled in. */
     static String pageFor(String address, String link) {
         String base = address.replaceAll("/+$", "");
-        return base + "/#/sources?url=" + Uri.encode(link);
+        return base + "/#/share?url=" + Uri.encode(link);
+    }
+
+    /**
+     * The page named by "baihegrab://quickread?url=...", or null for any other link. It must be an
+     * ordinary web page: the share picker is Baihe's own page, but the link inside came from another app.
+     */
+    static String quickReadLink(String grabLink) {
+        if (grabLink == null || !grabLink.startsWith("baihegrab://quickread?url=")) return null;
+        try {
+            String raw = java.net.URLDecoder.decode(grabLink.substring("baihegrab://quickread?url=".length()), "UTF-8");
+            if (raw.length() > MAX_LINK) return null;
+            String link = firstLink(raw);
+            return link == null ? null : ServerAddress.browsable(link);
+        } catch (java.io.UnsupportedEncodingException | IllegalArgumentException e) {
+            return null;
+        }
     }
 }
