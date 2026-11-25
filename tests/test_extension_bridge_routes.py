@@ -175,6 +175,29 @@ class TestSending:
         assert r.status_code == 200 and r.json()["translated_text"] == "hello"
         assert db.list_translate_history(visible_to=u["id"])
 
+    def test_a_no_save_text_read_again_comes_from_the_cache_without_the_engine(self, isolated_db, monkeypatch):
+        _, token = _member("a@example.com", paid=True)
+        page_server.set_translation_config(engine="deepl", api_key="k", base_url=None,
+                                           free_tier=False)
+
+        class Engine:
+            name = "deepl"
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: Engine())
+        from services import translate_service
+        calls = []
+        monkeypatch.setattr(translate_service, "translate_metered",
+                            lambda *a, **k: (calls.append(1) or "hello", None))
+        monkeypatch.setattr("engine_backends.standalone.standalone_direction_support",
+                            lambda *a: (True, ""))
+        body = {"text": "你好", "source_language": "zh", "target_language": "en", "store": False}
+        first = _client().post(f"{BASE}/text", headers=_auth(token), json=body)
+        again = _client().post(f"{BASE}/text", headers=_auth(token), json=body)
+        assert first.json()["translated_text"] == again.json()["translated_text"] == "hello"
+        assert len(calls) == 1 and again.json()["cached"] is True
+        # A saved send is never answered from it: its history row has to be written.
+        _client().post(f"{BASE}/text", headers=_auth(token), json={**body, "store": True})
+        assert len(calls) == 2
+
     def test_the_spending_cap_refuses_before_any_work(self, isolated_db, monkeypatch):
         _, token = _member("a@example.com", paid=True)
         monkeypatch.setattr("services.extension_bridge_service.engine_name_if_ready", lambda: "claude")
