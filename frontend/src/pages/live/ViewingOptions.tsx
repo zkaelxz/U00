@@ -21,6 +21,9 @@ type Props = {
   onCaptions: (v: boolean) => void
   showVideo: boolean
   onShowVideo: (v: boolean) => void
+  /** Keep the picture off on mobile data until asked for; the lines still arrive as text. */
+  dataSaver: boolean
+  onDataSaver: (v: boolean) => void
   /** Whether a picture can be shown at all (the video options mean nothing without one). */
   hasPicture: boolean
   /** The delay slider: set when the picture can be held back, with its current state. */
@@ -28,7 +31,7 @@ type Props = {
   onFloat: (() => void) | null
 }
 
-export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, hasPicture, delay, onFloat }: Props) {
+export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat }: Props) {
   return (
     <Section storageKey="live.viewing" title="Viewing options" defaultOpen>
       <Field label="Text size" help="How large the lines are in the list. It does not change the captions drawn over the picture.">
@@ -52,6 +55,9 @@ export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOrigi
           {onFloat && <button type="button" className={buttonClass('secondary', 'sm')} onClick={onFloat}>Float the picture</button>}
           <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
             <Toggle checked={showVideo} onChange={onShowVideo} />
+          </Field>
+          <Field label="Save data" help="On mobile data (where your browser reports it) the picture stays off until you turn Show video on; the lines and captions still arrive as text.">
+            <Toggle checked={dataSaver} onChange={onDataSaver} />
           </Field>
           {delay && (
             <>
