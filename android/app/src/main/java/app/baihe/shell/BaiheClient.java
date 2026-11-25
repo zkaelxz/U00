@@ -143,6 +143,15 @@ final class BaiheClient {
         }
     }
 
+    /** Asks the PC to watch this page's series for new chapters; returns the series title. */
+    String follow(String pageUrl) throws BridgeException {
+        try {
+            return call("POST", "/follow", new JSONObject().put("url", pageUrl)).optString("title", "");
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Starts Live captions on a stream page's link, in the stream's spoken language (zh, ja or ko). */
     void startLive(String link, String language) throws BridgeException {
         try {
