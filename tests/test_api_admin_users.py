@@ -37,7 +37,7 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/a
           ("POST", "/api/admin/users/{id}/job-limit"),
           ("POST", "/api/admin/users/{id}/display-name"),
           ("GET", "/api/admin/users/{id}/devices"),
-          ("POST", "/api/admin/users/{id}/devices/{session_id}/revoke"),
+          ("POST", "/api/admin/users/{id}/devices/{device_session_id}/revoke"),
           ("DELETE", "/api/admin/users/{id}")]
 
 

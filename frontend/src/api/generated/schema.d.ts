@@ -107,7 +107,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/users/{user_id}/devices/{session_id}/revoke": {
+    "/api/admin/users/{user_id}/devices/{device_session_id}/revoke": {
         parameters: {
             query?: never;
             header?: never;
@@ -117,7 +117,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign out one device of a user */
-        post: operations["revoke_device_api_admin_users__user_id__devices__session_id__revoke_post"];
+        post: operations["revoke_device_api_admin_users__user_id__devices__device_session_id__revoke_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -34858,13 +34858,13 @@ export interface operations {
             };
         };
     };
-    revoke_device_api_admin_users__user_id__devices__session_id__revoke_post: {
+    revoke_device_api_admin_users__user_id__devices__device_session_id__revoke_post: {
         parameters: {
             query?: never;
             header?: never;
             path: {
                 user_id: number;
-                session_id: number;
+                device_session_id: number;
             };
             cookie?: never;
         };

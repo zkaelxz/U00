@@ -9,7 +9,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
     GET  /api/admin/users/{user_id}/devices          their signed-in devices
-    POST /api/admin/users/{user_id}/devices/{session_id}/revoke  sign out one of them
+    POST /api/admin/users/{user_id}/devices/{device_session_id}/revoke  sign out one of them
     POST /api/admin/users/{user_id}/revoke-admin     make an admin a normal member
     DELETE /api/admin/users/{user_id}/ollama-key     remove their own Ollama key (never read it)
     POST /api/admin/users/{user_id}/permissions/{permission}    give a member one right
@@ -116,12 +116,12 @@ def list_devices(response: Response, user_id: int = _UserId):
     return {"devices": auth_service.admin_list_devices(user_id)}
 
 
-@router.post("/users/{user_id}/devices/{session_id}/revoke", dependencies=_ADMIN,
+@router.post("/users/{user_id}/devices/{device_session_id}/revoke", dependencies=_ADMIN,
              response_model=AdminSessionsRevoked, summary="Sign out one device of a user")
 def revoke_device(request: Request, response: Response, user_id: int = _UserId,
-                  session_id: int = Path(..., ge=1, le=_MAX_ID)):
+                  device_session_id: int = Path(..., ge=1, le=_MAX_ID)):
     mark_no_store(response)
-    out = auth_service.admin_revoke_device(user_id, session_id, actor_id=principal_user_id(request),
+    out = auth_service.admin_revoke_device(user_id, device_session_id, actor_id=principal_user_id(request),
                                            at_pc=is_local_request(request))
     return {"user_id": user_id, **out}
 
