@@ -215,3 +215,10 @@ export function relativeTime(sec: number, nowSec: number): string {
   if (d < DAY_S) return `${Math.floor(d / 3600)} h ago`
   return `${Math.floor(d / DAY_S)} d ago`
 }
+
+/** A table sort read back from storage: anything unknown falls back to the default order. */
+export function normalizeSort(raw: unknown): { key: SortKey; dir: SortDir } {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const key: SortKey = r.key === 'started' || r.key === 'duration' ? r.key : 'default'
+  return { key, dir: r.dir === 'asc' ? 'asc' : 'desc' }
+}
