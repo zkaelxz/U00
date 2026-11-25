@@ -797,6 +797,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark/ab/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blind A/B: the two finished runs with the most cases left to pick between */
+        get: operations["get_ab_suggest_api_benchmark_ab_suggest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmark/ab/summary": {
         parameters: {
             query?: never;
@@ -2878,6 +2895,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/diagnostics/quality/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every release check result in the data folder as per-clip score trends, grouped by language */
+        get: operations["get_quality_history_api_diagnostics_quality_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/diagnostics/real-model-check": {
         parameters: {
             query?: never;
@@ -3453,6 +3487,23 @@ export interface paths {
         put?: never;
         /** Create a drama (optionally with a series and/or preset) */
         post: operations["post_drama_api_dramas_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dramas/by-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Which of these source page links already have a title the caller can see (Find & Add results) */
+        post: operations["post_titles_by_links_api_dramas_by_links_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -15102,6 +15153,24 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * BenchmarkPairSuggestion
+         * @description The two runs a blind comparison should start with, or found=False when none qualify.
+         */
+        BenchmarkPairSuggestion: {
+            /** Found */
+            found: boolean;
+            /** Remaining */
+            remaining: number | null;
+            /** Run A */
+            run_a: number | null;
+            /** Run B */
+            run_b: number | null;
+            /** Stage */
+            stage: string | null;
+            /** Total */
+            total: number | null;
+        };
         /** BenchmarkPickRequest */
         BenchmarkPickRequest: {
             /**
@@ -21310,7 +21379,7 @@ export interface components {
             /** Item Id */
             item_id?: string | null;
             /** Language */
-            language?: ("en" | "zh" | "ja" | "ko") | null;
+            language?: ("zh" | "ja" | "ko" | "en") | null;
             /**
              * Media
              * @default none
@@ -25629,6 +25698,53 @@ export interface components {
              * @enum {string}
              */
             status: "pass" | "fail" | "none";
+        };
+        /** QualityHistory */
+        QualityHistory: {
+            /**
+             * Runs
+             * @description How many release check results were read.
+             */
+            runs: number;
+            /** Series */
+            series: components["schemas"]["QualitySeries"][];
+        };
+        /** QualityPoint */
+        QualityPoint: {
+            /** Baseline */
+            baseline: number | null;
+            /**
+             * Score
+             * @description The clip's score in that run (median of its repeats); None when it failed.
+             */
+            score: number | null;
+            /**
+             * When
+             * @description When that release check ran, the PC's local time (YYYY-MM-DD HH:MM).
+             */
+            when: string;
+        };
+        /** QualitySeries */
+        QualitySeries: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Language
+             * @description None for a clip no run recorded a language for.
+             */
+            language: ("zh" | "ja" | "ko" | "en") | null;
+            /**
+             * Metric
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
+             */
+            metric: string | null;
+            /**
+             * Points
+             * @description Oldest first.
+             */
+            points: components["schemas"]["QualityPoint"][];
         };
         /** QueueAddAllSteps */
         QueueAddAllSteps: {
@@ -32233,6 +32349,22 @@ export interface components {
             /** Uses Default */
             uses_default: boolean;
         };
+        /**
+         * TitleLinkLookup
+         * @description Source page links to look for among the caller's titles (a page of search results).
+         */
+        TitleLinkLookup: {
+            /** Urls */
+            urls: string[];
+        };
+        /**
+         * TitleLinkMatches
+         * @description One entry per link asked, in the same order: the title that carries it, or null. The links are not echoed.
+         */
+        TitleLinkMatches: {
+            /** Title Ids */
+            title_ids: (number | null)[];
+        };
         /** TitleLinkProbe */
         TitleLinkProbe: {
             current: components["schemas"]["LinkDetailFields"];
@@ -36269,6 +36401,53 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_ab_suggest_api_benchmark_ab_suggest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkPairSuggestion"];
                 };
             };
             /** @description Not Found */
@@ -42073,6 +42252,26 @@ export interface operations {
             };
         };
     };
+    get_quality_history_api_diagnostics_quality_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityHistory"];
+                };
+            };
+        };
+    };
     get_real_model_check_api_diagnostics_real_model_check_get: {
         parameters: {
             query?: never;
@@ -43753,6 +43952,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_titles_by_links_api_dramas_by_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleLinkLookup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleLinkMatches"];
                 };
             };
             /** @description Unprocessable Content */

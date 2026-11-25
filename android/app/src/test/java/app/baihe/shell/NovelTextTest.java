@@ -18,6 +18,17 @@ public class NovelTextTest {
     }
 
     @Test
+    public void aPagesLanguageComesFromItsTextThenItsLangAttribute() {
+        // An English menu around a raw comic's own title and chapter list still names the comic.
+        assertEquals("ja", NovelText.pageLanguage("en", "Home Latest Bookmarks\nサイコアイズ 第1話 突然の追放宣告"));
+        assertEquals("ko", NovelText.pageLanguage("en", "Home Webtoon\n육아부터 하는 연애 1화 다음 화"));
+        assertEquals("zh", NovelText.pageLanguage("", "首页 漫画 第十二话 上一话 下一话"));
+        assertEquals("ko", NovelText.pageLanguage("ko-KR", "Chapter 3 Next Prev"));
+        assertEquals("", NovelText.pageLanguage("en", "Chapter 3 Next Prev"));
+        assertEquals("", NovelText.pageLanguage(null, null));
+    }
+
+    @Test
     public void partsKeepParagraphsTogetherInOrderAndStayShort() {
         String text = "一二三四五\n\n六七八九十\n十一十二十三\n  \n十四";
         List<String> parts = NovelText.split(text, 12);

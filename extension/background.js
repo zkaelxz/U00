@@ -430,7 +430,7 @@ function stopAfterTimeout(merged, later) {
   merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
 }
 
-async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages }, runId, onPage = () => {}) {
+async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, store, filterPages }, runId, onPage = () => {}) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
@@ -450,6 +450,8 @@ async function sendImagesRun({ images, dramaId, sourceUrl, store, filterPages },
         images: batch,
         drama_id: dramaId || null,
         source_url: sourceUrl || "",
+        // Only when the page showed it; a title's own language still wins on the app.
+        ...(sourceLanguage ? { source_language: sourceLanguage } : {}),
         store: store !== false,
         filter_pages: filterPages !== false,
         run_id: runId,

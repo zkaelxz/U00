@@ -46,6 +46,9 @@ _contexts = OrderedDict()
 # Quick read's names per title ({source: English}), so pages translated side by side, which
 # cannot wait for each other's summary, still spell a character one way.
 _chapter_names = {}
+# Quick read's characters per title ({English name: {"she": votes, "he": votes}}), so a pronoun
+# an earlier page showed is kept on a page where the source drops it.
+_cast = {}
 _chain_locks = OrderedDict()
 # Requests holding or waiting on a title's lock, so eviction never hands a
 # second lock to a title whose first is still in use.
@@ -85,6 +88,7 @@ def _evict_idle_chains():
         del _chain_locks[key]
         _contexts.pop(key, None)
         _chapter_names.pop(key, None)
+        _cast.pop(key, None)
 
 
 def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
@@ -103,10 +107,12 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
         with _context_lock:
             previous = _contexts.get(key, "")
             names = dict(_chapter_names.get(key, {}))
+            cast = {name: dict(votes) for name, votes in _cast.get(key, {}).items()}
+            before = {name: dict(votes) for name, votes in cast.items()}
         try:
             new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
-                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, **extras)
+                glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, cast=cast, **extras)
         finally:
             # Names from an answer that applied only in part are still the model's spelling.
             with _context_lock:
@@ -116,6 +122,19 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                         kept.setdefault(source, english)
                     while len(_chapter_names) > MAX_CHAINS:
                         _chapter_names.pop(next(iter(_chapter_names)))
+                # Only this page's own votes are added: pages in flight together each started
+                # from the same tally, so copying the whole tally back would count votes twice.
+                kept_cast = _cast.setdefault(key, {})
+                for name, votes in cast.items():
+                    for pronoun, count in votes.items():
+                        added = count - before.get(name, {}).get(pronoun, 0)
+                        if added > 0:
+                            mine = kept_cast.setdefault(name, {})
+                            mine[pronoun] = mine.get(pronoun, 0) + added
+                if not kept_cast:
+                    _cast.pop(key, None)
+                while len(_cast) > MAX_CHAINS:
+                    _cast.pop(next(iter(_cast)))
         with _context_lock:
             _contexts[key] = new_context
             _contexts.move_to_end(key)
@@ -123,6 +142,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
             while len(_contexts) > MAX_CHAINS:
                 evicted, _ = _contexts.popitem(last=False)
                 _chapter_names.pop(evicted, None)
+                _cast.pop(evicted, None)
         return
     if key is None:
         scanlate_translate.translate_page_bubbles(
@@ -156,6 +176,31 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
             _chain_users[key] -= 1
             if not _chain_users[key]:
                 del _chain_users[key]
+
+
+def title_memory(drama_id, source_url) -> dict:
+    """What Quick read learned about a title so far: {"names", "cast"} (copies)."""
+    key = _chain_key(drama_id, source_url)
+    with _context_lock:
+        return {"names": dict(_chapter_names.get(key, {})),
+                "cast": {name: dict(votes) for name, votes in _cast.get(key, {}).items()}}
+
+
+def seed_title_memory(drama_id, source_url, memory: dict) -> None:
+    """Restores a title's names and pronouns kept from an earlier session, unless this process
+    already learned some for it (which are newer)."""
+    key = _chain_key(drama_id, source_url)
+    if key is None:
+        return
+    names, cast = memory.get("names"), memory.get("cast")
+    with _context_lock:
+        if isinstance(names, dict) and names and key not in _chapter_names:
+            _chapter_names[key] = {str(k): str(v) for k, v in names.items()
+                                   if isinstance(k, str) and isinstance(v, str)}
+        if isinstance(cast, dict) and cast and key not in _cast:
+            _cast[key] = {str(name): {p: int(n) for p, n in votes.items()
+                                      if p in ("she", "he") and isinstance(n, int)}
+                          for name, votes in cast.items() if isinstance(votes, dict)}
 
 
 def claim_page(page_id):

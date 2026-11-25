@@ -1,5 +1,5 @@
 import type { BadgeTone } from '../../components/labels'
-import type { QualityCheck, QualityClip } from '../../types/diagnostics'
+import type { QualityCheck, QualityClip, QualitySeries } from '../../types/diagnostics'
 
 const KIND_LABEL: Record<string, string> = { transcription: 'Transcription', diarization: 'Speakers', translation: 'Translation' }
 
@@ -98,3 +98,33 @@ export function nextStep(q: QualityCheck): string | null {
 }
 
 export { num }
+
+const LANGUAGE_ORDER = ['zh', 'ja', 'ko', 'en'] as const
+const LANGUAGE_NAME: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean', en: 'English', other: 'Language not recorded' }
+
+/** Series grouped by language in a fixed order, a language with no series left out. */
+export function groupByLanguage(series: QualitySeries[]): Array<{ language: string; name: string; series: QualitySeries[] }> {
+  const keys = [...LANGUAGE_ORDER, 'other']
+  return keys
+    .map((k) => ({ language: k, name: LANGUAGE_NAME[k], series: series.filter((s) => (s.language ?? 'other') === k) }))
+    .filter((g) => g.series.length > 0)
+}
+
+/** Whether a later score being higher is better; a speaker error rate is the one that is not. */
+export const higherIsBetter = (s: QualitySeries) => s.metric !== 'der'
+
+/** "0.642 on 20 Nov, 0.660 on 24 Nov": the same numbers the picture shows, for a screen reader. */
+export function trendText(s: QualitySeries): string {
+  const scored = s.points.filter((p) => p.score != null)
+  if (scored.length === 0) return 'No score recorded yet.'
+  return scored.map((p) => `${num(p.score)} on ${p.when.slice(0, 10)}`).join(', ')
+}
+
+/** Latest score against the one before it: "better", "worse" or "same", respecting which way is better. */
+export function trendDirection(s: QualitySeries): 'better' | 'worse' | 'same' | null {
+  const scored = s.points.filter((p) => p.score != null)
+  if (scored.length < 2) return null
+  const diff = (scored[scored.length - 1].score as number) - (scored[scored.length - 2].score as number)
+  if (Math.abs(diff) < 0.0005) return 'same'
+  return (diff > 0) === higherIsBetter(s) ? 'better' : 'worse'
+}
