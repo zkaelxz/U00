@@ -26,7 +26,6 @@ export const CARD_TAB = {
   'loaded-models': 'models',
   'process-memory': 'models',
   'test-models': 'models',
-  quality: 'models',
   resources: 'system',
   ports: 'system',
   log: 'system',
@@ -43,7 +42,7 @@ export const isDiagnosticsCard = (v: unknown): v is DiagnosticsCard => typeof v 
 export const TAB_FOLD_KEYS: Record<DiagnosticsTab, string[]> = {
   setup: ['diagnostics.recommended', 'diagnostics.setup'],
   packages: ['diagnostics.browser', 'diagnostics.ffmpeg', 'diagnostics.cuda-runtime', 'diagnostics.deno', 'diagnostics.omnivoice', 'diagnostics.qwen3-tts', 'diagnostics.chatterbox', 'diagnostics.packages', 'diagnostics.speaker'],
-  models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.loadedModels', 'diagnostics.realModel', 'diagnostics.quality'],
+  models: ['diagnostics.modelHealth', 'diagnostics.models', 'diagnostics.loadedModels', 'diagnostics.realModel'],
   system: ['diagnostics.resources', 'diagnostics.ports', 'diagnostics.log'],
 }
 
