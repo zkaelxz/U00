@@ -1,5 +1,5 @@
 """
-sources/adapters/newxtoon.py -- NewXToon (newxtoon4.com, Korean webtoons).
+sources/adapters/newxtoon.py -- NewXToon (newxtoon5.com, Korean webtoons).
 
 A server-rendered Laravel site, so plain GETs are enough and no JavaScript
 runs. The layout below was reported from a browser on the owner's PC
@@ -34,7 +34,7 @@ from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentT
                       PageRef, SearchResult, SeriesInfo, SourceError)
 from ..registry import register
 
-BASE_URL = "https://newxtoon4.com"
+BASE_URL = "https://newxtoon5.com"
 MAX_LIST_PAGES = 30
 
 _ID = re.compile(r"[0-9]{1,12}")
@@ -63,13 +63,13 @@ def _clean(text) -> str:
 class NewXToonSource(SourceAdapter):
     name = "newxtoon"
     display_name = "NewXToon"
-    homepage = "https://newxtoon4.com"
+    homepage = "https://newxtoon5.com"
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
     url_patterns = [r"(?:newxtoon\d*\.com|xn--vg1b002axlc8ts\.com)/comics/\d+"]
     base_urls = [BASE_URL, "https://xn--vg1b002axlc8ts.com"]
     # Fast stays off: no terms page to vet, and Fast is limited to vetted sites.
-    host_min_interval = {"newxtoon4.com": 2.5, "xn--vg1b002axlc8ts.com": 2.5}
+    host_min_interval = {"newxtoon5.com": 2.5, "xn--vg1b002axlc8ts.com": 2.5}
 
     def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
