@@ -144,7 +144,7 @@ export function newDramaRequest(title: string, language: string | null | undefin
   const cjk = /[぀-ヿ㐀-鿿가-힯]/.test(t)
   return {
     source_language: lang,
-    ...(cjk ? { title_zh: t } : { title_en: t }),
+    ...(cjk ? { title_zh: t, translate_title: true } : { title_en: t }),
     media_type: comic ? COMIC_BY_LANGUAGE[lang] : 'novel',
   }
 }

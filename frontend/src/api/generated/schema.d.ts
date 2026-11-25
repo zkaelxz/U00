@@ -18881,6 +18881,11 @@ export interface components {
              */
             title_zh?: string;
             /**
+             * Translate Title
+             * @default false
+             */
+            translate_title?: boolean;
+            /**
              * Voice Actors
              * @default
              */
