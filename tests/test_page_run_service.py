@@ -512,3 +512,27 @@ def test_the_scanlate_step_is_held_to_the_adders_paid_engine_permission(isolated
     member = {"user_id": 5, "permissions": ["jobs.start"]}
     with pytest.raises(ForbiddenError):
         runs.start_step(member, drama, q.RUN_SCANLATE, {"engine": "claude"})
+
+
+def test_the_novel_link_run_refuses_a_title_whose_own_text_it_would_replace(novel):
+    did = _drama("Novel", lines=(), media_type="novel")
+    novel.calls["state"].update(chapters=0, text=True)
+    with pytest.raises(ConflictError):
+        _novel_start(did, at_pc=False, local=False)
+    assert _flow(did) == []
+
+
+def test_a_retried_text_step_leaves_a_title_that_got_lines_meanwhile(novel):
+    did = _drama("Novel", media_type="novel")           # already has lines
+    with pytest.raises(ConflictError):
+        runs.start_step(None, db.get_drama(did), q.TEXT, {})
+    assert novel.calls["text"] == 0
+
+
+def test_the_names_step_runs_on_the_engine_stored_for_the_adder(isolated_db, monkeypatch):
+    seen = []
+    monkeypatch.setattr(glossary_extract_service, "start_novel_glossary_run",
+                        lambda drama_id, engine_name=None, model=None: seen.append((engine_name, model)) or {"job_id": "j"})
+    did = _drama("Novel", media_type="novel")
+    runs.start_step(None, db.get_drama(did), q.NAMES, {"source": "novel", "engine": "ollama", "model": "m"})
+    assert seen == [("ollama", "m")]

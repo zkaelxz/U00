@@ -602,10 +602,11 @@ def attach_from_sources(drama_id: int, mode: str = "replace") -> dict:
     when there is none."""
     ownership_service.require_drama(drama_id)
     _check_mode(mode)
-    path = os.path.join(db.DRAMAS_DIR, str(drama_id), RAW_NOVEL_FILENAME)
-    if not os.path.isfile(path):
+    from sources import chapter_manifest as manifest   # imported late: sources imports this package's neighbours
+    found = manifest.safe_file(drama_id, RAW_NOVEL_FILENAME)
+    if found is None:
         raise NotFoundError("No chapters have been imported for this title.")
-    with open(path, encoding="utf-8", errors="replace") as f:
+    with open(found[0], encoding="utf-8", errors="replace") as f:
         raw = f.read(MAX_TEXT_CHARS + 1)
     if len(raw) > MAX_TEXT_CHARS:     # checked before cleaning, so it never truncates
         # Raw text may be stored up to novel_files_service.MAX_TEXT_CHARS, so a

@@ -18,7 +18,6 @@ _ACTIVE = (q.WAITING, q.RUNNING)
 _STOPPED = (q.FAILED, q.SKIPPED, q.INTERRUPTED, q.CANCELLED)
 _NOVEL = "novel"
 _FILE = "file"
-# Preparing the text was a PC-only action (local_only) before it ran here, and stays one.
 
 
 def _glossary_status(drama_id: int, source: str) -> str:
@@ -134,6 +133,16 @@ def _novel_state(drama_id: int) -> dict:
             "lines": bool(db.load_line_ids(drama_id))}
 
 
+def _refuse_to_replace_own_text(drama_id: int) -> None:
+    """The text step replaces the title's narration text, so a title that has text but no chapters
+    (text typed or attached by hand) is never given one by a run. Lines already made are left to the
+    callers' own check."""
+    state = _novel_state(drama_id)
+    if state["text"] and not state["chapters"] and not state["lines"]:
+        raise ConflictError("This novel already has its own text, which an import would replace. "
+                            "Press Translate on the title to go on.")
+
+
 def novel_flow(principal, drama_id: int) -> dict:
     """How far the novel link run of this title got (see _view)."""
     return _view(principal, drama_id, _NOVEL)
@@ -161,6 +170,7 @@ def start_novel_flow(principal, drama_id: int, url: str, lines: dict, *, at_pc: 
     held = _ready_to_add(principal, drama_id, _NOVEL)
     if held is not None:
         return held
+    _refuse_to_replace_own_text(drama_id)
     steps = []
     for step in novel_steps(drama_id):
         if step == q.IMPORT:
@@ -250,7 +260,7 @@ def after_import_run(principal, drama_id: int) -> dict:
 
 
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
-                       model: Optional[str] = None) -> dict:
+                       model: Optional[str] = None, names: Optional[dict] = None) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
     names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits for the import job, so a failed
@@ -270,14 +280,10 @@ def start_after_import(principal, drama_id: int, engine: str, lines: Optional[di
         state = _novel_state(drama_id)
         if state["lines"]:
             raise ConflictError("This novel already has lines. Press Translate on the title to go on.")
-        # The text step replaces the title's narration text, so a title that has text but no chapters
-        # (text typed or attached by hand) is never given one.
-        if state["text"] and not state["chapters"]:
-            raise ConflictError("This novel already has its own text, which an import would replace. "
-                                "Press Translate on the title to go on.")
+        _refuse_to_replace_own_text(drama_id)
         if not state["chapters"] or not state["text"]:
             steps.append((q.TEXT, {}))
-        steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL}),
+        steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL, **(names or {})}),
                   (q.RUN_TRANSLATE, {"engine": engine, **({"model": model} if model else {})})]
     return _add_after_import(principal, drama_id, steps, at_pc)
 
@@ -318,8 +324,10 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     """Starts one of a page run's steps as its adder; returns the job id, or None for a step done inline."""
     drama_id = drama["id"]
     if step == q.NAMES:
-        engine = glossary_extract_service.novel_glossary_engine(drama_id)
-        model = glossary_extract_service.glossary_model(drama_id)
+        # An engine and model stored with the step were chosen for the adder when it was added (a
+        # member who may not use the title's own engine runs on the one every account may).
+        engine = settings.get("engine") or glossary_extract_service.novel_glossary_engine(drama_id)
+        model = settings.get("model") if settings.get("engine") else glossary_extract_service.glossary_model(drama_id)
         _require_free_or_paid(principal, engine, model, "finds names")
         start = (glossary_extract_service.start_novel_glossary_run if settings.get("source") == _NOVEL
                  else glossary_extract_service.start_lines_glossary_run)
@@ -332,6 +340,10 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
             settings.get("url"), drama_id, local=bool(settings.get("local")), principal=principal)["job_id"]
     if step == q.TEXT:
         from services import novel_attach_service
+        # A retried item may start after another run already made this title's lines, which a new
+        # text would leave out of step with the text.
+        if db.load_line_ids(drama_id):
+            raise ConflictError("This novel already has lines, so its text is left as it is.")
         novel_attach_service.attach_from_sources(drama_id, "replace")
         return None
     if step == q.FOLLOW:
