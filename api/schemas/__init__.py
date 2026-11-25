@@ -56,6 +56,7 @@ from api.schemas.voice_engines import *  # noqa: F401,F403
 from api.schemas.benchmark import *  # noqa: F401,F403
 from api.schemas.queue import *  # noqa: F401,F403
 from api.schemas.next_episode import *  # noqa: F401,F403
+from api.schemas.cast import *  # noqa: F401,F403
 from api.schemas.disk_usage import *  # noqa: F401,F403
 from api.schemas.series import *  # noqa: F401,F403
 from api.schemas.inbox import *  # noqa: F401,F403
