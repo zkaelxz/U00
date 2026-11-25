@@ -581,8 +581,10 @@ class TestLibraryLists:
         hidden = {w["private"], w["in_pseries"]}
         db.update_drama(w["private"], studio="Secret Studio", custom_tags="secret-tag")
         db.update_drama(w["shared"], studio="Open Studio")
+        # Progress is per account: both readers have read all three titles.
         for did in (w["private"], w["shared"], w["in_pseries"]):
-            db.save_progress(did, percent_complete=40.0)
+            for uid in (w["b_id"], w["admin_id"]):
+                db.save_progress(did, percent_complete=40.0, user_id=uid)
         b_ids = self._ids(client, "/api/library/continue", w["b"], key="drama_id")
         assert w["shared"] in b_ids and not b_ids & hidden
         assert hidden <= self._ids(client, "/api/library/continue", w["admin"], key="drama_id")

@@ -141,7 +141,7 @@ def search(request: Request, q: str = Query(min_length=1, max_length=200),
 
 
 @router.get("/history", dependencies=[require_permission("library.read")], response_model=LibraryHistoryResponse, responses=_ERR,
-            summary="Reading history (default profile)")
+            summary="Reading history (this account)")
 def get_history(request: Request, limit: int = Query(25, ge=1, le=100)):
     return {"items": library_service.list_history(limit, principal=request.state.principal)}
 

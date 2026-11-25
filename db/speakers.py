@@ -720,7 +720,8 @@ def list_characters_with_series_names(drama_id: int):
 def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
                            clone_engine: str | None = None, voice_design: str = "",
                            language: str | None = None, notes: str = "",
-                           source_drama: str | None = None, source_speaker: str | None = None) -> int:
+                           source_drama: str | None = None, source_speaker: str | None = None,
+                           is_private: bool = False) -> int:
     """Copies clip_source_path into the shared library's voice bank folder
     (never a reference into the source drama's own folder) and records a
     new voice_bank row -- so deleting the source drama afterward leaves
@@ -734,10 +735,10 @@ def save_voice_bank_entry(name: str, clip_source_path: str, ref_text: str = "",
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute("""
             INSERT INTO voice_bank (name, clip_filename, ref_text, clone_engine, voice_design,
-                                     language, notes, source_drama, source_speaker, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                     language, notes, source_drama, source_speaker, created_at, is_private)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (name, clip_filename, ref_text, clone_engine, voice_design, language, notes,
-              source_drama, source_speaker, clock.utcnow().isoformat()))
+              source_drama, source_speaker, clock.utcnow().isoformat(), 1 if is_private else 0))
         conn.commit()
         new_id = db.inserted_id(cur)
     return new_id

@@ -69,6 +69,8 @@ ROUTES = [
     ("GET", "/page.html", None),
     ("GET", "/overview", None),
     ("POST", "/progress", {"page": 1}),
+    ("GET", "/watch-position", None),
+    ("POST", "/watch-position", {"seconds": 5}),
     ("GET", "/notes", None),
     ("POST", "/notes", {"notes": "x"}),
     ("GET", "/media", None),

@@ -207,7 +207,7 @@ _ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("dramas", "created_by_user_
                        ("series", "owner_user_id"),
                        ("job_records", "owner_user_id"), ("translate_history", "user_id"),
                        ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"),
-                       ("chapter_marks", "user_id"))
+                       ("chapter_marks", "user_id"), ("profiles", "user_id"))
 
 
 def settle_accounts(conn, live_path: str) -> None:
@@ -241,9 +241,10 @@ def settle_accounts(conn, live_path: str) -> None:
 
 # The account-naming columns of rows that come from the backup when the live
 # accounts are kept (audit_log is the live library's own then).
-# chapter_marks has no NULL for the PC owner (its 0 is the PC), so it is matched by match_mark_accounts.
+# chapter_marks has no NULL for the PC owner (its 0 is the PC), so it is matched by match_mark_accounts;
+# profiles' NULL is the PC's reading data, and an unmatched account's profile is dropped (match_profile_accounts).
 _RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS
-                                     if c[0] not in ("audit_log", "chapter_marks"))
+                                     if c[0] not in ("audit_log", "chapter_marks", "profiles"))
 _SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
                                ("tracked_series", "save_cbz_by_user_id"),
                                ("saved_series_owners", "owner_user_id"),
@@ -336,7 +337,31 @@ def match_owners(conn, mapping: dict) -> int:
         if mapping.get(owner) != owner)
     remap_owners(conn, mapping, _RESTORED_ACCOUNT_ID_COLUMNS)
     match_mark_accounts(conn, mapping)
+    match_profile_accounts(conn, mapping)
     return reassigned
+
+
+def match_profile_accounts(conn, mapping: dict) -> None:
+    """On the staged library.db's restored reading profiles: an account's resume points,
+    history and notes go to the live account `mapping` names; an account the mapping
+    doesn't name loses them, because handing them to the PC would mix them into its own."""
+    if "user_id" not in {r[1] for r in conn.execute('PRAGMA main.table_info("profiles")')}:
+        return
+    conn.execute("CREATE TEMP TABLE profile_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.profile_map (old, new) VALUES (?, ?)",
+                         [(old, new) for old, new in mapping.items() if old > 0 and new > 0])
+        gone = "(SELECT id FROM main.profiles WHERE user_id IS NOT NULL AND user_id NOT IN " \
+               "(SELECT old FROM temp.profile_map))"
+        for table in ("progress", "personal_notes", "reading_history"):
+            conn.execute(f"DELETE FROM main.{table} WHERE profile_id IN {gone}")
+        conn.execute(f"DELETE FROM main.profiles WHERE id IN {gone}")
+        # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on the unique index.
+        conn.execute("UPDATE main.profiles SET user_id = -(SELECT new FROM temp.profile_map "
+                     "WHERE old = user_id) WHERE user_id > 0")
+        conn.execute("UPDATE main.profiles SET user_id = -user_id WHERE user_id < 0")
+    finally:
+        conn.execute("DROP TABLE temp.profile_map")
 
 
 def match_mark_accounts(conn, mapping: dict) -> None:
@@ -363,8 +388,29 @@ def match_source_owners(sources_path: str, mapping: dict) -> None:
     conn = _open_carry_conn(sources_path)
     try:
         remap_owners(conn, mapping, _SOURCES_ACCOUNT_ID_COLUMNS)
+        _match_dismissal_accounts(conn, mapping)
     finally:
         conn.close()
+
+
+def _match_dismissal_accounts(conn, mapping: dict) -> None:
+    """Notice dismissals go to the live account `mapping` names and are dropped for an account
+    it doesn't name; the PC's (user_id 0) stay the PC's."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'chapter_notification_dismissals'").fetchone():
+        return
+    conn.execute("CREATE TEMP TABLE dismissal_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.dismissal_map (old, new) VALUES (?, ?)",
+                         [(old, new) for old, new in mapping.items() if old > 0 and new > 0])
+        conn.execute("DELETE FROM main.chapter_notification_dismissals WHERE user_id != 0 "
+                     "AND user_id NOT IN (SELECT old FROM temp.dismissal_map)")
+        # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on the primary key.
+        conn.execute("UPDATE OR REPLACE main.chapter_notification_dismissals SET user_id = "
+                     "-(SELECT new FROM temp.dismissal_map WHERE old = user_id) WHERE user_id > 0")
+        conn.execute("UPDATE main.chapter_notification_dismissals SET user_id = -user_id WHERE user_id < 0")
+        conn.commit()
+    finally:
+        conn.execute("DROP TABLE temp.dismissal_map")
 
 
 def hand_follows_to_pc_owner(sources_path: str) -> None:

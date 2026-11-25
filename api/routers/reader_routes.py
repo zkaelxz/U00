@@ -42,14 +42,14 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 from fastapi.responses import HTMLResponse
 from api import llm_slots
-from api.auth import engine_for_caller, require_engines_allowed, require_permission
+from api.auth import engine_for_caller, principal_user_id, require_engines_allowed, require_permission
 from api.security_headers import READER_PAGE_HEADERS
 from api.llm_slots import LLM_MAX_IN_FLIGHT, ACTIVE_CALLERS, ACTIVE_LOCK, SLOTS  # noqa: F401 -- re-exported for tests
 from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderExplainRequest,
                          ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability,
                          ReaderNotes, ReaderNotesRequest, ReaderOverview, ReaderPageResponse,
-                         ReaderProgress, ReaderProgressRequest, ReaderRecap,
-                         ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
+                         ReaderProgress, ReaderProgressRequest, ReaderRecap, ReaderWatchPosition,
+                         ReaderWatchPositionRequest, ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
                          ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, error_responses)
@@ -154,26 +154,41 @@ def get_reader_page_html(
 
 @router.get("/dramas/{drama_id}/overview", dependencies=[require_permission("library.read")], response_model=ReaderOverview,
             summary="Length, line count, progress and resume point", responses=_READ_ERRS)
-def get_overview(drama_id: int = Path(ge=1)):
-    return reader_service.get_reading_overview(drama_id)
+def get_overview(request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.get_reading_overview(drama_id, user_id=principal_user_id(request) or 0)
 
 
 @router.post("/dramas/{drama_id}/progress", dependencies=[require_permission("lines.edit")], response_model=ReaderProgress,
              summary="Record that a page was viewed (progress row only)", responses=_READ_ERRS)
-def post_progress(body: ReaderProgressRequest, drama_id: int = Path(ge=1)):
-    return reader_service.save_reading_position(drama_id, body.page, body.chapter_size)
+def post_progress(body: ReaderProgressRequest, request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.save_reading_position(drama_id, body.page, body.chapter_size,
+                                                user_id=principal_user_id(request) or 0)
+
+
+@router.get("/dramas/{drama_id}/watch-position", dependencies=[require_permission("library.read")],
+            response_model=ReaderWatchPosition, summary="Where this account stopped watching or listening",
+            responses=_READ_ERRS)
+def get_watch_position(request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.get_watch_position(drama_id, user_id=principal_user_id(request) or 0)
+
+
+@router.post("/dramas/{drama_id}/watch-position", dependencies=[require_permission("lines.edit")],
+             response_model=ReaderWatchPosition, summary="Save where this account is in the player",
+             responses=_READ_ERRS)
+def post_watch_position(body: ReaderWatchPositionRequest, request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.save_watch_position(drama_id, body.seconds, user_id=principal_user_id(request) or 0)
 
 
 @router.get("/dramas/{drama_id}/notes", dependencies=[require_permission("library.read")], response_model=ReaderNotes,
             summary="The drama's personal notes", responses=_READ_ERRS)
-def get_notes(drama_id: int = Path(ge=1)):
-    return reader_service.get_notes(drama_id)
+def get_notes(request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.get_notes(drama_id, user_id=principal_user_id(request) or 0)
 
 
 @router.post("/dramas/{drama_id}/notes", dependencies=[require_permission("lines.edit")], response_model=ReaderNotes,
              summary="Replace the drama's personal notes", responses=_READ_ERRS)
-def post_notes(body: ReaderNotesRequest, drama_id: int = Path(ge=1)):
-    return reader_service.save_notes(drama_id, body.notes)
+def post_notes(body: ReaderNotesRequest, request: Request, drama_id: int = Path(ge=1)):
+    return reader_service.save_notes(drama_id, body.notes, user_id=principal_user_id(request) or 0)
 
 
 # --- watch / listen -----------------------------------------------------------

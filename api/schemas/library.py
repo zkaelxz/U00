@@ -642,6 +642,7 @@ class LibraryContinueEntry(BaseModel):
     title_zh: Optional[str] = None
     percent_complete: Optional[float] = None
     last_page: Optional[int] = None
+    audio_position_seconds: Optional[float] = None
     last_accessed_at: Optional[str] = None
     has_cover_art: bool
 

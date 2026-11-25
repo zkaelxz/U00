@@ -537,6 +537,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/reader/dramas/{drama_id}/vocab/export.apkg` | lines.read |
 | `GET /api/reader/dramas/{drama_id}/vocab/export.csv` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/vocab/rich` | lines.edit |
+| `GET /api/reader/dramas/{drama_id}/watch-position` | library.read |
+| `POST /api/reader/dramas/{drama_id}/watch-position` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki` | library.read |
 | `POST /api/reader/dramas/{drama_id}/wiki/clear` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki/export.md` | lines.read |
