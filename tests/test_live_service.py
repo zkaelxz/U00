@@ -910,3 +910,18 @@ def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chun
     hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1})
     assert hints.names == "阿洛、阿羅。"
     assert hints(["阿洛来了"]) == [("阿洛", "RLuo", "")]
+
+
+def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
+    from lib.errors import ConflictError
+    url = "https://www.youtube.com/watch?v=abcdefghijk"
+    owner, admin = {"user_id": 1}, {"user_id": 2, "is_admin": True}
+    a = live_service.start_session(url, engine="fake", principal=owner)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    live_service._sessions[a]["owner_user_id"] = 1
+    live_service.start_session(url, engine="fake", principal=admin)
+    assert live_service.stop_session(a, principal=admin)["stopping"] is False
+    assert background_jobs.is_running(a)
+    live_service._sessions[a]["private"] = True
+    with pytest.raises(ConflictError):
+        live_service.start_session(url, engine="fake", principal={"user_id": 3})

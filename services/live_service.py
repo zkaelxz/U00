@@ -382,8 +382,8 @@ def _join_key(url: str, ref: Optional[dict]) -> str:
 def _join_running(url: str, principal) -> Optional[str]:
     """The id of a running session already captioning this stream, with the
     caller added as a viewer, else None. A session that read the PC's saved
-    cookies is not shared: its captions may come from a sign-in the joiner
-    does not have."""
+    cookies or used its starter's glossary is not shared: its captions may come
+    from a sign-in or a private glossary the joiner does not have."""
     key = _join_key(url, stream_ref(url))
     uid = ownership_service.user_id(principal)
     with _lock:
@@ -701,7 +701,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
                                  "join_key": _join_key(url, stream_ref(url)),
-                                 "private": bool(use_saved_cookies), "viewers": set(),
+                                 "private": bool(use_saved_cookies) or term_hints is not None, "viewers": set(),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
@@ -781,8 +781,7 @@ def stop_session(session_id, principal=None) -> dict:
         # A viewer who joined someone else's session only leaves it; the
         # session keeps captioning for the others.
         uid = ownership_service.user_id(principal)
-        if (uid in entry.get("viewers", ()) and not ownership_service.may_cancel_job(
-                principal, session_id, entry.get("owner_user_id"))):
+        if uid in entry.get("viewers", ()) and uid != entry.get("owner_user_id"):
             entry["viewers"].discard(uid)
             return {"session_id": session_id, "stopping": False, "finishing": False}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
