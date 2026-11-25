@@ -691,6 +691,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  spend_limit_usd)
 
 
+def _reads_saved_cookies(use_saved_cookies) -> bool:
+    """A start at the PC asks for the saved cookies, but with none set up nothing signed-in is read, so
+    such a session is as shareable as any other (counting the request alone made every PC start private)."""
+    return bool(use_saved_cookies) and any(settings_service.get_cookie_settings().values())
+
+
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
@@ -730,7 +736,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
                                  "join_key": _join_key(url, stream_ref(url)),
-                                 "private": bool(use_saved_cookies) or term_hints is not None, "viewers": set(),
+                                 "private": _reads_saved_cookies(use_saved_cookies) or term_hints is not None, "viewers": set(),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
