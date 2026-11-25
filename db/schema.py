@@ -462,7 +462,10 @@ def _create_reading_tables(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             color TEXT,
-            created_at TEXT
+            created_at TEXT,
+            -- The sign-in account this profile is the reading data of; NULL is the PC itself
+            -- (the lowest-id profile). Made on an account's first write (db.reading).
+            user_id INTEGER
         );
 
         -- Household profiles (Jellyfin-style) -- one shared library,

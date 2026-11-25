@@ -234,6 +234,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/next` | library.read |
+| `POST /api/dramas/{drama_id}/next/prepare` | jobs.start |
 | `GET /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
@@ -267,6 +269,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
+| `POST /api/ext-bridge/video` | device_token (extension.send) |
 | `GET /api/extension/devices` | local_only() |
 | `POST /api/extension/devices` | local_only() |
 | `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
@@ -540,6 +543,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/reader/dramas/{drama_id}/vocab/export.apkg` | lines.read |
 | `GET /api/reader/dramas/{drama_id}/vocab/export.csv` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/vocab/rich` | lines.edit |
+| `GET /api/reader/dramas/{drama_id}/watch-position` | library.read |
+| `POST /api/reader/dramas/{drama_id}/watch-position` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki` | library.read |
 | `POST /api/reader/dramas/{drama_id}/wiki/clear` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki/export.md` | lines.read |

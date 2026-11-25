@@ -272,11 +272,11 @@ def list_tracked(principal=None) -> list:
             for r in store.list_tracked_series()]
 
 
-def list_notifications(include_dismissed: bool = False) -> list:
+def list_notifications(include_dismissed: bool = False, user_id: int = 0) -> list:
     return [{"id": r["id"], "source": r["source"], "series_id": r["series_id"],
              "chapter_id": r["chapter_id"], "title": scrub(r.get("title")),
              "created_at": r["created_at"], "dismissed": bool(r["dismissed"])}
-            for r in store.list_notifications(include_dismissed=include_dismissed)]
+            for r in store.list_notifications(include_dismissed=include_dismissed, user_id=user_id)]
 
 
 # ---------------------------------------------------------------------------
@@ -456,11 +456,12 @@ def rollback_profile(domain: str, kind: str, version: int) -> list:
     return next(d for d in list_profiles() if d["domain"] == scrub(domain))["versions"]
 
 
-def dismiss_notification(notification_id: int) -> dict:
-    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True)}:
+def dismiss_notification(notification_id: int, user_id: int = 0) -> dict:
+    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True, user_id=user_id)}:
         raise NotFoundError("No such notification.")
-    store.dismiss_notification(notification_id)
-    return next(n for n in list_notifications(include_dismissed=True) if n["id"] == notification_id)
+    store.dismiss_notification(notification_id, user_id)
+    return next(n for n in list_notifications(include_dismissed=True, user_id=user_id)
+                if n["id"] == notification_id)
 
 
 def require_link_editable(source: str, series_id: str, principal) -> None:

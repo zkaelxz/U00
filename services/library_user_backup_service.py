@@ -46,7 +46,8 @@ log = logging.getLogger(__name__)
 #       it is an id from this install, meaningless in the target one)
 #   user_drama: the owner's rows of a kept drama only, user column set to 0
 #       (the target install's PC, as the owner column of a title is cleared)
-#   profile_drama: rows of a kept drama on the default profile only
+#   profile_drama: rows of a kept drama on the owner's own reading profile only (the PC owner: the
+#       default one), moved onto the default profile of the target install
 #   profiles: the default profile only (the one reader data uses)
 #   style_scope: the learned style of a kept series only
 #   keep: household-wide, nothing personal
@@ -58,9 +59,9 @@ USER_BACKUP_TABLES = {
     "translation_notes": ("drama", ""), "line_emotions": ("drama", ""),
     "consistency_issues": ("drama", ""), "vocab_lookups": ("drama", ""),
     "usage_log": ("drama_spend", ""), "line_history": ("drama", ""),
-    "progress": ("profile_drama", "other household profiles' reading stays behind"),
-    "personal_notes": ("profile_drama", "other household profiles' notes stay behind"),
-    "reading_history": ("profile_drama", "other household profiles' history stays behind"),
+    "progress": ("profile_drama", "other accounts' reading stays behind"),
+    "personal_notes": ("profile_drama", "other accounts' notes stay behind"),
+    "reading_history": ("profile_drama", "other accounts' history stays behind"),
     "chapter_marks": ("user_drama", "other accounts' read marks stay behind"),
     "watch_bookmarks": ("user_drama", "other accounts' bookmarks stay behind"),
     "translation_versions": ("drama", ""), "bug_reports": ("drama", ""),
@@ -139,12 +140,16 @@ def _user_backup_filter(path: str, owner_id) -> list:
                          "WHERE owner_user_id IS ?", (owner_id,))
             conn.execute("INSERT INTO temp.keep_series SELECT id FROM series "
                          "WHERE owner_user_id IS ?", (owner_id,))
-            default_profile = None
+            default_profile = source_profile = None
             if "profiles" in tables:
                 default_profile = conn.execute("SELECT MIN(id) FROM profiles").fetchone()[0]
+                source_profile = default_profile
+                if owner_id is not None and "user_id" in _cols(conn, "profiles"):
+                    row = conn.execute("SELECT id FROM profiles WHERE user_id = ?", (owner_id,)).fetchone()
+                    source_profile = row[0] if row else None
             rules = {t: USER_BACKUP_TABLES.get(t, ("drop", ""))[0] for t in tables}
             for t in tables:
-                _filter_by_own_rule(conn, t, rules[t], owner_id, default_profile)
+                _filter_by_own_rule(conn, t, rules[t], owner_id, default_profile, source_profile)
             _filter_by_kept_rows(conn, rules, default_profile)
             _unlink_other_series(conn)
             _reset_counters(conn)
@@ -177,7 +182,7 @@ def _keep_only(conn, table: str, where: str, args=()):
     conn.execute(f'DELETE FROM "{table}" WHERE ({where}) IS NOT 1', args)
 
 
-def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
+def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile, source_profile=None):
     """First pass: the rules that need only the kept dramas and series."""
     if t.startswith(_DROPPED_TABLE_PREFIX) or rule == "drop":
         if not t.startswith(_DROPPED_TABLE_PREFIX):
@@ -191,7 +196,8 @@ def _filter_by_own_rule(conn, t: str, rule: str, owner_id, default_profile):
     elif rule == "profile_drama":
         # A NULL profile_id means the default profile.
         _keep_only(conn, t, _IN_DRAMAS + " AND COALESCE(profile_id, ?) IS ?",
-                   (default_profile, default_profile))
+                   (default_profile, source_profile))
+        conn.execute(f'UPDATE "{t}" SET profile_id = ?', (default_profile,))
     elif rule in ("owned_dramas", "owned_series"):
         keep = "keep_dramas" if rule == "owned_dramas" else "keep_series"
         _keep_only(conn, t, f"id IN (SELECT id FROM temp.{keep})")

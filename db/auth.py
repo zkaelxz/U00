@@ -728,7 +728,7 @@ def auth_deactivate_user_keeping_an_admin(user_id: int, member_only: bool = Fals
 def auth_delete_inactive_member(user_id: int) -> bool:
     """Deletes a deactivated non-admin account; its permissions, sessions,
     extension device tokens and saved keys go with it (ON DELETE CASCADE),
-    and so do its chapter read marks.
+    and so do its chapter read marks and reading data.
     One statement, so an activate or grant-admin landing after the caller's
     check makes it refuse instead of deleting a live account. Ids are never
     reused (AUTOINCREMENT), so titles and audit rows that still name this id
@@ -742,6 +742,11 @@ def auth_delete_inactive_member(user_id: int) -> bool:
             # No foreign key reaches these: user_id 0 there means the PC, which has no users row.
             conn.execute("DELETE FROM chapter_marks WHERE user_id = ?", (user_id,))
             conn.execute("DELETE FROM watch_bookmarks WHERE user_id = ?", (user_id,))
+            # The profile's progress and notes go with it (foreign keys); reading_history has none.
+            conn.execute("DELETE FROM reading_history WHERE profile_id IN "
+                         "(SELECT id FROM profiles WHERE user_id = ?)", (user_id,))
+            conn.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM app_settings WHERE key = ?", (f"quick_video.profile_id.{user_id}",))
         conn.commit()
         return cur.rowcount > 0
 

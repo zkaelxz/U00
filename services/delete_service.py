@@ -228,11 +228,11 @@ def delete_voice_bank_entry(entry_id, confirm=False) -> dict:
 # Reading history
 # ---------------------------------------------------------------------------
 
-def clear_reading_history(confirm=False) -> dict:
-    """Clears the default profile's reading history (the Library tools
-    page's "Clear reading history"). Reading progress, and so the Continue
-    reading shelf, is kept."""
+def clear_reading_history(confirm=False, user_id: int = 0) -> dict:
+    """Clears the signed-in account's reading history (the PC's own with no
+    sign-in), from the Library tools page's "Clear reading history". Reading
+    progress, and so the Continue reading shelf, is kept."""
     _require_confirm(confirm, "reading history")
-    removed = len(db.list_reading_history(limit=-1))
-    db.clear_reading_history()
+    removed = len(db.list_reading_history(limit=-1, user_id=user_id))
+    db.clear_reading_history(user_id=user_id)
     return {"cleared": True, "removed": removed}

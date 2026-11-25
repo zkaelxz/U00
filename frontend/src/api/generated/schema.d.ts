@@ -3582,6 +3582,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/{drama_id}/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The title after this one in its series, and whether it is translated yet */
+        get: operations["get_next_episode_api_dramas__drama_id__next_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dramas/{drama_id}/next/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Queue the next title's steps now, as the caller */
+        post: operations["post_prepare_next_episode_api_dramas__drama_id__next_prepare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/{drama_id}/restructure": {
         parameters: {
             query?: never;
@@ -4105,6 +4139,23 @@ export interface paths {
         put?: never;
         /** Device token: find or create the title for a page */
         post: operations["post_title_api_ext_bridge_title_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/video": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: send a video page's link to Quick video translate */
+        post: operations["post_video_api_ext_bridge_video_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5531,7 +5582,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Reading history (default profile) */
+        /** Reading history (this account) */
         get: operations["get_history_api_library_history_get"];
         put?: never;
         post?: never;
@@ -8220,6 +8271,24 @@ export interface paths {
         put?: never;
         /** Queue or un-queue words for the rich sentence Anki export */
         post: operations["post_vocab_rich_api_reader_dramas__drama_id__vocab_rich_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/watch-position": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this account stopped watching or listening */
+        get: operations["get_watch_position_api_reader_dramas__drama_id__watch_position_get"];
+        put?: never;
+        /** Save where this account is in the player */
+        post: operations["post_watch_position_api_reader_dramas__drama_id__watch_position_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -21698,6 +21767,8 @@ export interface components {
         };
         /** LibraryContinueEntry */
         LibraryContinueEntry: {
+            /** Audio Position Seconds */
+            audio_position_seconds: number | null;
             /** Drama Id */
             drama_id: number;
             /** Has Cover Art */
@@ -22868,6 +22939,15 @@ export interface components {
             /** Default Model */
             default_model: string | null;
             defaults: components["schemas"]["LiveFormDefaults"];
+            /**
+             * Language Chunk Defaults
+             * @default {}
+             */
+            language_chunk_defaults: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
             /**
              * Language Whisper Defaults
              * @default {}
@@ -24237,6 +24317,20 @@ export interface components {
             /** Job Id */
             job_id: string;
         };
+        /** NextEpisode */
+        NextEpisode: {
+            /** Drama Id */
+            drama_id: number | null;
+            /** Free */
+            free: boolean;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "ready" | "working" | "idle" | "no_media";
+            /** Title */
+            title: string;
+        };
         /**
          * NotificationCategoriesRequest
          * @description Omitted fields stay as they are.
@@ -24322,11 +24416,13 @@ export interface components {
         NotificationTarget: {
             /** Drama Id */
             drama_id: number | null;
+            /** Follow Id */
+            follow_id: number | null;
             /**
              * Page
              * @enum {string}
              */
-            page: "glossary" | "review" | "series" | "jobs";
+            page: "glossary" | "review" | "series" | "jobs" | "watch" | "title" | "live";
             /** Series Id */
             series_id: number | null;
         };
@@ -25930,6 +26026,20 @@ export interface components {
             reading: string | null;
             /** Word */
             word: string;
+        };
+        /** ReaderWatchPosition */
+        ReaderWatchPosition: {
+            /** Drama Id */
+            drama_id: number;
+            /** Seconds */
+            seconds: number;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** ReaderWatchPositionRequest */
+        ReaderWatchPositionRequest: {
+            /** Seconds */
+            seconds: number;
         };
         /** ReaderWhoRequest */
         ReaderWhoRequest: {
@@ -43900,6 +44010,104 @@ export interface operations {
             };
         };
     };
+    get_next_episode_api_dramas__drama_id__next_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextEpisode"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_prepare_next_episode_api_dramas__drama_id__next_prepare_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextEpisode"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_restructure_api_dramas__drama_id__restructure_get: {
         parameters: {
             query?: never;
@@ -45198,6 +45406,26 @@ export interface operations {
         };
     };
     post_title_api_ext_bridge_title_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_video_api_ext_bridge_video_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -58252,6 +58480,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReaderRichExportResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_watch_position_api_reader_dramas__drama_id__watch_position_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReaderWatchPosition"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_watch_position_api_reader_dramas__drama_id__watch_position_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReaderWatchPositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReaderWatchPosition"];
                 };
             };
             /** @description Not Found */

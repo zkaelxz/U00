@@ -234,3 +234,54 @@ def test_an_unscored_banner_shaped_box_is_read_again_even_as_a_balloon():
 
 def test_a_tall_unscored_column_is_not_taken_for_a_banner():
     assert reread.hard_regions([_bubble("縦書きの文字です", None, w=40, h=400)]) == []
+
+
+class _LLM:
+    supports_reference = True
+
+
+class TestEnglishOnlyAnswers:
+    def _llm(self, monkeypatch, answers):
+        """Each call to the engine answers with the next dict of {id: text}."""
+        import json
+        from engine_backends import llm_tasks
+        prompts = []
+
+        def fake(engine, prompt, max_tokens=2000, fallback="[]", usage_cb=None):
+            prompts.append(prompt)
+            return json.dumps({"translations": answers.pop(0), "context_summary": "s"})
+        monkeypatch.setattr(llm_tasks, "call_llm_json", fake)
+        return prompts
+
+    def test_prompt_demands_english_only(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [{"0": "Hi"}])
+        scanlate_translate.translate_regions_by_id({"0": "やあ"}, _LLM(), {"source_language": "ja"})
+        assert "English only" in prompts[0]
+
+    def test_a_leaked_term_is_asked_for_again_and_the_clean_answer_kept(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [{"0": "An accomplice of the Notice Criminal"}])
+        keyed = {"0": "予告犯の共犯者"}
+        result, leaking = scanlate_translate.recheck_source_script(
+            keyed, {"0": "An accomplice of the 予告犯 (Yokokuhan)"}, _LLM(), {"source_language": "ja"})
+        assert result == {"0": "An accomplice of the Notice Criminal"}
+        assert leaking == []
+        assert "予告犯 (Yokokuhan)" in prompts[0]
+
+    def test_a_retry_that_still_leaks_is_flagged_and_never_worse(self, monkeypatch):
+        self._llm(monkeypatch, [{"0": "The 予告犯 and 共犯 came"}])
+        result, leaking = scanlate_translate.recheck_source_script(
+            {"0": "x"}, {"0": "The 予告犯 came"}, _LLM(), {})
+        assert result == {"0": "The 予告犯 came"}
+        assert leaking == ["0"]
+
+    def test_clean_answers_cost_no_extra_call(self, monkeypatch):
+        prompts = self._llm(monkeypatch, [])
+        result, leaking = scanlate_translate.recheck_source_script(
+            {"0": "x"}, {"0": "“Fine.” Murata Yusuke"}, _LLM(), {})
+        assert (result, leaking, prompts) == ({"0": "“Fine.” Murata Yusuke"}, [], [])
+
+    def test_quick_read_bubbles_get_the_clean_retry(self, monkeypatch):
+        self._llm(monkeypatch, [{"0": "Who is the 予告犯?"}, {"0": "Who is the Notice Criminal?"}])
+        bubbles = [_bubble("予告犯は誰？")]
+        scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
+        assert bubbles[0]["translated_text"] == "Who is the Notice Criminal?"

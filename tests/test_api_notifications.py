@@ -1447,7 +1447,9 @@ def test_a_job_stopped_at_a_spending_cap_is_waiting_not_finished(env, job_hook, 
     for i, (result, text) in enumerate(cases):
         entry = _finish_job(f"notify_cap_{i}", result, desc)
         assert entry["text"] == text, result
-        assert entry.get("target") == ({"page": "jobs"} if text.startswith("Waiting") else None)
+        assert entry.get("target") == ({"page": "jobs"} if text.startswith("Waiting")
+                                           else {"page": "watch", "drama_id": did} if text.startswith("Finished")
+                                           else None)
 
 
 def test_waiting_note_reads_only_what_the_result_says():
@@ -1653,3 +1655,13 @@ def test_resource_alert_changes_are_pc_only(env):
     admin = _session(True)
     assert remote.post("/api/settings/resource-alerts", json={"rules": {"cpu": {"enabled": True}}},
                        headers=session_headers(admin)).status_code == 403
+
+
+def test_a_finished_job_opens_the_title_it_finished(env, job_hook, no_timer):
+    video = db.create_drama(title_en="Moonlit Garden", media_type="video_drama")
+    novel = db.create_drama(title_en="Quiet Pages", media_type="novel")
+    narrated = db.create_drama(title_en="Spoken Pages", media_type="audio_drama", content_mode="novel_narration")
+    assert _finish_job("open_video", {}, f"Translation (drama #{video})")["target"] == {"page": "watch", "drama_id": video}
+    assert _finish_job("open_novel", {}, f"Translation (drama #{novel})")["target"] == {"page": "title", "drama_id": novel}
+    assert _finish_job("open_narrated", {}, f"Translation (drama #{narrated})")["target"] == {"page": "title", "drama_id": narrated}
+    assert "target" not in _finish_job("open_none", {}, "Housekeeping")

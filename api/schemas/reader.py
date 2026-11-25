@@ -20,6 +20,8 @@ __all__ = [
     "ReaderOverview",
     "ReaderProgressRequest",
     "ReaderProgress",
+    "ReaderWatchPositionRequest",
+    "ReaderWatchPosition",
     "ReaderNotesRequest",
     "ReaderNotes",
     "WatchBookmarkRequest",
@@ -144,6 +146,17 @@ class ReaderProgress(BaseModel):
     last_page: int
     last_line_idx: int
     percent_complete: float
+
+
+class ReaderWatchPositionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    seconds: float = Field(ge=0, le=7 * 24 * 3600)
+
+
+class ReaderWatchPosition(BaseModel):
+    drama_id: int
+    seconds: float
+    updated_at: Optional[str] = None
 
 
 class ReaderNotesRequest(BaseModel):

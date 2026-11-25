@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.webkit.CookieManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -30,6 +32,9 @@ public class MainActivity extends Activity {
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
+    /** A page of Baihe (a hash route) a tapped alert opens. */
+    static final String EXTRA_ROUTE = "route";
+    private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -123,8 +128,23 @@ public class MainActivity extends Activity {
                 exitCustomView();
             }
         });
+        // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
+        // address loads in this WebView, so no other site can reach it.
+        web.addJavascriptInterface(new ShellSettings.Bridge(this, this::askForAlertPermission), "BaiheShell");
         setContentView(page());
         open(getIntent());
+        AlertSchedule.ensure(this);
+        if (Build.VERSION.SDK_INT >= 33 && !prefs().getBoolean("alerts_asked", false)) {
+            prefs().edit().putBoolean("alerts_asked", true).apply();
+            askForAlertPermission();
+        }
+    }
+
+    /** Android 13+ shows notifications only after the person allows them; asked again whenever they switch alerts on. */
+    private void askForAlertPermission() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        runOnUiThread(() -> requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, ALERT_PERMISSION_REQUEST));
     }
 
     /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
@@ -189,6 +209,12 @@ public class MainActivity extends Activity {
         }
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             finishSignIn(address, intent.getDataString());
+            return;
+        }
+        String route = intent.getStringExtra(EXTRA_ROUTE);
+        if (AlertFeed.safeRoute(route)) {
+            web.loadUrl(address.replaceAll("/+$", "") + "/" + route);
+            intent.removeExtra(EXTRA_ROUTE);
             return;
         }
         String link = Intent.ACTION_SEND.equals(intent.getAction())
@@ -354,12 +380,14 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         AppUpdate.screenStarted();
+        AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         AppUpdate.screenStopped(this);
+        AlertSchedule.leftApp(this);
     }
 
     private SharedPreferences prefs() {
