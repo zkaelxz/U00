@@ -409,6 +409,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/feedback` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/mark` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |

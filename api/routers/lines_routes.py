@@ -22,7 +22,7 @@ from api.auth import engine_for_caller, require_engines_allowed, require_permiss
 from api.llm_slots import llm_slot
 from api.schemas import (LinesAcceptTmRequest, LinesFindReplaceApplyRequest,
                          LinesFindReplaceApplyResult, LinesKeepEnglishRequest,
-                         LinesEpisodeReviewedResult, LinesKeepEnglishResult, LinesMarkRequest,
+                         LinesEpisodeReviewedResult, LinesFeedbackRequest, LinesKeepEnglishResult, LinesMarkRequest,
                          LinesNote, LinesNoteCreate,
                          LinesNoteDeleteResult, LinesPatchRequest, LinesReviewedRequest, LinesSetLangRequest,
                          LinesSetLangResult, LinesShortenRequest, LinesShortenResult,
@@ -54,6 +54,13 @@ def post_set_reviewed(body: LinesReviewedRequest, drama_id: int = Path(ge=1), li
              responses=_404_409_422)
 def post_set_mark(body: LinesMarkRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
     return lines_service.set_mark(drama_id, line_id, body.mark, body.expected_en)
+
+
+@router.post("/dramas/{drama_id}/lines/{line_id}/feedback", dependencies=[require_permission("lines.edit")], response_model=ReviewLinesLine,
+             summary="Thumbs-down on one line: marks it wrong and keeps an optional better wording for the learned style (409 if `expected_en` differs)",
+             responses=_404_409_422)
+def post_line_feedback(body: LinesFeedbackRequest, drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
+    return lines_service.give_feedback(drama_id, line_id, body.expected_en, body.better)
 
 
 @router.post("/dramas/{drama_id}/mark-reviewed", dependencies=[require_permission("lines.edit")],

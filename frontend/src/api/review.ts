@@ -99,6 +99,10 @@ export const setReviewed = (id: number, lineId: number, reviewed: boolean, expec
 export const setMark = (id: number, lineId: number, mark: LineMark | null, expectedEn?: string, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/mark`, { mark, expected_en: expectedEn }, f)
 
+// A thumbs-down: marks the line wrong and keeps the better wording for the learned style; the line's English is not changed.
+export const sendLineFeedback = (id: number, lineId: number, better: string, expectedEn?: string, f?: Fetch) =>
+  postJson<ReviewLine>(`${lines(id)}/lines/${lineId}/feedback`, { better: better.trim() || null, expected_en: expectedEn }, f)
+
 // Records every translated, unflagged, unchecked line of the title as approved.
 export const markEpisodeReviewed = (id: number, f?: Fetch) =>
   postJson<EpisodeReviewedResult>(`${lines(id)}/mark-reviewed`, undefined, f)

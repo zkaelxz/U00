@@ -186,3 +186,22 @@ class TestOthers:
         r = local_client.post(f"{B}/{did}/notes", json={"line_id": 99999, "term": "t",
                                                    "note_type": "idiom", "note": "n"})
         assert r.status_code == 404
+
+
+class TestLineFeedback:
+    def test_thumbs_down_with_better_wording(self, local_client):
+        did, ids = _seed()
+        r = local_client.post(f"{B}/{did}/lines/{ids[0]}/feedback",
+                              json={"expected_en": "Hello", "better": "Hi there"})
+        assert r.status_code == 200, r.text
+        assert (r.json()["en"], r.json()["mark"]) == ("Hello", "wrong")
+        assert [s["user_version"] for s in db.list_edit_samples(did)] == ["Hi there"]
+
+    def test_conflict_and_validation(self, local_client):
+        did, ids = _seed()
+        url = f"{B}/{did}/lines/{ids[0]}/feedback"
+        assert local_client.post(url, json={"expected_en": "Old", "better": "x"}).status_code == 409
+        assert local_client.post(f"{B}/{did}/lines/99999/feedback", json={}).status_code == 404
+        for body in ({"better": "x" * 2001}, {"x": 1}):
+            assert local_client.post(url, json=body).status_code == 422, body
+        assert db.load_lines(did)[0]["mark"] is None and db.list_edit_samples(did) == []
