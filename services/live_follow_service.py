@@ -67,8 +67,8 @@ MAX_OPTIONS_BYTES = 1000
 # button can't be used to hammer YouTube.
 MANUAL_CHECK_GAP_SECONDS = 60
 # Follows a member may add in an hour, so remove-and-re-add can't be used to
-# churn checks against YouTube.
-MAX_ADDS_PER_HOUR = 10
+# churn checks against YouTube. Two pasted lists of 50 fit; admins are not limited.
+MAX_ADDS_PER_HOUR = 100
 _HANDLE = re.compile(r"[\w.\-]{3,30}")
 _CHANNEL_ID = re.compile(r"UC[A-Za-z0-9_-]{22}")
 _CUSTOM = re.compile(r"[\w.\-]{1,100}")
@@ -387,7 +387,7 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
     now = time.time()
     with _add_lock:
         recent = [t for t in _adds.get(owner, ()) if now - t < 3600]
-        if not is_pc_owner(principal) and len(recent) >= MAX_ADDS_PER_HOUR:
+        if not (is_pc_owner(principal) or bool(principal and principal.get("is_admin"))) and len(recent) >= MAX_ADDS_PER_HOUR:
             raise RateLimitedError("Too many channels added in the last hour. Try again later.")
         if follow_store.find(owner, url) is not None:
             raise ConflictError("Channel has already been added.")

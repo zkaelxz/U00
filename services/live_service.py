@@ -746,6 +746,26 @@ def _visible(principal, session_id, entry) -> bool:
     return ownership_service.can_see_job(principal, session_id, entry.get("owner_user_id"))
 
 
+def _listed(principal, session_id, entry) -> bool:
+    """What the Live page lists and is pushed by default: the caller's own sessions,
+    and the PC's own (a followed channel's auto-start) for an admin or the PC owner.
+    An admin can still open any session by id, and the Jobs page shows every job
+    (Alex, 2026-11-25: another account's finished session opened on her Live page)."""
+    if principal is None:
+        return True
+    uid = ownership_service.user_id(principal)
+    owner = entry.get("owner_user_id")
+    if uid is not None and (owner == uid or uid in entry.get("viewers", ())):
+        return True
+    return owner is None and _visible(principal, session_id, entry)
+
+
+def is_listed(session_id, principal=None) -> bool:
+    with _lock:
+        entry = _sessions.get(session_id) if isinstance(session_id, str) else None
+    return entry is not None and _listed(principal, session_id, entry)
+
+
 def _require(session_id, principal=None) -> dict:
     """Another user's session is a 404 like an unknown one."""
     with _lock:
@@ -879,13 +899,17 @@ def get_chat(session_id, after=0, principal=None) -> dict:
     return board.snapshot(int(_num("after", after, 0, 10 ** 9)))
 
 
-def list_sessions(principal=None) -> list:
+def list_sessions(principal=None, everyone: bool = False) -> list:
+    """everyone: an admin or the PC owner asks for every account's sessions too;
+    ignored for anyone else."""
     _reap()
+    show_all = everyone and (principal is None or bool(
+        principal.get("is_admin") or principal.get("is_local_owner")))
     with _lock:
         items = list(_sessions.items())
     result = []
     for sid, entry in items:
-        if not _visible(principal, sid, entry):
+        if not (_visible if show_all else _listed)(principal, sid, entry):
             continue
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []

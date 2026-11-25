@@ -6337,7 +6337,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Live sessions started in this process */
+        /** Live sessions started in this process: your own, or with everyone=true (admins) every account's */
         get: operations["list_sessions_api_live_sessions_get"];
         put?: never;
         /** Start a live capture session (yt-dlp + local Whisper + engine) */
@@ -51924,7 +51924,9 @@ export interface operations {
     };
     list_sessions_api_live_sessions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                everyone?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -51938,6 +51940,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LiveSessionSummary"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -55,9 +55,9 @@ def post_session(body: LiveSessionStart, request: Request):
 
 @router.get("/sessions", dependencies=[require_permission("library.read")],
             response_model=List[LiveSessionSummary],
-            summary="Live sessions started in this process")
-def list_sessions(request: Request):
-    return live_service.list_sessions(principal=request.state.principal)
+            summary="Live sessions started in this process: your own, or with everyone=true (admins) every account's")
+def list_sessions(request: Request, everyone: bool = Query(False)):
+    return live_service.list_sessions(principal=request.state.principal, everyone=everyone)
 
 
 @router.get("/options", dependencies=[require_permission("library.read")],
