@@ -33,7 +33,7 @@ import translation_finish
 import emotion
 import core as core_module
 import job_timing
-from services import (language_pack_service, line_provenance_service,
+from services import (glossary_inbox_service, language_pack_service, line_provenance_service,
                       novel_files_service, ownership_service, profile_service, run_settings_service,
                       settings_service, site_captions_service, timing_settings_service, vdb_names_service)
 from lib.errors import ConflictError, InvalidInputError
@@ -311,12 +311,15 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                                                        engine, lines, en_before, _retranslated_ids(
                                                            force_retranslate and not cancelled, cap_reached, lines, target_ids), judge_budget.capped,
                                                        bool(check.get("embed_unavailable"))))
-    _end_if_cancelled(job_id, cancelled, check)
+    _end_if_cancelled(job_id, cancelled, check, None if target_ids is not None else drama_id)
 
 
-def _end_if_cancelled(job_id, cancelled: bool, check: dict) -> None:
-    """Raises JobCancelled for a run stopped during its batches (`cancelled`) or
+def _end_if_cancelled(job_id, cancelled: bool, check: dict, inbox_drama_id=None) -> None:
+    """For a whole-title run (inbox_drama_id), first refreshes the glossary inbox: a re-do of a
+    few lines finds no names the first run missed. Raises JobCancelled for a run stopped during its batches (`cancelled`) or
     during the source-match check after them (check["cancelled"])."""
+    if inbox_drama_id is not None and not cancelled:
+        glossary_inbox_service.refresh_quietly(inbox_drama_id)
     if cancelled:
         # The engine stops between batches and returns normally, keeping the
         # lines already translated; returning here would end the job done at

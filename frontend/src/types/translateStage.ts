@@ -302,6 +302,8 @@ export type GlossaryNameCluster = Schemas['GlossaryNameCluster']
 
 export type GlossaryNameClusters = Schemas['GlossaryNameClusters']
 
+export type GlossaryInbox = Schemas['GlossaryInbox']
+
 // GET/POST /api/glossary/dramas/{id}/address-terms: the scan is read-only and offline.
 export type AddressTerms = Schemas['AddressTerms']
 
