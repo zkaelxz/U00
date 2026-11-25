@@ -480,3 +480,34 @@ class TestCaptureSummary:
 
     def test_no_token_is_refused(self, isolated_db):
         assert _client().post(f"{BASE}/capture-summary", json={"summary": "x"}).status_code == 401
+
+
+class TestPageReport:
+    def test_a_device_token_can_send_a_page_report(self, isolated_db):
+        import base64
+        from services import bug_report_service
+        _, token = _member("a@example.com")
+        payload = {"image": "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff\xe0" + (7).to_bytes(2, "big") + b"JFIF\x00\xff\xda\x00\x02scan\xff\xd9").decode(),
+                   "note": "wrong text", "regions": []}
+        r = _client().post(f"{BASE}/report", headers=_auth(token), json=payload)
+        assert r.status_code == 200, r.text
+        assert bug_report_service.list_reports()[0]["id"] == r.json()["id"]
+
+    def test_reports_need_library_read_and_are_rate_limited(self, isolated_db, monkeypatch):
+        import base64
+        from services import extension_bridge_service
+        _, token = _member("a@example.com")
+        payload = {"image": "data:image/jpeg;base64," + base64.b64encode(
+            b"\xff\xd8\xff\xe0" + (7).to_bytes(2, "big") + b"JFIF\x00\xff\xda\x00\x02scan\xff\xd9").decode()}
+        monkeypatch.setattr(extension_bridge_service, "_page_report_limiter",
+                            auth_service.SlidingWindowRateLimiter(1, 600))
+        assert _client().post(f"{BASE}/report", headers=_auth(token), json=payload).status_code == 200
+        assert _client().post(f"{BASE}/report", headers=_auth(token), json=payload).status_code == 429
+        u, other = _member("b@example.com")
+        auth_service.revoke_permission(u["id"], "library.read")
+        assert _client().post(f"{BASE}/report", headers=_auth(other), json=payload).status_code == 403
+
+    def test_a_report_without_a_picture_is_refused_and_a_bad_token_is_too(self, isolated_db):
+        _, token = _member("a@example.com")
+        assert _client().post(f"{BASE}/report", headers=_auth(token), json={"note": "x"}).status_code == 400
+        assert _client().post(f"{BASE}/report", headers=_auth("nope"), json={}).status_code in (401, 403)

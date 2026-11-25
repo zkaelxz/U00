@@ -51,6 +51,13 @@ final class QuickRead {
         return null;
     }
 
+    /** The address the phone grabbed the picture under `key` from, for a report; empty when unknown. */
+    static String sourceUrl(List<PageImage> batch, String key) {
+        if (key == null || key.isEmpty()) return "";
+        for (PageImage image : batch) if (key.equals(image.key)) return image.url;
+        return "";
+    }
+
     /** Only the server's own jpeg data: URL is accepted; anything else is ignored, never written. */
     static byte[] decode(String dataUrl) {
         if (dataUrl == null || !dataUrl.startsWith(JPEG_PREFIX)) return null;
