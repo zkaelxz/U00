@@ -52,7 +52,7 @@ _MAX_MEMBER_BYTES = lrs.MAX_RESTORE_MEMBER_BYTES
 CHILD_TABLES = ("lines", "pages", "characters", "translation_notes", "line_emotions",
                  "consistency_issues", "vocab_lookups", "line_history", "translation_versions",
                  "bug_reports", "wiki_entries", "edit_samples", "source_edits", "voice_suggestion_dismissals",
-                 "misheard_keeps", "progress", "personal_notes", "reading_history", "chapter_marks", "metadata_field_provenance")
+                 "misheard_keeps", "progress", "personal_notes", "reading_history", "chapter_marks", "watch_bookmarks", "metadata_field_provenance")
 _SKIPPED_TABLES = {
     "usage_log": "ON DELETE SET NULL: the spending rows survive a delete, so restoring them "
                  "would count the cost twice",
@@ -71,6 +71,7 @@ _LINE_REF_TABLES = ("translation_notes", "line_emotions", "reading_history", "bu
                     "edit_samples", "source_edits")
 _FIRST_SEEN_TABLES = ("vocab_lookups", "wiki_entries")
 _PROFILE_TABLES = ("progress", "personal_notes", "reading_history")
+_ACCOUNT_TABLES = ("chapter_marks", "watch_bookmarks")
 _LINE_JSON = {"translation_versions": "lines_json", "line_history": "snapshot_json"}
 _MAX_LINES_JSON = 64 * 1024 ** 2    # older line_history values are gzip (db.PLAIN_SNAPSHOTS)
 SERIES_CHILDREN = ("glossary_terms", "series_characters", "translation_memory", "word_replacements",
@@ -474,6 +475,26 @@ def _account_marks(rows: list, owners: dict) -> list:
     return list(merged.values())
 
 
+def _account_rows(rows: list, owners: dict) -> list:
+    """A copy's rows as rows of live accounts: 0 is the PC itself in every library, and a row
+    of an account with no live match is dropped."""
+    kept = []
+    for row in rows:
+        account = row.get("user_id", 0)
+        if account != 0:
+            account = owners.get(account)
+        if account is not None:
+            kept.append({**row, "user_id": account})
+    return kept
+
+
+def _as_live_accounts(table: str, rows: list, owners: dict) -> list:
+    """The rows of a per-account table as rows of live accounts; any other table's rows as they are."""
+    if table == "chapter_marks":
+        return _account_marks(rows, owners)
+    return _account_rows(rows, owners) if table == "watch_bookmarks" else rows
+
+
 def _set_accounts(row, drama, import_as, owners) -> None:
     """The copy's owner, creator and privacy (see copy_drama)."""
     if import_as is not None:
@@ -542,14 +563,13 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             db.ensure_legacy_bug_reports(dst)
         if not has_table(dst, table):
             continue
-        if import_as is not None and (table in _PROFILE_TABLES or table == "chapter_marks"):
+        if import_as is not None and (table in _PROFILE_TABLES or table in _ACCOUNT_TABLES):
             counts[table] = 0
             continue
         live_cols = columns(dst, table)
         n = 0
         rows = table_rows(src, table, "drama_id = ?", (old_id,))
-        if table == "chapter_marks":
-            rows = _account_marks(rows, owners)
+        rows = _as_live_accounts(table, rows, owners)
         for child in rows:
             old = child.pop("id", None)
             child["drama_id"] = live_id

@@ -527,6 +527,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/quick-video/start` | media.import_url + jobs.start |
 | `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
+| `GET /api/reader/dramas/{drama_id}/bookmarks` | library.read |
+| `POST /api/reader/dramas/{drama_id}/bookmarks` | lines.edit |
+| `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
+| `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
