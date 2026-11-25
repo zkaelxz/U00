@@ -7,6 +7,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
 import { AaControl } from '../../components/AaControl'
+import { LOW_DATA_OPTIONS, type LowDataMode } from './lowData'
 import { clampPage, FIT_OPTIONS, MODE_OPTIONS, SPREAD_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs, type SpreadMode } from './comicLogic'
 
 type PrefsProps = {
@@ -15,9 +16,12 @@ type PrefsProps = {
   canTypeset: boolean
   // Phone: Typeset and Text live here too (desktop has them in the bar).
   phone: boolean
+  // Per-device low-data choice (absent where the page doesn't offer it).
+  lowData?: LowDataMode
+  onLowData?: (m: LowDataMode) => void
 }
 
-function ViewForm({ prefs, onChange, canTypeset, phone }: PrefsProps) {
+function ViewForm({ prefs, onChange, canTypeset, phone, lowData, onLowData }: PrefsProps) {
   const set = <K extends keyof ComicPrefs>(k: K, v: ComicPrefs[K]) => onChange({ ...prefs, [k]: v })
   return (
     <div className="reader-prefs-form">
@@ -41,6 +45,13 @@ function ViewForm({ prefs, onChange, canTypeset, phone }: PrefsProps) {
         <Field label="Double page" help="Show two pages side by side. A page that is already wide, or a tall strip, is shown alone.">
           <select value={prefs.spread} onChange={(e) => set('spread', e.target.value as SpreadMode)}>
             {SPREAD_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
+      )}
+      {lowData && onLowData && (
+        <Field label="Low data" help="Smaller, more compressed pages. Auto uses them on mobile data or when your browser's data saver is on. Applies to this device only.">
+          <select value={lowData} onChange={(e) => onLowData(e.target.value as LowDataMode)}>
+            {LOW_DATA_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </Field>
       )}
