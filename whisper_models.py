@@ -343,6 +343,13 @@ def is_whisper_model_cached(model_size: str) -> bool:
     return _generic_snapshot(model_size) is not None
 
 
+def model_snapshot_folder(model_size: str):
+    """Folder of a downloaded faster-whisper model, or None when it is not on this PC."""
+    if model_size == ANIME_WHISPER_KEY:
+        return anime_whisper_folder() if _anime_whisper_ready(anime_whisper_folder()) else None
+    return _pinned_snapshot(model_size) if model_size in PINNED_CT2_REPOS else _generic_snapshot(model_size)
+
+
 def _generic_repo(model_size: str) -> str | None:
     return model_size if "/" in model_size else faster_whisper_repo(model_size)
 
