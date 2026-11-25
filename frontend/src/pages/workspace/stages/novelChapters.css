@@ -32,7 +32,7 @@ a.chapters-row { text-decoration: none; box-sizing: border-box; }
 }
 
 /* The Episodes list of the Simple title view: title left, state right, every episode in view. */
-.episodes-list { max-height: none; }
+.episodes-list { max-height: 28rem; }
 .episodes-row { grid-template-columns: minmax(0, 1fr) auto; }
 .episodes-row .chapters-meta { grid-column: auto; text-align: right; }
 /* The open title's row stands out without a second colour: bold, on the soft tint This line uses for the open line. */
