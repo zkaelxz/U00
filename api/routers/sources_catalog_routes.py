@@ -138,6 +138,12 @@ def post_dismiss(request: Request, notification_id: int = Path(ge=1)):
     return svc.dismiss_notification(notification_id, principal_user_id(request) or 0)
 
 
+@router.post("/notifications/{notification_id}/restore", dependencies=[require_permission("sources.import")], response_model=SourceNotification,
+             summary="Undo dismissing one new-chapter notification", responses=_ERR)
+def post_restore(request: Request, notification_id: int = Path(ge=1)):
+    return svc.restore_notification(notification_id, principal_user_id(request) or 0)
+
+
 @router.post("/profiles/{domain}/{kind}/rollback", dependencies=[require_permission("admin.settings")], response_model=List[SourceProfileVersion],
              summary="Make an earlier saved profile version active again", responses=_ERR)
 def post_profile_rollback(payload: SourceProfileRollbackRequest,

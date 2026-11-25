@@ -367,6 +367,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
               canAct={canImport}
               onOpen={openSeries}
               onDismissed={(id) => setNotifications((ns) => ns.filter((n) => n.id !== id))}
+              onRestored={(n) => setNotifications((ns) => (ns.some((x) => x.id === n.id) ? ns : [...ns, n].sort((a, b) => b.id - a.id)))}
               onUntrack={untrack}
               onTracked={setTracked}
               onChecked={loadTracking}
