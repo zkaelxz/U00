@@ -12,6 +12,7 @@ final class QuickReadSession {
     // The reader was left while the grab was still running: the grab carries on without it.
     private static boolean detached;
     private static String summary = "";
+    private static String title = "";
     private static Runnable cancelHook;
     private static Runnable listener;
     private static Runnable detachHook;
@@ -29,6 +30,7 @@ final class QuickReadSession {
         cancelled = false;
         detached = false;
         summary = "";
+        title = "";
         nextHook = null;
         newestFrom = 0;
     }
@@ -106,6 +108,15 @@ final class QuickReadSession {
     static synchronized void finish(String closingLine) {
         summary = closingLine == null ? "" : closingLine;
         finish();
+    }
+
+    /** What the chapter is called, for a copy saved to the phone. */
+    static synchronized void setTitle(String name) {
+        title = name == null ? "" : name;
+    }
+
+    static synchronized String title() {
+        return title;
     }
 
     static synchronized String summary() {
