@@ -6,6 +6,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 
 | Route | Declaration |
 |---|---|
+| `GET /api/activity` | library.read |
+| `GET /api/activity/gpu-daily` | library.read |
 | `GET /api/admin/audit` | admin.users.read |
 | `GET /api/admin/users` | admin.users.read |
 | `POST /api/admin/users` | admin.users |

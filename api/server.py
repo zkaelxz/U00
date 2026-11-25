@@ -82,6 +82,7 @@ from api.routers import (
     glossary_routes,
     language_pack_routes,
     job_stage_routes,
+    activity_routes,
     cast_routes,
     jellyfin_routes,
     jobs_routes,
@@ -241,7 +242,7 @@ async def _lifespan(app: FastAPI):
 
 _ROUTER_MODULES = (
     system_routes, update_routes, source_update_routes, library_routes, reader_routes, diagnostics_routes, setup_routes,
-    jobs_routes, queue_routes, quick_video_routes, events_routes, job_stage_routes, loaded_models_routes,
+    jobs_routes, queue_routes, quick_video_routes, events_routes, job_stage_routes, activity_routes, loaded_models_routes,
     settings_routes, translate_routes, export_routes, diarization_routes, source_suspect_routes, misheard_routes,
     timing_check_routes, source_routes, transcribe_routes, subtitle_import_routes, listen_routes,
     drama_routes, translate_run_routes, characters_routes, glossary_routes, language_pack_routes,

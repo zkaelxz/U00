@@ -44,12 +44,26 @@ def _timing_start(job_id, thread_job=True):
         return None
 
 
-def _timing_finish(job_id, token, thread_job=True):
+def _log_activity(job_id, token, gpu_touching):
+    """One activity_log row per run that really started; `token` is the run's start time."""
+    if token is None:
+        return
+    job = _jobs.get(job_id) or {}
+    status = job.get("status")
+    if status not in ("done", "error", "cancelled"):
+        return   # a run sent back to the queue (waiting for memory) has not ended
+    outcome = status
+    db.add_activity(job_id, job.get("description") or "", job.get("owner_user_id"), outcome,
+                    token, time.time(), gpu_touching)
+
+
+def _timing_finish(job_id, token, thread_job=True, gpu_touching=False):
     """`token` keeps a new run of the same job id, started the moment this
     one was marked finished, from being closed by this one."""
     try:
         import job_timing
         job_timing.finish_run(job_id, token=token)
+        _log_activity(job_id, token, gpu_touching)
         if thread_job:
             job_timing.set_current_job(None)
     except Exception:
@@ -222,7 +236,7 @@ def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
             if _recorded:
                 _notify_job_finished(_description, "error", job_id=job_id, owner_user_id=_owner)
         finally:
-            _timing_finish(job_id, _timing)
+            _timing_finish(job_id, _timing, gpu_touching=gpu_touching)
             _forget_cancel_check(job_id, run)
             _release_gpu_slot(job_id, gpu_touching, run)
             _promote_next_queued_gpu_job()
@@ -918,7 +932,7 @@ def _end_watch(job_id, proc, result_queue, gpu_touching, on_finish, kill_whole_t
         result_queue.discard()
     except Exception:
         pass
-    _timing_finish(job_id, timing, thread_job=False)
+    _timing_finish(job_id, timing, thread_job=False, gpu_touching=gpu_touching)
     _forget_cancel_check(job_id, run)
     _release_gpu_slot(job_id, gpu_touching, run)
     try:

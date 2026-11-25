@@ -332,6 +332,7 @@ def init_db():
         _create_misheard_table(conn)
         _create_library_tool_tables(conn)
         _create_job_tables(conn)
+        _create_activity_table(conn)
         _create_metadata_research_tables(conn)
         _create_core_indexes(conn)
         _migrate_job_records_columns(conn)
@@ -379,7 +380,7 @@ from db.schema import (  # noqa: E402,F401
     _create_word_replacement_table)
 
 from db.schema_system import (  # noqa: E402,F401
-    _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)
+    _create_activity_table, _create_auth_tables, _create_job_tables, _init_benchmark_lab_schema)
 
 
 from db.migrations import (  # noqa: E402,F401
@@ -699,6 +700,7 @@ from db.vocab import (  # noqa: E402,F401
     list_vocab_lookups, save_vocab_lookup, set_vocab_export_rich)
 
 
+from db.activity import add_activity, gpu_rows_since, list_activity  # noqa: E402,F401
 from db.usage import (  # noqa: F401
     log_usage,
     on_spend,

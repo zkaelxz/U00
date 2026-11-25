@@ -70,6 +70,7 @@ from api.schemas.backup import *  # noqa: F401,F403
 from api.schemas.comic import *  # noqa: F401,F403
 from api.schemas.engine_routing import *  # noqa: F401,F403
 from api.schemas.job_stage import *  # noqa: F401,F403
+from api.schemas.activity import *  # noqa: F401,F403
 from api.schemas.model_registry import *  # noqa: F401,F403
 from api.schemas.saved_comics import *  # noqa: F401,F403
 from api.schemas.sharing import *  # noqa: F401,F403

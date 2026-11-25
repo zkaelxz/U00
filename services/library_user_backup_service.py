@@ -94,6 +94,7 @@ USER_BACKUP_TABLES = {
     "speaker_merge_undos": ("empty", "short-lived undo records"),
     "job_checkpoints": ("empty", "this PC's job state"),
     "job_stage_timings": ("empty", "this PC's job history"),
+    "activity_log": ("empty", "this PC's job history"),
     "gpu_lock": ("empty", "this PC's job state"),
     "result_cache": ("empty", "cached model output from every user's runs"),
     "metadata_research_cache": ("empty", "lookups from every user"),
