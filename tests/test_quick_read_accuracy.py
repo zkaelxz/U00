@@ -340,3 +340,24 @@ class _Engine:
     name = "claude"
     supports_reference = True
     client = object()
+
+
+@pytest.mark.parametrize("sent, used", [("ja", "ja"), ("KO", "ko"), ("en", ""), ("<x>", ""), (None, "")])
+def test_the_language_a_sender_read_off_the_page_reaches_the_reader(isolated_db, monkeypatch, sent, used):
+    import base64
+    from services import extension_bridge_service as bridge
+    from services import page_server
+    seen = []
+
+    def fake_translate(data, content_type, **kw):
+        seen.append(kw["source_language"])
+        return {"regions": [], "notes": []}
+    monkeypatch.setattr(page_server, "translate_image", fake_translate)
+    from PIL import Image
+    out = io.BytesIO()
+    picture = Image.new("RGB", (600, 900), (240, 240, 240))
+    picture.paste((10, 10, 10), (150, 225, 450, 450))   # a blank page is refused before reading
+    picture.save(out, "PNG")
+    image = {"key": "a", "data": base64.b64encode(out.getvalue()).decode(), "content_type": "image/png"}
+    bridge.run_images({"store": False, "filter_pages": False, "source_language": sent}, [image])
+    assert seen == [used]
