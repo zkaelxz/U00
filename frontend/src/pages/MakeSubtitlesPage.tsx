@@ -8,12 +8,12 @@ import { PageShell } from '../components/PageShell'
 import { AddBox } from './makeSubtitles/AddBox'
 import { clearHandoff, peekHandoff } from './makeSubtitles/addBoxModel'
 
-export default function MakeSubtitlesPage() {
+export default function MakeSubtitlesPage({ link = null }: { link?: string | null }) {
   const [handoff] = useState(() => peekHandoff('run-file'))
   useEffect(() => clearHandoff(handoff), [handoff])
   return (
     <PageShell width="narrow" title="Add" meta="A file or a video link to English subtitles in one go.">
-      <AddBox place="page" request={handoff?.request ?? null} />
+      <AddBox place="page" request={handoff?.request ?? null} initialLink={link} />
     </PageShell>
   )
 }

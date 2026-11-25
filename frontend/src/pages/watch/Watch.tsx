@@ -44,7 +44,7 @@ import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
-  parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, speakerSlots, spokenOrder,
+  parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, quietSkip, SAVE_EVERY_MS, speakerSlots, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -125,7 +125,7 @@ export default function WatchPage({ id }: { id: number }) {
   const playable = kind !== null && !readOnly ? original : null
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
-  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed } = useWatchClock(id, playable, ordered, player)
+  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player)
   const { resume: backToSound, scrollHandlers } = useFollow(list, currentId)
   // Every move of the playhead by the person also ends "Back where you stopped", which would name a place left behind.
   const resume = useCallback(() => {
@@ -293,6 +293,11 @@ export default function WatchPage({ id }: { id: number }) {
                   lineShownByPage
                   loopLineAt={lineAt}
                 />
+                {skipTo !== null && (
+                  <div className="watch-resume">
+                    <button type="button" className={buttonClass()} onClick={() => playFrom(skipTo)}>Skip quiet</button>
+                  </div>
+                )}
                 {resumedAt !== null && (
                   <div className="watch-resume">
                     <p>Back where you stopped, at {formatClock(resumedAt)}.</p>
@@ -389,6 +394,8 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const [currentId, setCurrentId] = useState<number | null>(null)
   const [resumedAt, setResumedAt] = useState<number | null>(null)
+  const [skipTo, setSkipTo] = useState<number | null>(null)
+  const skipRef = useRef<number | null>(null)
   // Read by the clock's listeners, which are attached once per media element.
   const orderedRef = useRef(ordered)
   const currentRef = useRef<number | null>(null)
@@ -397,6 +404,12 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
 
   const showCurrent = useCallback((time: number) => {
     clockRead.current = true
+    // The target is the same for the whole quiet stretch, so state changes only where it starts and ends.
+    const skip = quietSkip(orderedRef.current, time)
+    if (skip !== skipRef.current) {
+      skipRef.current = skip
+      setSkipTo(skip)
+    }
     const next = currentLine(orderedRef.current, time)?.id ?? null
     if (next === currentRef.current) return
     currentRef.current = next
@@ -474,7 +487,7 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
   const clearResumed = useCallback(() => setResumedAt(null), [])
   // The line Loop line repeats, by the card's own rule, so the line repeated is the line the card shows.
   const lineAt = useCallback((time: number) => loopLineAt(orderedRef.current, time), [])
-  return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed }
+  return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo }
 }
 
 /**
