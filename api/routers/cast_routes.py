@@ -3,9 +3,11 @@ api/routers/cast_routes.py -- cast a title's English-subtitled copy to a TV.
 
     GET  /api/cast/dramas/{drama_id}         media.stream  is the subtitled copy ready for a TV
     POST /api/cast/dramas/{drama_id}/link    media.stream  a link to it for the next 6 hours
+    POST /api/cast/dramas/{drama_id}/share  media.stream  a link to it for a person, for 1, 3 or 7 days
+    DELETE /api/cast/dramas/{drama_id}/share media.stream  ends the caller's shared links to the title
     GET  /api/cast/video?k={secret}          public_route  the copy itself, for the TV (Range)
 
-A TV has no sign-in, so the last route is the one place a long random secret in the URL stands for a session.
+A TV has no sign-in, so the last route is the one place a long random secret in the URL stands for a session (a TV's cast link, or a share link handed to a person).
 It is a query value because the early auth gate admits only fixed public paths, and it must stay one:
 Caddy's logs drop the query but would write a path segment. A link stops working when its account is
 deactivated, loses media.stream or can no longer see the title, and counts against that account's open
@@ -20,7 +22,7 @@ from fastapi import APIRouter, Path, Query, Request
 
 from api.auth import public_route, require_permission
 from api.routers.media_routes import _CappedFileResponse
-from api.schemas import CastLink, CastStatus, error_responses
+from api.schemas import CastLink, CastStatus, ShareEnded, ShareLinkRequest, error_responses
 from lib.storage_errors import require_readable
 from services import cast_service
 
@@ -39,6 +41,19 @@ def get_cast_status(drama_id: int = _DRAMA):
              summary="A link a TV can play the subtitled copy from", responses=error_responses(404, 409))
 def post_cast_link(request: Request, drama_id: int = _DRAMA):
     return cast_service.create_link(request.state.principal, drama_id)
+
+
+@router.post("/dramas/{drama_id}/share", dependencies=[require_permission("media.stream")], response_model=CastLink,
+             summary="A link to send a person that plays the subtitled copy for a few days",
+             responses=error_responses(404, 409, 422))
+def post_share_link(request: Request, body: ShareLinkRequest, drama_id: int = _DRAMA):
+    return cast_service.create_link(request.state.principal, drama_id, share_days=body.days)
+
+
+@router.delete("/dramas/{drama_id}/share", dependencies=[require_permission("media.stream")], response_model=ShareEnded,
+               summary="End the caller's shared links to this title", responses=error_responses(404))
+def delete_share_links(request: Request, drama_id: int = _DRAMA):
+    return {"ended": cast_service.end_shares_of(request.state.principal, drama_id)}
 
 
 @router.head("/video", dependencies=[public_route()], include_in_schema=False)

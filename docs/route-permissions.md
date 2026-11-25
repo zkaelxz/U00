@@ -105,6 +105,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
 | `GET /api/cast/dramas/{drama_id}` | media.stream |
 | `POST /api/cast/dramas/{drama_id}/link` | media.stream |
+| `DELETE /api/cast/dramas/{drama_id}/share` | media.stream |
+| `POST /api/cast/dramas/{drama_id}/share` | media.stream |
 | `GET /api/cast/video` | public() |
 | `HEAD /api/cast/video` | public() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |

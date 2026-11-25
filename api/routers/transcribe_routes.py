@@ -85,7 +85,10 @@ def check_run_allowed(request: Request, drama_id: int, payload: TranscribeRunReq
                              "to use the one saved in Settings.")
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_transcribe, drama_id,
-        run_diarize=payload.run_diarize, source_language=payload.source_language)
+        run_diarize=payload.run_diarize,
+        # Auto language runs on large-v3 whatever the language turns out to be, so that is the model to have ready.
+        **({"overrides": {"whisper_size": "large-v3", "asr_backend_choice": "whisper"}} if payload.detect_language
+           else {"source_language": payload.source_language}))
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranscribeRunResult,
@@ -100,7 +103,7 @@ def post_start_transcribe(payload: TranscribeRunRequest, request: Request,
         expected_speakers=payload.expected_speakers,
         min_speakers=payload.min_speakers, max_speakers=payload.max_speakers,
         initial_prompt=payload.initial_prompt, tesseract_cmd=payload.tesseract_cmd,
-        extra_names=payload.extra_names)
+        extra_names=payload.extra_names, detect_language=payload.detect_language)
 
 
 # --- Speech coverage: speech the lines don't cover (read-only, CPU) ----------

@@ -147,6 +147,8 @@ export default function TranscribeStage({
   // that already differ from the defaults count as saved too. It only picks which fold opens first.
   const [savedBefore, setSavedBefore] = usePersistedState(`source.optionsSaved.${dramaId}`, false)
   const defaultLanguage = drama.source_language ?? 'zh'
+  // Run-only: the title keeps its saved language until the run has heard which one it is.
+  const [autoLanguage, setAutoLanguage] = useState(false)
   // Settings are not readable from away from the PC, so the run config's copy of the flag backs it up.
   const [settingsGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -357,6 +359,7 @@ export default function TranscribeStage({
     setFieldProblem(null)
     return {
       source_language: language,
+      ...(autoLanguage ? { detect_language: true } : {}),
       ...(language === 'zh' && script ? { chinese_script: script } : {}),
       ...(haveTranscript ? { transcript_text: transcriptText } : {}),
       run_diarize: runDiarize,
@@ -548,6 +551,7 @@ export default function TranscribeStage({
       <MediaTabPanel id="transcribe" active={tab}>
         <div className="source-grid">
           <Field label="Source language">
+            <div>
             <select className="w-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="zh">Chinese</option>
               <option value="ja">Japanese</option>
@@ -555,6 +559,13 @@ export default function TranscribeStage({
               <option value="id">Indonesian</option>
               <option value="th">Thai</option>
             </select>
+            {mode === 'whisper' && (
+              <label className="field-check">
+                <input type="checkbox" checked={autoLanguage} onChange={(e) => setAutoLanguage(e.target.checked)} />
+                {' '}Auto (any language): listen first, then use the language it hears
+              </label>
+            )}
+            </div>
           </Field>
           {cf && (
             <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>

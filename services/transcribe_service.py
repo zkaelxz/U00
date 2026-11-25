@@ -64,6 +64,7 @@ from ocr import default_hardsub_backend
 import job_timing
 from services import difficult_audio_service as difficult
 from services import site_captions_service
+from services import language_detect_service
 from services import (asr_options_service, diarization_service, ownership_service, run_settings_service,
                       name_fix_service, settings_service, source_service, speech_coverage_service, timing_check_service, timing_settings_service,
                       transcribe_checkpoint_service, transcribe_pipeline,
@@ -242,7 +243,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
                           initial_prompt: str = "", tesseract_cmd: Optional[str] = None,
                           extra_names: str = "", min_speakers: Optional[int] = None,
                           max_speakers: Optional[int] = None,
-                          overrides: Optional[dict] = None) -> dict:
+                          overrides: Optional[dict] = None, detect_language: bool = False) -> dict:
     """Starts the background job that transcribes (or aligns a supplied
     transcript against) this drama's stored audio, then -- once that's
     done, inside the same job -- applies the result to the drama's lines
@@ -252,6 +253,11 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
 
     overrides (a queued item's own settings, transcribe_options_service.QUEUE_SETTING_KEYS)
     are laid over the title for this run only; nothing is saved to the title.
+
+    detect_language ("Auto (any language)") hears the opening of the audio with Whisper large-v3 first
+    and runs with the language it finds, on large-v3 with the plain Whisper backend (never turbo);
+    the title's source language is then set to it. A language the app can't transcribe, or a
+    opening too unclear to tell, refuses the run. Only for a title that transcribes with Whisper.
 
     source_language / chinese_script default to this drama's own stored
     values when omitted. initial_prompt is an optional
@@ -284,6 +290,10 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     this drama."""
     # Taken first, so a restart repeats the call as it was made.
     again = functools.partial(start_transcribe_run, **locals())
+    detected = None
+    if detect_language:
+        detected, overrides = _detect_run_language(drama_id, overrides)
+        source_language = detected
     drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
@@ -329,7 +339,23 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             started = _start_worker_job(job_id, drama_id, drama, run)
     if not started:
         raise ConflictError(f"A transcription is already running for title {drama_id}.")
+    if detected is not None and detected != ownership_service.require_drama(drama_id).get("source_language"):
+        db.update_drama(drama_id, source_language=detected)
     return {"job_id": job_id}
+
+
+def _detect_run_language(drama_id, overrides) -> tuple:
+    """(language heard, overrides) for an Auto language run: large-v3 on the plain Whisper backend,
+    for this run only."""
+    stored = ownership_service.require_drama(drama_id)
+    if (stored.get("transcript_mode") or "have_transcript") != "whisper":
+        raise UnsupportedOperationError("Auto language needs a title that transcribes with Whisper.")
+    audio = _drama_audio_path(drama_id, stored)
+    if audio is None:
+        raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
+    detected = language_detect_service.detect(drama_id, audio, settings_service.get("use_gpu"))
+    return detected, {**(overrides or {}), "source_language": detected,
+                      "whisper_size": language_detect_service.DETECT_MODEL, "asr_backend_choice": "whisper"}
 
 
 def _resolve_run(drama_id, drama, *, source_language, chinese_script, transcript_mode,
