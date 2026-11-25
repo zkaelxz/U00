@@ -55,7 +55,7 @@ from api.schemas import (BenchmarkCaseEdits, BenchmarkCaseExcluded, BenchmarkCas
                          BenchmarkHardSubCaptionSuggestions,
                          BenchmarkTitleCorrections,
                          BenchmarkClipCheck, BenchmarkClipCheckRequest, BenchmarkClipImportResult,
-                         BenchmarkPairNext, BenchmarkPickRequest, BenchmarkPickSummary,
+                         BenchmarkPairNext, BenchmarkPairSuggestion, BenchmarkPickRequest, BenchmarkPickSummary,
                          BenchmarkRunDelete, BenchmarkSetBuildRequest, BenchmarkSetBuildResult,
                          BenchmarkSweepDecisionRequest, BenchmarkSweepDecisions, BenchmarkSweepEstimate,
                          BenchmarkSweepRequest, BenchmarkSweepStarted, BenchmarkSweepState,
@@ -282,6 +282,12 @@ def get_arena(run_ids: List[int] = Query(min_length=2, max_length=svc.MAX_CONFIG
     out = svc.arena(run_ids)
     _with_judge(out["runs"], out["rows"])
     return out
+
+
+@router.get("/ab/suggest", dependencies=_READ, response_model=BenchmarkPairSuggestion, responses=_ERRS,
+            summary="Blind A/B: the two finished runs with the most cases left to pick between")
+def get_ab_suggest():
+    return picks_svc.suggest_pair()
 
 
 @router.get("/ab/next", dependencies=_READ, response_model=BenchmarkPairNext, responses=_ERRS,

@@ -44,6 +44,7 @@ __all__ = [
     "BenchmarkPickTotals",
     "BenchmarkPairNext",
     "BenchmarkPickRequest",
+    "BenchmarkPairSuggestion",
     "BenchmarkPickSummary",
     "BenchmarkSetBuildRequest",
     "BenchmarkSetBuildResult",
@@ -161,6 +162,16 @@ class BenchmarkPairNext(BaseModel):
     left_text: Optional[str] = None
     right_text: Optional[str] = None
     ticket: Optional[str] = None
+
+
+class BenchmarkPairSuggestion(BaseModel):
+    """The two runs a blind comparison should start with, or found=False when none qualify."""
+    found: bool
+    run_a: Optional[int] = None
+    run_b: Optional[int] = None
+    stage: Optional[str] = None
+    remaining: Optional[int] = None
+    total: Optional[int] = None
 
 
 class BenchmarkPickRequest(BaseModel):
