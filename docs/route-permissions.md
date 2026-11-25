@@ -269,6 +269,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
 | `POST /api/ext-bridge/cancel` | device_token (extension.send) |
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
+| `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
 | `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |

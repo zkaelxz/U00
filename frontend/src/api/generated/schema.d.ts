@@ -4128,6 +4128,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: watch the series of a Grab page for new chapters */
+        post: operations["post_follow_api_ext_bridge_follow_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/health": {
         parameters: {
             query?: never;
@@ -45954,6 +45971,26 @@ export interface operations {
         };
     };
     post_capture_summary_api_ext_bridge_capture_summary_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_follow_api_ext_bridge_follow_post: {
         parameters: {
             query?: never;
             header?: never;
