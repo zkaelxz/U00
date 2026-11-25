@@ -25,6 +25,7 @@ No browser for a request not from this PC (docs/remote-access-decision.md).
 import base64
 import binascii
 import json
+import logging
 import re
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
@@ -39,6 +40,12 @@ HOST = "www.fanjiao.co"
 BASE_URL = "https://" + HOST
 REFERER = BASE_URL + "/"
 # Only the page's own responses for these two endpoints are kept.
+log = logging.getLogger(__name__)
+
+# Every api.* response is recorded so a log shows the site's current API paths when the two below stop matching.
+API_WAIT_MS = 90_000
+SETTLE_MS = 8_000
+ANY_API = re.compile(r"^https://api\.fanjiao\.co/")
 API_PATTERN = re.compile(r"^https://api\.fanjiao\.co/walkman/api/+(?:comic/home_page|chapter/details)\b")
 PAID_GROUP = "付费 / paid (not bought)"
 _ID = re.compile(r"[0-9]{1,12}")
@@ -94,12 +101,33 @@ def _extension_from_bytes(content: bytes) -> str:
     return ""
 
 
+def _body_keys(entry) -> str:
+    """Top-level JSON keys of a captured body, to tell a real payload from an error shell in the log."""
+    try:
+        data = json.loads(entry.get("body") or b"")
+        return "keys=" + ",".join(sorted(data)) if isinstance(data, dict) else ""
+    except (ValueError, TypeError):
+        return ""
+
+
 def _default_capture(url: str):
     """(rendered html, the page's own matching responses) from page_fetch's guarded browser."""
     from page_fetch import api_capture_session
     try:
-        with api_capture_session(url, API_PATTERN, timeout=40, wait_ms=8000) as (page, captured):
-            return page.content(), list(captured)
+        # From a home connection the page needs about a minute to reach domcontentloaded, and the
+        # site's own API call only follows a device-fingerprint request after that. So return at
+        # the first byte and wait for the call itself.
+        with api_capture_session(url, ANY_API, timeout=120, wait_ms=0, wait_until="commit") as (page, captured):
+            waited = 0
+            while waited < API_WAIT_MS and not any(API_PATTERN.match(e.get("url", "")) for e in captured):
+                page.wait_for_timeout(1000)
+                waited += 1000
+            # Siblings (chapter/details next to home_page) land shortly after the first.
+            page.wait_for_timeout(SETTLE_MS)
+            for entry in captured:
+                log.info("Fanjiao api response %s %s %s", entry.get("status"),
+                         urlsplit(entry.get("url", "")).path, _body_keys(entry))
+            return page.content(), [e for e in captured if API_PATTERN.match(e.get("url", ""))]
     except ImportError as e:
         raise SourceError(str(e), FailureReason.NOT_INSTALLED) from None
     except SourceError:
@@ -202,6 +230,11 @@ class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
             raise LayoutChanged("a usable chapter address")
         html, ok = self._render(chapter.url, f"Loading chapter {chapter.title}")
         details = _data(ok.get("details"))
+        # A pasted chapter link names no comic; the page's own home_page response does, so the
+        # caller can jump from the chapter to its series.
+        comic_id = _digits((_data(ok.get("home_page")).get("comic_info") or {}).get("comic_id"))
+        if comic_id and not chapter.series_id:
+            chapter.series_id = comic_id
         if details and details.get("is_buy") not in (1, True, "1"):
             raise _withheld(f"\"{chapter.title}\"")
         reader = _soup(html).select_one("div.read-content")

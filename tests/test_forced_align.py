@@ -499,6 +499,11 @@ class TestLoadQwen3Aligner:
             qwen3_native.installed_transformers_version = saved[1]
         import forced_align
         forced_align._aligner_model_cache.clear()
+        # Each reload builds a new LANGUAGE_NAMES dict, but asr_backend keeps the one it imported
+        # and a later test asserts the two are the same object.
+        backend = sys.modules.get("asr_backend")
+        if backend is not None:
+            forced_align.LANGUAGE_NAMES = backend.LANGUAGE_NAMES
 
     def test_loads_and_caches_on_cpu(self):
         calls = []

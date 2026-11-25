@@ -114,6 +114,12 @@ class TestChapters:
 
 
 class TestPages:
+    def test_a_pasted_chapter_link_learns_its_series_from_the_page(self):
+        cap = FakeCapture(READER, [_entry("chapter/details", CHAPTER_DETAILS), _entry("comic/home_page", HOME)])
+        chapter = ChapterInfo("fanjiao_comic", "", "12", "x", _chapter("12").url)
+        _adapter(cap).get_pages(chapter)
+        assert chapter.series_id == "4242"
+
     def test_reads_https_images_in_order_without_repeats(self):
         cap = FakeCapture(READER, [_entry("chapter/details", CHAPTER_DETAILS)])
         pages = _adapter(cap).get_pages(_chapter())
@@ -181,3 +187,34 @@ def test_registered_as_a_browser_comic_source():
     assert a.needs_browser and not a.supports("search")
     assert a.supports("get_pages") and a.supports("download_page")
     assert fanjiao_comic.FanjiaoComicSource.matches_url(_chapter().url)
+
+
+def test_default_capture_waits_for_the_page_api_call_logs_every_api_path_and_returns_only_content_calls(
+        monkeypatch, caplog):
+    import contextlib
+    import page_fetch
+    seen = {"waits": 0}
+    late = _entry("comic/home_page", HOME)
+    other = {"url": "https://api.fanjiao.co/walkman/api/other/x?k=1", "status": 200}
+    captured = [other]
+
+    @contextlib.contextmanager
+    def fake_session(url, pattern, timeout, wait_ms, wait_until):
+        seen.update(timeout=timeout, wait_until=wait_until, pattern=pattern)
+        class Page:
+            def wait_for_timeout(self, ms):
+                seen["waits"] += 1
+                if seen["waits"] == 3:
+                    captured.append(late)
+            def content(self):
+                return "<html></html>"
+        yield Page(), captured
+
+    monkeypatch.setattr(page_fetch, "api_capture_session", fake_session)
+    with caplog.at_level("INFO", logger=fanjiao_comic.__name__):
+        html, got = fanjiao_comic._default_capture("https://www.fanjiao.co/cartoonDetail?data=x")
+    assert seen["wait_until"] == "commit" and seen["timeout"] >= 90 and seen["pattern"] is fanjiao_comic.ANY_API
+    assert seen["waits"] == 4  # three polls until the call arrived, then the settle wait
+    assert [e["url"] for e in got] == [late["url"]]
+    assert "/walkman/api/other/x" in caplog.text and "k=1" not in caplog.text
+    assert "keys=" in caplog.text
