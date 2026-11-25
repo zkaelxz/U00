@@ -157,17 +157,15 @@ export function ImportBar({ imp, chapters, selected, phone }: BarProps) {
       >
         {imp.running ? 'Importing…' : importLabel(count)}
       </button>
-      {imp.canTranslateAfter && (
-        <label className="sources-translate-after">
-          <input
-            type="checkbox"
-            checked={imp.translateAfter}
-            disabled={imp.running}
-            onChange={(e) => imp.setTranslateAfter(e.target.checked)}
-          />{' '}
-          Translate after import
-        </label>
-      )}
+      <label className="sources-translate-after">
+        <input
+          type="checkbox"
+          checked={imp.translateAfter}
+          disabled={imp.running}
+          onChange={(e) => imp.setTranslateAfter(e.target.checked)}
+        />{' '}
+        Translate after import
+      </label>
       {imp.running ? (
         <button type="button" className={buttonClass('secondary')} onClick={() => void imp.job.cancel()}>
           Cancel

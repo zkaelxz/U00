@@ -216,7 +216,7 @@ def novel(names, monkeypatch):
 
 
 def _novel_start(did, choice=None, **kw):
-    args = {"at_pc": True, "local": True, "text_allowed": True, "holds_import": True, **kw}
+    args = {"at_pc": True, "local": True, "holds_import": True, **kw}
     return runs.start_novel_flow(None, did, kw.pop("url", "https://example.com/ch1"), runs.lines_choice(did, choice or {}), **{
         k: v for k, v in args.items() if k != "url"})
 
@@ -287,15 +287,16 @@ def test_one_narrator_makes_the_lines_without_pricing_them(novel):
     assert novel.calls["lines"][0]["one_narrator"] is True
 
 
-def test_the_text_step_stays_at_the_pc_and_the_import_needs_its_permission(novel):
+def test_the_text_step_is_queued_from_a_phone_and_the_import_needs_its_permission(novel):
     novel.calls["state"] = {"chapters": 3, "text": False, "lines": False}
     did = _drama("Novel", lines=(), media_type="novel")
-    with pytest.raises(ForbiddenError):
-        _novel_start(did, text_allowed=False)
+    _novel_start(did, at_pc=False, local=False)
+    assert [s for s, _ in _flow(did)] == ["text", "lines", "names"]
+    other = _drama("Other", lines=(), media_type="novel")
     novel.calls["state"] = {"chapters": 0, "text": False, "lines": False}
     with pytest.raises(ForbiddenError):
-        _novel_start(did, holds_import=False)
-    assert _flow(did) == []
+        _novel_start(other, holds_import=False)
+    assert _flow(other) == []
 
 
 def test_an_add_box_run_follows_the_uploads_transcription_then_translates_with_the_boxs_choices(jobs, monkeypatch):  # noqa: F811
@@ -410,7 +411,7 @@ def test_a_comic_import_is_followed_by_one_scanlate_run_over_the_untranslated_pa
     monkeypatch.setattr(runs, "require_cap_for_after_import", lambda engine, model: None)
     did = _bare("Comic", media_type="manhua")
     jobs._start(f"sourceimport_{did}")                 # as the chapter import started it
-    view = runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True)
+    view = runs.start_after_import(None, did, "ollama", None, at_pc=True)
     assert view["state"] == "waiting"
     assert [s for s, _ in _flow(did)] == ["follow", "run_scanlate"]
     q.tick()
@@ -431,7 +432,7 @@ def test_a_failed_import_stops_the_translating_that_waits_for_it(jobs, monkeypat
     did = _bare("Comic", media_type="manga")
     jobs.fail.add(f"sourceimport_{did}")
     jobs._start(f"sourceimport_{did}")
-    runs.start_after_import(None, did, "ollama", None, at_pc=False, text_allowed=True)
+    runs.start_after_import(None, did, "ollama", None, at_pc=False)
     q.tick()
     jobs.finish(f"sourceimport_{did}")
     q.tick()
@@ -443,8 +444,8 @@ def test_a_failed_import_stops_the_translating_that_waits_for_it(jobs, monkeypat
 def test_a_second_press_gets_the_same_after_import_run(jobs):  # noqa: F811
     did = _bare("Comic", media_type="manhwa")
     jobs._start(f"sourceimport_{did}")
-    first = runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True)
-    assert runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True) == first
+    first = runs.start_after_import(None, did, "ollama", None, at_pc=True)
+    assert runs.start_after_import(None, did, "ollama", None, at_pc=True) == first
     assert len(_flow(did)) == 2
 
 
@@ -456,7 +457,7 @@ def test_a_novel_after_import_run_makes_text_lines_names_then_translates(novel, 
     monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0)
     did = _drama("Novel", lines=(), media_type="novel")
     novel._start(f"sourceimport_{did}")
-    runs.start_after_import(None, did, "ollama", runs.lines_choice(did, {}), at_pc=True, text_allowed=True)
+    runs.start_after_import(None, did, "ollama", runs.lines_choice(did, {}), at_pc=True)
     assert [s for s, _ in _flow(did)] == ["follow", "text", "lines", "names", "run_translate"]
     novel.finish(f"sourceimport_{did}")
     for job in (f"narration_{did}", f"novel_glossary_{did}", f"translate_{did}"):
@@ -471,27 +472,25 @@ def test_a_novel_after_import_run_makes_text_lines_names_then_translates(novel, 
     assert runs.after_import_run(None, did)["state"] == "done"
 
 
-def test_a_novel_after_import_run_needs_the_pc_and_a_title_without_lines(novel):
+def test_a_novel_after_import_run_needs_a_title_without_lines(novel):
     did = _drama("Novel", lines=(), media_type="novel")
-    with pytest.raises(ForbiddenError):
-        runs.start_after_import(None, did, "ollama", {}, at_pc=False, text_allowed=False)
     has_lines = _drama("Has lines", media_type="novel")
     novel.calls["state"]["lines"] = True
     with pytest.raises(ConflictError):
-        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True, text_allowed=True)
+        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True)
     novel.calls["state"].update(lines=False, text=True)       # the title's own text, no chapters to rebuild it from
     with pytest.raises(ConflictError):
-        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True, text_allowed=True)
+        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True)
     other = _drama("Audio", lines=(), media_type="audio_drama")
     with pytest.raises(InvalidInputError):
-        runs.start_after_import(None, other, "ollama", {}, at_pc=True, text_allowed=True)
-    assert _flow(did) == [] and _flow(has_lines) == [] and _flow(other) == []
+        runs.start_after_import(None, other, "ollama", {}, at_pc=True)
+    assert _flow(has_lines) == [] and _flow(other) == []
 
 
 def test_a_novel_with_chapters_and_text_skips_the_text_step(novel):
     did = _drama("Novel", lines=(), media_type="novel")
     novel.calls["state"].update(chapters=3, text=True)
-    runs.start_after_import(None, did, "ollama", {}, at_pc=False, text_allowed=False, model="m")
+    runs.start_after_import(None, did, "ollama", {}, at_pc=False, model="m")
     assert [s for s, _ in _flow(did)] == ["follow", "lines", "names", "run_translate"]
 
 
