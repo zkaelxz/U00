@@ -35,6 +35,7 @@ import { lineEditPatch } from '../reader/readerLineEdit'
 import { stageLabel } from '../workspace/stages'
 import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
+import { CastCard } from './CastCard'
 import { NextCard } from './NextCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
@@ -339,6 +340,7 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
+            {original === 'video' && <CastCard key={id} id={id} canMake={holds(session, 'jobs.start')} canCast={holds(session, 'media.stream')} />}
             {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && canEdit && riskIds !== null && riskIds.size > 0 && (
               <div className="card watch-check" role="group" aria-label="Lines to check" data-testid="watch-check">

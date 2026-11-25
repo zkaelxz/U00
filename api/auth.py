@@ -274,8 +274,9 @@ def require_device_token():
 
 
 def public_route():
-    """Explicit marker for endpoints that need no login (liveness/meta and
-    the static frontend shell)."""
+    """Explicit marker for endpoints that need no login (liveness/meta, the
+    static frontend shell, and `GET /api/cast/video`, which a TV fetches by a
+    link's secret: docs/remote-access-permissions-accounts.md, "Cast to TV")."""
     def dependency(request: Request):
         return None
     return _marked(dependency, "public")

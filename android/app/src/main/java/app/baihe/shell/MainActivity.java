@@ -105,6 +105,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
+        // A WebView drops downloads unless told what to do with them; Baihe's "Save to phone" needs this.
+        web.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                SaveDownload.enqueue(this, savedAddress(), url, userAgent, contentDisposition, mimeType));
         // Without these two callbacks WebView silently refuses requestFullscreen() and the
         // player's full-screen button, which Chrome handles itself.
         web.setWebChromeClient(new WebChromeClient() {
@@ -161,6 +164,35 @@ public class MainActivity extends Activity {
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    /** The clipboard can only be read while this window has focus (Android 10+). */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || customView != null || savedAddress() == null) return;
+        String link = ClipboardOffer.pending(this);
+        if (link != null) offerClipboardLink(link);
+    }
+
+    private void offerClipboardLink(String link) {
+        String address = savedAddress();
+        if (address == null || isFinishing() || isDestroyed()) return;
+        boolean video = LinkKind.of(link) == LinkKind.Kind.VIDEO;
+        new AlertDialog.Builder(this)
+                .setTitle(video ? "Subtitle this?" : "Read this?")
+                .setMessage(LinkKind.host(link))
+                .setPositiveButton(video ? "Subtitle" : "Quick read", (d, w) -> {
+                    if (video) {
+                        web.loadUrl(ShareLink.pageFor(address, link));
+                    } else {
+                        startActivity(new Intent(this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, link));
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
     }
 
     @Override
