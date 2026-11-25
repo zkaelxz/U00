@@ -10,9 +10,9 @@ under the prefix of the resource they delete; they live in their own router
 so the owning routers stay unchanged.
 """
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, Path, Request
 
-from api.auth import local_only
+from api.auth import local_only, principal_user_id
 from api.schemas import (DeleteConfirm, MediaRemoveResult, PresetDeleteResult, RawNovelRemoveResult, ReadingHistoryClearResult,
                          SeriesCharacterDeleteResult, TranslationVersionDeleteResult,
                          VoiceBankDeleteResult, error_responses)
@@ -73,5 +73,5 @@ def delete_voice_bank_entry(body: DeleteConfirm, entry_id: int = _id()):
 @router.post("/library/history/clear", dependencies=[local_only()],
              response_model=ReadingHistoryClearResult, responses=error_responses(422),
              summary="Clear the reading history (confirm=true; reading progress is kept)")
-def clear_reading_history(body: DeleteConfirm):
-    return svc.clear_reading_history(confirm=body.confirm)
+def clear_reading_history(body: DeleteConfirm, request: Request):
+    return svc.clear_reading_history(confirm=body.confirm, user_id=principal_user_id(request) or 0)

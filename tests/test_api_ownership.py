@@ -68,6 +68,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
     "run_id": "benchmark run record: household-wide admin tool (admin.diagnostics)",
     "model_candidate_id": "re-evaluation candidate model: household-wide (PC-only writes)",
     "user_id": "a user account, not an owned item (admin.users only)",
+    "bookmark_id": "a Watch bookmark: the route is under {drama_id} (guarded), and the service scopes it to the "
+                   "title and the caller's own account (404 otherwise)",
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
     "device_token_id": "an extension device token: the own route scopes it to the caller's "
@@ -581,8 +583,10 @@ class TestLibraryLists:
         hidden = {w["private"], w["in_pseries"]}
         db.update_drama(w["private"], studio="Secret Studio", custom_tags="secret-tag")
         db.update_drama(w["shared"], studio="Open Studio")
+        # Progress is per account: both readers have read all three titles.
         for did in (w["private"], w["shared"], w["in_pseries"]):
-            db.save_progress(did, percent_complete=40.0)
+            for uid in (w["b_id"], w["admin_id"]):
+                db.save_progress(did, percent_complete=40.0, user_id=uid)
         b_ids = self._ids(client, "/api/library/continue", w["b"], key="drama_id")
         assert w["shared"] in b_ids and not b_ids & hidden
         assert hidden <= self._ids(client, "/api/library/continue", w["admin"], key="drama_id")

@@ -9,7 +9,7 @@ from away its maker uses POST /api/dramas/{id}/delete-mine like any title they m
 
 from fastapi import APIRouter, Path, Request
 
-from api.auth import holds_paid_engines, is_at_pc, local_only, require_permission
+from api.auth import holds_paid_engines, is_at_pc, local_only, principal_user_id, require_permission
 from api.schemas import (DeleteConfirm, QuickVideoRuns, QuickVideoSettings, QuickVideoSettingsSet,
                          QuickVideoStart, QuickVideoStarted, error_responses)
 from lib.ids import MAX_ID
@@ -20,15 +20,15 @@ router = APIRouter(prefix="/api/quick-video", tags=["quick-video"])
 
 @router.get("/settings", dependencies=[require_permission("library.read")], response_model=QuickVideoSettings,
             summary="The profile Quick video translate uses, and the profiles to pick from")
-def get_settings():
-    return svc.get_settings()
+def get_settings(request: Request):
+    return svc.get_settings(principal_user_id(request) or 0)
 
 
 @router.post("/settings", dependencies=[require_permission("admin.library")], response_model=QuickVideoSettings,
              summary="Choose the profile Quick video translate uses (null clears it)",
              responses=error_responses(404, 422))
-def set_settings(body: QuickVideoSettingsSet):
-    return svc.set_profile(body.profile_id)
+def set_settings(body: QuickVideoSettingsSet, request: Request):
+    return svc.set_profile(body.profile_id, principal_user_id(request) or 0)
 
 
 @router.post("/start", dependencies=[require_permission("media.import_url", "jobs.start")],

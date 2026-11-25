@@ -14,7 +14,8 @@ test.beforeEach(async ({ page }) => {
 
 test('the first title card is above the fold and the filters open in a sheet', async ({ page }) => {
   const viewport = page.viewportSize()!
-  const card = page.locator('.drama-card').first()
+  // The Ready shelf comes before the full list, so its first card is the one on the first screen when it has one.
+  const card = page.locator('.home-ready-card, .drama-card').first()
   const box = (await card.boundingBox())!
   expect(box.y + box.height, 'first card inside the viewport').toBeLessThanOrEqual(viewport.height)
   await expect(page.getByLabel('Sort by')).toBeHidden()

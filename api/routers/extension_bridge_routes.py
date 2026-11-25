@@ -8,7 +8,8 @@ functions are called, so there is one pipeline), with the caller's rights:
 a title is sent into only when the member can edit it, the title list shows
 only what they can see, the monthly spending cap applies, and the only URLs
 fetched are the picture addresses of a no-save Quick read (`fetch_url`), public
-hosts only (services/quick_read_fetch.py). The PC's own extension keeps using
+hosts only (services/quick_read_fetch.py), plus the video link of `/video`, which the PC's
+yt-dlp downloads for Quick video translate (public hosts only, never the saved logins). The PC's own extension keeps using
 the loopback bridge with the shared token.
 
 Answers keep the bridge's `{"error": text}` shape so the extension reads
@@ -31,8 +32,10 @@ from lib.errors import InvalidInputError
 from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import translate_run_service
-from lib.errors import ForbiddenError, ServiceError
+from services import quick_video_service, translate_run_service
+from engine_backends.shared import redact_secrets
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
+                        ServiceError)
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])
@@ -251,3 +254,33 @@ async def post_report(request: Request):
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):
     return await _handle(request, extension_bridge_service.cancel_run)
+
+
+_VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),
+                 (DependencyUnavailableError, 503))
+_VIDEO_NEEDS = ("media.import_url", "jobs.start")
+
+
+def _send_video(payload: dict, principal, holds_paid: bool) -> dict:
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise page_server.EndpointError(400, "url is required")
+    try:
+        started = quick_video_service.start(principal, url.strip(), None, False,
+                                            holds_paid=holds_paid, at_pc=False)
+    except ForbiddenError:
+        raise
+    except ServiceError as e:
+        # Plain refusals (no profile set, bad link, title limit) are for the person to read.
+        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
+    return {"drama_id": started["drama_id"]}
+
+
+@router.post("/video", dependencies=[require_device_token()],
+             summary="Device token: send a video page's link to Quick video translate")
+async def post_video(request: Request):
+    principal = request.state.principal
+    holds_paid = holds(request, "engines.paid")
+    return await _handle(request, lambda payload: _send_video(payload, principal, holds_paid),
+                         needs=_VIDEO_NEEDS)

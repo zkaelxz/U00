@@ -42,6 +42,7 @@ from live import live_cue_feed
 from live import live_cue_translation
 from live import live_pipeline
 from live import live_player
+from live import live_whisper
 import language_packs
 from live import live_translate
 import storage
@@ -67,6 +68,9 @@ from lib import acting
 WHISPER_SIZES = whisper_models.LIVE_WHISPER_SIZES
 SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
+# Breeze (Chinese) hears 10 s chunks too slowly: on a V100, 6 s + 1.5 s cut lag from about 13.5 s to 9 s,
+# while 4 s + 1 s repeated lines. Japanese stays on the shared default, which Fast captions shortens.
+LANGUAGE_CHUNK_DEFAULTS = {"zh": {"segment_seconds": 6, "overlap_seconds": 1.5}}
 MAX_MINUTES_RANGE = (1, 240)
 WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60
@@ -292,6 +296,17 @@ def _language_whisper_defaults() -> dict:
     return out
 
 
+def _prefetch_defaults(defaults: dict) -> dict:
+    """Opening the Live form is the moment a session is likely, so the models it starts on are read
+    into the OS cache now. Returns `defaults` unchanged."""
+    def capturing():
+        with _lock:
+            return bool(_active_sessions_locked())
+    for model in set(defaults.values()):
+        live_whisper.prefetch_model_files(model, busy=capturing)
+    return defaults
+
+
 def form_options() -> dict:
     """What the Live form offers and starts on, from the values Start checks
     against, so the form never keeps its own copy that can drift."""
@@ -310,7 +325,8 @@ def form_options() -> dict:
         "default_model": live_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
         # Per language, only where a better-than-default model is already downloaded.
-        "language_whisper_defaults": _language_whisper_defaults(),
+        "language_whisper_defaults": _prefetch_defaults(_language_whisper_defaults()),
+        "language_chunk_defaults": LANGUAGE_CHUNK_DEFAULTS,
         "spend_limit_range": list(live_spend_service.SESSION_LIMIT_RANGE),
         # A monthly cap bounds every session already, so the form hides the session limit then.
         "monthly_cap_set": bool(translate_run_service.month_cap_usd()),

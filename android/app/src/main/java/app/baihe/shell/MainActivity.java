@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.webkit.CookieManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -30,6 +32,9 @@ public class MainActivity extends Activity {
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
+    /** A page of Baihe (a hash route) a tapped alert opens. */
+    static final String EXTRA_ROUTE = "route";
+    private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -73,7 +78,14 @@ public class MainActivity extends Activity {
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
                 if ("baihegrab".equals(scheme)) {
-                    ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    String quickRead = ShareLink.quickReadLink(url);
+                    if (quickRead != null) {
+                        startActivity(new Intent(MainActivity.this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, quickRead));
+                    } else {
+                        ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    }
                     return true;
                 }
                 if ("http".equals(scheme) || "https".equals(scheme)) {
@@ -93,6 +105,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
+        // A WebView drops downloads unless told what to do with them; Baihe's "Save to phone" needs this.
+        web.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                SaveDownload.enqueue(this, savedAddress(), url, userAgent, contentDisposition, mimeType));
         // Without these two callbacks WebView silently refuses requestFullscreen() and the
         // player's full-screen button, which Chrome handles itself.
         web.setWebChromeClient(new WebChromeClient() {
@@ -116,8 +131,23 @@ public class MainActivity extends Activity {
                 exitCustomView();
             }
         });
+        // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
+        // address loads in this WebView, so no other site can reach it.
+        web.addJavascriptInterface(new ShellSettings.Bridge(this, this::askForAlertPermission), "BaiheShell");
         setContentView(page());
         open(getIntent());
+        AlertSchedule.ensure(this);
+        if (Build.VERSION.SDK_INT >= 33 && !prefs().getBoolean("alerts_asked", false)) {
+            prefs().edit().putBoolean("alerts_asked", true).apply();
+            askForAlertPermission();
+        }
+    }
+
+    /** Android 13+ shows notifications only after the person allows them; asked again whenever they switch alerts on. */
+    private void askForAlertPermission() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        runOnUiThread(() -> requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, ALERT_PERMISSION_REQUEST));
     }
 
     /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
@@ -134,6 +164,35 @@ public class MainActivity extends Activity {
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    /** The clipboard can only be read while this window has focus (Android 10+). */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || customView != null || savedAddress() == null) return;
+        String link = ClipboardOffer.pending(this);
+        if (link != null) offerClipboardLink(link);
+    }
+
+    private void offerClipboardLink(String link) {
+        String address = savedAddress();
+        if (address == null || isFinishing() || isDestroyed()) return;
+        boolean video = LinkKind.of(link) == LinkKind.Kind.VIDEO;
+        new AlertDialog.Builder(this)
+                .setTitle(video ? "Subtitle this?" : "Read this?")
+                .setMessage(LinkKind.host(link))
+                .setPositiveButton(video ? "Subtitle" : "Quick read", (d, w) -> {
+                    if (video) {
+                        web.loadUrl(ShareLink.pageFor(address, link));
+                    } else {
+                        startActivity(new Intent(this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, link));
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
     }
 
     @Override
@@ -182,6 +241,12 @@ public class MainActivity extends Activity {
         }
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             finishSignIn(address, intent.getDataString());
+            return;
+        }
+        String route = intent.getStringExtra(EXTRA_ROUTE);
+        if (AlertFeed.safeRoute(route)) {
+            web.loadUrl(address.replaceAll("/+$", "") + "/" + route);
+            intent.removeExtra(EXTRA_ROUTE);
             return;
         }
         String link = Intent.ACTION_SEND.equals(intent.getAction())
@@ -347,12 +412,14 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         AppUpdate.screenStarted();
+        AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         AppUpdate.screenStopped(this);
+        AlertSchedule.leftApp(this);
     }
 
     private SharedPreferences prefs() {

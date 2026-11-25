@@ -61,7 +61,7 @@ def test_every_table_is_classified(isolated_db):
             if "page_id" in cols:
                 assert rule in ("page", "empty"), t
             if cols & {"user_id", "owner_user_id"} and t not in ("dramas", "series"):
-                assert rule in ("user", "user_drama", "drama_spend", "empty"), t
+                assert rule in ("user", "user_drama", "drama_spend", "profiles", "empty"), t
             if rule == "keep":
                 assert not cols & {"drama_id", "series_id", "user_id", "owner_user_id",
                                    "line_id", "page_id", "profile_id"}, t
@@ -186,8 +186,13 @@ def _build_library():
             _seed_row(conn, "translate_history", {"user_id": uid}, marker)
         for scope, marker in (("global", OTHER), (f"series:{sa}", MINE), (f"series:{sb}", OTHER)):
             _seed_row(conn, "style_profile", {"scope": scope}, marker)
-        _seed_row(conn, "profiles", {}, OTHER)                    # a second household profile
+        _seed_row(conn, "profiles", {"user_id": b}, OTHER)        # another account's reading data
         other_profile = conn.execute("SELECT MAX(id) FROM profiles").fetchone()[0]
+        _seed_row(conn, "profiles", {"user_id": a}, MINE)         # A's own reading data
+        a_profile = conn.execute("SELECT MAX(id) FROM profiles").fetchone()[0]
+        for t in ("progress", "personal_notes", "reading_history"):
+            conn.execute(f'UPDATE "{t}" SET profile_id = ? WHERE drama_id IN ({",".join("?" for _ in mine)})',
+                         (a_profile, *mine))
         conn.execute("UPDATE chapter_marks SET user_id = ?", (a,))
         for did in mine:                          # its reading data on A's dramas stays behind
             for t in ("progress", "personal_notes", "reading_history"):

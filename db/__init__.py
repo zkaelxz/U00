@@ -367,6 +367,7 @@ def init_db():
     _create_line_ref_indexes()
     _migrate_step26e_profiles()
     _migrate_chapter_marks_per_account()
+    _migrate_profiles_per_account()
 
 
 from db.schema import (  # noqa: E402,F401
@@ -383,7 +384,7 @@ from db.schema_system import (  # noqa: E402,F401
 
 from db.migrations import (  # noqa: E402,F401
     _grant_library_create_to_members, _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
-    _add_topic_chapters_column, _migrate_chapter_marks_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
+    _add_topic_chapters_column, _migrate_chapter_marks_per_account, _migrate_profiles_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
     _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
     _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
@@ -633,7 +634,7 @@ from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_chapter_marks, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
     get_view_prefs, reading_marks_by_drama, save_personal_notes, save_progress, save_view_prefs,
-    set_chapter_marks)
+    set_chapter_marks, list_watch_bookmarks, add_watch_bookmark, set_watch_bookmark_note, delete_watch_bookmark)
 
 
 # ---------------------------------------------------------------------------

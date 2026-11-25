@@ -16,7 +16,7 @@ import threading
 from lib.errors import RateLimitedError
 
 MAX_RUNNING_JOBS_PER_USER = 2
-MAX_QUEUED_JOBS_PER_USER = 5
+MAX_QUEUED_JOBS_PER_USER = 10
 
 
 _refusing = threading.local()

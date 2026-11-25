@@ -94,29 +94,29 @@ def get_page_regions(drama_id: int = Path(ge=1), page_id: int = Path(ge=1)):
 
 @router.get("/dramas/{drama_id}/progress", dependencies=[require_permission("library.read")],
             response_model=ComicProgress, summary="The comic resume page", responses=_ERRS)
-def get_progress(drama_id: int = Path(ge=1)):
-    return comic_view_service.get_progress(drama_id)
+def get_progress(request: Request, drama_id: int = Path(ge=1)):
+    return comic_view_service.get_progress(drama_id, user_id=principal_user_id(request) or 0)
 
 
 @router.post("/dramas/{drama_id}/progress", dependencies=[require_permission("lines.edit")],
              response_model=ComicProgress,
              summary="Record the page being read (last_page and percent only)", responses=_ERRS)
-def post_progress(body: ComicProgressRequest, drama_id: int = Path(ge=1)):
-    return comic_view_service.save_progress(drama_id, body.page)
+def post_progress(body: ComicProgressRequest, request: Request, drama_id: int = Path(ge=1)):
+    return comic_view_service.save_progress(drama_id, body.page, user_id=principal_user_id(request) or 0)
 
 
 @router.get("/dramas/{drama_id}/view-prefs", dependencies=[require_permission("library.read")],
             response_model=ComicViewPrefsView, summary="How this title was last shown in the viewer",
             responses=_ERRS)
-def get_view_prefs(drama_id: int = Path(ge=1)):
-    return comic_view_service.get_view_prefs(drama_id)
+def get_view_prefs(request: Request, drama_id: int = Path(ge=1)):
+    return comic_view_service.get_view_prefs(drama_id, user_id=principal_user_id(request) or 0)
 
 
 @router.post("/dramas/{drama_id}/view-prefs", dependencies=[require_permission("lines.edit")],
              response_model=ComicViewPrefs, summary="Remember how this title is shown in the viewer",
              responses=_ERRS)
-def post_view_prefs(body: ComicViewPrefs, drama_id: int = Path(ge=1)):
-    return comic_view_service.save_view_prefs(drama_id, body.model_dump())
+def post_view_prefs(body: ComicViewPrefs, request: Request, drama_id: int = Path(ge=1)):
+    return comic_view_service.save_view_prefs(drama_id, body.model_dump(), user_id=principal_user_id(request) or 0)
 
 
 @router.post("/dramas/{drama_id}/pages/visibility", dependencies=[require_permission("lines.edit")],
