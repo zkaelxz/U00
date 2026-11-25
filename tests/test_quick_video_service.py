@@ -260,6 +260,7 @@ def _away_member(monkeypatch):
 def test_a_run_started_away_downloads_without_starting_the_whole_queue(jobs, started_downloads, monkeypatch):
     u, member = _away_member(monkeypatch)
     other = q.add_item(None, db.create_drama(title_en="Waiting"), "transcribe", True, at_pc=True)["items"][0]
+    q.pause(None)     # an added item starts the queue by itself; this one is left waiting
     did = qv.start(member, URL, _profile(), False, holds_paid=False, at_pc=False)["drama_id"]
     assert db.get_drama(did)["owner_user_id"] == u["id"]
     q.tick()
