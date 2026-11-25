@@ -316,7 +316,6 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
-            {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
             {original === 'video' && <CastCard key={id} id={id} canMake={holds(session, 'jobs.start')} canCast={holds(session, 'media.stream')} />}
             {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && ordered.length > 0 && (
@@ -381,6 +380,7 @@ export default function WatchPage({ id }: { id: number }) {
                 />
               )}
             </section>
+            {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
           </div>
         </div>
       )}
