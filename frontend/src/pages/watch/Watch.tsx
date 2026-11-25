@@ -38,6 +38,8 @@ import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
 import { NextCard } from './NextCard'
+import { SleepTimerCard } from './SleepTimerCard'
+import { useWatchSwipe } from './useWatchSwipe'
 import { SaveSoundCard } from './SaveSoundCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
@@ -173,6 +175,21 @@ export default function WatchPage({ id }: { id: number }) {
   const { markStatus, markBusy, mark, say } = useWatchMarks(id, setLines)
   // A fix's own message (Saved., a refused save) replaces a mark message that is still showing, not the other way round.
   useEffect(() => say(''), [status, say])
+  const [swipeNote, setSwipeNote] = useState('')
+  useEffect(() => {
+    if (!swipeNote) return
+    const t = window.setTimeout(() => setSwipeNote(''), 700)
+    return () => window.clearTimeout(t)
+  }, [swipeNote])
+  const onSeekSwipe = useCallback((by: number) => {
+    const el = mediaRef.current
+    if (!el) return
+    resume()
+    player.current?.seek(Math.max(0, Math.min(el.duration || Infinity, el.currentTime + by)))
+    // A fresh object-like string each time so two swipes the same way restart the badge's timer.
+    setSwipeNote(`${by > 0 ? '+' : '−'}${Math.abs(by)} s`)
+  }, [mediaRef, resume])
+  useWatchSwipe(playerBoxRef, playable !== null && media !== undefined, onSeekSwipe)
   const jumpToMarked = (direction: 1 | -1) => {
     const to = attentionIndex(ordered, currentIndex >= 0 ? currentIndex : null, direction)
     if (to === null) {
@@ -326,6 +343,7 @@ export default function WatchPage({ id }: { id: number }) {
                   lineShownByPage
                   loopLineAt={lineAt}
                 />
+                {swipeNote && <div className="watch-swipe-note" role="status">{swipeNote}</div>}
                 {skipTo !== null && (
                   <div className="watch-resume">
                     <button type="button" className={buttonClass()} onClick={() => playFrom(skipTo)}>Skip quiet</button>
@@ -391,6 +409,7 @@ export default function WatchPage({ id }: { id: number }) {
                 cardRef={cardRef}
               />
             )}
+            {original && <SleepTimerCard key={id} boxRef={playerBoxRef} />}
           </div>
           <div className="watch-side">
             {original && <TopicChapterList dramaId={id} at={current?.start ?? null} onPick={playFrom} />}
