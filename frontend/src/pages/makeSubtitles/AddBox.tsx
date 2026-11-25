@@ -21,21 +21,23 @@ const go = (route: Parameters<typeof routeHref>[0]) => { window.location.hash = 
  * opens the Library's New title sheet through `onNewTitle`. On the Add page the run happens in place,
  * and New title is the Library's, so the choice is handed over there.
  */
-export function AddBox({ place, onNewTitle, request = null }: {
+export function AddBox({ place, onNewTitle, request = null, initialLink = null }: {
   place: 'library' | 'page'
   onNewTitle?: (start: NewTitleStart) => void
   request?: FileRunRequest | null
+  // A link another app shared: the box starts with it, as if it had just been pasted.
+  initialLink?: string | null
 }) {
   const onPage = place === 'page'
   // A member given only Import from a link can run a link but not make a title by hand.
   const canCreate = useHolds('library.create')
   const run = useFileRun({ runs: onPage, request })
-  const [text, setText] = useState('')
+  const [text, setText] = useState(initialLink ?? '')
   const [dragging, setDragging] = useState(false)
   const [runsKey, setRunsKey] = useState(0)
   const fileInput = useRef<HTMLInputElement>(null)
   // The link the person has finished giving; text still being typed is not one yet.
-  const [link, setLink] = useState<string | null>(null)
+  const [link, setLink] = useState<string | null>(initialLink)
   const taker = useMemo(() => linkTaker(setLink), [])
   useEffect(() => taker.cancel, [taker])
   const pasted = useRef(false)
