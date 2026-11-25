@@ -2,9 +2,10 @@
 // compare link (?compare=) opens Run a benchmark, where the prefilled engines are.
 import type { BenchSectionId } from './benchmarkHelp'
 
-export type BenchmarkTab = BenchSectionId
+export type BenchmarkTab = BenchSectionId | 'quality'
 
 export const BENCHMARK_TABS: { id: BenchmarkTab; label: string; short?: string }[] = [
+  { id: 'quality', label: 'Quality' },
   { id: 'sets', label: 'Golden sets' },
   { id: 'run', label: 'Run a benchmark', short: 'Run' },
   { id: 'reeval', label: 'Model re-evaluation', short: 'Re-evaluate' },
