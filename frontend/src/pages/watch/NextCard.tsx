@@ -20,16 +20,11 @@ export function NextCard({ id, boxRef, canStart }: { id: number; boxRef: RefObje
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
   // One automatic queueing per episode per visit: a failed or removed run is never queued again behind the person's back.
+  // The page keys this card by title, so a new title starts from a fresh card.
   const autoTried = useRef(false)
   const readyRef = useRef(false)
 
   useEffect(() => {
-    setNext(null)
-    setNear(false)
-    setEnded(false)
-    setFailed(false)
-    autoTried.current = false
-    readyRef.current = false
     const el = boxRef.current?.querySelector<HTMLMediaElement>('audio, video')
     if (!el) return
     const onTime = () => {

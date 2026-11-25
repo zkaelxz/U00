@@ -309,7 +309,7 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
-            {original && <NextCard id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
+            {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && ordered.length > 0 && (
               <NowCard
                 line={fixLine ?? current}
