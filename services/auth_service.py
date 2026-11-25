@@ -339,8 +339,8 @@ def admin_add_user(email: str, display_name: str = "", extension_send: bool = Fa
 def admin_delete_user(user_id: int, actor_id=None) -> dict:
     """The People screen's "Delete…" on a deactivated member: removes the
     account for good, so the email can be added again as a new person.
-    PC-only (403 elsewhere, checked first): it can't be undone and a remote
-    admin session has no second factor. Checks: 404, own account (409), an
+    Allowed from any device an admin is signed in on (owner decision
+    2026-11-25; it can't be undone, so only a deactivated member). Checks: 404, own account (409), an
     admin (409: remove their admin rights first), still active (409:
     deactivate first, so every deactivation cleanup has already run).
     Titles, series and audit rows keep the old id; with no account behind

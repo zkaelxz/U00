@@ -17,7 +17,8 @@
 # are defence in depth. The only admin routes that pass are the two read-only
 # admin views, GET /api/admin/users and GET /api/admin/audit, and the
 # member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
-# them that targets an admin account).
+# them that targets an admin account, except a name), and deleting a
+# deactivated member.
 {
 	# No admin API on localhost:2019: nothing on the PC may reconfigure Caddy.
 	admin off

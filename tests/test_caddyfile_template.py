@@ -263,7 +263,8 @@ def test_admin_paths_refused_for_any_method(path):
 
 ADMIN_VIEWS = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit")]
 # Member-account changes an admin may make from away (owner decision
-# 2026-10-30); the app refuses any that target an admin account.
+# 2026-10-30); the app refuses any that target an admin account, except
+# a name (owner decision 2026-11-25), as it lets an admin delete a deactivated member.
 ADMIN_AWAY_WRITES = [
     ("POST", "/api/admin/users/{user_id}/activate"),
     ("POST", "/api/admin/users/{user_id}/deactivate"),

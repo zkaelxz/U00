@@ -24,8 +24,8 @@ member accounts can be managed from away there; the PC-only rule below
 covers admin accounts on every listener. Guards (409): not your own
 account, not the last active admin, not your own sessions, revoke-admin
 only on an admin. A write whose target is an admin account (revoke-admin
-always is) is PC-only (403 from a remote session): from away, admins
-manage non-admin accounts only.
+always is) is PC-only (403 from a remote session), except setting a name:
+from away, admins manage non-admin accounts only.
 The rights toggles change only an active member account (409 on an admin,
 which holds every right through the flag, and so on the caller's own), and
 only the member permissions the list returns as `member_permissions`; they
@@ -76,7 +76,7 @@ def add_user(body: AdminAddUserRequest, request: Request, response: Response):
 
 
 @router.delete("/users/{user_id}", dependencies=_ADMIN, response_model=AdminUserDeleted,
-               summary="Delete a deactivated member account ")
+               summary="Delete a deactivated member account")
 def delete_user(request: Request, response: Response, user_id: int = _UserId):
     mark_no_store(response)
     return auth_service.admin_delete_user(user_id, actor_id=principal_user_id(request))
