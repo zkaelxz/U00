@@ -25,6 +25,7 @@ No browser for a request not from this PC (docs/remote-access-decision.md).
 import base64
 import binascii
 import json
+import logging
 import re
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
@@ -39,6 +40,10 @@ HOST = "www.fanjiao.co"
 BASE_URL = "https://" + HOST
 REFERER = BASE_URL + "/"
 # Only the page's own responses for these two endpoints are kept.
+log = logging.getLogger(__name__)
+
+# Every api.* response is recorded so a log shows the site's current API paths when the two below stop matching.
+ANY_API = re.compile(r"^https://api\.fanjiao\.co/")
 API_PATTERN = re.compile(r"^https://api\.fanjiao\.co/walkman/api/+(?:comic/home_page|chapter/details)\b")
 PAID_GROUP = "付费 / paid (not bought)"
 _ID = re.compile(r"[0-9]{1,12}")
@@ -98,8 +103,13 @@ def _default_capture(url: str):
     """(rendered html, the page's own matching responses) from page_fetch's guarded browser."""
     from page_fetch import api_capture_session
     try:
-        with api_capture_session(url, API_PATTERN, timeout=40, wait_ms=8000) as (page, captured):
-            return page.content(), list(captured)
+        # The page takes about a minute to reach domcontentloaded from a home connection, so the
+        # navigation timeout must outlast that and the API calls land after it.
+        with api_capture_session(url, ANY_API, timeout=120, wait_ms=15000) as (page, captured):
+            for entry in captured:
+                log.info("Fanjiao api response %s %s", entry.get("status"),
+                         urlsplit(entry.get("url", "")).path)
+            return page.content(), [e for e in captured if API_PATTERN.match(e.get("url", ""))]
     except ImportError as e:
         raise SourceError(str(e), FailureReason.NOT_INSTALLED) from None
     except SourceError:
