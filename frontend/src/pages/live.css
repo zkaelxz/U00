@@ -13,7 +13,7 @@
 .live-ts { color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 .live-src, .live-en { min-width: 0; overflow-wrap: anywhere; }
 /* The translation is what is read; the original sits small under it. */
-.live-en { font-size: var(--text-lg, 1.125rem); font-weight: var(--weight-bold); }
+.live-en { font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .live-en.muted, .live-en.warn { font-size: var(--text-md); font-weight: normal; }
 .live-src { color: var(--muted); font-size: var(--text-sm); }
 .live-video { align-content: start; padding: var(--space-3); gap: var(--space-2); }
@@ -111,8 +111,8 @@ html.shell-pip body { overflow: hidden; }
 .live-sizes { display: inline-flex; gap: var(--space-2); }
 .live-sizes button { min-width: 44px; min-height: 44px; }
 .live-lines[data-size='s'] .live-en { font-size: var(--text-md); }
-.live-lines[data-size='s'] .live-src { font-size: var(--text-xs, 0.75rem); }
-.live-lines[data-size='l'] .live-en { font-size: 1.6rem; }
+.live-lines[data-size='s'] .live-src { font-size: var(--text-xs); }
+.live-lines[data-size='l'] .live-en { font-size: var(--text-2xl); }
 .live-lines[data-size='l'] .live-src { font-size: var(--text-md); }
 .live-lines[data-original='off'] .live-src { display: none; }
 
