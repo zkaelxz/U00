@@ -880,6 +880,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/voices/{series_id}/{character_id}/clear` | local_only() |
 | `POST /api/voices/{series_id}/{character_id}/remove-sample` | local_only() |
 | `POST /api/voices/{series_id}/{character_id}/retrain` | local_only() |
+| `POST /api/watch-party/rooms` | lines.read |
+| `DELETE /api/watch-party/rooms/{code}` | lines.read |
+| `GET /api/watch-party/rooms/{code}` | lines.read |
+| `POST /api/watch-party/rooms/{code}/state` | lines.read |
+| `GET /api/watch-party/rooms/{code}/stream` | lines.read |
 | `GET /api/web-search/config` | local_only() |
 | `POST /api/web-search/config` | local_only() |
 | `POST /api/web-search/search` | library.read |

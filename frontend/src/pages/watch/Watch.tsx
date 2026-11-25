@@ -44,6 +44,7 @@ import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { WatchParty } from './WatchParty'
 import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
@@ -66,7 +67,7 @@ const StillPlayer = memo(Player)
 // the lines from before that save nor offers back a fix that is about to be saved.
 const leavingSaves = new Map<number, Promise<void>>()
 
-export default function WatchPage({ id }: { id: number }) {
+export default function WatchPage({ id, party }: { id: number; party?: string }) {
   const phone = useMediaQuery('(max-width: 640px)')
   const session = useSession()
   const canEdit = holds(session, 'lines.edit')
@@ -432,6 +433,7 @@ export default function WatchPage({ id }: { id: number }) {
         </div>
         {/* Under both columns: a card that appears or changes above the lines would move them (and the page) under the person. */}
         {original && <Bookmarks dramaId={id} mediaRef={mediaRef} canEdit={canEdit} onPlay={playFrom} />}
+        {original && <WatchParty dramaId={id} mediaRef={mediaRef} joinCode={party} />}
         </>
       )}
     </PageShell>

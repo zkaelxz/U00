@@ -72,7 +72,8 @@ export type Route =
   // "#/follow/3": a title's lines on their own clock, for audio played in another app.
   | { name: 'follow'; id: number }
   // "#/watch/3": the title's own sound or video with its lines following it.
-  | { name: 'watch'; id: number }
+  // `party` is a watch party's code, from a shared link: "#/watch/3?party=...".
+  | { name: 'watch'; id: number; party?: string }
   | { name: 'comic'; id: number; page: number | null }
   // "#/comic/3/edit?page=2": the text-box editor for one page.
   | { name: 'comic-edit'; id: number; page: number | null }
@@ -89,6 +90,8 @@ const SOURCE_KEY = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,59}$/
 const SERIES_ID_MAX = 300
 const TITLE_MAX = 200
 const JOB_KEY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
+// A watch party code as the server makes it (secrets.token_urlsafe), so a pasted link cannot carry anything else.
+const PARTY_CODE = /^[A-Za-z0-9_-]{8,32}$/
 
 export type DramaFocus = 'glossary' | 'characters' | 'flagged' | 'compare' | 'all' | 'sourceLink' | 'voices' | 'source'
 
@@ -179,7 +182,11 @@ export function parseRoute(hash: string): Route {
     const tab = new URLSearchParams(qs).get('tab')
     return isSeriesTab(tab) ? { name: 'series', id: Number(a), tab } : { name: 'series', id: Number(a) }
   }
-  if ((head === 'follow' || head === 'watch') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: head, id: Number(a) }
+  if (head === 'watch' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
+    const party = new URLSearchParams(qs).get('party')
+    return party && PARTY_CODE.test(party) ? { name: 'watch', id: Number(a), party } : { name: 'watch', id: Number(a) }
+  }
+  if (head === 'follow' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: head, id: Number(a) }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
     const p = new URLSearchParams(qs).get('page')
@@ -244,7 +251,8 @@ export function routeHref(r: Route): string {
   if (r.name === 'series-list') return r.streamer === undefined ? '#/series' : `#/series?streamer=${encodeURIComponent(r.streamer)}`
   if (r.name === 'series') return `#/series/${r.id}${r.tab ? `?tab=${r.tab}` : ''}`
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
-  if (r.name === 'follow' || r.name === 'watch') return `#/${r.name}/${r.id}`
+  if (r.name === 'watch') return `#/watch/${r.id}${r.party ? `?party=${r.party}` : ''}`
+  if (r.name === 'follow') return `#/follow/${r.id}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {
