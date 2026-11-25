@@ -598,7 +598,8 @@ test('watching: stream chips switch sessions, lines scroll in their own box with
 
   // Two running streams: a chip each, the one watched selected.
   const chips = live.getByRole('tab', { name: /Chinese|Japanese/ })
-  await expect(chips).toHaveCount(2)
+  // The chips come from the running-sessions poll (every 10 s); the second session was added after its first read.
+  await expect(chips).toHaveCount(2, { timeout: 15_000 })
   await expect(live.getByRole('tab', { name: 'Chinese · YouTube' })).toHaveAttribute('aria-selected', 'true')
 
   // The lines scroll inside their own box; scrolled away from the newest, new lines wait under a button.
