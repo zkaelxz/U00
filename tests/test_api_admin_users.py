@@ -34,6 +34,7 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/a
           ("POST", "/api/admin/users/{id}/permissions/{permission}"),
           ("DELETE", "/api/admin/users/{id}/permissions/{permission}"),
           ("POST", "/api/admin/users/{id}/paid-limit"),
+          ("POST", "/api/admin/users/{id}/display-name"),
           ("DELETE", "/api/admin/users/{id}")]
 
 
@@ -1062,17 +1063,33 @@ def test_admin_at_the_pc_deletes_a_deactivated_member_for_good(isolated_db):
     assert c.delete(f"/api/admin/users/{m['id']}", headers=_h(s)).status_code == 404
 
 
-def test_deleting_a_person_is_refused_away_from_the_pc(isolated_db):
+def test_an_admin_can_delete_a_deactivated_member_from_away(isolated_db):
     _a, s = _admin()
     m, _ = _member()
+    active = _remote(_app()).delete(f"/api/admin/users/{m['id']}", headers=_h(s))
+    assert active.status_code == 409   # still active: deactivate first
     auth_service.deactivate_user(m["id"])
-    for client, headers in ((_remote(_app()), _h(s)), (_household_client(), _household_h(s))):
-        r = client.delete(f"/api/admin/users/{m['id']}", headers=headers)
-        assert r.status_code == 403
-        assert r.json()["error"]["message"] == auth_service.DELETE_AT_PC_ONLY
-    # Checked before the lookup, so away from the PC an unknown id answers the same.
-    r = _remote(_app()).delete("/api/admin/users/4242", headers=_h(s))
-    assert r.status_code == 403
+    r = _household_client().delete(f"/api/admin/users/{m['id']}", headers=_household_h(s))
+    assert r.status_code == 200 and r.json() == {"user_id": m["id"], "deleted": True}
+    assert _remote(_app()).delete("/api/admin/users/4242", headers=_h(s)).status_code == 404
+
+
+def test_set_display_name_from_away_on_members_and_admins(isolated_db):
+    a, s = _admin()
+    m, _ = _member()
+    c = _remote(_app())
+    r = c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": "  Kid   One "}, headers=_h(s))
+    assert r.status_code == 200 and r.json()["display_name"] == "Kid One"
+    r = c.post(f"/api/admin/users/{a['id']}/display-name", json={"display_name": "Alex"}, headers=_h(s))
+    assert r.status_code == 200 and r.json()["display_name"] == "Alex"
+    r = c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": ""}, headers=_h(s))
+    assert r.json()["display_name"] == ""
+    assert c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": "x" * 101},
+                  headers=_h(s)).status_code == 422
+    assert c.post("/api/admin/users/4242/display-name", json={"display_name": "A"},
+                  headers=_h(s)).status_code == 404
+    assert all("Kid" not in e["detail_redacted"] and "Alex" not in e["detail_redacted"]
+               for e in _audit("user.rename"))
     assert db.auth_get_user(m["id"]) and not _audit("user.delete")
 
 
@@ -1104,7 +1121,7 @@ def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monk
     monkeypatch.setattr(db, "auth_delete_inactive_member", reactivate_then_delete)
     monkeypatch.setattr(db, "detach_shared_glossary_owner_groups", detached.append)
     with pytest.raises(ConflictError):
-        auth_service.admin_delete_user(m["id"], at_pc=True)
+        auth_service.admin_delete_user(m["id"])
     assert db.auth_get_user(m["id"])["is_active"] == 1 and not _audit("user.delete")
     assert detached == []   # a refused delete leaves their shared glossary groups linked
 
@@ -1116,6 +1133,6 @@ def test_deleting_an_account_deletes_its_chapter_marks_only(isolated_db):
     for uid in (0, m["id"], other["id"]):
         db.set_chapter_marks(d, ["c1"], read=True, user_id=uid)
     auth_service.deactivate_user(m["id"])
-    auth_service.admin_delete_user(m["id"], at_pc=True)
+    auth_service.admin_delete_user(m["id"])
     assert db.get_chapter_marks(d, m["id"]) == {}
     assert db.get_chapter_marks(d) and db.get_chapter_marks(d, other["id"])

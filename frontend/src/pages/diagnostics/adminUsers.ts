@@ -63,9 +63,9 @@ export function showRevokeAdmin(user: AdminUser, pc: PcMode): boolean {
   return user.is_admin && pc === 'local'
 }
 
-/** Delete is for a deactivated member, at the main PC only (the server refuses it elsewhere). */
-export function showDeleteUser(user: AdminUser, pc: PcMode): boolean {
-  return !user.is_active && !user.is_admin && !user.is_self && pc === 'local'
+/** Delete is for a deactivated member, from any device an admin is signed in on. */
+export function showDeleteUser(user: AdminUser): boolean {
+  return !user.is_active && !user.is_admin && !user.is_self
 }
 
 /** A plain name and what it allows, for each member permission; the server's

@@ -4,7 +4,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
 
     GET  /api/admin/users                            list users
     POST /api/admin/users                            add a person (PC only)
-    DELETE /api/admin/users/{user_id}                delete a deactivated member (PC only)
+    DELETE /api/admin/users/{user_id}                delete a deactivated member
     POST /api/admin/users/{user_id}/deactivate       block + end their sessions
     POST /api/admin/users/{user_id}/activate         unblock
     POST /api/admin/users/{user_id}/revoke-sessions  sign them out everywhere
@@ -12,6 +12,7 @@ audit log view. Thin: the rules live in `services/auth_service.py`.
     DELETE /api/admin/users/{user_id}/ollama-key     remove their own Ollama key (never read it)
     POST /api/admin/users/{user_id}/permissions/{permission}    give a member one right
     DELETE /api/admin/users/{user_id}/permissions/{permission}  take it away
+    POST /api/admin/users/{user_id}/display-name     set or clear a person's optional name
     POST /api/admin/users/{user_id}/paid-limit       set or clear a member's monthly paid-engine limit
     GET  /api/admin/audit                            newest first, paged
 
@@ -23,16 +24,17 @@ member accounts can be managed from away there; the PC-only rule below
 covers admin accounts on every listener. Guards (409): not your own
 account, not the last active admin, not your own sessions, revoke-admin
 only on an admin. A write whose target is an admin account (revoke-admin
-always is) is PC-only (403 from a remote session): from away, admins
-manage non-admin accounts only.
+always is) is PC-only (403 from a remote session), except setting a name:
+from away, admins manage non-admin accounts only.
 The rights toggles change only an active member account (409 on an admin,
 which holds every right through the flag, and so on the caller's own), and
 only the member permissions the list returns as `member_permissions`; they
 never make or unmake an admin. Unknown user: 404. The service audits every
 write. Adding a person is PC-only on every listener (403 from away): the
 new account can sign in from the internet. It never makes an admin.
-Deleting a person is PC-only too, and only a deactivated member (409
-otherwise): it can't be undone.
+Deleting a person works from away too (owner decision 2026-11-25), only on a
+deactivated member (409 otherwise): it can't be undone. Setting a name works
+on any account, an admin's too.
 Nothing here edits or deletes audit rows.
 """
 
@@ -41,7 +43,7 @@ from typing import Optional
 from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.schemas import AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage
-from api.schemas import AdminAddUserRequest, MemberKeyRemoved, MemberPaidLimitRequest
+from api.schemas import AdminAddUserRequest, AdminDisplayNameRequest, MemberKeyRemoved, MemberPaidLimitRequest
 from api.auth import is_local_request, principal_user_id, require_permission
 from api.no_store import mark_no_store
 from services import auth_service, member_key_service
@@ -74,11 +76,10 @@ def add_user(body: AdminAddUserRequest, request: Request, response: Response):
 
 
 @router.delete("/users/{user_id}", dependencies=_ADMIN, response_model=AdminUserDeleted,
-               summary="Delete a deactivated member account (PC only)")
+               summary="Delete a deactivated member account")
 def delete_user(request: Request, response: Response, user_id: int = _UserId):
     mark_no_store(response)
-    return auth_service.admin_delete_user(user_id, actor_id=principal_user_id(request),
-                                          at_pc=is_local_request(request))
+    return auth_service.admin_delete_user(user_id, actor_id=principal_user_id(request))
 
 
 @router.post("/users/{user_id}/deactivate", dependencies=_ADMIN, response_model=AdminUser,
@@ -137,6 +138,15 @@ def revoke_user_permission(request: Request, response: Response, user_id: int = 
     mark_no_store(response)
     return auth_service.admin_set_permission(user_id, permission, False,
                                              actor_id=principal_user_id(request))
+
+
+@router.post("/users/{user_id}/display-name", dependencies=_ADMIN, response_model=AdminUser,
+             summary="Set or clear a person's optional name")
+def set_user_display_name(body: AdminDisplayNameRequest, request: Request, response: Response,
+                          user_id: int = _UserId):
+    mark_no_store(response)
+    return auth_service.admin_set_display_name(user_id, body.display_name,
+                                               actor_id=principal_user_id(request))
 
 
 @router.post("/users/{user_id}/paid-limit", dependencies=_ADMIN, response_model=AdminUser,

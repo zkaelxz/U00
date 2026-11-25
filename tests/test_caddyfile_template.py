@@ -117,6 +117,7 @@ def _path_match(pattern, path):
 def _conditions(block):
     """(methods or None, paths or None, [negated sub-conditions]) of a matcher block."""
     methods, paths, nots = None, None, []
+    patterns = []
     for c in block["children"]:
         kind, args = c["tokens"][0], c["tokens"][1:]
         if kind == "method":
@@ -125,19 +126,24 @@ def _conditions(block):
             for a in args:
                 _check_pattern(a)
             paths = (paths or []) + args
+        elif kind == "path_regexp":
+            patterns += args
         elif kind == "not":
             assert not args, "use the block form of `not` in PC-only matchers"
             nots.append(_conditions(c))
         else:
             raise AssertionError(f"unexpected matcher {kind!r} in a PC-only matcher")
-    return methods, paths, nots
+    return methods, paths, nots, patterns
 
 
 def _matches(cond, method, path):
-    methods, paths, nots = cond
+    methods, paths, nots, patterns = cond
     if methods is not None and method not in methods:
         return False
     if paths is not None and not any(_path_match(p, path) for p in paths):
+        return False
+    # Caddy's path_regexp searches the path; these patterns anchor themselves.
+    if patterns and not any(re.search(p, path) for p in patterns):
         return False
     return not any(_matches(n, method, path) for n in nots)
 
@@ -246,7 +252,7 @@ def test_forwarding_headers_set_by_caddy_and_x_baihe_stripped():
 @pytest.mark.parametrize("path", [
     "/api/system/shutdown", "/api/settings", "/api/settings/keys/openai",
     "/api/library/admin/storage", "/api/diagnostics", "/api/diagnostics/log",
-    "/api/admin/users/1/revoke-admin", "/api/admin/users/1", "/api/admin/other",
+    "/api/admin/users/1/revoke-admin", "/api/admin/other",
     "/api/admin/users/1/deactivate/x", "/api/admin/users/1/2/deactivate",
     "/api/docs", "/api/openapi.json"])
 def test_admin_paths_refused_for_any_method(path):
@@ -257,7 +263,8 @@ def test_admin_paths_refused_for_any_method(path):
 
 ADMIN_VIEWS = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit")]
 # Member-account changes an admin may make from away (owner decision
-# 2026-10-30); the app refuses any that target an admin account.
+# 2026-10-30); the app refuses any that target an admin account, except
+# a name (owner decision 2026-11-25), as it lets an admin delete a deactivated member.
 ADMIN_AWAY_WRITES = [
     ("POST", "/api/admin/users/{user_id}/activate"),
     ("POST", "/api/admin/users/{user_id}/deactivate"),
@@ -266,14 +273,15 @@ ADMIN_AWAY_WRITES = [
     ("DELETE", "/api/admin/users/{user_id}/permissions/{permission}"),
     ("POST", "/api/admin/users/{user_id}/revoke-sessions"),
     ("POST", "/api/admin/users/{user_id}/paid-limit"),
+    ("POST", "/api/admin/users/{user_id}/display-name"),
+    ("DELETE", "/api/admin/users/{user_id}"),
 ]
 
 
 # admin.users routes the app keeps at the PC: Remove admin always targets an
-# admin, a new person could sign in from the internet, and a delete can't be undone.
+# admin, and a new person could sign in from the internet.
 PC_ONLY_ADMIN_USERS = {("POST", "/api/admin/users/{user_id}/revoke-admin"),
-                       ("POST", "/api/admin/users"),
-                       ("DELETE", "/api/admin/users/{user_id}")}
+                       ("POST", "/api/admin/users")}
 
 
 def test_member_account_changes_pass_and_nothing_else_there(routes):
@@ -293,7 +301,6 @@ def test_member_account_changes_pass_and_nothing_else_there(routes):
         assert _blocked(method, _sample(path) + "/x", matchers), f"{method} {path}/x"
     assert _blocked("POST", "/api/admin/users/7/revoke-admin", matchers)
     assert _blocked("POST", "/api/admin/users", matchers)
-    assert _blocked("DELETE", "/api/admin/users/7", matchers)
     for method in ("POST", "DELETE"):
         for perm in auth_service.MEMBER_PERMISSIONS:
             assert not _blocked(method, f"/api/admin/users/7/permissions/{perm}", matchers), perm
