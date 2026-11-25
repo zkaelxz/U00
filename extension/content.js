@@ -1154,6 +1154,23 @@
     } catch (e) { /* nobody is listening */ }
   }
 
+  // The comic's language from the page's own words (a raw site's titles and menus are in it even
+  // beside English ones), else its lang attribute; "" lets the app decide. Without it the app
+  // read a Quick read page as Chinese whatever it was.
+  function pageLanguage() {
+    const text = `${document.title}\n${(document.body && document.body.innerText) || ""}`.slice(0, 4000);
+    const kana = (text.match(/[\u3040-\u30ff]/g) || []).length;
+    const hangul = (text.match(/[\uac00-\ud7af\u1100-\u11ff]/g) || []).length;
+    const han = (text.match(/[\u3400-\u4dbf\u4e00-\u9fff]/g) || []).length;
+    if (han + kana + hangul >= 10) {
+      if (hangul > han && hangul > kana) return "ko";
+      if (kana > 0 && kana * 20 >= han + kana) return "ja";
+      return "zh";
+    }
+    const lang = (document.documentElement.lang || "").trim().toLowerCase();
+    return ["ja", "ko", "zh"].find((code) => lang.startsWith(code)) || "";
+  }
+
   // The one message both the visible-pages and whole-chapter paths send, so
   // the worker sees the same shape from either.
   function sendBatch(items, { dramaId, store, filterPages }) {
@@ -1165,6 +1182,7 @@
       dramaId,
       store,
       sourceUrl: location.href,
+      sourceLanguage: pageLanguage(),
       filterPages,
     });
   }
