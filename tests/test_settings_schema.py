@@ -63,6 +63,10 @@ DYNAMIC_KEYS = {
         "engine_test.<engine>: last Test result per engine",
     ("services/engine_routing_service.py", "_STORE_PREFIX + capability"):
         "capability.<name>: one engine choice per routing capability in its table",
+    ("jobs/user_caps.py", "JOBS_PER_DAY_KEY.format(user_id)"):
+        "member_jobs_per_day.<account id>: that member's own daily job limit, set by an admin in People & access",
+    ("jobs/user_caps.py", "JOBS_TODAY_KEY.format(user_id)"):
+        "member_jobs_today.<account id>: the day's started-job count behind that limit",
     ("services/language_pack_service.py", "_TITLE_KEY.format(drama_id)"):
         "title-scoped: the language pack chosen for one title",
     ("services/language_pack_service.py", "_DEFAULT_KEY.format(language)"):
