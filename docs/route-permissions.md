@@ -14,7 +14,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/admin/users/{user_id}` | admin.users |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
+| `GET /api/admin/users/{user_id}/devices` | admin.users.read |
+| `POST /api/admin/users/{user_id}/devices/{device_session_id}/revoke` | admin.users |
 | `POST /api/admin/users/{user_id}/display-name` | admin.users |
+| `POST /api/admin/users/{user_id}/job-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
 | `POST /api/admin/users/{user_id}/paid-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |
@@ -271,6 +274,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
 | `POST /api/ext-bridge/cancel` | device_token (extension.send) |
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
+| `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
 | `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
@@ -407,6 +411,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/accept-tm` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/dismiss-flag` | lines.edit |
+| `POST /api/lines/dramas/{drama_id}/lines/{line_id}/feedback` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/mark` | lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/retry-blocked` | jobs.start + lines.read + lines.edit |
 | `POST /api/lines/dramas/{drama_id}/lines/{line_id}/reviewed` | lines.edit |

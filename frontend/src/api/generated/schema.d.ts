@@ -124,6 +124,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A user's signed-in devices */
+        get: operations["list_devices_api_admin_users__user_id__devices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/devices/{device_session_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign out one device of a user */
+        post: operations["revoke_device_api_admin_users__user_id__devices__device_session_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/display-name": {
         parameters: {
             query?: never;
@@ -135,6 +169,23 @@ export interface paths {
         put?: never;
         /** Set or clear a person's optional name */
         post: operations["set_user_display_name_api_admin_users__user_id__display_name_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/job-limit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or clear a member's own daily limit on the jobs they start */
+        post: operations["set_user_job_limit_api_admin_users__user_id__job_limit_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4162,6 +4213,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/follow": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: watch the series of a Grab page for new chapters */
+        post: operations["post_follow_api_ext_bridge_follow_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/health": {
         parameters: {
             query?: never;
@@ -6169,6 +6237,23 @@ export interface paths {
         put?: never;
         /** Clear one line's flag and flag note */
         post: operations["post_dismiss_flag_api_lines_dramas__drama_id__lines__line_id__dismiss_flag_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/lines/dramas/{drama_id}/lines/{line_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Thumbs-down on one line: marks it wrong and keeps an optional better wording for the learned style (409 if `expected_en` differs) */
+        post: operations["post_line_feedback_api_lines_dramas__drama_id__lines__line_id__feedback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13543,6 +13628,26 @@ export interface components {
              */
             extension_send?: boolean;
         };
+        /** AdminDevice */
+        AdminDevice: {
+            /** Created At */
+            created_at: number;
+            /** Device */
+            device: string;
+            /** Expires At */
+            expires_at: number;
+            /** Id */
+            id: number;
+            /** Ip Prefix */
+            ip_prefix: string;
+            /** Last Seen At */
+            last_seen_at: number;
+        };
+        /** AdminDeviceList */
+        AdminDeviceList: {
+            /** Devices */
+            devices: components["schemas"]["AdminDevice"][];
+        };
         /** AdminDeviceToken */
         AdminDeviceToken: {
             /** Created At */
@@ -13607,6 +13712,8 @@ export interface components {
             active_sessions: number;
             /** Created At */
             created_at: string | null;
+            /** Daily Job Limit */
+            daily_job_limit: number | null;
             /**
              * Display Name
              * @default
@@ -13629,6 +13736,13 @@ export interface components {
             is_admin: boolean;
             /** Is Self */
             is_self: boolean;
+            /**
+             * Jobs Today
+             * @default 0
+             */
+            jobs_today: number;
+            /** Last Seen At */
+            last_seen_at: number | null;
             /**
              * Month Paid Spend Usd
              * @default 0
@@ -22753,6 +22867,13 @@ export interface components {
              */
             skipped_marked: number;
         };
+        /** LinesFeedbackRequest */
+        LinesFeedbackRequest: {
+            /** Better */
+            better?: string | null;
+            /** Expected En */
+            expected_en?: string | null;
+        };
         /** LinesFindReplaceApplyRequest */
         LinesFindReplaceApplyRequest: {
             /** Matches */
@@ -23985,6 +24106,14 @@ export interface components {
         MediaUrlDownloadStarted: {
             /** Job Id */
             job_id: string;
+        };
+        /**
+         * MemberJobLimitRequest
+         * @description A member's own limit on the background jobs they start in a day; null clears it.
+         */
+        MemberJobLimitRequest: {
+            /** Jobs Per Day */
+            jobs_per_day: number | null;
         };
         /** MemberKeyRemoved */
         MemberKeyRemoved: {
@@ -34899,6 +35028,69 @@ export interface operations {
             };
         };
     };
+    list_devices_api_admin_users__user_id__devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDeviceList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_device_api_admin_users__user_id__devices__device_session_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+                device_session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionsRevoked"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     set_user_display_name_api_admin_users__user_id__display_name_post: {
         parameters: {
             query?: never;
@@ -34911,6 +35103,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AdminDisplayNameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_job_limit_api_admin_users__user_id__job_limit_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MemberJobLimitRequest"];
             };
         };
         responses: {
@@ -46072,6 +46299,26 @@ export interface operations {
             };
         };
     };
+    post_follow_api_ext_bridge_follow_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     get_health_api_ext_bridge_health_get: {
         parameters: {
             query?: never;
@@ -51697,6 +51944,60 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_line_feedback_api_lines_dramas__drama_id__lines__line_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinesFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLinesLine"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

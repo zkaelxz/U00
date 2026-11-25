@@ -283,6 +283,39 @@ class TestPerUserJobCaps:
     def _block(self):
         self.release.wait(timeout=5.0)
 
+    def test_a_member_with_a_daily_limit_cannot_start_more_jobs_today_and_the_owner_is_never_counted(self, monkeypatch):
+        from lib.errors import RateLimitedError
+        user_caps.set_jobs_per_day(7, 2)
+        self._as(monkeypatch, 7)
+        # Short jobs that finish at once, so only the daily count (not the running cap) can refuse the third.
+        for n in range(2):
+            assert job_launch.start_job(f"translate_{n}", lambda: None) is True
+            _wait(f"translate_{n}")
+        assert user_caps.jobs_today(7) == 2
+        with pytest.raises(RateLimitedError) as err:
+            job_launch.start_job("translate_9", lambda: None)
+        assert "limit of 2 jobs for today" in err.value.message
+        assert bg.get_status("translate_9") is None
+        assert user_caps.jobs_today(7) == 2          # a refused start is not counted
+
+        self._as(monkeypatch, None)
+        for n in range(3):
+            assert job_launch.start_job(f"owner_{n}", lambda: None) is True
+            _wait(f"owner_{n}")
+        assert user_caps.jobs_today(None) == 0
+
+    def test_a_new_day_starts_the_count_again_and_clearing_the_limit_lifts_it(self):
+        user_caps.set_jobs_per_day(7, 1)
+        user_caps.count_daily_start(7, today="2026-11-24")
+        user_caps.count_daily_start(7, today="2026-11-25")      # a new day: the old count is not carried
+        assert user_caps.jobs_today(7, "2026-11-25") == 1 and user_caps.jobs_today(7, "2026-11-24") == 0
+        from lib.errors import RateLimitedError
+        with pytest.raises(RateLimitedError):
+            user_caps.count_daily_start(7, today="2026-11-25")
+        user_caps.set_jobs_per_day(7, None)
+        user_caps.count_daily_start(7, today="2026-11-25")      # no limit: nothing counted, nothing refused
+        assert user_caps.jobs_today(7, "2026-11-25") == 1
+
     def test_a_member_past_the_running_cap_gets_rate_limited_whatever_the_job_ids(self, monkeypatch):
         from lib.errors import RateLimitedError
         self._as(monkeypatch, 7)
