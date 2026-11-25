@@ -209,6 +209,13 @@ html.review-popout .review-caption { flex: 0 0 auto; font-size: var(--popout-cap
 .review-line:focus-visible { outline: 2px solid transparent; outline-offset: -2px; box-shadow: inset 0 0 0 3px var(--focus); }
 .review-line.is-active:focus-visible { box-shadow: inset 0 0 0 3px var(--focus), inset 3px 0 0 var(--accent); }
 .review-line[data-flagged='true'] { border-left: 3px solid var(--warn); }
+.review-line[data-unsure='soft'] { background: color-mix(in srgb, var(--warn) 8%, transparent); }
+.review-line[data-unsure='mid'] { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.review-line[data-unsure='low'] { background: color-mix(in srgb, var(--warn) 16%, transparent); }
+.review-line[data-unsure]:not(.is-active, .is-selected) :is(.pill-warn, .review-flag-note) { background: var(--surface); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent); }
+.retranslate-diff { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-3); }
+.retranslate-diff > li { display: grid; gap: var(--space-1); padding-top: var(--space-3); border-top: 1px solid var(--border); min-width: 0; }
+.review-line.is-active[data-unsure] { background: var(--row-active); }
 .review-hit { display: flex; justify-content: flex-end; margin-top: var(--space-1); }
 /* A line just opened from a search result (R05): a brief tint, then the usual active row. */
 .review-line.is-jumped { animation: review-jumped 1.2s ease-out; }

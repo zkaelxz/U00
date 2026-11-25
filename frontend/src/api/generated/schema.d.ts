@@ -4730,6 +4730,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Names the app found after translate runs, waiting for Add or Ignore */
+        get: operations["get_glossary_inbox_api_glossary_dramas__drama_id__inbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add one waiting name to the glossary with the English the user typed */
+        post: operations["accept_glossary_inbox_api_glossary_dramas__drama_id__inbox_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ignore one waiting name; it is not offered again for this title */
+        post: operations["reject_glossary_inbox_api_glossary_dramas__drama_id__inbox_reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/instructions": {
         parameters: {
             query?: never;
@@ -21059,6 +21110,28 @@ export interface components {
             skipped_existing: string[];
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * GlossaryInbox
+         * @description Names the app found on its own after a translate run, waiting for Add or Ignore.
+         */
+        GlossaryInbox: {
+            /** Count */
+            count: number;
+            /** Items */
+            items: components["schemas"]["GlossaryNameCluster"][];
+        };
+        /** GlossaryInboxAccept */
+        GlossaryInboxAccept: {
+            /** Term */
+            term: string;
+            /** Translation */
+            translation: string;
+        };
+        /** GlossaryInboxReject */
+        GlossaryInboxReject: {
+            /** Term */
+            term: string;
         };
         /** GlossaryInstructions */
         GlossaryInstructions: {
@@ -47689,6 +47762,143 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_glossary_inbox_api_glossary_dramas__drama_id__inbox_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_glossary_inbox_api_glossary_dramas__drama_id__inbox_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxAccept"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reject_glossary_inbox_api_glossary_dramas__drama_id__inbox_reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxReject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
