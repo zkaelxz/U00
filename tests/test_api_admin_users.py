@@ -141,7 +141,7 @@ def test_anonymous_and_household_refused(isolated_db):
     _u, s = _member()
     auth_service.grant_permission(_u["id"], "media.stream")
     for method, path in ROUTES:
-        url = path.format(id=target["id"], permission="engines.paid", session_id=1)
+        url = path.format(id=target["id"], permission="engines.paid", device_session_id=1)
         assert c.request(method, url).status_code == 401
         r = c.request(method, url, headers=_h(s))
         assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
