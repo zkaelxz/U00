@@ -22833,6 +22833,15 @@ export interface components {
             default_model: string | null;
             defaults: components["schemas"]["LiveFormDefaults"];
             /**
+             * Language Chunk Defaults
+             * @default {}
+             */
+            language_chunk_defaults: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /**
              * Language Whisper Defaults
              * @default {}
              */
