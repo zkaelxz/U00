@@ -387,7 +387,7 @@ work".
 | Status | **Not yet run against the live site.** Written from a description of the live layout, reported from the owner's PC on 2026-11-01; the project's cloud container gets 403 from the site. Covered by invented fixtures only. Login or age gating and long-list pagination are untested. |
 | Access tier | `STATIC_HTTP`. A server-rendered Laravel site; nothing needs JavaScript. |
 | Extraction | **Search:** `/search?q=`. **Series:** `/comics/<id>` (og:title, og:image). **Chapters:** the plain links `/comics/<id>/chapters/<chapter id>` on the series page, following `?page=<n>` until no new link appears, sorted by chapter id. **Pages:** `img.reader-page` on the chapter page (the first `<img>` is an ad with another class). Page images sit on a rotating file host and need no Referer. |
-| Domains | The domain list (`sources/domains.py`) holds `newxtoon4.com` and `xn--vg1b002axlc8ts.com`; a redirect to another host that serves the site becomes a pending proposal the owner confirms. |
+| Domains | The domain list (`sources/domains.py`) holds `newxtoon5.com` and `xn--vg1b002axlc8ts.com`; a redirect to another host that serves the site becomes a pending proposal the owner confirms. |
 | Ads | Links under `/ads/`, `/ads/` images on the file host and the statistics script are never fetched or followed. |
 | Failures | A missing title, chapter link or reader image -> `LayoutChanged`. An id that isn't numeric is refused before it reaches a URL. |
 | Terms | robots.txt and terms were not read (see Status), so `automation_permission` stays `UNKNOWN`. Nothing behind a login or paywall is touched. |
