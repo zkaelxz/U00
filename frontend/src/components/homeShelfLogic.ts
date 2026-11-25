@@ -1,4 +1,4 @@
-// Pure helpers for the Library's Ready, Needs you and Running shelves (HomeShelves.tsx).
+// Pure helpers for the Library's Ready, Needs you and Running shelves (HomeShelves.tsx; a different name from it, since Windows file names ignore case).
 
 import { formatClock, pluralLocale } from '../labels'
 import { titleKind } from '../pages/workspace/titleKind'

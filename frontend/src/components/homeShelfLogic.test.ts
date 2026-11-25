@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { JobRecord } from '../types/jobs'
 import type { LibraryNeedsYouEntry, LibraryReadyEntry, LibraryRunningEntry } from '../types/library'
-import { formatLength, kindTag, needsRow, readyCard, readyOrder, runningLine, timeLeft } from './homeShelves'
+import { formatLength, kindTag, needsRow, readyCard, readyOrder, runningLine, timeLeft } from './homeShelfLogic'
 
 const ready = (over: Partial<LibraryReadyEntry> = {}): LibraryReadyEntry => ({
   drama_id: 4, title: 'Chion: karaoke', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,

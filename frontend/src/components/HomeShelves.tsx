@@ -17,7 +17,7 @@ import { routeHref } from '../router'
 import type { LibraryHome } from '../types/library'
 import { HelpTip } from './HelpTip'
 import { activeCount } from './jobsMenuState'
-import { kindTag, needsRow, readyCard, readyOrder, runningLine, stepVerb, type NeedsViewer } from './homeShelves'
+import { kindTag, needsRow, readyCard, readyOrder, runningLine, stepVerb, type NeedsViewer } from './homeShelfLogic'
 import './homeShelves.css'
 
 export const ALL_TITLES_ID = 'library-all-titles'
