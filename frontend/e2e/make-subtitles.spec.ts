@@ -293,8 +293,20 @@ test('the English variant options are spelled out', async ({ page }) => {
   await expect(c.getByLabel('English variant').locator('option')).toHaveText([/^(Default \(.+\)|Settings default)$/, 'English (US)', 'English (UK)', 'English (Australia)'])
 })
 
-test('Find & Add: a name searches Sources and each match opens its series there', async ({ page }) => {
+test('Find & Add: a name searches Sources, a result is added to the Library in one tap, and one already there opens', async ({ page }) => {
   const s = await mockSources(page)
+  let asked: string[] = []
+  const created: Record<string, unknown>[] = []
+  await page.route('**/api/dramas/by-links', (r) => {
+    asked = (r.request().postDataJSON() as { urls: string[] }).urls
+    // The first result is already a title; the others are not.
+    return r.fulfill({ json: { title_ids: asked.map((_, i) => (i === 0 ? 41 : null)) } })
+  })
+  await page.route((u) => u.pathname === '/api/dramas', (r) => {
+    if (r.request().method() !== 'POST') return r.fallback()
+    created.push(r.request().postDataJSON() as Record<string, unknown>)
+    return r.fulfill({ status: 201, json: { id: 77 } })
+  })
   await page.goto('/#/make-subtitles')
   await expect(page.getByRole('heading', { name: 'Find & Add', level: 1 })).toBeVisible()
   const box = page.getByRole('textbox', { name: 'Paste a link, or type a name to search' })
@@ -303,6 +315,15 @@ test('Find & Add: a name searches Sources and each match opens its series there'
   await expect.poll(() => posted(s, '/api/sources/search').length).toBe(1)
   expect(posted(s, '/api/sources/search')[0].body).toEqual({ query: 'Heaven' })
   await page.getByRole('button', { name: 'Cancel' }).click()
-  await expect(page.getByTestId('search-results').getByRole('link', { name: 'Open on Alpha Comics' }).first()).toHaveAttribute('href', /^#\/sources\?.*source=alpha/)
+  const results = page.getByTestId('search-results')
+  await expect(results.getByText('In your Library')).toHaveCount(1)
+  await expect(results.getByRole('link', { name: 'Open', exact: true })).toHaveAttribute('href', '#/drama/41')
+  await expect(results.getByRole('link', { name: 'Chapters' }).first()).toHaveAttribute('href', /^#\/sources\?.*source=/)
+  await results.getByRole('button', { name: 'Add to Library' }).first().click()
+  await expect(results.getByText('In your Library')).toHaveCount(2)
+  expect(created).toHaveLength(1)
+  expect(created[0]).toMatchObject({ translate_title: true })
+  expect(String(created[0].source_url)).toMatch(/^https?:\/\//)
+  await page.getByRole('button', { name: 'Novels', exact: true }).click()
   await expect(page.getByRole('link', { name: 'Manage sources' })).toHaveAttribute('href', '#/sources?tab=manage')
 })
