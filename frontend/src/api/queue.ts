@@ -22,6 +22,9 @@ export const removeQueueItem = (id: number, f?: Fetch) =>
   postJson<QueueState>(`/api/queue/items/${id}/remove`, undefined, f)
 export const retryQueueItem = (id: number, f?: Fetch) =>
   postJson<QueueState>(`/api/queue/items/${id}/retry`, undefined, f)
+export const holdQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/hold`, undefined, f)
+export const resumeQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/resume`, undefined, f)
+export const cancelQueueItem = (id: number, f?: Fetch) => postJson<QueueState>(`/api/queue/items/${id}/cancel`, undefined, f)
 export const clearFinishedQueueItems = (f?: Fetch) => postJson<QueueState>('/api/queue/clear-finished', undefined, f)
 export const startQueue = (f?: Fetch) => postJson<QueueState>('/api/queue/start', undefined, f)
 export const pauseQueue = (f?: Fetch) => postJson<QueueState>('/api/queue/pause', undefined, f)

@@ -35,7 +35,7 @@ test('All steps adds Transcribe, Translate and Export in one call and starts not
   const card = page.getByRole('region', { name: 'Queue' })
   await card.getByLabel('Title').selectOption({ label: 'Signal' })
   await card.getByLabel('Step').selectOption('all')
-  await expect(card.getByTestId('queue-step-help')).toContainText('Nothing starts until you press Start queue.')
+  await expect(card.getByTestId('queue-step-help')).toContainText('The queue starts by itself unless it is paused or has a start time.')
   await expect(card.getByTestId('queue-step-help')).toContainText('Uses Claude. Uses your API key and costs money.')
   await card.getByRole('button', { name: 'Add to queue' }).click()
   await expect(items(page)).toHaveCount(3)
@@ -123,7 +123,7 @@ test('a member sees no run controls', async ({ page }) => {
   await mockQueueApi(page, [queueItem(1)], { can_control: false })
   await page.goto('/#/jobs')
   const card = page.getByRole('region', { name: 'Queue' })
-  await expect(card).toContainText('Only the PC owner can start, pause or schedule the queue.')
+  await expect(card).toContainText('Only an admin can start, pause or schedule the whole queue.')
   await expect(card.getByRole('button', { name: 'Start queue now' })).toHaveCount(0)
 })
 

@@ -501,8 +501,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items` | jobs.start |
 | `POST /api/queue/items/all-steps` | jobs.start |
 | `POST /api/queue/items/bulk` | jobs.start |
+| `POST /api/queue/items/{item_id}/cancel` | jobs.start |
+| `POST /api/queue/items/{item_id}/hold` | jobs.start |
 | `POST /api/queue/items/{item_id}/move` | jobs.start |
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
+| `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
