@@ -4,6 +4,7 @@
  * link: a chapter opens its series in Sources, a channel opens Live. Read-only: dismissing and checking stay
  * where they were, and nothing here is marked read.
  */
+import { Paged } from '../components/ShowMore'
 import { useCallback, useEffect, useState } from 'react'
 
 import { listFollows } from '../api/liveFollows'
@@ -95,7 +96,11 @@ export default function UpdatesPage() {
           Nothing new. Chapters of tracked series and your followed channels show up here.
         </p>
       )}
-      {items.length > 0 && <ul className="updates-list">{items.map((i) => <Row key={i.key} item={i} />)}</ul>}
+      {items.length > 0 && (
+        <Paged items={items} testId="updates-more">
+          {(visible) => <ul className="updates-list">{visible.map((i) => <Row key={i.key} item={i} />)}</ul>}
+        </Paged>
+      )}
       {!data && <p className="muted" role="status">Loading…</p>}
     </PageShell>
   )

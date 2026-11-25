@@ -11,7 +11,7 @@ import { routeHref } from '../router'
 import { MAX_SELECTION, allSelected, selectAllVisible, selectIds, toggleLibraryId, visibleTitles } from '../pages/libraryAdmin/libraryAdmin'
 import { MEDIA_TYPES, SOURCE_LANGUAGES } from '../pages/libraryForm'
 import {
-  GROUP_BYS, TITLE_SORTS, groupTitles, isGroupBy, isTitleSort, type GroupBy, type TitleSort,
+  GROUP_BYS, TITLE_SORTS, groupTitles, isGroupBy, limitGroups, isTitleSort, type GroupBy, type TitleSort,
 } from '../pages/titleOrder'
 import type { LibraryFilterOptions, LibrarySearchHit } from '../types/library'
 import { Badge } from './Badge'
@@ -27,6 +27,7 @@ import {
 import { countDramas, dramaName, hideLibraryBar, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
+import { Paged, ShowMore, useShowMore } from './ShowMore'
 import { buttonClass } from './uiClasses'
 import { useLatest } from '../hooks/useLatest'
 
@@ -161,7 +162,12 @@ export function LibraryList({
 
   // The reading filter is applied here, not by the server: the list already carries what it needs.
   const shown = useMemo(() => (items && reading ? items.filter((d) => matchesReading(d, reading)) : items), [items, reading])
-  const groups = shown ? groupTitles(shown, groupBy, sort, series ?? []) : []
+  const allGroups = shown ? groupTitles(shown, groupBy, sort, series ?? []) : []
+  // A thousand cards on one page is slow to draw and endless to scroll; the rest come with Show more. The limit comes
+  // back to one page when the list is filtered, searched or regrouped.
+  const page = useShowMore(`${titleSearch}|${status}|${quickFilter}|${reading}|${groupBy}|${sort}|${JSON.stringify(more)}`)
+  const groups = limitGroups(allGroups, page.limit)
+  const totals = new Map(allGroups.map((g) => [g.key, g.items.length]))
   // Select all, the bulk-action count and delete only ever see what is on screen: a collapsed group's titles are not.
   const visible = visibleTitles(groups, collapsed)
   const allChecked = !!checked && allSelected(checked, visible)
@@ -436,7 +442,7 @@ export function LibraryList({
                       >
                         <span aria-hidden="true">{collapsed.has(g.key) ? '▸' : '▾'}</span>
                         <span className="title-group-name">{g.label}</span>
-                        <span className="muted">{g.items.length === 1 ? '1 title' : `${g.items.length} titles`}{g.mix && ` · ${g.mix}`}</span>
+                        <span className="muted">{(totals.get(g.key) ?? g.items.length) === 1 ? '1 title' : `${totals.get(g.key) ?? g.items.length} titles`}{g.mix && ` · ${g.mix}`}</span>
                       </button>
                       {g.seriesId !== undefined && (
                         <a className="title-group-link" href={routeHref({ name: 'series', id: g.seriesId })} aria-label={`Open series ${g.label}`}>Open series</a>
@@ -446,6 +452,7 @@ export function LibraryList({
                   </section>
                 )
               ))}
+              {shown.length > 0 && <ShowMore shown={groups.reduce((n, g) => n + g.items.length, 0)} total={shown.length} onMore={page.more} testId="library-more" />}
             </>
           )}
         </>
@@ -461,8 +468,10 @@ function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unk
       {hits === null && !error && <p className="muted">Type a word or phrase and press Enter to search every title's lines.</p>}
       {hits && <p className="muted" data-testid="search-count">{hits.length} {hits.length === 1 ? 'match' : 'matches'}</p>}
       {hits && hits.length > 0 && (
+        <Paged items={hits} testId="line-hits-more">
+          {(visible) => (
         <ul className="line-hit-list">
-          {hits.map((h) => (
+          {visible.map((h) => (
             <li key={`${h.drama_id}-${h.idx}`}>
               <div className="line-hit-head">
                 <a href={workspaceHref(h.drama_id, 'review')}>{dramaName({ ...h, id: h.drama_id })}</a>
@@ -473,6 +482,8 @@ function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unk
             </li>
           ))}
         </ul>
+          )}
+        </Paged>
       )}
     </div>
   )
