@@ -488,6 +488,13 @@ def _account_rows(rows: list, owners: dict) -> list:
     return kept
 
 
+def _as_live_accounts(table: str, rows: list, owners: dict) -> list:
+    """The rows of a per-account table as rows of live accounts; any other table's rows as they are."""
+    if table == "chapter_marks":
+        return _account_marks(rows, owners)
+    return _account_rows(rows, owners) if table == "watch_bookmarks" else rows
+
+
 def _set_accounts(row, drama, import_as, owners) -> None:
     """The copy's owner, creator and privacy (see copy_drama)."""
     if import_as is not None:
@@ -562,10 +569,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
         live_cols = columns(dst, table)
         n = 0
         rows = table_rows(src, table, "drama_id = ?", (old_id,))
-        if table == "chapter_marks":
-            rows = _account_marks(rows, owners)
-        elif table == "watch_bookmarks":
-            rows = _account_rows(rows, owners)
+        rows = _as_live_accounts(table, rows, owners)
         for child in rows:
             old = child.pop("id", None)
             child["drama_id"] = live_id
