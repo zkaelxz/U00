@@ -14,8 +14,8 @@
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and every admin write but member-account changes); the blocks here
-# are defence in depth. The only admin routes that pass are the two read-only
-# admin views, GET /api/admin/users and GET /api/admin/audit, and the
+# are defence in depth. The only admin routes that pass are the three read-only
+# admin views, GET /api/admin/users, GET /api/admin/audit and a user's device list, and the
 # member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
 # them that targets an admin account, except a name), and deleting a
 # deactivated member.
@@ -159,10 +159,10 @@
 			method POST
 			path /api/library/admin/bulk/translate
 		}
-		# An admin may view the users and the audit log from away.
+		# An admin may view the users, the audit log and a user's devices from away.
 		not {
 			method GET HEAD
-			path /api/admin/users /api/admin/audit
+			path /api/admin/users /api/admin/audit /api/admin/users/*/devices
 		}
 		# ...and manage member accounts (owner decision 2026-10-30). Remove
 		# admin always targets an admin, so it stays refused here too. One
@@ -170,7 +170,7 @@
 		# an admin-only name never reaches the app.
 		not {
 			method POST
-			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/display-name
+			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/job-limit /api/admin/users/*/display-name /api/admin/users/*/devices/*/revoke
 			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
 		}
 		# Delete a deactivated member (owner decision 2026-11-25). A regexp,

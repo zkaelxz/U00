@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  addAdminUser, deleteAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserDisplayName, setUserPaidLimit, setUserPermission,
+  addAdminUser, deleteAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserDisplayName, setUserJobLimit, setUserPaidLimit, setUserPermission,
 } from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
@@ -15,13 +15,15 @@ import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_DISPLAY_NAME_CHARS, MAX_EMAIL_CHARS, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
-  rowBlocks, sessionsText, showDeleteUser, showRevokeAdmin, rightAbout, rightName, showRights, userName,
+  jobsTodayText, lastSeenText, rowBlocks, sessionsText, showDeleteUser, showRevokeAdmin, rightAbout, rightName, showRights, userName,
 } from './adminUsers'
+import { JobLimitForm } from './MemberJobLimit'
+import { MemberDevices } from './MemberDevices'
 import { useDetailsOpen } from './diagnosticsAdmin'
 import { buttonClass } from '../../components/uiClasses'
 
 type Action = 'active' | 'revoke' | 'admin' | 'ollama-key' | 'delete'
-type Busy = { id: number; what: Action | 'right' | 'limit' | 'name' } | null
+type Busy = { id: number; what: Action | 'right' | 'limit' | 'jobs' | 'name' } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
@@ -121,6 +123,21 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
     }
   }
 
+  const setJobLimit = async (user: AdminUser, jobs: number | null) => {
+    setBusy({ id: user.id, what: 'jobs' })
+    setNote('')
+    setError(null)
+    try {
+      const r = await setUserJobLimit(user.id, jobs)
+      setNote(jobs === null ? `${r.email}: daily job limit cleared.` : `${r.email}: daily job limit set to ${jobs} a day.`)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+      load()
+    }
+  }
+
   const setName = async (user: AdminUser, name: string) => {
     setBusy({ id: user.id, what: 'name' })
     setNote('')
@@ -161,7 +178,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
             {users.map((u) => (
               <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
                 rights={rights} onRun={(what) => void run(u, what)}
-                onRight={(p, on) => void setRight(u, p, on)} onLimit={(usd) => void setLimit(u, usd)}
+                onRight={(p, on) => void setRight(u, p, on)} onLimit={(usd) => void setLimit(u, usd)} onJobLimit={(n) => void setJobLimit(u, n)}
                 onName={(name) => void setName(u, name)} />
             ))}
           </ul>
@@ -172,7 +189,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
   )
 }
 
-function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, onLimit, onName }: {
+function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, onLimit, onJobLimit, onName }: {
   user: AdminUser
   users: AdminUser[]
   pc: PcMode
@@ -182,8 +199,11 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
   onRun: (what: Action) => void
   onRight: (permission: string, granted: boolean) => void
   onLimit: (usd: number | null) => void
+  onJobLimit: (jobs: number | null) => void
   onName: (name: string) => void
 }) {
+  // Fixed at first render: the clock is impure, and "seen 5 minutes ago" needs no live tick.
+  const [now] = useState(() => Date.now())
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
   const adminBlock = demote ? revokeAdminBlock(u, users) : null
@@ -201,12 +221,14 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
         {u.is_self && <Badge>You</Badge>}{' '}
         {u.has_own_ollama_key && <Badge tone="neutral">Own Ollama key</Badge>}
         <div className="muted">
-          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
+          {[sessionsText(u.active_sessions), lastSeenText(u, now), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
         <div className="muted">{paidSpendText(u)}</div>
+        {showRights(u) && <div className="muted">{jobsTodayText(u)}</div>}
         {why && <div className="muted" id={whyId}>{why}</div>}
       </div>
+      {canChange && u.active_sessions > 0 && <MemberDevices userId={u.id} email={u.email} block={sessBlock} />}
       {canChange && <NameForm user={u} busy={busy !== null} onName={onName} />}
       {canChange && <div className="actions">
         <ConfirmButton name={u.email} label="Sign out everywhere…" verb="sign out" tone="primary"
@@ -263,6 +285,9 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
       )}
       {showRights(u) && canChange && (
         <PaidLimitForm user={u} busy={busy !== null} onLimit={onLimit} />
+      )}
+      {showRights(u) && canChange && (
+        <JobLimitForm user={u} busy={busy !== null} onLimit={onJobLimit} />
       )}
     </li>
   )

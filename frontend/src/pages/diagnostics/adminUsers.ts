@@ -4,6 +4,7 @@
 import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
+import { agoText } from '../settings/deviceSessionsModel'
 
 export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
@@ -123,6 +124,11 @@ export function userName(user: AdminUser): string {
   return user.display_name ? `${user.display_name} (${user.email})` : user.email
 }
 
+/** "Last seen 3 hours ago", or why there is no time to show. */
+export function lastSeenText(u: { last_seen_at?: number | null }, nowMs: number): string {
+  return u.last_seen_at == null ? 'No sign-in on record' : `Last seen ${agoText(u.last_seen_at, nowMs)}`
+}
+
 export function sessionsText(n: number): string {
   return n === 0 ? 'Not signed in' : n === 1 ? 'Signed in on 1 device' : `Signed in on ${n} devices`
 }
@@ -143,6 +149,7 @@ const ACTIONS: Record<string, string> = {
   'session.create': 'Session started',
   'session.revoke': 'Session ended',
   'session.revoke_all': 'All sessions ended',
+  'session.revoke_device': 'One device signed out by an admin',
   'session.revoke_others': 'Other devices signed out',
   'user.add': 'User added',
   'user.activate': 'User activated',
@@ -173,6 +180,24 @@ export function paidSpendText(u: AdminUser): string {
     return `Paid engines this month: ${dollars(spent)} of their ${dollars(cap)} limit${over}`
   }
   return spent > 0 ? `Paid engines this month: ${dollars(spent)}` : 'No paid-engine spending this month'
+}
+
+export const MAX_JOB_LIMIT = 10000
+
+/** The daily job limit typed on a People row: a whole number from 1 up, else null. */
+export function parseJobLimit(text: string): number | null {
+  const t = text.trim()
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return n > 0 && n <= MAX_JOB_LIMIT ? n : null
+}
+
+/** "Jobs started today: 3 of their 10 a day", or just the count when they have no limit. */
+export function jobsTodayText(u: { daily_job_limit?: number | null; jobs_today?: number }): string {
+  const n = u.jobs_today ?? 0
+  const limit = u.daily_job_limit ?? null
+  if (limit === null) return `Jobs started today: ${n}`
+  return `Jobs started today: ${n} of their ${limit} a day${n >= limit ? ' (limit reached until tomorrow)' : ''}`
 }
 
 // api/schemas/extension_access.AdminAddUserRequest

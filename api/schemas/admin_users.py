@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel
 
-__all__ = ["AdminUser", "AdminUserList", "AdminSessionsRevoked", "AdminUserDeleted", "AuditEvent", "AuditPage"]
+__all__ = ["AdminUser", "AdminDevice", "AdminDeviceList", "AdminUserList", "AdminSessionsRevoked", "AdminUserDeleted", "AuditEvent", "AuditPage"]
 
 
 class AdminUser(BaseModel):
@@ -27,6 +27,25 @@ class AdminUser(BaseModel):
     # monthly cap), and a member's own monthly limit (None: none; always None for an admin).
     month_paid_spend_usd: float = 0.0
     monthly_paid_cap_usd: Optional[float] = None
+    # Epoch seconds of the newest request from any of their devices; None with no sign-in on record.
+    last_seen_at: Optional[float] = None
+    # A member's own limit on the background jobs they start in a day (None: none; always None for an
+    # admin), and how many they started today.
+    daily_job_limit: Optional[int] = None
+    jobs_today: int = 0
+
+
+class AdminDevice(BaseModel):
+    id: int
+    device: str                 # "Chrome on Android"; never the user agent
+    created_at: float
+    last_seen_at: float
+    expires_at: float
+    ip_prefix: str              # IPv4 /24 or IPv6 /48; "" if unknown
+
+
+class AdminDeviceList(BaseModel):
+    devices: List[AdminDevice]
 
 
 class AdminUserList(BaseModel):
