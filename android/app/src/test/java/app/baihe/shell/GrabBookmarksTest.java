@@ -46,4 +46,13 @@ public class GrabBookmarksTest {
         assertFalse(GrabBookmarks.isSite("https://a.example/owl/3"));
         assertEquals(0, GrabBookmarks.without(marks, "https://a.example/").size());
     }
+
+    @Test
+    public void aShorterListKeepsOnlyTheNewestPages() {
+        List<GrabBookmarks.Mark> marks = new ArrayList<>();
+        for (int i = 0; i < 5; i++) marks = GrabBookmarks.with(marks, "p" + i, "https://a.example/" + i, 3);
+        assertEquals(3, marks.size());
+        assertEquals("p4", marks.get(0).name);
+        assertEquals("p2", marks.get(2).name);
+    }
 }

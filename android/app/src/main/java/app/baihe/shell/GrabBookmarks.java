@@ -62,13 +62,17 @@ final class GrabBookmarks {
         return false;
     }
 
-    /** The list with this page first; an older bookmark of the same address is replaced, the oldest drops off when full. */
     static List<Mark> with(List<Mark> marks, String name, String url) {
+        return with(marks, name, url, MAX);
+    }
+
+    /** The list with this page first; an older entry for the same address is replaced, the oldest drops off past `limit`. */
+    static List<Mark> with(List<Mark> marks, String name, String url, int limit) {
         String link = ServerAddress.browsable(url);
         if (link == null) return marks;
         List<Mark> out = new ArrayList<>();
         out.add(new Mark(nameFor(flat(name), link), link));
-        for (Mark mark : marks) if (!mark.url.equals(link) && out.size() < MAX) out.add(mark);
+        for (Mark mark : marks) if (!mark.url.equals(link) && out.size() < limit) out.add(mark);
         return out;
     }
 

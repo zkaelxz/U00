@@ -236,3 +236,12 @@ describe('isUnknownRoute', () => {
     for (const h of ['', '#', '#/', '#/library', '#/jobs', '#/drama/3/review', '#/settings?card=x']) expect(isUnknownRoute(h)).toBe(false)
   })
 })
+
+describe('watch party links', () => {
+  it('carries a party code on the watch route and refuses a malformed one', () => {
+    expect(parseRoute('#/watch/7?party=abc_DEF-123')).toEqual({ name: 'watch', id: 7, party: 'abc_DEF-123' })
+    expect(routeHref({ name: 'watch', id: 7, party: 'abc_DEF-123' })).toBe('#/watch/7?party=abc_DEF-123')
+    expect(parseRoute('#/watch/7?party=short')).toEqual({ name: 'watch', id: 7 })
+    expect(parseRoute('#/watch/7?party=has%20space%20in%20it')).toEqual({ name: 'watch', id: 7 })
+  })
+})
