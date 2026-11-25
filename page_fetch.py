@@ -158,7 +158,7 @@ def _capture_entry(url: str, status: int, content_type: str, body: bytes | None 
 
 @contextmanager
 def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int = 3000,
-                        max_body_bytes: int = 5_000_000):
+                        max_body_bytes: int = 5_000_000, wait_until: str = "domcontentloaded"):
     """Opens `url` in a real browser and records every network response
     whose URL matches `url_pattern`, as the page's own JavaScript makes
     them -- yielding `(page, captured)` so the caller can also drive the
@@ -214,7 +214,7 @@ def api_capture_session(url: str, url_pattern, timeout: int = 30, wait_ms: int =
         with _guarded_chromium(p) as (browser, proxy):
             page = _guarded_page(browser)
             page.on("response", on_response)
-            _goto(page, url, proxy, timeout=timeout * 1000, wait_until="domcontentloaded")
+            _goto(page, url, proxy, timeout=timeout * 1000, wait_until=wait_until)
             page.wait_for_timeout(wait_ms)
             yield page, captured
 

@@ -680,3 +680,19 @@ class TestFollow:
         monkeypatch.setattr(sources_tracking_service, "follow_from_page", refuse)
         r = _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"})
         assert r.status_code == 422 and "No source" in r.text
+
+
+class TestLastPage:
+    def test_the_last_page_is_kept_per_account_over_the_bridge(self, isolated_db):
+        _, mine = _member("a@example.com")
+        _, other = _member("b@example.com")
+        r = _client().post(f"{BASE}/last-page", headers=_auth(mine), json={"url": "https://a.example/owl/3", "title": "Owl"})
+        assert r.status_code == 200 and r.json() == {"host": "a.example"}
+        pages = _client().post(f"{BASE}/last-pages", headers=_auth(mine), json={}).json()["pages"]
+        assert pages == [{"host": "a.example", "url": "https://a.example/owl/3", "title": "Owl"}]
+        assert _client().post(f"{BASE}/last-pages", headers=_auth(other), json={}).json()["pages"] == []
+
+    def test_it_needs_a_token_and_a_web_address(self, isolated_db):
+        assert _client().post(f"{BASE}/last-pages", json={}).status_code == 401
+        _, token = _member("a@example.com")
+        assert _client().post(f"{BASE}/last-page", headers=_auth(token), json={"url": "file:///x"}).status_code == 422

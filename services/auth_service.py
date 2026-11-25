@@ -372,6 +372,9 @@ def admin_delete_user(user_id: int, actor_id=None) -> dict:
     # After the delete, so a refused one leaves an account reactivated
     # meanwhile with its groups still linked; the groups keep the old id.
     db.detach_shared_glossary_owner_groups(user_id)
+    # sources.db is a separate file, so no foreign key reaches this account's Grab places.
+    from sources import store_last_page
+    store_last_page.forget(user_id)
     _recheck_streams(user_id)
     write_audit(actor_id, "user.delete", f"user {user_id}")
     return {"user_id": user_id, "deleted": True}

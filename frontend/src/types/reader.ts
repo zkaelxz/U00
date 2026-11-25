@@ -53,6 +53,8 @@ export interface ReaderLookupRequest extends ReaderEngineFields {
 
 export type ReaderLookupResult = Schemas['ReaderLookupResult']
 
+export type StudyLine = Schemas['StudyLine']
+
 export type ReaderVocabList = Schemas['ReaderVocabList']
 
 export type ReaderRichExportResult = Schemas['ReaderRichExportResult']

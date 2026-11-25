@@ -5,7 +5,7 @@ import type { ReviewLine } from '../../../../types/review'
 import type { ResplitResult } from '../../../../types/restructure'
 import { TRANSLATION_ONLY } from '../../translateForm'
 import { buildPatch, timingPatch, draftFromLine, isDirty, languageSetText, LINE_LANGUAGES, lineLangChip, titleDefaultLabel, sourceTextLang } from './reviewDraft'
-import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, unsurePieces, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
+import { adjacentRun, speakerTimeFooter, speakerTimeLines, chipLabel, codePointOffset, emptyMessage, cutBoundaries, estimateSplitTime, proportionalCut, snapCut, stepToBoundary, formatDuration, formatStamp, inFilter, lineCps, gapForNewLine, initialActiveId, jobRunsOnDrama, keptNote, lineRange, LINES_CHANGED_MESSAGE, mergedText, flaggedStep, nextFlaggedId, nextUnreviewedId, pageForPosition, parseJump, pageStillMatches, splitPieces, splitTranslationPieces, stepFrom, formatTenths, formatTime, structureErrorText, undoDoneMessage, undoHandleOf, undoRefusal, restoreLossText, unsurePieces, unsureLevel, UNDO_CHANGED_MESSAGE, UNDO_GONE_MESSAGE, UNDO_NOTES_MESSAGE } from './reviewLogic'
 import { resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, canResegmentWith, droppedText, llmApplyProblem, llmApplyProblemText, llmPreviewSummary, resegmentCostNote, resegmentEngines, JOB_RUNNING_MESSAGE, resegmentSummary, wordSplitterPackages } from './reviewResegment'
 
 const mk = (id: number, over: Partial<ReviewLine> = {}): ReviewLine => ({
@@ -566,5 +566,16 @@ describe('unsurePieces', () => {
       { text: '你好', unsure: true }, { text: '吗', unsure: false },
     ])
     expect(unsurePieces('你好', null)).toEqual([{ text: '你好', unsure: false }])
+  })
+})
+
+describe('unsureLevel', () => {
+  it('tints stronger the lower the score, and never a checked line', () => {
+    expect(unsureLevel({ confidence: 0.2, reviewed: false })).toBe('low')
+    expect(unsureLevel({ confidence: 0.5, reviewed: false })).toBe('mid')
+    expect(unsureLevel({ confidence: 0.7, reviewed: false })).toBe('soft')
+    expect(unsureLevel({ confidence: 0.9, reviewed: false })).toBeNull()
+    expect(unsureLevel({ confidence: null, reviewed: false })).toBeNull()
+    expect(unsureLevel({ confidence: 0.2, reviewed: true })).toBeNull()
   })
 })

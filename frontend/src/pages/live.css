@@ -13,7 +13,7 @@
 .live-ts { color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 .live-src, .live-en { min-width: 0; overflow-wrap: anywhere; }
 /* The translation is what is read; the original sits small under it. */
-.live-en { font-size: var(--text-lg, 1.125rem); font-weight: var(--weight-bold); }
+.live-en { font-size: var(--text-lg); font-weight: var(--weight-bold); }
 .live-en.muted, .live-en.warn { font-size: var(--text-md); font-weight: normal; }
 .live-src { color: var(--muted); font-size: var(--text-sm); }
 .live-video { align-content: start; padding: var(--space-3); gap: var(--space-2); }
@@ -106,3 +106,20 @@ html.shell-pip .live-video { position: fixed; inset: 0; z-index: 2147483000; pad
 html.shell-pip .live-video > :not(.live-video-frame) { display: none; }
 html.shell-pip .live-video-frame { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 html.shell-pip body { overflow: hidden; }
+
+/* Viewing options: the lines' text size and whether the original shows under each translation. */
+.live-sizes { display: inline-flex; gap: var(--space-2); }
+.live-sizes button { min-width: 44px; min-height: 44px; }
+.live-lines[data-size='s'] .live-en { font-size: var(--text-md); }
+.live-lines[data-size='s'] .live-src { font-size: var(--text-xs); }
+.live-lines[data-size='l'] .live-en { font-size: var(--text-2xl); }
+.live-lines[data-size='l'] .live-src { font-size: var(--text-md); }
+.live-lines[data-original='off'] .live-src { display: none; }
+
+/* Start card: the link and Paste sit on one row, the language is a row of buttons (44px each), all wrapping on a narrow phone. */
+.live-link-field { display: grid; gap: var(--space-2); min-width: 0; }
+.live-link-row { display: flex; gap: var(--space-2); align-items: stretch; min-width: 0; }
+.live-link-row input { flex: 1; min-width: 0; }
+.live-link-row button { min-height: 44px; }
+.live-langs { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.live-langs button { min-height: 44px; flex: 1 1 6rem; }
