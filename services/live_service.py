@@ -927,5 +927,6 @@ def list_sessions(principal=None, everyone: bool = False) -> list:
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []
         result.append({"session_id": sid, "status": _status(job), "engine": entry.get("engine"),
-                       "model": entry.get("model"), "cue_count": len(cues) if isinstance(cues, list) else 0})
+                       "model": entry.get("model"), "cue_count": len(cues) if isinstance(cues, list) else 0,
+                       "source_language": entry.get("source_language"), "stream": entry.get("stream")})
     return result
