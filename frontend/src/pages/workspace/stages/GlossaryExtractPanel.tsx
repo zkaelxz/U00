@@ -6,7 +6,7 @@ import { hasStatus } from '../../../api/client'
 import { dismissGlossaryTerms, getGlossaryDismissals, restoreGlossaryTerms } from '../../../api/autotuneGlossary'
 import { getGlossaryTerms } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { failedWithLogHint, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { useLatest } from '../../../hooks/useLatest'
@@ -251,7 +251,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
       )}
       {status?.status === 'error' && (
         <p className="error" role="alert">
-          {safeDetail(status.message) ?? 'Extraction failed. Details are in the app log.'}{' '}
+          {safeDetail(status.message) ?? failedWithLogHint('Extraction failed.')}{' '}
           This uses the title's saved engine, not the one picked for a single run. Change it by choosing a tier or profile under Style on the{' '}
           <a href={`#/drama/${dramaId}/translate`}>Translate tab</a>.
         </p>

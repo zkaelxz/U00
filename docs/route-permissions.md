@@ -739,6 +739,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/sources/jobs/{job_id}/result` | library.read |
 | `GET /api/sources/notifications` | library.read |
 | `POST /api/sources/notifications/{notification_id}/dismiss` | sources.import |
+| `POST /api/sources/notifications/{notification_id}/restore` | sources.import |
 | `GET /api/sources/profiles` | admin.settings |
 | `POST /api/sources/profiles/{domain}/{kind}/rollback` | admin.settings |
 | `POST /api/sources/search` | library.read |
