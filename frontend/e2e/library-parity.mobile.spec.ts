@@ -145,7 +145,7 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
   await page.route('**/api/library/home', (r) => r.fulfill({ json: {
     ready: [
       { ...title(11, 'Chion: karaoke night with a rather long title'), read_percent: 0, length_seconds: 7500, page_count: 0 },
-      { ...title(12, 'Anok: game night'), read_percent: 0, length_seconds: 2700, page_count: 0 },
+      { ...title(12, 'Anok: game night'), read_percent: 0, length_seconds: 2700, page_count: 0, watched_seconds: 4360, watched_at: '2026-11-25T09:00:00' },
       { ...title(13, 'A comic', 'manhua'), read_percent: 0, length_seconds: null, page_count: 24 },
     ],
     ready_count: 12,
@@ -158,7 +158,11 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
     running_count: 2,
     can_control_queue: true,
   } }))
-  await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.12', '4360'))
+  // This browser stopped earlier at 1:40; the account's newer place from another device wins.
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.watch.at.12', '100')
+    localStorage.setItem('baihe.pref.watch.atTime.12', String(Date.parse('2026-11-25T08:00:00Z')))
+  })
   await page.goto('/')
   const ready = page.getByRole('region', { name: 'Ready' })
   const cards = ready.getByRole('link')
