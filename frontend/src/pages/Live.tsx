@@ -17,16 +17,16 @@
  * the API, so a stream that needs a signed-in browser won't resolve here.
  */
 import { useEffect, useId, useState } from 'react'
+import { useLiveChoices } from './live/useLiveChoices'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 
-import { api, hasStatus } from '../api/client'
+import { hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
   advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, chosenForYou, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, liveEngineView, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
-import { getAllSeries } from '../api/library'
-import { engineShortName, translateApi, usableEngines } from '../api/translate'
+import { engineShortName, usableEngines } from '../api/translate'
 import { ChosenForYouNote } from '../components/ChosenForYou'
 import { useChosenForYou } from '../hooks/useChosenForYou'
 import { Field } from '../components/Field'
@@ -57,7 +57,6 @@ import { useOllamaCheck } from './live/useOllamaCheck'
 import { StreamEmbed } from './live/StreamEmbed'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, sessionStream, steadyDelay } from './live/embedLogic'
 import type { LiveCue } from '../types/live'
-import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
@@ -151,29 +150,10 @@ export default function LivePage() {
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
 
-  // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
-  const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
-  const [seriesList, setSeriesList] = useState<{ id: number; name: string }[] | null>(null)
-  const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
-  const [enginesFailed, setEnginesFailed] = useState(false)
+  const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines } = useLiveSession(setError)
-
-  useEffect(() => {
-    translateApi.engines().then(setEngines, () => {
-      setEngines([])
-      setEnginesFailed(true)
-    })
-    api.listDramas({ progress: 'false' }).then(
-      (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}`, series_id: d.series_id ?? null }))),
-      () => setTitles([]),
-    )
-    getAllSeries().then(
-      (r) => setSeriesList(r.items.map((s) => ({ id: s.id, name: s.name }))),
-      () => setSeriesList([]),
-    )
-  }, [])
 
   // A remembered title or series that was deleted or hidden is not sent.
   const glossaryOptions = glossaryChoices(seriesList ?? [], titles ?? [])
