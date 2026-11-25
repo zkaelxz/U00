@@ -12,8 +12,10 @@
 .series-delete-prompt ul { margin: 0 0 var(--space-2); }
 /* Bare links are as tall as their text, so a thumb misses them; the shared crumbs already pad to 44px. */
 @media (max-width: 640px), (pointer: coarse) {
-  .series-page .reader-crumbs a, .series-list-page .reader-crumbs a,
-  .series-title-row .table-title { display: inline-flex; align-items: center; min-height: 44px; }
+  .series-page .reader-crumbs a, .series-list-page .reader-crumbs a { display: inline-flex; align-items: center; min-height: 44px; padding-inline: var(--space-1); }
+  .series-page .reader-crumbs, .series-list-page .reader-crumbs { overflow-wrap: anywhere; }
+  /* Padding rather than flex keeps "#3" on the title's first line and the space after it. */
+  .series-title-row .table-title { display: block; padding-block: calc((44px - 1lh) / 2); }
 }
 @media (max-width: 640px) {
   .series-copy-row { grid-template-columns: minmax(0, 1fr); }

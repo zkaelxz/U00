@@ -49,7 +49,7 @@ export default function SeriesListPage({ streamer }: { streamer?: string }) {
       {streamer === undefined && all.data && total === 0 && (
         <Card>
           <p className="muted">No series yet. Add a title to a new series from its details.</p>
-          <ButtonLink href={routeHref({ name: 'library' })}>Go to Library</ButtonLink>
+          <div className="actions"><ButtonLink href={routeHref({ name: 'library' })}>Go to Library</ButtonLink></div>
         </Card>
       )}
       {total > 6 && (
