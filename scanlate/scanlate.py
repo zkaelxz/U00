@@ -487,31 +487,44 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
     def is_caption_lettering(region, caption):
         # Letters only: OCR adds a stray digit or mark to a lone glyph ("的\n7").
         letters = [c for c in (region.get("source_text") or "") if c.isalpha()]
-        # The reading aid printed beside a title's kanji (ちょう) is read with the glyph but
-        # is not in the caption's text, which is read from the large lettering alone.
-        core = [c for c in letters if not _is_hiragana(c)] or letters
-        if len(core) == 1 and not _is_hiragana(core[0]):
-            # One glyph cut out of a stylised title is often misread (察 as 祭).
-            return True
-        return bool(core) and all(c in (caption.get("source_text") or "") for c in core)
+        return bool(letters) and all(c in (caption.get("source_text") or "") for c in letters)
+
+    def on_caption_lines(region, caption):
+        # A glyph cut out of a stylised title is often misread (察 as 祭, or manga-ocr's
+        # "そんな"), so its text can't show it belongs; its place on the caption's own lines
+        # can. A real balloon's lines were left out of the caption, so it is never on them.
+        area = float(region["w"] * region["h"]) or 1.0
+        covered = sum(_overlap(region, line) * area for line in caption.get("line_boxes") or ())
+        return covered / area >= _CAPTION_PART_SHARE
 
     return [r for r in regions
             if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
-                                         or is_caption_lettering(r, c))
+                                         or is_caption_lettering(r, c) or on_caption_lines(r, c))
                        for c in captions)]
-
-
-def _is_hiragana(c: str) -> bool:
-    return "\u3041" <= c <= "\u309f"
 
 
 def with_captions(regions: list, captions: list) -> list:
     """`regions` without the pieces of `captions`, then the captions, renumbered
     in that reading order."""
     joined = drop_parts_of_captions(regions, captions) + captions
+    for caption in captions:
+        caption.pop("line_boxes", None)
     for order, region in enumerate(joined):
         region["reading_order"] = order
     return joined
+
+
+def caption_line_backend(source_language: str, ocr_backend: str):
+    """The backend that reads the page's lines for the captions on the art: the page's own
+    when it reads whole lines, else RapidOCR when its page models are on disk (a Japanese
+    page's balloons are read with manga-ocr, which reads one box at a time, so its titles
+    were never read), else None."""
+    if ocr_backend in ("rapidocr", "paddle"):
+        return ocr_backend
+    import ocr
+    on_disk = all(os.path.isfile(ocr.rapidocr_model_path(spec))
+                  for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL))
+    return "rapidocr" if source_language != "ko" and on_disk else None
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
@@ -523,7 +536,10 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
     try:
         found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
                                                     image=page,
-                                                    backend=ocr_backend or auto_ocr_backend(source_language))
+                                                    backend=caption_line_backend(
+                                                        source_language,
+                                                        ocr_backend or auto_ocr_backend(source_language))
+                                                    or "paddle")
     except HeadroomError:
         raise
     except Exception as exc:
@@ -540,6 +556,7 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
             "orientation": "vertical" if c["h"] > 1.4 * c["w"] else "horizontal",
             "panel_id": None, "kind": "caption", "kind_confidence": 0.5,
             "source_text": c["source_text"], "ocr_confidence": c.get("ocr_confidence"),
+            "line_boxes": c.get("line_boxes", []),
             "font_category": "bold",
             "ink_ratio": None, "irregular": None,
             "translated_text": "", "font_size": 18, "skip": False, "include_sfx": False})

@@ -592,23 +592,28 @@ def test_dark_caption_lettering_gets_a_light_thin_outline_not_a_fat_dark_one():
     assert inked(dark) < inked(light)                                       # no dark outline fattening the dark fill
 
 
-def test_one_misread_glyph_of_a_title_inside_the_caption_is_dropped():
-    # 察 of the title read as 祭: not in the caption's text, yet only a piece of the title.
-    glyph = _region("bubble", "祭", 10, 10, 30, 30)
-    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
-    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+def _title_caption():
+    caption = _region("caption", "超視覚警察", 0, 0, 400, 200)
+    caption["line_boxes"] = [{"x": 0, "y": 0, "w": 400, "h": 90}]
+    return caption
 
 
-def test_a_title_glyph_read_with_its_furigana_is_dropped():
-    glyph = _region("bubble", "超視\nちょう\nてい", 10, 10, 60, 30)
-    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
-    assert scanlate.drop_parts_of_captions([glyph], [caption]) == []
+def test_a_misread_glyph_on_the_titles_own_line_is_dropped():
+    # 察 of the title read as 祭, or manga-ocr's "そんな": not in the caption's text, yet only a
+    # piece of the title, and its English was set over the title's.
+    for text in ("祭", "そんな", "超視\nちょう\nてい", "．．．"):
+        glyph = _region("bubble", text, 10, 10, 60, 70)
+        assert scanlate.drop_parts_of_captions([glyph], [_title_caption()]) == [], text
 
 
-def test_a_one_kana_balloon_inside_a_caption_is_kept():
-    balloon = _region("bubble", "え？", 10, 10, 30, 30)
-    caption = _region("caption", "超視覚警察", 0, 0, 200, 200)
-    assert scanlate.drop_parts_of_captions([balloon], [caption]) == [balloon]
+def test_a_balloon_inside_the_caption_box_but_off_its_lines_is_kept():
+    balloon = _region("bubble", "快跑！", 300, 120, 60, 60)
+    assert scanlate.drop_parts_of_captions([balloon], [_title_caption()]) == [balloon]
+
+
+def test_the_caption_lines_are_not_kept_on_the_saved_region():
+    caption = _title_caption()
+    assert "line_boxes" not in scanlate.with_captions([], [caption])[0]
 
 
 def test_title_glyphs_boxed_as_balloons_do_not_count_toward_the_caption_limit():

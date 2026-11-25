@@ -75,6 +75,7 @@ def group_lines(lines: list) -> list:
                            "lines": [line]})
     return [{"x": g["x"], "y": g["y"], "w": g["w"], "h": g["h"],
              "source_text": "".join(l["text"] for l in g["lines"]),
+             "line_boxes": [{k: l[k] for k in ("x", "y", "w", "h")} for l in g["lines"]],
              # The weakest line decides: one misread line makes the caption worth a second look.
              "ocr_confidence": min((l["conf"] for l in g["lines"] if "conf" in l), default=None)}
             for g in groups]
