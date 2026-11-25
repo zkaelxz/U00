@@ -6,7 +6,7 @@ from typing import Optional
 import db
 from lib.errors import ConflictError, NotFoundError
 from engine_backends import engine_registry, local as engine_local
-from services import ownership_service, queue_service, title_copy_service
+from services import ownership_service, queue_service, queue_translate_settings, title_copy_service
 
 READY, WORKING, IDLE, NO_MEDIA = "ready", "working", "idle", "no_media"
 
@@ -55,7 +55,7 @@ def _is_free(drama: dict) -> bool:
     engine = queue_service._translate_engine(drama)
     if engine not in engine_registry.FREE_ENGINES:
         return False
-    model = queue_service._queued_model_and_batch(drama, engine)[0] or engine_registry.effective_default_model(engine)
+    model = queue_translate_settings._queued_model_and_batch(drama, engine)[0] or engine_registry.effective_default_model(engine)
     return not (engine == "ollama" and engine_local.is_ollama_cloud_model(model))
 
 
