@@ -3,12 +3,29 @@ import { useEffect, useState } from 'react'
 import { getQuality } from '../../api/diagnostics'
 import { Badge } from '../../components/Badge'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import type { QualityCheck } from '../../types/diagnostics'
-import { clipStatus, clipText, gateStatus, marginText, metricLabel, qualitySummary, ranText } from './qualityFormat'
+import { QualityTrend } from './QualityTrend'
+import { clipStatus, differenceText, kindLabel, marginText, metricLabel, nextStep, num, sortedClips, verdict, verdictDetail } from './qualityFormat'
+
+// Shape and colour carry the result as well as the word, so it reads without telling green from red.
+const ICON = {
+  ok: <path d="M5 12l5 5 9-10" />,
+  bad: <path d="M6 6l12 12M18 6L6 18" />,
+  neutral: <path d="M6 12h12" />,
+} as const
+
+function Icon({ tone }: { tone: 'ok' | 'bad' | 'neutral' }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
+      {ICON[tone]}
+    </svg>
+  )
+}
 
 /** "Quality": the newest release check on this PC, each score against its baseline. Read-only; the check itself runs from the command line. */
-export function QualitySection({ openSignal }: { openSignal?: number }) {
+export function QualitySection() {
   const [data, setData] = useState<QualityCheck | null>(null)
   const [error, setError] = useState<unknown>(null)
 
@@ -18,37 +35,53 @@ export function QualitySection({ openSignal }: { openSignal?: number }) {
     return () => { live = false }
   }, [])
 
-  const gate = data ? gateStatus(data) : null
+  const v = data ? verdict(data) : null
+  const step = data ? nextStep(data) : null
   return (
-    <Section title="Quality" storageKey="diagnostics.quality" summary={data ? qualitySummary(data) : undefined}
-      openSignal={openSignal}>
+    <Section title="Quality" storageKey="benchmark.quality" defaultOpen>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {!data || !gate ? (
+      {!data || !v ? (
         !error && <p className="muted">Loading…</p>
       ) : (
         <>
-          <p data-testid="quality-gate"><Badge tone={gate.tone}>{gate.label}</Badge> {gate.reason}</p>
+          <div className={`quality-verdict quality-${v.tone}`} data-testid="quality-gate">
+            <div>
+              <strong>{v.title}</strong>
+              <p>{verdictDetail(data)}</p>
+            </div>
+            <HelpTip label="About these numbers" id="quality-help">{marginText(data)}</HelpTip>
+          </div>
           {data.found && !data.unreadable && (
             <>
-              <p className="muted">{ranText(data)} {marginText(data)}</p>
-              <ul className="diag-rows diag-stack" data-testid="quality-list">
-                {data.clips.map((c) => {
-                  const status = clipStatus(c)
-                  return (
-                    <li key={c.id} data-testid={`quality-${c.id}`}>
-                      <strong>{c.id}</strong>: {clipText(c)} <Badge tone={status.tone}>{status.label}</Badge>
-                      <br />
-                      <span className="muted">{metricLabel(c)}</span>
-                    </li>
-                  )
-                })}
-              </ul>
+              <table className="table bench-table quality-table" data-testid="quality-list">
+                <thead>
+                  <tr><th>Check</th><th className="num">Now</th><th className="num">Baseline</th><th>Difference</th><th>Result</th></tr>
+                </thead>
+                <tbody>
+                  {sortedClips(data.clips).map((c) => {
+                    const status = clipStatus(c)
+                    return (
+                      <tr key={c.id} data-testid={`quality-${c.id}`} className={status.tone === 'bad' ? 'quality-row-bad' : undefined}>
+                        <td><strong>{kindLabel(c)}</strong>, {c.id}<br /><span className="muted">{metricLabel(c)}</span></td>
+                        <td className="num"><strong>{num(c.score)}</strong></td>
+                        <td className="num">{num(c.baseline)}</td>
+                        <td>{differenceText(c)}</td>
+                        <td>
+                          <Badge tone={status.tone}>
+                            <span className="quality-result"><Icon tone={status.tone === 'ok' || status.tone === 'bad' ? status.tone : 'neutral'} />{status.label}</span>
+                          </Badge>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+              <p className="muted">Not measured yet, because there is no checked test set: translation, comic reading, Live.</p>
             </>
           )}
-          <p className="muted">
-            The check runs on the GPU PC with <code>python -m tools.release_check MANIFEST.json --yes</code> and
-            shows here when its results are in this app's data folder.
-          </p>
+          <QualityTrend />
+          {step && <p className="quality-next" data-testid="quality-next">{step}</p>}
+          <p className="muted">This page only shows results. The check is started by hand on the PC, and the numbers stay on the PC.</p>
         </>
       )}
     </Section>

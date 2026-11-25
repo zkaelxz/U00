@@ -9,9 +9,12 @@ final class QuickReadSession {
     private static boolean complete = true;
     private static boolean abandoned;
     private static boolean cancelled;
+    // The reader was left while the grab was still running: the grab carries on without it.
+    private static boolean detached;
     private static String summary = "";
     private static Runnable cancelHook;
     private static Runnable listener;
+    private static Runnable detachHook;
     // Reading ahead: what fetches the chapter after this one, and the first page of the newest chapter.
     private static Runnable nextHook;
     private static int newestFrom;
@@ -24,6 +27,7 @@ final class QuickReadSession {
         complete = false;
         abandoned = false;
         cancelled = false;
+        detached = false;
         summary = "";
         nextHook = null;
         newestFrom = 0;
@@ -45,11 +49,21 @@ final class QuickReadSession {
         Runnable hook;
         synchronized (QuickReadSession.class) {
             if (nextHook == null || !complete || abandoned || cancelled) return;
-            if (lastVisiblePage < Math.max(names.size() - PAGES_BEFORE_END, newestFrom)) return;
+            if (lastVisiblePage < startNextAt()) return;
             hook = nextHook;
             nextHook = null;
         }
         hook.run();
+    }
+
+    /**
+     * The page from which the next chapter is fetched: past the middle of the newest chapter, so a
+     * long one is translated while it is still being read, or three pages from its end if that is
+     * sooner. Never before the newest chapter's own first page.
+     */
+    private static int startNextAt() {
+        int pages = names.size() - newestFrom;
+        return Math.max(newestFrom, Math.min(names.size() - PAGES_BEFORE_END, newestFrom + pages / 2 + 1));
     }
 
     /** The next chapter is on its way: its pages join the ones already open. */
@@ -98,13 +112,52 @@ final class QuickReadSession {
         return summary;
     }
 
-    /** The reader was closed: the grab stops asking the server for more pages. */
+    /**
+     * The reader was left mid-grab. The grab keeps sending and the server keeps translating, so
+     * the chapter is ready when the reader is opened again; only Cancel stops it. The pages stay
+     * on the phone until the next Quick read starts.
+     */
+    static boolean detach() {
+        Runnable hook;
+        synchronized (QuickReadSession.class) {
+            if (complete || abandoned || cancelled) return false;
+            detached = true;
+            listener = null;
+            nextHook = null;
+            hook = detachHook;
+        }
+        if (hook != null) hook.run();
+        return true;
+    }
+
+    /** What Grab does when the reader is left mid-grab (shows that it is still working); null to forget it. */
+    static synchronized void onDetach(Runnable hook) {
+        detachHook = hook;
+    }
+
+    /** The reader is open again on this session. */
+    static synchronized void attach() {
+        detached = false;
+    }
+
+    static synchronized boolean isDetached() {
+        return detached && !complete;
+    }
+
+    /** Whether there are pages from a Quick read the reader was left on, to open again. */
+    static synchronized boolean hasPages() {
+        return detached && !names.isEmpty() && !abandoned && !cancelled;
+    }
+
+    /** The reader was closed with nothing left to wait for: its pages are dropped. */
     static void abandon() {
         Runnable hook = null;
         synchronized (QuickReadSession.class) {
-            // Closing the reader mid-grab also stops the server's work, as Cancel does.
+            // Only a reader that cannot be left running (the grab is already stopped) gets here
+            // with work outstanding; a running grab is detached instead.
             if (!complete) hook = cancelHook;
             abandoned = true;
+            detached = false;
             complete = true;
             names.clear();
             summary = "";

@@ -263,7 +263,11 @@
   var titles = [document.title, first('meta[property="og:title"]', "content"), first("h1")]
     .map(function (t) { return t.replace(/\s+/g, " ").trim(); })
     .filter(function (t) { return t; });
-  Baihe.begin(nonce, JSON.stringify({ titles: titles, count: items.length, chapters: chapterLinks(), next: nextChapter() }));
+  // The page's own words say what language its comic is in; the PC has no other way to know
+  // for a Quick read, and a guess sends Japanese and Korean pages to the Chinese reader.
+  var sample = titles.join("\n") + "\n" + ((document.body && document.body.innerText) || "").slice(0, 4000);
+  Baihe.begin(nonce, JSON.stringify({ titles: titles, count: items.length, chapters: chapterLinks(), next: nextChapter(),
+    lang: document.documentElement.lang || "", sample: sample }));
   // A novel chapter has no comic pictures: its prose is the container with the most text of its own
   // (text nodes and paragraphs directly inside it), so menus and comment lists around it are not taken.
   function chapterText() {

@@ -428,7 +428,9 @@ def _quick_read_key(image: dict, job: dict) -> str | None:
 
 
 def _key_settings(job: dict, config: dict) -> list:
-    return [job["drama_id"], job["source_language"], job["typeset"],
+    from services import settings_service
+    # Sound-effect captions change the redraw, so a page cached without them must not answer once they are on.
+    return [bool(settings_service.get("scanlate_sfx_gloss")), job["drama_id"], job["source_language"], job["typeset"],
             json.dumps(job["typeset_style"], sort_keys=True, default=str), job["typeset_max_width"],
             job["glossary_version"], quick_read_cache.pipeline_version(),
             config.get("engine"), config.get("model")]
@@ -501,7 +503,7 @@ def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
         # Part of the address key: a hotlink-protected CDN answers differently by referer.
         image["fetch_origin"] = url_guard.referer_origin(referer)
         image["fetch_cookie"] = bool(payload.get("fetch_cookie"))
-        hit = _disk_cached(_quick_read_url_key(image, job))
+        hit = None if job.get("redo") else _disk_cached(_quick_read_url_key(image, job))
         if hit is not None:
             image["cached_result"] = hit
         else:
@@ -544,7 +546,8 @@ def _translate_one(image: dict, job: dict, turn):
     cache_key = None
     if cached is None:
         cache_key = _quick_read_key(image, job)
-        cached = _cached_quick_read(cache_key) or _disk_cached(cache_key)
+        # A redo reads the page again; the new answer then replaces the remembered one.
+        cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
     if cached is not None:
         _log_page_time(cached, job, started)
         return "page", {**cached, "key": image["key"], "url": image["url"]}
@@ -654,6 +657,13 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     return outcomes
 
 
+def _comic_language(raw) -> str:
+    """The page language the sender named, when it is one comic reading handles; else "" so the
+    title, the source or the page's own text decides (services/page_server)."""
+    language = str(raw or "").strip().lower()
+    return language if language in ("zh", "ja", "ko") else ""
+
+
 def run_images(payload, images, principal=None, on_page=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
     token passes its member, who may only send into a title they can edit.
@@ -666,11 +676,12 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     source_url = str(payload.get("source_url") or "")
     decoded = _decode_images(images, allow_fetch=not store)
     job = {"drama_id": drama_id, "source_url": source_url, "store": store,
-           "source_language": str(payload.get("source_language") or ""),
+           "source_language": _comic_language(payload.get("source_language")),
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
            "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
            "glossary_version": _glossary_version(drama_id),
-           "member": principal is not None, "single": False, "run_id": _run_id(payload)}
+           "member": principal is not None, "single": False, "run_id": _run_id(payload),
+           "redo": payload.get("redo") is True and not store}
     unfetched = _prefetch(decoded, payload, job, member=_user_id(principal)) if any(i["content"] is None for i in decoded) else []
 
     # Let the existing page-image filter decide what is a real page,

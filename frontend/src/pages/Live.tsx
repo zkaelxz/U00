@@ -23,8 +23,8 @@ import { cancelsAnyJob, useSession } from '../hooks/useSession'
 import { hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
-  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, chosenForYou, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
-  isActive, lagLine, liveEngineView, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
+  advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, chosenForYou, describeLiveError, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
+  isActive, liveEngineView, pickEngine, resolveLiveModel, startLive, type LiveForm,
 } from '../api/live'
 import { engineShortName, usableEngines } from '../api/translate'
 import { ChosenForYouNote } from '../components/ChosenForYou'
@@ -40,27 +40,23 @@ import { useLivePrefs } from './live/useLivePrefs'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
-import { usePersistedState } from '../hooks/usePersistedState'
 import { followOptions } from '../api/liveFollows'
 import { useDeveloperMode } from './assistant/developerMode'
 import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize } from './readiness/needs'
 import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
-import { LiveCaptions } from './live/LiveCaptions'
-import { SaveSession } from './live/SaveSession'
-import { LiveChatSection, ReadChatField } from './live/LiveChat'
-import { DelayedPlayer } from './live/DelayedPlayer'
+import { LiveNowCards } from './live/LiveNowCards'
+import { useFollows } from './live/useFollows'
+import { ReadChatField } from './live/LiveChat'
 import { useLiveSession } from './live/useLiveSession'
+import { LiveWatch } from './live/LiveWatch'
 import { OllamaNote } from './live/OllamaNote'
 import { useOllamaCheck } from './live/useOllamaCheck'
-import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, sessionStream, steadyDelay } from './live/embedLogic'
-import type { LiveCue } from '../types/live'
+import { parseStreamUrl } from './live/embedLogic'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
-import { buttonClass } from '../components/uiClasses'
-import { routeHref } from '../router'
+import { routeHref, useRoute } from '../router'
 
 const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
@@ -70,20 +66,6 @@ const listNames = (names: string[]) => {
   return shown.length > 1 ? `${shown.slice(0, -1).join(', ')} and ${shown[shown.length - 1]}` : shown.join('')
 }
 
-
-/** The translation, or why there is none yet: the transcript above it always stays. */
-function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
-  if (cue.translation === 'pending' && waiting) {
-    return <span className="live-en muted" data-testid="live-translating">translating…</span>
-  }
-  if (cue.translation === 'skipped') {
-    return <span className="live-en muted" data-testid="live-untranslated">Not translated: skipped to keep up with the stream.</span>
-  }
-  if (cue.translation === 'pending' || cue.translation === 'cancelled') {
-    return <span className="live-en muted" data-testid="live-untranslated">Not translated: the session stopped first.</span>
-  }
-  return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
-}
 
 /** An admin's (or the PC owner's) switch to list every account's sessions, not just their own. */
 function ShowEveryone({ onChange }: { onChange: (on: boolean) => void }) {
@@ -97,21 +79,6 @@ function ShowEveryone({ onChange }: { onChange: (on: boolean) => void }) {
   )
 }
 
-/** Kept out of LivePage so that component stays under the length ceiling in componentLength.test.ts. */
-function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiting: boolean }) {
-  return (
-    <ol className="live-cues" aria-label="Live lines, newest first">
-      {cues.map((c) => (
-        <li key={c.id}>
-          <span className="live-ts">{fmtTs(c.start)}</span>
-          <span className="live-src" lang={lang}>{c.text}</span>
-          <TranslationText cue={c} waiting={waiting} />
-        </li>
-      ))}
-    </ol>
-  )
-}
-
 function SpendLimitField({ range, value, disabled, onChange }: { range: readonly number[]; value: number; disabled: boolean; onChange: (v: number) => void }) {
   return (
     <Field label="Spend limit" unit="$" help="The most this session may spend on the paid engine. Once its translations cost this much, the session stops; the lines so far are kept. A monthly cap in Settings replaces this limit.">
@@ -121,7 +88,7 @@ function SpendLimitField({ range, value, disabled, onChange }: { range: readonly
   )
 }
 
-export default function LivePage() {
+export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const pc = usePcOnly()
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
@@ -136,12 +103,7 @@ export default function LivePage() {
     return () => { alive = false }
   }, [])
   const [fastHelpId, balancedHelpId] = [useId(), useId()]
-  const [url, setUrl] = useState('')
-  const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
-  const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
-  const [theater, setTheater] = usePersistedState<boolean>('live.theater', false)
-  const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
-  const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
+  const [url, setUrl] = useState(initialUrl)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
   const language = prefs.source_language ?? opts.defaults.source_language
@@ -149,11 +111,14 @@ export default function LivePage() {
     ? captionPresetModel(prefs.caption_preset, opts, language) : undefined
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
+  const follows = useFollows()
+  const route = useRoute()
+  const pickedFollow = route.name === 'live' && route.follow ? route.follow : null
 
   const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines } = useLiveSession(setError)
+  const { session, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines, switchTo } = useLiveSession(setError)
 
   // A remembered title or series that was deleted or hidden is not sent.
   const glossaryOptions = glossaryChoices(seriesList ?? [], titles ?? [])
@@ -222,35 +187,10 @@ export default function LivePage() {
     }
   }
 
-  // The picture exists only while the session runs and Stop has not been
-  // pressed: leaving it mounted would keep the stream's audio playing.
-  // What the running session records, not the form. Its files are served to the PC only.
-  // A player that stopped with a stream break and could not start again gives way to the site's embed.
-  const ownPlayer = session?.status?.delayed_player === true && session.status.player_stopped !== true && pc !== 'remote'
-  const videoLive = !!session && status === 'running' && !stopping && (!!session.url || !!session.status?.stream || ownPlayer)
-  const streamRef = videoLive ? sessionStream(session?.url, session?.status?.stream) : null
-  const [feed, total] = [session ? feedCues(session.cues) : [], session?.next ?? 0]
-  const lag = session?.status ? lagLine(session.status) : null
-
-  // Held steady between small changes of the estimate: each change seeks the picture.
-  const estimate = autoDelay(session?.status?.segment_seconds || form.segment_seconds,
-    session?.status?.processing_seconds ?? 0, (session?.status?.chunks_measured ?? 0) > 0)
-  const [autoValue, setAutoValue] = useState<number | null>(null)
-  // A new session's estimate starts from its own chunks, not the last session's.
-  const [valueFor, setValueFor] = useState(sessionId)
-  if (valueFor !== sessionId) {
-    setValueFor(sessionId)
-    setAutoValue(null)
-  }
-  const steadyValue = steadyDelay(valueFor === sessionId ? autoValue : null, estimate)
-  if (steadyValue !== autoValue) setAutoValue(steadyValue)
-  // What the player reports it really runs behind live; the chat panel waits that long.
-  const [pictureDelay, setPictureDelay] = useState(0)
-  const delay = delayAuto ? (autoValue ?? estimate) : videoDelay
-
   return (
-    <PageShell width="standard" title="Live" label="Live" className={videoLive ? 'live-page live-wide' : 'live-page'}>
+    <PageShell width="standard" title="Live" label="Live" className={active ? 'live-page live-wide' : 'live-page'}>
       <div className="panel">
+        {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>
           <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
@@ -406,17 +346,13 @@ export default function LivePage() {
               </p>
             )}
           </Section>}
-          <div className="actions">
-            {active ? (
-              <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
-                {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
-              </button>
-            ) : (
+          {!active && (
+            <div className="actions">
               <button type="submit" className="primary" disabled={!!blocker || busy}>
                 {busy ? 'Starting…' : 'Start'}
               </button>
-            )}
-          </div>
+            </div>
+          )}
           {!active && blocker && <p className="muted"><SettingsMentions text={blocker} /></p>}
           {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
           {pc === 'remote' && !active && !holdsImport && (
@@ -429,82 +365,12 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        {!active && <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
+        {!active && <FollowedChannels follows={follows} picked={pickedFollow} liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
 
         {session && (
-          <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
-          {videoLive && (
-            <div className="card live-video" role="group" aria-label="Stream video">
-              <div className="card-head">
-                <h2 className="card-title">Video</h2>
-                <div className="live-theater-field">
-                  <Field label="Larger video" help="Gives the video the full width and puts the lines under it.">
-                    <Toggle checked={theater} onChange={setTheater} />
-                  </Field>
-                </div>
-                <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
-                  <Toggle checked={captionsOn} onChange={setCaptionsOn} />
-                </Field>
-                <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
-                  <Toggle checked={showVideo} onChange={setShowVideo} />
-                </Field>
-              </div>
-              {!streamRef && !ownPlayer && <p className="muted">This site can't be shown here; the lines still work.</p>}
-              {(streamRef || ownPlayer) && showVideo && (
-                <>
-                  {ownPlayer ? (
-                    <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay}
-                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
-                  ) : streamRef && (
-                    <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay}
-                      captions={captionsOn ? (d) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} /> : undefined} />
-                  )}
-                  {(ownPlayer || (streamRef && canDelay(streamRef))) && (
-                    <>
-                      <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
-                        <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay} aria-valuetext={`${delay} s`}
-                          onChange={(e) => {
-                            setDelayAuto(false)
-                            setVideoDelay(e.target.valueAsNumber)
-                          }} />
-                      </Field>
-                      <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
-                        <Toggle checked={delayAuto} onChange={setDelayAuto} />
-                      </Field>
-                      <p className="muted" data-testid="live-delay-mode">
-                        {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
-                      </p>
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-          <div className="live-feed">
-            {/* Only the status line is announced: the lines below change every chunk. */}
-            <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status">
-              {session.status ? statusLine(session.status, total) : 'Connecting…'}
-            </p>
-            {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
-            {!!session.status?.notes?.length && (
-              <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
-                {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
-              </ul>
-            )}
-            {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
-            {feed.length > 0 && (
-              <div className="live-cues-box" tabIndex={0} aria-label="Live lines">
-                <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />
-              </div>
-            )}
-            {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
-            {total > 0 && <SaveSession cues={session.cues} />}
-            {!active && total > 0 && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={clearLines}>Clear lines</button>}
-          </div>
-          </div>
+          <LiveWatch session={session} stopping={stopping} joined={joined} onStop={() => void stop()} onClear={clearLines}
+            onSwitch={switchTo} language={form.source_language} segmentSeconds={form.segment_seconds} />
         )}
-        {session?.status?.chat === true && <LiveChatSection sessionId={session.id} running={active} language={session.status.source_language ?? form.source_language}
-          delay={showVideo && (streamRef || ownPlayer) ? pictureDelay : 0} />}
       </div>
     </PageShell>
   )

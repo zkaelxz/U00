@@ -27,6 +27,15 @@ public class QuickReadSessionTest {
     }
 
     @Test
+    public void aLongChapterStartsTheNextOnePastItsMiddle() {
+        open(30);
+        QuickReadSession.reached(15);
+        assertEquals(0, fetched);
+        QuickReadSession.reached(16);
+        assertEquals(1, fetched);
+    }
+
+    @Test
     public void nothingIsFetchedWhileTheChapterIsStillArriving() {
         QuickReadSession.begin();
         QuickReadSession.add("page-0.jpg");
@@ -62,5 +71,42 @@ public class QuickReadSessionTest {
         QuickReadSession.resume();
         assertEquals(0, fetched);
         assertTrue(QuickReadSession.isComplete());
+    }
+
+    @Test
+    public void leavingTheReaderMidGrabDoesNotStopTheGrab() {
+        int[] stopped = {0};
+        QuickReadSession.begin();
+        QuickReadSession.onCancel(() -> stopped[0]++);
+        QuickReadSession.add("page-0.jpg");
+        assertTrue(QuickReadSession.detach());
+        assertTrue(QuickReadSession.isDetached());
+        QuickReadSession.add("page-1.jpg");
+        assertEquals(0, stopped[0]);
+        assertFalse(QuickReadSession.isAbandoned());
+        assertEquals(2, QuickReadSession.snapshot().size());
+        QuickReadSession.finish("Read 2 pages");
+        assertFalse(QuickReadSession.isDetached());
+        assertTrue(QuickReadSession.hasPages());
+    }
+
+    @Test
+    public void aFinishedChapterIsDroppedWhenItsReaderCloses() {
+        open(3);
+        assertFalse(QuickReadSession.detach());
+        QuickReadSession.abandon();
+        assertEquals(0, QuickReadSession.snapshot().size());
+    }
+
+    @Test
+    public void cancellingADetachedGrabStopsIt() {
+        int[] stopped = {0};
+        QuickReadSession.begin();
+        QuickReadSession.onCancel(() -> stopped[0]++);
+        QuickReadSession.add("page-0.jpg");
+        QuickReadSession.detach();
+        QuickReadSession.cancel();
+        assertEquals(1, stopped[0]);
+        assertTrue(QuickReadSession.isAbandoned());
     }
 }

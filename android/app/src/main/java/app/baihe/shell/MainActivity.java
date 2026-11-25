@@ -6,6 +6,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.webkit.CookieManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -30,6 +32,9 @@ public class MainActivity extends Activity {
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
+    /** A page of Baihe (a hash route) a tapped alert opens. */
+    static final String EXTRA_ROUTE = "route";
+    private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -39,6 +44,10 @@ public class MainActivity extends Activity {
     private long updateCheckedAt;
     private boolean updateOffered;
     private View customView;
+    /** The Studio | Grab strip, hidden while the app is a small floating window. */
+    private View strip;
+    /** A Live session's picture is on screen, so leaving the app should float it (picture-in-picture). */
+    private boolean liveWatching;
     private WebChromeClient.CustomViewCallback customViewCallback;
 
     @Override
@@ -58,6 +67,8 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
+                // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
+                setLiveWatching(false);
                 String address = savedAddress();
                 if (address != null && ServerAddress.sameOrigin(address, url)) checkForUpdate(address);
             }
@@ -73,7 +84,14 @@ public class MainActivity extends Activity {
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
                 if ("baihegrab".equals(scheme)) {
-                    ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    String quickRead = ShareLink.quickReadLink(url);
+                    if (quickRead != null) {
+                        startActivity(new Intent(MainActivity.this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, quickRead));
+                    } else {
+                        ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    }
                     return true;
                 }
                 if ("http".equals(scheme) || "https".equals(scheme)) {
@@ -93,6 +111,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
+        // A WebView drops downloads unless told what to do with them; Baihe's "Save to phone" needs this.
+        web.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                SaveDownload.enqueue(this, savedAddress(), url, userAgent, contentDisposition, mimeType));
         // Without these two callbacks WebView silently refuses requestFullscreen() and the
         // player's full-screen button, which Chrome handles itself.
         web.setWebChromeClient(new WebChromeClient() {
@@ -116,8 +137,38 @@ public class MainActivity extends Activity {
                 exitCustomView();
             }
         });
+        // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
+        // address loads in this WebView, so no other site can reach it.
+        web.addJavascriptInterface(new ShellSettings.Bridge(this, new ShellSettings.Host() {
+            @Override
+            public void alertsSwitchedOn() {
+                askForAlertPermission();
+            }
+
+            @Override
+            public void liveWatching(boolean watching) {
+                runOnUiThread(() -> setLiveWatching(watching));
+            }
+
+            @Override
+            public void popOut() {
+                runOnUiThread(() -> enterPip());
+            }
+        }), "BaiheShell");
         setContentView(page());
         open(getIntent());
+        AlertSchedule.ensure(this);
+        if (Build.VERSION.SDK_INT >= 33 && !prefs().getBoolean("alerts_asked", false)) {
+            prefs().edit().putBoolean("alerts_asked", true).apply();
+            askForAlertPermission();
+        }
+    }
+
+    /** Android 13+ shows notifications only after the person allows them; asked again whenever they switch alerts on. */
+    private void askForAlertPermission() {
+        if (Build.VERSION.SDK_INT < 33) return;
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        runOnUiThread(() -> requestPermissions(new String[] {android.Manifest.permission.POST_NOTIFICATIONS}, ALERT_PERMISSION_REQUEST));
     }
 
     /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
@@ -128,12 +179,88 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFitsSystemWindows(true);
         root.setBackgroundColor(palette.surface);
-        root.addView(ShellTabs.strip(this, palette, false), new LinearLayout.LayoutParams(
+        strip = ShellTabs.strip(this, palette, false);
+        root.addView(strip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         ViewGroup parent = (ViewGroup) web.getParent();
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    private boolean pipAllowed() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && ShellSettings.isOn(this, ShellSettings.PIP);
+    }
+
+    private void setLiveWatching(boolean watching) {
+        liveWatching = watching;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        // From Android 12 the system floats the app by itself on the home gesture; older ones use onUserLeaveHint.
+        try {
+            setPictureInPictureParams(pipParams(watching && pipAllowed()));
+        } catch (RuntimeException ignored) {
+            // The device has no picture-in-picture: the app just leaves as before.
+        }
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.O)
+    private android.app.PictureInPictureParams pipParams(boolean autoEnter) {
+        android.app.PictureInPictureParams.Builder builder = new android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(new android.util.Rational(16, 9));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setAutoEnterEnabled(autoEnter);
+        return builder.build();
+    }
+
+    private void enterPip() {
+        if (!pipAllowed() || isInPictureInPictureMode()) return;
+        try {
+            enterPictureInPictureMode(pipParams(false));
+        } catch (RuntimeException ignored) {
+            // Refused (picture-in-picture is off for this app in Android's settings): nothing to float.
+        }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip();
+    }
+
+    /** The page hides everything but the picture and its captions while the window is this small. */
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPip, android.content.res.Configuration config) {
+        super.onPictureInPictureModeChanged(inPip, config);
+        if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
+    }
+
+    /** The clipboard can only be read while this window has focus (Android 10+). */
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (!hasFocus || customView != null || savedAddress() == null) return;
+        String link = ClipboardOffer.pending(this);
+        if (link != null) offerClipboardLink(link);
+    }
+
+    private void offerClipboardLink(String link) {
+        String address = savedAddress();
+        if (address == null || isFinishing() || isDestroyed()) return;
+        boolean video = LinkKind.of(link) == LinkKind.Kind.VIDEO;
+        new AlertDialog.Builder(this)
+                .setTitle(video ? "Subtitle this?" : "Read this?")
+                .setMessage(LinkKind.host(link))
+                .setPositiveButton(video ? "Subtitle" : "Quick read", (d, w) -> {
+                    if (video) {
+                        web.loadUrl(ShareLink.pageFor(address, link));
+                    } else {
+                        startActivity(new Intent(this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, link));
+                    }
+                })
+                .setNegativeButton("Not now", null)
+                .show();
     }
 
     @Override
@@ -182,6 +309,12 @@ public class MainActivity extends Activity {
         }
         if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
             finishSignIn(address, intent.getDataString());
+            return;
+        }
+        String route = intent.getStringExtra(EXTRA_ROUTE);
+        if (AlertFeed.safeRoute(route)) {
+            web.loadUrl(address.replaceAll("/+$", "") + "/" + route);
+            intent.removeExtra(EXTRA_ROUTE);
             return;
         }
         String link = Intent.ACTION_SEND.equals(intent.getAction())
@@ -347,12 +480,14 @@ public class MainActivity extends Activity {
     protected void onStart() {
         super.onStart();
         AppUpdate.screenStarted();
+        AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
         AppUpdate.screenStopped(this);
+        AlertSchedule.leftApp(this);
     }
 
     private SharedPreferences prefs() {

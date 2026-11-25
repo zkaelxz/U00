@@ -84,3 +84,38 @@ def test_the_route_returns_the_card(tmp_path, monkeypatch, isolated_db):
     r = client.get("/api/diagnostics/quality")
     assert r.status_code == 200
     assert r.json()["found"] is True and r.json()["clips"][0]["status"] == "pass"
+
+
+def _hist_run(stamp, score, language=None, clip_id="title59-transcription"):
+    row = {"id": clip_id, "kind": "transcription", "metric": "cer", "score": score, "baseline": 0.6}
+    if language:
+        row["language"] = language
+    return {"stamp": stamp, "results": [row]}
+
+
+def test_history_lists_each_clip_oldest_first_with_its_language(tmp_path):
+    _write(tmp_path, "20261110-090000", _hist_run("20261110-090000", 0.60))
+    _write(tmp_path, "20261120-101500", _hist_run("20261120-101500", 0.65, language="zh"))
+    out = qc.history(str(tmp_path))
+    assert out["runs"] == 2
+    (clip,) = out["series"]
+    # The older run did not record a language; a later one does, and the clip keeps it.
+    assert clip["id"] == "title59-transcription" and clip["language"] == "zh"
+    assert [(p["when"], p["score"]) for p in clip["points"]] == [("2026-11-10 09:00", 0.60), ("2026-11-20 10:15", 0.65)]
+
+
+def test_history_merges_the_per_seed_rows_of_the_first_runs_into_their_median(tmp_path):
+    run = {"stamp": "20261116-123137", "results": [
+        {"id": f"title59-transcription@seed{n}", "kind": "transcription", "metric": "cer", "score": s}
+        for n, s in enumerate((0.5, 0.9, 0.6), 1)]}
+    _write(tmp_path, "20261116-123137", run)
+    (clip,) = qc.history(str(tmp_path))["series"]
+    assert clip["id"] == "title59-transcription" and clip["points"][0]["score"] == 0.6
+
+
+def test_history_skips_a_file_it_cannot_read_and_an_empty_folder_is_empty(tmp_path):
+    assert qc.history(str(tmp_path)) == {"runs": 0, "series": []}
+    (tmp_path / "release-check-20261101-090000.json").write_text("{not json", encoding="utf-8")
+    _write(tmp_path, "20261120-101500", _hist_run("20261120-101500", 0.65))
+    out = qc.history(str(tmp_path))
+    assert out["runs"] == 1 and out["series"][0]["language"] is None

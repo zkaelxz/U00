@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
 import type { Route } from '../router'
-import { NAV_ITEMS, customizableNavItems, isNavLocked, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
+import { NAV_ITEMS, isNavLocked, visibleNavItemsFor, visibleRailGroups, type NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
 const meOf = (over: Partial<AuthMe>): SessionState => ({
@@ -39,14 +39,12 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Text', 'Find', 'Updates', 'Live', 'Jobs', 'Settings']
+const ALL = ['Library', 'Library tools', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs', 'Settings']
 
-// Add creates a title, so it follows the permission the Library's Add box needs.
-const withMake = (l: string[]) => [...l.slice(0, 2), 'Add', ...l.slice(2)]
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual(withMake([...ALL, 'People and access', 'Diagnostics']))
+    expect(labels(personas['owner at the PC'])).toEqual([...ALL, 'People and access', 'Diagnostics'])
   })
 
   it('household member: no People and access, no Diagnostics', () => {
@@ -73,7 +71,7 @@ describe('nav registry per persona', () => {
 
   it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
     const owner = personas['owner at the PC']
-    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Add', 'Text', 'Find', 'Updates', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs', 'Settings'])
     expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
     const dev: NavContext = { ...owner, developerMode: true }
     expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
@@ -138,7 +136,7 @@ describe('left rail', () => {
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
     expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
-      ['Find and add', ['Add', 'Find', 'Updates']],
+      ['Find and add', ['Find & Add', 'Updates']],
       ['Tools', ['Text', 'Live']],
       ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
     ])
@@ -150,7 +148,7 @@ describe('left rail', () => {
 
   it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find', 'Updates', 'Text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find & Add', 'Updates', 'Text', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab (Developer Mode on) but not People and access', () => {
@@ -177,7 +175,7 @@ describe('left rail', () => {
     const ctx: NavContext = { ...owner, developerMode: true }
     const targets = visibleRailGroups(ctx).flatMap((g) => g.items.map((r) => r.item.target.name))
     expect(targets).toEqual(
-      expect.arrayContaining(['library', 'library-tools', 'discover', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
+      expect.arrayContaining(['library', 'library-tools', 'translate', 'make-subtitles', 'live', 'settings', 'admin', 'diagnostics', 'benchmark', 'assistant']),
     )
   })
 
@@ -195,32 +193,30 @@ describe('left rail', () => {
     ['diagnostics', { name: 'diagnostics' }, ['Diagnostics']],
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
     ['translate', { name: 'translate' }, ['Text']],
-    ['make subtitles', { name: 'make-subtitles' }, ['Add']],
+    ['make subtitles', { name: 'make-subtitles' }, ['Find & Add']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })
 })
 
-describe('Add menu item', () => {
+describe('Find & Add menu item', () => {
   const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
   it('sits first in the Find and add group and can be hidden like the others', () => {
     const owner = personas['owner at the PC']
     const find = visibleRailGroups(owner).find((g) => g.id === 'find')
-    expect(find?.items.map((r) => r.item.label)).toEqual(['Add', 'Find', 'Updates'])
-    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Add')
-    expect(customizableNavItems(owner).map((i) => i.label)).toContain('Add')
-    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Add')!)).toBe(false)
+    expect(find?.items.map((r) => r.item.label)).toEqual(['Find & Add', 'Updates'])
+    expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Find & Add')
+    expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Find & Add')!)).toBe(false)
   })
 
-  it('is not offered to people who cannot create titles or run a link', () => {
-    expect(labels(personas['household member'])).not.toContain('Add')
+  it('is offered to a member who can only read, since a name search needs no right to create', () => {
+    expect(labels(personas['household member'])).toContain('Find & Add')
   })
 
-  it('is offered to a member given Import from a link, for One-click translate', () => {
-    const member = personas['household member']
-    const session = meOf({ user: { ...owner, is_admin: false, is_local_owner: false }, permissions: [...MEMBER_PERMISSIONS, 'media.import_url'] })
-    expect(labels({ ...member, session })).toContain('Add')
+  it('lights for the page, Discover and both Sources routes', () => {
+    const find = visibleRailGroups(personas['owner at the PC']).flatMap((g) => g.items).find((r) => r.item.label === 'Find & Add')
+    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage'])
   })
 })
 
@@ -228,20 +224,20 @@ describe('feature switches', () => {
   const owner = personas['owner at the PC']
   const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-  it('shows Find when no switch is reported or Sources is on', () => {
-    expect(labels(owner)).toContain('Find')
-    expect(labels({ ...owner, features: { jellyfin: false } })).toContain('Find')
-    expect(labels({ ...owner, features: { sources: true } })).toContain('Find')
+  it('shows Find & Add when no switch is reported or Sources is on', () => {
+    expect(labels(owner)).toContain('Find & Add')
+    expect(labels({ ...owner, features: { jellyfin: false } })).toContain('Find & Add')
+    expect(labels({ ...owner, features: { sources: true } })).toContain('Find & Add')
   })
 
-  it('keeps Find when Sources is switched off, since Discover still works', () => {
+  it('keeps Find & Add when Sources is switched off, since the page still adds from a link or file', () => {
     const off = { ...owner, features: { sources: false } }
-    expect(labels(off)).toContain('Find')
-    expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).toContain('Find')
+    expect(labels(off)).toContain('Find & Add')
+    expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).toContain('Find & Add')
   })
 
-  it('lights Find for the Discover page and both Sources routes', () => {
-    const find = visibleRailGroups(owner).flatMap((g) => g.items).find((r) => r.item.label === 'Find')
-    expect(find?.active).toEqual(['discover', 'sources', 'sources-manage'])
+  it('lights Find & Add for the Discover page and both Sources routes', () => {
+    const find = visibleRailGroups(owner).flatMap((g) => g.items).find((r) => r.item.label === 'Find & Add')
+    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage'])
   })
 })

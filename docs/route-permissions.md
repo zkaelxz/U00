@@ -60,6 +60,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/ab/next` | admin.diagnostics |
 | `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/suggest` | admin.diagnostics |
 | `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
@@ -102,6 +103,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/translate-sweep/decision` | local_only() |
 | `GET /api/benchmark/translate-sweep/decisions` | admin.diagnostics |
 | `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
+| `GET /api/cast/dramas/{drama_id}` | media.stream |
+| `POST /api/cast/dramas/{drama_id}/link` | media.stream |
+| `GET /api/cast/video` | public() |
+| `HEAD /api/cast/video` | public() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
 | `GET /api/characters/dramas/{drama_id}/cast-proposal` | library.read + lines.read |
 | `POST /api/characters/dramas/{drama_id}/cast-proposal/apply` | lines.edit |
@@ -186,6 +191,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/quality` | admin.diagnostics |
+| `GET /api/diagnostics/quality/history` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
@@ -223,6 +229,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/titles/{title_id}/import-to-library` | library.create |
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
+| `POST /api/dramas/by-links` | library.read |
 | `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
@@ -234,6 +241,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas/{drama_id}/link-details/apply` | local_only() |
 | `POST /api/dramas/{drama_id}/link-details/probe` | local_only() |
 | `POST /api/dramas/{drama_id}/metadata` | admin.library |
+| `GET /api/dramas/{drama_id}/next` | library.read |
+| `POST /api/dramas/{drama_id}/next/prepare` | jobs.start |
 | `GET /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure` | local_only() |
 | `POST /api/dramas/{drama_id}/restructure/preview` | local_only() |
@@ -260,13 +269,16 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/export/dramas/{drama_id}/subtitle` | lines.read |
 | `POST /api/ext-bridge/cancel` | device_token (extension.send) |
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
+| `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
 | `POST /api/ext-bridge/pages` | device_token (extension.send) |
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
+| `POST /api/ext-bridge/video` | device_token (extension.send) |
 | `GET /api/extension/devices` | local_only() |
 | `POST /api/extension/devices` | local_only() |
 | `POST /api/extension/devices/{device_token_id}/revoke` | local_only() |
@@ -367,6 +379,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/filter-options` | library.read |
 | `GET /api/library/history` | library.read |
 | `POST /api/library/history/clear` | local_only() |
+| `GET /api/library/home` | library.read |
 | `GET /api/library/link-scan` | local_only() |
 | `POST /api/library/link-scan` | local_only() |
 | `GET /api/library/presets` | library.read |
@@ -501,8 +514,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items` | jobs.start |
 | `POST /api/queue/items/all-steps` | jobs.start |
 | `POST /api/queue/items/bulk` | jobs.start |
+| `POST /api/queue/items/{item_id}/cancel` | jobs.start |
+| `POST /api/queue/items/{item_id}/hold` | jobs.start |
 | `POST /api/queue/items/{item_id}/move` | jobs.start |
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
+| `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
@@ -519,6 +535,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/quick-video/start` | media.import_url + jobs.start |
 | `POST /api/quick-video/{drama_id}/delete` | local_only() |
 | `POST /api/reader/dramas/{drama_id}/ask` | jobs.start |
+| `GET /api/reader/dramas/{drama_id}/bookmarks` | library.read |
+| `POST /api/reader/dramas/{drama_id}/bookmarks` | lines.edit |
+| `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
+| `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
@@ -536,6 +556,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/reader/dramas/{drama_id}/vocab/export.apkg` | lines.read |
 | `GET /api/reader/dramas/{drama_id}/vocab/export.csv` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/vocab/rich` | lines.edit |
+| `GET /api/reader/dramas/{drama_id}/watch-position` | library.read |
+| `POST /api/reader/dramas/{drama_id}/watch-position` | library.read |
 | `GET /api/reader/dramas/{drama_id}/wiki` | library.read |
 | `POST /api/reader/dramas/{drama_id}/wiki/clear` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki/export.md` | lines.read |

@@ -158,7 +158,7 @@ describe('cues', () => {
 
 describe('sessions', () => {
   it('picks an active session, else the newest', () => {
-    const s = (id: string, status: string) => ({ session_id: id, status, engine: null, model: null, cue_count: 0 })
+    const s = (id: string, status: string) => ({ session_id: id, status, engine: null, model: null, cue_count: 0, source_language: null, stream: null })
     expect(pickSession([])).toBeNull()
     expect(pickSession([s('a', 'done'), s('b', 'running'), s('c', 'cancelled')])).toBe('b')
     expect(pickSession([s('a', 'done'), s('c', 'error')])).toBe('c')
@@ -424,5 +424,13 @@ describe('liveEngineView', () => {
     expect(liveEngineView(local)).toBe(local)
     const claude = { name: 'claude', models: ['a', 'b'], cloud_models: [] as string[] }
     expect(liveEngineView(claude)).toBe(claude)
+  })
+})
+
+describe('per-language chunk defaults', () => {
+  const opts = { ...LIVE_FORM_FALLBACK, language_chunk_defaults: { zh: { segment_seconds: 6, overlap_seconds: 1.5 } } }
+  it('starts Chinese on its own chunk and leaves other languages on the shared default', () => {
+    expect(formDefaults(opts, 'zh')).toMatchObject({ segment_seconds: 6, overlap_seconds: 1.5 })
+    expect(formDefaults(opts, 'ja')).toMatchObject({ segment_seconds: 10, overlap_seconds: 3 })
   })
 })

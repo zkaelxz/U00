@@ -108,6 +108,10 @@ for (const width of [390, 360, 320]) {
     expect(moreBox.x + moreBox.width).toBeGreaterThan(width - 40)
     await expect(page.locator('.watch-page .page-head .actions')).toHaveCount(0)
     await expect(page.getByRole('link', { name: 'Work on this title' })).toBeHidden()
+    // Edit stays in sight in the back row, so changing the title is one tap from Watch.
+    const edit = page.locator('.watch-back-row').getByRole('link', { name: 'Edit', exact: true })
+    await expect(edit).toHaveAttribute('href', '#/drama/3')
+    expect(Math.abs(((await edit.boundingBox())!.y + (await edit.boundingBox())!.height / 2) - (backBox.y + backBox.height / 2))).toBeLessThan(2)
 
     const player = (await page.getByRole('group', { name: 'Player' }).boundingBox())!
     const card = (await page.getByRole('region', { name: 'Line being spoken' }).boundingBox())!
@@ -128,12 +132,11 @@ for (const width of [390, 360, 320]) {
     // The More menu's rows are thumb-sized too.
     await more.tap()
     await expect(page.getByRole('link', { name: 'Save subtitles' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Work on this title' })).toHaveAttribute('href', '#/drama/3')
     const panel = page.locator('.watch-more-panel')
-    expect(await panel.getByRole('link').allTextContents()).toEqual(['Work on this title', 'Follow along with sound from another app', 'Read the lines', 'Save subtitles'])
+    expect(await panel.getByRole('link').allTextContents()).toEqual(['Follow along with sound from another app', 'Read the lines', 'Save subtitles'])
     // (The open menu covers the player's row, so only its own rows are measured, by their hit areas.)
     const rows = await panel.getByRole('link').evaluateAll((els) => els.map((e) => Math.round(window.hitHeight(e))))
-    expect(rows).toHaveLength(4)
+    expect(rows).toHaveLength(3)
     for (const h of rows) expect(h).toBeGreaterThanOrEqual(44)
     expect(await sideways(page)).toBeLessThanOrEqual(0)
     expect(await clipped(page)).toEqual([])

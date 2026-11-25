@@ -57,6 +57,8 @@ export const LANGUAGE_LABELS: Record<string, string> = {
   'zh-hant': 'Chinese (Traditional)',
   ja: 'Japanese',
   ko: 'Korean',
+  id: 'Indonesian',
+  th: 'Thai',
   en: 'English',
 }
 

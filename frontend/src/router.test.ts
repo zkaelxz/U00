@@ -11,6 +11,17 @@ describe('parseRoute', () => {
     expect(routeHref({ name: 'library-tools', tab: 'data' })).toBe('#/library-tools?tab=data')
   })
 
+  it('carries a shared link to the share picker, Add and Live, and drops a bad one', () => {
+    const link = 'https://site.example/v?id=1'
+    const q = encodeURIComponent(link)
+    for (const name of ['share', 'make-subtitles', 'live', 'sources'] as const) {
+      expect(parseRoute(`#/${name}?url=${q}`)).toEqual({ name, url: link })
+      expect(routeHref({ name, url: link })).toBe(`#/${name}?url=${q}`)
+    }
+    expect(parseRoute('#/share?url=javascript%3Aalert(1)')).toEqual({ name: 'share' })
+    expect(parseRoute('#/live')).toEqual({ name: 'live' })
+  })
+
   it('defaults to the library', () => {
     for (const h of ['', '#', '#/', '#/library', '#/nope', '#/settings/extra', '#/drama', '#/drama/abc', '#/drama/0/source', '#/drama/1/a/b']) {
       expect(parseRoute(h)).toEqual({ name: 'library' })
@@ -93,6 +104,9 @@ describe('parseRoute', () => {
     expect(parseRoute('#/discover')).toEqual({ name: 'discover' })
     expect(parseRoute('#/discover/x')).toEqual({ name: 'library' })
     expect(parseRoute('#/live')).toEqual({ name: 'live' })
+    expect(parseRoute('#/live?follow=4')).toEqual({ name: 'live', follow: 4 })
+    expect(parseRoute('#/live?follow=0')).toEqual({ name: 'live' })
+    expect(parseRoute('#/live?follow=x')).toEqual({ name: 'live' })
     expect(parseRoute('#/live/extra')).toEqual({ name: 'library' })
     expect(parseRoute('#/assistant')).toEqual({ name: 'assistant' })
     expect(parseRoute('#/assistant/extra')).toEqual({ name: 'library' })

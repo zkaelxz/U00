@@ -73,7 +73,7 @@ def test_a_page_translation_applies_the_answer_and_scales_the_boxes(monkeypatch)
 
     def with_image(regions, data, mime, engine, drama, **kw):
         seen["regions"] = regions
-        return {r["id"]: f"EN {r['text']}" for r in regions}, "ctx"
+        return {r["id"]: "EN hello" for r in regions}, "ctx"
 
     monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
     bubbles = [_region("你好", x=100, y=200, w=40, h=20), _region("世界", skip=True)]
@@ -81,7 +81,7 @@ def test_a_page_translation_applies_the_answer_and_scales_the_boxes(monkeypatch)
     ok, context = run_svc._translate(bubbles, _Engine(), "claude", {"source_language": "zh"}, None,
                                      "", 1, notes, page_image=(b"x", "image/png", 0.5))
     assert ok and context == "ctx" and notes == []
-    assert bubbles[0]["translated_text"] == "EN 你好" and bubbles[1]["translated_text"] == ""
+    assert bubbles[0]["translated_text"] == "EN hello" and bubbles[1]["translated_text"] == ""
     assert seen["regions"] == [{"id": "0", "text": "你好", "box": {"x": 50, "y": 100, "w": 20, "h": 10}}]
 
 

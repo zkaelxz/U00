@@ -106,6 +106,8 @@ export type ResourceReadings = Schemas['ResourceReadings']
 export type QualityCheck = Schemas['QualityCheck']
 
 export type QualityClip = Schemas['QualityClip']
+export type QualityHistory = Schemas['QualityHistory']
+export type QualitySeries = Schemas['QualitySeries']
 
 export type RemoteHealth = Schemas['RemoteHealth']
 

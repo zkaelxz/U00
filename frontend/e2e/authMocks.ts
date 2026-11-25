@@ -75,6 +75,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/series': EMPTY,
   '/api/library/history': EMPTY,
   '/api/library/continue': EMPTY,
+  '/api/library/home': { needs_you: [], needs_you_count: 0, running: [], running_count: 0, ready: [], ready_count: 0, can_control_queue: true },
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
   '/api/translate/engines': { items: [], default_engine: null },

@@ -46,6 +46,9 @@ _WHISPER_MB = {
     "breeze-asr-25": (4800, 3800),
     # An estimate from the 1.5 GB float16 model.bin plus activations, not a measurement.
     "anime-whisper": (2200, 1600),
+    # GPU: the V100 Thai test's 4.0 GB torch peak at batch 4 plus CUDA's own overhead. CPU
+    # (float32 weights, twice the size) is an estimate, not a measurement.
+    "thonburian-large-v3": (5000, 8000),
 }
 _QWEN_ASR_MB = {"0.6B": (2500, 2500), "1.7B": (5200, 5200)}
 _ESTIMATES_MB = {

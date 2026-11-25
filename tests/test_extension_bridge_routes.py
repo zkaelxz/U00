@@ -5,6 +5,7 @@ member's rights.
 """
 
 import base64
+import functools
 import io
 
 import pytest
@@ -511,3 +512,171 @@ class TestPageReport:
         _, token = _member("a@example.com")
         assert _client().post(f"{BASE}/report", headers=_auth(token), json={"note": "x"}).status_code == 400
         assert _client().post(f"{BASE}/report", headers=_auth("nope"), json={}).status_code in (401, 403)
+
+
+class TestSendVideo:
+    """POST /video hands a page link to Quick video translate under the token's own rights."""
+
+    def _member(self, email, perms):
+        u, token = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_member_with_both_rights_starts_a_run(self, isolated_db, monkeypatch):
+        from services import quick_video_service
+        seen = {}
+
+        def fake_start(principal, url, profile_id, watch_once, holds_paid, at_pc):
+            seen.update(user=principal["user_id"], url=url, profile=profile_id, once=watch_once,
+                        paid=holds_paid, at_pc=at_pc)
+            return {"drama_id": 7, "watch_once": False}
+
+        monkeypatch.setattr(quick_video_service, "start", fake_start)
+        u, token = self._member("v@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc?t=5"})
+        assert r.status_code == 200 and r.json() == {"drama_id": 7}
+        assert seen == {"user": u["id"], "url": "https://youtu.be/abc?t=5", "profile": None,
+                        "once": False, "paid": False, "at_pc": False}
+
+    @pytest.mark.parametrize("missing", ["media.import_url", "jobs.start"])
+    def test_missing_right_is_refused_before_anything_starts(self, isolated_db, monkeypatch, missing):
+        from services import quick_video_service
+        monkeypatch.setattr(quick_video_service, "start", lambda *a, **k: pytest.fail("started"))
+        u, _ = self._member("w@example.com", ["media.import_url", "jobs.start"])
+        auth_service.revoke_permission(u["id"], missing)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 403
+
+    def test_a_refusal_from_the_service_is_shown_as_text(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import quick_video_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("Pick a profile in Settings first.")
+
+        monkeypatch.setattr(quick_video_service, "start", refuse)
+        _, token = self._member("x@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 422 and r.json() == {"error": "Pick a profile in Settings first."}
+
+    def test_the_title_limit_keeps_its_409(self, isolated_db, monkeypatch):
+        from lib.errors import ConflictError
+        from services import quick_video_service
+
+        def full(*a, **k):
+            raise ConflictError("You have the most titles allowed.")
+
+        monkeypatch.setattr(quick_video_service, "start", full)
+        _, token = self._member("z@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 409
+
+    def test_no_url_is_refused(self, isolated_db):
+        _, token = self._member("y@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={})
+        assert r.status_code == 400
+
+
+class TestStartLive:
+    """POST /live starts Live on a stream link with the PC's defaults, under the token's rights."""
+
+    def _live_member(self, email, perms=("media.import_url",)):
+        u, _ = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_starts_with_safe_defaults(self, isolated_db, monkeypatch):
+        from services import live_service, model_readiness_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(url=url, **kw)
+            return {"session_id": "live_" + "a" * 32}
+
+        # form_options reads the real signature for its defaults.
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(fake_start))
+        ready = []
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda at_pc, *a, **k: ready.append(at_pc))
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        u, token = self._live_member("l@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token),
+                           json={"url": "https://www.twitch.tv/somebody", "source_language": "ja"})
+        assert r.status_code == 200 and r.json() == {"session_id": "live_" + "a" * 32, "joined": False}
+        assert seen["url"] == "https://www.twitch.tv/somebody" and seen["source_language"] == "ja"
+        assert seen["use_saved_cookies"] is False and seen["principal"]["user_id"] == u["id"]
+        assert not seen.get("delayed_player")
+        assert ready == [False]
+        assert seen["engine"] == "ollama" and seen["use_gpu"] is False
+
+    def test_import_right_is_required(self, isolated_db, monkeypatch):
+        from services import live_service
+        monkeypatch.setattr(live_service, "start_session", lambda *a, **k: pytest.fail("started"))
+        _, token = self._live_member("m@example.com", perms=())
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 403
+
+    def test_a_service_refusal_is_plain_text(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import live_service, model_readiness_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("url must be a public http(s) web address.")
+
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(refuse))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        _, token = self._live_member("n@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "http://10.0.0.1/x"})
+        assert r.status_code == 422 and "public" in r.json()["error"]
+
+    def test_no_url_is_refused(self, isolated_db):
+        _, token = self._live_member("o@example.com")
+        assert _client().post(f"{BASE}/live", headers=_auth(token), json={}).status_code == 400
+
+    def test_a_bad_language_value_is_a_422(self, isolated_db):
+        _, token = self._live_member("p@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token),
+                           json={"url": "https://www.twitch.tv/x", "source_language": ["zh"]})
+        assert r.status_code == 422
+
+
+class TestFollow:
+    def test_follow_needs_a_token_and_sources_import(self, isolated_db, monkeypatch):
+        from services import sources_tracking_service
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page",
+                            lambda url, principal=None: {"title": "T", "already": False})
+        assert _client().post(f"{BASE}/follow", json={"url": "https://a.example/x"}).status_code == 401
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "sources.import")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        assert _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"}).status_code == 403
+
+    def test_follow_answers_and_maps_errors(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import sources_tracking_service
+        u, _ = _member("a@example.com")
+        auth_service.grant_permission(u["id"], "sources.import")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page",
+                            lambda url, principal=None: {"title": "T", "already": False})
+        r = _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"})
+        assert r.status_code == 200 and r.json() == {"title": "T", "already": False}
+        assert _client().post(f"{BASE}/follow", headers=_auth(token), json={}).status_code == 400
+
+        def refuse(url, principal=None):
+            raise InvalidInputError("No source for this site")
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page", refuse)
+        r = _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"})
+        assert r.status_code == 422 and "No source" in r.text

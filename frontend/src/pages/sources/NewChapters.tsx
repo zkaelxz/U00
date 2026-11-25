@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { Paged } from '../../components/ShowMore'
 import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, setTrackedSave, startCheckNow } from '../../api/sources'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
@@ -156,8 +157,10 @@ export function NewChapters({
         </div>
       )}
       {notifications.length > 0 && (
+        <Paged items={notifications} testId="new-chapters-more">
+          {(visible) => (
         <ul className="sources-rows">
-          {notifications.map((n) => (
+          {visible.map((n) => (
             <li key={n.id}>
               <span>
                 {n.title || titleOf(n)} · {display(n.source)} ·{' '}
@@ -184,13 +187,17 @@ export function NewChapters({
             </li>
           ))}
         </ul>
+          )}
+        </Paged>
       )}
       {tracked.length > 0 && (
         <>
           <h3>Tracked series</h3>
           {canAct && <p className="muted sources-auto-help">{AUTO_HELP}</p>}
+          <Paged items={tracked} testId="tracked-more">
+            {(visible) => (
           <ul className="sources-rows sources-tracked">
-            {tracked.map((t) => {
+            {visible.map((t) => {
               const key = `${t.source}:${t.series_id}`
               const source = sources?.find((s) => s.name === t.source)
               const choices = trackedDramaChoices(dramas.items ?? [], source)
@@ -253,6 +260,8 @@ export function NewChapters({
               )
             })}
           </ul>
+            )}
+          </Paged>
         </>
       )}
     </Card>

@@ -373,6 +373,20 @@ class TestAuthOn:
         body = c.get("/api/diagnostics", headers=_h(s)).json()
         assert body == {"error": {"code": "forbidden", "message": "Not allowed."}}
 
+    def test_a_member_who_may_watch_keeps_only_their_own_watch_place(self, isolated_db):
+        from services import reader_service
+        c = _remote(_app())
+        u, s = _user()
+        auth_service.revoke_permission(u["id"], "lines.edit")
+        did = db.create_drama(title_en="Stream", media_type="streamer_vod")
+        url = f"/api/reader/dramas/{did}/watch-position"
+        assert c.post(url, json={"seconds": 30}, headers=_h(s, csrf=False)).status_code == 403
+        r = c.post(url, json={"seconds": 30}, headers=_h(s))
+        assert r.status_code == 200 and r.json()["seconds"] == 30
+        assert c.get(url, headers=_h(s)).json()["seconds"] == 30
+        assert reader_service.get_watch_position(did, u["id"])["seconds"] == 30
+        assert reader_service.get_watch_position(did)["seconds"] == 0.0      # the PC's own place is untouched
+
     def test_en_cleanup_preview_needs_lines_read_and_apply_lines_edit(self, isolated_db):
         c = _remote(_app())
         u, s = _user()

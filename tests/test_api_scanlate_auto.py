@@ -485,7 +485,8 @@ def test_a_redo_that_loses_the_captions_keeps_the_translated_page(client, monkey
 
 
 @needs_cv2
-def test_translate_all_skips_pages_with_regions(client, fake_detect):
+def test_translate_all_skips_pages_with_regions(client, fake_detect, monkeypatch):
+    patch_setting(monkeypatch, "scanlate_sfx_gloss", False)
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
     db.save_bubbles(p1, [_region(1, translated_text="kept")])
@@ -569,6 +570,7 @@ def test_page_edited_mid_run_is_not_wiped(client, monkeypatch):
 
 @needs_cv2
 def test_context_from_predecessor_and_usage_logged(client, fake_detect, monkeypatch):
+    patch_setting(monkeypatch, "scanlate_sfx_gloss", False)
     did = _drama()
     p1, p2 = _page(did, 0), _page(did, 1)
     db.save_bubbles(p1, [_region(1, translated_text="x")])
@@ -679,6 +681,7 @@ def test_redo_with_partial_ocr_failure_keeps_the_page(client, monkeypatch):
 
 @needs_cv2
 def test_redo_where_nothing_gets_translated_keeps_the_page(client, monkeypatch):
+    patch_setting(monkeypatch, "scanlate_sfx_gloss", False)
     did = _drama()
     pid = _page(did)
     db.save_bubbles(pid, [_region(1, translated_text="good")])

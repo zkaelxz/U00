@@ -9,7 +9,7 @@ const PAGES: { hash: string; h1: string }[] = [
   { hash: '#/settings', h1: 'Settings' },
   { hash: '#/jobs', h1: 'Jobs' },
   { hash: '#/translate', h1: 'Text' },
-  { hash: '#/make-subtitles', h1: 'Add' },
+  { hash: '#/make-subtitles', h1: 'Find & Add' },
   { hash: '#/diagnostics', h1: 'Diagnostics' },
   { hash: '#/benchmark', h1: 'Benchmark Lab' },
   { hash: '#/sources', h1: 'Find' },
