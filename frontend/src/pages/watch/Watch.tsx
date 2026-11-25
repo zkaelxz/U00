@@ -37,6 +37,10 @@ import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
 import { NextCard } from './NextCard'
+import { SleepTimerCard } from './SleepTimerCard'
+import { useWatchSwipe } from './useWatchSwipe'
+import type { SwipeAction } from './swipeLogic'
+import { getNextEpisode } from '../../api/nextEpisode'
 import { SaveSoundCard } from './SaveSoundCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
@@ -172,6 +176,23 @@ export default function WatchPage({ id }: { id: number }) {
   const { markStatus, markBusy, mark, say } = useWatchMarks(id, setLines)
   // A fix's own message (Saved., a refused save) replaces a mark message that is still showing, not the other way round.
   useEffect(() => say(''), [status, say])
+  const onSwipe = useCallback((action: SwipeAction) => {
+    if (action.kind === 'seek') {
+      const el = mediaRef.current
+      if (!el) return
+      resume()
+      player.current?.seek(Math.max(0, Math.min(el.duration || Infinity, el.currentTime + action.by)))
+      return
+    }
+    getNextEpisode(id).then(
+      (next) => {
+        if (next.drama_id !== null && next.state === 'ready') window.location.hash = routeHref({ name: 'watch', id: next.drama_id }).replace(/^#/, '')
+        else say('The next episode is not ready yet.')
+      },
+      () => say('The next episode could not be looked up.'),
+    )
+  }, [id, mediaRef, resume, say])
+  useWatchSwipe(playerBoxRef, playable !== null && media !== undefined, onSwipe)
   const jumpToMarked = (direction: 1 | -1) => {
     const to = attentionIndex(ordered, currentIndex >= 0 ? currentIndex : null, direction)
     if (to === null) {
@@ -347,6 +368,7 @@ export default function WatchPage({ id }: { id: number }) {
               </section>
             )}
             {original === 'video' && <CastCard key={id} id={id} canMake={holds(session, 'jobs.start')} canCast={holds(session, 'media.stream')} />}
+            {original && <SleepTimerCard key={id} boxRef={playerBoxRef} />}
             {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && canEdit && riskIds !== null && riskIds.size > 0 && (
               <div className="card watch-check" role="group" aria-label="Lines to check" data-testid="watch-check">

@@ -28,6 +28,8 @@
 .watch-player .review-player-frame:not(.is-fullscreen) .review-seek { flex-basis: 100%; }
 /* Over a picture it is a pill on the picture's top, so it costs the phone no row; an audio strip has nothing to cover. */
 .watch-player { position: relative; }
+/* A sideways swipe on the picture seeks; the page may still scroll up and down. */
+.watch-player .review-stage { touch-action: pan-y; }
 .watch-resume.is-over { position: absolute; top: var(--space-3); left: var(--space-3); z-index: 2; }
 .watch-resume {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); width: fit-content; max-width: calc(100% - 2 * var(--space-3));
