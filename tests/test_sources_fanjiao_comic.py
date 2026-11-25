@@ -183,24 +183,32 @@ def test_registered_as_a_browser_comic_source():
     assert fanjiao_comic.FanjiaoComicSource.matches_url(_chapter().url)
 
 
-def test_default_capture_waits_out_a_slow_page_logs_every_api_path_and_returns_only_content_calls(
+def test_default_capture_waits_for_the_page_api_call_logs_every_api_path_and_returns_only_content_calls(
         monkeypatch, caplog):
     import contextlib
     import page_fetch
-    seen = {}
-    entries = [_entry("comic/home_page", HOME), {"url": "https://api.fanjiao.co/walkman/api/other/x?k=1", "status": 200}]
+    seen = {"waits": 0}
+    late = _entry("comic/home_page", HOME)
+    other = {"url": "https://api.fanjiao.co/walkman/api/other/x?k=1", "status": 200}
+    captured = [other]
 
     @contextlib.contextmanager
-    def fake_session(url, pattern, timeout, wait_ms):
-        seen.update(timeout=timeout, wait_ms=wait_ms, pattern=pattern)
+    def fake_session(url, pattern, timeout, wait_ms, wait_until):
+        seen.update(timeout=timeout, wait_until=wait_until, pattern=pattern)
         class Page:
+            def wait_for_timeout(self, ms):
+                seen["waits"] += 1
+                if seen["waits"] == 3:
+                    captured.append(late)
             def content(self):
                 return "<html></html>"
-        yield Page(), entries
+        yield Page(), captured
 
     monkeypatch.setattr(page_fetch, "api_capture_session", fake_session)
     with caplog.at_level("INFO", logger=fanjiao_comic.__name__):
-        html, captured = fanjiao_comic._default_capture("https://www.fanjiao.co/cartoonDetail?data=x")
-    assert seen["timeout"] >= 90 and seen["pattern"] is fanjiao_comic.ANY_API
-    assert [e["url"] for e in captured] == [entries[0]["url"]]
+        html, got = fanjiao_comic._default_capture("https://www.fanjiao.co/cartoonDetail?data=x")
+    assert seen["wait_until"] == "commit" and seen["timeout"] >= 90 and seen["pattern"] is fanjiao_comic.ANY_API
+    assert seen["waits"] == 4  # three polls until the call arrived, then the settle wait
+    assert [e["url"] for e in got] == [late["url"]]
     assert "/walkman/api/other/x" in caplog.text and "k=1" not in caplog.text
+    assert "keys=" in caplog.text

@@ -43,6 +43,8 @@ REFERER = BASE_URL + "/"
 log = logging.getLogger(__name__)
 
 # Every api.* response is recorded so a log shows the site's current API paths when the two below stop matching.
+API_WAIT_MS = 90_000
+SETTLE_MS = 8_000
 ANY_API = re.compile(r"^https://api\.fanjiao\.co/")
 API_PATTERN = re.compile(r"^https://api\.fanjiao\.co/walkman/api/+(?:comic/home_page|chapter/details)\b")
 PAID_GROUP = "付费 / paid (not bought)"
@@ -99,16 +101,32 @@ def _extension_from_bytes(content: bytes) -> str:
     return ""
 
 
+def _body_keys(entry) -> str:
+    """Top-level JSON keys of a captured body, to tell a real payload from an error shell in the log."""
+    try:
+        data = json.loads(entry.get("body") or b"")
+        return "keys=" + ",".join(sorted(data)) if isinstance(data, dict) else ""
+    except (ValueError, TypeError):
+        return ""
+
+
 def _default_capture(url: str):
     """(rendered html, the page's own matching responses) from page_fetch's guarded browser."""
     from page_fetch import api_capture_session
     try:
-        # The page takes about a minute to reach domcontentloaded from a home connection, so the
-        # navigation timeout must outlast that and the API calls land after it.
-        with api_capture_session(url, ANY_API, timeout=120, wait_ms=15000) as (page, captured):
+        # From a home connection the page needs about a minute to reach domcontentloaded, and the
+        # site's own API call only follows a device-fingerprint request after that. So return at
+        # the first byte and wait for the call itself.
+        with api_capture_session(url, ANY_API, timeout=120, wait_ms=0, wait_until="commit") as (page, captured):
+            waited = 0
+            while waited < API_WAIT_MS and not any(API_PATTERN.match(e.get("url", "")) for e in captured):
+                page.wait_for_timeout(1000)
+                waited += 1000
+            # Siblings (chapter/details next to home_page) land shortly after the first.
+            page.wait_for_timeout(SETTLE_MS)
             for entry in captured:
-                log.info("Fanjiao api response %s %s", entry.get("status"),
-                         urlsplit(entry.get("url", "")).path)
+                log.info("Fanjiao api response %s %s %s", entry.get("status"),
+                         urlsplit(entry.get("url", "")).path, _body_keys(entry))
             return page.content(), [e for e in captured if API_PATTERN.match(e.get("url", ""))]
     except ImportError as e:
         raise SourceError(str(e), FailureReason.NOT_INSTALLED) from None
