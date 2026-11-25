@@ -5558,6 +5558,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/home": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The Library's shelves: what needs you, what is running, what is ready */
+        get: operations["get_home_api_library_home_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/link-scan": {
         parameters: {
             query?: never;
@@ -21800,10 +21817,57 @@ export interface components {
             /** Items */
             items: components["schemas"]["LibraryHistoryEntry"][];
         };
+        /**
+         * LibraryHome
+         * @description Each list is cut to a few entries; the `_count` fields say how many there are in all.
+         */
+        LibraryHome: {
+            /** Needs You */
+            needs_you: components["schemas"]["LibraryNeedsYouEntry"][];
+            /** Needs You Count */
+            needs_you_count: number;
+            /** Ready */
+            ready: components["schemas"]["LibraryReadyEntry"][];
+            /** Ready Count */
+            ready_count: number;
+            /** Running */
+            running: components["schemas"]["LibraryRunningEntry"][];
+            /** Running Count */
+            running_count: number;
+        };
         /** LibraryJobStarted */
         LibraryJobStarted: {
             /** Job Id */
             job_id: string;
+        };
+        /**
+         * LibraryNeedsYouEntry
+         * @description `kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
+         *     series_hold (a series' auto-run stopped for the person; `drama_id` is null and `series_id` names it).
+         */
+        LibraryNeedsYouEntry: {
+            /** Content Mode */
+            content_mode: string | null;
+            /** Drama Id */
+            drama_id: number | null;
+            /** Has Cover Art */
+            has_cover_art: boolean;
+            /** Kind */
+            kind: string;
+            /** Media Type */
+            media_type: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Risk Count */
+            risk_count: number | null;
+            /** Series Id */
+            series_id: number | null;
+            /** Step */
+            step: string | null;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
         };
         /** LibraryPreset */
         LibraryPreset: {
@@ -21837,6 +21901,23 @@ export interface components {
         LibraryPresetsResponse: {
             /** Items */
             items: components["schemas"]["LibraryPreset"][];
+        };
+        /** LibraryReadyEntry */
+        LibraryReadyEntry: {
+            /** Content Mode */
+            content_mode: string | null;
+            /** Drama Id */
+            drama_id: number;
+            /** Has Cover Art */
+            has_cover_art: boolean;
+            /** Media Type */
+            media_type: string | null;
+            /** Read Percent */
+            read_percent: number;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
         };
         /** LibraryRecentResponse */
         LibraryRecentResponse: {
@@ -21887,6 +21968,29 @@ export interface components {
              * @default 0
              */
             titles_reassigned: number;
+        };
+        /** LibraryRunningEntry */
+        LibraryRunningEntry: {
+            /** Content Mode */
+            content_mode: string | null;
+            /** Drama Id */
+            drama_id: number;
+            /** Has Cover Art */
+            has_cover_art: boolean;
+            /** Job Id */
+            job_id: string | null;
+            /** Media Type */
+            media_type: string | null;
+            /** Started At */
+            started_at: number | null;
+            /** Status */
+            status: string;
+            /** Step */
+            step: string;
+            /** Title */
+            title: string;
+            /** Updated At */
+            updated_at: string | null;
         };
         /** LibrarySearchHit */
         LibrarySearchHit: {
@@ -49338,6 +49442,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingHistoryClearResult"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_home_api_library_home_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryHome"];
                 };
             };
             /** @description Unprocessable Content */

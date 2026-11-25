@@ -9,6 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_
 from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, DramaSummary, LibraryPreset
 
 __all__ = [
+    "LibraryHome",
+    "LibraryNeedsYouEntry",
+    "LibraryReadyEntry",
+    "LibraryRunningEntry",
+    "LibraryShelfTitle",
     "CaptureNote",
     "CaptureNoteList",
     "SameTitle",
@@ -643,6 +648,52 @@ class LibraryContinueEntry(BaseModel):
 
 class LibraryContinueResponse(BaseModel):
     items: List[LibraryContinueEntry]
+
+
+class LibraryShelfTitle(BaseModel):
+    drama_id: int
+    title: str
+    media_type: Optional[str] = None
+    content_mode: Optional[str] = None
+    has_cover_art: bool
+    updated_at: Optional[str] = None
+
+
+class LibraryNeedsYouEntry(BaseModel):
+    """`kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
+    series_hold (a series' auto-run stopped for the person; `drama_id` is null and `series_id` names it)."""
+    drama_id: Optional[int] = None
+    title: str
+    media_type: Optional[str] = None
+    content_mode: Optional[str] = None
+    has_cover_art: bool
+    updated_at: Optional[str] = None
+    kind: str
+    step: Optional[str] = None
+    reason: Optional[str] = None
+    risk_count: Optional[int] = None
+    series_id: Optional[int] = None
+
+
+class LibraryRunningEntry(LibraryShelfTitle):
+    step: str
+    status: str
+    job_id: Optional[str] = None
+    started_at: Optional[float] = None
+
+
+class LibraryReadyEntry(LibraryShelfTitle):
+    read_percent: float
+
+
+class LibraryHome(BaseModel):
+    """Each list is cut to a few entries; the `_count` fields say how many there are in all."""
+    needs_you: List[LibraryNeedsYouEntry]
+    needs_you_count: int
+    running: List[LibraryRunningEntry]
+    running_count: int
+    ready: List[LibraryReadyEntry]
+    ready_count: int
 
 
 class LibraryFilterOptions(BaseModel):

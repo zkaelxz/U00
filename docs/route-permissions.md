@@ -367,6 +367,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/filter-options` | library.read |
 | `GET /api/library/history` | library.read |
 | `POST /api/library/history/clear` | local_only() |
+| `GET /api/library/home` | library.read |
 | `GET /api/library/link-scan` | local_only() |
 | `POST /api/library/link-scan` | local_only() |
 | `GET /api/library/presets` | library.read |
