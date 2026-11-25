@@ -312,7 +312,13 @@ def speed_text(took, audio) -> str:
     """Whisper's speed on the last chunk, or "" before there is one."""
     if took is None or audio <= 0:
         return ""
-    return f"{audio:.0f} s of audio in {took:.1f} s ({took / audio:.2f}x real time)"
+    # Processing time over audio time reads as "0.06x" and sounds slow; say how much faster.
+    ratio = took / audio
+    if ratio > 1:
+        speed = f"{ratio:.1f}x slower than real time"
+    else:
+        speed = f"about {1 / max(ratio, 0.01):.0f}x faster than real time"
+    return f"{audio:.0f} s of audio in {took:.1f} s ({speed})"
 
 
 def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload.JobScope":

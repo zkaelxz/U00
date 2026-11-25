@@ -620,6 +620,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise InvalidInputError("model must be a string.")
     if glossary_drama_id is not None and series_id is not None:
         raise InvalidInputError("Pick a title or a series for the glossary, not both.")
+    # Twitch can't be held back, so its picture is never delayed.
+    twitch = (stream_ref(url) or {}).get("kind", "").startswith("twitch")
+    delayed_player = bool(delayed_player) and not twitch
     chat_video = live_chat.require_video_id(url) if read_chat else None
     missing = missing_tool()
     if missing:
