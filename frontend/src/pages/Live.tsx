@@ -17,6 +17,7 @@
  * the API, so a stream that needs a signed-in browser won't resolve here.
  */
 import { useEffect, useId, useState } from 'react'
+import { cancelsAnyJob, useSession } from '../hooks/useSession'
 
 import { api, hasStatus } from '../api/client'
 import {
@@ -145,7 +146,9 @@ export default function LivePage() {
   const [enginesFailed, setEnginesFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const { session, sessionId, stopping, joined, began, stop, adoptRunning } = useLiveSession(setError)
+  const canSeeEveryone = cancelsAnyJob(useSession())
+  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone } = useLiveSession(setError, canSeeEveryone)
+  const [everyone, setEveryone] = useState(false)
 
   useEffect(() => {
     translateApi.engines().then(setEngines, () => {
@@ -429,6 +432,12 @@ export default function LivePage() {
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
         </form>
+        {canSeeEveryone && (
+          <label className="checkbox-row">
+            <input type="checkbox" checked={everyone} onChange={(e) => { setEveryone(e.target.checked); showEveryone(e.target.checked) }} />
+            Show everyone's sessions
+          </label>
+        )}
         {error && (
           <p className="error live-error" role="alert">
             {error}

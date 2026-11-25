@@ -925,3 +925,19 @@ def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
     live_service._sessions[a]["private"] = True
     with pytest.raises(ConflictError):
         live_service.start_session(url, engine="fake", principal={"user_id": 3})
+
+
+def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(live):
+    member, admin, other = {"user_id": 4}, {"user_id": 1, "is_admin": True}, {"user_id": 5}
+    sid = live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                     principal=member)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    live_service._sessions[sid]["owner_user_id"] = 4
+    ids = lambda **kw: {s["session_id"] for s in live_service.list_sessions(**kw)}
+    assert ids(principal=member) == {sid}
+    assert ids(principal=admin) == set()
+    assert ids(principal=admin, everyone=True) == {sid}
+    assert ids(principal=other, everyone=True) == set()
+    assert live_service.is_listed(sid, member) and not live_service.is_listed(sid, admin)
+    # By id an admin still opens it, as before.
+    assert live_service.get_session(sid, principal=admin)["session_id"] == sid

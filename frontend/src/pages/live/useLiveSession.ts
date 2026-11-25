@@ -33,7 +33,7 @@ type StartedLink = { id: string; url: string }
 const canReplace = (cur: Session | null) =>
   !cur || (cur.status !== null && !isActive(cur.status.status) && cur.cues.length === 0)
 
-export function useLiveSession(setError: (text: string | null) => void) {
+export function useLiveSession(setError: (text: string | null) => void, canSeeEveryone = false) {
   const [session, setSession] = useState<Session | null>(null)
   // 'finishing': the first Stop was taken and the session captions what it
   // already captured; the button then offers Stop now.
@@ -141,7 +141,13 @@ export function useLiveSession(setError: (text: string | null) => void) {
     const cur = sessionRef.current
     if (type !== 'live' || !s) return
     if (!cur || s.session_id !== cur.id) {
-      if (canReplace(cur) && isActive(s.status)) adopt(s.session_id)
+      // A push names any session this account may open, an admin's included; only one
+      // in the caller's own list is shown without being asked for.
+      if (canReplace(cur) && isActive(s.status)) {
+        listLive().then((list) => {
+          if (list.some((x) => x.session_id === s.session_id) && canReplace(sessionRef.current)) adopt(s.session_id)
+        }, () => {})
+      }
       return
     }
     setSession((prev) => (prev && prev.id === s.session_id ? { ...prev, status: { ...s, cues: [] } } : prev))
@@ -178,7 +184,8 @@ export function useLiveSession(setError: (text: string | null) => void) {
    *  Start only runs with nothing active, so a finished session can be the one shown. */
   const adoptRunning = (message: string) => {
     const shown = sessionRef.current
-    listLive().then((list) => {
+    // An admin who is blocked by another account's session needs it on screen to stop it.
+    listLive(canSeeEveryone).then((list) => {
       const id = list.find((x) => isActive(x.status))?.session_id
       if (id && sessionRef.current === shown) {
         adopt(id)
@@ -209,5 +216,23 @@ export function useLiveSession(setError: (text: string | null) => void) {
     }
   }
 
-  return { session, sessionId, stopping, joined, began, stop, adoptRunning }
+  /** An admin's "Show everyone's": opens the latest of every account's sessions; off, goes back to
+   *  the caller's own (or nothing, when the shown one belongs to someone else). */
+  const everyoneAsk = useRef(0)
+  const showEveryone = (on: boolean) => {
+    const ask = ++everyoneAsk.current
+    listLive(on).then((list) => {
+      // A reply to an earlier tick or untick must not open another account's session.
+      if (ask !== everyoneAsk.current) return
+      const id = pickSession(list)
+      if (on) {
+        if (id) adopt(id)
+      } else if (!id || id !== sessionRef.current?.id) {
+        if (id) adopt(id)
+        else setSession(null)
+      }
+    }, (err: unknown) => setError(describeLiveError(err)))
+  }
+
+  return { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone }
 }
