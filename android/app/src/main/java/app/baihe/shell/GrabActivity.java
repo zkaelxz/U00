@@ -141,6 +141,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
+        // Pinch to zoom out (or in) on the site; without the built-in controls the page cannot be pinched at all.
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
         // With multiple windows off, a pop-up replaces the page being read; on, onCreateWindow decides.
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
@@ -247,7 +250,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         chapters.setOnClickListener(v -> toggleChapters());
         quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
         quick.setOnClickListener(v -> {
-            if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
+            if (QuickReadSession.isDetached()) openReader();
+            else if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
             else startGrab(true);
         });
         ImageView more = new ImageView(this);
@@ -516,12 +520,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
+        if (QuickReadSession.isDetached()) menu.getMenu().add("Stop translating");
+        else if (QuickReadSession.hasPages()) menu.getMenu().add("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)");
         menu.getMenu().add("Open Baihe");
         menu.getMenu().add("Settings");
         menu.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
             if ("Translate this page".equals(title)) setTranslate(true);
             else if ("Show original page".equals(title)) setTranslate(false);
+            else if ("Stop translating".equals(title)) cancelGrab();
+            else if (title.startsWith("Open Quick read")) openReader();
             else if ("Settings".equals(title)) showSettings();
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
@@ -731,6 +739,25 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     protected void onStart() {
         super.onStart();
         AppUpdate.screenStarted();
+        // The reader is destroyed after this screen is shown again, so it reports being left.
+        QuickReadSession.onDetach(() -> runOnUiThread(this::showReaderLeft));
+        showReaderLeft();
+    }
+
+    /** A reader left mid-grab: the grab shows it is still working, and Quick read opens the reader again. */
+    private void showReaderLeft() {
+        if (!QuickReadSession.isDetached()) return;
+        quick.setDanger(false);
+        quick.setLabel("Open reader", palette.onAccent, R.drawable.ic_quick);
+        say(backgroundLine(QuickReadSession.snapshot().size()), GrabUi.Kind.BUSY);
+    }
+
+    private static String backgroundLine(int ready) {
+        return "Still translating in the background: " + ready + " pages ready. More > Stop translating cancels it.";
+    }
+
+    private void openReader() {
+        startActivity(new Intent(this, QuickReadActivity.class));
     }
 
     @Override
@@ -741,6 +768,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     @Override
     protected void onDestroy() {
+        QuickReadSession.onDetach(null);
         GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
         sender.shutdownNow();
@@ -767,7 +795,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
-        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ");
+        boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ")
+                || text.startsWith("Still translating");
         say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
     }
 
@@ -1021,6 +1050,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
     private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
+    private volatile String pageLanguage = "";
     private JSONArray pageChapters = new JSONArray();
 
     private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
@@ -1034,6 +1064,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageUrl = "";
     private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
+
+    @Override
+    public void onLanguage(String language) {
+        pageLanguage = language;
+    }
 
     @Override
     public void onBegin(List<String> titles, int count, JSONArray chapterLinks, String next) {
@@ -1055,6 +1090,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
+        String language = pageLanguage;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -1105,6 +1141,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
+            client.sourceLanguage = language;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -1197,6 +1234,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             Object lock = new Object();
             // A page's report text, found again by the very array that shows it.
             java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
+            // The picture as the phone sent it, kept beside the redraw so a tap can show the original art.
+            java.util.Map<byte[], byte[]> originalOf = new java.util.IdentityHashMap<>();
             List<List<byte[]>> held = new ArrayList<>();
             boolean[] finished = new boolean[n];
             for (int i = 0; i < n; i++) held.add(new ArrayList<>());
@@ -1222,9 +1261,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 String meta = metaOf.remove(jpeg);
                 if (meta != null) QuickReadActivity.writeReportText(this, name, meta);
+                byte[] originalArt = originalOf.remove(jpeg);
+                if (originalArt != null) QuickReadActivity.writeOriginal(this, name, originalArt);
                 shown[0]++;
                 QuickReadSession.add(name);
-                say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
+                        : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -1244,7 +1286,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
+                            : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
                     try {
                         BaiheClient.PageListener onPage = page -> {
                             JSONObject wrapped;
@@ -1257,14 +1300,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             String meta = PageReport.meta(page, QuickRead.sourceUrl(batches.get(index), page.optString("key", "")),
                                     url, runName);
                             synchronized (lock) {
+                                boolean redrawn = !jpegs.isEmpty();
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
                                     byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
                                     if (original == null) return;
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
+                                byte[] originalArt = redrawn ? QuickRead.original(batches.get(index), page.optString("key", "")) : null;
                                 for (byte[] jpeg : jpegs) {
                                     metaOf.put(jpeg, meta);
+                                    if (originalArt != null) originalOf.put(jpeg, originalArt);
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }

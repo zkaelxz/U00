@@ -44,9 +44,12 @@ function TitlesTab({ data }: { data: SeriesPageData }) {
   const sort: TitleSort = isTitleSort(stored) ? stored : defaultSeriesSort(data.titles)
   if (!data.titles.length) {
     return (
-      <p className="muted" data-testid="series-no-titles">
-        No titles in this series yet. Put a title in it from the Series picker in that title's Glossary.
-      </p>
+      <>
+        <p className="muted" data-testid="series-no-titles">
+          No titles in this series yet. Put a title in it from the Series picker in that title's Glossary.
+        </p>
+        <ButtonLink href={routeHref({ name: 'library' })}>Go to Library</ButtonLink>
+      </>
     )
   }
   const ordered = sortTitles(data.titles, sort)

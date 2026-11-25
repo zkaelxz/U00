@@ -2,7 +2,10 @@ package app.baihe.shell;
 
 /** The Quick read reader's zoom arithmetic, kept free of Android classes so it is unit-tested. */
 final class QuickReadZoom {
-    static final float MIN = 1f;
+    /** The page fitted to the screen's width. */
+    static final float FIT = 1f;
+    /** Zoomed out far enough to see about two screens of pages at once. */
+    static final float MIN = 0.5f;
     static final float MAX = 4f;
     static final float DOUBLE_TAP = 2f;
 
@@ -12,8 +15,12 @@ final class QuickReadZoom {
         return Math.max(MIN, Math.min(MAX, scale));
     }
 
-    /** The sideways offset limited so neither page edge can be dragged inside the screen. */
+    /**
+     * The sideways offset limited so neither page edge can be dragged inside the screen. A page
+     * smaller than the screen has nowhere to be dragged to, so it sits in the middle.
+     */
     static float clampPan(float pan, float scale, float width) {
+        if (scale <= FIT) return (FIT - scale) * width / 2f;
         return Math.max(-(scale - 1f) * width, Math.min(0f, pan));
     }
 
@@ -34,6 +41,6 @@ final class QuickReadZoom {
     }
 
     static float afterDoubleTap(float scale) {
-        return scale > MIN ? MIN : DOUBLE_TAP;
+        return scale != FIT ? FIT : DOUBLE_TAP;
     }
 }

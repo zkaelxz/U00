@@ -5,7 +5,8 @@ Thin: see services/queue_service.py.
 Every route needs `jobs.start`. The service adds the rest: an item's title
 must be the caller's, a Translate item on a paid engine needs `engines.paid`
 (as the Translate stage's run does), a member sees and changes only items
-for their own titles, and only the PC owner may start, pause or schedule.
+for their own titles, and only an admin (or the PC owner) may start, pause or schedule the whole queue.
+The account that added an item may pause, resume or cancel it.
 """
 
 from typing import Literal, Optional
@@ -79,6 +80,26 @@ def move_item(body: QueueMove, request: Request, item_id: int = _ITEM):
              response_model=QueueState, summary="Remove an item that is not running", responses=_ERRORS)
 def remove_item(request: Request, item_id: int = _ITEM):
     return queue_service.remove_item(request.state.principal, item_id)
+
+
+@router.post("/items/{item_id}/hold", dependencies=[require_permission("jobs.start")],
+             response_model=QueueState, summary="Pause a waiting item; the rest of the queue goes on",
+             responses=_ERRORS)
+def hold_item(request: Request, item_id: int = _ITEM):
+    return queue_service.hold_item(request.state.principal, item_id, True)
+
+
+@router.post("/items/{item_id}/resume", dependencies=[require_permission("jobs.start")],
+             response_model=QueueState, summary="Resume a paused item", responses=_ERRORS)
+def resume_item(request: Request, item_id: int = _ITEM):
+    return queue_service.hold_item(request.state.principal, item_id, False)
+
+
+@router.post("/items/{item_id}/cancel", dependencies=[require_permission("jobs.start")],
+             response_model=QueueState, summary="Cancel a waiting item, or the job of a running one",
+             responses=_ERRORS)
+def cancel_item(request: Request, item_id: int = _ITEM):
+    return queue_service.cancel_item(request.state.principal, item_id)
 
 
 @router.post("/items/{item_id}/retry", dependencies=[require_permission("jobs.start")],
