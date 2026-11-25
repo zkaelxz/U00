@@ -34,7 +34,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import background_jobs
-from jobs import job_launch
+from jobs import job_launch, job_settings
 import db
 import diagnostics_torch
 from live import live_chat
@@ -419,9 +419,13 @@ def _active_sessions_locked() -> list:
     return out
 
 
-def _refuse_start_locked() -> None:
+def _refuse_start_locked(use_gpu: bool = False) -> None:
     """Raises ConflictError when no session may start now. Call with _lock held."""
     active = _active_sessions_locked()
+    # A GPU session over the "GPU jobs at once" limit would sit queued, captioning nothing, until the first ends.
+    if use_gpu and sum(1 for sid in active if _sessions[sid].get("gpu")) >= job_settings.get_gpu_max_parallel():
+        raise ConflictError("Another live session is using the GPU. Raise 'GPU jobs at once' in Settings "
+                            "to caption two streams on the GPU, or start this one without the GPU.")
     if len(active) >= MAX_LIVE_SESSIONS:
         raise ConflictError(f"{MAX_LIVE_SESSIONS} live sessions are already running. Stop one first.")
     # With a session running, a leftover call may be that session's own; its next call waits its turn.
@@ -692,7 +696,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
         # Each session holds an engine for up to max_minutes. The check and the
         # reservation share one lock hold, so two starts can't both pass.
         try:
-            _refuse_start_locked()
+            _refuse_start_locked(bool(use_gpu))
         except ConflictError:
             shutil.rmtree(out_dir, ignore_errors=True)
             raise
@@ -705,7 +709,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "gpu": bool(use_gpu),
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),

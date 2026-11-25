@@ -87,8 +87,8 @@ _outstanding_lock = threading.Lock()
 _outstanding = None
 
 
-# One decode at a time across Live sessions: two sessions share one loaded model, and a second
-# concurrent call would hit the "one Whisper thread" guard below. A session waiting for its turn
+# One decode at a time across Live sessions: sessions with the same Whisper size share one loaded
+# model, and a second concurrent call would hit the "one Whisper thread" guard below. A session waiting for its turn
 # still notices Stop and its chunk time limit.
 _turn = threading.Lock()
 
@@ -191,14 +191,19 @@ class WhisperRunner:
         self._grace = grace
         self._gpu = bool(gpu)
         self._closed = False
+        self._entry = None
 
     @property
     def grace(self) -> float:
         return ABANDON_GRACE_SECONDS if self._grace is None else self._grace
 
     def busy_with(self):
-        """Label of the call still running in this process, else None."""
-        return outstanding_label()
+        """Label of this runner's own call still running, else None: another
+        session's decode is not this job's to report."""
+        entry = self._entry
+        if entry is not None and entry["worker"].is_alive():
+            return entry["label"]
+        return None
 
     def close(self):
         """Marks the job over; returns the label of a call still running, to be
@@ -214,7 +219,7 @@ class WhisperRunner:
             if self._clock() >= deadline:
                 raise ChunkTimeout(timeout)
         try:
-            return self._run_in_turn(call, timeout, label)
+            return self._run_in_turn(call, max(deadline - self._clock(), self._poll), label)
         finally:
             _turn.release()
 
@@ -263,6 +268,7 @@ class WhisperRunner:
             worker.start()
             # Only a started thread is outstanding: join() on an unstarted one raises.
             _outstanding = entry
+            self._entry = entry
         while True:
             worker.join(self._poll)
             if not worker.is_alive():

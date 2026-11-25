@@ -240,6 +240,18 @@ def test_two_streams_run_together_and_a_third_is_a_conflict(live):
     assert set(live_service._sessions) == {a, b}
 
 
+def test_a_second_gpu_session_is_refused_when_one_gpu_job_runs_at_a_time(live, monkeypatch):
+    from jobs import job_settings
+    from lib.errors import ConflictError
+    monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 1)
+    _start(use_gpu=True)
+    assert _wait(lambda: "out_dir" in live)
+    with pytest.raises(ConflictError, match="GPU jobs at once"):
+        _start(url="https://www.youtube.com/watch?v=other", use_gpu=True)
+    monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 2)
+    assert _start(url="https://www.youtube.com/watch?v=other", use_gpu=True)
+
+
 def test_same_stream_start_joins_the_running_session(live):
     a = _start(url="https://www.youtube.com/watch?v=abcdefghijk")
     assert _wait(lambda: "out_dir" in live)

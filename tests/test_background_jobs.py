@@ -620,6 +620,20 @@ class TestCancelQueued:
         for job in ("pq_a", "pq_b", "pq_c"):
             bg.clear_job(job)
 
+    def test_priority_jobs_keep_their_own_order(self):
+        release, started = threading.Event(), []
+        job_launch.start_job("po_a", lambda: release.wait(timeout=5.0), gpu_touching=True)
+        job_launch.start_job("po_b", lambda: started.append("b"), gpu_touching=True)
+        job_launch.start_job("po_c", lambda: started.append("c"), gpu_touching=True, priority=True)
+        job_launch.start_job("po_d", lambda: started.append("d"), gpu_touching=True, priority=True)
+        release.set()
+        deadline = time.time() + 5
+        while len(started) < 3 and time.time() < deadline:
+            time.sleep(0.02)
+        assert started == ["c", "d", "b"]
+        for job in ("po_a", "po_b", "po_c", "po_d"):
+            bg.clear_job(job)
+
     def test_a_job_promoted_to_running_in_the_gap_is_not_cleared(self):
         # Simulates the exact race: the record already flipped to
         # "running" (as _promote_next_queued_gpu_job() would do) by the

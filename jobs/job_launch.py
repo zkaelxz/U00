@@ -273,9 +273,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if status == "queued":
             queued = {"job_id": job_id, "target": target, "args": args,
                       "kwargs": kwargs, "description": description, "kind": "thread",
-                      "cap_exempt": user_caps.refusing()}
+                      "cap_exempt": user_caps.refusing(), "priority": priority}
             if priority:
-                _gpu_queue.insert(0, queued)
+                # After earlier priority jobs, so they keep their order.
+                at = next((i for i, q in enumerate(_gpu_queue) if not q.get("priority")), len(_gpu_queue))
+                _gpu_queue.insert(at, queued)
             else:
                 _gpu_queue.append(queued)
             _note_gpu_wait_reason_locked(job_id)
