@@ -6,7 +6,7 @@ import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
   attentionIndex, clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
   lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
-  resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
+  quietSkip, QUIET_LEAD_S, resumePoint, rowMeta, saveFix, SPEAKER_COLOURS, speakerSlots, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
   watchVerb, type LineFix,
 } from './watchLogic'
 
@@ -419,5 +419,38 @@ describe('the mark and jump keys', () => {
 
   it('leaves the letters to a field being typed in', () => {
     expect(['g', 'x', 'm', 'n', 'p'].map((k) => watchKey(k, field))).toEqual([null, null, null, null, null])
+  })
+})
+
+describe('speakerSlots', () => {
+  it('numbers speakers by first appearance and skips lines with none', () => {
+    const slots = speakerSlots([line(1, 1, 2, { speaker: 'Chion' }), line(2, 3, 4), line(3, 5, 6, { speaker: 'Anok' }), line(4, 7, 8, { speaker: 'Chion' })])
+    expect([...slots]).toEqual([['Chion', 0], ['Anok', 1]])
+  })
+
+  it('wraps after the colours the page defines, so a crowded stream repeats rather than fails', () => {
+    const many = Array.from({ length: SPEAKER_COLOURS + 1 }, (_, i) => line(i + 1, i, i + 1, { speaker: `S${i}` }))
+    expect(speakerSlots(many).get(`S${SPEAKER_COLOURS}`)).toBe(0)
+  })
+})
+
+describe('quietSkip', () => {
+  const spoken = [line(1, 10, 12), line(2, 14, 15), line(3, 60, 62)]
+
+  it('jumps a long quiet stretch to just before the next line', () => {
+    expect(quietSkip(spoken, 20)).toBe(60 - QUIET_LEAD_S)
+  })
+
+  it('offers the intro before the first line', () => {
+    expect(quietSkip(spoken, 0)).toBe(10 - QUIET_LEAD_S)
+  })
+
+  it('stays out of a line being spoken and of short pauses', () => {
+    expect(quietSkip(spoken, 11)).toBeNull()
+    expect(quietSkip(spoken, 12.5)).toBeNull()
+  })
+
+  it('has nothing to skip to after the last line', () => {
+    expect(quietSkip(spoken, 70)).toBeNull()
   })
 })

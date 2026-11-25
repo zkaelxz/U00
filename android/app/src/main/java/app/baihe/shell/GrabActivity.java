@@ -338,15 +338,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         say("Enter a title name.");
                         return;
                     }
-                    sendShared(uris, title, cut, server, token);
+                    sendShared(uris, title, cut, server, token, false);
                 })
+                // A screenshot of a page to read now: translated and shown, nothing saved, no title needed.
+                .setNeutralButton("Quick read", (d, w) -> sendShared(uris, "", cut, server, token, true))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
+    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token, boolean read) {
         grabbing = true;
         uploading = true;
+        quickRead = read;
+        if (read) {
+            runName = "Shared pictures";
+            runUrl = "";
+            cancelRequested = false;
+        }
         runOnUiThread(() -> {
             grab.setBusy(true);
             quick.setBusy(true);
@@ -373,8 +381,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 finishGrab("Could not read the shared images.");
                 return;
             }
-            upload(new BaiheClient(server, token), "", java.util.Collections.singletonList(title),
-                    null, images, unreadable, truncated);
+            BaiheClient client = new BaiheClient(server, token);
+            if (read) {
+                client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                read(client, "", images, unreadable, truncated);
+                return;
+            }
+            upload(client, "", java.util.Collections.singletonList(title), null, images, unreadable, truncated);
         });
     }
 
