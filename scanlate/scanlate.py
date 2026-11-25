@@ -329,7 +329,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     flag_english_text(bubbles, source_language)
     flag_bare_numbers(bubbles, source_language)
     _note_skipped_sfx(bubbles, notes)
-    if art_captions and _within_caption_limit(len(bubbles), art_captions_max_regions):
+    if art_captions and _within_caption_limit(_balloons_with_lines(bubbles), art_captions_max_regions):
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
                                             ocr_backend)
@@ -354,6 +354,15 @@ _ENGLISH_MIN_LETTERS = 4
 
 def _within_caption_limit(region_count: int, limit: int | None) -> bool:
     return limit is None or region_count <= limit
+
+
+def _balloons_with_lines(regions: list) -> int:
+    """How many regions are balloons holding at least two letters. A title drawn on the art
+    comes back from the detector as a scatter of one-glyph balloons and signs; counted as
+    balloons they put a title page over the caption limit, so the caption that joins the
+    title was never read and each glyph was translated alone."""
+    return sum(1 for r in regions if (r.get("kind") or "bubble") in SHAPE_FITTED_KINDS
+               and sum(c.isalpha() for c in r.get("source_text") or "") >= 2)
 
 
 def flag_english_text(regions: list, source_language: str) -> int:
@@ -480,9 +489,17 @@ def drop_parts_of_captions(regions: list, captions: list) -> list:
         letters = [c for c in (region.get("source_text") or "") if c.isalpha()]
         return bool(letters) and all(c in (caption.get("source_text") or "") for c in letters)
 
+    def on_caption_lines(region, caption):
+        # A glyph cut out of a stylised title is often misread (察 as 祭, or manga-ocr's
+        # "そんな"), so its text can't show it belongs; its place on the caption's own lines
+        # can. A real balloon's lines were left out of the caption, so it is never on them.
+        area = float(region["w"] * region["h"]) or 1.0
+        covered = sum(_overlap(region, line) * area for line in caption.get("line_boxes") or ())
+        return covered / area >= _CAPTION_PART_SHARE
+
     return [r for r in regions
             if not any(inside(r, c) and (r.get("kind") not in SHAPE_FITTED_KINDS
-                                         or is_caption_lettering(r, c))
+                                         or is_caption_lettering(r, c) or on_caption_lines(r, c))
                        for c in captions)]
 
 
@@ -490,9 +507,24 @@ def with_captions(regions: list, captions: list) -> list:
     """`regions` without the pieces of `captions`, then the captions, renumbered
     in that reading order."""
     joined = drop_parts_of_captions(regions, captions) + captions
+    for caption in captions:
+        caption.pop("line_boxes", None)
     for order, region in enumerate(joined):
         region["reading_order"] = order
     return joined
+
+
+def caption_line_backend(source_language: str, ocr_backend: str):
+    """The backend that reads the page's lines for the captions on the art: the page's own
+    when it reads whole lines, else RapidOCR when its page models are on disk (a Japanese
+    page's balloons are read with manga-ocr, which reads one box at a time, so its titles
+    were never read), else None."""
+    if ocr_backend in ("rapidocr", "paddle"):
+        return ocr_backend
+    import ocr
+    on_disk = all(os.path.isfile(ocr.rapidocr_model_path(spec))
+                  for spec in (ocr.RAPIDOCR_MEDIUM_DET_MODEL, ocr.RAPIDOCR_MEDIUM_REC_MODEL))
+    return "rapidocr" if source_language != "ko" and on_disk else None
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
@@ -504,7 +536,10 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
     try:
         found = scanlate_art_text.find_art_captions(image_path, source_language, bubbles,
                                                     image=page,
-                                                    backend=ocr_backend or auto_ocr_backend(source_language))
+                                                    backend=caption_line_backend(
+                                                        source_language,
+                                                        ocr_backend or auto_ocr_backend(source_language))
+                                                    or "paddle")
     except HeadroomError:
         raise
     except Exception as exc:
@@ -521,6 +556,7 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
             "orientation": "vertical" if c["h"] > 1.4 * c["w"] else "horizontal",
             "panel_id": None, "kind": "caption", "kind_confidence": 0.5,
             "source_text": c["source_text"], "ocr_confidence": c.get("ocr_confidence"),
+            "line_boxes": c.get("line_boxes", []),
             "font_category": "bold",
             "ink_ratio": None, "irregular": None,
             "translated_text": "", "font_size": 18, "skip": False, "include_sfx": False})
