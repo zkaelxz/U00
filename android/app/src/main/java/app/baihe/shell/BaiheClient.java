@@ -85,6 +85,27 @@ final class BaiheClient {
         return post(pageUrl, batch, 0, false);
     }
 
+    /**
+     * Quick read of a novel: a part of the chapter's text is translated on the PC and nothing is
+     * saved. The same permissions and spending limit as a picture apply.
+     */
+    String translateText(String text, String source, String target) throws BridgeException {
+        try {
+            JSONObject answer = call("POST", "/text", new JSONObject()
+                    .put("text", text).put("source_language", source).put("target_language", target).put("store", false));
+            String translated = answer.optString("translated_text", "");
+            if (translated.isEmpty()) {
+                JSONArray notes = answer.optJSONArray("notes");
+                JSONArray first = notes == null ? null : notes.optJSONArray(0);
+                String why = first == null ? "" : first.optString(first.length() - 1, "");
+                throw new BridgeException(0, why.isEmpty() ? "Baihe returned no translation." : why);
+            }
+            return translated;
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Tells the server to drop the pages of this run it has not started; the page in flight finishes. */
     void cancelRun(String id) throws BridgeException {
         try {

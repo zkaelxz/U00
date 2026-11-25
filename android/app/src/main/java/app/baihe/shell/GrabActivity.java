@@ -999,6 +999,68 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         });
     }
 
+    /** A page with no comic pictures but a chapter's prose: a Quick read translates it into the text reader. */
+    @Override
+    public void onText(String text) {
+        if (!quickRead) {
+            finishGrab("This page is a novel chapter. Use Quick read to read it translated.");
+            return;
+        }
+        String language = NovelText.languageOf(text);
+        if (language.isEmpty()) {
+            finishGrab("The page's text is not Chinese, Japanese or Korean, so there is nothing to translate.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        uploading = true;
+        sender.execute(() -> readNovel(new BaiheClient(server, token), text, language));
+    }
+
+    private void readNovel(BaiheClient client, String text, String language) {
+        List<String> parts = NovelText.split(text, NovelText.PART_CHARS);
+        NovelReadSession.begin(parts.size());
+        NovelReadSession.onCancel(this::cancelGrab);
+        runOnUiThread(() -> startActivity(new Intent(this, NovelReadActivity.class)));
+        // Two parts at a time, shown in order: the next part is usually ready by the time the last is read.
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        List<java.util.concurrent.Future<String>> results = new ArrayList<>();
+        for (String part : parts) results.add(pool.submit(() -> client.translateText(part, language, "en")));
+        int done = 0;
+        String stoppedBy = "";
+        try {
+            for (int i = 0; i < results.size(); i++) {
+                if (cancelRequested || NovelReadSession.isStopped()) break;
+                try {
+                    NovelReadSession.add(results.get(i).get());
+                    done++;
+                } catch (java.util.concurrent.ExecutionException e) {
+                    Throwable cause = e.getCause();
+                    String why = cause instanceof BaiheClient.BridgeException ? cause.getMessage() : "the part could not be translated";
+                    NovelReadSession.add("(Part " + (i + 1) + " was not translated: " + why + ")");
+                    // A token the server refused, or a spent limit, would refuse every later part too.
+                    if (cause instanceof BaiheClient.BridgeException) {
+                        int status = ((BaiheClient.BridgeException) cause).status;
+                        if (status == 401 || status == 403 || status == 429) {
+                            stoppedBy = why;
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            pool.shutdownNow();
+        }
+        boolean cancelled = cancelRequested || NovelReadSession.isStopped();
+        String closing = (cancelled ? "Cancelled. " : stoppedBy.isEmpty() ? "" : stoppedBy + " ")
+                + "Translated " + done + " of " + parts.size() + " parts"
+                + (!cancelled && stoppedBy.isEmpty() && done < parts.size() ? "; the ones that failed are marked." : ".");
+        NovelReadSession.finish(closing);
+        finishGrab(closing, !cancelled && stoppedBy.isEmpty() && done == parts.size());
+    }
+
     /**
      * Quick read: send the pages without saving. Two batches are in flight at once so the PC is
      * not idle while the next one uploads, but pages are shown in page order: a later batch's
