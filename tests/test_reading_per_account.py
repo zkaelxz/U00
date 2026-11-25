@@ -200,3 +200,22 @@ def test_watch_position_is_per_account_and_puts_the_title_on_the_continue_shelf(
     assert [(i["drama_id"], i["audio_position_seconds"], i["percent_complete"]) for i in shelf] == [(d, 40.0, 40.0)]
     assert library_service.list_continue_reading(principal={"user_id": b, "is_admin": True}) == []
     assert db.list_reading_history(user_id=a) == []   # a player saves often; the history stays clean
+
+
+def test_restoring_a_title_brings_back_each_accounts_own_reading_data(isolated_db):
+    from tests.auto_backup_helpers import _delete_drama, _restore, _snap
+    db = isolated_db
+    d = db.create_drama(title_en="Restored")
+    a = db.auth_create_user("a@example.com")
+    b = db.auth_create_user("b@example.com")
+    db.save_personal_notes(d, "a's note", user_id=a)
+    db.save_personal_notes(d, "b's note", user_id=b)
+    db.save_personal_notes(d, "the PC's note")
+    _snap()
+    _delete_drama(d)
+
+    _restore(d)
+
+    assert db.get_personal_notes(d, user_id=a) == "a's note"
+    assert db.get_personal_notes(d, user_id=b) == "b's note"
+    assert db.get_personal_notes(d) == "the PC's note"

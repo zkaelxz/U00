@@ -178,12 +178,33 @@ def _remap_json_lines(value, line_map, import_as=None):
     return json.dumps(items, ensure_ascii=False)
 
 
-def _account_profile_ids(src) -> set:
-    """Reading profiles of sign-in accounts: they stay behind, because account ids differ between
-    libraries and the profile id could name another person here."""
+def _account_profile_accounts(src, owners: dict) -> dict:
+    """{copy profile id: live account id or None} for the copy's reading profiles of sign-in accounts.
+    Account ids differ between libraries, so an account's reading data goes to the live account
+    matched by email (`owners`), and is dropped when none matches."""
     if "user_id" not in columns(src, "profiles"):
-        return set()
-    return {r["id"] for r in table_rows(src, "profiles", "user_id IS NOT NULL", ())}
+        return {}
+    return {r["id"]: owners.get(r["user_id"])
+            for r in table_rows(src, "profiles", "user_id IS NOT NULL", ())}
+
+
+def _live_account_profile(dst, account: int) -> int:
+    dst.execute("INSERT OR IGNORE INTO profiles (name, created_at, user_id) VALUES (?, ?, ?)",
+                (f"Account {account}", clock.utcnow().isoformat(), account))
+    return dst.execute("SELECT id FROM profiles WHERE user_id = ?", (account,)).fetchone()[0]
+
+
+def _place_profile_row(dst, child: dict, profiles: set, account_profiles: dict) -> bool:
+    """Points a restored progress, notes or history row at a live profile; False drops it (its profile
+    is gone here, or belongs to an account with no live match)."""
+    profile = child.get("profile_id")
+    if profile in account_profiles:
+        account = account_profiles[profile]
+        if account is None:
+            return False
+        child["profile_id"] = _live_account_profile(dst, account)
+        return True
+    return profile is None or profile in profiles
 
 
 def _live_ids(dst, table: str) -> set:
@@ -489,9 +510,9 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     drama = drama[0]
     counts = {}
     profiles = _live_ids(dst, "profiles")
-    account_profiles = _account_profile_ids(src)
     row = sensitivity_preset.older_row(drama)
     owners = owners or {}
+    account_profiles = _account_profile_accounts(src, owners)
     _set_accounts(row, drama, import_as, owners)
     # db.auth.assign_drama_series lets only the PC owner's titles (owner NULL)
     # join another account's private series; an unmatched owner only looks
@@ -533,8 +554,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             old = child.pop("id", None)
             child["drama_id"] = live_id
             _sanitise_file_refs(table, child, import_as)
-            if table in _PROFILE_TABLES and (child.get("profile_id") in account_profiles or (
-                    child.get("profile_id") is not None and child["profile_id"] not in profiles)):
+            if table in _PROFILE_TABLES and not _place_profile_row(dst, child, profiles, account_profiles):
                 continue
             if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
                                                                  line_by_idx):
