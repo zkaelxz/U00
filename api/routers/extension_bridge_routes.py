@@ -32,7 +32,8 @@ from lib.errors import InvalidInputError
 from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import live_service, model_readiness_service, quick_video_service, translate_run_service
+from services import (live_service, model_readiness_service, quick_video_service,
+                      sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
 from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
@@ -248,6 +249,24 @@ async def post_report(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_page_report(
         payload, principal=principal), needs=("library.read",))
+
+
+@router.post("/follow", dependencies=[require_device_token()],
+             summary="Device token: watch the series of a Grab page for new chapters")
+async def post_follow(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _follow(payload, principal), needs=("sources.import",))
+
+
+def _follow(payload: dict, principal) -> dict:
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise page_server.EndpointError(400, "url is required")
+    try:
+        return sources_tracking_service.follow_from_page(url, principal=principal)
+    except ServiceError as e:
+        status = 422 if isinstance(e, InvalidInputError) else 404 if isinstance(e, NotFoundError) else 409
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
 
 
 @router.post("/cancel", dependencies=[require_device_token()],
