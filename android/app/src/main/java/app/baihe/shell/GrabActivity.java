@@ -268,6 +268,31 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
+    private static final int REQUEST_GALLERY = 41;
+
+    private void pickGallery() {
+        Intent pick = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+                .addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(pick, "Pictures to translate"), REQUEST_GALLERY);
+    }
+
+    /** Picked pictures take the same road as ones shared from the gallery, so the title prompt and limits are shared. */
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_GALLERY || result != RESULT_OK || data == null) return;
+        ArrayList<Uri> picked = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) picked.add(data.getClipData().getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            picked.add(data.getData());
+        }
+        if (picked.isEmpty()) return;
+        Intent shared = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/*")
+                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, picked);
+        shareImages(shared);
+    }
+
     /** What another app shared: a link opens in the browser, images go straight to Baihe. */
     private void handleShare(Intent intent) {
         if (intent == null) return;
@@ -423,6 +448,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
+        menu.getMenu().add("Pictures from my gallery");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
@@ -434,6 +460,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if ("Translate this page".equals(title)) setTranslate(true);
             else if ("Show original page".equals(title)) setTranslate(false);
             else if ("Settings".equals(title)) showSettings();
+            else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
