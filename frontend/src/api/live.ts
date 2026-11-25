@@ -210,7 +210,9 @@ export const checkOllama = (model: string, f?: Fetch, gpu?: { whisperSize: strin
 }
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
-export const listLive = (f?: Fetch) => getJson<LiveSessionSummary[]>('/api/live/sessions', f)
+/** `everyone`: an admin or the PC owner also lists other accounts' sessions. */
+export const listLive = (everyone = false, f?: Fetch) =>
+  getJson<LiveSessionSummary[]>(everyone ? '/api/live/sessions?everyone=true' : '/api/live/sessions', f)
 export const getLive = async (id: string, after: number, f?: Fetch) =>
   getJson<LiveSessionStatus>(`${sessionPath(id)}?after=${Math.max(0, Math.floor(after))}`, f)
 export const getLiveChat = async (id: string, after: number, f?: Fetch) =>

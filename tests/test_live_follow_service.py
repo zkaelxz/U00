@@ -151,7 +151,7 @@ def test_an_admin_away_from_the_pc_changes_only_their_own(follows):
     assert svc.remove_follow(b["id"], principal=OWNER)["removed"] is True
 
 
-def test_no_cap_on_follows_but_a_member_adds_ten_an_hour(follows):
+def test_no_cap_on_follows_but_a_member_adds_a_hundred_an_hour_and_an_admin_any_number(follows):
     for i in range(svc.MAX_ADDS_PER_HOUR):
         svc.add_follow(f"@alice{i:03}", principal=ALICE)
     with pytest.raises(RateLimitedError):
@@ -159,7 +159,9 @@ def test_no_cap_on_follows_but_a_member_adds_ten_an_hour(follows):
     for i in range(25):
         svc.add_follow(f"@owner{i:03}", principal=OWNER)
     svc.add_follow("@bob_ch", principal=BOB)
-    assert live_follow_store.count(any_owner=True) == svc.MAX_ADDS_PER_HOUR + 26
+    for i in range(svc.MAX_ADDS_PER_HOUR + 5):
+        svc.add_follow(f"@admin{i:03}", principal=REMOTE_ADMIN)
+    assert live_follow_store.count(any_owner=True) == 2 * svc.MAX_ADDS_PER_HOUR + 31
 
 
 def test_the_same_channel_twice_is_refused_for_one_user_only(follows):
