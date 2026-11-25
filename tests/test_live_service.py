@@ -927,7 +927,6 @@ def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chun
 
 
 def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
-    from lib.errors import ConflictError
     url = "https://www.youtube.com/watch?v=abcdefghijk"
     owner, admin = {"user_id": 1}, {"user_id": 2, "is_admin": True}
     a = live_service.start_session(url, engine="fake", principal=owner)["session_id"]
@@ -937,8 +936,8 @@ def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
     assert live_service.stop_session(a, principal=admin)["stopping"] is False
     assert background_jobs.is_running(a)
     live_service._sessions[a]["private"] = True
-    with pytest.raises(ConflictError):
-        live_service.start_session(url, engine="fake", principal={"user_id": 3})
+    other = live_service.start_session(url, engine="fake", principal={"user_id": 3})
+    assert other["session_id"] != a and "joined" not in other
 
 
 def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(live):
@@ -960,7 +959,3 @@ def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(liv
 def test_twitch_never_gets_a_delayed_player(live):
     sid = _start(url="https://www.twitch.tv/some_streamer", delayed_player=True)
     assert live_service.get_session(sid)["delayed_player"] is False
-
-
-    other = live_service.start_session(url, engine="fake", principal={"user_id": 3})
-    assert other["session_id"] != a and "joined" not in other
