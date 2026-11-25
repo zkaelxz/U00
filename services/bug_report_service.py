@@ -553,7 +553,7 @@ _PAGE_IMAGE_PREFIX = "data:image/jpeg;base64,"
 
 
 def _page_region(r: dict) -> dict:
-    row = {k: int(r[k]) for k in ("x", "y", "w", "h", "reading_order")
+    row: dict = {k: int(r[k]) for k in ("x", "y", "w", "h", "reading_order")
            if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
     for k in ("source_text", "translated_text"):
         row[k] = _scrub(r.get(k), 1000)
