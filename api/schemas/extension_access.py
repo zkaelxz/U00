@@ -30,6 +30,7 @@ __all__ = [
     "MemberKeyRemoved",
     "MemberPaidLimitRequest",
     "AdminAddUserRequest",
+    "AdminDisplayNameRequest",
     "NotificationChannel",
     "NotificationOutcome",
     "NotificationChannelSetRequest",
@@ -169,6 +170,12 @@ class AdminAddUserRequest(BaseModel):
     email: StrictStr = Field(..., min_length=3, max_length=254)
     display_name: StrictStr = Field("", max_length=100)
     extension_send: StrictBool = False
+
+class AdminDisplayNameRequest(BaseModel):
+    """People > Edit name; empty clears it."""
+    model_config = ConfigDict(extra="forbid")
+    display_name: StrictStr = Field(..., max_length=100)
+
 
 # --- Job notifications (Discord / ntfy) ---------------------------------------
 NotificationChannel = Literal["discord", "ntfy"]
