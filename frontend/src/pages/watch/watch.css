@@ -149,3 +149,4 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 @media (pointer: coarse), (max-width: 640px) {
   .watch-bookmark-actions .btn, .watch-bookmark-edit .btn { min-height: 44px; }
 }
+.watch-bookmark-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }

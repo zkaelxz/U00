@@ -44,6 +44,10 @@ public class MainActivity extends Activity {
     private long updateCheckedAt;
     private boolean updateOffered;
     private View customView;
+    /** The Studio | Grab strip, hidden while the app is a small floating window. */
+    private View strip;
+    /** A Live session's picture is on screen, so leaving the app should float it (picture-in-picture). */
+    private boolean liveWatching;
     private WebChromeClient.CustomViewCallback customViewCallback;
 
     @Override
@@ -63,6 +67,8 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
+                // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
+                setLiveWatching(false);
                 String address = savedAddress();
                 if (address != null && ServerAddress.sameOrigin(address, url)) checkForUpdate(address);
             }
@@ -133,7 +139,22 @@ public class MainActivity extends Activity {
         });
         // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
         // address loads in this WebView, so no other site can reach it.
-        web.addJavascriptInterface(new ShellSettings.Bridge(this, this::askForAlertPermission), "BaiheShell");
+        web.addJavascriptInterface(new ShellSettings.Bridge(this, new ShellSettings.Host() {
+            @Override
+            public void alertsSwitchedOn() {
+                askForAlertPermission();
+            }
+
+            @Override
+            public void liveWatching(boolean watching) {
+                runOnUiThread(() -> setLiveWatching(watching));
+            }
+
+            @Override
+            public void popOut() {
+                runOnUiThread(() -> enterPip());
+            }
+        }), "BaiheShell");
         setContentView(page());
         open(getIntent());
         AlertSchedule.ensure(this);
@@ -158,12 +179,59 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFitsSystemWindows(true);
         root.setBackgroundColor(palette.surface);
-        root.addView(ShellTabs.strip(this, palette, false), new LinearLayout.LayoutParams(
+        strip = ShellTabs.strip(this, palette, false);
+        root.addView(strip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         ViewGroup parent = (ViewGroup) web.getParent();
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    private boolean pipAllowed() {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && ShellSettings.isOn(this, ShellSettings.PIP);
+    }
+
+    private void setLiveWatching(boolean watching) {
+        liveWatching = watching;
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
+        // From Android 12 the system floats the app by itself on the home gesture; older ones use onUserLeaveHint.
+        try {
+            setPictureInPictureParams(pipParams(watching && pipAllowed()));
+        } catch (RuntimeException ignored) {
+            // The device has no picture-in-picture: the app just leaves as before.
+        }
+    }
+
+    @android.annotation.TargetApi(Build.VERSION_CODES.O)
+    private android.app.PictureInPictureParams pipParams(boolean autoEnter) {
+        android.app.PictureInPictureParams.Builder builder = new android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(new android.util.Rational(16, 9));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) builder.setAutoEnterEnabled(autoEnter);
+        return builder.build();
+    }
+
+    private void enterPip() {
+        if (!pipAllowed() || isInPictureInPictureMode()) return;
+        try {
+            enterPictureInPictureMode(pipParams(false));
+        } catch (RuntimeException ignored) {
+            // Refused (picture-in-picture is off for this app in Android's settings): nothing to float.
+        }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip();
+    }
+
+    /** The page hides everything but the picture and its captions while the window is this small. */
+    @Override
+    public void onPictureInPictureModeChanged(boolean inPip, android.content.res.Configuration config) {
+        super.onPictureInPictureModeChanged(inPip, config);
+        if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
     }
 
     /** The clipboard can only be read while this window has focus (Android 10+). */

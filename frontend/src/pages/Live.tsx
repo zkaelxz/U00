@@ -46,6 +46,8 @@ import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize } from './readiness/needs'
 import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
+import { LiveNowCards } from './live/LiveNowCards'
+import { useFollows } from './live/useFollows'
 import { ReadChatField } from './live/LiveChat'
 import { useLiveSession } from './live/useLiveSession'
 import { LiveWatch } from './live/LiveWatch'
@@ -54,7 +56,7 @@ import { useOllamaCheck } from './live/useOllamaCheck'
 import { parseStreamUrl } from './live/embedLogic'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
-import { routeHref } from '../router'
+import { routeHref, useRoute } from '../router'
 
 const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
@@ -109,6 +111,9 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
     ? captionPresetModel(prefs.caption_preset, opts, language) : undefined
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
+  const follows = useFollows()
+  const route = useRoute()
+  const pickedFollow = route.name === 'live' && route.follow ? route.follow : null
 
   const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
@@ -185,6 +190,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   return (
     <PageShell width="standard" title="Live" label="Live" className={active ? 'live-page live-wide' : 'live-page'}>
       <div className="panel">
+        {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>
           <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
@@ -359,7 +365,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             {error}
           </p>
         )}
-        {!active && <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
+        {!active && <FollowedChannels follows={follows} picked={pickedFollow} liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
 
         {session && (
           <LiveWatch session={session} stopping={stopping} joined={joined} onStop={() => void stop()} onClear={clearLines}

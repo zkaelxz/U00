@@ -32,6 +32,11 @@ export function PhoneAppCard() {
           label="Offer to subtitle or read a copied link"
           help="When you open Baihe with a video or comic link just copied, asks once per link whether to subtitle it or Quick read it. Android may show its own 'pasted from your clipboard' note when Baihe looks."
         />
+        <ShellToggle
+          name="pip_on"
+          label="Float Live in a small window when I leave the app"
+          help="While a Live picture is playing, going Home keeps it in a small window over other apps, with the captions on it. Turn off Captions over video in Live and the window shows only the picture."
+        />
       </div>
     </Card>
   )

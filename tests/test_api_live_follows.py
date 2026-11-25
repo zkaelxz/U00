@@ -183,8 +183,9 @@ def test_the_bell_carries_the_start_action_for_the_follows_owner_only(env):
     assert [i["kind"] for i in items] == ["job_done", "live", "live"]
     # A plain entry keeps its four keys; a followed channel's carries only what it has.
     assert set(items[0]) == {"id", "at", "kind", "text"}
-    assert set(items[1]) == {"id", "at", "kind", "text", "follow_id", "starts_at"}
+    assert set(items[1]) == {"id", "at", "kind", "text", "follow_id", "starts_at", "target"}
     assert items[1]["starts_at"] == 1800000000.0
-    assert set(items[2]) == {"id", "at", "kind", "text", "follow_id", "action"}
+    assert set(items[2]) == {"id", "at", "kind", "text", "follow_id", "action", "target"}
     assert items[2]["action"] == "start_live" and items[2]["follow_id"] == 7
+    assert items[2]["target"] == {"page": "live", "follow_id": 7}
     assert c.get("/api/notifications", headers=bob).json()["items"] == []

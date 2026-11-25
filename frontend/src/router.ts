@@ -58,7 +58,8 @@ export type Route =
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
   // url: "#/live?url=<link>" (the share picker's Start Live) fills the stream address.
-  | { name: 'live'; url?: string }
+  // follow: "#/live?follow=<id>" (a bell alert) opens Live with that followed channel picked.
+  | { name: 'live'; url?: string; follow?: number }
   // Everything new in one list: new chapters and followed channels that are live or scheduled.
   | { name: 'updates' }
   | { name: 'assistant' }
@@ -142,8 +143,14 @@ export function parseRoute(hash: string): Route {
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
   if ((head === 'make-subtitles' || head === 'share' || head === 'live') && parts.length === 1) {
-    const url = new URLSearchParams(qs).get('url')
-    return { name: head, ...(url && isSharedLink(url) ? { url } : {}) }
+    const q = new URLSearchParams(qs)
+    const url = q.get('url')
+    const follow = q.get('follow')
+    return {
+      name: head,
+      ...(url && isSharedLink(url) ? { url } : {}),
+      ...(head === 'live' && follow && /^\d+$/.test(follow) && Number(follow) >= 1 ? { follow: Number(follow) } : {}),
+    }
   }
   if (head === 'sources' && parts.length === 1) {
     const q = new URLSearchParams(qs)
@@ -255,6 +262,7 @@ export function routeHref(r: Route): string {
     return `#/sources?${q}`
   }
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'live' && r.follow && !r.url) return `#/live?follow=${r.follow}`
   if ((r.name === 'make-subtitles' || r.name === 'share' || r.name === 'live' || r.name === 'sources') && r.url) return `#/${r.name}?url=${encodeURIComponent(r.url)}`
   if (r.name === 'jobs' && r.job) return `#/jobs?job=${encodeURIComponent(r.job)}`
   if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
