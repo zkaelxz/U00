@@ -11,7 +11,7 @@ from typing import Optional
 
 import background_jobs
 from lib.errors import ConflictError, NotFoundError
-from services import artifact_service, ownership_service
+from services import artifact_service, auth_service, ownership_service
 
 LINK_SECONDS = 6 * 3600     # a long film plus pauses; the TV only needs the link while it plays
 MAX_LINKS_PER_USER = 5
@@ -35,7 +35,15 @@ def _prune(now: float) -> None:
 
 
 def _burned(drama_id: int) -> Optional[dict]:
-    return artifact_service.find_artifact(drama_id, "video")
+    """The title's newest English-subtitled copy a TV can open, else None."""
+    try:
+        art = artifact_service.find_artifact(drama_id, "video")
+    except NotFoundError:
+        return None     # a deleted title reads as no copy, not as a message naming its id
+    # A copy burned with the original language alone is no use on a TV for English viewers.
+    if art is None or art["language"] not in ("", "en") and not art["language"].endswith("+en"):
+        return None
+    return art
 
 
 def status(drama_id: int) -> dict:
@@ -44,8 +52,7 @@ def status(drama_id: int) -> dict:
     if job and job["status"] in ("running", "queued"):
         return {"state": WORKING}
     art = _burned(drama_id)
-    # A copy burned with the original language alone is no use on a TV for English viewers.
-    if art is None or art["language"] not in ("", "en") and not art["language"].endswith("+en"):
+    if art is None:
         return {"state": MISSING}
     if os.path.splitext(art["name"])[1].lower() not in PLAYABLE:
         return {"state": UNSUPPORTED}
@@ -55,6 +62,8 @@ def status(drama_id: int) -> dict:
 def create_link(principal, drama_id: int) -> dict:
     """A link to the title's subtitled copy for the caller; the title is visible to them already
     (the route's path guard) and the copy must exist and be in a format a TV opens."""
+    # Visible to the caller in the Guest sense too: the route's path guard asks only that they may edit.
+    ownership_service.require_visible(principal, "drama", drama_id)
     if status(drama_id)["state"] != READY:
         raise ConflictError("The subtitled copy of this title is not ready to cast.")
     secret = secrets.token_urlsafe(32)
@@ -72,17 +81,27 @@ def create_link(principal, drama_id: int) -> dict:
     return {"path": f"/api/cast/video?k={secret}", "expires_in": LINK_SECONDS}
 
 
+def _may_still(entry: dict) -> bool:
+    """The link's account is as able as when it made the link: signed-in accounts only, active, still
+    holding media.stream and still seeing the title, so a deactivation, a revoked right or a title made
+    private ends its links at once. Auth off (no account) has nothing to re-check."""
+    uid = entry["user_id"]
+    if uid is None:
+        return True
+    member = auth_service.member_principal(uid)
+    return (member is not None and "media.stream" in auth_service.working_permissions(uid)
+            and ownership_service.can_see_drama(member, entry["drama_id"]))
+
+
 def resolve(secret: str) -> tuple:
-    """(file path, content type) for a live link. Every failure is the same 404, so a guess learns
-    nothing; the file is looked up afresh, so a title deleted or re-exported meanwhile is followed."""
+    """(file path, content type, account id) for a live link. Every failure is the same 404, so a guess
+    learns nothing; the file is looked up afresh, so a title deleted or re-exported meanwhile is followed."""
     now = time.time()
     with _lock:
         _prune(now)
         entry = _links.get(_digest(secret))
-    if entry is None:
-        raise NotFoundError("This cast link has ended.")
-    art = _burned(entry["drama_id"])
+    art = _burned(entry["drama_id"]) if entry is not None and _may_still(entry) else None
     ctype = PLAYABLE.get(os.path.splitext(art["name"])[1].lower()) if art else None
-    if art is None or ctype is None:
+    if entry is None or art is None or ctype is None:
         raise NotFoundError("This cast link has ended.")
-    return art["path"], ctype
+    return art["path"], ctype, entry["user_id"]

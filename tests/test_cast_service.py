@@ -75,4 +75,32 @@ def test_the_tv_fetches_the_file_with_no_sign_in_and_ranges(isolated_db):
     assert got.status_code == 206 and got.content == b"234"
     assert got.headers["access-control-allow-origin"] == "*"
     assert client.get("/api/cast/video?k=" + "x" * 43).status_code == 404
-    assert client.get(f"/api/cast/dramas/{did}").status_code in (401, 403)
+    assert client.get(f"/api/cast/dramas/{did}").status_code == 401
+    assert client.head(f"/api/cast/video?k={secret}").status_code == 200
+
+
+def test_a_deleted_title_ends_its_link_with_the_same_404(isolated_db):
+    did = _title()
+    secret = cast_service.create_link(None, did)["path"].split("k=")[1]
+    db.delete_drama(did)
+    with pytest.raises(NotFoundError) as ended:
+        cast_service.resolve(secret)
+    assert str(did) not in ended.value.message
+
+
+def test_a_link_stops_when_its_account_loses_media_stream_or_is_deactivated(isolated_db):
+    from services import auth_service
+    uid = db.auth_create_user("tv@example.com")
+    db.auth_grant_permission(uid, "media.stream")
+    did = _title()
+    principal = auth_service.member_principal(uid)
+    secret = cast_service.create_link(principal, did)["path"].split("k=")[1]
+    assert cast_service.resolve(secret)[2] == uid
+    db.auth_revoke_permission(uid, "media.stream")
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(secret)
+    db.auth_grant_permission(uid, "media.stream")
+    assert cast_service.resolve(secret)
+    db.auth_update_user(uid, is_active=0)
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(secret)
