@@ -115,7 +115,7 @@
 .settings-card[data-change] { position: relative; }
 .settings-card[data-change]::after {
   content: 'New'; position: absolute; top: var(--space-2); right: var(--space-2); pointer-events: none;
-  padding: 0 var(--space-2); border-radius: 999px; font-size: 0.75rem; line-height: 1.5;
+  padding: 0 var(--space-2); border-radius: 999px; font-size: var(--text-sm); line-height: 1.5;
   background: var(--accent, #2563eb); color: #fff;
 }
 .settings-card[data-change='moved']::after { content: 'Moved'; }
