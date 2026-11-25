@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendingCue } from './liveMocks'
+import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, openMoreOptions, pendingCue } from './liveMocks'
 import { mockEmbedHosts } from './liveVideoMocks'
 import { runClock } from './mockHelpers'
 
@@ -26,6 +26,7 @@ test('read chat is sent with Start and the chat shows beside the lines', async (
     { id: 2, author: 'Bo', text: '加油', paid: '$5.00', translation: '', state: 'pending' },
   ] }
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
   await live.getByText('Advanced').click()
   await live.getByRole('switch', { name: 'Read chat' }).click()
@@ -50,6 +51,7 @@ test('a failed check for a running session is shown, not swallowed', async ({ pa
 test('start, see lines arrive, stop', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await expect(page.getByRole('link', { name: 'Live' })).toHaveAttribute('aria-current', 'page')
 
   const start = live.getByRole('button', { name: 'Start', exact: true })
@@ -58,7 +60,7 @@ test('start, see lines arrive, stop', async ({ page }) => {
   await live.getByLabel('Stream link', { exact: true }).fill('youtube.com/live')
   await expect(live.getByText(/full link starting with https/)).toBeVisible()
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
-  await live.getByLabel('Language', { exact: true }).selectOption('ja')
+  await live.getByRole('radio', { name: 'Japanese' }).click()
   // Only engines with a key are offered; the first is picked.
   await expect(live.getByLabel('AI engine', { exact: true }).locator('option')).toHaveText(['DeepSeek (paid)', 'Fake'])
   // A paid engine with no monthly cap gets a per-session limit beside the engine.
@@ -151,7 +153,7 @@ test('a member gets the link, language and glossary only; Start sends the defaul
   const live = await openLive(page)
   await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and caption settings are chosen for you.')
   await expect(live.getByText('Advanced')).toHaveCount(0)
-  await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
+  await expect(live.getByRole('radio', { name: 'Japanese' })).toBeChecked()
   await expect(live.getByTestId('live-glossary-title')).toBeVisible()
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
@@ -273,6 +275,7 @@ test('the status names the stage, flags a long wait on Ollama, and says what a s
 test('model picker: Ollama and translategemma:27b are the labelled default, and every other choice still works', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   const engine = live.getByLabel('AI engine', { exact: true })
   await expect(engine).toHaveValue('ollama')
@@ -325,6 +328,7 @@ test('default start sends Ollama with translategemma:27b and replies without thi
 test('Ollama missing: says so plainly, keeps the engine, and another engine can be picked', async ({ page }) => {
   const m = await mockLive(page, { ollama: true, ollamaMissing: true })
   const live = await openLive(page)
+  await openMoreOptions(live)
   const note = live.getByTestId('live-ollama-note')
   await expect(note).toContainText('Ollama doesn\'t have the model translategemma:27b')
   await expect(note).toContainText('Pick another engine or model above')
@@ -340,6 +344,7 @@ test('Ollama missing: says so plainly, keeps the engine, and another engine can 
 test('Reply without thinking: on by default, can be turned off, disabled with a note where unsupported', async ({ page }) => {
   const m = await mockLive(page, { ollama: true })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
   await expect(toggle).toHaveAttribute('aria-checked', 'true')
@@ -373,6 +378,7 @@ test('model picker: a remembered model the engine no longer offers falls back to
 test('model picker: when the engine list fails to load, says the default model is used', async ({ page }) => {
   const m = await mockLive(page, { enginesFail: true })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await expect(live.getByTestId('live-model-note')).toHaveText("Couldn't load the model list; the engine's default model will be used.")
   await expect(live.getByTestId('live-echo-note')).toHaveCount(0)
   await expect(live.getByRole('link', { name: 'Add a key in Settings' })).toHaveAttribute('href', '#/settings')
@@ -419,6 +425,7 @@ test('a stopped session leaves the transcript with a plain note', async ({ page 
 test('a switch inside a field keeps its own size', async ({ page }) => {
   await mockLive(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   await expectSwitchKeepsItsSize(live)
 })
@@ -446,6 +453,7 @@ test('the first Stop finishes what was captured, and Stop now ends it at once', 
 test('large-v3-turbo is offered with what it costs, small stays the default', async ({ page }) => {
   await mockLive(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   const select = live.getByLabel('Whisper model', { exact: true })
   await expect(select).toHaveValue('small')
@@ -459,6 +467,7 @@ test('no engine has a key: a link to Settings, and the Echo line only in Develop
   const m = await mockLive(page)
   await page.route('**/api/translate/engines', (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ items: [] }) }))
   const live = await openLive(page)
+  await openMoreOptions(live)
   await expect(live.getByRole('link', { name: 'Add a key in Settings' })).toHaveAttribute('href', '#/settings')
   await expect(live.getByText('No engine with a key')).toHaveCount(0)
   await expect(live.getByTestId('live-echo-note')).toHaveCount(0)
@@ -561,8 +570,9 @@ test('the form offers and starts on what the server says, and a remembered choic
     },
   })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await expect(live.getByLabel('Model', { exact: true })).toHaveValue('translategemma:27b')
-  await expect(live.getByLabel('Language', { exact: true })).toHaveValue('ja')
+  await expect(live.getByRole('radio', { name: 'Japanese' })).toBeChecked()
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Whisper model', { exact: true }).locator('option')).toHaveText(['small', 'medium'])
   await expect(live.getByLabel('Stop after', { exact: true })).toHaveAttribute('max', '30')
@@ -612,6 +622,18 @@ test('watching: stream chips switch sessions, lines scroll in their own box with
   await fresh.click()
   await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeLessThan(24)
   await expect(fresh).toHaveCount(0)
+
+  // Viewing options: a larger text size grows the translation, and Show original hides the transcript under it.
+  const translation = box.locator('.live-en').first()
+  const before = await translation.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  await live.getByRole('radio', { name: 'Large' }).click()
+  await expect(live.getByRole('radio', { name: 'Large' })).toHaveAttribute('aria-checked', 'true')
+  expect(await translation.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(before)
+  await expect(box.locator('.live-src').first()).toBeVisible()
+  await live.getByRole('switch', { name: 'Show original' }).click()
+  await expect(box.locator('.live-src').first()).toBeHidden()
+  await live.getByRole('switch', { name: 'Show original' }).click()
+  await live.getByRole('radio', { name: 'Medium' }).click()
 
   // Chat is a tab beside Lines: hidden until chosen.
   await expect(live.getByTestId('live-chat')).toBeHidden()

@@ -241,6 +241,17 @@ export async function openLive(page: Page) {
   return page.getByRole('region', { name: 'Live' })
 }
 
+/** The translator, model and caption options sit in "More options" (admins only); open them. */
+export async function openMoreOptions(live: Locator) {
+  const more = live.locator('summary', { hasText: 'More options' })
+  const section = more.locator('xpath=..')
+  // The page re-renders once its option lists load and can close the section again; keep it open until it stays.
+  await expect(async () => {
+    if (!(await section.evaluate((d) => (d as HTMLDetailsElement).open))) await more.click()
+    await expect(section).toHaveJSProperty('open', true)
+  }).toPass()
+}
+
 // A switch inside a Field must keep its own 44x24 track with the knob at the right end when on.
 export async function expectSwitchKeepsItsSize(live: Locator) {
   const toggle = live.getByRole('switch', { name: 'Reply without thinking' })
