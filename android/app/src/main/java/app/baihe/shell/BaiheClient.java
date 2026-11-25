@@ -139,6 +139,11 @@ final class BaiheClient {
         }
     }
 
+    /** Sends a Quick read page the reader found wrong, with what the PC read on it, to the PC's reports. */
+    void sendReport(JSONObject body) throws BridgeException {
+        call("POST", "/report", body);
+    }
+
     /** Hears each finished page as the server sends it, instead of after the whole batch. */
     interface PageListener {
         void onPage(JSONObject page) throws IOException;

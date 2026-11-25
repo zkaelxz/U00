@@ -43,9 +43,9 @@ import java.util.concurrent.Executors;
  * Google sign-in does not work inside an embedded web view, and a token can be revoked.
  */
 public class GrabActivity extends Activity implements GrabBridge.Listener {
-    private static final String PREFS = "grab";
-    private static final String KEY_SERVER = "server";
-    private static final String KEY_TOKEN = "token";
+    static final String PREFS = "grab";
+    static final String KEY_SERVER = "server";
+    static final String KEY_TOKEN = "token";
     private static final String KEY_QUEUE = "queue";
     private static final String KEY_HISTORY = "history";
     private static final String KEY_READ_AHEAD = "read_ahead";
@@ -1096,6 +1096,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<List<PageImage>> batches = Batches.plan(pages, max, 1);
             int n = batches.size();
             Object lock = new Object();
+            // A page's report text, found again by the very array that shows it.
+            java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
             List<List<byte[]>> held = new ArrayList<>();
             boolean[] finished = new boolean[n];
             for (int i = 0; i < n; i++) held.add(new ArrayList<>());
@@ -1119,6 +1121,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 } catch (IOException e) {
                     return;
                 }
+                String meta = metaOf.remove(jpeg);
+                if (meta != null) QuickReadActivity.writeReportText(this, name, meta);
                 shown[0]++;
                 QuickReadSession.add(name);
                 say("Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
@@ -1151,6 +1155,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                 return;
                             }
                             List<byte[]> jpegs = QuickRead.typesetPages(wrapped);
+                            String meta = PageReport.meta(page, QuickRead.sourceUrl(batches.get(index), page.optString("key", "")),
+                                    url, runName);
                             synchronized (lock) {
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
@@ -1159,6 +1165,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
                                 for (byte[] jpeg : jpegs) {
+                                    metaOf.put(jpeg, meta);
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }

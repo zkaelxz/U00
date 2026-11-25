@@ -4060,6 +4060,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/report": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: send a Quick read page that came out wrong to the PC's reports */
+        post: operations["post_report_api_ext_bridge_report_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -45047,6 +45064,26 @@ export interface operations {
         };
     };
     post_pages_api_ext_bridge_pages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_report_api_ext_bridge_report_post: {
         parameters: {
             query?: never;
             header?: never;
