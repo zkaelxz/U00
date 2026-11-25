@@ -7,7 +7,7 @@ export type QueueStep = 'transcribe' | 'translate' | 'export'
 // The download item exists only in a Quick video translate run, and names (the glossary scan), import (a
 // novel link), text and lines only in a title page's one-button run, and follow and run_translate only in
 // the Add box's run; all are shown, never picked.
-export type QueueItemStep = 'download' | 'names' | 'import' | 'text' | 'lines' | 'follow' | 'run_translate' | QueueStep
+export type QueueItemStep = 'download' | 'names' | 'import' | 'text' | 'lines' | 'follow' | 'run_translate' | 'run_scanlate' | QueueStep
 export type QueueItemStatus = 'waiting' | 'running' | 'done' | 'failed' | 'skipped' | 'interrupted' | 'cancelled'
 export type QueueItem = Schemas['QueueItem']
 

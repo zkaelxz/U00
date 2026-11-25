@@ -492,6 +492,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/pc-profile/pin` | local_only() |
 | `POST /api/pc-profile/unlock` | local_only() |
 | `GET /api/queue` | jobs.start |
+| `GET /api/queue/after-import/{drama_id}` | jobs.start |
+| `POST /api/queue/after-import/{drama_id}` | jobs.start |
 | `POST /api/queue/clear-finished` | jobs.start |
 | `GET /api/queue/file-run/{drama_id}` | jobs.start |
 | `POST /api/queue/file-run/{drama_id}` | jobs.start |
