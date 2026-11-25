@@ -72,6 +72,17 @@ button.watch-row { cursor: pointer; }
 button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0; }
 .watch-list li.is-current .watch-row { background: var(--highlight); box-shadow: inset 3px 0 0 var(--accent); }
 .watch-row-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
+/* One hue per speaker slot, mixed toward the text colour so the name reads in light, dark and sepia alike. The name
+   is always printed, so colour is never the only cue. */
+.watch-list li[data-speaker] { --speaker: var(--accent-text); }
+.watch-list li[data-speaker='0'] { --speaker: color-mix(in srgb, hsl(210 75% 48%) 65%, var(--text)); }
+.watch-list li[data-speaker='1'] { --speaker: color-mix(in srgb, hsl(340 70% 50%) 65%, var(--text)); }
+.watch-list li[data-speaker='2'] { --speaker: color-mix(in srgb, hsl(140 55% 38%) 65%, var(--text)); }
+.watch-list li[data-speaker='3'] { --speaker: color-mix(in srgb, hsl(30 85% 48%) 65%, var(--text)); }
+.watch-list li[data-speaker='4'] { --speaker: color-mix(in srgb, hsl(275 55% 52%) 65%, var(--text)); }
+.watch-list li[data-speaker='5'] { --speaker: color-mix(in srgb, hsl(180 65% 38%) 65%, var(--text)); }
+.watch-list li[data-speaker] .watch-row { border-left: 3px solid var(--speaker); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.watch-row-speaker { color: var(--speaker); font-family: var(--font-sans, inherit); font-weight: 600; }
 .watch-row-zh { color: var(--muted); overflow-wrap: anywhere; }
 .watch-row-en { overflow-wrap: anywhere; }
 .watch-row-en.is-empty { color: var(--muted); font-style: italic; }

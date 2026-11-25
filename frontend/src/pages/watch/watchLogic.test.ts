@@ -6,7 +6,7 @@ import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
   attentionIndex, clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
   lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
-  resumePoint, rowMeta, saveFix, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
+  resumePoint, rowMeta, saveFix, SPEAKER_COLOURS, speakerSlots, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
   watchVerb, type LineFix,
 } from './watchLogic'
 
@@ -419,5 +419,17 @@ describe('the mark and jump keys', () => {
 
   it('leaves the letters to a field being typed in', () => {
     expect(['g', 'x', 'm', 'n', 'p'].map((k) => watchKey(k, field))).toEqual([null, null, null, null, null])
+  })
+})
+
+describe('speakerSlots', () => {
+  it('numbers speakers by first appearance and skips lines with none', () => {
+    const slots = speakerSlots([line(1, 1, 2, { speaker: 'Chime' }), line(2, 3, 4), line(3, 5, 6, { speaker: 'Anvil' }), line(4, 7, 8, { speaker: 'Chime' })])
+    expect([...slots]).toEqual([['Chime', 0], ['Anvil', 1]])
+  })
+
+  it('wraps after the colours the page defines, so a crowded stream repeats rather than fails', () => {
+    const many = Array.from({ length: SPEAKER_COLOURS + 1 }, (_, i) => line(i + 1, i, i + 1, { speaker: `S${i}` }))
+    expect(speakerSlots(many).get(`S${SPEAKER_COLOURS}`)).toBe(0)
   })
 })
