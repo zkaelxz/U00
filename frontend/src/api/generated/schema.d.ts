@@ -23717,6 +23717,8 @@ export interface components {
              * @default
              */
             display_url: string;
+            /** Duration Seconds */
+            duration_seconds: number | null;
             /**
              * Is Live
              * @default false

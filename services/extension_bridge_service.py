@@ -503,7 +503,7 @@ def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
         # Part of the address key: a hotlink-protected CDN answers differently by referer.
         image["fetch_origin"] = url_guard.referer_origin(referer)
         image["fetch_cookie"] = bool(payload.get("fetch_cookie"))
-        hit = _disk_cached(_quick_read_url_key(image, job))
+        hit = None if job.get("redo") else _disk_cached(_quick_read_url_key(image, job))
         if hit is not None:
             image["cached_result"] = hit
         else:
@@ -546,7 +546,8 @@ def _translate_one(image: dict, job: dict, turn):
     cache_key = None
     if cached is None:
         cache_key = _quick_read_key(image, job)
-        cached = _cached_quick_read(cache_key) or _disk_cached(cache_key)
+        # A redo reads the page again; the new answer then replaces the remembered one.
+        cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
     if cached is not None:
         _log_page_time(cached, job, started)
         return "page", {**cached, "key": image["key"], "url": image["url"]}
@@ -679,7 +680,8 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
            "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
            "glossary_version": _glossary_version(drama_id),
-           "member": principal is not None, "single": False, "run_id": _run_id(payload)}
+           "member": principal is not None, "single": False, "run_id": _run_id(payload),
+           "redo": payload.get("redo") is True and not store}
     unfetched = _prefetch(decoded, payload, job, member=_user_id(principal)) if any(i["content"] is None for i in decoded) else []
 
     # Let the existing page-image filter decide what is a real page,

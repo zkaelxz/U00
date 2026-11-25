@@ -27,3 +27,9 @@
 .find-filters .btn { min-height: 44px; }
 .find-in-library { color: var(--ok, var(--accent)); font-weight: 600; }
 .find-results .source-results .btn { min-height: 44px; }
+
+/* What a run will use, read before Start. */
+.add-box-preview { display: grid; gap: var(--space-1); margin: 0; font-size: var(--text-sm); }
+.add-box-preview > div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.add-box-preview dt { color: var(--muted); min-width: 10rem; }
+.add-box-preview dd { margin: 0; }

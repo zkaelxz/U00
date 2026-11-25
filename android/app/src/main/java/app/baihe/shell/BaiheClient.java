@@ -34,6 +34,8 @@ final class BaiheClient {
     volatile UploadStats stats;
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
     volatile String fetchUserAgent;
+    /** Quick read only: read the pages again even when the PC remembers them (a "Redo this page"). */
+    volatile boolean redo;
     /** Quick read only: the page's language when its text showed it ("" lets the PC decide). */
     volatile String sourceLanguage = "";
 
@@ -298,6 +300,7 @@ final class BaiheClient {
             body.put("typeset", true);
             if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
+            if (redo) body.put("redo", true);
         }
         return body;
     }

@@ -156,9 +156,75 @@ public class QuickReadActivity extends Activity {
 
     private void askReport(File page) {
         new android.app.AlertDialog.Builder(this)
-                .setItems(new String[] {"Send a report", "Brightness and night colours"},
-                        (d, which) -> { if (which == 0) askNote(page); else askNight(); })
+                .setItems(new String[] {"Send a report", "Redo this page", "Brightness and night colours"},
+                        (d, which) -> {
+                            if (which == 0) askNote(page);
+                            else if (which == 1) redoPage(page);
+                            else askNight();
+                        })
                 .show();
+    }
+
+    /**
+     * Asks the PC to read this page again, ignoring what it remembers, and swaps the new redraw in.
+     * The picture comes from the original kept beside the page, else from the address the report
+     * sidecar holds, which the PC downloads itself.
+     */
+    private void redoPage(File page) {
+        android.content.SharedPreferences prefs = getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+        String server = prefs.getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
+        File original = new File(page.getParentFile(), originalName(page.getName()));
+        File text = new File(page.getParentFile(), reportName(page.getName()));
+        android.widget.Toast.makeText(this, "Redoing this page...", android.widget.Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String message = "Redone.";
+            try {
+                String meta = text.isFile() ? new String(java.nio.file.Files.readAllBytes(text.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8) : "{}";
+                org.json.JSONObject info = new org.json.JSONObject(meta);
+                PageImage image;
+                if (original.isFile()) {
+                    String data = java.util.Base64.getEncoder().encodeToString(java.nio.file.Files.readAllBytes(original.toPath()));
+                    image = new PageImage("redo", "", "image/jpeg", data);
+                } else if (info.optString("image_url").startsWith("http")) {
+                    image = new PageImage("redo", info.optString("image_url"), "image/jpeg", "", true);
+                } else {
+                    throw new BaiheClient.BridgeException(0, "This page has no picture to read again.");
+                }
+                BaiheClient client = new BaiheClient(server, token);
+                client.redo = true;
+                client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                byte[][] fresh = {null};
+                client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
+                    try {
+                        java.util.List<byte[]> jpegs = QuickRead.typesetPages(new org.json.JSONObject().put("pages",
+                                new org.json.JSONArray().put(answer)));
+                        if (!jpegs.isEmpty()) fresh[0] = jpegs.get(0);
+                    } catch (org.json.JSONException ignored) {
+                        // No redraw came back; the check below reports it.
+                    }
+                });
+                if (fresh[0] == null) throw new BaiheClient.BridgeException(0, "The PC could not redo this page.");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(page)) {
+                    out.write(fresh[0]);
+                }
+            } catch (BaiheClient.BridgeException e) {
+                message = e.getMessage();
+            } catch (Exception e) {
+                message = "Could not redo this page.";
+            }
+            String shown = message;
+            runOnUiThread(() -> {
+                int at = files.indexOf(page);
+                if (at >= 0) {
+                    cache.remove(at);
+                    showingOriginal.remove(at);
+                    adapter.notifyDataSetChanged();
+                }
+                android.widget.Toast.makeText(this, shown, android.widget.Toast.LENGTH_LONG).show();
+            });
+        }, "page-redo").start();
     }
 
     private void askNote(File page) {
