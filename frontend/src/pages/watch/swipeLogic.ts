@@ -1,17 +1,16 @@
-// Swipes on the Watch picture: a short sideways swipe seeks, a long swipe to the left goes to the next episode.
+// Swipes on the Watch picture: a short sideways swipe seeks, in the direction of the seek bar under it.
 
 export const SWIPE_SEEK_SECONDS = 10
 /** Below this the finger only wobbled, or tapped: the player's own tap handling decides. */
 const MIN_SWIPE_PX = 60
-/** A swipe this share of the picture's width counts as "go to the next episode". */
-const NEXT_SHARE = 0.55
+/** A swipe starting this close to a screen edge is the phone's own Back gesture. */
+export const EDGE_PX = 24
 
-export type SwipeAction = { kind: 'seek'; by: number } | { kind: 'next' }
-
-/** What a finger's travel means, or null for a tap, a mostly vertical drag (the page scroll) or a wobble. */
-export function swipeAction(dx: number, dy: number, width: number): SwipeAction | null {
+/** Seconds to seek for a finger's travel, or null for a tap, a mostly vertical drag (the page scroll) or a wobble. */
+export function swipeSeek(dx: number, dy: number): number | null {
   if (Math.abs(dx) < MIN_SWIPE_PX || Math.abs(dy) > Math.abs(dx) / 2) return null
-  if (dx < 0 && width > 0 && -dx >= width * NEXT_SHARE) return { kind: 'next' }
-  // Left drags the picture forward in time, like turning a page.
-  return { kind: 'seek', by: dx < 0 ? SWIPE_SEEK_SECONDS : -SWIPE_SEEK_SECONDS }
+  return dx > 0 ? SWIPE_SEEK_SECONDS : -SWIPE_SEEK_SECONDS
 }
+
+/** True when a touch begins in the strip along either edge of a screen `width` wide. */
+export const startsAtEdge = (x: number, width: number) => x < EDGE_PX || x > width - EDGE_PX
