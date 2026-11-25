@@ -1,4 +1,5 @@
 import { routeHref } from '../router'
+import { canOpenDiagnostics } from './errorMessages'
 
 export interface ErrorAction {
   label: string
@@ -11,10 +12,13 @@ const PACKAGE_KEY = /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/
 /**
  * The fix that matches the CAUSE of a dependency error: a missing key or token is added in
  * Settings, a missing package is installed in Diagnostics (with that package picked when the
- * server named it). Anything else gets no action here.
+ * server named it). A failed job links to Jobs and an internal error to the log (admins only).
  */
 export function errorAction(err: unknown): ErrorAction | null {
   const e = err as { code?: string; details?: { reason?: unknown; package?: unknown } } | null
+  // The banner's own text has no step for a bare job failure or an unexplained crash, so link to where the detail is.
+  if (e?.code === 'job_failed') return { label: 'Open Jobs', href: routeHref({ name: 'jobs' }) }
+  if (e?.code === 'internal_error' && canOpenDiagnostics()) return { label: 'Open the log', href: routeHref({ name: 'diagnostics', card: 'log' }) }
   if (e?.code !== 'dependency_unavailable') return null
   const reason = e.details?.reason
   if (reason === 'no_key' || reason === 'no_token') return { label: 'Open Settings', href: routeHref({ name: 'settings' }) }

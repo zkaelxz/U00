@@ -35,6 +35,11 @@ describe('the error heading follows the cause', () => {
 
   it('has no action for an error without a known cause', () => {
     expect(errorAction(dep({}))).toBeNull()
-    expect(errorAction(new ApiError(500, { code: 'internal_error', message: 'x' }))).toBeNull()
+    expect(errorAction(new ApiError(500, { code: 'unsupported_operation', message: 'x' }))).toBeNull()
+  })
+
+  it('links a failed job to Jobs and an internal error to the log', () => {
+    expect(errorAction(new ApiError(500, { code: 'job_failed', message: '' }))).toEqual({ label: 'Open Jobs', href: '#/jobs' })
+    expect(errorAction(new ApiError(500, { code: 'internal_error', message: 'x' }))).toEqual({ label: 'Open the log', href: '#/diagnostics?card=log' })
   })
 })
