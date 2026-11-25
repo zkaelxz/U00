@@ -941,3 +941,8 @@ def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(liv
     assert live_service.is_listed(sid, member) and not live_service.is_listed(sid, admin)
     # By id an admin still opens it, as before.
     assert live_service.get_session(sid, principal=admin)["session_id"] == sid
+
+
+def test_twitch_never_gets_a_delayed_player(live):
+    sid = _start(url="https://www.twitch.tv/some_streamer", delayed_player=True)
+    assert live_service.get_session(sid)["delayed_player"] is False

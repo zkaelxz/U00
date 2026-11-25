@@ -29,7 +29,8 @@ test('live page on a phone: no sideways scroll, 44px targets', async ({ page }) 
   m.state.message = 'Listening'
   m.state.cues = [cue(0), cue(1), cue(2), cue(3)]
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 4 lines')
-  await live.getByText('Advanced').tap()
+  // Watching hides the settings, leaving only Stop.
+  await expect(live.getByText('Advanced')).toBeHidden()
   await expectNoSidewaysScroll(page)
   await smallTargets(page)
   await page.screenshot({ path: `${SCREENS}/phone-running.png`, fullPage: true })

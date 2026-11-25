@@ -800,7 +800,7 @@ class TestTimingsAndNotes:
         assert start("live_speed", SlowEngine())
         assert _wait(lambda: "translating with" in background_jobs.get_status("live_speed")["message"])
         message = background_jobs.get_status("live_speed")["message"]
-        assert "transcribed 10 s of audio in" in message and "x real time" in message
+        assert "transcribed 10 s of audio in" in message and "than real time" in message
         gate.set()
 
     def test_notes_reach_the_session_status_without_paths(self, isolated_db, monkeypatch):
@@ -994,3 +994,9 @@ class TestOllamaCadence:
 def _in_scope(scope):
     with ollama_unload.job_scope(scope):
         _prepare(True)
+
+
+def test_speed_text_says_faster_or_slower_than_real_time():
+    assert live_whisper.speed_text(0.67, 10) == "10 s of audio in 0.7 s (about 15x faster than real time)"
+    assert live_whisper.speed_text(25, 10) == "10 s of audio in 25.0 s (2.5x slower than real time)"
+    assert live_whisper.speed_text(None, 10) == ""
