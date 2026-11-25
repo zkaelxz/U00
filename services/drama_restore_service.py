@@ -178,6 +178,14 @@ def _remap_json_lines(value, line_map, import_as=None):
     return json.dumps(items, ensure_ascii=False)
 
 
+def _account_profile_ids(src) -> set:
+    """Reading profiles of sign-in accounts: they stay behind, because account ids differ between
+    libraries and the profile id could name another person here."""
+    if "user_id" not in columns(src, "profiles"):
+        return set()
+    return {r["id"] for r in table_rows(src, "profiles", "user_id IS NOT NULL", ())}
+
+
 def _live_ids(dst, table: str) -> set:
     return {r[0] for r in dst.execute(f'SELECT id FROM "{table}"')}
 
@@ -481,6 +489,7 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
     drama = drama[0]
     counts = {}
     profiles = _live_ids(dst, "profiles")
+    account_profiles = _account_profile_ids(src)
     row = sensitivity_preset.older_row(drama)
     owners = owners or {}
     _set_accounts(row, drama, import_as, owners)
@@ -524,8 +533,8 @@ def copy_drama(src, dst, old_id: int, new_id, title_suffix, import_as=None, owne
             old = child.pop("id", None)
             child["drama_id"] = live_id
             _sanitise_file_refs(table, child, import_as)
-            if (table in _PROFILE_TABLES and child.get("profile_id") is not None
-                    and child["profile_id"] not in profiles):
+            if table in _PROFILE_TABLES and (child.get("profile_id") in account_profiles or (
+                    child.get("profile_id") is not None and child["profile_id"] not in profiles)):
                 continue
             if table in _LINE_REF_TABLES and not _remap_line_ref(table, child, line_map,
                                                                  line_by_idx):
