@@ -284,7 +284,7 @@ def start_after_import(principal, drama_id: int, engine: str, lines: Optional[di
         if not state["chapters"] or not state["text"]:
             steps.append((q.TEXT, {}))
         steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL, **(names or {})}),
-                  (q.RUN_TRANSLATE, {"engine": engine, **({"model": model} if model else {})})]
+                  (q.RUN_TRANSLATE, {"engine": engine, "capped": True, **({"model": model} if model else {})})]
     return _add_after_import(principal, drama_id, steps, at_pc)
 
 
@@ -365,6 +365,10 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
         model = settings.get("model") or (
             translate_run_service.run_model_and_batch_size(drama_id, engine)[0] if engine == "ollama" else None)
         _require_free_or_paid(principal, engine, model, "translates")
+        # Only the after-import chain is unattended: the Add box's run starts a paid translation
+        # with no cap set, as its own start did (owner decision 2026-11-15).
+        if settings.get("capped"):
+            require_cap_for_after_import(engine, model)
         paid = q._holds(principal, "engines.paid")
         return translate_thinking_service.start_with_thinking(
             translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
