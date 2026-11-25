@@ -68,6 +68,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile boolean followingParts;
     private volatile boolean partsContinuing;
     private volatile boolean uploading;
+    // Optional "Translate this page" for reading a raw site; a grab always switches it off first.
+    private boolean translateOn;
+    private boolean translateRestoring;
 
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
@@ -155,6 +158,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (translateOn && !translateRestoring) web.evaluateJavascript(PageTranslate.ON, null);
                 if (quickAfterLoad) {
                     quickAfterLoad = false;
                     web.postDelayed(() -> {
@@ -405,6 +409,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     /** Open Baihe and Settings are rarely needed mid-grab, so they sit behind one button. */
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
+        menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
@@ -412,13 +417,21 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Settings");
         menu.setOnMenuItemClickListener(item -> {
             String title = item.getTitle().toString();
-            if ("Settings".equals(title)) showSettings();
+            if ("Translate this page".equals(title)) setTranslate(true);
+            else if ("Show original page".equals(title)) setTranslate(false);
+            else if ("Settings".equals(title)) showSettings();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
         menu.show();
+    }
+
+    private void setTranslate(boolean on) {
+        translateOn = on;
+        web.evaluateJavascript(on ? PageTranslate.ON : PageTranslate.OFF, null);
+        if (on) say("Translating this page to English. Grab and Quick read use the original page.");
     }
 
     /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
@@ -698,6 +711,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void startGrab(boolean readOnly) {
+        if (translateRestoring) return;
         if (grabbing) {
             say("Wait for the current grab to finish.");
             return;
@@ -717,6 +731,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String current = web.getUrl();
         if (current == null || current.isEmpty() || current.startsWith("about:")) {
             say(OPEN_FIRST);
+            return;
+        }
+        if (translateOn) {
+            // The widget rewrites the page's text; the grab must read the site's own page.
+            translateOn = false;
+            translateRestoring = true;
+            web.evaluateJavascript(PageTranslate.OFF, null);
+            web.postDelayed(() -> {
+                translateRestoring = false;
+                startGrab(readOnly);
+            }, 800);
             return;
         }
         grabbing = true;
