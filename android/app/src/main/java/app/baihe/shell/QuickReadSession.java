@@ -49,11 +49,21 @@ final class QuickReadSession {
         Runnable hook;
         synchronized (QuickReadSession.class) {
             if (nextHook == null || !complete || abandoned || cancelled) return;
-            if (lastVisiblePage < Math.max(names.size() - PAGES_BEFORE_END, newestFrom)) return;
+            if (lastVisiblePage < startNextAt()) return;
             hook = nextHook;
             nextHook = null;
         }
         hook.run();
+    }
+
+    /**
+     * The page from which the next chapter is fetched: past the middle of the newest chapter, so a
+     * long one is translated while it is still being read, or three pages from its end if that is
+     * sooner. Never before the newest chapter's own first page.
+     */
+    private static int startNextAt() {
+        int pages = names.size() - newestFrom;
+        return Math.max(newestFrom, Math.min(names.size() - PAGES_BEFORE_END, newestFrom + pages / 2 + 1));
     }
 
     /** The next chapter is on its way: its pages join the ones already open. */
