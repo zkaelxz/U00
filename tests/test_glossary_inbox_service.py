@@ -74,3 +74,11 @@ def test_malformed_stored_entries_are_dropped(title):
     did, _ = title
     db.update_drama(did, glossary_inbox='{"items": [1, {"suggested_original": "x"}], "rejected": []}')
     assert inbox.get_inbox(did)["count"] == 0
+
+
+def test_restore_puts_an_ignored_name_back(title):
+    did, _ = title
+    inbox.refresh(did)
+    inbox.reject(did, "ヤロ")
+    out = inbox.restore(did, ["ヤロ", "ヤロー"])
+    assert [c["suggested_original"] for c in out["items"]] == ["ヤロ", "ミカ"]
