@@ -166,6 +166,19 @@ class TestOrientation:
         box = {"x": 60, "y": 50, "w": 260, "h": 300}
         assert scanlate_regions.estimate_text_orientation(gray, box, "ja") == "vertical"
 
+    def test_specks_of_tone_above_vertical_columns_do_not_make_them_horizontal(self):
+        # A speck of the art's tone above the lettering opened the widest gap between rows.
+        gray = np.full((500, 400), 255, np.uint8)
+        for col_x in (110, 180, 250):
+            for k in range(4):
+                y = 120 + k * 52
+                cv2.rectangle(gray, (col_x, y), (col_x + 34, y + 34), 0, 3)
+                cv2.line(gray, (col_x + 4, y + 17), (col_x + 30, y + 17), 0, 3)
+        for x in (150, 220):
+            cv2.circle(gray, (x, 60), 3, 0, -1)
+        box = {"x": 60, "y": 40, "w": 260, "h": 340}
+        assert scanlate_regions.estimate_text_orientation(gray, box, "ja") == "vertical"
+
     def test_the_balloon_outline_in_the_corners_is_not_lettering(self, tmp_path):
         img = np.full((400, 400), 255, np.uint8)
         cv2.ellipse(img, (200, 200), (150, 60), 0, 0, 360, 0, 3)

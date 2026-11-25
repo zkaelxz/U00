@@ -404,10 +404,16 @@ def estimate_text_orientation(gray, box: dict, language: str) -> str:
             return "horizontal"
         if aspect <= 1.0 / limit:
             return "vertical"
+        col_gap, row_gap = _widest_gap(cols), _widest_gap(rows)
+        if col_gap > row_gap:
+            return "vertical"
+        # Furigana can only hide the gap between columns, so leaving it out may turn a
+        # reading to vertical but never to horizontal.
         main = _without_reading_aids(letters)
-        col_gap, row_gap = _widest_gap(main.any(axis=0)), _widest_gap(main.any(axis=1))
+        if _widest_gap(main.any(axis=0)) > _widest_gap(main.any(axis=1)):
+            return "vertical"
         if col_gap != row_gap:
-            return "vertical" if col_gap > row_gap else "horizontal"
+            return "horizontal"
     return "vertical" if box["h"] > 1.2 * box["w"] else "horizontal"
 
 
@@ -416,22 +422,30 @@ _READING_AID_OF_GLYPH = 0.6
 
 
 def _without_reading_aids(letters):
-    """`letters` without the small marks that stand in no column of the glyphs: furigana set
-    between two vertical columns. It fills the gap that tells the columns apart, and the
-    balloon was read as horizontal and cut into pieces. Small kana and marks inside a column
-    (っ, ？) share its glyphs' columns and stay."""
+    """`letters` without the small marks that stand in no column of the glyphs (furigana set
+    between two vertical columns) or stand apart from every glyph (specks of the art's tone).
+    Furigana fills the gap that tells the columns apart, and a speck above the lettering opens
+    a wide gap of its own, so a balloon of columns was read as horizontal and cut into pieces.
+    Small kana and marks inside a column (っ, ？) share its glyphs' columns and stay."""
     import cv2
     n, labels, stats, _ = cv2.connectedComponentsWithStats(letters.astype(np.uint8), connectivity=8)
     if n <= 2:
         return letters
-    spans = np.maximum(stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT])
-    big = spans >= _READING_AID_OF_GLYPH * float(np.percentile(spans, 90))
+    left, top = stats[1:, cv2.CC_STAT_LEFT], stats[1:, cv2.CC_STAT_TOP]
+    width, height = stats[1:, cv2.CC_STAT_WIDTH], stats[1:, cv2.CC_STAT_HEIGHT]
+    spans = np.maximum(width, height)
+    glyph = float(np.percentile(spans, 90))
+    big = spans >= _READING_AID_OF_GLYPH * glyph
     in_glyph_columns = np.zeros(letters.shape[1], bool)
-    for i in np.flatnonzero(big) + 1:
-        in_glyph_columns[stats[i, cv2.CC_STAT_LEFT]:stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]] = True
-    aids = [i for i in np.flatnonzero(~big) + 1
-            if not in_glyph_columns[stats[i, cv2.CC_STAT_LEFT]:
-                                    stats[i, cv2.CC_STAT_LEFT] + stats[i, cv2.CC_STAT_WIDTH]].any()]
+    near_glyphs = np.zeros(letters.shape, bool)
+    reach = int(_READING_AID_OF_GLYPH * glyph)
+    for i in np.flatnonzero(big):
+        in_glyph_columns[left[i]:left[i] + width[i]] = True
+        near_glyphs[max(0, top[i] - reach):top[i] + height[i] + reach,
+                    max(0, left[i] - reach):left[i] + width[i] + reach] = True
+    aids = [i + 1 for i in np.flatnonzero(~big)
+            if not in_glyph_columns[left[i]:left[i] + width[i]].any()
+            or not near_glyphs[top[i]:top[i] + height[i], left[i]:left[i] + width[i]].any()]
     return letters & ~np.isin(labels, aids) if aids else letters
 
 

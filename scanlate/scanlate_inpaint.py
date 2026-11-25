@@ -223,8 +223,8 @@ def widen_to_dark_strip(img, box: dict) -> dict:
     of a banner line, and the lettering left past the box showed under the English. A strip
     of vertical lettering is stretched up and down the same way."""
     if box["h"] >= _STRIP_MIN_ASPECT * box["w"]:
-        turned = _widen_wide_strip(np.ascontiguousarray(img.swapaxes(0, 1)), {**box, "x": box["y"], "y": box["x"],
-                                                         "w": box["h"], "h": box["w"]})
+        across = {**box, "x": box["y"], "y": box["x"], "w": box["h"], "h": box["w"]}
+        turned = _widen_wide_strip(np.ascontiguousarray(img.swapaxes(0, 1)), across)
         return {**box, "y": turned["x"], "h": turned["w"]}
     return _widen_wide_strip(img, box)
 
