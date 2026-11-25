@@ -41,7 +41,7 @@ export function LineFeedback({ id, line, onSaved }: { id: number; line: ReviewLi
       ) : (
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setOpen(true)}>Suggest better wording</button>
       )}
-      <span role="status">{status}</span>
+      <span aria-live="polite">{status}</span>
     </div>
   )
 }
