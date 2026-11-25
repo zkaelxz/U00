@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 
 import { fmtTs } from '../../api/live'
 import type { LiveCue } from '../../types/live'
+import type { TextSize } from './ViewingOptions'
 
 /** The translation, or why there is none yet: the transcript under it always stays. */
 function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
@@ -33,7 +34,7 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
 }
 
 /** `total`: every line so far, which keeps counting after the box stops showing the oldest. */
-export function LinesPane({ cues, total, lang, waiting, size = 'm', showOriginal = true }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: 's' | 'm' | 'l'; showOriginal?: boolean }) {
+export function LinesPane({ cues, total, lang, waiting, size = 'm', showOriginal = true }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: TextSize; showOriginal?: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   // The line count when the reader scrolled away from the newest; null while the newest is in view.
   const [awayAt, setAwayAt] = useState<number | null>(null)
