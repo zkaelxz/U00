@@ -16,6 +16,7 @@ import { RetryBanner } from '../components/RetryBanner'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
 import { useFeatures } from '../hooks/useFeatures'
+import { useHolds } from '../hooks/useHolds'
 import { routeHref } from '../router'
 import { sourcesHref } from './sources/manageTabs'
 import type { LiveFollow } from '../types/live'
@@ -60,6 +61,7 @@ export default function UpdatesPage() {
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const canFollow = useHolds('media.import_url')
 
   const load = useCallback(() => {
     // One failing list must not hide the other: chapters and channels come from different stores.
@@ -96,7 +98,7 @@ export default function UpdatesPage() {
       width="narrow"
       title="Updates"
       meta="New chapters and channels that are live or scheduled, newest first."
-      actions={<button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
+      actions={<button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing || !data}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
     >
       <RetryBanner error={error} what="updates" onRetry={refresh} busy={refreshing} />
       {data && !error && items.length === 0 && (
@@ -105,8 +107,8 @@ export default function UpdatesPage() {
             Nothing new. Chapters of tracked series and your followed channels show up here.
           </p>
           <div className="actions">
-            {sourcesOn && <ButtonLink variant="secondary" href={sourcesHref('new')}>Track a series</ButtonLink>}
-            <ButtonLink variant="secondary" href={routeHref({ name: 'live' })}>Follow a channel</ButtonLink>
+            {sourcesOn && <ButtonLink variant="secondary" href={sourcesHref()}>Track a series</ButtonLink>}
+            {canFollow && <ButtonLink variant="secondary" href={routeHref({ name: 'live' })}>Follow a channel</ButtonLink>}
           </div>
         </>
       )}

@@ -140,8 +140,8 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
   }, [])
 
   const loadSources = useCallback(() => {
-    setLoadError(null)
-    listSources().then(setSources, setLoadError)
+    // The error stays up until an answer arrives, so Retry keeps its place instead of the banner flickering.
+    listSources().then((list) => { setSources(list); setLoadError(null) }, setLoadError)
   }, [])
 
   useEffect(() => {
@@ -386,7 +386,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
       ))}
 
       {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
-      {remote && panel('manage', sources ? <SourcesReadList sources={sources} onSearchOnly={searchOnly} /> : <p className="muted">Loading…</p>, 'sources-list-panel')}
+      {remote && panel('manage', sources ? <SourcesReadList sources={sources} onSearchOnly={searchOnly} /> : loadError ? null : <p className="muted" role="status">Loading…</p>, 'sources-list-panel')}
     </PageShell>
   )
 }
