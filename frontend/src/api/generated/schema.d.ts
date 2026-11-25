@@ -4815,6 +4815,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/inbox/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Ignore: put the ignored spellings back in the inbox */
+        post: operations["restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/instructions": {
         parameters: {
             query?: never;
@@ -21183,6 +21200,11 @@ export interface components {
         GlossaryInboxReject: {
             /** Term */
             term: string;
+        };
+        /** GlossaryInboxRestore */
+        GlossaryInboxRestore: {
+            /** Terms */
+            terms: string[];
         };
         /** GlossaryInstructions */
         GlossaryInstructions: {
@@ -47987,6 +48009,50 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["GlossaryInboxReject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxRestore"];
             };
         };
         responses: {

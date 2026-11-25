@@ -23,6 +23,7 @@ __all__ = [
     "GlossaryInbox",
     "GlossaryInboxAccept",
     "GlossaryInboxReject",
+    "GlossaryInboxRestore",
     "GlossaryImportRequest",
     "GlossaryImportResult",
     "GlossaryBulkDeleteRequest",
@@ -683,6 +684,10 @@ class GlossaryInboxAccept(BaseModel):
 
 class GlossaryInboxReject(BaseModel):
     term: str = Field(min_length=1, max_length=200)
+
+
+class GlossaryInboxRestore(BaseModel):
+    terms: List[str] = Field(min_length=1, max_length=12)
 
 
 class SpellingSuggestRequest(BaseModel):

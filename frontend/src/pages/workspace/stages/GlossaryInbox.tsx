@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { acceptGlossaryInbox, getGlossaryInbox, rejectGlossaryInbox } from '../../../api/translateStage'
+import { acceptGlossaryInbox, getGlossaryInbox, rejectGlossaryInbox, restoreGlossaryInbox } from '../../../api/translateStage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
 import './glossaryVariants.css'
@@ -16,6 +16,10 @@ export function GlossaryInbox({ onAdded }: { onAdded: () => void }) {
   const [english, setEnglish] = useState<Record<string, string>>({})
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  // The last Ignore, takeable back for a few seconds (the same 8 s as the bookmarks Undo).
+  const [ignored, setIgnored] = useState<{ term: string; spellings: string[] } | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
   useCancellableEffect((cancelled) => {
     getGlossaryInbox(dramaId).then((r) => !cancelled() && setInbox(r), () => undefined)
@@ -26,12 +30,37 @@ export function GlossaryInbox({ onAdded }: { onAdded: () => void }) {
     call.then((r) => { setInbox(r); setError(null); if (added) onAdded() }, setError).finally(() => setBusy(false))
   }
 
-  if (!inbox || inbox.count === 0) return null
+  const ignore = (term: string, spellings: string[]) => {
+    setBusy(true)
+    rejectGlossaryInbox(dramaId, term).then((r) => {
+      setInbox(r)
+      setError(null)
+      setIgnored({ term, spellings })
+      if (undoTimer.current) clearTimeout(undoTimer.current)
+      undoTimer.current = setTimeout(() => setIgnored(null), 8000)
+    }, setError).finally(() => setBusy(false))
+  }
+  const undoIgnore = () => {
+    if (!ignored) return
+    const { spellings } = ignored
+    setIgnored(null)
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setBusy(true)
+    restoreGlossaryInbox(dramaId, spellings).then((r) => { setInbox(r); setError(null) }, setError).finally(() => setBusy(false))
+  }
+
+  if (!inbox || (inbox.count === 0 && !ignored)) return null
   return (
     <div className="glossary-variants" role="region" aria-label="Names waiting for you" data-testid="glossary-inbox">
       <h2 className="subhead">Names waiting for you ({inbox.count})</h2>
       <p className="muted">Nothing is added until you type the English and press Add.</p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      {ignored && (
+        <p role="status">
+          Ignored {ignored.term}.{' '}
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={undoIgnore} disabled={busy}>Undo</button>
+        </p>
+      )}
       <ul className="glossary-variants-list">
         {inbox.items.map((c) => {
           const term = c.suggested_original
@@ -53,7 +82,7 @@ export function GlossaryInbox({ onAdded }: { onAdded: () => void }) {
                 />
                 <button type="submit" className={buttonClass('secondary', 'sm')} disabled={busy || !value.trim()} aria-label={`Add ${term}`}>Add</button>
                 <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy}
-                  onClick={() => act(rejectGlossaryInbox(dramaId, term), false)} aria-label={`Ignore ${term}`}>Ignore</button>
+                  onClick={() => ignore(term, c.spellings.map((x) => x.text))} aria-label={`Ignore ${term}`}>Ignore</button>
               </form>
             </li>
           )
