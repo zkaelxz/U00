@@ -17,16 +17,16 @@
  * the API, so a stream that needs a signed-in browser won't resolve here.
  */
 import { useEffect, useId, useState } from 'react'
+import { useLiveChoices } from './live/useLiveChoices'
 import { cancelsAnyJob, useSession } from '../hooks/useSession'
 
-import { api, hasStatus } from '../api/client'
+import { hasStatus } from '../api/client'
 import {
   DEFAULT_FORM, LIVE_FORM_FALLBACK, FAST_CAPTIONS, BALANCED_CAPTIONS, WHISPER_HELP, LANGUAGE_MODEL_NOTE,
   advancedSummary, applyCaptionPreset, buildStartBody, captionPresetModel, checkLiveUrl, chosenForYou, describeLiveError, feedCues, fmtTs, formDefaults, getLiveOptions, glossaryChoices, glossaryIds, glossaryValue,
   isActive, lagLine, liveEngineView, pickEngine, resolveLiveModel, startLive, statusLine, statusTone, type LiveForm,
 } from '../api/live'
-import { getAllSeries } from '../api/library'
-import { engineShortName, translateApi, usableEngines } from '../api/translate'
+import { engineShortName, usableEngines } from '../api/translate'
 import { ChosenForYouNote } from '../components/ChosenForYou'
 import { useChosenForYou } from '../hooks/useChosenForYou'
 import { Field } from '../components/Field'
@@ -55,9 +55,8 @@ import { useLiveSession } from './live/useLiveSession'
 import { OllamaNote } from './live/OllamaNote'
 import { useOllamaCheck } from './live/useOllamaCheck'
 import { StreamEmbed } from './live/StreamEmbed'
-import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, sessionStream, steadyDelay } from './live/embedLogic'
+import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, parseStreamUrl, sessionStream, steadyDelay } from './live/embedLogic'
 import type { LiveCue } from '../types/live'
-import type { TranslateEngine } from '../types/translate'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { buttonClass } from '../components/uiClasses'
@@ -151,29 +150,10 @@ export default function LivePage() {
   const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
 
-  // Titles and series the server lets this user see; null until read. A failed read leaves the picker empty.
-  const [titles, setTitles] = useState<{ id: number; name: string; series_id: number | null }[] | null>(null)
-  const [seriesList, setSeriesList] = useState<{ id: number; name: string }[] | null>(null)
-  const [engines, setEngines] = useState<TranslateEngine[] | null>(null)
-  const [enginesFailed, setEnginesFailed] = useState(false)
+  const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone } = useLiveSession(setError)
-
-  useEffect(() => {
-    translateApi.engines().then(setEngines, () => {
-      setEngines([])
-      setEnginesFailed(true)
-    })
-    api.listDramas({ progress: 'false' }).then(
-      (r) => setTitles(r.items.map((d) => ({ id: d.id, name: d.title_en || d.title_zh || `#${d.id}`, series_id: d.series_id ?? null }))),
-      () => setTitles([]),
-    )
-    getAllSeries().then(
-      (r) => setSeriesList(r.items.map((s) => ({ id: s.id, name: s.name }))),
-      () => setSeriesList([]),
-    )
-  }, [])
+  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines } = useLiveSession(setError)
 
   // A remembered title or series that was deleted or hidden is not sent.
   const glossaryOptions = glossaryChoices(seriesList ?? [], titles ?? [])
@@ -208,6 +188,8 @@ export default function LivePage() {
 
   const status = session?.status?.status ?? (session ? 'queued' : null)
   const active = !!session && isActive(status)
+  // Twitch can't be held back, so its delayed-player option isn't offered.
+  const twitchLink = !!parseStreamUrl(url)?.kind.startsWith('twitch')
   const urlReason = checkLiveUrl(url, opts.max_url_len)
   // While the engine list loads there is no engine to send; never start then
   // (a missing engine would fall back to the server default, a paid one).
@@ -270,7 +252,7 @@ export default function LivePage() {
     <PageShell width="standard" title="Live" label="Live" className={videoLive ? 'live-page live-wide' : 'live-page'}>
       <div className="panel">
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
-        <form onSubmit={start} className="live-form" noValidate>
+        <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>
           <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
             <input
               type="url"
@@ -398,13 +380,13 @@ export default function LivePage() {
               Use GPU for Whisper
             </label>
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
-            {pc !== 'remote' && (
+            {pc !== 'remote' && !twitchLink && (
               <Field label="Delayed player"
                 help="Records a delayed copy of the video on this PC and plays it instead of the stream's player, so the picture matches the lines even where the stream can't be rewound. Downloads video as well as audio. Takes effect on Start.">
                 <Toggle checked={form.delayed_player} disabled={active || busy} onChange={(v) => setOpt('delayed_player', v)} />
               </Field>
             )}
-            {form.delayed_player && (
+            {form.delayed_player && !twitchLink && (
               <Field label="Delayed player quality" help="Tallest picture recorded for the delayed player. Taller is sharper but downloads and stores more (1080p is about 5 Mbit/s). A stream without it uses the nearest smaller size. Takes effect on Start.">
                 <select value={form.player_height} disabled={active || busy} onChange={(e) => setOpt('player_height', Number(e.target.value))}>
                   {opts.player_heights.map((h) => <option key={h} value={h}>{h}p</option>)}
@@ -447,7 +429,7 @@ export default function LivePage() {
             {error}
           </p>
         )}
-        <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />
+        {!active && <FollowedChannels liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
 
         {session && (
           <div className={videoLive ? (theater ? 'live-body has-video theater' : 'live-body has-video') : 'live-body'}>
@@ -510,9 +492,14 @@ export default function LivePage() {
               </ul>
             )}
             {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
-            {feed.length > 0 && <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />}
+            {feed.length > 0 && (
+              <div className="live-cues-box" tabIndex={0} aria-label="Live lines">
+                <CueFeed cues={feed} lang={session.status?.source_language ?? form.source_language} waiting={active} />
+              </div>
+            )}
             {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
             {total > 0 && <SaveSession cues={session.cues} />}
+            {!active && total > 0 && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={clearLines}>Clear lines</button>}
           </div>
           </div>
         )}

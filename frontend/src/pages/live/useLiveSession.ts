@@ -236,5 +236,12 @@ export function useLiveSession(setError: (text: string | null) => void) {
     }, (err: unknown) => setError(describeLiveError(err)))
   }
 
-  return { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone }
+
+  /** Clears a finished session's lines from the view; the saved copy is untouched. */
+  const clearLines = () => {
+    setSession(null)
+    setStartedLink(null)
+  }
+
+  return { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines }
 }
