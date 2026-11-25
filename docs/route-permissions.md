@@ -102,6 +102,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/benchmark/translate-sweep/decision` | local_only() |
 | `GET /api/benchmark/translate-sweep/decisions` | admin.diagnostics |
 | `POST /api/benchmark/translate-sweep/estimate` | admin.diagnostics |
+| `GET /api/cast/dramas/{drama_id}` | media.stream |
+| `POST /api/cast/dramas/{drama_id}/link` | media.stream |
+| `GET /api/cast/video` | public() |
+| `HEAD /api/cast/video` | public() |
 | `GET /api/characters/dramas/{drama_id}` | library.read + lines.read |
 | `GET /api/characters/dramas/{drama_id}/cast-proposal` | library.read + lines.read |
 | `POST /api/characters/dramas/{drama_id}/cast-proposal/apply` | lines.edit |
