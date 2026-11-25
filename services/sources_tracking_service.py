@@ -25,6 +25,8 @@ skipped?}, scrubbed
 by `sources_search_service.get_job_result`.
 """
 
+import threading
+
 import background_jobs
 import db
 from jobs import job_store
@@ -213,3 +215,65 @@ def move_tracked(source: str, series_id: str, new_source: str, new_series_id: st
     if refused:
         raise NotFoundError("That series isn't tracked.")
     return list_tracked(principal)
+
+
+# One follow at a time: each runs paced site fetches on a shared worker thread, and a
+# phone that loops would otherwise starve every other request of the household.
+_follow_lock = threading.Lock()
+MAX_FOLLOW_URL = 2000
+
+
+def follow_from_page(url: str, principal=None) -> dict:
+    """Tracks the series a Quick read/Grab page belongs to, so its new chapters raise the
+    existing "chapters" alert. {title, already}. The series' current chapters are recorded as
+    known, as Open-the-series-then-Track does, so the first check announces nothing old.
+    422 for a site no source matches or a page that is neither a series nor a chapter;
+    409 while another follow is running."""
+    url = (url or "").strip()
+    if len(url) > MAX_FOLLOW_URL or any(ord(c) < 32 for c in url):
+        raise InvalidInputError("That page address isn't one Baihe can follow.")
+    cls = registry.adapter_class_for_url(url) if url else None
+    if cls is None:
+        raise InvalidInputError("Baihe has no source for this site, so it can't watch it for new chapters.")
+    if not _follow_lock.acquire(blocking=False):
+        raise ConflictError("Another series is being followed. Try again in a moment.")
+    try:
+        return _follow_locked(cls, url, principal)
+    finally:
+        _follow_lock.release()
+
+
+def _follow_locked(cls, url: str, principal) -> dict:
+    name = cls.name
+    search.enabled_source(name)
+    adapter = registry.get_adapter(name)
+    # A phone asked, not this PC: no adapter opens a browser for it.
+    adapter.allow_browser = False
+    parsed = adapter.parse_url(url)
+    if parsed is None:
+        raise InvalidInputError("Open a series or chapter page of this site first.")
+    kind, ref = parsed
+    series_id = clean_series_id(ref if kind == "series" else ref.series_id)
+
+    def tracked_title():
+        row = next((r for r in store.list_tracked_series()
+                    if (r["source"], r["series_id"]) == (name, series_id)), None)
+        return search.scrub(row["title"]) if row else None
+
+    if (found := tracked_title()) is not None:
+        return {"title": found, "already": True}
+    try:
+        search.ladder.check_terms(name, adapter.capabilities())
+        info = adapter.get_series(series_id) if adapter.supports("get_series") else None
+        chapters = chapter_order.reading_order(adapter, adapter.get_chapters(series_id))
+    except Exception as e:
+        raise InvalidInputError(search.error_view(e, name)["message"]) from None
+    # The fetch is slow; someone may have tracked (and linked to a title) meanwhile, and the
+    # write below is an upsert that would drop that link.
+    if (found := tracked_title()) is not None:
+        return {"title": found, "already": True}
+    title = search.scrub((getattr(info, "title", "") or "").strip()[:200]) or series_id
+    store.track_series(name, series_id, title, safe_url(getattr(info, "url", "")), None,
+                       known_chapters=chapters,
+                       linked_by_user_id=(principal or {}).get("user_id"))
+    return {"title": title, "already": False}
