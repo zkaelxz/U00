@@ -120,7 +120,7 @@ describe('title pickers', () => {
     expect(dramaLabel({ id: 9, title_en: null, title_zh: null })).toBe('Title 9')
   })
   it('builds a New title body the import accepts', () => {
-    expect(newDramaRequest('天官赐福', 'zh', false)).toEqual({ source_language: 'zh', title_zh: '天官赐福', media_type: 'novel' })
+    expect(newDramaRequest('天官赐福', 'zh', false)).toEqual({ source_language: 'zh', title_zh: '天官赐福', translate_title: true, media_type: 'novel' })
     expect(newDramaRequest(' Solo ', 'ko', true)).toEqual({ source_language: 'ko', title_en: 'Solo', media_type: 'manhwa' })
     expect(newDramaRequest('X', 'ja-JP', true).media_type).toBe('manga')
     expect(newDramaRequest('X', 'en', true)).toMatchObject({ source_language: 'zh', media_type: 'manhua' })

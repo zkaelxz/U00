@@ -203,3 +203,55 @@ def test_invisible_characters_in_the_translation_are_removed_from_title_and_seri
     h = _resolve(token)
     assert db.get_drama(h.payload["drama_id"])["title_en"] == "My Husband Hid"
     assert db.get_series_id_by_name("My Husband Hid") == h.payload["series_id"]
+
+
+# --- the add forms: a title named from a source page or a link ---------------------
+
+JSON = {"X-Baihe-Local": "1"}
+
+
+@pytest.fixture
+def forms(isolated_db, ai):
+    from fastapi.testclient import TestClient
+    from api.server import create_app
+    return TestClient(create_app())
+
+
+def test_a_title_pulled_from_a_source_page_gets_an_english_name(forms, ai):
+    body = {"source_language": "ko", "title_zh": "남편이 아이를 숨겼다", "translate_title": True,
+            "media_type": "manhwa"}
+    r = forms.post("/api/dramas", json=body, headers=JSON)
+    assert r.status_code == 201 and r.json()["title_en"] == "My Husband Hid the Child"
+    assert db.get_drama(r.json()["id"])["title_zh"] == "남편이 아이를 숨겼다" and len(ai) == 1
+
+
+def test_a_title_typed_by_hand_is_not_translated_unless_asked(forms, ai):
+    r = forms.post("/api/dramas", json={"source_language": "ko", "title_zh": "남편"}, headers=JSON)
+    assert r.status_code == 201 and r.json()["title_en"] in ("", None) and ai == []
+
+
+def test_an_english_name_already_there_is_kept_and_costs_nothing(forms, ai):
+    body = {"source_language": "ko", "title_zh": "남편", "title_en": "Mine", "translate_title": True}
+    assert forms.post("/api/dramas", json=body, headers=JSON).json()["title_en"] == "Mine" and ai == []
+
+
+def test_a_failed_translation_leaves_the_title_made(forms, monkeypatch):
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda *a, **k: "sorry, no")
+    body = {"source_language": "ko", "title_zh": "남편", "translate_title": True}
+    r = forms.post("/api/dramas", json=body, headers=JSON)
+    assert r.status_code == 201 and r.json()["title_en"] in ("", None)
+
+
+def test_a_member_without_the_paid_permission_is_skipped_not_refused(isolated_db, ai):
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from services import auth_service
+    u = auth_service.add_user("kid@example.com")
+    s = auth_service.create_session(u["id"])
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+    away = TestClient(create_app(ApiSettings(auth_mode="on")), base_url="https://baihe.example.com")
+    body = {"source_language": "ko", "title_zh": "남편", "translate_title": True}
+    r = away.post("/api/dramas", json=body, headers=h)
+    assert r.status_code == 201 and r.json()["title_en"] in ("", None) and ai == []

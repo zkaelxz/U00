@@ -173,6 +173,9 @@ class DramaCreateRequest(BaseModel):
     # "Link (optional)": stored as the title's source link; with no name
     # typed, the server names the title from it.
     source_url: str = Field(default="", max_length=2000)
+    # Sent by the forms that name a title from a source page: the server then adds an English title
+    # beside the original one. A title named from the link is always translated.
+    translate_title: bool = False
 
     @model_validator(mode="after")
     def _needs_a_title(self):
