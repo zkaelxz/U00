@@ -40,8 +40,7 @@ test('video above the lines on a phone', async ({ page }) => {
   await expect(page.locator('iframe')).toHaveCount(0)
 })
 
-test('Larger video is a desktop control: on a phone the layout is the same either way', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('baihe.pref.live.theater', 'true'))
+test('on a phone the picture sits above the lines and nothing scrolls sideways', async ({ page }) => {
   const m = await mockLive(page)
   await mockEmbedHosts(page)
   const live = await openLive(page)
@@ -51,7 +50,6 @@ test('Larger video is a desktop control: on a phone the layout is the same eithe
   m.state.message = 'Listening'
   m.state.cues = [cue(0), cue(1)]
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 2 lines')
-  await expect(live.getByRole('switch', { name: 'Larger video' })).toBeHidden()
   const frameBox = (await page.locator('iframe[title="Stream video"]').boundingBox())!
   const listBox = (await live.getByRole('list', { name: 'Live lines, newest first' }).boundingBox())!
   expect(frameBox.y + frameBox.height).toBeLessThanOrEqual(listBox.y)

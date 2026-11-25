@@ -243,5 +243,5 @@ export function useLiveSession(setError: (text: string | null) => void) {
     setStartedLink(null)
   }
 
-  return { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines }
+  return { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines, switchTo: adopt }
 }

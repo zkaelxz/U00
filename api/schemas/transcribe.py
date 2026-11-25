@@ -487,6 +487,9 @@ class LiveSessionSummary(BaseModel):
     engine: Optional[str] = None
     model: Optional[str] = None
     cue_count: int
+    # What the stream chips show: the language and the site, never the link.
+    source_language: Optional[str] = None
+    stream: Optional[LiveStreamRef] = None
 
 
 class LiveSessionStopped(BaseModel):
