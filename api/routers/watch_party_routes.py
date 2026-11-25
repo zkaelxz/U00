@@ -13,12 +13,10 @@ import json
 from fastapi import APIRouter, Path, Request
 from fastapi.responses import StreamingResponse
 
-from api import auth as api_auth
 from api.auth import require_permission
 from api.routers.events_routes import Auth, SSE_HEADERS, revalidator
 from api.schemas import (ErrorResponse, WatchPartyCreateRequest, WatchPartyEnded, WatchPartyRoom,
                          WatchPartyStateRequest, error_responses)
-from services import event_stream_service as events
 from services import watch_party_service
 
 router = APIRouter(prefix="/api/watch-party", tags=["watch-party"])
@@ -75,14 +73,13 @@ async def _stream(request, principal, code, stream, first, revalidate):
             await asyncio.sleep(POLL_SECONDS)
             if await auth.current(loop.time()) is None:
                 return
-            seq = watch_party_service.current_seq(principal, code)
-            if seq is None:
+            moved = watch_party_service.poll(principal, code, sent_seq)
+            if moved is None:
                 yield _frame("ended", {})
                 return
-            if seq != sent_seq:
-                room = watch_party_service.get_room(principal, code)
-                sent_seq = room["seq"]
-                yield _frame("state", WatchPartyRoom(**room).model_dump(mode="json"))
+            if moved != "same":
+                sent_seq = moved["seq"]
+                yield _frame("state", WatchPartyRoom(**moved).model_dump(mode="json"))
                 last_write = loop.time()
             elif loop.time() - last_write >= HEARTBEAT_SECONDS:
                 yield _frame("ping", {})
@@ -98,5 +95,5 @@ async def _stream(request, principal, code, stream, first, revalidate):
 async def stream_room(request: Request, code: str = Code):
     principal = request.state.principal
     stream, first = watch_party_service.open_stream(principal, code)
-    return StreamingResponse(_stream(request, principal, code, stream, first, revalidator(request, principal)),
+    return StreamingResponse(_stream(request, principal, code, stream, first, revalidator(request, principal, PERMISSION)),
                              media_type="text/event-stream", headers=SSE_HEADERS)

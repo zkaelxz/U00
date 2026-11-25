@@ -64,7 +64,7 @@ def _room(principal, code: str) -> dict:
 
 def create_room(principal, drama_id: int) -> dict:
     lib_ids.check_id(drama_id, "A title id is a positive whole number.")
-    ownership_service.require_drama(drama_id)
+    ownership_service.require_visible(principal, "drama", drama_id)
     owner = event_stream_service.principal_key(principal)
     now = _now()
     with _lock:
@@ -121,10 +121,12 @@ def close_stream(stream: Stream) -> None:
             room["seq"] += 1
 
 
-def current_seq(principal, code: str):
-    """The room's seq, or None once it has ended or is no longer this caller's."""
+def poll(principal, code: str, seen_seq: int):
+    """The room's view when it moved past `seen_seq`, "same" when it did not, None once it has ended or is no
+    longer this caller's. One lock, so a room ending between a check and a read cannot split them."""
     with _lock:
         try:
-            return _room(principal, code)["seq"]
+            room = _room(principal, code)
         except NotFoundError:
             return None
+        return _view(room) if room["seq"] != seen_seq else "same"

@@ -83,7 +83,7 @@ def test_streams_are_counted_and_capped_per_account(drama):
 def test_an_ended_room_reads_as_gone_to_its_listeners(drama):
     code = party.create_room(ME, drama)["code"]
     party.end_room(ME, code)
-    assert party.current_seq(ME, code) is None
+    assert party.poll(ME, code, 0) is None
 
 
 def test_the_routes_create_sync_and_end(isolated_db):
@@ -127,3 +127,13 @@ def test_the_stream_sends_the_state_then_tells_listeners_the_party_ended(drama, 
     assert kinds == ["retry: 3000", "event: state", "event: state", "event: ended"]
     assert '"playing":true' in frames[2]
     assert stream not in party._streams
+
+
+def test_a_title_the_caller_cannot_see_reads_as_missing(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Private", source_language="zh")
+    monkeypatch.setattr(party.ownership_service, "can_see", lambda principal, kind, item_id: False)
+    with pytest.raises(NotFoundError) as hidden:
+        party.create_room(ME, did)
+    with pytest.raises(NotFoundError) as missing:
+        party.create_room(ME, did + 1000)
+    assert str(hidden.value) == str(missing.value)

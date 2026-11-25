@@ -71,7 +71,7 @@ def _serialize(name: str, data: dict) -> dict:
     return {"topics": [t for t in data.get("topics", ()) if t in events.TOPICS]}
 
 
-def revalidator(request: Request, principal):
+def revalidator(request: Request, principal, permission: str = PERMISSION):
     """A callable returning the stream's current principal, or None once it
     may no longer read (session gone, permission revoked). Auth off (the
     local owner principal) never changes."""
@@ -83,7 +83,7 @@ def revalidator(request: Request, principal):
         # Not counted as activity: an open (even hidden) tab must not keep an
         # idle session alive.
         fresh = listener_principal(request.app, auth_service.resolve_session(token, touch=False))
-        if fresh is None or PERMISSION not in fresh.get("permissions", ()):
+        if fresh is None or permission not in fresh.get("permissions", ()):
             return None
         return fresh
     return check
