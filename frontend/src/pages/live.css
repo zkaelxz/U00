@@ -87,6 +87,19 @@
   .live-watch[data-running] .live-feed { grid-area: feed; }
 }
 
+/* Live now: followed channels on the air come first, one tap from captions. */
+.live-now { margin-bottom: var(--space-3); min-width: 0; }
+.live-now-list { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
+.live-now-card { display: grid; gap: var(--space-2); padding: var(--space-3) !important; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
+.live-now-card[data-picked] { border-width: 2px; }
+.live-now-card button { width: 100%; min-height: 48px; }
+/* A followed row shows its name and status; the controls open under it. */
+.live-follow-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; }
+.live-follow-chevron { margin-left: auto; color: var(--muted); }
+.live-follow-body { display: grid; gap: var(--space-2); min-width: 0; }
+.live-follow-body[hidden] { display: none; }
+.live-follow-row[data-picked] { border-color: var(--accent); }
+
 /* The phone app floats the picture in a small window (picture-in-picture): the picture and its captions
    fill it and everything else steps aside. Fixed on the card itself, so no other part of the page matters. */
 html.shell-pip .live-video { position: fixed; inset: 0; z-index: 2147483000; padding: 0; margin: 0; gap: 0; border: 0; border-radius: 0; background: black; }

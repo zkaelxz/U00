@@ -340,8 +340,7 @@ test("a session started from a followed channel never shows the link typed in th
   m.follows.items = [followRow(1, { state: 'live', last_status: 'Live now', live_now: true, stream_title: 'Late night chat', last_checked_at: Date.now() / 1000 })]
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill(YT)
-  await live.getByText('Followed channels').click()
-  await live.getByRole('button', { name: 'Start Live' }).click()
+  await live.getByRole('button', { name: 'Watch with subtitles' }).click()
   m.state.status = 'running'
   m.state.message = 'Listening'
   m.state.cues = [cue(0)]
