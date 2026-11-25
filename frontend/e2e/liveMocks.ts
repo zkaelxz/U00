@@ -67,7 +67,7 @@ interface LiveMocks {
   polls: string[]
   unmocked: string[]
   state: {
-    sessions: { session_id: string; status: string; engine: string | null; cue_count: number }[]
+    sessions: { session_id: string; status: string; engine: string | null; cue_count: number; source_language?: string; stream?: { kind: string; id: string } }[]
     status: string
     message: string
     cues: ReturnType<typeof cue>[]

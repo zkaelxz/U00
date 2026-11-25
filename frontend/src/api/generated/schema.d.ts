@@ -23481,8 +23481,11 @@ export interface components {
             model: string | null;
             /** Session Id */
             session_id: string;
+            /** Source Language */
+            source_language: string | null;
             /** Status */
             status: string;
+            stream: components["schemas"]["LiveStreamRef"] | null;
         };
         /** LiveStreamRef */
         LiveStreamRef: {
