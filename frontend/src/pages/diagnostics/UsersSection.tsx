@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import {
-  addAdminUser, deleteAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserPaidLimit, setUserPermission,
+  addAdminUser, deleteAdminUser, listAdminUsers, revokeUserAdmin, revokeUserSessions, setUserActive, setUserDisplayName, setUserPaidLimit, setUserPermission,
 } from '../../api/adminUsers'
 import { removeUserOllamaKey } from '../../api/memberKey'
 import { Badge } from '../../components/Badge'
@@ -21,7 +21,7 @@ import { useDetailsOpen } from './diagnosticsAdmin'
 import { buttonClass } from '../../components/uiClasses'
 
 type Action = 'active' | 'revoke' | 'admin' | 'ollama-key' | 'delete'
-type Busy = { id: number; what: Action | 'right' | 'limit' } | null
+type Busy = { id: number; what: Action | 'right' | 'limit' | 'name' } | null
 
 /**
  * "People": the household's accounts. An admin can deactivate or activate
@@ -121,6 +121,21 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
     }
   }
 
+  const setName = async (user: AdminUser, name: string) => {
+    setBusy({ id: user.id, what: 'name' })
+    setNote('')
+    setError(null)
+    try {
+      const r = await setUserDisplayName(user.id, name)
+      setNote(r.display_name ? `${r.email}: name set to ${r.display_name}.` : `${r.email}: name cleared.`)
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+      load()
+    }
+  }
+
   return (
     <Section title="People" storageKey="admin.people" defaultOpen={defaultOpen} openSignal={openSignal} count={users?.length}
       summary="Who can sign in">
@@ -146,7 +161,8 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
             {users.map((u) => (
               <UserRow key={u.id} user={u} users={users} pc={pc} busy={busy} canChange={canChange}
                 rights={rights} onRun={(what) => void run(u, what)}
-                onRight={(p, on) => void setRight(u, p, on)} onLimit={(usd) => void setLimit(u, usd)} />
+                onRight={(p, on) => void setRight(u, p, on)} onLimit={(usd) => void setLimit(u, usd)}
+                onName={(name) => void setName(u, name)} />
             ))}
           </ul>
         )}
@@ -156,7 +172,7 @@ function UsersBody({ signInOff, pc, canChange, defaultOpen, openSignal }: { sign
   )
 }
 
-function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, onLimit }: {
+function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, onLimit, onName }: {
   user: AdminUser
   users: AdminUser[]
   pc: PcMode
@@ -166,6 +182,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
   onRun: (what: Action) => void
   onRight: (permission: string, granted: boolean) => void
   onLimit: (usd: number | null) => void
+  onName: (name: string) => void
 }) {
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
@@ -190,6 +207,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
         <div className="muted">{paidSpendText(u)}</div>
         {why && <div className="muted" id={whyId}>{why}</div>}
       </div>
+      {canChange && <NameForm user={u} busy={busy !== null} onName={onName} />}
       {canChange && <div className="actions">
         <ConfirmButton name={u.email} label="Sign out everywhere…" verb="sign out" tone="primary"
           busy={mine && busy?.what === 'revoke'} disabled={busy !== null || !!sessBlock}
@@ -208,7 +226,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
             busy={mine && busy?.what === 'ollama-key'} disabled={busy !== null || !!keyBlock}
             describedBy={keyBlock ? whyId : undefined} onConfirm={() => onRun('ollama-key')} />
         )}
-        {canChange && showDeleteUser(u, pc) && (
+        {canChange && showDeleteUser(u) && (
           <ConfirmButton name={u.email} label="Delete…" verb="delete"
             busy={mine && busy?.what === 'delete'} disabled={busy !== null}
             onConfirm={() => onRun('delete')} />
@@ -247,6 +265,25 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
         <PaidLimitForm user={u} busy={busy !== null} onLimit={onLimit} />
       )}
     </li>
+  )
+}
+
+/** The optional name shown beside the email; empty clears it. */
+function NameForm({ user: u, busy, onName }: { user: AdminUser; busy: boolean; onName: (name: string) => void }) {
+  const saved = u.display_name ?? ''
+  const [text, setText] = useState(saved)
+  const id = `admin-user-name-${u.id}`
+  const next = text.trim().replace(/\s+/g, ' ')
+  return (
+    <form className="admin-user-limit" onSubmit={(e) => {
+      e.preventDefault()
+      if (next !== saved) onName(next)
+    }}>
+      <label htmlFor={id}>Name (optional)</label>{' '}
+      <input id={id} type="text" autoComplete="off" maxLength={MAX_DISPLAY_NAME_CHARS} size={20}
+        value={text} placeholder="No name" onChange={(e) => setText(e.target.value)} />{' '}
+      <button type="submit" className={buttonClass('secondary', 'sm')} disabled={busy || next === saved}>Save name</button>
+    </form>
   )
 }
 
