@@ -5531,7 +5531,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Reading history (default profile) */
+        /** Reading history (this account) */
         get: operations["get_history_api_library_history_get"];
         put?: never;
         post?: never;
@@ -8184,6 +8184,24 @@ export interface paths {
         put?: never;
         /** Queue or un-queue words for the rich sentence Anki export */
         post: operations["post_vocab_rich_api_reader_dramas__drama_id__vocab_rich_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/watch-position": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Where this account stopped watching or listening */
+        get: operations["get_watch_position_api_reader_dramas__drama_id__watch_position_get"];
+        put?: never;
+        /** Save where this account is in the player */
+        post: operations["post_watch_position_api_reader_dramas__drama_id__watch_position_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -21662,6 +21680,8 @@ export interface components {
         };
         /** LibraryContinueEntry */
         LibraryContinueEntry: {
+            /** Audio Position Seconds */
+            audio_position_seconds: number | null;
             /** Drama Id */
             drama_id: number;
             /** Has Cover Art */
@@ -25903,6 +25923,20 @@ export interface components {
             reading: string | null;
             /** Word */
             word: string;
+        };
+        /** ReaderWatchPosition */
+        ReaderWatchPosition: {
+            /** Drama Id */
+            drama_id: number;
+            /** Seconds */
+            seconds: number;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** ReaderWatchPositionRequest */
+        ReaderWatchPositionRequest: {
+            /** Seconds */
+            seconds: number;
         };
         /** ReaderWhoRequest */
         ReaderWhoRequest: {
@@ -58008,6 +58042,90 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReaderRichExportResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_watch_position_api_reader_dramas__drama_id__watch_position_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReaderWatchPosition"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_watch_position_api_reader_dramas__drama_id__watch_position_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReaderWatchPositionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReaderWatchPosition"];
                 };
             };
             /** @description Not Found */

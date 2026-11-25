@@ -203,27 +203,26 @@ def _clean_view_prefs(raw) -> dict | None:
     return out
 
 
-def _stored_view_prefs(drama_id: int) -> dict | None:
+def _stored_view_prefs(drama_id: int, user_id: int = 0) -> dict | None:
     try:
-        return _clean_view_prefs(json.loads(db.get_view_prefs(drama_id) or "null"))
+        return _clean_view_prefs(json.loads(db.get_view_prefs(drama_id, user_id=user_id) or "null"))
     except ValueError:
         return None
 
 
-def _progress_view(drama_id: int) -> dict:
-    row = db.get_progress(drama_id) or {}
+def _progress_view(drama_id: int, user_id: int = 0) -> dict:
+    row = db.get_progress(drama_id, user_id=user_id) or {}
     return {"last_page": int(row.get("last_page") or 1),
             "percent_complete": float(row.get("percent_complete") or 0.0)}
 
 
-def get_progress(drama_id: int) -> dict:
-    """C4: the page resume point (default household profile, shared by
-    every API user, like the Reader)."""
+def get_progress(drama_id: int, user_id: int = 0) -> dict:
+    """C4: the page resume point of this account (0: the PC itself)."""
     ownership_service.require_drama(drama_id)
-    return _progress_view(drama_id)
+    return _progress_view(drama_id, user_id)
 
 
-def save_progress(drama_id: int, page: int) -> dict:
+def save_progress(drama_id: int, page: int, user_id: int = 0) -> dict:
     """C5: writes only last_page and percent_complete (never
     last_line_idx or the audio position)."""
     ownership_service.require_drama(drama_id)
@@ -232,22 +231,22 @@ def save_progress(drama_id: int, page: int) -> dict:
         raise InvalidInputError("page is past the last page." if count else
                                 "This title has no pages.")
     db.save_progress(drama_id, last_page=page,
-                     percent_complete=round(page / count * 100, 2))
-    return _progress_view(drama_id)
+                     percent_complete=round(page / count * 100, 2), user_id=user_id)
+    return _progress_view(drama_id, user_id)
 
 
-def get_view_prefs(drama_id: int) -> dict:
+def get_view_prefs(drama_id: int, user_id: int = 0) -> dict:
     ownership_service.require_drama(drama_id)
-    return {"view_prefs": _stored_view_prefs(drama_id)}
+    return {"view_prefs": _stored_view_prefs(drama_id, user_id)}
 
 
-def save_view_prefs(drama_id: int, prefs: dict) -> dict:
+def save_view_prefs(drama_id: int, prefs: dict, user_id: int = 0) -> dict:
     """Stores how this title is shown (mode, direction, fit, typeset, text), so the
-    choice follows the reader to another device. Same household profile as the
+    choice follows the reader to another device. Kept per account, like the
     resume page."""
     ownership_service.require_drama(drama_id)
     clean = _clean_view_prefs(prefs)
     if clean is None:
         raise InvalidInputError("Those reader settings are not valid.")
-    db.save_view_prefs(drama_id, json.dumps(clean))
+    db.save_view_prefs(drama_id, json.dumps(clean), user_id=user_id)
     return clean

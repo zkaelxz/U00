@@ -109,33 +109,47 @@ def describe_profile(preset: dict) -> list:
     return [{"label": label, "value": str(value), "engine": eng} for label, value, eng in rows]
 
 
-def chosen_profile_id():
-    """The chosen profile's id. Never chosen, it becomes the Default profile (made when missing);
-    the chosen one deleted, it becomes Default only if that profile still exists. Cleared on
-    purpose in Settings (null), it stays None."""
+def _own_key(user_id) -> str:
+    return f"{PROFILE_KEY}.{user_id}"
+
+
+def chosen_profile_id(user_id=0):
+    """The profile this account chose; an account that never chose, or whose choice was
+    deleted, uses the PC's. user_id 0 is the PC itself."""
     with _lock:
-        chosen = db.get_app_setting(PROFILE_KEY, _NEVER_CHOSEN)
-        if chosen is None or (chosen is not _NEVER_CHOSEN and _preset(chosen) is not None):
-            return chosen
-        default = next((p for p in _presets() if p["name"] == DEFAULT_PROFILE_NAME), None)
-        if default is None and chosen is not _NEVER_CHOSEN:
-            # The chosen profile was deleted: making Default again would bring back a profile
-            # the person may just have deleted, so the choice is left empty instead.
-            return None
-        if default is None:
-            pid = db.save_preset(DEFAULT_PROFILE_NAME, options_json=profile_service.dump_options(_DEFAULT_OPTIONS))
-        elif profile_service.stored_options(default).get("quick_source_language"):
-            pid = default["id"]
-        else:
-            # Someone's own profile under that name: never overwritten, and without a language it can't run a link.
-            return None
-        db.set_app_setting(PROFILE_KEY, pid)
-        return pid
+        if user_id:
+            own = db.get_app_setting(_own_key(user_id), _NEVER_CHOSEN)
+            if own is None or (own is not _NEVER_CHOSEN and _preset(own) is not None):
+                return own
+        return _pc_profile_id()
 
 
-def get_settings() -> dict:
+def _pc_profile_id():
+    """The PC's chosen profile's id, with _lock held. Never chosen, it becomes the Default
+    profile (made when missing); the chosen one deleted, it becomes Default only if that
+    profile still exists. Cleared on purpose in Settings (null), it stays None."""
+    chosen = db.get_app_setting(PROFILE_KEY, _NEVER_CHOSEN)
+    if chosen is None or (chosen is not _NEVER_CHOSEN and _preset(chosen) is not None):
+        return chosen
+    default = next((p for p in _presets() if p["name"] == DEFAULT_PROFILE_NAME), None)
+    if default is None and chosen is not _NEVER_CHOSEN:
+        # The chosen profile was deleted: making Default again would bring back a profile
+        # the person may just have deleted, so the choice is left empty instead.
+        return None
+    if default is None:
+        pid = db.save_preset(DEFAULT_PROFILE_NAME, options_json=profile_service.dump_options(_DEFAULT_OPTIONS))
+    elif profile_service.stored_options(default).get("quick_source_language"):
+        pid = default["id"]
+    else:
+        # Someone's own profile under that name: never overwritten, and without a language it can't run a link.
+        return None
+    db.set_app_setting(PROFILE_KEY, pid)
+    return pid
+
+
+def get_settings(user_id=0) -> dict:
     """The chosen profile (see chosen_profile_id) and the profiles to pick from."""
-    chosen = chosen_profile_id()
+    chosen = chosen_profile_id(user_id)
     preset = _preset(chosen) if chosen is not None else None
     return {"profile_id": chosen if preset else None,
             "summary": describe_profile(preset) if preset else [],
@@ -145,11 +159,11 @@ def get_settings() -> dict:
                          for p in _presets()]}
 
 
-def set_profile(profile_id) -> dict:
+def set_profile(profile_id, user_id=0) -> dict:
     if profile_id is not None and _preset(profile_id) is None:
         raise NotFoundError("No profile with that id.")
-    db.set_app_setting(PROFILE_KEY, profile_id)
-    return get_settings()
+    db.set_app_setting(_own_key(user_id) if user_id else PROFILE_KEY, profile_id)
+    return get_settings(user_id)
 
 
 def _read_runs() -> list:
@@ -191,12 +205,12 @@ def _export_settings(options: dict) -> dict:
 def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bool) -> dict:
     """Creates the title and queues Download, Transcribe, Translate and Export for it, then starts the
     queue. A refused request creates nothing. Returns {"drama_id", "watch_once"}."""
-    from services import queue_service
+    from services import ownership_service, queue_service
     if not isinstance(watch_once, bool):
         raise InvalidInputError("watch_once must be true or false.")
     url = url_media_service.check_link(url)
     if profile_id is None:
-        profile_id = get_settings()["profile_id"]
+        profile_id = get_settings(ownership_service.user_id(principal) or 0)["profile_id"]
     preset = _preset(profile_id) if profile_id is not None else None
     if preset is None:
         raise InvalidInputError(_NO_PROFILE)
