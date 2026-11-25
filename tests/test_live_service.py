@@ -235,8 +235,47 @@ def test_second_start_while_one_runs_is_conflict(live):
     a = _start()
     assert _wait(lambda: "out_dir" in live)
     with pytest.raises(ConflictError):
-        _start()
+        _start(url="https://www.youtube.com/watch?v=other")
     assert list(live_service._sessions) == [a]
+
+
+def test_same_stream_start_joins_the_running_session(live):
+    a = _start(url="https://www.youtube.com/watch?v=abcdefghijk")
+    assert _wait(lambda: "out_dir" in live)
+    again = live_service.start_session("https://youtu.be/abcdefghijk", engine="fake")
+    assert again == {"session_id": a, "joined": True}
+    assert list(live_service._sessions) == [a]
+
+
+def test_viewer_sees_the_session_and_stop_only_leaves(live):
+    owner, viewer, other = {"user_id": 1}, {"user_id": 2}, {"user_id": 3}
+    live_service._sessions.clear()
+    a = live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                   principal=owner)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    live_service._sessions[a]["owner_user_id"] = 1
+    with pytest.raises(NotFoundError):
+        live_service.get_session(a, principal=viewer)
+    assert live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                      principal=viewer)["joined"]
+    assert live_service.get_session(a, principal=viewer)["session_id"] == a
+    with pytest.raises(NotFoundError):
+        live_service.get_session(a, principal=other)
+    assert live_service.stop_session(a, principal=viewer)["stopping"] is False
+    assert background_jobs.is_running(a)
+    with pytest.raises(NotFoundError):
+        live_service.get_session(a, principal=viewer)
+    assert live_service.get_session(a, principal=owner)["session_id"] == a
+
+
+def test_session_on_saved_cookies_is_not_joined_by_another_account(live):
+    from lib.errors import ConflictError
+    a = _start(url="https://www.youtube.com/watch?v=abcdefghijk", use_saved_cookies=True)
+    assert _wait(lambda: "out_dir" in live)
+    live_service._sessions[a]["owner_user_id"] = 1
+    with pytest.raises(ConflictError):
+        live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                   principal={"user_id": 2})
 
 
 def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
@@ -261,7 +300,7 @@ def test_refused_second_start_builds_no_engine(live, monkeypatch):
     built = []
     monkeypatch.setattr(live_service, "_build_engine", lambda *a: built.append(a))
     with pytest.raises(ConflictError):
-        _start()
+        _start(url="https://www.youtube.com/watch?v=other")
     assert built == []
 
 
@@ -871,3 +910,18 @@ def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chun
     hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1})
     assert hints.names == "阿洛、阿羅。"
     assert hints(["阿洛来了"]) == [("阿洛", "RLuo", "")]
+
+
+def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
+    from lib.errors import ConflictError
+    url = "https://www.youtube.com/watch?v=abcdefghijk"
+    owner, admin = {"user_id": 1}, {"user_id": 2, "is_admin": True}
+    a = live_service.start_session(url, engine="fake", principal=owner)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    live_service._sessions[a]["owner_user_id"] = 1
+    live_service.start_session(url, engine="fake", principal=admin)
+    assert live_service.stop_session(a, principal=admin)["stopping"] is False
+    assert background_jobs.is_running(a)
+    live_service._sessions[a]["private"] = True
+    with pytest.raises(ConflictError):
+        live_service.start_session(url, engine="fake", principal={"user_id": 3})

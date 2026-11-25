@@ -373,6 +373,37 @@ def _previous_whisper_call():
     return live_whisper.outstanding_label()
 
 
+def _join_key(url: str, ref: Optional[dict]) -> str:
+    """What makes two start links the same stream: the video id for a known site,
+    else the link itself. Only ever compared in memory, never returned."""
+    return f"{ref['kind']}:{ref['id']}" if ref else url
+
+
+def _join_running(url: str, principal) -> Optional[str]:
+    """The id of a running session already captioning this stream, with the
+    caller added as a viewer, else None. A session that read the PC's saved
+    cookies or used its starter's glossary is not shared: its captions may come
+    from a sign-in or a private glossary the joiner does not have."""
+    key = _join_key(url, stream_ref(url))
+    uid = ownership_service.user_id(principal)
+    with _lock:
+        sid = _active_session_locked()
+        entry = _sessions.get(sid) if sid else None
+        if entry is None or entry.get("join_key") != key:
+            return None
+        if entry.get("private") and entry.get("owner_user_id") != uid:
+            return None
+        if uid is not None:
+            entry.setdefault("viewers", set()).add(uid)
+        return sid
+
+
+def join_running_stream(url: str) -> bool:
+    """True when a running session already captions this stream (an auto-start
+    then has nothing to start)."""
+    return _join_running(url, None) is not None
+
+
 def _active_session_locked():
     """The id of a session that is reserved, queued or running,
     else None. Call with _lock held."""
@@ -599,6 +630,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     elif series_id is not None:
         term_hints = _series_term_hints(principal, series_id, source_language)
     _reap()
+    joined = _join_running(url, principal)
+    if joined:
+        return {"session_id": joined, "joined": True}
     # Refuse a second session before building the engine, so a start that
     # would be refused costs no key lookup or model load. Re-checked below
     # under the same lock hold as the reservation.
@@ -666,6 +700,8 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
+                                 "join_key": _join_key(url, stream_ref(url)),
+                                 "private": bool(use_saved_cookies) or term_hints is not None, "viewers": set(),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
@@ -704,6 +740,9 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
 
 
 def _visible(principal, session_id, entry) -> bool:
+    uid = ownership_service.user_id(principal)
+    if uid is not None and uid in entry.get("viewers", ()):
+        return True
     return ownership_service.can_see_job(principal, session_id, entry.get("owner_user_id"))
 
 
@@ -739,6 +778,12 @@ def stop_session(session_id, principal=None) -> dict:
     job = _require(session_id, principal)
     with _lock:
         entry = _sessions.get(session_id) or {}
+        # A viewer who joined someone else's session only leaves it; the
+        # session keeps captioning for the others.
+        uid = ownership_service.user_id(principal)
+        if uid in entry.get("viewers", ()) and uid != entry.get("owner_user_id"):
+            entry["viewers"].discard(uid)
+            return {"session_id": session_id, "stopping": False, "finishing": False}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
         add_note(session_id, FINISHING_NOTE, key="finishing")

@@ -22948,6 +22948,11 @@ export interface components {
         };
         /** LiveSessionStarted */
         LiveSessionStarted: {
+            /**
+             * Joined
+             * @default false
+             */
+            joined: boolean;
             /** Session Id */
             session_id: string;
         };
