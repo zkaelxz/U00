@@ -20,6 +20,7 @@ import type {
   ReaderRelationshipMap,
   ReaderRichExportResult,
   ReaderVocabList,
+  ReaderWatchPosition,
   ReaderWikiClearResult,
   ReaderWikiList,
   ReaderWikiUpdateResult,
@@ -107,6 +108,10 @@ export const readerApi = {
     patchJson<WatchBookmark>(`${root(id)}/bookmarks/${bookmarkId}`, { note }, f),
   deleteBookmark: (id: number, bookmarkId: number, f?: Fetch) => deleteJson<{ id: number }>(`${root(id)}/bookmarks/${bookmarkId}`, f),
   media: (id: number, f?: Fetch) => getJson<ReaderMediaAvailability>(`${root(id)}/media`, f),
+  /** Where this account stopped playing the title, on any device. */
+  watchPosition: (id: number, f?: Fetch) => getJson<ReaderWatchPosition>(`${root(id)}/watch-position`, f),
+  saveWatchPosition: (id: number, seconds: number, f?: Fetch) =>
+    postJson<ReaderWatchPosition>(`${root(id)}/watch-position`, { seconds }, f),
   lookup: (id: number, body: ReaderLookupRequest, f?: Fetch) =>
     postJson<ReaderLookupResult>(`${root(id)}/lookup`, body, f),
   vocab: (id: number, f?: Fetch) => getJson<ReaderVocabList>(`${root(id)}/vocab`, f),

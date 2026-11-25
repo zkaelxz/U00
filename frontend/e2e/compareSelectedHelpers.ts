@@ -56,6 +56,8 @@ if ${real ? 'True' : 'False'}:
     ls[23].zh, ls[23].en = '三百人？正好，让他们见识见识什么叫夷陵老祖。', 'Three hundred? Perfect. Let them see what the Old Ancestor of Yiling really is.'
     ls[11].confidence = 0.58
 db.save_lines(${drama}, ls)
+# A place the Watch page saved for the account in an earlier test would otherwise be offered as where you stopped.
+db.save_progress(${drama}, audio_position_seconds=0, record_history=False)
 print(','.join(str(l.id) for l in db.load_line_objects(${drama})))
 `
   return execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot }).toString().trim().split(',').map(Number)

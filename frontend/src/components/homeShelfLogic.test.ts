@@ -6,7 +6,7 @@ import { formatLength, kindTag, needsRow, readyCard, readyOrder, runningLine, ti
 
 const ready = (over: Partial<LibraryReadyEntry> = {}): LibraryReadyEntry => ({
   drama_id: 4, title: 'Chime: karaoke', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
-  updated_at: null, read_percent: 0, length_seconds: 7500, page_count: 0, ...over,
+  updated_at: null, read_percent: 0, length_seconds: 7500, page_count: 0, watched_seconds: 0, watched_at: null, ...over,
 })
 
 const needs = (over: Partial<LibraryNeedsYouEntry>): LibraryNeedsYouEntry => ({
