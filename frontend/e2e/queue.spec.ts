@@ -76,7 +76,7 @@ test('start, then pause; the policy toggle and a start time', async ({ page }) =
   await expect(items(page).nth(0)).toContainText('Running')
   await expect(card).toContainText('Running: one item at a time.')
   await expect(card.getByRole('button', { name: 'Remove Transcribe Signal' })).toHaveCount(0)
-  await card.getByRole('button', { name: 'Pause' }).click()
+  await card.getByRole('button', { name: 'Pause', exact: true }).click()
   await expect(card).toContainText('Paused: no new item starts. A running one finishes.')
   await card.getByRole('switch', { name: 'Stop the queue when an item fails' }).click()
   await expect(card.getByRole('switch', { name: 'Stop the queue when an item fails' })).toHaveAttribute('aria-checked', 'true')
