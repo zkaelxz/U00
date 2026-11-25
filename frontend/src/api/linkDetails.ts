@@ -14,6 +14,7 @@ export interface MediaLinkProbe {
   channel: string
   release_date: string // '' = the link gives none
   is_live: boolean
+  duration_seconds?: number | null // null: the link gives no length
   summary: string
   platform: string
   series_suggestion: string
