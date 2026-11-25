@@ -1202,7 +1202,7 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     never blocks."""
     try:
         message = redact_secrets(_tidy(text, 200))
-        extra: dict = {"follow_id": int(follow_id)}
+        extra: dict = {"follow_id": int(follow_id), "target": {"page": "live", "follow_id": int(follow_id)}}
         if start_action:
             extra["action"] = "start_live"
         if starts_at is not None:
