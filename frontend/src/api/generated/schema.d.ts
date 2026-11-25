@@ -7525,6 +7525,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/after-import/{drama_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** How far the translating that follows a chapter import got */
+        get: operations["get_after_import_api_queue_after_import__drama_id__get"];
+        put?: never;
+        /**
+         * Queue the translating that follows the title's running chapter import
+         * @description The engines are chosen here, never by the client: an engine the account may not use is swapped
+         *     for the one every account may (`engine_for_caller`), and each step is held to its own gate.
+         */
+        post: operations["start_after_import_api_queue_after_import__drama_id__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/clear-finished": {
         parameters: {
             query?: never;
@@ -25344,7 +25366,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate";
+            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate" | "run_scanlate";
             /** Title */
             title: string;
         };
@@ -31819,7 +31841,7 @@ export interface components {
              */
             state: "idle" | "waiting" | "running" | "stopped" | "review" | "done";
             /** Step */
-            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate") | null;
+            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate" | "run_scanlate") | null;
         };
         /** TitleLanguagePack */
         TitleLanguagePack: {
@@ -55431,6 +55453,140 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueueState"];
+                };
+            };
+        };
+    };
+    get_after_import_api_queue_after_import__drama_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    start_after_import_api_queue_after_import__drama_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleFlowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };

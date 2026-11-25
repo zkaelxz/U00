@@ -1,5 +1,9 @@
+import { startAfterImport } from '../../api/queue'
 import { sourceImportJobId, startAiRecover, startChapterImport } from '../../api/sourcesImport'
+import { useState } from 'react'
+import { usePcOnly } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { isMember, useSession } from '../../hooks/useSession'
 import type { SeriesChapter } from '../../types/sources'
 import type { ChapterImportResult, UrlImportResult } from '../../types/sourcesImport'
 import { MAX_CHAPTERS, chapterImportDramas, hiddenDramaCount, importIds, importReason, retryIds } from './urlImportFormat'
@@ -25,13 +29,42 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   // server's text shows in startError instead.
   const job = useSourcesJob<ChapterImportResult | UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
   const running = job.status === 'running'
+  // Translate after import: on for members unless they switch it off, off for everyone else unless
+  // they switch it on. A novel's text step is PC-only, so only comics are offered it away from the PC.
+  const session = useSession()
+  const pc = usePcOnly()
+  const [storedAfter, setStoredAfter] = usePersistedState<boolean | null>('sources.translateAfter', null)
+  const translateAfter = typeof storedAfter === 'boolean' ? storedAfter : isMember(session)
+  const canTranslateAfter = comic || pc === 'local'
+  const [afterQueued, setAfterQueued] = useState(false)
+  const [afterError, setAfterError] = useState<unknown>(null)
+  const queueAfter = async (id: number) => {
+    setAfterQueued(false)
+    setAfterError(null)
+    try {
+      await startAfterImport(id)
+      setAfterQueued(true)
+    } catch (e) {
+      setAfterError(e)
+    }
+  }
+  // The import is already running when this is called, so the queued translating can wait for it.
+  const withTranslateAfter = async <T,>(id: number, started: () => Promise<T>): Promise<T> => {
+    const r = await started()
+    if (translateAfter && canTranslateAfter) void queueAfter(id)
+    else {
+      setAfterQueued(false)
+      setAfterError(null)
+    }
+    return r
+  }
   const shownResult =
     job.startedHere && job.status === 'done' && job.result?.kind === 'chapter_import' ? job.result : null
 
   const start = (chapters: SeriesChapter[], selected: string[]) => {
     const ids = importIds(selected, chapters)
     if (!dramaId || importReason(ids.length, dramaId) || running) return
-    job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
+    job.start(() => withTranslateAfter(dramaId, () => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId })))
   }
   // What's already in the drama, and "Retry failed chapters (N)":
   // exactly the retry ids (the server re-reads the list), at most 200 a run.
@@ -40,7 +73,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   const startRetry = () => {
     if (!dramaId || running || !retry.length) return
     const ids = retry.slice(0, MAX_CHAPTERS)
-    job.start(() => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId }))
+    job.start(() => withTranslateAfter(dramaId, () => startChapterImport(source, { series_id: seriesId, chapter_ids: ids, drama_id: dramaId })))
   }
   // One AI call on a chapter whose layout changed; its job ends in a Review extraction.
   const recover = (chapterId: string, engine: string) => {
@@ -54,6 +87,8 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
     recover, recoveryReview,
     dramas, choices, hiddenCount, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
     importState, retry, startRetry,
+    translateAfter, setTranslateAfter: (on: boolean) => setStoredAfter(on), canTranslateAfter, afterQueued, afterError,
+    clearAfterError: () => setAfterError(null),
   }
 }
 

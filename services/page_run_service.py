@@ -187,8 +187,14 @@ def start_novel_flow(principal, drama_id: int, url: str, lines: dict, *, at_pc: 
 def file_run(principal, drama_id: int) -> dict:
     """How far the Add box run of this title got: idle, waiting, running (with the step's job),
     stopped (with the reason) or done (translated: the page fetches the subtitles itself)."""
+    return _run_view(principal, drama_id, q.RUN_TRANSLATE)
+
+
+def _run_view(principal, drama_id: int, marker: str) -> dict:
+    """The title's latest run that ends in `marker` (its translating step): idle, waiting, running,
+    stopped or done."""
     _require_title(principal, drama_id)
-    chain = _flow_chain(_title_items(principal, drama_id), q.RUN_TRANSLATE)
+    chain = _flow_chain(_title_items(principal, drama_id), marker)
     if not chain:
         return {"state": "idle", "step": None, "reason": None, "job_id": None}
     active = [i for i in chain if i["status"] in _ACTIVE]
@@ -224,6 +230,77 @@ def start_file_run(principal, drama_id: int, job_id: str, engine: str, locale: O
     translate = {"engine": engine, **({"locale": locale} if locale else {})}
     return _add(principal, drama_id, [(q.FOLLOW, {"job_id": job_id}), (q.RUN_TRANSLATE, translate)],
                 at_pc, _FILE)
+
+
+# --- after a chapter import ---------------------------------------------------
+
+def after_import_kind(principal, drama_id: int) -> str:
+    """"comic" or "novel": what the title's media type says a chapter import produced (404 for a
+    title the caller can't use)."""
+    from services import sources_import_service as imp
+    _require_title(principal, drama_id)
+    media = ((db.get_drama(drama_id) or {}).get("media_type") or "").lower()
+    if media in imp.COMIC_MEDIA_TYPES:
+        return "comic"
+    if media in imp.NOVEL_MEDIA_TYPES:
+        return "novel"
+    raise InvalidInputError("Translating after an import works for comic and novel titles.")
+
+
+def after_import_run(principal, drama_id: int) -> dict:
+    """How far the title's translate-after-import run got (see _run_view)."""
+    marker = q.RUN_SCANLATE if after_import_kind(principal, drama_id) == "comic" else q.RUN_TRANSLATE
+    return _run_view(principal, drama_id, marker)
+
+
+def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
+                       text_allowed: bool, model: Optional[str] = None) -> dict:
+    """Queues the translating that follows the title's running chapter import. A comic gets one
+    Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
+    names and a translation, which needs the text step the PC owns (`text_allowed`); `lines` is
+    the lines step's settings (lines_choice). The first step waits for the import job, so a failed
+    import stops the rest. The caller checks every engine against the paid-engine permission."""
+    from services import sources_import_service
+    kind = after_import_kind(principal, drama_id)
+    view = after_import_run(principal, drama_id)
+    if view["state"] in ("waiting", "running"):
+        return view
+    if any(i["status"] in _ACTIVE for i in _title_items(principal, drama_id)):
+        raise ConflictError("This title already has a step waiting in the queue. See the Jobs page.")
+    import_job = sources_import_service.import_job_id(drama_id)
+    steps = [(q.FOLLOW, {"job_id": import_job})]
+    if kind == "comic":
+        steps.append((q.RUN_SCANLATE, {"engine": engine}))
+    else:
+        state = _novel_state(drama_id)
+        if state["lines"]:
+            raise ConflictError("This novel already has lines. Press Translate on the title to go on.")
+        # The text step replaces the title's narration text, so a title that has text but no chapters
+        # (text typed or attached by hand) is never given one.
+        if state["text"] and not state["chapters"]:
+            raise ConflictError("This novel already has its own text, which an import would replace. "
+                                "Press Translate on the title to go on.")
+        if not state["chapters"] or not state["text"]:
+            if not text_allowed:
+                raise ForbiddenError(_TEXT_AT_PC)
+            steps.append((q.TEXT, {}))
+        steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL}),
+                  (q.RUN_TRANSLATE, {"engine": engine, **({"model": model} if model else {})})]
+    return _add_after_import(principal, drama_id, steps, at_pc)
+
+
+def require_cap_for_after_import(engine: str, model) -> None:
+    """The tick starts its AI runs with nobody watching, so an engine the monthly cap covers needs a
+    cap to be set, as for any unattended run."""
+    from services import paid_job_service, settings_service
+    paid_job_service.require_cap_for_unattended(
+        engine, bool(settings_service.get("gemini_free_tier")),
+        model or engine_registry.effective_default_model(engine))
+
+
+def _add_after_import(principal, drama_id: int, steps: list, at_pc: bool) -> dict:
+    q._append_items(principal, drama_id, steps, at_pc, chain=uuid.uuid4().hex, now=True)
+    return after_import_run(principal, drama_id)
 
 
 # --- starting one step, for the queue's runner ------------------------------------
@@ -269,17 +346,24 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
         job_id = settings.get("job_id") or ""
         # Only the upload's own job, which already runs: this step waits for it and starts nothing.
         if not job_id.endswith(f"_{drama_id}") or background_jobs.get_status(job_id) is None:
-            raise NotFoundError("Lost track of the transcription. Open the title to see how far it got.")
+            raise NotFoundError("Lost track of the job this step waits for. Open the title to see how far it got.")
         return job_id
+    if step == q.RUN_SCANLATE:
+        from services import scanlate_run_service
+        engine = settings.get("engine") or ""
+        _require_free_or_paid(principal, engine, None, "translates pages")
+        require_cap_for_after_import(engine, None)
+        return scanlate_run_service.start_run(drama_id, mode="missing", engine=engine)["job_id"]
     if step == q.RUN_TRANSLATE:
         from services import translate_run_service, translate_thinking_service
         engine = settings.get("engine") or ""
-        model = translate_run_service.run_model_and_batch_size(drama_id, engine)[0] if engine == "ollama" else None
+        model = settings.get("model") or (
+            translate_run_service.run_model_and_batch_size(drama_id, engine)[0] if engine == "ollama" else None)
         _require_free_or_paid(principal, engine, model, "translates")
         paid = q._holds(principal, "engines.paid")
         return translate_thinking_service.start_with_thinking(
             translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
-            locale=settings.get("locale"), allow_paid_summary=paid)["job_id"]
+            locale=settings.get("locale"), model=model, allow_paid_summary=paid)["job_id"]
     from services import narration_service
     lines = lines_choice(drama_id, settings)
     first, last = lines.get("chapter_from"), lines.get("chapter_to")
