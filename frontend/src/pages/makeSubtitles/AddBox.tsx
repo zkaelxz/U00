@@ -97,7 +97,7 @@ export function AddBox({ place, onNewTitle, request = null }: {
             {!link && <FileRunNotice run={run} />}
             <h2 className="card-title">{onPage ? 'What do you want to add?' : 'Add something to translate'}</h2>
             <div className="add-box-row">
-              <label htmlFor={ADD_LINK_ID} className="visually-hidden">{onPage ? 'A name, or a link' : 'Paste a link'}</label>
+              <label htmlFor={ADD_LINK_ID} className="visually-hidden">{onPage ? 'Paste a link, or type a name to search' : 'Paste a link'}</label>
               <input
                 id={ADD_LINK_ID}
                 type={onPage ? 'text' : 'url'}

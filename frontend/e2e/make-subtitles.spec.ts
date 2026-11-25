@@ -297,7 +297,7 @@ test('Find & Add: a name searches Sources and each match opens its series there'
   const s = await mockSources(page)
   await page.goto('/#/make-subtitles')
   await expect(page.getByRole('heading', { name: 'Find & Add', level: 1 })).toBeVisible()
-  const box = page.getByRole('textbox', { name: 'A name, or a link' })
+  const box = page.getByRole('textbox', { name: 'Paste a link, or type a name to search' })
   await box.fill('Heaven')
   await box.press('Enter')
   await expect.poll(() => posted(s, '/api/sources/search').length).toBe(1)
