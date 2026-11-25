@@ -52,8 +52,10 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderWatchPositionRequest, ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
-                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, error_responses)
-from services import export_service, reader_service
+                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, WatchBookmark,
+                         WatchBookmarkDeleted, WatchBookmarkNoteRequest, WatchBookmarkRequest,
+                         WatchBookmarks, error_responses)
+from services import export_service, reader_service, watch_bookmark_service
 from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
@@ -210,6 +212,33 @@ def get_caption_track(track: Track, drama_id: int = Path(ge=1)):
         raise NotFoundError(f"This title has no {track} caption track.")
     return Response(content=tracks[track], media_type="text/vtt; charset=utf-8",
                     headers={"X-Content-Type-Options": "nosniff"})
+
+
+# --- bookmarks: the caller's own, so one account's never show to another ----------
+
+@router.get("/dramas/{drama_id}/bookmarks", dependencies=[require_permission("library.read")], response_model=WatchBookmarks,
+            summary="The caller's bookmarks on a title", responses=_READ_ERRS)
+def get_bookmarks(request: Request, drama_id: int = Path(ge=1)):
+    return watch_bookmark_service.list_bookmarks(drama_id, principal_user_id(request) or 0)
+
+
+@router.post("/dramas/{drama_id}/bookmarks", dependencies=[require_permission("lines.edit")], response_model=WatchBookmark,
+             summary="Save a moment with an optional note", responses=error_responses(404, 409, 422))
+def post_bookmark(body: WatchBookmarkRequest, request: Request, drama_id: int = Path(ge=1)):
+    return watch_bookmark_service.add_bookmark(drama_id, body.at_seconds, body.note, principal_user_id(request) or 0)
+
+
+@router.patch("/dramas/{drama_id}/bookmarks/{bookmark_id}", dependencies=[require_permission("lines.edit")],
+              response_model=WatchBookmark, summary="Change a bookmark's note", responses=_READ_ERRS)
+def patch_bookmark(body: WatchBookmarkNoteRequest, request: Request, drama_id: int = Path(ge=1), bookmark_id: int = Path(ge=1)):
+    return watch_bookmark_service.set_note(drama_id, bookmark_id, body.note, principal_user_id(request) or 0)
+
+
+@router.delete("/dramas/{drama_id}/bookmarks/{bookmark_id}", dependencies=[require_permission("lines.edit")],
+               response_model=WatchBookmarkDeleted, summary="Delete a bookmark", responses=_READ_ERRS)
+def delete_bookmark(request: Request, drama_id: int = Path(ge=1), bookmark_id: int = Path(ge=1)):
+    watch_bookmark_service.delete_bookmark(drama_id, bookmark_id, principal_user_id(request) or 0)
+    return {"id": bookmark_id}
 
 
 # --- click-to-define and vocab -------------------------------------------------

@@ -74,6 +74,10 @@ ROUTES = [
     ("GET", "/notes", None),
     ("POST", "/notes", {"notes": "x"}),
     ("GET", "/media", None),
+    ("GET", "/bookmarks", None),
+    ("POST", "/bookmarks", {"at_seconds": 1}),
+    ("PATCH", "/bookmarks/{bookmark_id}", {"note": "x"}),
+    ("DELETE", "/bookmarks/{bookmark_id}", None),
     ("GET", "/captions/Source", None),
     ("POST", "/lookup", {"page": 1}),
     ("GET", "/vocab", None),
@@ -95,8 +99,13 @@ LLM_ROUTES = [(p, b) for m, p, b in ROUTES
 
 
 def _call(c, method, path, body, **kw):
+    path = path.replace("{bookmark_id}", "1")
     if method == "GET":
         return c.get(path, **kw)
+    if method == "DELETE":
+        return c.delete(path, **kw)
+    if method == "PATCH":
+        return c.patch(path, json=body, **kw)
     return c.post(path, json=body, **kw)
 
 
