@@ -88,7 +88,7 @@ function SpendLimitField({ range, value, disabled, onChange }: { range: readonly
   )
 }
 
-export default function LivePage() {
+export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const pc = usePcOnly()
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
@@ -103,7 +103,7 @@ export default function LivePage() {
     return () => { alive = false }
   }, [])
   const [fastHelpId, balancedHelpId] = [useId(), useId()]
-  const [url, setUrl] = useState('')
+  const [url, setUrl] = useState(initialUrl)
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
   const language = prefs.source_language ?? opts.defaults.source_language

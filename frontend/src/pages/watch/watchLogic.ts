@@ -15,6 +15,30 @@ const RESUME_END_GAP_S = 10
 export const SAVE_EVERY_MS = 5000
 
 export const positionKey = (dramaId: number) => `watch.at.${dramaId}`
+/** When this browser last wrote `positionKey` (ms since 1970), to tell it from a newer place saved on another device. */
+export const positionTimeKey = (dramaId: number) => `watch.atTime.${dramaId}`
+/** The account's place as this browser last sent or heard it, in seconds. */
+export const serverSeenKey = (dramaId: number) => `watch.serverSeen.${dramaId}`
+/** The account's server save, sent at most this often while playing (and on every pause and leave). */
+export const SERVER_SAVE_EVERY_MS = 15000
+
+/** A saved place: seconds into the title, and when it was saved (ms since 1970; null when not known). */
+export interface SavedPlace { seconds: number; at: number | null }
+
+/** Which saved place to go on from: this browser's, or the account's from the server when that one is newer. A place
+ *  this browser saved before it kept times (`at` null) is kept, as it was before the server had places. */
+/** The account's place, or null when it is the one this browser already sent or heard: the server's time also moves
+ *  when the Reader saves a page, which would make an old place look newer than this browser's. */
+export function freshServerPlace(server: SavedPlace | null, seen: number | null): SavedPlace | null {
+  return server && seen !== null && Math.abs(server.seconds - seen) < 0.5 ? null : server
+}
+
+export function newerPlace(local: SavedPlace, server: SavedPlace | null): number {
+  if (!server || !(server.seconds > 0)) return local.seconds
+  if (!(local.seconds > 0)) return server.seconds
+  if (local.at === null) return local.seconds
+  return (server.at ?? 0) > local.at ? server.seconds : local.seconds
+}
 
 type Timed = Pick<ReviewLine, 'idx' | 'start'>
 
@@ -28,6 +52,25 @@ export function spokenOrder<T extends Timed>(lines: readonly T[]): T[] {
 export function currentLine<T extends Timed>(ordered: readonly T[], time: number): T | null {
   const i = activeIndex(ordered, time)
   return i === null ? null : ordered[i]
+}
+
+/** A stretch with no line this long (an intro, music, a long pause) is worth a Skip quiet button; shorter ones are
+ *  ordinary pauses between lines. */
+export const QUIET_MIN_S = 4
+/** Where Skip quiet lands before the next line starts, so its first word is not clipped. */
+export const QUIET_LEAD_S = 0.5
+
+/** Where Skip quiet would go from this time: just before the next line, when no line is being spoken and the next one
+ *  is at least QUIET_MIN_S away. Null while a line is being spoken, in a short pause, and after the last line. Only
+ *  the line that started last is checked, so a longer line it overlaps is not noticed; the skip stays inside quiet
+ *  that the lines show. */
+export function quietSkip(ordered: readonly Pick<ReviewLine, 'start' | 'end'>[], time: number): number | null {
+  const i = activeIndex(ordered, time)
+  const next = ordered[(i ?? -1) + 1]
+  if (!next) return null
+  const from = i === null ? 0 : Math.max(time, ordered[i].end)
+  if (time < from || next.start - time < QUIET_MIN_S) return null
+  return next.start - QUIET_LEAD_S
 }
 
 /** The line Loop line repeats: the one being spoken, unless it ends at or before its start, which would put the sound
@@ -84,6 +127,22 @@ export function attentionIndex(ordered: Pick<ReviewLine, 'flag' | 'mark'>[], fro
   return null
 }
 
+/** The lines still to check, in spoken order: the ones Review's risk view lists that nobody has said look right since. */
+export function linesToCheck<T extends Pick<ReviewLine, 'id' | 'reviewed'>>(ordered: T[], riskIds: ReadonlySet<number>): T[] {
+  return ordered.filter((l) => riskIds.has(l.id) && !l.reviewed)
+}
+
+/** The position in `checks` of the next (or previous) line to check after the spoken line at `from` in `ordered`. */
+export function checkStep(checks: Pick<ReviewLine, 'id'>[], lineIndex: ReadonlyMap<number, number>, from: number | null, direction: 1 | -1): number | null {
+  const at = checks.map((l) => lineIndex.get(l.id) ?? -1)
+  if (direction === 1) {
+    const i = at.findIndex((n) => from === null || n > from)
+    return i < 0 ? null : i
+  }
+  for (let i = at.length - 1; i >= 0; i--) if (from === null || at[i] < from) return i
+  return null
+}
+
 export type Verdict = 'good' | 'wrong' | 'mixed'
 
 /** What pressing a verdict on a line does: Good checks the line (pressed again, unchecks it); Wrong and Mixed set that
@@ -95,6 +154,17 @@ export function verdictChange(line: Pick<ReviewLine, 'reviewed' | 'mark'>, verdi
 
 export const lineHeading = (l: Timed) => `Line #${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 export const rowMeta = (l: Timed) => `#${lineNumber(l.idx)} · ${clockTenths(l.start)}`
+
+/** How many colours a speaker can take before one repeats; the CSS defines exactly this many. */
+export const SPEAKER_COLOURS = 6
+
+/** Each speaker's colour slot, by first line spoken: hashing the name could give two of a drama's few speakers the
+ *  same colour, and a rename must not recolour the lines. Lines with no speaker get none. */
+export function speakerSlots(ordered: readonly Pick<ReviewLine, 'speaker'>[]): Map<string, number> {
+  const slots = new Map<string, number>()
+  for (const l of ordered) if (l.speaker && !slots.has(l.speaker)) slots.set(l.speaker, slots.size % SPEAKER_COLOURS)
+  return slots
+}
 
 /** "Audio drama · Chinese to English": the kind of title and its languages, from the shared labels; empty when the
  *  title has neither. */

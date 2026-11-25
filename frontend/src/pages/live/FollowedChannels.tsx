@@ -70,12 +70,9 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
   const [note, setNote] = useState<string | null>(null)
   // The channel whose settings panel is open, if any.
   const [editing, setEditing] = useState<number | null>(null)
-  // The rows opened to show their controls; the one a bell link picked starts open.
-  const [openRows, setOpenRows] = useState<Set<number>>(() => new Set(picked ? [picked] : []))
+  // Rows the reader flipped from their default: closed, except the one a bell link picked, which starts open.
+  const [flipped, setFlipped] = useState<Set<number>>(() => new Set())
   const pickedRow = useRef<HTMLLIElement | null>(null)
-  useEffect(() => {
-    if (picked) setOpenRows((s) => (s.has(picked) ? s : new Set(s).add(picked)))
-  }, [picked])
   useEffect(() => {
     if (picked && list) pickedRow.current?.scrollIntoView?.({ block: 'nearest' })
   }, [picked, list])
@@ -215,8 +212,8 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
           <ul className="live-follow-list" aria-label="Followed channels">
             {items.map((f) => (
               <FollowRow key={f.id} f={f} busy={busy} canAuto={!!list?.can_auto_start}
-                open={openRows.has(f.id)} picked={f.id === picked} rowRef={f.id === picked ? pickedRow : undefined}
-                onToggle={() => setOpenRows((s) => { const n = new Set(s); if (!n.delete(f.id)) n.add(f.id); return n })}
+                open={(f.id === picked) !== flipped.has(f.id)} picked={f.id === picked} rowRef={f.id === picked ? pickedRow : undefined}
+                onToggle={() => setFlipped((s) => { const n = new Set(s); if (!n.delete(f.id)) n.add(f.id); return n })}
                 onHourly={(on) => change(f, 'hourly', { auto_check: on })}
                 onMode={(m) => change(f, 'mode', { mode: m })}
                 editing={editing === f.id}

@@ -115,6 +115,8 @@ describe('labels', () => {
     expect(targetLink({ page: 'glossary', drama_id: 4, series_id: null, follow_id: null })?.href).toBe('#/drama/4/translate?tab=glossary')
     expect(targetLink({ page: 'review', drama_id: 4, series_id: null, follow_id: null })?.href).toBe('#/drama/4/review')
     expect(targetLink({ page: 'series', drama_id: null, series_id: 2, follow_id: null })?.href).toBe('#/series/2')
+    expect(targetLink({ page: 'watch', drama_id: 4, series_id: null, follow_id: null })?.href).toBe('#/watch/4')
+    expect(targetLink({ page: 'title', drama_id: 4, series_id: null, follow_id: null })?.href).toBe('#/drama/4')
     expect(targetLink({ page: 'jobs', drama_id: null, series_id: null, follow_id: null })?.href).toBe('#/jobs')
     expect(targetLink({ page: 'live', drama_id: null, series_id: null, follow_id: 7 })?.href).toBe('#/live?follow=7')
     expect(targetLink({ page: 'live', drama_id: null, series_id: null, follow_id: null })).toBeNull()

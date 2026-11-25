@@ -17,8 +17,8 @@ test('hiding Find removes it from the rail, the address still loads and the choi
   // Switching it back on restores the link.
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
-  await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Find' }).click()
-  await expect(navLink(page, 'Find')).toBeVisible()
+  await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Find & Add' }).click()
+  await expect(navLink(page, 'Find & Add')).toBeVisible()
 })
 
 test('Library and Settings are listed but locked on', async ({ page }) => {

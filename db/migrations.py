@@ -699,6 +699,49 @@ def _migrate_chapter_marks_per_account():
         conn.close()
 
 
+def _migrate_profiles_per_account():
+    """One-time: reading data (resume points, history, notes) was one set on the default
+    profile for everyone; each sign-in account now gets a profile of its own. The data so
+    far stays the PC's, and every active admin account starts from a copy of it, so the
+    owner's phone keeps its place; other accounts start empty."""
+    conn = db.get_conn()
+    conn.isolation_level = None  # explicit BEGIN/COMMIT below
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        has_column = "user_id" in {r[1] for r in conn.execute("PRAGMA table_info(profiles)")}
+        if not has_column:
+            conn.execute("ALTER TABLE profiles ADD COLUMN user_id INTEGER")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_user ON profiles(user_id) "
+                     "WHERE user_id IS NOT NULL")
+        default = conn.execute("SELECT MIN(id) FROM profiles").fetchone()[0]
+        if not has_column and default is not None:
+            now = clock.utcnow().isoformat()
+            for (uid,) in conn.execute("SELECT id FROM users WHERE COALESCE(is_admin, 0) != 0 "
+                                       "AND COALESCE(is_active, 0) != 0").fetchall():
+                cur = conn.execute("INSERT INTO profiles (name, created_at, user_id) VALUES (?, ?, ?)",
+                                   (f"Account {uid}", now, uid))
+                new = cur.lastrowid
+                conn.execute("INSERT INTO progress (drama_id, profile_id, last_line_idx, audio_position_seconds, "
+                             "last_page, percent_complete, last_accessed_at, view_prefs) "
+                             "SELECT drama_id, ?, last_line_idx, audio_position_seconds, last_page, "
+                             "percent_complete, last_accessed_at, view_prefs FROM progress WHERE profile_id = ?",
+                             (new, default))
+                conn.execute("INSERT INTO personal_notes (profile_id, drama_id, notes, updated_at) "
+                             "SELECT ?, drama_id, notes, updated_at FROM personal_notes WHERE profile_id = ?",
+                             (new, default))
+                conn.execute("INSERT INTO reading_history (drama_id, profile_id, line_id, line_idx, "
+                             "percent_complete, accessed_at) SELECT drama_id, ?, line_id, line_idx, "
+                             "percent_complete, accessed_at FROM reading_history WHERE profile_id = ?",
+                             (new, default))
+        conn.execute("COMMIT")
+    except BaseException:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
+
 def _migrate_step26e_profiles():
     """One-time: creates the default profile every pre-profiles
     install's existing progress/reading_history/personal_notes data gets

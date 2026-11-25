@@ -38,7 +38,12 @@ describe('NotificationRow', () => {
     expect(row({ target: { page: 'nowhere', drama_id: 1 } as unknown as NotificationItem['target'] })).not.toContain('<a')
   })
 
-  it('never links a finished entry, even with a target', () => {
-    expect(row({ kind: 'job_done', text: 'Finished: Translation', target: { page: 'jobs', drama_id: null, series_id: null, follow_id: null } })).not.toContain('<a')
+  it('links a finished entry to the title it finished', () => {
+    expect(row({ kind: 'job_done', text: 'Finished: Translation', target: { page: 'watch', drama_id: 7, series_id: null, follow_id: null } })).toContain('href="#/watch/7"')
+    expect(row({ kind: 'job_done', text: 'Finished: Translation', target: { page: 'title', drama_id: 7, series_id: null, follow_id: null } })).toContain('href="#/drama/7"')
+  })
+
+  it('does not link a failed entry', () => {
+    expect(row({ kind: 'job_failed', text: 'Failed: Translation', target: { page: 'watch', drama_id: 7, series_id: null, follow_id: null } })).not.toContain('<a')
   })
 })

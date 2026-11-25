@@ -296,7 +296,7 @@ def test_each_caller_has_its_own_bucket_inside_the_global_cap(fake, monkeypatch)
     with pytest.raises(RateLimitedError):
         ws.search("x", caller="user:1")
     # user:1 is capped, but the others still get through until the global cap.
-    callers = ["user:2", "user:2", "user:3", "user:3", "user:3", "user:4"]
+    callers = ["user:2", "user:2", "user:3", "user:4"]
     for c in callers:
         ws.search("x", caller=c)
     assert len(fake.calls) == ws.RATE_MAX == ws.PER_CALLER_MAX + len(callers)

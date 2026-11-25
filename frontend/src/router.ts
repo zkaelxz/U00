@@ -45,7 +45,10 @@ export type Route =
   // tab: "#/benchmark?tab=runs" opens that tab (the last one used is remembered otherwise).
   | { name: 'benchmark'; compare?: string; tab?: BenchmarkTab }
   | { name: 'translate' }
-  | { name: 'make-subtitles' }
+  // url: "#/make-subtitles?url=<link>" (the share picker's Subtitle video) fills the Add box's link.
+  | { name: 'make-subtitles'; url?: string }
+  // The share picker: what to do with a link shared to Baihe ("#/share?url=<link>").
+  | { name: 'share'; url?: string }
   // tab: "#/sources?tab=new"; no tab opens Find.
   // url: "#/sources?url=<link>" (the installed app's Share to Baihe) fills the Paste a link box.
   // open: "#/sources?source=mh&series=12&title=Name" opens that series' chapter list (the Updates page's New chapters rows).
@@ -54,8 +57,9 @@ export type Route =
   // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
-  // `follow`: open Live with this followed channel picked (the bell's Watch link).
-  | { name: 'live'; follow?: number }
+  // url: "#/live?url=<link>" (the share picker's Start Live) fills the stream address.
+  // follow: "#/live?follow=<id>" (a bell alert) opens Live with that followed channel picked.
+  | { name: 'live'; url?: string; follow?: number }
   // Everything new in one list: new chapters and followed channels that are live or scheduled.
   | { name: 'updates' }
   | { name: 'assistant' }
@@ -138,7 +142,16 @@ export function parseRoute(hash: string): Route {
     }
   }
   if (head === 'translate' && parts.length === 1) return { name: 'translate' }
-  if (head === 'make-subtitles' && parts.length === 1) return { name: 'make-subtitles' }
+  if ((head === 'make-subtitles' || head === 'share' || head === 'live') && parts.length === 1) {
+    const q = new URLSearchParams(qs)
+    const url = q.get('url')
+    const follow = q.get('follow')
+    return {
+      name: head,
+      ...(url && isSharedLink(url) ? { url } : {}),
+      ...(head === 'live' && follow && /^\d+$/.test(follow) && Number(follow) >= 1 ? { follow: Number(follow) } : {}),
+    }
+  }
   if (head === 'sources' && parts.length === 1) {
     const q = new URLSearchParams(qs)
     const tab = q.get('tab')
@@ -156,10 +169,6 @@ export function parseRoute(hash: string): Route {
     return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
   }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
-  if (head === 'live' && parts.length === 1) {
-    const f = new URLSearchParams(qs).get('follow')
-    return f && /^\d+$/.test(f) && Number(f) >= 1 ? { name: 'live', follow: Number(f) } : { name: 'live' }
-  }
   if (head === 'updates' && parts.length === 1) return { name: 'updates' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
   if (head === 'series' && parts.length === 1) {
@@ -253,7 +262,8 @@ export function routeHref(r: Route): string {
     return `#/sources?${q}`
   }
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
-  if (r.name === 'live' && r.follow) return `#/live?follow=${r.follow}`
+  if (r.name === 'live' && r.follow && !r.url) return `#/live?follow=${r.follow}`
+  if ((r.name === 'make-subtitles' || r.name === 'share' || r.name === 'live' || r.name === 'sources') && r.url) return `#/${r.name}?url=${encodeURIComponent(r.url)}`
   if (r.name === 'jobs' && r.job) return `#/jobs?job=${encodeURIComponent(r.job)}`
   if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
   if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`

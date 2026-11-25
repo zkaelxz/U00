@@ -65,6 +65,22 @@ final class ServerAddress {
     }
 
     /**
+     * A video page's address for Send video: public https only, but the query stays because
+     * a video id usually lives there (watch?v=...). A login and the fragment are dropped.
+     */
+    static String videoLink(String url) {
+        try {
+            URI uri = new URI(url == null ? "" : url);
+            String host = uri.getHost();
+            if (publicSourceUrl(url).isEmpty()) return "";
+            return new URI("https", null, host.toLowerCase(Locale.ROOT), uri.getPort(),
+                    uri.getRawPath(), uri.getRawQuery(), null).toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /**
      * The Baihe address the shell may keep: https, or http only for a host on a private
      * network (this phone's LAN, Tailscale, localhost), because cleartext is allowed
      * app-wide and must not reach a public host. A path, query or login is dropped.
