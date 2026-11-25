@@ -202,6 +202,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             @Override
             public void onPageFinished(WebView view, String url) {
                 rememberPlace(url, view.getTitle());
+                noteVisit(url, view.getTitle());
                 if (translateOn && !translateRestoring) web.evaluateJavascript(PageTranslate.ON, null);
                 if (quickAfterLoad) {
                     quickAfterLoad = false;
@@ -525,6 +526,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String here = ServerAddress.browsable(web.getUrl());
         menu.getMenu().add(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page");
         menu.getMenu().add(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")");
+        menu.getMenu().add("Recent pages");
+        int savedCount = SavedChapters.list(SavedChapters.root(this)).size();
+        menu.getMenu().add(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
@@ -548,6 +552,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Pick up where I left off".equals(title)) pickUp();
             else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
             else if (title.startsWith("Saved chapters")) showSaved();
+            else if ("Recent pages".equals(title)) showRecent();
             else if (title.startsWith("Bookmarks")) showBookmarks();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
@@ -679,6 +684,37 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     say("Saved. Pages translated from now on use it.");
                 })
                 .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static final String KEY_RECENT = "recent_pages";
+    private static final int MAX_RECENT = 30;
+
+    /** Keeps the pages opened here on the phone only, so a page can be found again; nothing is sent anywhere. */
+    private void noteVisit(String url, String title) {
+        String link = ServerAddress.publicSourceUrl(url);
+        if (link.isEmpty()) return;
+        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
+        recent = GrabBookmarks.with(recent, title, link, MAX_RECENT);
+        prefs().edit().putString(KEY_RECENT, GrabBookmarks.serialize(recent)).apply();
+    }
+
+    private void showRecent() {
+        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
+        if (recent.isEmpty()) {
+            say("Nothing yet. Pages you open here show up in this list.");
+            return;
+        }
+        String[] names = new String[recent.size()];
+        for (int i = 0; i < names.length; i++) names[i] = recent.get(i).name;
+        new AlertDialog.Builder(this)
+                .setTitle("Recent pages")
+                .setItems(names, (d, which) -> web.loadUrl(recent.get(which).url))
+                .setNeutralButton("Clear", (d, w) -> {
+                    prefs().edit().remove(KEY_RECENT).apply();
+                    say("Recent pages cleared.");
+                })
+                .setNegativeButton("Close", null)
                 .show();
     }
 
