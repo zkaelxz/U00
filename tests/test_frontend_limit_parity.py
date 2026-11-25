@@ -76,6 +76,9 @@ def test_asr_backend_choices_match_the_server():
     assert only, "LANGUAGE_ONLY_BACKENDS not found"
     assert dict(re.findall(r"(\w+): '(\w+)'", only.group(1))) == {
         backend: lang for backend, (lang, _msg) in asr_options_service.LANGUAGE_ONLY_ASR_BACKENDS.items()}
+    whisper_only = re.search(r"const WHISPER_ONLY_LANGUAGES: string\[\] = \[([^\]]*)\]", text)
+    assert whisper_only, "WHISPER_ONLY_LANGUAGES not found"
+    assert tuple(re.findall(r"'(\w+)'", whisper_only.group(1))) == asr_options_service.WHISPER_ONLY_LANGUAGES
 
 
 def test_add_a_person_caps_match_the_schema():

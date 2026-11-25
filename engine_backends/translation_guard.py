@@ -32,8 +32,14 @@ ABSURD_LONG_FACTOR = 5
 ABSURD_SLACK_WORDS = 15
 _REASONING_MARKER = re.compile(r"</?(?:think|thinking|reasoning)>|<\|?channel\|?>", re.IGNORECASE)
 
-_CJK = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]")
-_CJK_RUN = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]+")
+_CJK_ONLY = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ]")
+# Thai is source script too: left in an English reply it is a leak like any CJK.
+_CJK = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ\u0e01-\u0e5b]")
+_CJK_RUN = re.compile("[぀-ヿ㐀-䶿一-鿿가-힯ᄀ-ᇿ\u0e01-\u0e5b]+")
+# Thai spells a word in several letters (about four, not counting the vowel and tone
+# marks, which take no width), so it earns English words at a lower rate than CJK.
+_THAI_LETTER = re.compile("[\u0e01-\u0e30\u0e32\u0e33\u0e3f-\u0e46\u0e4f-\u0e5b]")
+WORDS_PER_THAI_LETTER = 0.25
 _QUOTED = re.compile(r'"[^"]*"|“[^”]*”|「[^」]*」|『[^』]*』')
 _WORD = re.compile(r"[A-Za-z0-9]+(?:'[A-Za-z]+)?")
 _SOURCE_SPOKEN = re.compile(r'“[^”]*[぀-ヿ㐀-䶿一-鿿가-힯][^”]*”|「[^」]*」|『[^』]*』')
@@ -57,7 +63,9 @@ def _english_words(text: str) -> int:
 def _expected_words(source: str) -> float:
     """English words a source line should come to: CJK characters at a fixed
     rate plus any Latin words already in the source (names, numbers)."""
-    return len(_CJK.findall(source)) * WORDS_PER_CJK_CHAR + len(_WORD.findall(_CJK.sub(" ", source)))
+    return (len(_CJK_ONLY.findall(source)) * WORDS_PER_CJK_CHAR
+            + len(_THAI_LETTER.findall(source)) * WORDS_PER_THAI_LETTER
+            + len(_WORD.findall(_CJK.sub(" ", source))))
 
 
 def _norm(text: str) -> str:

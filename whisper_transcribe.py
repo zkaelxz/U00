@@ -394,7 +394,8 @@ def _accepts_transcribe_kwarg(model, name):
 # start of a title is where a wrong language shows.
 LANGUAGE_CHECK_WINDOW_S = 120
 LANGUAGE_CHECK_MIN_PROBABILITY = 0.80
-CHECKED_LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "en": "English"}
+CHECKED_LANGUAGE_NAMES = {"zh": "Chinese", "ja": "Japanese", "ko": "Korean", "id": "Indonesian", "th": "Thai",
+                          "en": "English"}
 
 
 def _decode_opening(audio_path, seconds):
@@ -430,6 +431,19 @@ def language_mismatch_notice(model, audio_path, title_language):
     if heard is None or detected == title_language or probability < LANGUAGE_CHECK_MIN_PROBABILITY:
         return None
     return f"The audio sounds like {heard}, but this title is set to {chosen}."
+
+
+# Languages Whisper hears without the speech detector. On an Indonesian stream VOD
+# Silero scored talk over loud game music as silence: large-v3 with it off kept 25
+# lines to 7 and about 61% of the meaning to 37% (V100 test, 2026-11-25), for about
+# 1.8x the time and a few junk lines in the gaps, which the filters below catch most of.
+NO_VAD_LANGUAGES = frozenset({"id"})
+
+
+def _skips_detector(language: str, difficult_audio: bool) -> bool:
+    """Whether a run hears the audio without Silero, and so must not trim line starts with
+    it either: the detector would cut the same speech it missed."""
+    return difficult_audio or language in NO_VAD_LANGUAGES
 
 
 DECODE_DEFAULT = "default"
@@ -554,9 +568,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     kwargs = {
         # Silero scores shouted or slurred speech below any usable threshold; fast mode's
         # batched pipeline needs its chunks.
-        "language": language, "vad_filter": not (difficult_audio and not fast_mode), "beam_size": beam_size,
-        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms,
-                            "threshold": vad_threshold},
+        "language": language, "vad_filter": not (_skips_detector(language, difficult_audio) and not fast_mode),
+        "beam_size": beam_size,
+        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms, "threshold": vad_threshold},
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard), **_decode_randomness_kwargs(decode_randomness),
     }
@@ -579,7 +593,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         result = resume.merged(result)
         settle_overlaps(result)
         # Difficult audio is the shouted or whispered speech Silero scores as silence.
-        _fit_to_speech(result, audio_path, trim_starts=not difficult_audio)
+        _fit_to_speech(result, audio_path, trim_starts=not _skips_detector(language, difficult_audio))
         if not fast_mode:
             result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
         for seg in result:

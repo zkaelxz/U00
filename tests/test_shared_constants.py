@@ -16,14 +16,25 @@ from services import (reader_service, source_service, benchmark_lab_service, dis
                       transcribe_service, voice_clone_service)
 
 
-def test_language_constants_cover_the_three_languages():
-    assert core.SOURCE_LANGUAGES == ("zh", "ja", "ko")
-    assert core.LANGUAGE_NAMES == {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+def test_language_constants_cover_the_five_languages():
+    assert core.SOURCE_LANGUAGES == ("zh", "ja", "ko", "id", "th")
+    assert core.LANGUAGE_NAMES == {"zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+                                   "id": "Indonesian", "th": "Thai"}
     assert set(core.LANGUAGE_NAMES) == set(core.SOURCE_LANGUAGES)
+    assert core.CJK_LANGUAGES == ("zh", "ja", "ko")
+    assert core.ISO_639_2["id"] == "ind" and core.ISO_639_2["th"] == "tha"
+
+
+def test_qwen3_and_the_aligner_stay_on_chinese_japanese_korean():
+    import asr_backend
+    import mixed_language
+    assert forced_align.LANGUAGE_NAMES == {"zh": "Chinese", "ja": "Japanese", "ko": "Korean"}
+    assert asr_backend.LANGUAGE_NAMES is forced_align.LANGUAGE_NAMES
+    assert set(forced_align.ALIGNER_LANGUAGE_NAMES) == {"zh", "ja", "ko", "en"}
+    assert set(mixed_language.QWEN_LANGUAGE_NAMES) == {"zh", "ja", "ko", "en"}
 
 
 def test_language_copies_are_the_shared_objects():
-    assert forced_align.LANGUAGE_NAMES is core.LANGUAGE_NAMES
     assert LANGUAGE_NAMES is core.LANGUAGE_NAMES
     for mod in (resegment, story_context, translation_guide):
         assert mod.LANGUAGE_NAMES is core.LANGUAGE_NAMES

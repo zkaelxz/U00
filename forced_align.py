@@ -50,7 +50,7 @@ import tempfile
 import qwen3_native
 import memory_headroom
 from whisper_models import ModelDownloadError, is_gpu_error, is_network_error, diagnose_hostname
-from core import Line, LANGUAGE_NAMES
+from core import CJK_LANGUAGES, Line, LANGUAGE_NAMES as _ALL_LANGUAGE_NAMES
 from line_alignment import lines_from_char_times, align_transcript_to_timing
 from audio_extract import extract_audio_slice as _extract_audio_slice
 
@@ -64,6 +64,7 @@ HARD_CAP_SECONDS = 300.0
 
 # LANGUAGE_NAMES stays zh/ja/ko because asr_backend gates Qwen3-ASR on it; the
 # aligner also takes English (it is in the processor's FORCED_ALIGNER_LANGUAGES).
+LANGUAGE_NAMES = {code: _ALL_LANGUAGE_NAMES[code] for code in CJK_LANGUAGES}
 ALIGNER_LANGUAGE_NAMES = {**LANGUAGE_NAMES, "en": "English"}
 
 # Space-delimited languages: the aligner returns whole words, so word breaks

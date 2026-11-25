@@ -240,12 +240,12 @@ def realign_long_segment(audio_path: str, segment: dict, language: str,
     with no error shown anywhere.
     """
     import segment as segment_module
-    from core import SOURCE_LANGUAGES
+    from core import CJK_LANGUAGES
 
     # A mixed-language title's segment carries its own language; the CJK
     # segmenters would mangle an English one, so it stays unsplit.
     language = segment.get("lang") or language
-    if language not in SOURCE_LANGUAGES:
+    if language not in CJK_LANGUAGES:
         return [segment]
     if language == "ko":
         # Korean is aligned by its space-separated words as written: the Korean

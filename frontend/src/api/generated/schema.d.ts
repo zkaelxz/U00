@@ -14573,7 +14573,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language?: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko" | "id" | "th";
             /** Source Text */
             source_text: string;
             /**
@@ -15046,7 +15046,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language?: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko" | "id" | "th";
             /** Text */
             text: string;
             /**
@@ -15166,7 +15166,7 @@ export interface components {
             /** Pass Threshold */
             pass_threshold: number;
             /** Source Languages */
-            source_languages: ("zh" | "ja" | "ko")[];
+            source_languages: ("zh" | "ja" | "ko" | "id" | "th")[];
             /** Stages */
             stages: ("translation" | "transcription" | "ocr")[];
             /** Tiers */
@@ -30268,6 +30268,8 @@ export interface components {
             whisper_cached_medium: boolean;
             /** Whisper Cached Small */
             whisper_cached_small: boolean;
+            /** Whisper Cached Thonburian Large V3 */
+            whisper_cached_thonburian_large_v3: boolean;
             /** Whisper Cached Tiny */
             whisper_cached_tiny: boolean;
             /** Yt Dlp */
