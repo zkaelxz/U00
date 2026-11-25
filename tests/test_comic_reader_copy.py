@@ -111,3 +111,25 @@ def test_no_more_than_two_pages_are_decoded_at_once(client, monkeypatch):
     for t in threads:
         t.join(10)
     assert 1 <= peak <= 2
+
+
+def test_the_low_data_copy_is_narrower_and_smaller_and_keeps_the_shape(client):
+    d, p, _ = _page(_png(size=(1000, 1500)))
+    reader = client.get(_url(d, p))
+    low = client.get(_url(d, p, "low"))
+    assert low.status_code == 200 and low.headers["content-type"] == "image/jpeg"
+    w, h = Image.open(io.BytesIO(low.content)).size
+    assert w == 720 and abs(h / w - 1.5) < 0.01
+    assert len(low.content) < len(reader.content)
+
+
+def test_both_copies_of_a_page_stay_and_a_rewrite_drops_both(client):
+    d, p, path = _page(_png(1))
+    client.get(_url(d, p))
+    client.get(_url(d, p, "low"))
+    cache = os.path.join(db.drama_dir(d), "reader_cache")
+    assert len(os.listdir(cache)) == 2
+    with open(path, "wb") as f:
+        f.write(_png(2))
+    client.get(_url(d, p, "low"))
+    assert [n.endswith(".low.jpg") for n in os.listdir(cache)] == [True]
