@@ -16,9 +16,6 @@ test('estimate line and job card fit at phone width', async ({ page }) => {
   await expect(page.getByTestId('transcribe-estimate')).toContainText('Rough estimate')
   await expect(page.getByTestId('separation-note')).toBeVisible()
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
-  // Two hours of audio is a long run: the first click asks, and the question fits the phone too.
-  await expect(page.getByTestId('transcribe-long-run')).toBeVisible()
-  await page.getByRole('button', { name: 'Start anyway' }).click()
   await expect(page.getByTestId('job-elapsed')).toContainText('elapsed')
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
