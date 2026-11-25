@@ -22918,6 +22918,12 @@ export interface components {
         };
         /** LiveSessionStarted */
         LiveSessionStarted: {
+            /**
+             * Joined
+             * @description True: this stream was already being captioned, so the caller watches that session.
+             * @default false
+             */
+            joined: boolean;
             /** Session Id */
             session_id: string;
         };

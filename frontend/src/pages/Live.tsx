@@ -145,7 +145,7 @@ export default function LivePage() {
   const [enginesFailed, setEnginesFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const { session, sessionId, stopping, began, stop, adoptRunning } = useLiveSession(setError)
+  const { session, sessionId, stopping, joined, began, stop, adoptRunning } = useLiveSession(setError)
 
   useEffect(() => {
     translateApi.engines().then(setEngines, () => {
@@ -217,8 +217,8 @@ export default function LivePage() {
     setError(null)
     try {
       const body = buildStartBody(startForm, opts)
-      const { session_id } = await startLive(body)
-      began(session_id, body.url)
+      const { session_id, joined: joinedRunning } = await startLive(body)
+      began(session_id, body.url, joinedRunning)
     } catch (err) {
       setError(describeLiveError(err))
       if (hasStatus(err, 409)) adoptRunning(describeLiveError(err))
@@ -415,7 +415,7 @@ export default function LivePage() {
           <div className="actions">
             {active ? (
               <button type="button" className={buttonClass('secondary')} onClick={() => void stop()} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
-                {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : status === 'queued' ? 'Cancel' : 'Stop'}
+                {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
               </button>
             ) : (
               <button type="submit" className="primary" disabled={!!blocker || busy}>
