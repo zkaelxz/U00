@@ -110,3 +110,12 @@
 
 .alert-limits { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); }
 .alert-limits input[type='number'] { width: 5.5rem; }
+
+/* A release added or moved this card; it clears once the card is clicked. */
+.settings-card[data-change] { position: relative; }
+.settings-card[data-change]::after {
+  content: 'New'; position: absolute; top: var(--space-2); right: var(--space-2); pointer-events: none;
+  padding: 0 var(--space-2); border-radius: 999px; font-size: 0.75rem; line-height: 1.5;
+  background: var(--accent, #2563eb); color: #fff;
+}
+.settings-card[data-change='moved']::after { content: 'Moved'; }
