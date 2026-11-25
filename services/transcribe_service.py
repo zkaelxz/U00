@@ -254,10 +254,7 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     overrides (a queued item's own settings, transcribe_options_service.QUEUE_SETTING_KEYS)
     are laid over the title for this run only; nothing is saved to the title.
 
-    detect_language ("Auto (any language)") hears the opening of the audio with Whisper large-v3 first
-    and runs with the language it finds, on large-v3 with the plain Whisper backend (never turbo);
-    the title's source language is then set to it. A language the app can't transcribe, or a
-    opening too unclear to tell, refuses the run. Only for a title that transcribes with Whisper.
+    detect_language ("Auto (any language)"): see _detect_run_language.
 
     source_language / chinese_script default to this drama's own stored
     values when omitted. initial_prompt is an optional
@@ -290,10 +287,8 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
     this drama."""
     # Taken first, so a restart repeats the call as it was made.
     again = functools.partial(start_transcribe_run, **locals())
-    detected = None
-    if detect_language:
-        detected, overrides = _detect_run_language(drama_id, overrides)
-        source_language = detected
+    detected, overrides = _detect_run_language(drama_id, overrides) if detect_language else (None, overrides)
+    source_language = detected or source_language
     drama = apply_run_overrides(ownership_service.require_drama(drama_id), overrides)
     if db.load_line_ids(drama_id):
         # The run replaces every line the title already has.
@@ -339,14 +334,19 @@ def start_transcribe_run(drama_id: int, source_language: Optional[str] = None,
             started = _start_worker_job(job_id, drama_id, drama, run)
     if not started:
         raise ConflictError(f"A transcription is already running for title {drama_id}.")
-    if detected is not None and detected != ownership_service.require_drama(drama_id).get("source_language"):
-        db.update_drama(drama_id, source_language=detected)
+    _keep_detected_language(drama_id, detected)
     return {"job_id": job_id}
 
 
+def _keep_detected_language(drama_id, detected) -> None:
+    if detected is not None and detected != ownership_service.require_drama(drama_id).get("source_language"):
+        db.update_drama(drama_id, source_language=detected)
+
+
 def _detect_run_language(drama_id, overrides) -> tuple:
-    """(language heard, overrides) for an Auto language run: large-v3 on the plain Whisper backend,
-    for this run only."""
+    """(language heard, overrides) for an Auto language run: large-v3 (never turbo) on the plain
+    Whisper backend for this run only; the title's language is set to what was heard once it starts.
+    An unsupported language or an unclear opening refuses the run."""
     stored = ownership_service.require_drama(drama_id)
     if (stored.get("transcript_mode") or "have_transcript") != "whisper":
         raise UnsupportedOperationError("Auto language needs a title that transcribes with Whisper.")
