@@ -30,6 +30,8 @@ public class QuickReadActivity extends Activity {
     private PageAdapter adapter;
     private ListView list;
     private View tint;
+    // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
+    private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -52,6 +54,18 @@ public class QuickReadActivity extends Activity {
             askReport(files.get(position));
             return true;
         });
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            if (position >= files.size()) return;
+            File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
+            if (!original.isFile()) {
+                android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!showingOriginal.remove(position)) showingOriginal.add(position);
+            cache.remove(position);
+            adapter.notifyDataSetChanged();
+        });
+        QuickReadSession.attach();
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
@@ -115,6 +129,20 @@ public class QuickReadActivity extends Activity {
     /** The report text sits beside the picture under the same name, and goes with it. */
     private static String reportName(String pictureName) {
         return pictureName.replaceAll("\\.jpg$", ".json");
+    }
+
+    /** The sent picture sits beside the redraw; a page the PC left alone has none, since it is its own original. */
+    static String originalName(String pictureName) {
+        return pictureName.replaceAll("\\.jpg$", ".orig.jpg");
+    }
+
+    static void writeOriginal(android.content.Context context, String pictureName, byte[] jpeg) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                new File(quickReadDir(context), originalName(pictureName)))) {
+            out.write(jpeg);
+        } catch (java.io.IOException ignored) {
+            // The page still reads; a tap on it just has no original to show.
+        }
     }
 
     static void writeReportText(android.content.Context context, String pictureName, String text) {
@@ -193,7 +221,7 @@ public class QuickReadActivity extends Activity {
      * up and down by itself; this frame only adds the scale and the sideways drag.
      */
     private final class ZoomFrame extends FrameLayout {
-        private float scale = QuickReadZoom.MIN;
+        private float scale = QuickReadZoom.FIT;
         private float pan;
         // A pinch's fingers would also scroll the list, so the list is cut off until they all lift.
         private boolean pinching;
@@ -222,7 +250,7 @@ public class QuickReadActivity extends Activity {
 
                 @Override
                 public boolean onScroll(MotionEvent down, MotionEvent move, float dx, float dy) {
-                    if (scale > QuickReadZoom.MIN && !pinching) {
+                    if (scale > QuickReadZoom.FIT && !pinching) {
                         pan = QuickReadZoom.clampPan(pan - dx, scale, list.getWidth());
                         list.setTranslationX(pan);
                     }
@@ -243,7 +271,7 @@ public class QuickReadActivity extends Activity {
             list.setScaleY(scale);
             list.setTranslationX(pan);
             ViewGroup.LayoutParams size = list.getLayoutParams();
-            int height = scale == QuickReadZoom.MIN
+            int height = scale == QuickReadZoom.FIT
                     ? ViewGroup.LayoutParams.MATCH_PARENT
                     : QuickReadZoom.listHeight(getHeight() - getPaddingTop() - getPaddingBottom(), scale);
             if (size.height != height) {
@@ -297,8 +325,11 @@ public class QuickReadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        QuickReadSession.abandon();
-        clear(this);
+        // A chapter still being translated keeps going without the reader; its pages stay for the next open.
+        if (!QuickReadSession.detach()) {
+            QuickReadSession.abandon();
+            clear(this);
+        }
         super.onDestroy();
     }
 
@@ -315,19 +346,27 @@ public class QuickReadActivity extends Activity {
         for (File f : old) f.delete();
     }
 
+    private File fileFor(int position) {
+        File page = files.get(position);
+        if (!showingOriginal.contains(position)) return page;
+        File original = new File(page.getParentFile(), originalName(page.getName()));
+        return original.isFile() ? original : page;
+    }
+
     private Bitmap load(int position) {
         Bitmap cached = cache.get(position);
         if (cached != null) return cached;
+        File source = fileFor(position);
         int width = getResources().getDisplayMetrics().widthPixels;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(files.get(position).getPath(), bounds);
+        BitmapFactory.decodeFile(source.getPath(), bounds);
         int sample = 1;
         // Pages are often much wider than the screen; half-size steps keep them sharp enough.
         while (bounds.outWidth / (sample * 2) >= width) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        Bitmap bitmap = BitmapFactory.decodeFile(files.get(position).getPath(), options);
+        Bitmap bitmap = BitmapFactory.decodeFile(source.getPath(), options);
         if (bitmap != null) cache.put(position, bitmap);
         return bitmap;
     }

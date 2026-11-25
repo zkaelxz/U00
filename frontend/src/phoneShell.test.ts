@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { inPhoneShell, setShellSwitch, shellSwitch } from './phoneShell'
+import { canPopOut, inPhoneShell, popOut, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -20,5 +20,19 @@ describe('phone shell switches', () => {
     expect(shellSwitch('clipboard_offer_on')).toBe(false)
     setShellSwitch('alerts_on', false)
     expect(set).toHaveBeenCalledWith('alerts_on', false)
+  })
+
+  it('floats the picture only through an app build that can', () => {
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(canPopOut()).toBe(false)
+    expect(() => { setLiveWatching(true); popOut() }).not.toThrow()
+    const setWatching = vi.fn()
+    const pop = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), setLiveWatching: setWatching, popOut: pop } })
+    expect(canPopOut()).toBe(true)
+    setLiveWatching(true)
+    popOut()
+    expect(setWatching).toHaveBeenCalledWith(true)
+    expect(pop).toHaveBeenCalled()
   })
 })

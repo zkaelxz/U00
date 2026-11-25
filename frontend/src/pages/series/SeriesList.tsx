@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 
 import { coverUrl } from '../../api/metadata'
 import { listAllSeries } from '../../api/series'
+import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { PageShell } from '../../components/PageShell'
@@ -46,7 +47,10 @@ export default function SeriesListPage({ streamer }: { streamer?: string }) {
     >
       <ErrorBanner error={all.error} />
       {streamer === undefined && all.data && total === 0 && (
-        <Card><p className="muted">No series yet. Add a title to a new series from its details.</p></Card>
+        <Card>
+          <p className="muted">No series yet. Add a title to a new series from its details.</p>
+          <div className="actions"><ButtonLink href={routeHref({ name: 'library' })}>Go to Library</ButtonLink></div>
+        </Card>
       )}
       {total > 6 && (
         <input
