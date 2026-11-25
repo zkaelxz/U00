@@ -9,7 +9,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { hasStatus } from '../../api/client'
 import {
-  addQueueAllSteps, addQueueItem, clearFinishedQueueItems, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
+  addQueueAllSteps, addQueueItem, cancelQueueItem, clearFinishedQueueItems, holdQueueItem, resumeQueueItem, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
   getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
@@ -40,6 +40,8 @@ import { usePersistedState } from '../../hooks/usePersistedState'
 const ACTIVE_POLL_MS = 5000
 const IDLE_POLL_MS = 30000
 const SEARCHABLE_TITLES = 30
+// A long queue shows this many rows first, so the page doesn't scroll on for screens.
+const SHOWN_ITEMS = 20
 
 type Props = { titles: ReadonlyMap<number, string> }
 
@@ -56,6 +58,7 @@ export function JobQueue({ titles }: Props) {
   const [edits, setEdits] = useState<QueueSettingEdits>({})
   const [fields, setFields] = useState<QueueSettingField[]>([])
   const [time, setTime] = useState('')
+  const [showAll, setShowAll] = useState(false)
   const refocus = useRef<string | null>(null)
   const [folded, setFolded] = usePersistedState<boolean>('jobs.queueFolded.v1', false)
 
@@ -133,6 +136,7 @@ export function JobQueue({ titles }: Props) {
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
   const done = finishedCount(items)
+  const shown = showAll ? items : items.slice(0, SHOWN_ITEMS)
   const sortedTitles = [...titles.entries()].sort((a, b) => a[1].localeCompare(b[1]))
   const needle = titleFilter.trim().toLowerCase()
   // The picked title stays listed so narrowing the filter never silently changes the selection.
@@ -166,7 +170,7 @@ export function JobQueue({ titles }: Props) {
       {!open && <><ErrorBanner error={loadError} /><ErrorBanner error={error} onDismiss={() => setError(null)} /></>}
       {open && <>
       <Section title="How the queue works">
-        <p className="muted">Line up steps for your titles and let them run one at a time, now or once at a set time.</p>
+        <p className="muted">Line up steps for your titles and they start by themselves and run one at a time, unless the queue is paused or has a start time.</p>
         {queue.can_control && (
           <>
             <p className="muted">Start at: once, at this time on the PC's clock. If Baihe is off then, the start shows as missed and nothing runs on its own.</p>
@@ -196,24 +200,34 @@ export function JobQueue({ titles }: Props) {
         <p className="muted" data-testid="queue-empty">No steps yet. Add one below.</p>
       ) : (
         <ol className="queue-items" aria-label="Queue items" data-testid="queue-items">
-          {items.map((item, n) => (
+          {shown.map((item, n) => (
             <QueueRow
               key={item.id}
               item={item}
               first={n === 0}
-              last={n === items.length - 1}
+              last={n === shown.length - 1}
               busy={busy}
               monthlyCap={queue.monthly_cap_usd}
               onMove={move}
               onRemove={() => void act(() => removeQueueItem(item.id))}
               onRetry={() => void act(() => retryQueueItem(item.id))}
+              onHold={() => void act(() => holdQueueItem(item.id))}
+              onResume={() => void act(() => resumeQueueItem(item.id))}
+              onCancel={() => void act(() => cancelQueueItem(item.id))}
             />
           ))}
         </ol>
       )}
+      {items.length > SHOWN_ITEMS && (
+        <div className="queue-row">
+          <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setShowAll(!showAll)}>
+            {showAll ? 'Show fewer' : `Show more (${items.length - SHOWN_ITEMS} more)`}
+          </button>
+        </div>
+      )}
 
       {titles.size > SEARCHABLE_TITLES && (
-        <input type="search" aria-label="Filter titles" value={titleFilter} onChange={(e) => setTitleFilter(e.target.value)} />
+        <input type="search" aria-label="Filter titles" placeholder="Filter titles" value={titleFilter} onChange={(e) => setTitleFilter(e.target.value)} />
       )}
       <div className="queue-add" role="group" aria-label="Add to queue">
         <Field label="Title">
@@ -292,7 +306,7 @@ export function JobQueue({ titles }: Props) {
           </div>
         </div>
       ) : (
-        <p className="muted">Only the PC owner can start, pause or schedule the queue.</p>
+        <p className="muted">Only an admin can start, pause or schedule the whole queue. You can pause or cancel your own items.</p>
       )}
 
       {done > 0 && (
@@ -447,16 +461,19 @@ type RowProps = {
   onMove: (item: QueueItem, dir: 'up' | 'down') => void
   onRemove: () => void
   onRetry: () => void
+  onHold: () => void
+  onResume: () => void
+  onCancel: () => void
 }
 
-export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry }: RowProps) {
+export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry, onHold, onResume, onCancel }: RowProps) {
   const name = itemName(item)
   return (
     <li className="queue-item" data-testid={`queue-item-${item.id}`}>
       <div className="queue-item-head">
         <a href={routeHref({ name: 'drama', id: item.drama_id, stage: null })}>{item.title}</a>
         <span>{STEP_LABELS[item.step]}</span>
-        <Badge tone={statusTone(item.status)}>{queueStatusLabel(item.status)}</Badge>
+        <Badge tone={item.held ? 'warn' : statusTone(item.status)}>{item.held ? 'Paused' : queueStatusLabel(item.status)}</Badge>
       </div>
       {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{withoutExceptionNames(item.reason)}</p>}
       {item.changed_settings.length > 0 && (
@@ -480,6 +497,20 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
             aria-label={`Move down ${name}`} disabled={busy || last} onClick={() => onMove(item, 'down')}>
             Move down
           </button>
+          {item.status === 'waiting' && (
+            item.held ? (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Resume ${name}`} disabled={busy} onClick={onResume}>
+                Resume
+              </button>
+            ) : (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Pause ${name}`} disabled={busy} onClick={onHold}>
+                Pause
+              </button>
+            )
+          )}
+          {(item.status === 'waiting' || item.status === 'running') && (
+            <ConfirmButton name={name} label="Cancel…" verb="cancel" confirmLabel="Confirm cancel" busy={busy} onConfirm={onCancel} />
+          )}
           {canRetry(item) && (
             <button type="button" className={buttonClass('secondary')} aria-label={`Retry ${name}`} disabled={busy} onClick={onRetry}>
               Retry
@@ -488,7 +519,6 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
           {canRemove(item) && (
             <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" busy={busy} onConfirm={onRemove} />
           )}
-          {item.status === 'running' && <span className="muted">To stop it, cancel its job in the list below.</span>}
         </div>
       )}
     </li>
