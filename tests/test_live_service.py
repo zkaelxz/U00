@@ -287,7 +287,9 @@ def test_viewer_sees_the_session_and_stop_only_leaves(live):
     assert live_service.get_session(a, principal=owner)["session_id"] == a
 
 
-def test_session_on_saved_cookies_is_not_joined_by_another_account(live):
+def test_session_on_saved_cookies_is_not_joined_by_another_account(live, monkeypatch):
+    monkeypatch.setattr(live_service.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
     a = _start(url="https://www.youtube.com/watch?v=abcdefghijk", use_saved_cookies=True)
     assert _wait(lambda: "out_dir" in live)
     live_service._sessions[a]["owner_user_id"] = 1
@@ -943,6 +945,21 @@ def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
     live_service._sessions[a]["private"] = True
     other = live_service.start_session(url, engine="fake", principal={"user_id": 3})
     assert other["session_id"] != a and "joined" not in other
+
+
+def test_a_start_at_the_pc_is_joinable_unless_saved_cookies_are_really_set(live, monkeypatch):
+    url = "https://www.youtube.com/watch?v=abcdefghijk"
+    owner, member = {"user_id": 1}, {"user_id": 3}
+    monkeypatch.setattr(live_service.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": None, "cookies_file": None})
+    a = live_service.start_session(url, engine="fake", principal=owner, use_saved_cookies=True)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    assert live_service._sessions[a]["private"] is False
+    joined = live_service.start_session(url, engine="fake", principal=member)
+    assert joined == {"session_id": a, "joined": True}
+    monkeypatch.setattr(live_service.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
+    assert live_service._reads_saved_cookies(True) and not live_service._reads_saved_cookies(False)
 
 
 def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(live):

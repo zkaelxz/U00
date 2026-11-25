@@ -18,6 +18,9 @@ test('followed channels on a phone: no sideways scroll, 44px targets', async ({ 
   // Each tap renames its button, so the first still-closed row is tapped each time.
   await live.getByRole('button', { name: /show details/ }).first().tap()
   await live.getByRole('button', { name: /show details/ }).first().tap()
+  // The hourly help is a tap away, not a hover tooltip.
+  await live.getByRole('button', { name: /Check .* every hour/ }).first().tap()
+  await expect(live.getByText(/Off \(default\): checked only when you press/).first()).toBeVisible()
   await expectNoSidewaysScroll(page)
   // A row's .btn-sm keeps its 32px box; its ::after widens the tap area to 44px
   // (index.css). A switch is checked by its own size test in live.mobile.spec.ts.

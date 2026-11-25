@@ -8,7 +8,7 @@
  * Follow saves the Live form's current options to a new channel; Edit settings
  * changes a channel's own; Start Live uses the channel's saved ones.
  */
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
 import type { ApiError } from '../../api/client'
 import {
@@ -29,6 +29,7 @@ import {
 } from '../../api/liveFollows'
 import { Badge } from '../../components/Badge'
 import { Field } from '../../components/Field'
+import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { ConfirmButton } from '../../components/ConfirmButton'
@@ -267,6 +268,7 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
   const reasonId = `live-follow-reason-${f.id}`
   const autoNoteId = `live-follow-auto-${f.id}`
   const bodyId = `live-follow-body-${f.id}`
+  const [hourlyHelpId, modeHelpId] = [useId(), useId()]
   return (
     <li className="live-follow-row" data-testid="live-follow-row" ref={rowRef} data-picked={picked || undefined}>
       <button type="button" className="live-follow-toggle" aria-expanded={open} aria-controls={bodyId}
@@ -283,21 +285,23 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
         <p className="muted live-follow-settings">Start Live uses: {optionsSummary(f.options)}</p>
         <div className="live-follow-controls">
           {editable && (
-            <span className="live-follow-hourly" title={HOURLY_HELP}>
+            <span className="live-follow-hourly">
               <Toggle checked={f.auto_check} disabled={!!busy} aria-label={`Check ${name} every hour`} onChange={onHourly} />
               <span>Check every hour</span>
+              <HelpTip label={`Check ${name} every hour`} id={hourlyHelpId}>{HOURLY_HELP}</HelpTip>
             </span>
           )}
           {canAuto && f.mine ? (
-            <span className="live-follow-hourly" title={MODE_HELP}>
+            <span className="live-follow-hourly">
               <Toggle checked={f.mode === 'auto'} disabled={!!busy || (f.mode !== 'auto' && !!autoBlocked)}
                 aria-label={`Start captions automatically when ${name} goes live`}
                 aria-describedby={autoBlocked ? autoNoteId : undefined}
                 onChange={(on) => onMode(on ? 'auto' : 'notify')} />
               <span>Start captions automatically</span>
+              <HelpTip label="Start captions automatically" id={modeHelpId}>{MODE_HELP}</HelpTip>
             </span>
           ) : (
-            <span className="muted" title={MODE_HELP}>{MODE_LABEL[f.mode]}</span>
+            <span className="muted">{MODE_LABEL[f.mode]}<HelpTip label={MODE_LABEL[f.mode]} id={modeHelpId}>{MODE_HELP}</HelpTip></span>
           )}
           <button type="button" className={buttonClass('ghost', 'sm')} disabled={!!checkReason}
             aria-describedby={checkReason ? reasonId : undefined}
