@@ -4,7 +4,7 @@
 // may change member accounts from away, and the server refuses (403) any
 // other change to an admin account there, and adding a person.
 import type {
-  AdminAddUserRequest, AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage, AuditQuery,
+  AdminAddUserRequest, AdminDevice, AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
 import { deleteJson, getJson, postJson, type Fetch } from './client'
 
@@ -28,6 +28,13 @@ export const setUserActive = (id: number, active: boolean, f?: Fetch) =>
 
 export const revokeUserSessions = (id: number, f?: Fetch) =>
   postJson<AdminSessionsRevoked>(`${BASE}/users/${id}/revoke-sessions`, undefined, f)
+
+/** One person's signed-in devices, most recently used first. */
+export const listUserDevices = (id: number, f?: Fetch) =>
+  getJson<{ devices: AdminDevice[] }>(`${BASE}/users/${id}/devices`, f)
+
+export const revokeUserDevice = (id: number, sessionId: number, f?: Fetch) =>
+  postJson<AdminSessionsRevoked>(`${BASE}/users/${id}/devices/${sessionId}/revoke`, undefined, f)
 
 export const revokeUserAdmin = (id: number, f?: Fetch) =>
   postJson<AdminUser>(`${BASE}/users/${id}/revoke-admin`, undefined, f)

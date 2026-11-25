@@ -15,8 +15,9 @@ import { useSession } from '../../hooks/useSession'
 import type { AdminUser } from '../../types/adminUsers'
 import {
   canChangeUsers, canViewUsers, CHANGES_AT_PC, MAX_DISPLAY_NAME_CHARS, MAX_EMAIL_CHARS, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, revokeAdminBlock,
-  rowBlocks, sessionsText, showDeleteUser, showRevokeAdmin, rightAbout, rightName, showRights, userName,
+  lastSeenText, rowBlocks, sessionsText, showDeleteUser, showRevokeAdmin, rightAbout, rightName, showRights, userName,
 } from './adminUsers'
+import { MemberDevices } from './MemberDevices'
 import { useDetailsOpen } from './diagnosticsAdmin'
 import { buttonClass } from '../../components/uiClasses'
 
@@ -201,12 +202,13 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
         {u.is_self && <Badge>You</Badge>}{' '}
         {u.has_own_ollama_key && <Badge tone="neutral">Own Ollama key</Badge>}
         <div className="muted">
-          {[sessionsText(u.active_sessions), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
+          {[sessionsText(u.active_sessions), lastSeenText(u, Date.now()), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
         <div className="muted">{paidSpendText(u)}</div>
         {why && <div className="muted" id={whyId}>{why}</div>}
       </div>
+      {canChange && u.active_sessions > 0 && <MemberDevices userId={u.id} email={u.email} block={sessBlock} />}
       {canChange && <NameForm user={u} busy={busy !== null} onName={onName} />}
       {canChange && <div className="actions">
         <ConfirmButton name={u.email} label="Sign out everywhere…" verb="sign out" tone="primary"

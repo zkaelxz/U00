@@ -90,6 +90,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/users/{user_id}/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A user's signed-in devices */
+        get: operations["list_devices_api_admin_users__user_id__devices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/devices/{session_id}/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Sign out one device of a user */
+        post: operations["revoke_device_api_admin_users__user_id__devices__session_id__revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/users/{user_id}/display-name": {
         parameters: {
             query?: never;
@@ -13464,6 +13498,26 @@ export interface components {
              */
             extension_send?: boolean;
         };
+        /** AdminDevice */
+        AdminDevice: {
+            /** Created At */
+            created_at: number;
+            /** Device */
+            device: string;
+            /** Expires At */
+            expires_at: number;
+            /** Id */
+            id: number;
+            /** Ip Prefix */
+            ip_prefix: string;
+            /** Last Seen At */
+            last_seen_at: number;
+        };
+        /** AdminDeviceList */
+        AdminDeviceList: {
+            /** Devices */
+            devices: components["schemas"]["AdminDevice"][];
+        };
         /** AdminDeviceToken */
         AdminDeviceToken: {
             /** Created At */
@@ -13550,6 +13604,8 @@ export interface components {
             is_admin: boolean;
             /** Is Self */
             is_self: boolean;
+            /** Last Seen At */
+            last_seen_at: number | null;
             /**
              * Month Paid Spend Usd
              * @default 0
@@ -34726,6 +34782,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_devices_api_admin_users__user_id__devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminDeviceList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_device_api_admin_users__user_id__devices__session_id__revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+                session_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminSessionsRevoked"];
                 };
             };
             /** @description Validation Error */

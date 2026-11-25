@@ -274,6 +274,13 @@ def _live_session_count(user_id: int, now: float) -> int:
     return sum(1 for s in db.auth_list_sessions(user_id) if _is_live(s, now))
 
 
+def _last_seen_at(user_id: int):
+    """When any device of this user last made a request, or None with no session row. Rows the idle
+    timeout has expired stay until the startup sweep, so a person gone a few days still shows a time."""
+    seen = [s["last_seen_at"] for s in db.auth_list_sessions(user_id)]
+    return max(seen) if seen else None
+
+
 def admin_list_users(actor_id=None, now: float | None = None) -> list:
     """The admin Users view: list_users plus each user's live session count
     and whether the row is the caller. No session details (no IP prefix or
@@ -299,6 +306,7 @@ def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None,
     return dict(user, active_sessions=_live_session_count(user["id"], now),
                 is_self=actor_id is not None and user["id"] == actor_id,
                 has_own_ollama_key=user["id"] in with_key,
+                last_seen_at=_last_seen_at(user["id"]),
                 month_paid_spend_usd=round(spend.get(user["id"], 0.0), 6),
                 monthly_paid_cap_usd=None if user["is_admin"] or cap is None else float(cap))
 
@@ -395,6 +403,29 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
     _require_pc_for_admin(row, at_pc)
     return {"user_id": user_id, "revoked": revoke_all_for_user(user_id, actor_id=actor_id,
                                                                member_only=not at_pc)}
+
+
+def admin_list_devices(user_id: int, now: float | None = None) -> list:
+    """The signed-in devices of another user, most recently used first. Reading an admin's list is
+    allowed away from the PC: it changes nothing and shows the same coarse label and network prefix
+    as the person's own list."""
+    _require_user(user_id)
+    return list_own_sessions(user_id, current_session_id=-1, now=now)
+
+
+def admin_revoke_device(user_id: int, session_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """Signs one device of another user out at once. Not the caller's own account (409: that list is
+    in Settings, and Sign out also clears this device's cookies); an admin's device needs `at_pc` (403),
+    like every change to an admin account. 404 for a session that is not this user's."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("Your own devices are in Settings > Signed-in devices.")
+    _require_pc_for_admin(row, at_pc)
+    if not db.auth_delete_session(session_id, user_id):
+        raise NotFoundError(_SESSION_NOT_FOUND)
+    _recheck_streams(user_id)
+    write_audit(actor_id, "session.revoke_device", f"user {user_id} session {session_id}")
+    return {"revoked": 1}
 
 
 _LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "

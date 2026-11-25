@@ -4,6 +4,7 @@
 import type { PcMode } from '../../hooks/usePcOnly'
 import type { SessionState } from '../../hooks/useSession'
 import type { AdminUser, AuditEvent } from '../../types/adminUsers'
+import { agoText } from '../settings/deviceSessionsModel'
 
 export function holds(s: SessionState, permission: string): boolean {
   if (s.status === 'loading') return false
@@ -121,6 +122,11 @@ export function rowBlocks(user: AdminUser, users: AdminUser[], pc: PcMode) {
 
 export function userName(user: AdminUser): string {
   return user.display_name ? `${user.display_name} (${user.email})` : user.email
+}
+
+/** "Last seen 3 hours ago", or why there is no time to show. */
+export function lastSeenText(u: { last_seen_at?: number | null }, nowMs: number): string {
+  return u.last_seen_at == null ? 'No sign-in on record' : `Last seen ${agoText(u.last_seen_at, nowMs)}`
 }
 
 export function sessionsText(n: number): string {

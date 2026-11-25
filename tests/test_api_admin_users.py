@@ -35,6 +35,8 @@ ROUTES = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"), ("POST", "/a
           ("DELETE", "/api/admin/users/{id}/permissions/{permission}"),
           ("POST", "/api/admin/users/{id}/paid-limit"),
           ("POST", "/api/admin/users/{id}/display-name"),
+          ("GET", "/api/admin/users/{id}/devices"),
+          ("POST", "/api/admin/users/{id}/devices/{session_id}/revoke"),
           ("DELETE", "/api/admin/users/{id}")]
 
 
@@ -68,6 +70,59 @@ def _audit(action):
     return [a for a in auth_service.list_audit(500) if a["action"] == action]
 
 
+# --- devices: last seen, the list and signing one out -----------------------------
+
+def test_admin_sees_a_members_devices_and_signs_one_out(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _member()
+    phone = auth_service.create_session(m["id"], "Mozilla/5.0 (Linux; Android 14) Chrome/120", "198.51.100.8")
+    users = {u["id"]: u for u in c.get("/api/admin/users", headers=_h(s)).json()["users"]}
+    assert users[m["id"]]["last_seen_at"] is not None and users[m["id"]]["active_sessions"] == 2
+
+    r = c.get(f"/api/admin/users/{m['id']}/devices", headers=_h(s))
+    assert r.status_code == 200 and r.headers["cache-control"] == "no-store"
+    devices = r.json()["devices"]
+    assert len(devices) == 2
+    for secret in (ms["session_token"], phone["session_token"], phone["csrf_token"], "id_hash", "Mozilla"):
+        assert secret not in r.text
+    ids = [d["id"] for d in devices]
+
+    gone = ids[0]
+    r = c.post(f"/api/admin/users/{m['id']}/devices/{gone}/revoke", headers=_h(s))
+    assert r.status_code == 200 and r.json() == {"user_id": m["id"], "revoked": 1}
+    left = c.get(f"/api/admin/users/{m['id']}/devices", headers=_h(s)).json()["devices"]
+    assert [d["id"] for d in left] == [i for i in ids if i != gone]
+    assert [(e["user_id"], e["detail_redacted"]) for e in _audit("session.revoke_device")] == \
+        [(a["id"], f"user {m['id']} session {gone}")]
+
+
+def test_a_device_of_someone_else_is_not_found_and_own_or_admin_devices_are_refused(isolated_db):
+    c = _remote(_app())
+    a, s = _admin()
+    m, _ms = _member()
+    other, os_ = _member("other@example.com")
+    other_id = db.auth_list_sessions(other["id"])[0]["id"]
+    r = c.post(f"/api/admin/users/{m['id']}/devices/{other_id}/revoke", headers=_h(s))
+    assert r.status_code == 404
+    assert auth_service.resolve_session(os_["session_token"]) is not None
+    own = db.auth_list_sessions(a["id"])[0]["id"]
+    assert c.post(f"/api/admin/users/{a['id']}/devices/{own}/revoke", headers=_h(s)).status_code == 409
+    a2, _s2 = _admin("second@example.com")
+    sid = db.auth_list_sessions(a2["id"])[0]["id"]
+    assert c.post(f"/api/admin/users/{a2['id']}/devices/{sid}/revoke", headers=_h(s)).status_code == 403
+    assert auth_service.resolve_session(_s2["session_token"]) is not None
+    assert c.get("/api/admin/users/999999/devices", headers=_h(s)).status_code == 404
+
+
+def test_a_member_cannot_list_or_sign_out_devices(isolated_db):
+    c = _remote(_app())
+    m, ms = _member()
+    sid = db.auth_list_sessions(m["id"])[0]["id"]
+    assert c.get(f"/api/admin/users/{m['id']}/devices", headers=_h(ms)).status_code == 403
+    assert c.post(f"/api/admin/users/{m['id']}/devices/{sid}/revoke", headers=_h(ms)).status_code == 403
+
+
 # --- permissions ---------------------------------------------------------------
 
 def test_reads_are_admin_users_read_and_writes_admin_users(isolated_db):
@@ -85,7 +140,7 @@ def test_anonymous_and_household_refused(isolated_db):
     _u, s = _member()
     auth_service.grant_permission(_u["id"], "media.stream")
     for method, path in ROUTES:
-        url = path.format(id=target["id"], permission="engines.paid")
+        url = path.format(id=target["id"], permission="engines.paid", session_id=1)
         assert c.request(method, url).status_code == 401
         r = c.request(method, url, headers=_h(s))
         assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"

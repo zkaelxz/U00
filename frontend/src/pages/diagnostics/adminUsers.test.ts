@@ -6,6 +6,7 @@ import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
   rightAbout, rightName, sessionsText, showDeleteUser, showRevokeAdmin, showRights, userName,
+  lastSeenText,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -192,5 +193,14 @@ describe('paid-engine limit', () => {
 
   it('labels the audit action', () => {
     expect(auditActionLabel('user.paid_limit')).toBe('Paid-engine limit changed')
+  })
+})
+
+describe('lastSeenText', () => {
+  it('says how long ago, or that nothing is on record', () => {
+    const now = Date.UTC(2026, 10, 25, 12, 0, 0)
+    expect(lastSeenText({ last_seen_at: now / 1000 - 3 * 3600 }, now)).toBe('Last seen 3 hours ago')
+    expect(lastSeenText({ last_seen_at: null }, now)).toBe('No sign-in on record')
+    expect(lastSeenText({}, now)).toBe('No sign-in on record')
   })
 })
