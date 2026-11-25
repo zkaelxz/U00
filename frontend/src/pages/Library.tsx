@@ -519,14 +519,8 @@ export default function LibraryPage() {
           <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
         </details>
       )}
-      actions={(canCreate || canLinkRun) && (
-        <>
-          {canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
-          )}
-          {/* A phone opens the box on its own page, so the first title card stays on the first screen. */}
-          {phone && <ButtonLink variant="primary" href={addHref}>Add</ButtonLink>}
-        </>
+      actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
+        <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
       )}
     >
       {notice && (
@@ -550,7 +544,7 @@ export default function LibraryPage() {
         </p>
       )}
 
-      {/* Not on a phone: the box would push the first title card off the first screen; the header's Add opens it there. */}
+      {/* Not on a phone: the box would push the first title card off the first screen; the phone bar's Find & Add opens it there. */}
       {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
       <HomeShelves reloadKey={reloadKey} total={stats.data?.total_dramas ?? null} />
