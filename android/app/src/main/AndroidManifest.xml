@@ -39,6 +39,14 @@
                 <data android:scheme="baihe-shell" android:host="signed-in" />
             </intent-filter>
         </activity>
+        <!-- Alert checks while the app is closed (AlertSchedule). -->
+        <service
+            android:name=".AlertJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver
+            android:name=".AlertAlarm"
+            android:exported="false" />
         <!-- Receives the installer's answer so it can show Android's confirmation. -->
         <receiver
             android:name=".InstallResult"

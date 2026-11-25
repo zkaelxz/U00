@@ -47,6 +47,8 @@ import { PastCostsCard } from './settings/PastCostsCard'
 import { SpendHistoryCard } from './settings/SpendHistoryCard'
 import { CustomizeMenuCard } from './settings/CustomizeMenuCard'
 import { DisplayCard } from './settings/DisplayCard'
+import { PhoneAppCard } from './settings/PhoneAppCard'
+import { inPhoneShell } from '../phoneShell'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
@@ -240,7 +242,7 @@ export default function SettingsPage() {
   const canUpdate = useHolds('system.update')
   const available: ReadonlySet<string> = useMemo(() => {
     const cards = loaded ? ALL_CARDS : MEMBER_CARDS
-    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (canUpdate || id !== 'updates')
+    return new Set([...cards].filter((id) => (ownKeyShown || id !== 'ollama-key') && (inPhoneShell() || id !== 'phone-app') && (canUpdate || id !== 'updates')
       && !(remote && PC_ONLY_CARDS.has(id)) && !(id === 'transcription-experiments' && !developerMode) && !(id in FEATURE_CARDS && !featureOn(FEATURE_CARDS[id], features))))
   }, [loaded, ownKeyShown, canUpdate, remote, features, developerMode])
   const shown = (id: string) => available.has(id)
@@ -418,6 +420,7 @@ export default function SettingsPage() {
           <>
             <SettingsCard id="sharing"><SharingCard /></SettingsCard>
             {shown('display') && <SettingsCard id="display"><DisplayCard /></SettingsCard>}
+            {shown('phone-app') && <SettingsCard id="phone-app"><PhoneAppCard /></SettingsCard>}
             <SettingsCard id="customize-menu"><CustomizeMenuCard /></SettingsCard>
             <SettingsCard id="devices"><DevicesCard /></SettingsCard>
             <SettingsCard id="extension-devices"><ExtensionDevicesCard /></SettingsCard>
