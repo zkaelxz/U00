@@ -38,7 +38,9 @@ describe('saved manga logic', () => {
     expect(loadMangaPrefs(s, 'MangaK', 'A')).toEqual(MANGA_DEFAULTS)
     saveMangaPrefs(s, 'MangaK', 'A', { mode: 'paged', rtl: true, fit: 'height', typeset: true, text: true, spread: 'double', coverAlone: false })
     expect(loadMangaPrefs(s, 'MangaK', 'A')).toEqual({ mode: 'paged', rtl: true, fit: 'height', typeset: false, text: false, spread: 'double', coverAlone: false })
-    expect(loadMangaPrefs(s, 'MangaK', 'B')).toEqual(MANGA_DEFAULTS)
+    // A new series of the same site starts in the direction last chosen there; another site is untouched.
+    expect(loadMangaPrefs(s, 'MangaK', 'B')).toEqual({ ...MANGA_DEFAULTS, rtl: true })
+    expect(loadMangaPrefs(s, 'OtherSite', 'B')).toEqual(MANGA_DEFAULTS)
   })
 
   it('links encode every name', () => {

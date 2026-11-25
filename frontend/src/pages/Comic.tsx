@@ -40,6 +40,7 @@ import {
   finishedChapter,
 } from './comic/chapterLogic'
 import { useChapterMarks } from './comic/useChapterMarks'
+import { useAutoScroll } from './comic/useAutoScroll'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
@@ -202,6 +203,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }
   const defaults = useMemo(() => defaultPrefs(data?.media_type, data?.reading_mode_default), [data])
   const prefs = useMemo(() => stored ?? loadComicPrefs(browserStorage(), id, defaults), [stored, id, defaults])
+  const scroller = useAutoScroll(prefs.mode === 'vertical')
   const canTypeset = pages.some((p) => p.has_rendered)
 
   // First page: ?page (clamped), else the saved page once it is known.
@@ -411,7 +413,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const view = (
-    <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={canTypeset} phone={phone}>
+    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={canTypeset} phone={phone}>
       {phone && current !== null && count > 1 && <ComicGoTo count={visible.length || count} onGo={goListed} />}
     </ComicViewControl>
   )
