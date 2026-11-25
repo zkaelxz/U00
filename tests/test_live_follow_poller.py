@@ -480,6 +480,14 @@ def test_push_goes_out_only_when_asked_and_with_its_own_text(isolated_db, monkey
     notification_service.reset_for_tests()
 
 
+def test_a_live_notice_opens_live_on_its_channel(isolated_db):
+    notification_service.reset_for_tests()
+    notification_service.notify_live_follow("Mine is live now", None, 7, start_action=True)
+    event = notification_service.list_recent(None)[0]
+    assert event["target"] == {"page": "live", "follow_id": 7}
+    notification_service.reset_for_tests()
+
+
 def test_a_members_live_notice_is_theirs_alone(isolated_db, monkeypatch):
     import db
     notification_service.reset_for_tests()

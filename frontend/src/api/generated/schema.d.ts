@@ -24289,11 +24289,13 @@ export interface components {
         NotificationTarget: {
             /** Drama Id */
             drama_id: number | null;
+            /** Follow Id */
+            follow_id: number | null;
             /**
              * Page
              * @enum {string}
              */
-            page: "glossary" | "review" | "series" | "jobs";
+            page: "glossary" | "review" | "series" | "jobs" | "live";
             /** Series Id */
             series_id: number | null;
         };

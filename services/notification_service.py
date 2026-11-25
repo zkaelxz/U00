@@ -763,7 +763,7 @@ _EXTRA_KEYS = ("follow_id", "action", "starts_at", "target")
 # A waiting entry's target: the page the bell's Open goes to, and the one id
 # that page needs (None: the page needs none). The frontend builds the link.
 TARGET_PAGES = {"glossary": "drama_id", "review": "drama_id", "series": "series_id",
-                "jobs": None}
+                "jobs": None, "live": "follow_id"}
 WAITING_PREFIX = "Waiting for you: "
 _WAITING_MAX = 300
 
@@ -1178,7 +1178,7 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     never blocks."""
     try:
         message = redact_secrets(_tidy(text, 200))
-        extra: dict = {"follow_id": int(follow_id)}
+        extra: dict = {"follow_id": int(follow_id), "target": {"page": "live", "follow_id": int(follow_id)}}
         if start_action:
             extra["action"] = "start_live"
         if starts_at is not None:

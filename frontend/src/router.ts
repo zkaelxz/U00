@@ -54,7 +54,8 @@ export type Route =
   // scrolls to the area named by "?tab=network".
   | { name: 'sources-manage'; tab?: ManageTab }
   | { name: 'discover' }
-  | { name: 'live' }
+  // `follow`: open Live with this followed channel picked (the bell's Watch link).
+  | { name: 'live'; follow?: number }
   // Everything new in one list: new chapters and followed channels that are live or scheduled.
   | { name: 'updates' }
   | { name: 'assistant' }
@@ -155,7 +156,10 @@ export function parseRoute(hash: string): Route {
     return isManageTab(tab) ? { name: 'sources-manage', tab } : { name: 'sources-manage' }
   }
   if (head === 'discover' && parts.length === 1) return { name: 'discover' }
-  if (head === 'live' && parts.length === 1) return { name: 'live' }
+  if (head === 'live' && parts.length === 1) {
+    const f = new URLSearchParams(qs).get('follow')
+    return f && /^\d+$/.test(f) && Number(f) >= 1 ? { name: 'live', follow: Number(f) } : { name: 'live' }
+  }
   if (head === 'updates' && parts.length === 1) return { name: 'updates' }
   if (head === 'assistant' && parts.length === 1) return { name: 'assistant' }
   if (head === 'series' && parts.length === 1) {
@@ -249,6 +253,7 @@ export function routeHref(r: Route): string {
     return `#/sources?${q}`
   }
   if (r.name === 'sources' && r.tab) return sourcesHref(r.tab)
+  if (r.name === 'live' && r.follow) return `#/live?follow=${r.follow}`
   if (r.name === 'jobs' && r.job) return `#/jobs?job=${encodeURIComponent(r.job)}`
   if (r.name === 'admin' && r.card) return `#/admin?card=${r.card}`
   if (r.name === 'settings' && r.card) return `#/settings?card=${encodeURIComponent(r.card)}`
