@@ -202,6 +202,8 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
   onJobLimit: (jobs: number | null) => void
   onName: (name: string) => void
 }) {
+  // Fixed at first render: the clock is impure, and "seen 5 minutes ago" needs no live tick.
+  const [now] = useState(() => Date.now())
   const { deactivate: offBlock, revoke: sessBlock, activate: onBlock, key: keyBlock } = rowBlocks(u, users, pc)
   const demote = canChange && showRevokeAdmin(u, pc)
   const adminBlock = demote ? revokeAdminBlock(u, users) : null
@@ -219,7 +221,7 @@ function UserRow({ user: u, users, pc, busy, canChange, rights, onRun, onRight, 
         {u.is_self && <Badge>You</Badge>}{' '}
         {u.has_own_ollama_key && <Badge tone="neutral">Own Ollama key</Badge>}
         <div className="muted">
-          {[sessionsText(u.active_sessions), lastSeenText(u, Date.now()), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
+          {[sessionsText(u.active_sessions), lastSeenText(u, now), u.has_google_binding ? 'Google account linked' : 'Has not signed in yet']
             .join(' · ')}
         </div>
         <div className="muted">{paidSpendText(u)}</div>

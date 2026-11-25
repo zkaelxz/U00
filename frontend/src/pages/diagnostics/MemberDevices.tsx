@@ -13,9 +13,14 @@ export function MemberDevices({ userId, email, block }: { userId: number; email:
   const [devices, setDevices] = useState<AdminDevice[] | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  // Taken when the list loads: reading the clock during render is impure.
+  const [loadedAt, setLoadedAt] = useState(0)
 
   const load = useCallback(() => {
-    listUserDevices(userId).then((r) => setDevices(r.devices), setError)
+    listUserDevices(userId).then((r) => {
+      setLoadedAt(Date.now())
+      setDevices(r.devices)
+    }, setError)
   }, [userId])
 
   const signOut = async (d: AdminDevice) => {
@@ -38,7 +43,7 @@ export function MemberDevices({ userId, email, block }: { userId: number; email:
       </div>
     )
   }
-  const now = Date.now()
+  const now = loadedAt
   return (
     <div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
