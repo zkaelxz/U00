@@ -51,6 +51,7 @@ public class QuickReadActivity extends Activity {
             askReport(files.get(position));
             return true;
         });
+        QuickReadSession.attach();
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
@@ -141,7 +142,7 @@ public class QuickReadActivity extends Activity {
      * up and down by itself; this frame only adds the scale and the sideways drag.
      */
     private final class ZoomFrame extends FrameLayout {
-        private float scale = QuickReadZoom.MIN;
+        private float scale = QuickReadZoom.FIT;
         private float pan;
         // A pinch's fingers would also scroll the list, so the list is cut off until they all lift.
         private boolean pinching;
@@ -170,7 +171,7 @@ public class QuickReadActivity extends Activity {
 
                 @Override
                 public boolean onScroll(MotionEvent down, MotionEvent move, float dx, float dy) {
-                    if (scale > QuickReadZoom.MIN && !pinching) {
+                    if (scale > QuickReadZoom.FIT && !pinching) {
                         pan = QuickReadZoom.clampPan(pan - dx, scale, list.getWidth());
                         list.setTranslationX(pan);
                     }
@@ -191,7 +192,7 @@ public class QuickReadActivity extends Activity {
             list.setScaleY(scale);
             list.setTranslationX(pan);
             ViewGroup.LayoutParams size = list.getLayoutParams();
-            int height = scale == QuickReadZoom.MIN
+            int height = scale == QuickReadZoom.FIT
                     ? ViewGroup.LayoutParams.MATCH_PARENT
                     : QuickReadZoom.listHeight(getHeight() - getPaddingTop() - getPaddingBottom(), scale);
             if (size.height != height) {
@@ -245,8 +246,11 @@ public class QuickReadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        QuickReadSession.abandon();
-        clear(this);
+        // A chapter still being translated keeps going without the reader; its pages stay for the next open.
+        if (!QuickReadSession.detach()) {
+            QuickReadSession.abandon();
+            clear(this);
+        }
         super.onDestroy();
     }
 
