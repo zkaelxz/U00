@@ -36,6 +36,7 @@ import { stageLabel } from '../workspace/stages'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
 import { NextCard } from './NextCard'
+import { SaveSoundCard } from './SaveSoundCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
@@ -315,6 +316,7 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
+            {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
             {original === 'video' && <CastCard key={id} id={id} canMake={holds(session, 'jobs.start')} canCast={holds(session, 'media.stream')} />}
             {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
             {original && ordered.length > 0 && (
