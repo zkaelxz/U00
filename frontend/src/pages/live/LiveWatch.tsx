@@ -4,7 +4,7 @@
  * Kept apart from the form in pages/Live.tsx, which hides itself while a
  * session runs.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { feedCues, isActive, lagLine, statusLine, statusTone } from '../../api/live'
 import { Field } from '../../components/Field'
@@ -14,6 +14,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { cancelsAnyJob, useSession } from '../../hooks/useSession'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
+import { canPopOut, popOut, setLiveWatching } from '../../phoneShell'
 import { DelayedPlayer } from './DelayedPlayer'
 import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, sessionStream, steadyDelay } from './embedLogic'
 import { LinesPane } from './LinesPane'
@@ -78,6 +79,12 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
     ? (d: number) => <LiveCaptions key={session.id} cues={session.cues} delay={d} chunkSeconds={session.status?.segment_seconds} />
     : undefined
   const labels = chipLabels(running)
+  const pictureShown = videoLive && (!!streamRef || ownPlayer) && showVideo
+  // The phone app floats the picture (with its captions) when you leave it, so Live keeps playing over other apps.
+  useEffect(() => {
+    setLiveWatching(pictureShown)
+    return () => setLiveWatching(false)
+  }, [pictureShown])
 
   return (
     <div className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}>
@@ -103,6 +110,9 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
             <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
               <Toggle checked={captionsOn} onChange={setCaptionsOn} />
             </Field>
+            {pictureShown && canPopOut() && (
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={popOut}>Float the picture</button>
+            )}
             <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
               <Toggle checked={showVideo} onChange={setShowVideo} />
             </Field>
