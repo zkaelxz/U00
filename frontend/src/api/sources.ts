@@ -62,6 +62,8 @@ export const getSourcesJobResult = <R>(jobId: string, f?: Fetch) =>
 // New chapters (permission-gated; a 403 shows a banner)
 export const dismissNotification = (id: number, f?: Fetch) =>
   postJson<SourceNotification>(`${BASE}/notifications/${id}/dismiss`, undefined, f)
+export const restoreNotification = (id: number, f?: Fetch) =>
+  postJson<SourceNotification>(`${BASE}/notifications/${id}/restore`, undefined, f)
 export const untrackSeries = (source: string, series_id: string, f?: Fetch) =>
   postJson<TrackedSeries[]>(`${BASE}/tracked`, { source, series_id, tracked: false }, f)
 // Comic sources only: the chapter check saves the series' new chapters as CBZ files.

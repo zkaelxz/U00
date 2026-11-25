@@ -101,3 +101,5 @@
 .activity-list { list-style: none; margin: var(--space-2) 0; padding: 0; display: grid; gap: var(--space-2); }
 .activity-list li { display: grid; grid-template-columns: minmax(8rem, 12rem) 1fr auto; gap: var(--space-2); align-items: baseline; }
 @media (max-width: 640px) { .activity-list li { grid-template-columns: 1fr; gap: 0; } }
+
+.jobs-sort { display: inline-flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }

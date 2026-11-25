@@ -59,16 +59,23 @@ public class QuickReadActivity extends Activity {
             askReport(files.get(position));
             return true;
         });
+        // The list gives a click no position, and the bubble tapped is found from where the finger went down.
+        final float[] down = {0f, 0f};
+        list.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                down[0] = event.getX();
+                down[1] = event.getY();
+            }
+            return false;
+        });
         list.setOnItemClickListener((parent, view, position, id) -> {
             if (position >= files.size()) return;
-            File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
-            if (!original.isFile()) {
-                android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            if (!showingOriginal.contains(position) && view.getWidth() > 0 && view.getHeight() > 0
+                    && showBubble(files.get(position), position, (down[0] - view.getLeft()) / view.getWidth(),
+                            (down[1] - view.getTop()) / view.getHeight())) {
                 return;
             }
-            if (!showingOriginal.remove(position)) showingOriginal.add(position);
-            cache.remove(position);
-            adapter.notifyDataSetChanged();
+            flipOriginal(position);
         });
         String savedName = getIntent().getStringExtra(EXTRA_SAVED);
         savedMode = getIntent().hasExtra(EXTRA_SAVED);
@@ -96,6 +103,85 @@ public class QuickReadActivity extends Activity {
         setContentView(frame);
         frame.setFitsSystemWindows(true);
         applyNight();
+    }
+
+    /** Flips a page between the PC's redraw and the picture the site sent. */
+    private void flipOriginal(int position) {
+        File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
+        if (!original.isFile()) {
+            android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!showingOriginal.remove(position)) showingOriginal.add(position);
+        cache.remove(position);
+        adapter.notifyDataSetChanged();
+    }
+
+    /**
+     * A tap on lettering shows the text the PC read there, beside its English, and can ask for that
+     * text translated again on its own. False when the tap was not on lettering, so it flips the art.
+     */
+    private boolean showBubble(File page, int position, float fx, float fy) {
+        File meta = new File(page.getParentFile(), reportName(page.getName()));
+        if (!meta.isFile()) return false;
+        try {
+            org.json.JSONObject info = new org.json.JSONObject(new String(
+                    java.nio.file.Files.readAllBytes(meta.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+            org.json.JSONArray regions = info.optJSONArray("regions");
+            if (regions == null) return false;
+            int[][] boxes = new int[regions.length()][4];
+            for (int i = 0; i < boxes.length; i++) {
+                org.json.JSONObject r = regions.optJSONObject(i);
+                if (r == null || r.optString("source_text").trim().isEmpty()) continue;
+                boxes[i] = new int[] {r.optInt("x"), r.optInt("y"), r.optInt("w"), r.optInt("h")};
+            }
+            int hit = BubbleHit.at(boxes, info.optInt("width"), info.optInt("height"), fx, fy);
+            if (hit < 0) return false;
+            org.json.JSONObject region = regions.getJSONObject(hit);
+            askBubble(region.optString("source_text").trim(), region.optString("translated_text").trim(), position);
+            return true;
+        } catch (java.io.IOException | org.json.JSONException e) {
+            return false;
+        }
+    }
+
+    private void askBubble(String source, String english, int position) {
+        String shown = "Original:\n" + source + "\n\nEnglish:\n" + (english.isEmpty() ? "(none)" : english);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setMessage(shown)
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Show art", (d, w) -> flipOriginal(position))
+                .setNeutralButton("Translate again", null)
+                .show();
+        // Set after show() so the dialog stays open while the PC answers.
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            v.setEnabled(false);
+            ((android.widget.Button) v).setText("Translating...");
+            translateAgain(source, shown, dialog);
+        });
+    }
+
+    /** This text translated on its own, without the page around it, so a doubtful line has a second opinion. */
+    private void translateAgain(String source, String shown, android.app.AlertDialog dialog) {
+        android.content.SharedPreferences prefs = getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+        String server = prefs.getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
+        String language = BubbleHit.languageOf(source);
+        new Thread(() -> {
+            String answer;
+            try {
+                if (language.isEmpty()) throw new BaiheClient.BridgeException(0, "This text is not Chinese, Japanese or Korean.");
+                answer = new BaiheClient(server, token).translateText(source, language, "en");
+            } catch (BaiheClient.BridgeException e) {
+                answer = e.getMessage();
+            }
+            String second = answer;
+            runOnUiThread(() -> {
+                if (isFinishing() || !dialog.isShowing()) return;
+                dialog.setMessage(shown + "\n\nThis text alone:\n" + second);
+                dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setVisibility(View.GONE);
+            });
+        }, "bubble-translate").start();
     }
 
     private android.content.SharedPreferences nightPrefs() {

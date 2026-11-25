@@ -168,6 +168,16 @@ def test_dismiss_notification(local_client):
     assert local_client.post("/api/sources/notifications/9999/dismiss").status_code == 404
 
 
+def test_restore_notification_undoes_own_dismissal(local_client):
+    store.record_new_chapters("manhuagui", "1", [SimpleNamespace(chapter_id="c1", title="Ch 1")])
+    nid = store.list_notifications()[0]["id"]
+    local_client.post(f"/api/sources/notifications/{nid}/dismiss")
+    r = local_client.post(f"/api/sources/notifications/{nid}/restore")
+    assert r.status_code == 200 and r.json()["dismissed"] is False
+    assert [n["id"] for n in local_client.get("/api/sources/notifications").json()] == [nid]
+    assert local_client.post("/api/sources/notifications/9999/restore").status_code == 404
+
+
 def test_track_needs_loaded_series_but_untrack_works(local_client, isolated_db):
     import db
     from sources import store

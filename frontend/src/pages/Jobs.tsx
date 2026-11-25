@@ -240,7 +240,18 @@ export default function JobsPage() {
                   </button>
                 </p>
               ) : phone ? (
-                <JobCards jobs={shown} {...rowProps} />
+                <>
+                  <label className="jobs-sort">
+                    <span className="muted">Sort</span>
+                    <select
+                      value={phoneSortValue(sort)}
+                      onChange={(e) => setSort(PHONE_SORTS.find((o) => o.value === e.target.value)?.sort ?? { key: 'default', dir: 'desc' })}
+                    >
+                      {PHONE_SORTS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </label>
+                  <JobCards jobs={shown} {...rowProps} />
+                </>
               ) : (
                 <JobTable jobs={shown} sort={sort} onSort={sortBy} {...rowProps} />
               )}
@@ -381,6 +392,19 @@ function Details({ job, now }: { job: JobRecord; now: number }) {
       <RunSettings result={job.result} />
     </div>
   )
+}
+
+// The phone has no column headers, so the same persisted sort the table sets is picked here.
+const PHONE_SORTS: { value: string; label: string; sort: { key: SortKey; dir: SortDir } }[] = [
+  { value: 'default', label: 'Active first', sort: { key: 'default', dir: 'desc' } },
+  { value: 'started-desc', label: 'Newest first', sort: { key: 'started', dir: 'desc' } },
+  { value: 'started-asc', label: 'Oldest first', sort: { key: 'started', dir: 'asc' } },
+  { value: 'duration-desc', label: 'Longest first', sort: { key: 'duration', dir: 'desc' } },
+  { value: 'duration-asc', label: 'Shortest first', sort: { key: 'duration', dir: 'asc' } },
+]
+
+function phoneSortValue(sort: { key: SortKey; dir: SortDir }): string {
+  return sort.key === 'default' ? 'default' : `${sort.key}-${sort.dir}`
 }
 
 function SortButton({ label, dir, onClick }: { label: string; dir: 'ascending' | 'descending' | undefined; onClick: () => void }) {
