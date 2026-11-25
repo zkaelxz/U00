@@ -7,6 +7,8 @@ are created by db.init_db."""
 import contextlib
 import json
 
+from lib import clock
+
 import db
 
 
@@ -246,12 +248,6 @@ def edit_history_depth(page: dict, region_ids=None) -> int:
     return len(history)
 
 
-def latest_page_edit(page: dict) -> dict | None:
-    """The entry an undo of this page row would reverse, or None."""
-    history = _load_history(page.get("edit_history"))
-    return history[-1] if history else None
-
-
 def _page_rev_and_history(conn, page_id: int):
     row = conn.execute("SELECT COALESCE(rev, 0), edit_history FROM pages WHERE id = ?",
                        (page_id,)).fetchone()
@@ -328,8 +324,48 @@ def _check_columns(name: str, keys):
         raise ValueError(f"{name}: bad field(s) {bad}")
 
 
+def _keep_fix(conn, series_id, row: dict, changes: dict) -> dict | None:
+    """A hand edit of a region's English becomes the series' approved wording for its source text
+    (translation_memory, the store the subtitle Review fills), in the edit's own transaction.
+    Returns what undo needs to put the series' entry back as it was, or None when nothing was kept."""
+    after = (changes.get("translated_text") or "").strip() if "translated_text" in changes else ""
+    source = (row.get("source_text") or "").strip()
+    if not series_id or not after or not source or after == (row.get("translated_text") or "").strip():
+        return None
+    prior = conn.execute("SELECT translation, use_count, updated_at FROM translation_memory "
+                         "WHERE series_id = ? AND source_text = ?", (series_id, source)).fetchone()
+    if prior is not None and prior["translation"] == after:
+        return None  # already the approved wording; undo has nothing to take back
+    conn.execute("""
+        INSERT INTO translation_memory (series_id, source_text, translation, use_count, updated_at)
+        VALUES (?, ?, ?, 1, ?)
+        ON CONFLICT(series_id, source_text) DO UPDATE SET
+            translation = excluded.translation, use_count = 1, updated_at = excluded.updated_at
+    """, (series_id, source, after, clock.utcnow().isoformat()))
+    return {"series_id": int(series_id), "source": source, "written": after,
+            "prior": dict(prior) if prior is not None else None}
+
+
+def _restore_fix(conn, memory) -> None:
+    """Undo of an edit _keep_fix learned from: the series' entry goes back to what it held before,
+    unless something approved other wording for that text since. A malformed record restores
+    nothing rather than failing the undo."""
+    if not (isinstance(memory, dict) and isinstance(memory.get("series_id"), int)
+            and isinstance(memory.get("source"), str) and isinstance(memory.get("written"), str)):
+        return
+    where = (memory["series_id"], memory["source"], memory["written"])
+    prior = memory.get("prior")
+    if isinstance(prior, dict) and isinstance(prior.get("translation"), str):
+        conn.execute("UPDATE translation_memory SET translation = ?, use_count = ?, updated_at = ? "
+                     "WHERE series_id = ? AND source_text = ? AND translation = ?",
+                     (prior["translation"], int(prior.get("use_count") or 1), prior.get("updated_at"), *where))
+    else:
+        conn.execute("DELETE FROM translation_memory WHERE series_id = ? AND source_text = ? "
+                     "AND translation = ?", where)
+
+
 def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
-                expected: dict | None = None) -> tuple:
+                expected: dict | None = None, fix_series_id: int | None = None) -> tuple:
     """The comic editor's write: in ONE transaction, sets `fields` on one
     bubble of this page only if the page's rev is still `expected_rev` and
     every `expected` column still holds the value the caller saw, then bumps
@@ -337,7 +373,8 @@ def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
     the new rev, "unchanged" (every field already held its value; nothing
     written), "stale" (rev or an expected value moved on), "missing" (no
     such bubble on the page) or "no_page", each with the current rev.
-    Unknown columns raise ValueError (they are interpolated into the SQL)."""
+    Unknown columns raise ValueError (they are interpolated into the SQL).
+    `fix_series_id`: the title's series, which keeps a changed English as a fix (_keep_fix)."""
     expected = expected or {}
     if not fields:
         raise ValueError("edit_region: no fields given")
@@ -357,10 +394,13 @@ def edit_region(page_id: int, bubble_id: int, fields: dict, expected_rev: int,
         sets = ", ".join(f"{k} = ?" for k in changes)
         conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
                      list(changes.values()) + [bubble_id])
+        memory = _keep_fix(conn, fix_series_id, row, changes)
         _bump_page_rev(conn, page_id)
-        _record(conn, page_id, history, rev, {
-            "op": "edit", "region_id": bubble_id, "before": {k: row[k] for k in changes},
-            "after": changes})
+        entry = {"op": "edit", "region_id": bubble_id, "before": {k: row[k] for k in changes},
+                 "after": changes}
+        if memory:
+            entry["memory"] = memory
+        _record(conn, page_id, history, rev, entry)
         return True, ("saved", rev + 1)
     return _page_write(page_id, expected_rev, step)
 
@@ -429,6 +469,7 @@ def _undo_edit(conn, page_id: int, entry: dict, older: list) -> bool:
     sets = ", ".join(f"{k} = ?" for k in before)
     conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
                  [_bubble_value(k, v) for k, v in before.items()] + [row["id"]])
+    _restore_fix(conn, entry.get("memory"))
     return True
 
 

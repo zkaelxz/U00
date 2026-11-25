@@ -67,11 +67,30 @@ def test_undo_drops_only_the_wording_it_undid(isolated_db):
     pages_svc.edit_region(did, pid, rid, {"translated_text": "One"}, 0)
     pages_svc.edit_region(did, pid, rid, {"translated_text": "Two"}, 1)
     pages_svc.undo_region_edit(did, pid, 2)
-    assert _memory(sid) == set()
+    assert _memory(sid) == {("你好", "One")}
     # Undoing "One" never deletes a different approval the series made since.
     db.record_translation_memory(sid, "你好", "Hey")
     pages_svc.undo_region_edit(did, pid, 3)
     assert _memory(sid) == {("你好", "Hey")}
+
+
+def test_undo_puts_back_the_approval_the_series_had(isolated_db):
+    sid, did, pid, rid = _comic()
+    for _ in range(3):
+        db.record_translation_memory(sid, "你好", "Hi")  # approved in the subtitle Review
+    pages_svc.edit_region(did, pid, rid, {"translated_text": "Yo"}, 0)
+    assert _memory(sid) == {("你好", "Yo")}
+    pages_svc.undo_region_edit(did, pid, 1)
+    [entry] = db.list_translation_memory(sid)
+    assert (entry["translation"], entry["use_count"]) == ("Hi", 3)
+
+
+def test_a_fix_matching_the_approval_leaves_it_alone_on_undo(isolated_db):
+    sid, did, pid, rid = _comic()
+    db.record_translation_memory(sid, "你好", "Hi")
+    pages_svc.edit_region(did, pid, rid, {"translated_text": "Hi"}, 0)
+    pages_svc.undo_region_edit(did, pid, 1)
+    assert _memory(sid) == {("你好", "Hi")}
 
 
 def test_undo_of_a_box_move_leaves_the_fixes(isolated_db):

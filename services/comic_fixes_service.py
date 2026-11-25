@@ -1,7 +1,8 @@
-"""Owns the per-series fix list for comics: hand fixes of a box's English, kept and shown to later pages.
+"""Owns the per-series fix list for comics: which kept fixes of a box's English a page's prompt is shown.
 
-A fix is stored in the series translation memory the subtitle Review already fills
-(db.translation_memory), so it needs no upkeep and a series has one list of approved wording.
+A fix is kept by the edit itself (db.comic_pages.edit_region, undone with it) in the series
+translation memory the subtitle Review already fills, so it needs no upkeep and a series has one
+list of approved wording.
 """
 import logging
 
@@ -19,37 +20,6 @@ _SEARCHED_ENTRIES = 3000
 
 def _series_id(drama) -> int | None:
     return (drama or {}).get("series_id") or None
-
-
-def record_fix(drama: dict, before_text: str | None, written_text: str, region_now: dict | None) -> None:
-    """Keeps a saved edit of a region's English (`before_text` -> `written_text`) as the series'
-    fix for the region's source text. Only when the English changed, the region has source text
-    and it still holds what this edit wrote: a job rewriting the region at once must not be
-    learned as the person's wording."""
-    series_id = _series_id(drama)
-    if not series_id or region_now is None:
-        return
-    after = (written_text or "").strip()
-    source = (region_now.get("source_text") or "").strip()
-    if (not source or not after or after == (before_text or "").strip()
-            or (region_now.get("translated_text") or "").strip() != after):
-        return
-    try:
-        db.record_translation_memory(series_id, source, after)
-    except Exception as exc:  # noqa: BLE001 - the edit itself is saved; losing the fix is not fatal
-        log.warning("Comic fix not kept for series %s: %s", series_id, type(exc).__name__)
-
-
-def forget_fix(drama: dict, source_text: str, undone_text: str) -> None:
-    """The person undid a fix: it stops being offered, unless the series has since approved
-    different wording for that text."""
-    series_id = _series_id(drama)
-    if not series_id:
-        return
-    try:
-        db.forget_translation_memory(series_id, source_text, undone_text)
-    except Exception as exc:  # noqa: BLE001 - the undo itself is done
-        log.warning("Comic fix not dropped for series %s: %s", series_id, type(exc).__name__)
 
 
 def fixes_block(drama: dict, regions, fresh_attempt: bool = False) -> str:
