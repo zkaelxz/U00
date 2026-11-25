@@ -15,8 +15,9 @@ export const STEP_LABELS: Record<QueueItemStep, string> = {
   import: 'Import chapters',
   text: 'Prepare the text',
   lines: 'Make lines',
-  follow: 'Transcribe',
+  follow: 'Wait for the earlier job',
   run_translate: 'Translate',
+  run_scanlate: 'Translate pages',
 }
 
 // What the Step choice offers: one step, or the whole chain for the title.

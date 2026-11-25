@@ -395,3 +395,98 @@ def test_a_queued_names_step_is_held_to_the_titles_picked_cloud_model(isolated_d
     paid_member = {**free_member, "permissions": (*free_member["permissions"], "engines.paid")}
     assert runs.start_step(paid_member, db.get_drama(did), q.NAMES, {}) == "j"
     assert started == [{"engine_name": "ollama", "model": "gpt-oss:120b-cloud"}]
+
+
+# --- translating after a chapter import ---------------------------------------------
+
+def test_a_comic_import_is_followed_by_one_scanlate_run_over_the_untranslated_pages(jobs, monkeypatch):  # noqa: F811
+    from services import scanlate_run_service
+    seen = []
+
+    def scanlate(drama_id, **kw):
+        seen.append(kw)
+        return jobs._start(f"scanlate_{drama_id}")
+    monkeypatch.setattr(scanlate_run_service, "start_run", scanlate)
+    did = _bare("Comic", media_type="manhua")
+    jobs._start(f"sourceimport_{did}")                 # as the chapter import started it
+    view = runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True)
+    assert view["state"] == "waiting"
+    assert [s for s, _ in _flow(did)] == ["follow", "run_scanlate"]
+    q.tick()
+    assert jobs.started == [f"sourceimport_{did}"] and not seen        # following starts nothing
+    jobs.finish(f"sourceimport_{did}")
+    q.tick()
+    q.tick()
+    assert seen == [{"mode": "missing", "engine": "ollama"}]
+    assert runs.after_import_run(None, did)["job_id"] == f"scanlate_{did}"
+    jobs.finish(f"scanlate_{did}")
+    q.tick()
+    assert runs.after_import_run(None, did)["state"] == "done"
+
+
+def test_a_failed_import_stops_the_translating_that_waits_for_it(jobs, monkeypatch):  # noqa: F811
+    from services import scanlate_run_service
+    monkeypatch.setattr(scanlate_run_service, "start_run", lambda *a, **kw: pytest.fail("must not start"))
+    did = _bare("Comic", media_type="manga")
+    jobs.fail.add(f"sourceimport_{did}")
+    jobs._start(f"sourceimport_{did}")
+    runs.start_after_import(None, did, "ollama", None, at_pc=False, text_allowed=True)
+    q.tick()
+    jobs.finish(f"sourceimport_{did}")
+    q.tick()
+    q.tick()
+    assert [st for _, st in _flow(did)] == ["failed", "skipped"]
+    assert runs.after_import_run(None, did)["state"] == "stopped"
+
+
+def test_a_second_press_gets_the_same_after_import_run(jobs):  # noqa: F811
+    did = _bare("Comic", media_type="manhwa")
+    jobs._start(f"sourceimport_{did}")
+    first = runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True)
+    assert runs.start_after_import(None, did, "ollama", None, at_pc=True, text_allowed=True) == first
+    assert len(_flow(did)) == 2
+
+
+def test_a_novel_after_import_run_makes_text_lines_names_then_translates(novel, monkeypatch):
+    from services import translate_run_service
+    seen = []
+    monkeypatch.setattr(translate_run_service, "start_translate_run",
+                        lambda drama_id, **kw: seen.append(kw) or novel._start(f"translate_{drama_id}"))
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0)
+    did = _drama("Novel", lines=(), media_type="novel")
+    novel._start(f"sourceimport_{did}")
+    runs.start_after_import(None, did, "ollama", runs.lines_choice(did, {}), at_pc=True, text_allowed=True)
+    assert [s for s, _ in _flow(did)] == ["follow", "text", "lines", "names", "run_translate"]
+    novel.finish(f"sourceimport_{did}")
+    for job in (f"narration_{did}", f"novel_glossary_{did}", f"translate_{did}"):
+        for _ in range(5):
+            q.tick()
+            if novel.started[-1] == job:
+                break
+        assert novel.started[-1] == job
+        novel.finish(job)
+    q.tick()
+    assert seen[0]["engine_name"] == "ollama" and novel.calls["text"] == 1
+    assert runs.after_import_run(None, did)["state"] == "done"
+
+
+def test_a_novel_after_import_run_needs_the_pc_and_a_title_without_lines(novel):
+    did = _drama("Novel", lines=(), media_type="novel")
+    with pytest.raises(ForbiddenError):
+        runs.start_after_import(None, did, "ollama", {}, at_pc=False, text_allowed=False)
+    has_lines = _drama("Has lines", media_type="novel")
+    with pytest.raises(ConflictError):
+        runs.start_after_import(None, has_lines, "ollama", {}, at_pc=True, text_allowed=True)
+    other = _drama("Audio", lines=(), media_type="audio_drama")
+    with pytest.raises(InvalidInputError):
+        runs.start_after_import(None, other, "ollama", {}, at_pc=True, text_allowed=True)
+    assert _flow(did) == [] and _flow(has_lines) == [] and _flow(other) == []
+
+
+def test_the_scanlate_step_is_held_to_the_adders_paid_engine_permission(isolated_db, monkeypatch):
+    from services import scanlate_run_service
+    monkeypatch.setattr(scanlate_run_service, "start_run", lambda *a, **kw: pytest.fail("must not start"))
+    drama = {"id": 1}
+    member = {"user_id": 5, "permissions": ["jobs.start"]}
+    with pytest.raises(ForbiddenError):
+        runs.start_step(member, drama, q.RUN_SCANLATE, {"engine": "claude"})

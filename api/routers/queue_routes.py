@@ -12,11 +12,12 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import (holds, holds_paid_engines, is_at_pc, is_auth_enabled, is_local_request,
+from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is_auth_enabled, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
                          FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
-from services import glossary_extract_service, page_run_service, queue_service
+from services import (glossary_extract_service, model_readiness_service, page_run_service, queue_service,
+                      scanlate_pages_service, translate_run_service)
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
 
@@ -173,3 +174,42 @@ def start_file_run(body: FileRunStart, request: Request, drama_id: int = Path(ge
     require_cloud_model_allowed(request, (body.engine, None))
     return page_run_service.start_file_run(request.state.principal, drama_id, body.job_id, body.engine,
                                            body.locale, at_pc=is_at_pc(request))
+
+
+@router.get("/after-import/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+            summary="How far the translating that follows a chapter import got", responses=_ERRORS)
+def get_after_import(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    return page_run_service.after_import_run(request.state.principal, drama_id)
+
+
+@router.post("/after-import/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
+             summary="Queue the translating that follows the title's running chapter import",
+             responses=error_responses(400, 403, 404, 409, 422, 503))
+def start_after_import(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
+    """The engines are chosen here, never by the client: an engine the account may not use is swapped
+    for the one every account may (`engine_for_caller`), and each step is held to its own gate."""
+    kind = page_run_service.after_import_kind(request.state.principal, drama_id)
+    at_pc = is_at_pc(request)
+    if kind == "comic":
+        default = scanlate_pages_service.default_engine()
+        engine, _model = engine_for_caller(request, None, default, None)
+        require_engines_allowed(request, engine)
+        model_readiness_service.require_ready(at_pc, model_readiness_service.for_scanlate, drama_id, "auto", False)
+        return page_run_service.start_after_import(request.state.principal, drama_id, engine, None,
+                                                   at_pc=at_pc, text_allowed=True)
+    default = translate_run_service.run_engine_name(drama_id)
+    default_model = (translate_run_service.run_model_and_batch_size(drama_id, default)[0]
+                     if default == "ollama" else None)
+    engine, model = engine_for_caller(request, None, default, default_model)
+    require_engines_allowed(request, engine, model=model)
+    require_cloud_model_allowed(request, (engine, model))
+    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id),
+                            model=glossary_extract_service.glossary_model(drama_id))
+    lines = page_run_service.lines_choice(drama_id, {})
+    if not lines["one_narrator"]:
+        require_engines_allowed(request, lines["engine"], model=lines.get("model"))
+    local = is_local_request(request)
+    return page_run_service.start_after_import(
+        request.state.principal, drama_id, engine, lines, at_pc=at_pc,
+        # The text step is PC-only: with sign-in on, only a request from the PC may add it.
+        text_allowed=local or not is_auth_enabled(request.app))
