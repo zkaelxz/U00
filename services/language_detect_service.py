@@ -26,9 +26,9 @@ def _worker(audio_path, use_gpu, scratch_dir, result_queue):
 
 def pick_language(found: dict) -> str:
     """The app source language for a detection result, or an error saying why there is none."""
-    language, probability = found.get("language"), found.get("probability") or 0.0
+    language, probability = str(found.get("language") or ""), found.get("probability") or 0.0
     if language not in core_module.SOURCE_LANGUAGES:
-        heard = core_module.LANGUAGE_NAMES.get(language) or language
+        heard = core_module.LANGUAGE_NAMES.get(language) or language or "no clear language"
         raise UnsupportedOperationError(
             f"The audio sounds like {heard}, which Baihe can't transcribe yet. "
             "Pick Chinese, Japanese, Korean, Indonesian or Thai yourself.")

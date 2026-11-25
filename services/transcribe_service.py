@@ -353,7 +353,7 @@ def _detect_run_language(drama_id, overrides) -> tuple:
     audio = _drama_audio_path(drama_id, stored)
     if audio is None:
         raise UnsupportedOperationError(f"No audio available for title {drama_id}.")
-    detected = language_detect_service.detect(drama_id, audio, settings_service.get("use_gpu"))
+    detected = language_detect_service.detect(drama_id, audio, bool(settings_service.get("use_gpu")))
     return detected, {**(overrides or {}), "source_language": detected,
                       "whisper_size": language_detect_service.DETECT_MODEL, "asr_backend_choice": "whisper"}
 
