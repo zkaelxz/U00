@@ -1,5 +1,7 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
+import { expectPickedTab, pickTab } from './tabPicker'
+
 export const SECTIONS = ['Quality', 'Golden sets', 'Run a benchmark', 'Model re-evaluation', 'Recent runs'] as const
 // Each section is the first (only) card of its own tab, so it starts open.
 export const DEFAULT_OPEN: Record<string, boolean> = {
@@ -15,8 +17,8 @@ export const benchTab = (page: Page, title: string): Locator =>
   page.getByRole('tablist', { name: 'Benchmark Lab' }).getByRole('tab', { name: title, exact: true })
 
 export async function selectTab(page: Page, title: string): Promise<void> {
-  await benchTab(page, title).click()
-  await expect(benchTab(page, title)).toHaveAttribute('aria-selected', 'true')
+  await pickTab(page, title, 'Benchmark Lab')
+  await expectPickedTab(page, 'Benchmark Lab', title)
 }
 
 export const toggle = (page: Page, title: string): Locator => page.getByRole('button', { name: title, exact: true })
