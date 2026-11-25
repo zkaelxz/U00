@@ -10,7 +10,7 @@ import { capFirst, engineLabel } from '../labels'
 // Unknown (/me not answered, auth off) reads as an admin, as useHolds does: the server still refuses.
 export const ASK_PC_OWNER = 'Ask the PC owner.'
 
-function canOpenDiagnostics(): boolean {
+export function canOpenDiagnostics(): boolean {
   const s = getSession()
   return s.status !== 'ready' || !s.me.auth_enabled || s.me.permissions.includes('admin.diagnostics')
 }
@@ -46,6 +46,10 @@ const GENERIC: Record<string, string> = {
   extension_only:
     'This site only works through the browser extension. Open the chapter in Chrome and use the extension.',
 }
+
+// A member cannot open Diagnostics, so the log is no next step for them.
+const INTERNAL_MEMBER = `Something went wrong inside Baihe. ${ASK_PC_OWNER}`
+const INTERNAL_READ_MEMBER = `Could not load this. Something went wrong inside Baihe. ${ASK_PC_OWNER}`
 
 // A failed read changed nothing, so it must not say "Nothing was changed".
 const READ_GENERIC: Record<string, string> = {
@@ -218,6 +222,7 @@ export function describeError(
         refusalText ??
         serverTitle ??
         applicationReason ??
+        (code === 'internal_error' && !canOpenDiagnostics() ? (isRead ? INTERNAL_READ_MEMBER : INTERNAL_MEMBER) : undefined) ??
         (isRead ? READ_GENERIC[code] : undefined) ??
         (code === 'dependency_unavailable' ? (canOpenDiagnostics() ? DEPENDENCY_ADMIN : DEPENDENCY_MEMBER) : undefined) ??
         (code === 'network_error' ? couldNotReachBaihe() : undefined) ??

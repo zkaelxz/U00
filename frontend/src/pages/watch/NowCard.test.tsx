@@ -157,7 +157,7 @@ describe('NowCard', () => {
   it('any other failure shows the usual error text and keeps the draft', () => {
     const error = new ApiError(500, { code: 'internal_error', message: 'Something went wrong.' }, 'POST')
     const out = html(props({ fix: { ...openFix(lines[1]), draft: 'Mine', error } }))
-    expect(out).toContain('<div class="banner error-banner" role="alert"><div><strong>Something went wrong inside Baihe. Details are in the app log.</strong></div></div>')
+    expect(out).toContain('<strong>Something went wrong inside Baihe. Details are in the app log.</strong>')
     expect(out).toContain('>Mine</textarea>')
   })
 

@@ -40,7 +40,7 @@ const COMIC_TYPES = ['manga', 'manhua', 'manhwa']
 export type SourceKindGroup = { kind: string; label: string; sources: SourceSummary[] }
 export type SourceLanguageGroup = { language: string; label: string; kinds: SourceKindGroup[] }
 
-function kindOf(s: SourceSummary): (typeof KIND_ORDER)[number] {
+export function kindOf(s: SourceSummary): (typeof KIND_ORDER)[number] {
   const type = s.content_types[0]
   if (COMIC_TYPES.includes(type)) return 'comics'
   return type === 'novel' ? 'novels' : 'media'

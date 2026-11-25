@@ -20,7 +20,7 @@ from fastapi import APIRouter, Request
 from starlette.concurrency import run_in_threadpool
 from api.auth import local_only, require_permission
 from api.routers.settings_routes import read_body, require_confirm, require_local_admin
-from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, QualityCheck, RemoteHealth, ResourceReadings,
+from api.schemas import (DiagnosticsOverview, GpuReading, PortsOverview, QualityCheck, QualityHistory, RemoteHealth, ResourceReadings,
                          RemoteIpCheckClearRequest, RemoteIpCheckSetRequest,
                          RemoteIpCheckStatus, RemoteIpCheckTestResult, RemoteSetup,
                          RemoteSetupSignInRequest,
@@ -54,6 +54,12 @@ def get_resources():
             summary="The newest release check result in the data folder, each score against its baseline")
 def get_quality():
     return quality_check_service.latest()
+
+
+@router.get("/quality/history", dependencies=[require_permission("admin.diagnostics")], response_model=QualityHistory,
+            summary="Every release check result in the data folder as per-clip score trends, grouped by language")
+def get_quality_history():
+    return quality_check_service.history()
 
 
 @router.get("/remote-health", dependencies=[require_permission("admin.diagnostics")],

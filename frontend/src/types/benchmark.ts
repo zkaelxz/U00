@@ -153,6 +153,9 @@ export interface AddCorrectionsResult {
 /** Two outputs for one case in random order; nothing here names the run behind either. */
 export type BenchmarkPairNext = Schemas['BenchmarkPairNext']
 
+/** The two runs a blind comparison should start with (found=false: none qualify). */
+export type BenchmarkPairSuggestion = Schemas['BenchmarkPairSuggestion']
+
 export type BenchmarkPickChoice = 'left' | 'right' | 'tie'
 
 export type BenchmarkPickSummary = Schemas['BenchmarkPickSummary']
