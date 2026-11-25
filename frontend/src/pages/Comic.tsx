@@ -204,9 +204,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   }
   const defaults = useMemo(() => defaultPrefs(data?.media_type, data?.reading_mode_default), [data])
   const prefs = useMemo(() => stored ?? loadComicPrefs(browserStorage(), id, defaults), [stored, id, defaults])
-  const scroller = useAutoScroll(prefs.mode === 'vertical')
   const canTypeset = pages.some((p) => p.has_rendered)
-
+  const scroller = useAutoScroll(prefs.mode === 'vertical')
   // First page: ?page (clamped), else the saved page once it is known.
   const start =
     !data || count === 0
