@@ -63,9 +63,10 @@ class TestIndonesianHeardWithoutTheDetector:
         monkeypatch.setattr(wm, "load_whisper_model", lambda *a, **k: Model())
         monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda r, p, trim_starts=True: seen.update(trim=trim_starts))
         if fast:
-            faster_whisper = pytest.importorskip("faster_whisper")
-            monkeypatch.setattr(faster_whisper, "BatchedInferencePipeline",
-                                lambda model: types.SimpleNamespace(transcribe=model.transcribe))
+            # A stand-in module: other tests leave their own faster_whisper stub in sys.modules.
+            import sys
+            monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(
+                BatchedInferencePipeline=lambda model: types.SimpleNamespace(transcribe=model.transcribe)))
         audio = tmp_path / "a.wav"
         audio.write_bytes(b"")
         whisper_transcribe.transcribe_for_timing(str(audio), "large-v3", language=language,
