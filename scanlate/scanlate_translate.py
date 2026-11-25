@@ -5,6 +5,8 @@ Chunks a page's regions into engine calls, matches the answers back by id, and
 carries a short context string from page to page.
 """
 
+import re
+
 from scanlate.scanlate_regions import region_excluded_from_auto
 
 
@@ -35,6 +37,15 @@ _NAMES_NOTE = (" A person's name, including an author or artist credit, is roman
 _BLIND_NOTE = (" The source often drops who is meant: you cannot see the page, so never guess "
                "he or she. Use the name, \"you\" or \"they\" unless the text or the context "
                "gives the gender.")
+
+# A model left a term it could not place in the source script ("An accomplice of the
+# 予告犯 (Yokokuhan)"), which is typeset onto the page as written and is unreadable to
+# the person it is for; a prompt rule alone did not stop it, so the answers are also
+# checked (recheck_source_script).
+_ENGLISH_ONLY_NOTE = (" The answer is English only: never leave Japanese, Chinese or Korean "
+                      "characters in it, and never add a romanised reading in brackets. Translate "
+                      "a term by its meaning (予告犯 becomes \"the Notice Criminal\"); only a "
+                      "person's name is romanised.")
 
 # Word-for-word output read as stiff ("Big sis is wearing such a strange outfit!" for
 # お姉ちゃん変な格好〜). The fidelity clause is there because a plain "make it natural"
@@ -174,7 +185,7 @@ def _translate_region_chunk(items: list, engine, drama_meta: dict, previous_cont
     prompt = (
         f"Translate these {source_name} manga/comic text regions into natural English, keeping "
         "character voice and plot consistent with the context below if any. They are listed in reading "
-        "order; each has an id." + _NAMES_NOTE + _BLIND_NOTE + _FLOW_NOTE + ocr_note
+        "order; each has an id." + _NAMES_NOTE + _ENGLISH_ONLY_NOTE + _BLIND_NOTE + _FLOW_NOTE + ocr_note
         + glossary_block + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         + _answer_format(names_out is not None)
     )
@@ -303,13 +314,66 @@ def translate_regions_with_image(regions: list, image: bytes, mime: str, engine,
         "(tone, sound effects, who 'you' is). Translate only the listed regions, one answer per id; "
         "a site watermark, logo or address strip is not dialogue: answer \"\" (an empty string) for "
         "it, never a note about it, because your answer is typeset onto the page as written."
-        + _NAMES_NOTE + _FLOW_NOTE + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
+        + _NAMES_NOTE + _ENGLISH_ONLY_NOTE + _FLOW_NOTE + reference + context_block + f"\n\nRegions on this page (JSON):\n{payload}\n\n"
         + _answer_format(names_out is not None))
     max_tokens = min(max(1500, 200 * len(ids)), _MAX_TOKENS_PER_CALL)
     text, usage = ask_about_image(engine, prompt, image, mime, max_tokens=max_tokens)
     if usage_cb:
         usage_cb(usage.get("input_tokens", 0), usage.get("output_tokens", 0))
     return _matched_answer(text, ids, previous_context, names_out)
+
+
+# Kana, CJK ideographs and Hangul; CJK punctuation is left out because a translation
+# may keep a quote mark.
+_SOURCE_SCRIPT = re.compile(
+    "[\u1100-\u11ff\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af"
+    "\uff66-\uff9f]")
+
+
+def has_source_script(text, source: str = "") -> bool:
+    # An answer identical to its source is an echoed watermark or stamp, which other code
+    # already handles; asking again would only repeat it.
+    return isinstance(text, str) and text != source and bool(_SOURCE_SCRIPT.search(text))
+
+
+def recheck_source_script(texts_by_id: dict, result: dict, engine, drama_meta: dict,
+                          previous_context: str = "", usage_cb=None, glossary_terms=None,
+                          character_notes: str = "", chapter_brief: str = ""):
+    """(result, still_leaking_ids): `result` with one text-only retry for the answers that
+    still contain Japanese, Chinese or Korean characters. A retried answer replaces the
+    first only when it has fewer such characters, so the retry can never make a region
+    worse; the ids still containing any are returned for the caller to flag. An engine
+    error on the retry keeps the first answer, except the stop signals, which are raised."""
+    from engine_backends.run_limits import TranslateRunStopped
+    from engine_backends.shared import LLMTaskTimeout, TranslationCancelled
+    from memory_headroom import HeadroomError
+    out = dict(result)
+    if not getattr(engine, "supports_reference", False) or getattr(engine, "client", True) is None:
+        # A pure MT engine takes no instructions, so asking it again gives the same answer.
+        return out, [k for k, v in out.items() if k in texts_by_id
+                     and has_source_script(v, texts_by_id[k])]
+    leaking = {k: v for k, v in out.items() if k in texts_by_id and has_source_script(v, texts_by_id[k])}
+    if leaking:
+        found = "\n".join(f"{k}: {v}" for k, v in leaking.items())
+        notes = "\n\n".join(part for part in (character_notes, (
+            "Your earlier answer left original-language characters in these answers, which must "
+            "be English only. Translate every term, keep a person's name romanised, and answer "
+            f"each of these ids again:\n{found}")) if part)
+        try:
+            answer, _ = translate_regions_by_id(
+                {k: texts_by_id[k] for k in leaking}, engine, drama_meta,
+                previous_context=previous_context, usage_cb=usage_cb,
+                glossary_terms=glossary_terms, character_notes=notes,
+                chapter_brief=chapter_brief)
+        except (TranslationCancelled, TranslateRunStopped, LLMTaskTimeout, HeadroomError):
+            raise
+        except Exception:
+            answer = None
+        for k, text in (answer or {}).items():
+            if k in leaking and isinstance(text, str) and (
+                    len(_SOURCE_SCRIPT.findall(text)) < len(_SOURCE_SCRIPT.findall(leaking[k]))):
+                out[k] = text
+    return out, [k for k, v in out.items() if k in texts_by_id and has_source_script(v, texts_by_id[k])]
 
 
 def previous_page_block(lines) -> str:
@@ -395,6 +459,11 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
             previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
             character_notes=character_notes, names_out=found_names)
+    if result is not None:
+        result, _ = recheck_source_script(
+            {k: b["source_text"] for k, b in by_key.items()}, result, engine, drama_meta,
+            previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
+            character_notes=character_notes)
     if found_names and chapter_names is not None:
         _keep_chapter_names(found_names, chapter_names, (b["source_text"] for b in eligible))
     if result is None:

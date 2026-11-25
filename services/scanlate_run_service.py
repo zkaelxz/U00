@@ -533,6 +533,13 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
             keyed, result, engine, drama, previous_context=context, usage_cb=usage_cb,
             glossary_terms=glossary, character_notes=character_notes,
             chapter_brief=chapter_brief)
+    result, leaking = scanlate_translate.recheck_source_script(
+        keyed, result, engine, drama, previous_context=context, usage_cb=usage_cb,
+        glossary_terms=glossary, character_notes=character_notes, chapter_brief=chapter_brief)
+    if leaking:
+        notes.append(("warning", f"{len(leaking)} of {len(by_key)} regions still contain "
+                                 "Japanese, Chinese or Korean characters after a second try. "
+                                 "Fix them in the Review screen or use Redo this page."))
     for key, text in result.items():
         by_key[key]["translated_text"] = text
     # The picture request is told to answer "" for a watermark; a model can also do
