@@ -31,12 +31,28 @@ final class GrabQueue {
         final long at;
         final String name;
         final String message;
+        /** Where the run started, so the history page can go back to it; empty for a run saved by an older build. */
+        final String url;
+        final boolean quick;
 
         Done(long at, String name, String message) {
+            this(at, name, message, "", false);
+        }
+
+        Done(long at, String name, String message, String url, boolean quick) {
             this.at = at;
             this.name = name;
             this.message = message;
+            this.url = url == null ? "" : url;
+            this.quick = quick;
         }
+    }
+
+    /** The queue without the chapter at this address; the same list when it is not there. */
+    static List<Item> withoutUrl(List<Item> queue, String url) {
+        List<Item> out = new ArrayList<>();
+        for (Item item : queue) if (!item.url.equals(url)) out.add(item);
+        return out;
     }
 
     /** The page's title, or its host when it has none, short enough for one line of a list. */
@@ -103,7 +119,8 @@ final class GrabQueue {
         JSONArray out = new JSONArray();
         try {
             for (Done done : history) {
-                out.put(new JSONObject().put("at", done.at).put("name", done.name).put("message", done.message));
+                out.put(new JSONObject().put("at", done.at).put("name", done.name).put("message", done.message)
+                        .put("url", done.url).put("quick", done.quick));
             }
         } catch (JSONException e) {
             return "[]";
@@ -117,7 +134,8 @@ final class GrabQueue {
             JSONArray rows = new JSONArray(json == null || json.isEmpty() ? "[]" : json);
             for (int i = 0; i < rows.length() && out.size() < MAX_HISTORY; i++) {
                 JSONObject row = rows.getJSONObject(i);
-                out.add(new Done(row.optLong("at", 0), row.optString("name", "Page"), row.optString("message", "")));
+                out.add(new Done(row.optLong("at", 0), row.optString("name", "Page"), row.optString("message", ""),
+                        row.optString("url", ""), row.optBoolean("quick", false)));
             }
         } catch (JSONException e) {
             // A damaged list is better empty than blocking Grab from opening.

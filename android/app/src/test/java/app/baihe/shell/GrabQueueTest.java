@@ -1,7 +1,9 @@
 package app.baihe.shell;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -51,5 +53,26 @@ public class GrabQueueTest {
         assertEquals("Sent 12 pages", history.get(0).message);
         assertEquals(0, GrabQueue.parseQueue("{not json").size());
         assertEquals(0, GrabQueue.parseHistory(null).size());
+    }
+
+    @Test
+    public void historyRemembersWhereARunStartedAndAnOlderEntryHasNoAddress() {
+        List<GrabQueue.Done> history = GrabQueue.parseHistory(GrabQueue.historyJson(
+                GrabQueue.withDone(new ArrayList<>(), new GrabQueue.Done(7, "A", "Opened 5 pages", "https://a/ch1", true))));
+        assertEquals("https://a/ch1", history.get(0).url);
+        assertTrue(history.get(0).quick);
+        List<GrabQueue.Done> old = GrabQueue.parseHistory("[{\"at\":1,\"name\":\"B\",\"message\":\"m\"}]");
+        assertEquals("", old.get(0).url);
+        assertFalse(old.get(0).quick);
+    }
+
+    @Test
+    public void removingAChapterTakesOnlyThatOne() {
+        List<GrabQueue.Item> queue = GrabQueue.withItem(GrabQueue.withItem(new ArrayList<>(),
+                new GrabQueue.Item("https://a/1", 1, "A")), new GrabQueue.Item("https://a/2", 1, "B"));
+        List<GrabQueue.Item> left = GrabQueue.withoutUrl(queue, "https://a/1");
+        assertEquals(1, left.size());
+        assertEquals("https://a/2", left.get(0).url);
+        assertEquals(2, GrabQueue.withoutUrl(queue, "https://a/none").size());
     }
 }
