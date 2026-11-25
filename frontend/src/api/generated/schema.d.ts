@@ -797,6 +797,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/benchmark/ab/suggest": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Blind A/B: the two finished runs with the most cases left to pick between */
+        get: operations["get_ab_suggest_api_benchmark_ab_suggest_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/benchmark/ab/summary": {
         parameters: {
             query?: never;
@@ -2870,6 +2887,23 @@ export interface paths {
         };
         /** The newest release check result in the data folder, each score against its baseline */
         get: operations["get_quality_api_diagnostics_quality_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/diagnostics/quality/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Every release check result in the data folder as per-clip score trends, grouped by language */
+        get: operations["get_quality_history_api_diagnostics_quality_history_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -15102,6 +15136,24 @@ export interface components {
             /** Total */
             total: number;
         };
+        /**
+         * BenchmarkPairSuggestion
+         * @description The two runs a blind comparison should start with, or found=False when none qualify.
+         */
+        BenchmarkPairSuggestion: {
+            /** Found */
+            found: boolean;
+            /** Remaining */
+            remaining: number | null;
+            /** Run A */
+            run_a: number | null;
+            /** Run B */
+            run_b: number | null;
+            /** Stage */
+            stage: string | null;
+            /** Total */
+            total: number | null;
+        };
         /** BenchmarkPickRequest */
         BenchmarkPickRequest: {
             /**
@@ -21310,7 +21362,7 @@ export interface components {
             /** Item Id */
             item_id?: string | null;
             /** Language */
-            language?: ("en" | "zh" | "ja" | "ko") | null;
+            language?: ("zh" | "ja" | "ko" | "en") | null;
             /**
              * Media
              * @default none
@@ -25626,6 +25678,53 @@ export interface components {
              * @enum {string}
              */
             status: "pass" | "fail" | "none";
+        };
+        /** QualityHistory */
+        QualityHistory: {
+            /**
+             * Runs
+             * @description How many release check results were read.
+             */
+            runs: number;
+            /** Series */
+            series: components["schemas"]["QualitySeries"][];
+        };
+        /** QualityPoint */
+        QualityPoint: {
+            /** Baseline */
+            baseline: number | null;
+            /**
+             * Score
+             * @description The clip's score in that run (median of its repeats); None when it failed.
+             */
+            score: number | null;
+            /**
+             * When
+             * @description When that release check ran, the PC's local time (YYYY-MM-DD HH:MM).
+             */
+            when: string;
+        };
+        /** QualitySeries */
+        QualitySeries: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Language
+             * @description None for a clip no run recorded a language for.
+             */
+            language: ("zh" | "ja" | "ko" | "en") | null;
+            /**
+             * Metric
+             * @description cer or wer (scored as 1 - error), der (lower is better) or chrf.
+             */
+            metric: string | null;
+            /**
+             * Points
+             * @description Oldest first.
+             */
+            points: components["schemas"]["QualityPoint"][];
         };
         /** QueueAddAllSteps */
         QueueAddAllSteps: {
@@ -36297,6 +36396,53 @@ export interface operations {
             };
         };
     };
+    get_ab_suggest_api_benchmark_ab_suggest_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenchmarkPairSuggestion"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_ab_summary_api_benchmark_ab_summary_get: {
         parameters: {
             query: {
@@ -42066,6 +42212,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QualityCheck"];
+                };
+            };
+        };
+    };
+    get_quality_history_api_diagnostics_quality_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QualityHistory"];
                 };
             };
         };
