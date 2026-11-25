@@ -52,7 +52,16 @@ def _log_activity(job_id, token, gpu_touching):
     status = job.get("status")
     if status not in ("done", "error", "cancelled"):
         return   # a run sent back to the queue (waiting for memory) has not ended
+    if (job.get("started_at") or 0) > token:
+        return   # a newer run of this id owns the entry now; its own thread logs it
     outcome = status
+    try:
+        # The Jobs list says Failed for a "done" run whose result reports a failure; the log agrees.
+        from services import jobs_service
+        derived, _ = jobs_service.derive_outcome(status, job.get("error"), job.get("result"), job_id=job_id)
+        outcome = "error" if derived == "failed" else "cancelled" if derived in ("cancelled", "interrupted") else status
+    except Exception:
+        pass
     db.add_activity(job_id, job.get("description") or "", job.get("owner_user_id"), outcome,
                     token, time.time(), gpu_touching)
 

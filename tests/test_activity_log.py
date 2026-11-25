@@ -79,3 +79,23 @@ def test_routes(local_client):
     body = local_client.get("/api/activity").json()
     assert body["items"][0]["label"] == "Backup" and "job_id" not in body["items"][0]
     assert len(local_client.get("/api/activity/gpu-daily?days=3").json()["days"]) == 3
+
+
+def test_soft_failure_is_logged_as_error(isolated_db):
+    with job_table._lock:
+        job_table._jobs["other_5"] = {"status": "done", "description": "x", "started_at": time.time() - 10,
+                                      "result": {"status": "failed", "last_error": "boom"}}
+    job_runner._log_activity("other_5", time.time() - 5, False)
+    assert activity_service.list_activity(None)["items"][0]["outcome"] == "error"
+
+
+def test_newer_run_is_not_logged_by_the_old_one(isolated_db):
+    with job_table._lock:
+        job_table._jobs["other_6"] = {"status": "error", "description": "x", "started_at": time.time()}
+    job_runner._log_activity("other_6", time.time() - 50, False)
+    assert activity_service.list_activity(None)["items"] == []
+
+
+def test_restore_remaps_activity_owners():
+    from services import library_restore_sql
+    assert ("activity_log", "owner_user_id") in library_restore_sql._ACCOUNT_ID_COLUMNS
