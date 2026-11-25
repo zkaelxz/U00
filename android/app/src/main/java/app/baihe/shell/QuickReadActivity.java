@@ -328,6 +328,7 @@ public class QuickReadActivity extends Activity {
                 BaiheClient client = new BaiheClient(server, token);
                 client.redo = true;
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                client.textStyle = GrabActivity.textStyle(prefs);
                 byte[][] fresh = {null};
                 client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
                     try {
