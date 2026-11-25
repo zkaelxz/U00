@@ -114,6 +114,12 @@ class TestChapters:
 
 
 class TestPages:
+    def test_a_pasted_chapter_link_learns_its_series_from_the_page(self):
+        cap = FakeCapture(READER, [_entry("chapter/details", CHAPTER_DETAILS), _entry("comic/home_page", HOME)])
+        chapter = ChapterInfo("fanjiao_comic", "", "12", "x", _chapter("12").url)
+        _adapter(cap).get_pages(chapter)
+        assert chapter.series_id == "4242"
+
     def test_reads_https_images_in_order_without_repeats(self):
         cap = FakeCapture(READER, [_entry("chapter/details", CHAPTER_DETAILS)])
         pages = _adapter(cap).get_pages(_chapter())

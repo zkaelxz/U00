@@ -230,6 +230,11 @@ class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
             raise LayoutChanged("a usable chapter address")
         html, ok = self._render(chapter.url, f"Loading chapter {chapter.title}")
         details = _data(ok.get("details"))
+        # A pasted chapter link names no comic; the page's own home_page response does, so the
+        # caller can jump from the chapter to its series.
+        comic_id = _digits((_data(ok.get("home_page")).get("comic_info") or {}).get("comic_id"))
+        if comic_id and not chapter.series_id:
+            chapter.series_id = comic_id
         if details and details.get("is_buy") not in (1, True, "1"):
             raise _withheld(f"\"{chapter.title}\"")
         reader = _soup(html).select_one("div.read-content")
