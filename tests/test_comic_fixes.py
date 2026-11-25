@@ -1,6 +1,7 @@
 """Per-series comic fixes: a hand fix of a box's English is kept for the series and shown to later
 comic translations of that series, and an undone fix is dropped. Mocked: no models or network."""
 
+import contextlib
 import os
 
 import pytest
@@ -91,6 +92,25 @@ def test_a_fix_matching_the_approval_leaves_it_alone_on_undo(isolated_db):
     pages_svc.edit_region(did, pid, rid, {"translated_text": "Hi"}, 0)
     pages_svc.undo_region_edit(did, pid, 1)
     assert _memory(sid) == {("你好", "Hi")}
+
+
+@pytest.mark.parametrize("memory", [{"series_id": True, "source": "你好", "written": "Yo", "prior": None},
+                                    {"series_id": "SID", "source": "你好", "written": "Yo",
+                                     "prior": {"translation": "Hi", "use_count": "many", "updated_at": None}},
+                                    {"series_id": "SID", "source": "你好", "written": "Yo",
+                                     "prior": {"translation": "Hi", "use_count": 2, "updated_at": {"x": 1}}}])
+def test_a_malformed_stored_fix_still_lets_the_box_be_undone(isolated_db, memory):
+    import json
+    sid, did, pid, rid = _comic()
+    pages_svc.edit_region(did, pid, rid, {"translated_text": "Yo"}, 0)
+    history = json.loads(db.get_page(pid)["edit_history"])
+    history[-1]["memory"] = {**memory, "series_id": sid if memory["series_id"] == "SID" else memory["series_id"]}
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE pages SET edit_history = ? WHERE id = ?", (json.dumps(history), pid))
+        conn.commit()
+    detail = pages_svc.undo_region_edit(did, pid, 1)
+    assert detail["rev"] == 2
+    assert db.load_bubbles(pid)[0]["translated_text"] == "Hello"
 
 
 def test_undo_of_a_box_move_leaves_the_fixes(isolated_db):

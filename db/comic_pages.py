@@ -350,15 +350,19 @@ def _restore_fix(conn, memory) -> None:
     """Undo of an edit _keep_fix learned from: the series' entry goes back to what it held before,
     unless something approved other wording for that text since. A malformed record restores
     nothing rather than failing the undo."""
-    if not (isinstance(memory, dict) and isinstance(memory.get("series_id"), int)
+    if not (isinstance(memory, dict) and type(memory.get("series_id")) is int
             and isinstance(memory.get("source"), str) and isinstance(memory.get("written"), str)):
         return
     where = (memory["series_id"], memory["source"], memory["written"])
     prior = memory.get("prior")
-    if isinstance(prior, dict) and isinstance(prior.get("translation"), str):
+    if prior is not None:
+        uses, stamp = (prior.get("use_count"), prior.get("updated_at")) if isinstance(prior, dict) else (None, None)
+        if not (isinstance(prior, dict) and isinstance(prior.get("translation"), str)
+                and (uses is None or type(uses) is int) and (stamp is None or isinstance(stamp, str))):
+            return
         conn.execute("UPDATE translation_memory SET translation = ?, use_count = ?, updated_at = ? "
                      "WHERE series_id = ? AND source_text = ? AND translation = ?",
-                     (prior["translation"], int(prior.get("use_count") or 1), prior.get("updated_at"), *where))
+                     (prior["translation"], max(1, uses or 1), stamp, *where))
     else:
         conn.execute("DELETE FROM translation_memory WHERE series_id = ? AND source_text = ? "
                      "AND translation = ?", where)
@@ -466,10 +470,11 @@ def _undo_edit(conn, page_id: int, entry: dict, older: list) -> bool:
             and set(before) <= set(db.BUBBLE_EDIT_FIELDS)
             and all(_same_value(k, row[k], v) for k, v in after.items())):
         return False
+    # Before the box write: should it raise, the undo counts as broken with the box untouched.
+    _restore_fix(conn, entry.get("memory"))
     sets = ", ".join(f"{k} = ?" for k in before)
     conn.execute(f"UPDATE bubbles SET {sets} WHERE id = ?",
                  [_bubble_value(k, v) for k, v in before.items()] + [row["id"]])
-    _restore_fix(conn, entry.get("memory"))
     return True
 
 
