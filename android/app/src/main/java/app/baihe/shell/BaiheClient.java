@@ -35,6 +35,30 @@ final class BaiheClient {
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
     volatile String fetchUserAgent;
 
+    private volatile boolean aborted;
+    private final java.util.Set<HttpURLConnection> open = new java.util.HashSet<>();
+
+    /**
+     * Cuts every request in flight and refuses new ones, so Cancel does not wait out a batch the
+     * PC is still answering (a read can sit for minutes). Call it off the main thread.
+     */
+    void abort() {
+        java.util.List<HttpURLConnection> live;
+        synchronized (open) {
+            aborted = true;
+            live = new java.util.ArrayList<>(open);
+        }
+        for (HttpURLConnection c : live) c.disconnect();
+    }
+
+    private HttpURLConnection track(HttpURLConnection conn) throws BridgeException {
+        synchronized (open) {
+            if (aborted) throw new BridgeException(0, "Cancelled.");
+            open.add(conn);
+        }
+        return conn;
+    }
+
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
         final int status;
@@ -124,7 +148,7 @@ final class BaiheClient {
     private JSONObject callStream(String path, JSONObject body, PageListener onPage) throws BridgeException {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(origin + "/api/ext-bridge" + path).openConnection();
+            conn = track((HttpURLConnection) new URL(origin + "/api/ext-bridge" + path).openConnection());
             conn.setRequestMethod("POST");
             conn.setInstanceFollowRedirects(false);
             conn.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -165,9 +189,12 @@ final class BaiheClient {
         } catch (JSONException e) {
             throw new BridgeException(0, "Baihe sent an answer this app could not read.");
         } catch (IOException e) {
-            throw new BridgeException(0, "Could not reach Baihe.");
+            throw new BridgeException(0, aborted ? "Cancelled." : "Could not reach Baihe.");
         } finally {
-            if (conn != null) conn.disconnect();
+            if (conn != null) {
+                synchronized (open) { open.remove(conn); }
+                conn.disconnect();
+            }
         }
     }
 

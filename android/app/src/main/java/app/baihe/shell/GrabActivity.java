@@ -421,8 +421,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String id = runId;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
-        if (id != null && uploading) {
+        BaiheClient running = activeClient;
+        if (running != null || (id != null && uploading)) {
             new Thread(() -> {
+                if (running != null) running.abort();
+                if (id == null || !uploading) return;
                 try {
                     new BaiheClient(server, token).cancelRun(id);
                 } catch (BaiheClient.BridgeException ignored) {
@@ -918,6 +921,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String runningGrab = "";
     // Names this grab's batches on the server so Cancel can stop the pages it has not started.
     private volatile String runId;
+    private volatile BaiheClient activeClient;
     private volatile long grabStartedAt;
     private volatile boolean cancelRequested;
     // From the web view, not the page: a page can claim any address.
@@ -991,6 +995,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             BaiheClient client = new BaiheClient(server, token);
             client.runId = runId;
+            activeClient = client;
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
