@@ -836,6 +836,30 @@ def test_a_box_that_was_not_split_keeps_its_empty_region_for_hand_entry(tmp_path
     assert len(bubbles) == 1
 
 
+@pytest.mark.parametrize("kind, face", [
+    ("bubble", "regular"), ("thought", "regular"), ("narration", "regular"),
+    ("sign", "handwritten"), ("sfx", "handwritten"),
+])
+def test_balloons_share_one_face_and_art_lettering_keeps_its_guess(tmp_path, monkeypatch, kind, face):
+    """Furigana makes a balloon's glyph heights vary, which the style guess reads as handwriting;
+    a page's balloons then swapped between two faces."""
+    cv2 = pytest.importorskip("cv2")
+    path = str(tmp_path / "p.png")
+    cv2.imwrite(path, _glyph_page([(300, 300)]))
+    monkeypatch.setattr(scanlate, "detect_bubbles",
+                        lambda p, backend="auto", **kw: [{"x": 0, "y": 0, "w": 800, "h": 700}])
+
+    class _Region:
+        def to_bubble(self):
+            return {"x": 0, "y": 0, "w": 800, "h": 700, "kind": kind, "language": "ja"}
+    monkeypatch.setattr(scanlate, "analyze_page_regions", lambda *a, **kw: [_Region()])
+    monkeypatch.setattr(scanlate, "ocr_box_region", lambda *a, **kw: "見えない")
+    monkeypatch.setattr(scanlate, "sample_text_style",
+                        lambda *a, **kw: {"suggested_style": "handwritten", "irregular": True})
+    bubbles, _ = scanlate.detect_and_ocr_page(path, "ja")
+    assert [b["font_category"] for b in bubbles] == [face]
+
+
 def _two_lobe_balloon():
     """One speech balloon drawn as two overlapping lobes, three lines of lettering in each, at the
     size and position of a real Naver page where the detector gave the pair a single region."""
