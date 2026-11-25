@@ -170,6 +170,18 @@ public class QuickReadActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        AppUpdate.screenStarted();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        AppUpdate.screenStopped(this);
+    }
+
+    @Override
     protected void onDestroy() {
         QuickReadSession.abandon();
         clear(this);
