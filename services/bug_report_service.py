@@ -24,6 +24,7 @@ chunks) is stripped. Nothing returned here contains a filesystem path.
 No HTTP types.
 """
 
+import base64
 import datetime
 import json
 import os
@@ -33,6 +34,7 @@ import threading
 
 import db
 import diagnostics_report
+from engine_backends.shared import display_url
 from lib.atomic_write import atomic_write
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from lib.no_window import NO_WINDOW
@@ -41,6 +43,8 @@ DIR_NAME = "bug_reports"
 MAX_REPORTS = 100
 MAX_REPORTS_PER_USER = 10
 MAX_TOTAL_BYTES = 250 * 1024 * 1024
+# Remote members stop here, so page pictures they send can never fill the folder the PC owner needs.
+MAX_REMOTE_TOTAL_BYTES = 150 * 1024 * 1024
 MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
 MAX_JSON_BYTES = 256 * 1024
 LOG_TAIL_LINES = 40
@@ -282,7 +286,9 @@ def _fence(text: str) -> str:
 
 
 def _cell(text) -> str:
-    return str(text if text is not None else "").replace("|", "\\|").replace("\n", " ")
+    # A lone CR ends a table row and a backtick closes a code span in CommonMark.
+    return (str(text if text is not None else "").replace("|", "\\|").replace("\n", " ")
+            .replace("\r", " ").replace("`", "'"))
 
 
 def build_markdown(report: dict, include_server: bool = True) -> str:
@@ -404,7 +410,8 @@ def _remote_reporters(existing: dict) -> list:
 
 
 def create_report(client: dict, screenshot: bytes | None = None, include_server_in_response=True,
-                  now: datetime.datetime | None = None, reporter: str | None = None) -> dict:
+                  now: datetime.datetime | None = None, reporter: str | None = None,
+                  extra_markdown: str = "", extra_files: dict | None = None) -> dict:
     """Saves a report and returns {id, stamp, markdown, issue_markdown,
     what_happened, expected, title}. The stored markdown always has the
     server section; `markdown` has it only when include_server_in_response
@@ -425,7 +432,10 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
         # The cap is checked before any of the server-side work below runs.
         existing = _folders()
         root = _reports_dir()
-        if existing and _folder_bytes(root) + len(shot or b"") > MAX_TOTAL_BYTES:
+        extra_bytes = len(extra_markdown.encode("utf-8")) + sum(
+            len(t.encode("utf-8")) for t in (extra_files or {}).values())
+        limit = MAX_TOTAL_BYTES if reporter is None else MAX_REMOTE_TOTAL_BYTES
+        if existing and _folder_bytes(root) + len(shot or b"") + extra_bytes > limit:
             raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
         if reporter is not None:
             remote = _remote_reporters(existing)
@@ -442,8 +452,10 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
         report = {"id": report_id, "reporter": reporter or "local",
                   "created_at": now.strftime("%Y-%m-%d %H:%M:%S UTC"),
                   "has_screenshot": shot is not None, "client": cleaned, "server": server}
-        markdown = build_markdown(report, include_server=True)
+        markdown = build_markdown(report, include_server=True) + extra_markdown
         os.makedirs(folder, exist_ok=False)
+        for name, text in (extra_files or {}).items():
+            _write(os.path.join(folder, name), text)
         _write(os.path.join(root, COUNTER_FILE), str(report_id))
         if shot is not None:
             _write(os.path.join(folder, f"screenshot.{ext}"), shot, binary=True)
@@ -529,3 +541,78 @@ def delete_report(report_id: int, stamp: str | None = None, confirm: bool = Fals
     with _LOCK:
         shutil.rmtree(folder)
     return {"id": report_id, "deleted": True}
+
+
+# ---------------------------------------------------------------------------
+# Quick read page reports (the phone's "Send a report" on a page)
+# ---------------------------------------------------------------------------
+
+MAX_PAGE_IMAGE_BYTES = 4 * 1024 * 1024
+MAX_PAGE_REGIONS = 200
+_PAGE_IMAGE_PREFIX = "data:image/jpeg;base64,"
+
+
+def _page_region(r: dict) -> dict:
+    row: dict = {k: int(r[k]) for k in ("x", "y", "w", "h", "reading_order")
+           if isinstance(r.get(k), (int, float)) and not isinstance(r.get(k), bool)}
+    for k in ("source_text", "translated_text"):
+        row[k] = _scrub(r.get(k), 1000)
+    row["kind"] = _scrub(r.get("kind"), 40)
+    row["left_alone"] = bool(r.get("left_alone"))
+    row["untranslated"] = bool(r.get("untranslated"))
+    return row
+
+
+def create_page_report(payload: dict, reporter: str | None = None) -> dict:
+    """A Quick read page a reader marked wrong: the redrawn picture, what the PC read and
+    translated on it, the address of the original picture and chapter, and the reader's note.
+    Stored like any other report (so admins find it in the same list), with the regions in
+    `page.json` beside it so a person can reproduce the page. Everything passes the same
+    scrubbing as other reports, and addresses lose their query strings."""
+    if not isinstance(payload, dict):
+        raise InvalidInputError("The report is not valid.")
+    image = payload.get("image")
+    if not isinstance(image, str) or not image.startswith(_PAGE_IMAGE_PREFIX):
+        raise InvalidInputError("A page report needs the page picture.")
+    # Checked before decoding, so an oversized body never allocates its decoded copy.
+    if len(image) - len(_PAGE_IMAGE_PREFIX) > (MAX_PAGE_IMAGE_BYTES * 4) // 3 + 4:
+        raise InvalidInputError("The page picture is empty or larger than 4 MB.")
+    try:
+        jpeg = base64.b64decode(image[len(_PAGE_IMAGE_PREFIX):], validate=True)
+    except ValueError:
+        raise InvalidInputError("The page picture could not be read.") from None
+    if not jpeg or len(jpeg) > MAX_PAGE_IMAGE_BYTES:
+        raise InvalidInputError("The page picture is empty or larger than 4 MB.")
+    if not jpeg.startswith(b"\xff\xd8\xff"):
+        raise InvalidInputError("The page picture must be a JPEG.")
+    note = _scrub(payload.get("note"), 1000).strip()
+    # display_url, not _scrub_route: a signed address in the path is dropped, not just a query.
+    page_url = _scrub(display_url(str(payload.get("page_url") or "")[:2000]), 300)
+    image_url = _scrub(display_url(str(payload.get("image_url") or "")[:2000]), 300)
+    chapter = _scrub(payload.get("chapter"), 200).strip()
+    regions = [_page_region(r) for r in (payload.get("regions") or [])[:MAX_PAGE_REGIONS]
+               if isinstance(r, dict)]
+    notes = [_scrub(n, 300) for n in (payload.get("notes") or [])[:20] if isinstance(n, str)]
+    size = {k: int(payload[k]) for k in ("width", "height")
+            if isinstance(payload.get(k), int) and not isinstance(payload.get(k), bool)}
+    page = {"page_url": page_url, "image_url": image_url, "chapter": chapter, **size,
+            "regions": regions, "notes": notes}
+    lines = ["## Quick read page\n",
+             f"- Chapter: {_cell(chapter) or '(unknown)'}",
+             f"- Page address: `{_cell(page_url)}`",
+             f"- Original picture: `{_cell(image_url)}`",
+             f"- Size: {size.get('width', '?')}x{size.get('height', '?')}",
+             f"- Text regions: {len(regions)}", ""]
+    if regions:
+        lines += ["| # | Source | Translation |", "|---|---|---|"]
+        lines += [f"| {i + 1} | {_cell(r['source_text'])} | {_cell(r['translated_text'])} |"
+                  for i, r in enumerate(regions)]
+        lines.append("")
+    if notes:
+        lines += ["### Notes the phone passed on\n"] + [f"- {_cell(n)}" for n in notes] + [""]
+    return create_report(
+        {"what_happened": "Quick read page report: " + (note or "(no note)"),
+         "route": page_url, "include_server_log": False},
+        screenshot=jpeg, include_server_in_response=False, reporter=reporter,
+        extra_markdown="\n" + "\n".join(lines),
+        extra_files={"page.json": json.dumps(page, ensure_ascii=False, indent=2)})
