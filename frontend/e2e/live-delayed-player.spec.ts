@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { SCREENS, SID, cue, mockLive, openLive } from './liveMocks'
+import { SCREENS, SID, cue, mockLive, openLive, openMoreOptions } from './liveMocks'
 import { mockEmbedHosts } from './liveVideoMocks'
 
 // Live page: the "Delayed player" option plays the server's rolling copy
@@ -23,6 +23,7 @@ test('the delayed player replaces the embed once the recording is ready', async 
     return route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: name === 'master.m3u8' ? MASTER : PLAYLIST })
   })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill(YT)
   await live.getByText('Advanced').click()
   await live.getByLabel('Delayed player', { exact: true }).click()
@@ -79,6 +80,7 @@ test('a session that records no copy keeps the embed even when the form has the 
   const m = await mockLive(page)
   await mockEmbedHosts(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill(YT)
   await live.getByText('Advanced').click()
   await live.getByLabel('Delayed player', { exact: true }).click()
@@ -95,6 +97,7 @@ test('the picture size shows with the delayed player and is sent at Start', asyn
   const m = await mockLive(page)
   await mockEmbedHosts(page)
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill(YT)
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Delayed player quality', { exact: true })).toHaveCount(0)
@@ -116,6 +119,7 @@ test('when the player code fails to load, the note says to reload, not that the 
   await page.route(/\/assets\/hls[-.][^/]*\.js$/, (route) => route.abort())
   await page.route(`**/api/live/player/${SID}/*`, (route) => route.fulfill({ status: 200, contentType: 'application/vnd.apple.mpegurl', body: MASTER }))
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByLabel('Stream link', { exact: true }).fill(YT)
   await live.getByText('Advanced').click()
   await live.getByLabel('Delayed player', { exact: true }).click()
