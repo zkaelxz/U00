@@ -157,17 +157,26 @@ class NewXToonSource(SourceAdapter):
     def get_chapters(self, series_id: str):
         sid = self._series_id(series_id)
         soup = self._series_soup(sid)
-        rows, seen = [], set()
+        titles: dict[str, str] = {}
 
         def add(cid: str, title: str):
-            if _ID.fullmatch(cid) and cid not in seen:
-                seen.add(cid)
-                rows.append((int(cid), cid, title or f"Chapter {cid}"))
+            if _ID.fullmatch(cid) and (title or cid not in titles):
+                titles[cid] = title
 
+        # Rows in a chapter list carry date, count and badge in their text; the hero
+        # "first episode" link is not a list row. Both are untitled here, and the JSON
+        # list below (clean titles) fills them in.
+        has_lists = bool(soup.select_one("[data-chapter-list]"))
         for a in soup.find_all("a", href=True):
             m = _CHAPTER_PATH.match(urlsplit(str(a["href"])).path)
-            if m and m.group(1) == sid:
-                add(m.group(2), _clean(a.get_text()))
+            if not (m and m.group(1) == sid):
+                continue
+            if not has_lists:
+                title = _clean(a.get_text())
+            else:
+                name = a.select_one("span.truncate") if a.find_parent(attrs={"data-chapter-list": True}) else None
+                title = _clean(name.get_text()) if name else ""
+            add(m.group(2), title)
         # Only a series with more than one page of chapters names the endpoint.
         if soup.select_one("[data-chapters-url]"):
             for page in range(2, MAX_LIST_PAGES + 1):
@@ -178,10 +187,10 @@ class NewXToonSource(SourceAdapter):
                     break
             else:
                 raise LayoutChanged("the end of the chapter list")
+        rows = sorted((int(cid), cid, title or f"Chapter {cid}") for cid, title in titles.items())
         if not rows:
             raise LayoutChanged("any chapters in this series")
         # Chapter ids grow with upload order, which is reading order on this site.
-        rows.sort()
         return [ChapterInfo(self.name, sid, cid, title,
                             f"{self.base_url}/comics/{sid}/chapters/{cid}") for _, cid, title in rows]
 
