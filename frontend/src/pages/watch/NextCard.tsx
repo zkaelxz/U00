@@ -1,6 +1,6 @@
 // The Watch page's "Next" card: once an episode is nearly done it has the next title of the series
 // translated (a free engine starts by itself, a paid one waits for a tap) and offers it at the end.
-import { useCallback, useEffect, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 import { getNextEpisode, prepareNextEpisode } from '../../api/nextEpisode'
 import { ButtonLink } from '../../components/Button'
@@ -19,12 +19,17 @@ export function NextCard({ id, boxRef, canStart }: { id: number; boxRef: RefObje
   const [ended, setEnded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // One automatic queueing per episode per visit: a failed or removed run is never queued again behind the person's back.
+  const autoTried = useRef(false)
+  const readyRef = useRef(false)
 
   useEffect(() => {
     setNext(null)
     setNear(false)
     setEnded(false)
     setFailed(false)
+    autoTried.current = false
+    readyRef.current = false
     const el = boxRef.current?.querySelector<HTMLMediaElement>('audio, video')
     if (!el) return
     const onTime = () => {
@@ -65,21 +70,23 @@ export function NextCard({ id, boxRef, canStart }: { id: number; boxRef: RefObje
         const got = await getNextEpisode(id)
         if (cancelled) return
         setNext(got)
-        if (shouldPrepareNext(got, canStart)) void prepare()
+        readyRef.current = got.state === 'ready'
+        if (shouldPrepareNext(got, canStart) && !autoTried.current) {
+          autoTried.current = true
+          void prepare()
+        }
       } catch {
         // A failed look is retried on the next poll; the card stays hidden meanwhile.
       }
     }
     void look()
     const timer = window.setInterval(() => {
-      if (next?.state !== 'ready') void look()
+      if (!readyRef.current) void look()
     }, POLL_MS)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-    // `next` is read only to stop polling once it is ready.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [near, id, canStart, prepare])
 
   const label = nextCardText(next, ended)

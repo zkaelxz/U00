@@ -5,7 +5,7 @@ from typing import Optional
 
 import db
 from lib.errors import ConflictError, NotFoundError
-from engine_backends import engine_registry
+from engine_backends import engine_registry, local as engine_local
 from services import ownership_service, queue_service, title_copy_service
 
 READY, WORKING, IDLE, NO_MEDIA = "ready", "working", "idle", "no_media"
@@ -14,6 +14,10 @@ READY, WORKING, IDLE, NO_MEDIA = "ready", "working", "idle", "no_media"
 def _reading_order(dramas: list) -> list:
     # Without episode numbers the library lists newest first; the episode after this one is the
     # next one created.
+    if any(d.get("episode_number") is None for d in dramas) and any(d.get("episode_number") is not None for d in dramas):
+        # The library lists the unnumbered tail newest first; it reads oldest first.
+        numbered = [d for d in dramas if d.get("episode_number") is not None]
+        return numbered + list(reversed([d for d in dramas if d.get("episode_number") is None]))
     if any(d.get("episode_number") is not None for d in dramas):
         return dramas
     return list(reversed(dramas))
@@ -46,6 +50,15 @@ def _state(principal, drama: dict) -> str:
     return NO_MEDIA
 
 
+def _is_free(drama: dict) -> bool:
+    """Free the way the queue prices a run: an Ollama cloud tag is billed like a paid engine."""
+    engine = queue_service._translate_engine(drama)
+    if engine not in engine_registry.FREE_ENGINES:
+        return False
+    model = queue_service._queued_model_and_batch(drama, engine)[0] or engine_registry.effective_default_model(engine)
+    return not (engine == "ollama" and engine_local.is_ollama_cloud_model(model))
+
+
 def get_next(principal, drama_id: int) -> dict:
     nxt = _following(principal, drama_id)
     if nxt is None:
@@ -53,7 +66,7 @@ def get_next(principal, drama_id: int) -> dict:
     return {"drama_id": nxt["id"], "title": nxt.get("title_en") or nxt.get("title_zh") or f"Title {nxt['id']}",
             "state": _state(principal, nxt),
             # The page starts a free run by itself near the end of an episode; a paid one waits for a tap.
-            "free": queue_service._translate_engine(nxt) in engine_registry.FREE_ENGINES}
+            "free": _is_free(nxt)}
 
 
 def prepare_next(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
@@ -64,7 +77,12 @@ def prepare_next(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> 
         raise NotFoundError("There is no next title in this series.")
     state = _state(principal, nxt)
     if state == IDLE:
-        queue_service.add_all_steps(principal, nxt["id"], holds_paid, at_pc=at_pc)
+        if db.load_lines(nxt["id"]):
+            # Transcribing again would replace lines that may be corrected by hand.
+            for step in ("translate", "export"):
+                queue_service.add_item(principal, nxt["id"], step, holds_paid, at_pc=at_pc)
+        else:
+            queue_service.add_all_steps(principal, nxt["id"], holds_paid, at_pc=at_pc)
     elif state == NO_MEDIA:
         raise ConflictError("The next title has no sound or video to work on yet.")
     return get_next(principal, drama_id)
