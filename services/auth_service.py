@@ -421,7 +421,11 @@ def admin_revoke_device(user_id: int, session_id: int, actor_id=None, at_pc: boo
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("Your own devices are in Settings > Signed-in devices.")
     _require_pc_for_admin(row, at_pc)
-    if not db.auth_delete_session(session_id, user_id):
+    # Away from the PC the delete itself re-checks the user is no admin, so a grant-admin at the PC
+    # landing after the read above cannot be overtaken.
+    if not db.auth_delete_session(session_id, user_id, member_only=not at_pc):
+        if not at_pc and (db.auth_get_user(user_id) or {}).get("is_admin"):
+            raise ForbiddenError(ADMIN_AT_PC_ONLY)
         raise NotFoundError(_SESSION_NOT_FOUND)
     _recheck_streams(user_id)
     write_audit(actor_id, "session.revoke_device", f"user {user_id} session {session_id}")

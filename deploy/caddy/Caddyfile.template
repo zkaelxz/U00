@@ -14,8 +14,8 @@
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and every admin write but member-account changes); the blocks here
-# are defence in depth. The only admin routes that pass are the two read-only
-# admin views, GET /api/admin/users, GET /api/admin/audit and a member's device list, and the
+# are defence in depth. The only admin routes that pass are the three read-only
+# admin views, GET /api/admin/users, GET /api/admin/audit and a user's device list, and the
 # member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
 # them that targets an admin account, except a name), and deleting a
 # deactivated member.
@@ -159,7 +159,7 @@
 			method POST
 			path /api/library/admin/bulk/translate
 		}
-		# An admin may view the users and the audit log from away.
+		# An admin may view the users, the audit log and a user's devices from away.
 		not {
 			method GET HEAD
 			path /api/admin/users /api/admin/audit /api/admin/users/*/devices

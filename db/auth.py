@@ -599,12 +599,15 @@ def auth_touch_session(session_id: int, now: float):
         conn.commit()
 
 
-def auth_delete_session(session_id: int, user_id: int | None = None) -> bool:
-    """`user_id`, when given, scopes the delete to that user's own session."""
+def auth_delete_session(session_id: int, user_id: int | None = None, member_only: bool = False) -> bool:
+    """`user_id`, when given, scopes the delete to that user's own session. `member_only`: nothing is
+    deleted if that user is an admin by the time the delete runs (it needs `user_id`)."""
     sql, args = "DELETE FROM auth_sessions WHERE id = ?", [session_id]
     if user_id is not None:
         sql += " AND user_id = ?"
         args.append(user_id)
+        if member_only:
+            sql += _MEMBER_ONLY
     with contextlib.closing(db.get_conn()) as conn:
         cur = conn.execute(sql, args)
         conn.commit()

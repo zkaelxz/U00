@@ -149,6 +149,7 @@ const ACTIONS: Record<string, string> = {
   'session.create': 'Session started',
   'session.revoke': 'Session ended',
   'session.revoke_all': 'All sessions ended',
+  'session.revoke_device': 'One device signed out by an admin',
   'session.revoke_others': 'Other devices signed out',
   'user.add': 'User added',
   'user.activate': 'User activated',
