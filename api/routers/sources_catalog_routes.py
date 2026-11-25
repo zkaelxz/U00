@@ -12,7 +12,7 @@ from typing import List
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import is_local_request, local_only, require_permission
+from api.auth import is_local_request, local_only, principal_user_id, require_permission
 from api.schemas import (SourceAttempt, SourceCacheClearRequest,
                          SourceCacheStats, SourceDetail, SourceExtensionOnly,
                          SourceExtensionOnlyRequest, SourceHealth, SourceNotification,
@@ -54,8 +54,8 @@ def list_tracked(request: Request):
 
 @router.get("/notifications", dependencies=[require_permission("library.read")], response_model=List[SourceNotification],
             summary="New-chapter notifications")
-def list_notifications(include_dismissed: bool = False):
-    return svc.list_notifications(include_dismissed)
+def list_notifications(request: Request, include_dismissed: bool = False):
+    return svc.list_notifications(include_dismissed, principal_user_id(request) or 0)
 
 
 @router.get("/{name}", dependencies=[require_permission("library.read")], response_model=SourceDetail,
@@ -134,8 +134,8 @@ def post_check_now(request: Request):
 
 @router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,
              summary="Dismiss one new-chapter notification", responses=_ERR)
-def post_dismiss(notification_id: int = Path(ge=1)):
-    return svc.dismiss_notification(notification_id)
+def post_dismiss(request: Request, notification_id: int = Path(ge=1)):
+    return svc.dismiss_notification(notification_id, principal_user_id(request) or 0)
 
 
 @router.post("/profiles/{domain}/{kind}/rollback", dependencies=[require_permission("admin.settings")], response_model=List[SourceProfileVersion],

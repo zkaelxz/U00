@@ -187,9 +187,13 @@ class TestVoiceBank:
         sid = isolated_db.get_or_create_series("S")
         sc = isolated_db.insert_series_character(sid, "Lin")
         isolated_db.set_series_character_voice(sc, eid)
-        did = _drama(isolated_db, speakers=("A",), series_id=sid)
+        member = isolated_db.auth_create_user("m@example.com")
+        did = _drama(isolated_db, speakers=("A",), series_id=sid, owner_user_id=member)
         isolated_db.upsert_character(did, "A", series_character_id=sc)
-        assert cs.apply_series_voice(did, "A") is False
+        assert cs.apply_series_voice(did, "A") is False   # a member's title, no acting principal
+        pc_title = _drama(isolated_db, speakers=("A",), series_id=sid)
+        isolated_db.upsert_character(pc_title, "A", series_character_id=sc)
+        assert cs.apply_series_voice(pc_title, "A") is True   # a PC title: the owner may use it
         token = acting.bind_request()
         try:
             acting.note_acting_principal({"user_id": 5, "is_admin": False, "is_local_owner": False})
