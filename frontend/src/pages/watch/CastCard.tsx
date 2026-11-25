@@ -33,8 +33,13 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
   }, [id])
 
   useEffect(() => {
-    if (show) void look()
-  }, [id, show, look])
+    if (!show) return
+    let off = false
+    getCastStatus(id).then((got) => !off && setState(got.state), () => undefined)
+    return () => {
+      off = true
+    }
+  }, [id, show])
 
   useEffect(() => {
     if (state !== 'working') return
