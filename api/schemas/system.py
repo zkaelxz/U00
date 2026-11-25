@@ -330,7 +330,7 @@ class SettingsPreferences(TimingPreferences):
     comic_glossary_custom: str = ""
     scanlate_chapter_brief: bool = True
     scanlate_page_image: bool = True
-    scanlate_sfx_gloss: bool = False
+    scanlate_sfx_gloss: bool = True
     scanlate_match_text_color: bool = True
     scanlate_rect_layout: bool = False
     episode_brief: bool = True

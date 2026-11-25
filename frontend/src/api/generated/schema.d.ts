@@ -29779,7 +29779,7 @@ export interface components {
             scanlate_rect_layout: boolean;
             /**
              * Scanlate Sfx Gloss
-             * @default false
+             * @default true
              */
             scanlate_sfx_gloss: boolean;
             /** Scene Aware Batches */
