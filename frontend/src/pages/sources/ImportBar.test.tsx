@@ -14,13 +14,12 @@ const bar = (imp: Partial<ChapterImportState>) =>
 
 describe('ImportBar', () => {
   it('offers Translate after import, ticked when it is on', () => {
-    const html = bar({ canTranslateAfter: true, translateAfter: true })
+    const html = bar({ translateAfter: true })
     expect(html).toContain('Translate after import')
     expect(html).toContain('checked')
   })
 
-  it('leaves the tick unchecked when it is off, and out when it cannot run (a novel away from the PC)', () => {
-    expect(bar({ canTranslateAfter: true, translateAfter: false })).not.toContain('checked')
-    expect(bar({ canTranslateAfter: false, translateAfter: true })).not.toContain('Translate after import')
+  it('leaves the tick unchecked when it is off', () => {
+    expect(bar({ translateAfter: false })).not.toContain('checked')
   })
 })

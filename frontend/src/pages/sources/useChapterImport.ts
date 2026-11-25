@@ -1,7 +1,6 @@
 import { startAfterImport } from '../../api/queue'
 import { sourceImportJobId, startAiRecover, startChapterImport } from '../../api/sourcesImport'
 import { useState } from 'react'
-import { usePcOnly } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { isMember, useSession } from '../../hooks/useSession'
 import type { SeriesChapter } from '../../types/sources'
@@ -30,12 +29,10 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   const job = useSourcesJob<ChapterImportResult | UrlImportResult>(dramaId ? sourceImportJobId(dramaId) : null, { reattachOn409: false })
   const running = job.status === 'running'
   // Translate after import: on for members unless they switch it off, off for everyone else unless
-  // they switch it on. A novel's text step is PC-only, so only comics are offered it away from the PC.
+  // they switch it on.
   const session = useSession()
-  const pc = usePcOnly()
   const [storedAfter, setStoredAfter] = usePersistedState<boolean | null>('sources.translateAfter', null)
   const translateAfter = typeof storedAfter === 'boolean' ? storedAfter : isMember(session)
-  const canTranslateAfter = comic || pc === 'local'
   const [afterQueued, setAfterQueued] = useState(false)
   const [afterError, setAfterError] = useState<unknown>(null)
   const queueAfter = async (id: number) => {
@@ -51,7 +48,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
   // The import is already running when this is called, so the queued translating can wait for it.
   const withTranslateAfter = async <T,>(id: number, started: () => Promise<T>): Promise<T> => {
     const r = await started()
-    if (translateAfter && canTranslateAfter) void queueAfter(id)
+    if (translateAfter) void queueAfter(id)
     else {
       setAfterQueued(false)
       setAfterError(null)
@@ -87,7 +84,7 @@ export function useChapterImport(source: string, seriesId: string, comic: boolea
     recover, recoveryReview,
     dramas, choices, hiddenCount, dramaId, setDramaId: (id: number | null) => setStored(id ?? 0), job, running, shownResult, start,
     importState, retry, startRetry,
-    translateAfter, setTranslateAfter: (on: boolean) => setStoredAfter(on), canTranslateAfter, afterQueued, afterError,
+    translateAfter, setTranslateAfter: (on: boolean) => setStoredAfter(on), afterQueued, afterError,
     clearAfterError: () => setAfterError(null),
   }
 }

@@ -12,7 +12,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 
-from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is_auth_enabled, is_local_request,
+from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
                          FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
@@ -155,8 +155,7 @@ def start_novel_flow(body: NovelFlowStart, request: Request, drama_id: int = Pat
     local = is_local_request(request)
     return page_run_service.start_novel_flow(
         request.state.principal, drama_id, body.url, lines, at_pc=is_at_pc(request), local=local,
-        # The text step was local_only(): with sign-in on, only a request from the PC may add it.
-        text_allowed=local or not is_auth_enabled(request.app), holds_import=holds(request, "sources.import"))
+        holds_import=holds(request, "sources.import"))
 
 
 @router.get("/file-run/{drama_id}", dependencies=[require_permission("jobs.start")], response_model=TitleFlowRun,
@@ -197,21 +196,26 @@ def start_after_import(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
         model_readiness_service.require_ready(at_pc, model_readiness_service.for_scanlate, drama_id, "auto", False)
         page_run_service.require_cap_for_after_import(engine, None)
         return page_run_service.start_after_import(request.state.principal, drama_id, engine, None,
-                                                   at_pc=at_pc, text_allowed=True)
+                                                   at_pc=at_pc)
     default = translate_run_service.run_engine_name(drama_id)
     default_model = (translate_run_service.run_model_and_batch_size(drama_id, default)[0]
                      if default == "ollama" else None)
     engine, model = engine_for_caller(request, None, default, default_model)
     require_engines_allowed(request, engine, model=model)
     require_cloud_model_allowed(request, (engine, model))
-    require_engines_allowed(request, glossary_extract_service.novel_glossary_engine(drama_id),
-                            model=glossary_extract_service.glossary_model(drama_id))
+    # Names and lines take the same server pick as the translation: no client choice, and an engine
+    # the account may not use is swapped for the one every account may.
+    names_engine, names_model = engine_for_caller(
+        request, None, glossary_extract_service.novel_glossary_engine(drama_id),
+        glossary_extract_service.glossary_model(drama_id))
+    require_engines_allowed(request, names_engine, model=names_model)
     lines = page_run_service.lines_choice(drama_id, {})
     if not lines["one_narrator"]:
+        lines["engine"], lines_model = engine_for_caller(request, None, lines["engine"], lines.get("model"))
+        if lines_model:
+            lines["model"] = lines_model
         require_engines_allowed(request, lines["engine"], model=lines.get("model"))
     page_run_service.require_cap_for_after_import(engine, model)
-    local = is_local_request(request)
     return page_run_service.start_after_import(
         request.state.principal, drama_id, engine, lines, at_pc=at_pc, model=model,
-        # The text step is PC-only: with sign-in on, only a request from the PC may add it.
-        text_allowed=local or not is_auth_enabled(request.app))
+        names={"engine": names_engine, **({"model": names_model} if names_model else {})})

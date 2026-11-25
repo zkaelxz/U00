@@ -51,12 +51,16 @@ def test_an_engine_cannot_be_chosen_by_the_client(away):
     assert r.status_code == 200 and away.calls[0][1] == "ollama"
 
 
-def test_a_novel_run_is_refused_away_from_the_pc_before_anything_is_queued(away, monkeypatch):
+def test_a_member_on_a_phone_queues_a_novel_with_the_engines_every_account_may_use(away, monkeypatch):
+    from services import glossary_extract_service, narration_service
+    monkeypatch.setattr(glossary_extract_service, "novel_glossary_engine", lambda did: "claude")
     uid, h = _member()
     did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=uid)
-    monkeypatch.undo()   # the real start: the text step is the PC's
     r = away.post(f"/api/queue/after-import/{did}", headers=h)
-    assert r.status_code == 403, r.text
+    assert r.status_code == 200, r.text
+    _, engine, lines, kw = away.calls[0]
+    assert engine == "ollama" and lines["engine"] == "ollama" and kw["names"]["engine"] == "ollama"
+    assert narration_service.DEFAULT_ENGINE == "claude"      # the dearer default that was swapped out
 
 
 def test_another_members_title_is_not_found_and_the_right_is_needed(away):
