@@ -634,6 +634,19 @@ test.describe('with sound', () => {
     await expect(page.getByText(/no sound or video/)).toHaveCount(0)
   })
 
+  test('a place this account saved on another device comes back here, and a pause saves the place for the account', async ({ page }) => {
+    await page.route(/\/api\/reader\/dramas\/3\/watch-position$/, (r) => r.request().method() === 'GET'
+      ? r.fulfill({ json: { drama_id: 3, seconds: 30, updated_at: new Date().toISOString().replace('Z', '') } })
+      : r.fallback())
+    await page.goto('/#/watch/3')
+    await expect(page.getByText('Back where you stopped, at 0:30.')).toBeVisible()
+    await expect(time(page)).toHaveText(/^0:30\.00/)
+    const saved = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/reader\/dramas\/3\/watch-position$/.test(new URL(r.url()).pathname))
+    await playButton(page).click()
+    await pauseButton(page).click()
+    expect((await saved).postDataJSON().seconds).toBeGreaterThanOrEqual(30)
+  })
+
   test('a saved position comes back paused, and Start from the beginning returns to 0:00', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.3', '20'))
     await page.goto('/#/watch/3')

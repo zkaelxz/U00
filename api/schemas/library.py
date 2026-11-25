@@ -703,6 +703,9 @@ class LibraryReadyEntry(LibraryShelfTitle):
     read_percent: float
     length_seconds: Optional[float] = None
     page_count: int = 0
+    # Where this account stopped playing it (0 for never) and when, from the Watch page on any device.
+    watched_seconds: float = 0.0
+    watched_at: Optional[str] = None
 
 
 class LibraryHome(BaseModel):
