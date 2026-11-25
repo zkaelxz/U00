@@ -15,6 +15,22 @@ const RESUME_END_GAP_S = 10
 export const SAVE_EVERY_MS = 5000
 
 export const positionKey = (dramaId: number) => `watch.at.${dramaId}`
+/** When this browser last wrote `positionKey` (ms since 1970), to tell it from a newer place saved on another device. */
+export const positionTimeKey = (dramaId: number) => `watch.atTime.${dramaId}`
+/** The account's server save, sent at most this often while playing (and on every pause and leave). */
+export const SERVER_SAVE_EVERY_MS = 15000
+
+/** A saved place: seconds into the title, and when it was saved (ms since 1970; null when not known). */
+export interface SavedPlace { seconds: number; at: number | null }
+
+/** Which saved place to go on from: this browser's, or the account's from the server when that one is newer. A place
+ *  this browser saved before it kept times (`at` null) is kept, as it was before the server had places. */
+export function newerPlace(local: SavedPlace, server: SavedPlace | null): number {
+  if (!server || !(server.seconds > 0)) return local.seconds
+  if (!(local.seconds > 0)) return server.seconds
+  if (local.at === null) return local.seconds
+  return (server.at ?? 0) > local.at ? server.seconds : local.seconds
+}
 
 type Timed = Pick<ReviewLine, 'idx' | 'start'>
 

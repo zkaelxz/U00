@@ -103,12 +103,17 @@ def get_home(principal=None) -> dict:
 
     return {"needs_you": needs[:SHELF_LIMIT], "needs_you_count": len(needs),
             "running": running[:SHELF_LIMIT], "running_count": len(running),
-            "ready": [_ready_entry(d) for d in ready[:SHELF_LIMIT]], "ready_count": len(ready),
+            "ready": [_ready_entry(d, (principal or {}).get("user_id") or 0) for d in ready[:SHELF_LIMIT]],
+            "ready_count": len(ready),
             "can_control_queue": bool(queue.get("can_control"))}
 
 
-def _ready_entry(d: dict) -> dict:
+def _ready_entry(d: dict, user_id: int) -> dict:
     comic = _is_comic(d.get("media_type"))
     length = None if comic else (db.line_reading_stats(d["id"])[1] or None)
+    # The account's place, so "Continue at" is the same on every device; the page prefers this browser's when newer.
+    prog = {} if comic else (db.get_progress(d["id"], user_id=user_id) or {})
+    watched = float(prog.get("audio_position_seconds") or 0.0)
     return {**_row(d), "read_percent": d.get("read_percent") or 0.0,
-            "length_seconds": length, "page_count": d.get("page_count") or 0}
+            "length_seconds": length, "page_count": d.get("page_count") or 0,
+            "watched_seconds": watched, "watched_at": prog.get("last_accessed_at") if watched else None}

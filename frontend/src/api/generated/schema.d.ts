@@ -22073,6 +22073,13 @@ export interface components {
             title: string;
             /** Updated At */
             updated_at: string | null;
+            /** Watched At */
+            watched_at: string | null;
+            /**
+             * Watched Seconds
+             * @default 0
+             */
+            watched_seconds: number;
         };
         /** LibraryRecentResponse */
         LibraryRecentResponse: {

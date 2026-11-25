@@ -4,26 +4,7 @@
 
 import type { TranslateEngine } from '../types/translate'
 import type {
-  CaptionTrack,
-  ReaderAnswer,
-  ReaderChatTurn,
-  ReaderEngineFields,
-  ReaderLookupRequest,
-  ReaderLookupResult,
-  ReaderMediaAvailability,
-  ReaderNotes,
-  ReaderOverview,
-  ReaderPage,
-  ReaderPageParams,
-  ReaderProgress,
-  ReaderRecap,
-  ReaderRelationshipMap,
-  ReaderRichExportResult,
-  ReaderVocabList,
-  ReaderWikiClearResult,
-  ReaderWikiList,
-  ReaderWikiUpdateResult,
-  RichDeckDownload,
+  CaptionTrack, ReaderAnswer, ReaderChatTurn, ReaderEngineFields, ReaderLookupRequest, ReaderLookupResult, ReaderMediaAvailability, ReaderNotes, ReaderOverview, ReaderPage, ReaderPageParams, ReaderProgress, ReaderRecap, ReaderRelationshipMap, ReaderRichExportResult, ReaderVocabList, ReaderWatchPosition, ReaderWikiClearResult, ReaderWikiList, ReaderWikiUpdateResult, RichDeckDownload,
 } from '../types/reader'
 import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
 import { dispositionFilename } from './export'
@@ -100,6 +81,10 @@ export const readerApi = {
   notes: (id: number, f?: Fetch) => getJson<ReaderNotes>(`${root(id)}/notes`, f),
   saveNotes: (id: number, notes: string, f?: Fetch) => postJson<ReaderNotes>(`${root(id)}/notes`, { notes }, f),
   media: (id: number, f?: Fetch) => getJson<ReaderMediaAvailability>(`${root(id)}/media`, f),
+  /** Where this account stopped playing the title, on any device. */
+  watchPosition: (id: number, f?: Fetch) => getJson<ReaderWatchPosition>(`${root(id)}/watch-position`, f),
+  saveWatchPosition: (id: number, seconds: number, f?: Fetch) =>
+    postJson<ReaderWatchPosition>(`${root(id)}/watch-position`, { seconds }, f),
   lookup: (id: number, body: ReaderLookupRequest, f?: Fetch) =>
     postJson<ReaderLookupResult>(`${root(id)}/lookup`, body, f),
   vocab: (id: number, f?: Fetch) => getJson<ReaderVocabList>(`${root(id)}/vocab`, f),

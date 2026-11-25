@@ -13,11 +13,12 @@ import { useLoad } from '../hooks/useLoad'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { browserStorage, readPref } from '../hooks/usePersistedState'
-import { positionKey } from '../pages/watch/watchLogic'
+import { newerPlace, positionKey, positionTimeKey } from '../pages/watch/watchLogic'
 import { routeHref } from '../router'
 import type { LibraryHome } from '../types/library'
 import { HelpTip } from './HelpTip'
 import { activeCount } from './jobsMenuState'
+import { parseTime } from './libraryView'
 import { kindTag, needsRow, readyCard, readyOrder, runningLine, stepVerb, type NeedsViewer } from './homeShelfLogic'
 import './homeShelves.css'
 
@@ -60,7 +61,10 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
 function ReadyShelf({ home }: { home: LibraryHome }) {
   const storage = browserStorage()
   const cards = useMemo(() => readyOrder(home.ready.map((e) => ({
-    e, ...readyCard(e, Number(readPref(storage, positionKey(e.drama_id), 0)) || 0),
+    e, ...readyCard(e, newerPlace(
+      { seconds: Number(readPref(storage, positionKey(e.drama_id), 0)) || 0, at: Number(readPref(storage, positionTimeKey(e.drama_id), 0)) || null },
+      { seconds: e.watched_seconds, at: parseTime(e.watched_at) || null },
+    )),
   }))), [home.ready, storage])
   if (cards.length === 0) return null
   return (

@@ -33,6 +33,7 @@ export type ReaderNotes = Schemas['ReaderNotes']
 export type CaptionTrack = 'Source' | 'English' | 'Bilingual'
 
 export type ReaderMediaAvailability = Schemas['ReaderMediaAvailability']
+export type ReaderWatchPosition = Schemas['ReaderWatchPosition']
 
 // Every LLM request. An omitted engine means Claude on the server, or Ollama for an
 // account without paid engines, so the page sends the chosen engine unless the
