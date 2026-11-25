@@ -476,6 +476,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             BaiheClient client = new BaiheClient(server, token);
             if (read) {
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                client.textStyle = textStyle(prefs());
                 read(client, "", images, unreadable, truncated);
                 return;
             }
@@ -516,6 +517,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
         menu.getMenu().add("Pictures from my gallery");
+        menu.getMenu().add("English text style");
         menu.getMenu().add("Ad block list");
         menu.getMenu().add("Follow this series");
         menu.getMenu().add("Pick up where I left off");
@@ -541,6 +543,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Settings".equals(title)) showSettings();
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
+            else if ("English text style".equals(title)) askTextStyle();
             else if ("Follow this series".equals(title)) followSeries();
             else if ("Pick up where I left off".equals(title)) pickUp();
             else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
@@ -638,6 +641,45 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return true;
         });
         dialog.show();
+    }
+
+    static TextStyle textStyle(android.content.SharedPreferences p) {
+        return new TextStyle(p.getInt("text_size", 0), p.getBoolean("text_outline", false), p.getInt("text_font", 0));
+    }
+
+    /** The size, outline and typeface of the English on pages Quick read redraws; the next pages translated use it. */
+    private void askTextStyle() {
+        TextStyle now = textStyle(prefs());
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, 0);
+        android.widget.Spinner size = new android.widget.Spinner(this);
+        size.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.SIZES));
+        size.setSelection(now.size);
+        box.addView(size);
+        android.widget.Spinner font = new android.widget.Spinner(this);
+        font.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.FONTS));
+        font.setSelection(now.font);
+        box.addView(font);
+        android.widget.CheckBox outline = new android.widget.CheckBox(this);
+        outline.setText("Outline the letters");
+        outline.setChecked(now.outline);
+        box.addView(outline);
+        android.widget.TextView note = new android.widget.TextView(this);
+        note.setText("Larger text can get tight in small bubbles. It applies to pages translated from now on.");
+        box.addView(note);
+        new AlertDialog.Builder(this)
+                .setTitle("English text style")
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    prefs().edit().putInt("text_size", size.getSelectedItemPosition())
+                            .putBoolean("text_outline", outline.isChecked())
+                            .putInt("text_font", font.getSelectedItemPosition()).apply();
+                    say("Saved. Pages translated from now on use it.");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private static final String KEY_BOOKMARKS = "bookmarks";
@@ -1337,6 +1379,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.runId = runId;
             activeClient = client;
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+            client.textStyle = textStyle(prefs());
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
             client.sourceLanguage = language;

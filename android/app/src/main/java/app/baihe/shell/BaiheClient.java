@@ -31,6 +31,8 @@ final class BaiheClient {
     volatile String runId;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
+    /** How the English lettering looks; null or the default sends nothing, so the PC keeps its own render. */
+    volatile TextStyle textStyle;
     /** Quick read only: where the requests' time went. */
     volatile UploadStats stats;
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
@@ -330,6 +332,11 @@ final class BaiheClient {
             body.put("typeset", true);
             if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
+            TextStyle look = textStyle;
+            if (look != null && !look.isDefault()) {
+                body.put("typeset_style", new JSONObject().put("min_font", look.minFont())
+                        .put("stroke", look.outline).put("font", look.fontName()));
+            }
             if (redo) body.put("redo", true);
         }
         return body;
