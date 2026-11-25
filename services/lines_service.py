@@ -281,6 +281,27 @@ def set_mark(drama_id: int, line_id: int, mark, expected_en=None) -> dict:
     return _reload_dict(drama_id, line_id)
 
 
+def give_feedback(drama_id: int, line_id: int, expected_en=None, better=None) -> dict:
+    """A thumbs-down on a line: marks it wrong and, when `better` wording is
+    given, records it as an edit sample so the learned style can pick it up.
+    The line's own English is left as it is: feedback from a viewer is a
+    suggestion, not an edit. A mark alone teaches the style nothing, since
+    it learns from before/after pairs. Same compare-and-set on the English as
+    `set_mark`. Returns the line as stored afterwards."""
+    if better is not None and not isinstance(better, str):
+        raise InvalidInputError("better must be text.")
+    wording = (better or "").strip()
+    line = set_mark(drama_id, line_id, "wrong", expected_en)
+    # The English judged is the stored one: set_mark has just checked it matches.
+    if wording and wording != (line.get("en") or "").strip():
+        _, _, ln = load(drama_id, line_id)
+        prov = line_provenance_service.get(drama_id, line_id, current_en=ln.en) or {}
+        db.record_edit_sample(drama_id, ln.zh, ln.en, wording, line_id=line_id,
+                              engine=prov.get("engine"), model=prov.get("model"),
+                              prompt_version=prov.get("prompt_version"), mark="wrong")
+    return line
+
+
 def mark_episode_reviewed(drama_id: int) -> dict:
     """Marks every translated, unflagged, not-yet-checked line of the episode
     reviewed, and remembers each pair in the series' translation memory. This

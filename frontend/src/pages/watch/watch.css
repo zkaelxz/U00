@@ -111,3 +111,7 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 }
 .watch-chapters button:hover, .watch-chapters button:focus-visible { background: var(--surface-2); }
 .watch-chapters button[aria-current='true'] { font-weight: 600; background: var(--surface-2); }
+
+.watch-feedback { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+.watch-feedback-label { display: flex; flex-direction: column; gap: 0.25rem; flex: 1 1 14rem; }
+.watch-feedback-label textarea { width: 100%; }

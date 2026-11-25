@@ -1,5 +1,5 @@
 // The Watch page's "now" card: the line being spoken, large, and the in-place fix of its English.
-import type { MouseEvent, Ref } from 'react'
+import type { MouseEvent, ReactNode, Ref } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
@@ -29,6 +29,8 @@ export interface NowCardProps {
   onMark?: (verdict: Verdict) => void
   onJump?: (direction: 1 | -1) => void
   markBusy?: boolean
+  /** Shown under the marks, for a line marked wrong: the "better wording" box. */
+  feedback?: ReactNode
   fixButtonRef?: Ref<HTMLButtonElement>
   fieldRef?: Ref<HTMLTextAreaElement>
   /** The card itself takes focus after Save and play, so Space goes to the player rather than to a button. */
@@ -43,7 +45,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
@@ -137,6 +139,7 @@ export function NowCard({ line, sourceLanguage, canEdit, fix, busy, status, onOp
                   )}
                 </div>
               )}
+              {feedback}
               <div className="watch-now-actions">
                 {canEdit && (
                   <button type="button" ref={fixButtonRef} className={buttonClass()} onClick={onOpen} aria-keyshortcuts="E">
