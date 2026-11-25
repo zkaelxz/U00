@@ -427,11 +427,17 @@ def _quick_read_key(image: dict, job: dict) -> str | None:
                                      *_key_settings(job, config))
 
 
+def _style_key(style) -> str:
+    """The look settings as text. The style object has no repr of its own, so str() would put its
+    memory address in the key and no styled page would ever be found again."""
+    return json.dumps(vars(style) if style is not None else None, sort_keys=True)
+
+
 def _key_settings(job: dict, config: dict) -> list:
     from services import settings_service
     # Sound-effect captions change the redraw, so a page cached without them must not answer once they are on.
     return [bool(settings_service.get("scanlate_sfx_gloss")), job["drama_id"], job["source_language"], job["typeset"],
-            json.dumps(job["typeset_style"], sort_keys=True, default=str), job["typeset_max_width"],
+            _style_key(job["typeset_style"]), job["typeset_max_width"],
             job["glossary_version"], quick_read_cache.pipeline_version(),
             config.get("engine"), config.get("model")]
 
