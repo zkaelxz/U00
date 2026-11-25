@@ -61,7 +61,7 @@ def _write_copy(path: str, folder: str, stamp: str, copy: str, low: bool) -> Non
             img = Image.new("RGB", rgba.size, "white")
             img.paste(rgba, mask=rgba.getchannel("A"))
         if low and img.width > _LOW_MAX_WIDTH:
-            img = img.resize((_LOW_MAX_WIDTH, max(1, round(img.height * _LOW_MAX_WIDTH / img.width))), Image.LANCZOS)
+            img = img.resize((_LOW_MAX_WIDTH, max(1, round(img.height * _LOW_MAX_WIDTH / img.width))), Image.Resampling.LANCZOS)
         fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
         try:
             with os.fdopen(fd, "wb") as fh:
