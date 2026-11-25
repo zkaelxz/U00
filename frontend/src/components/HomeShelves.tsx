@@ -10,6 +10,7 @@ import { getHome } from '../api/library'
 import { useHolds } from '../hooks/useHolds'
 import { useJobs, useNow } from '../hooks/useJobs'
 import { useLoad } from '../hooks/useLoad'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { browserStorage, readPref } from '../hooks/usePersistedState'
 import { positionKey } from '../pages/watch/watchLogic'
@@ -20,11 +21,12 @@ import { activeCount } from './jobsMenuState'
 import { kindTag, needsRow, readyCard, readyOrder, runningLine, stepVerb, type NeedsViewer } from './homeShelfLogic'
 import './homeShelves.css'
 
-export const ALL_TITLES_ID = 'library-all-titles'
-
-const showAll = () => document.getElementById(ALL_TITLES_ID)?.scrollIntoView({ block: 'start' })
+// The full list's own heading (LibraryList), so the jump needs no marker element of its own in the page's spaced stack.
+const showAll = () => document.getElementById('library-heading')?.closest('section')?.scrollIntoView({ block: 'start' })
 
 export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: number | null }) {
+  // Only a phone needs the jump: there the shelves fill the first screen and push the full list out of sight.
+  const phone = useMediaQuery('(max-width: 640px)')
   const { jobs } = useJobs()
   const active = activeCount(jobs ?? [])
   // A step starting or ending moves titles between shelves; the jobs list already hears about it.
@@ -46,7 +48,7 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
             <RunningRow home={home.data} jobs={jobs} now={now} />
           </>
         : <YoursShelf home={home.data} viewer={viewer} jobs={jobs} now={now} />}
-      {total !== null && total > 0 && (
+      {phone && total !== null && total > 0 && (
         <button type="button" className="home-all" onClick={showAll}>
           <span>All titles</span><span className="muted">{total}</span>
         </button>
