@@ -10,6 +10,11 @@
 .series-consistency-terms, .series-consistency-renderings { margin: var(--space-1) 0; padding-left: var(--space-4); overflow-wrap: anywhere; }
 .series-term-list { margin: var(--space-1) 0 0; }
 .series-delete-prompt ul { margin: 0 0 var(--space-2); }
+/* Bare links are as tall as their text, so a thumb misses them; the shared crumbs already pad to 44px. */
+@media (max-width: 640px), (pointer: coarse) {
+  .series-page .reader-crumbs a, .series-list-page .reader-crumbs a,
+  .series-title-row .table-title { display: inline-flex; align-items: center; min-height: 44px; }
+}
 @media (max-width: 640px) {
   .series-copy-row { grid-template-columns: minmax(0, 1fr); }
   .series-title-meta { white-space: normal; }
