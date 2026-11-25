@@ -45,12 +45,41 @@ final class AppUpdate {
         return offered > installed;
     }
 
-    /** The offered versionCode, or 0 when none is offered or the check failed. */
+    /** Returned by {@link #check} when the server could not be asked, so the caller tries again sooner. */
+    static final long CHECK_FAILED = -1;
+
+    /** A silently downloaded build, installed once every screen of the app is in the background. */
+    static volatile File pending;
+    private static int screensStarted;
+
+    /** One of the app's screens came to the front. */
+    static synchronized void screenStarted() {
+        screensStarted++;
+    }
+
+    /**
+     * One of the app's screens went out of view. Switching between Studio and Grab stops one screen
+     * while the other starts, and installing then would restart the app in the middle of a grab, so
+     * the install waits until no screen is left in front.
+     */
+    static void screenStopped(Context context) {
+        File apk;
+        synchronized (AppUpdate.class) {
+            if (screensStarted > 0) screensStarted--;
+            if (screensStarted > 0 || pending == null) return;
+            apk = pending;
+            pending = null;
+        }
+        Context app = context.getApplicationContext();
+        new Thread(() -> install(app, apk)).start();
+    }
+
+    /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked. */
     static long check(String address, String cookie) {
         try {
             HttpURLConnection conn = open(address + "/api/app/android", cookie);
             try {
-                if (conn.getResponseCode() != 200) return 0;
+                if (conn.getResponseCode() != 200) return CHECK_FAILED;
                 try (InputStream in = conn.getInputStream()) {
                     byte[] buffer = new byte[MAX_ANSWER_BYTES];
                     int filled = 0;
@@ -65,7 +94,7 @@ final class AppUpdate {
                 conn.disconnect();
             }
         } catch (IOException | RuntimeException e) {
-            return 0;
+            return CHECK_FAILED;
         }
     }
 

@@ -633,6 +633,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        AppUpdate.screenStarted();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        AppUpdate.screenStopped(this);
+    }
+
+    @Override
     protected void onDestroy() {
         GrabKeepAlive.stop(getApplicationContext());
         bridge.cancel();
