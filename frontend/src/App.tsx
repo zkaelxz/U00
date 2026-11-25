@@ -357,7 +357,7 @@ export default function App() {
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
       {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'follow' && <FollowAlongPage key={route.id} id={route.id} />}
-      {route.name === 'watch' && <WatchPage key={route.id} id={route.id} />}
+      {route.name === 'watch' && <WatchPage key={route.id} id={route.id} party={route.party} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}
       {route.name === 'comic-edit' && <ComicEditor key={route.id} id={route.id} page={route.page} />}
       {route.name === 'series-list' && <SeriesListPage key={route.streamer === undefined ? 'top' : `streamer:${route.streamer}`} streamer={route.streamer} />}
