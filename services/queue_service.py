@@ -51,7 +51,7 @@ QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1
 MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
-MAX_ITEMS_PER_MEMBER = 50
+MAX_ITEMS_PER_MEMBER = 100
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
