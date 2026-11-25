@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from '@playwright/test'
 
-export const SECTIONS = ['Golden sets', 'Run a benchmark', 'Model re-evaluation', 'Recent runs'] as const
+export const SECTIONS = ['Quality', 'Golden sets', 'Run a benchmark', 'Model re-evaluation', 'Recent runs'] as const
 // Each section is the first (only) card of its own tab, so it starts open.
 export const DEFAULT_OPEN: Record<string, boolean> = {
   'Golden sets': true,
