@@ -30,6 +30,8 @@ public class QuickReadActivity extends Activity {
     private PageAdapter adapter;
     private ListView list;
     private View tint;
+    // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
+    private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -51,6 +53,17 @@ public class QuickReadActivity extends Activity {
             if (position >= files.size()) return false;
             askReport(files.get(position));
             return true;
+        });
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            if (position >= files.size()) return;
+            File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
+            if (!original.isFile()) {
+                android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!showingOriginal.remove(position)) showingOriginal.add(position);
+            cache.remove(position);
+            adapter.notifyDataSetChanged();
         });
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
@@ -115,6 +128,20 @@ public class QuickReadActivity extends Activity {
     /** The report text sits beside the picture under the same name, and goes with it. */
     private static String reportName(String pictureName) {
         return pictureName.replaceAll("\\.jpg$", ".json");
+    }
+
+    /** The sent picture sits beside the redraw; a page the PC left alone has none, since it is its own original. */
+    static String originalName(String pictureName) {
+        return pictureName.replaceAll("\\.jpg$", ".orig.jpg");
+    }
+
+    static void writeOriginal(android.content.Context context, String pictureName, byte[] jpeg) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                new File(quickReadDir(context), originalName(pictureName)))) {
+            out.write(jpeg);
+        } catch (java.io.IOException ignored) {
+            // The page still reads; a tap on it just has no original to show.
+        }
     }
 
     static void writeReportText(android.content.Context context, String pictureName, String text) {
@@ -315,19 +342,27 @@ public class QuickReadActivity extends Activity {
         for (File f : old) f.delete();
     }
 
+    private File fileFor(int position) {
+        File page = files.get(position);
+        if (!showingOriginal.contains(position)) return page;
+        File original = new File(page.getParentFile(), originalName(page.getName()));
+        return original.isFile() ? original : page;
+    }
+
     private Bitmap load(int position) {
         Bitmap cached = cache.get(position);
         if (cached != null) return cached;
+        File source = fileFor(position);
         int width = getResources().getDisplayMetrics().widthPixels;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(files.get(position).getPath(), bounds);
+        BitmapFactory.decodeFile(source.getPath(), bounds);
         int sample = 1;
         // Pages are often much wider than the screen; half-size steps keep them sharp enough.
         while (bounds.outWidth / (sample * 2) >= width) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        Bitmap bitmap = BitmapFactory.decodeFile(files.get(position).getPath(), options);
+        Bitmap bitmap = BitmapFactory.decodeFile(source.getPath(), options);
         if (bitmap != null) cache.put(position, bitmap);
         return bitmap;
     }
