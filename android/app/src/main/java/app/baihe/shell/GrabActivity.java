@@ -46,8 +46,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     static final String PREFS = "grab";
     static final String KEY_SERVER = "server";
     static final String KEY_TOKEN = "token";
-    private static final String KEY_QUEUE = "queue";
-    private static final String KEY_HISTORY = "history";
     private static final String KEY_READ_AHEAD = "read_ahead";
 
     private WebView web;
@@ -85,8 +83,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
 
-        queue = GrabQueue.parseQueue(prefs().getString(KEY_QUEUE, ""));
-        history = GrabQueue.parseHistory(prefs().getString(KEY_HISTORY, ""));
         palette = GrabUi.Palette.of(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -159,6 +155,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (quickAfterLoad) {
+                    quickAfterLoad = false;
+                    web.postDelayed(() -> {
+                        if (!grabbing) startGrab(true);
+                    }, 2500);
+                    return;
+                }
                 // The next chapter has loaded; the delay lets its reader start drawing pages.
                 if (!loadingNext) return;
                 loadingNext = false;
@@ -225,6 +228,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         else {
             say(OPEN_FIRST);
             handleShare(getIntent());
+            handleCommand(getIntent());
         }
     }
 
@@ -233,6 +237,31 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         super.onNewIntent(intent);
         setIntent(intent);
         handleShare(intent);
+        handleCommand(intent);
+    }
+
+    /** What the history page asks for: go back to a page, read it again, or start the queue. */
+    static final String EXTRA_COMMAND = "grab_command";
+    static final String EXTRA_URL = "grab_url";
+
+    private void handleCommand(Intent intent) {
+        String command = intent == null ? null : intent.getStringExtra(EXTRA_COMMAND);
+        if (command == null) return;
+        String url = ServerAddress.browsable(intent.getStringExtra(EXTRA_URL));
+        intent.removeExtra(EXTRA_COMMAND);
+        if ("start".equals(command)) {
+            startQueue();
+        } else if (url != null && ("open".equals(command) || "read".equals(command))) {
+            if ("read".equals(command)) {
+                if (grabbing || loadingNext || chaptersLeft > 0) {
+                    say("Wait for the current grab to finish.");
+                    return;
+                }
+                // The PC remembers a page it already translated, so this costs no tokens while it does.
+                quickAfterLoad = true;
+            }
+            web.loadUrl(url);
+        }
     }
 
     /** What another app shared: a link opens in the browser, images go straight to Baihe. */
@@ -377,10 +406,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add("Add to queue");
-        int waiting;
-        synchronized (queueLock) {
-            waiting = queue.size();
-        }
+        int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
         menu.getMenu().add("Open Baihe");
         menu.getMenu().add("Settings");
@@ -388,7 +414,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String title = item.getTitle().toString();
             if ("Settings".equals(title)) showSettings();
             else if ("Add to queue".equals(title)) askAddToQueue();
-            else if (title.startsWith("Queue and history")) showQueue();
+            else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
@@ -447,38 +473,27 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private void recordDone(String message) {
         if (message == null || message.isEmpty()) return;
-        GrabQueue.Done done = new GrabQueue.Done(System.currentTimeMillis(), runName.isEmpty() ? "Page" : runName, message);
-        synchronized (queueLock) {
-            history = GrabQueue.withDone(history, done);
-            prefs().edit().putString(KEY_HISTORY, GrabQueue.historyJson(history)).apply();
-        }
+        GrabStore.record(prefs(), new GrabQueue.Done(System.currentTimeMillis(),
+                runName.isEmpty() ? "Page" : runName, message, runUrl, quickRead));
     }
 
     /** The next waiting chapter while the queue is running, or null (which also ends the run). */
     private GrabQueue.Item takeQueued() {
-        synchronized (queueLock) {
-            if (!queueRunning || queue.isEmpty()) {
-                queueRunning = false;
-                return null;
-            }
-            GrabQueue.Item item = queue.get(0);
-            queue = new ArrayList<>(queue.subList(1, queue.size()));
-            prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
-            return item;
-        }
+        if (!queueRunning) return null;
+        GrabQueue.Item item = GrabStore.take(prefs());
+        if (item == null) queueRunning = false;
+        return item;
     }
 
     /** Opens a waiting chapter; the page-finished hook starts the grab, as it does for the next chapter of a series. */
     private void launchQueued(GrabQueue.Item item) {
         runName = item.name;
+        runUrl = item.url;
         chaptersLeft = item.chapters;
         loadingNext = true;
         GrabKeepAlive.start(getApplicationContext());
         showChapterState();
-        int more;
-        synchronized (queueLock) {
-            more = queue.size();
-        }
+        int more = GrabStore.queue(prefs()).size();
         say("Next in the queue: " + item.name + (more > 0 ? " (" + more + " more after it)" : ""), GrabUi.Kind.BUSY);
         web.loadUrl(item.url);
         // A page that never finishes loading must not hold the rest of the queue.
@@ -524,23 +539,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void addToQueue(String url, int chapters) {
         GrabQueue.Item item = new GrabQueue.Item(url, chapters, GrabQueue.nameFor(web.getTitle(), url));
         boolean idle = !grabbing && !loadingNext && chaptersLeft == 0;
-        synchronized (queueLock) {
-            List<GrabQueue.Item> before = queue;
-            queue = GrabQueue.withItem(queue, item);
-            if (queue == before) {
-                say(before.size() >= GrabQueue.MAX_QUEUED ? "The queue is full." : "That chapter is already in the queue.");
-                return;
-            }
-            prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
+        if (!GrabStore.add(prefs(), item)) {
+            say(GrabStore.queue(prefs()).size() >= GrabQueue.MAX_QUEUED
+                    ? "The queue is full." : "That chapter is already in the queue.");
+            return;
         }
         if (idle) {
             startQueue();
         } else {
-            int waiting;
-            synchronized (queueLock) {
-                waiting = queue.size();
-            }
-            say("Added to the queue (" + waiting + " waiting).");
+            say("Added to the queue (" + GrabStore.queue(prefs()).size() + " waiting).");
         }
     }
 
@@ -557,75 +564,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         launchQueued(first);
-    }
-
-    private void showQueue() {
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        int pad = GrabUi.dp(this, 16);
-        list.setPadding(pad, pad, pad, 0);
-        List<GrabQueue.Item> waiting;
-        List<GrabQueue.Done> done;
-        synchronized (queueLock) {
-            waiting = new ArrayList<>(queue);
-            done = new ArrayList<>(history);
-        }
-        list.addView(sectionTitle(waiting.isEmpty() ? "Waiting: nothing" : "Waiting (tap one to remove it)"));
-        for (GrabQueue.Item item : waiting) {
-            android.widget.TextView row = lineText(item.name + " - " + item.chapters + (item.chapters == 1 ? " chapter" : " chapters"));
-            row.setOnClickListener(v -> {
-                synchronized (queueLock) {
-                    List<GrabQueue.Item> kept = new ArrayList<>(queue);
-                    for (int i = 0; i < kept.size(); i++) {
-                        if (kept.get(i).url.equals(item.url)) {
-                            kept.remove(i);
-                            break;
-                        }
-                    }
-                    queue = kept;
-                    prefs().edit().putString(KEY_QUEUE, GrabQueue.queueJson(queue)).apply();
-                }
-                row.setVisibility(android.view.View.GONE);
-            });
-            list.addView(row);
-        }
-        list.addView(sectionTitle(done.isEmpty() ? "History: nothing yet" : "History (newest first)"));
-        for (GrabQueue.Done entry : done) {
-            CharSequence when = android.text.format.DateUtils.getRelativeTimeSpanString(
-                    entry.at, System.currentTimeMillis(), android.text.format.DateUtils.MINUTE_IN_MILLIS);
-            list.addView(lineText(entry.name + " (" + when + "): " + entry.message));
-        }
-        android.widget.ScrollView scroll = new android.widget.ScrollView(this);
-        scroll.addView(list);
-        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
-                .setTitle("Queue and history")
-                .setView(scroll)
-                .setNegativeButton("Close", null);
-        if (!waiting.isEmpty()) dialog.setPositiveButton("Start the queue", (d, w) -> startQueue());
-        if (!done.isEmpty()) {
-            dialog.setNeutralButton("Clear history", (d, w) -> {
-                synchronized (queueLock) {
-                    history = new ArrayList<>();
-                    prefs().edit().putString(KEY_HISTORY, "[]").apply();
-                }
-            });
-        }
-        dialog.show();
-    }
-
-    private android.widget.TextView sectionTitle(String text) {
-        android.widget.TextView view = new android.widget.TextView(this);
-        view.setText(text);
-        view.setTypeface(null, android.graphics.Typeface.BOLD);
-        view.setPadding(0, GrabUi.dp(this, 8), 0, GrabUi.dp(this, 4));
-        return view;
-    }
-
-    private android.widget.TextView lineText(String text) {
-        android.widget.TextView view = new android.widget.TextView(this);
-        view.setText(text);
-        view.setPadding(0, GrabUi.dp(this, 6), 0, GrabUi.dp(this, 6));
-        return view;
     }
 
     private void showChapterState() {
@@ -783,7 +721,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
         grabbing = true;
         GrabKeepAlive.start(getApplicationContext());
-        if (!loadingNext && !queueRunning) runName = GrabQueue.nameFor(web.getTitle(), current);
+        if (!loadingNext && !queueRunning) {
+            runName = GrabQueue.nameFor(web.getTitle(), current);
+            runUrl = current;
+        }
         quickRead = readOnly;
         grabStartedAt = System.currentTimeMillis();
         runId = "grab-" + newNonce().substring(0, 16);
@@ -910,9 +851,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     // Chapters waiting to be grabbed one after another; queueRunning is true while the phone is working through them.
-    private final Object queueLock = new Object();
-    private List<GrabQueue.Item> queue = new ArrayList<>();
-    private List<GrabQueue.Done> history = new ArrayList<>();
+    private volatile String runUrl = "";
+    private volatile boolean quickAfterLoad;
     private volatile boolean queueRunning;
     private volatile String runName = "";
     private static final long QUEUE_PAGE_LOAD_MS = 2 * 60 * 1000;
