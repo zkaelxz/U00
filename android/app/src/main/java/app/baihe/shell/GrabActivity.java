@@ -1234,6 +1234,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             Object lock = new Object();
             // A page's report text, found again by the very array that shows it.
             java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
+            // The picture as the phone sent it, kept beside the redraw so a tap can show the original art.
+            java.util.Map<byte[], byte[]> originalOf = new java.util.IdentityHashMap<>();
             List<List<byte[]>> held = new ArrayList<>();
             boolean[] finished = new boolean[n];
             for (int i = 0; i < n; i++) held.add(new ArrayList<>());
@@ -1259,6 +1261,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
                 String meta = metaOf.remove(jpeg);
                 if (meta != null) QuickReadActivity.writeReportText(this, name, meta);
+                byte[] originalArt = originalOf.remove(jpeg);
+                if (originalArt != null) QuickReadActivity.writeOriginal(this, name, originalArt);
                 shown[0]++;
                 QuickReadSession.add(name);
                 say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
@@ -1296,14 +1300,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             String meta = PageReport.meta(page, QuickRead.sourceUrl(batches.get(index), page.optString("key", "")),
                                     url, runName);
                             synchronized (lock) {
+                                boolean redrawn = !jpegs.isEmpty();
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
                                     byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
                                     if (original == null) return;
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
+                                byte[] originalArt = redrawn ? QuickRead.original(batches.get(index), page.optString("key", "")) : null;
                                 for (byte[] jpeg : jpegs) {
                                     metaOf.put(jpeg, meta);
+                                    if (originalArt != null) originalOf.put(jpeg, originalArt);
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }
