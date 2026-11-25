@@ -239,6 +239,14 @@ async def post_capture_summary(request: Request):
         payload, principal=principal), needs=_WRITE)
 
 
+@router.post("/report", dependencies=[require_device_token()],
+             summary="Device token: send a Quick read page that came out wrong to the PC's reports")
+async def post_report(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_bridge_service.record_page_report(
+        payload, principal=principal))
+
+
 @router.post("/cancel", dependencies=[require_device_token()],
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):

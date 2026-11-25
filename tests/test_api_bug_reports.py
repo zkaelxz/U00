@@ -456,3 +456,49 @@ def test_pre_scrub_urls_params_and_cookies(fakes):
                 "theme=dark", "abcdef", "other=zzz", "c=1"):
         assert bad not in text, (bad, text)
     assert "//***@cdn.example.com" in svc._pre_scrub("https://alice:pw@cdn.example.com/x")
+
+
+def _page_payload(**over):
+    import base64
+    body = {"image": "data:image/jpeg;base64," + base64.b64encode(_jpeg()).decode(),
+            "note": "box covers the face", "chapter": "Chapter 3",
+            "page_url": "https://example.com/ch3?token=abc", "image_url": "https://cdn.example.com/3/05.jpg",
+            "width": 800, "height": 1200, "notes": ["one box was left alone"],
+            "regions": [{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "你好", "translated_text": "Hello",
+                         "kind": "bubble", "reading_order": 0, "untranslated": False, "left_alone": False}]}
+    body.update(over)
+    return body
+
+
+def test_page_report_saves_picture_regions_and_note(fakes):
+    saved = svc.create_page_report(_page_payload())
+    folder = _folder(saved["id"])
+    assert sorted(os.listdir(folder)) == ["page.json", "report.json", "report.md", "screenshot.jpg"]
+    page = json.load(open(os.path.join(folder, "page.json"), encoding="utf-8"))
+    assert page["regions"][0]["source_text"] == "你好"
+    assert page["page_url"] == "https://example.com/ch3"
+    markdown = svc.get_report(saved["id"])["markdown"]
+    assert "box covers the face" in markdown and "| 1 | 你好 | Hello |" in markdown
+    assert "GPS-secret-place" not in open(os.path.join(folder, "screenshot.jpg"), "rb").read().decode("latin-1")
+    assert svc.list_reports()[0]["summary"].startswith("Quick read page report")
+
+
+def test_page_report_refuses_a_missing_or_oversized_picture(fakes):
+    from lib.errors import InvalidInputError
+    for bad in ({"image": ""}, {"image": "data:image/jpeg;base64,!!!"},
+                {"image": "data:image/png;base64,AAAA"}):
+        with pytest.raises(InvalidInputError):
+            svc.create_page_report(_page_payload(**bad))
+    import base64
+    big = "data:image/jpeg;base64," + base64.b64encode(b"\xff\xd8\xff" + b"0" * svc.MAX_PAGE_IMAGE_BYTES).decode()
+    with pytest.raises(InvalidInputError):
+        svc.create_page_report(_page_payload(image=big))
+
+
+def test_page_reports_count_against_a_members_cap(fakes):
+    from lib.errors import ConflictError
+    for _ in range(svc.MAX_REPORTS_PER_USER):
+        svc.create_page_report(_page_payload(), reporter="user:7")
+    with pytest.raises(ConflictError):
+        svc.create_page_report(_page_payload(), reporter="user:7")
+    svc.create_page_report(_page_payload(), reporter="user:8")

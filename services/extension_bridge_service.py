@@ -316,6 +316,24 @@ def record_capture_summary(payload, principal=None) -> dict:
     return {"logged": True}
 
 
+def record_page_report(payload, principal=None) -> dict:
+    """POST /report: a Quick read page the reader marked wrong, saved with the other reports
+    on the PC. A member's reports are capped per person; the owner's are not."""
+    from lib.errors import ConflictError, InvalidInputError
+    from services import bug_report_service
+    reporter = None
+    if principal is not None:
+        user_id = principal.get("user_id") if isinstance(principal, dict) else None
+        reporter = f"user:{user_id}" if user_id is not None else "device"
+    try:
+        saved = bug_report_service.create_page_report(payload, reporter=reporter)
+    except InvalidInputError as e:
+        raise page_server.EndpointError(400, e.message) from None
+    except ConflictError as e:
+        raise page_server.EndpointError(409, e.message) from None
+    return {"id": saved["id"]}
+
+
 def _run_cancelled(run_id: str) -> bool:
     with _cancelled_lock:
         return bool(run_id) and run_id in _cancelled_runs

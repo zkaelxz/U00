@@ -46,6 +46,11 @@ public class QuickReadActivity extends Activity {
                 QuickReadSession.reached(first + visible - 1);
             }
         });
+        list.setOnItemLongClickListener((parent, view, position, id) -> {
+            if (position >= files.size()) return false;
+            askReport(files.get(position));
+            return true;
+        });
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
@@ -54,6 +59,63 @@ public class QuickReadActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(frame);
         frame.setFitsSystemWindows(true);
+    }
+
+    /** The report text sits beside the picture under the same name, and goes with it. */
+    private static String reportName(String pictureName) {
+        return pictureName.replaceAll("\\.jpg$", ".json");
+    }
+
+    static void writeReportText(android.content.Context context, String pictureName, String text) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                new File(quickReadDir(context), reportName(pictureName)))) {
+            out.write(text.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        } catch (java.io.IOException ignored) {
+            // The page still reads; its report just goes without the PC's regions.
+        }
+    }
+
+    private void askReport(File page) {
+        new android.app.AlertDialog.Builder(this)
+                .setItems(new String[] {"Send a report"}, (d, which) -> askNote(page))
+                .show();
+    }
+
+    private void askNote(File page) {
+        android.widget.EditText note = new android.widget.EditText(this);
+        note.setHint("What is wrong with this page? (optional)");
+        note.setFilters(new android.text.InputFilter[] {
+                new android.text.InputFilter.LengthFilter(PageReport.MAX_NOTE_CHARS)});
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Send a report")
+                .setMessage("The page, what the PC read on it and its address go to your Baihe so a person can fix it.")
+                .setView(note)
+                .setPositiveButton("Send", (d, which) -> sendReport(page, note.getText().toString()))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void sendReport(File page, String note) {
+        android.content.SharedPreferences prefs = getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+        String server = prefs.getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
+        File text = new File(page.getParentFile(), reportName(page.getName()));
+        new Thread(() -> {
+            String message;
+            try {
+                byte[] jpeg = java.nio.file.Files.readAllBytes(page.toPath());
+                String meta = text.isFile() ? new String(java.nio.file.Files.readAllBytes(text.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8) : "";
+                new BaiheClient(server, token).sendReport(PageReport.body(meta, jpeg, note));
+                message = "Report sent.";
+            } catch (BaiheClient.BridgeException e) {
+                message = e.getMessage();
+            } catch (Exception e) {
+                message = "Could not send the report.";
+            }
+            String shown = message;
+            runOnUiThread(() -> android.widget.Toast.makeText(this, shown, android.widget.Toast.LENGTH_LONG).show());
+        }, "page-report").start();
     }
 
     /** The volume keys turn the page, so the phone can be read one-handed; most of a screen, to keep a line of overlap. */
