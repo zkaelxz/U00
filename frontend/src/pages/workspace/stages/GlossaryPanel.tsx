@@ -446,7 +446,7 @@ function GlossaryBody({ focusReady, retranslate, defaultOpen }: { focusReady?: b
         <GlossaryTermsToolbar query={query} onQuery={setQuery} sort={sort} onSort={setSort} shown={shown.length} total={terms.length} />
       )}
       {terms && terms.length > 0 && (
-        <div className="table-scroll"><table role="table" className="card-table glossary-table">
+        <div className="table-scroll glossary-scroll"><table role="table" className="card-table glossary-table">
           <thead>
             <tr role="row">
               <th role="columnheader">
