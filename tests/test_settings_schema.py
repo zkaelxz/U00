@@ -41,6 +41,10 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
+    ("services/quick_video_service.py", "_own_key(user_id)"):
+        "quick_video.profile_id.<account id>: that account's own choice, falling back to the PC's",
+    ("services/quick_video_service.py", "_own_key(user_id) if user_id else PROFILE_KEY"):
+        "the PC's quick_video.profile_id, or the account's own",
     ("services/benchmark_sweep_core.py", "self.key"):
         "a sweep's record; its callers' keys are checked by test_sweep_record_keys_are_declared",
     ("jobs/job_settings.py", "key"):

@@ -73,7 +73,7 @@ def _with_progress(dramas: list, principal=None) -> list:
     title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
     pages = db.page_progress_by_drama() if dramas else {}
-    new = _new_chapter_counts() if dramas else {}
+    new = _new_chapter_counts(ownership_service.user_id(principal) or 0) if dramas else {}
     reading = db.reading_marks_by_drama(ownership_service.user_id(principal) or 0) if dramas else {}
     filenames = db.page_filenames_by_drama() if dramas else {}
     return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
@@ -96,11 +96,11 @@ def _unread_chapters(drama_id: int, filenames, read_ids) -> int:
     return sum(1 for g in groups if g["known"] and g["id"] not in read_ids)
 
 
-def _new_chapter_counts() -> dict:
+def _new_chapter_counts(user_id: int = 0) -> dict:
     # sources.db is a separate file that can be locked or unreadable (e.g.
     # during a restore); the Library list must still load without the badge.
     try:
-        return sources_store.new_chapter_counts_by_drama()
+        return sources_store.new_chapter_counts_by_drama(user_id)
     except sqlite3.Error:
         return {}
 
@@ -236,20 +236,20 @@ def search_lines(query: str, limit: int = 50, principal=None) -> dict:
 
 
 def list_history(limit: int = 25, principal=None) -> list:
-    """Reading history for the default profile (the API has no profile
-    selector yet)."""
+    """The signed-in account's own reading history (the PC with no sign-in has its own)."""
     limit = max(1, min(int(limit), 100))
     return [{k: h.get(k) for k in ("drama_id", "line_idx", "percent_complete",
                                    "accessed_at", "title_en", "title_zh")}
             for h in db.list_reading_history(
-                limit=limit, visible_to=ownership_service.visible_to_filter(principal))]
+                limit=limit, visible_to=ownership_service.visible_to_filter(principal),
+                user_id=ownership_service.user_id(principal) or 0)]
 
 
-_CONTINUE_FIELDS = ("percent_complete", "last_page", "last_accessed_at", "title_en", "title_zh")
+_CONTINUE_FIELDS = ("percent_complete", "last_page", "audio_position_seconds", "last_accessed_at", "title_en", "title_zh")
 
 
 def list_continue_reading(limit: int = 8, principal=None) -> list:
-    """The "Continue reading" shelf for the default profile: dramas with
+    """The "Continue reading" shelf of the signed-in account: dramas with
     partial progress (above 0%, below 99%), most recently read first, that
     the principal may see. No file names: `has_cover_art` says whether a
     cover is set."""
@@ -257,7 +257,8 @@ def list_continue_reading(limit: int = 8, principal=None) -> list:
     return [{"drama_id": d["id"], **{k: d.get(k) for k in _CONTINUE_FIELDS},
              "has_cover_art": bool(d.get("cover_art_filename"))}
             for d in db.list_continue_reading(
-                limit, visible_to=ownership_service.visible_to_filter(principal))]
+                limit, visible_to=ownership_service.visible_to_filter(principal),
+                user_id=ownership_service.user_id(principal) or 0)]
 
 
 def get_filter_options(principal=None) -> dict:

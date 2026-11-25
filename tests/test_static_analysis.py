@@ -821,7 +821,6 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "epub_io.py::export_epub": 105,
     "services/title_restructure_service.py::_move_novel": 104,
     "sources/adapters/kuaikan.py::_decode_nuxt_state": 103,
-    "services/drama_restore_service.py::copy_drama": 102,
     "installer/service.py::Services.set_port": 101,
 }
 

@@ -120,6 +120,9 @@ ul.source-cards > li {
 }
 .source-card-line { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
 .source-card-line .toggle-list { margin: 0; }
+/* Same three slots on every card (Search, Details, Open site) so a button never moves with what the source supports. */
+.source-card-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.source-card-actions > * { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; }
 
 /* Touch: 44 px targets for the page's own links and toggles. */
 @media (pointer: coarse), (max-width: 640px) {

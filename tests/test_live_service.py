@@ -126,6 +126,12 @@ def test_the_japanese_model_is_for_japanese_streams_only(live):
             _start(whisper_size="ja-1.5b", source_language=language)
 
 
+def test_form_options_start_chinese_on_a_shorter_chunk_only():
+    options = live_service.form_options()
+    assert options["language_chunk_defaults"] == {"zh": {"segment_seconds": 6, "overlap_seconds": 1.5}}
+    assert options["defaults"]["segment_seconds"] == 10
+
+
 def test_form_options_carry_the_language_rules():
     options = live_service.form_options()
     assert "ja-1.5b" in options["whisper_sizes"]

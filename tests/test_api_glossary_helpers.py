@@ -445,7 +445,8 @@ class TestGlossaryWaitingMessage:
         monkeypatch.setattr(glossary_extract, "extract_terms_llm", lambda *a, **kw: self.NAMES[2:])
         e = bell(gs.start_lines_glossary_run(did)["job_id"])
         assert (e["kind"], e["text"]) == ("job_done", "Finished: Glossary from lines - L (S)")
-        assert "target" not in e
+        # A finished run opens its title, not the glossary a waiting run asks for.
+        assert e["target"]["page"] in ("watch", "title") and e["target"]["drama_id"] == did
 
     def test_novel_run_with_names_waits_for_you(self, isolated_db, monkeypatch, fake_engine, bell):
         import os

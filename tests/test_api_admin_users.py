@@ -1126,6 +1126,31 @@ def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monk
     assert detached == []   # a refused delete leaves their shared glossary groups linked
 
 
+def test_signed_in_accounts_never_reach_each_others_watch_bookmarks(isolated_db):
+    c = _remote(_app())
+    d = db.create_drama(title_en="Stream")
+    (_, a), (_, b) = _member(), _member("other@example.com")
+    url = f"/api/reader/dramas/{d}/bookmarks"
+    mine = c.post(url, json={"at_seconds": 3, "note": "a's"}, headers=_h(a)).json()["id"]
+    assert [x["note"] for x in c.get(url, headers=_h(a)).json()["bookmarks"]] == ["a's"]
+    assert c.get(url, headers=_h(b)).json()["bookmarks"] == []
+    assert c.patch(f"{url}/{mine}", json={"note": "b's"}, headers=_h(b)).status_code == 404
+    assert c.delete(f"{url}/{mine}", headers=_h(b)).status_code == 404
+    assert c.get(url, headers=_h(a)).json()["bookmarks"][0]["note"] == "a's"
+
+
+def test_deleting_an_account_deletes_its_watch_bookmarks_only(isolated_db):
+    d = db.create_drama(title_en="Stream")
+    m, _ = _member()
+    other, _ = _member("other@example.com")
+    for uid in (0, m["id"], other["id"]):
+        db.add_watch_bookmark(d, uid, 5.0, "", 10)
+    auth_service.deactivate_user(m["id"])
+    auth_service.admin_delete_user(m["id"])
+    assert db.list_watch_bookmarks(d, m["id"]) == []
+    assert db.list_watch_bookmarks(d) and db.list_watch_bookmarks(d, other["id"])
+
+
 def test_deleting_an_account_deletes_its_chapter_marks_only(isolated_db):
     d = db.create_drama(title_en="Comic", media_type="manga")
     m, _ = _member()

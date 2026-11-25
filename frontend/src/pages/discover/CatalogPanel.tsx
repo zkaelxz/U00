@@ -3,6 +3,7 @@
  * by language and format, open a title's details, add it to the Library as
  * a drama, remove it (PC only). An empty catalogue offers the starter titles.
  */
+import { Paged } from '../../components/ShowMore'
 import { useEffect, useState } from 'react'
 
 import { deleteTitle, importToLibrary, listTitles, seedTitles } from '../../api/discover'
@@ -140,8 +141,10 @@ export function CatalogPanel({ pc, reloadKey }: { pc: PcMode; reloadKey: number 
         </div>
       )}
       {data && data.titles.length > 0 && (
+        <Paged items={data.titles} testId="catalog-more">
+          {(visible) => (
         <ul className="discover-list" data-testid="catalog-list">
-          {data.titles.map((t) => (
+          {visible.map((t) => (
             <TitleCard
               key={t.id}
               t={t}
@@ -153,6 +156,8 @@ export function CatalogPanel({ pc, reloadKey }: { pc: PcMode; reloadKey: number 
             />
           ))}
         </ul>
+          )}
+        </Paged>
       )}
     </div>
   )

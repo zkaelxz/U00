@@ -10,12 +10,12 @@ import {
 
 import { api } from '../../api/client'
 import { readerApi } from '../../api/reader'
-import { listAllLines, patchLine } from '../../api/review'
+import { listAllLines, listRiskLineIds, patchLine } from '../../api/review'
 import { browserSession } from '../../api/sessionStore'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
-import { readHref } from '../../components/libraryView'
+import { parseTime, readHref } from '../../components/libraryView'
 import { PageShell } from '../../components/PageShell'
 import { RetryBanner } from '../../components/RetryBanner'
 import { buttonClass } from '../../components/uiClasses'
@@ -33,17 +33,22 @@ import type { ReviewLine } from '../../types/review'
 import { holds } from '../diagnostics/adminUsers'
 import { lineEditPatch } from '../reader/readerLineEdit'
 import { stageLabel } from '../workspace/stages'
+import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
+import { CastCard } from './CastCard'
+import { NextCard } from './NextCard'
+import { SaveSoundCard } from './SaveSoundCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
-  attentionIndex, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
-  parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder,
+  attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
+  freshServerPlace, newerPlace, ownScrollUntil, parkedOutcome, parkFix, positionKey, positionTimeKey, quietSkip, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, SERVER_SAVE_EVERY_MS, serverSeenKey, speakerSlots, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -114,6 +119,18 @@ export default function WatchPage({ id }: { id: number }) {
     }
   }, [id, linesTick])
 
+  // The same lines the Library's "Check N lines" counts. Only someone who can edit lines is asked to check them.
+  const [riskIds, setRiskIds] = useState<ReadonlySet<number> | null>(null)
+  useEffect(() => {
+    if (!canEdit) return
+    let cancelled = false
+    // A failed question leaves no check bar: the Prev. and Next Flag buttons still step through flagged lines.
+    listRiskLineIds(id).then((ids) => !cancelled && setRiskIds(ids), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [id, linesTick, canEdit])
+
   const ordered = useMemo(() => spokenOrder(lines ?? []), [lines])
   const lineIndex = useMemo(() => new Map(ordered.map((l, i) => [l.id, i])), [ordered])
   const englishAbsent = useMemo(() => ordered.length > 0 && ordered.every((l) => !l.en.trim()), [ordered])
@@ -124,7 +141,7 @@ export default function WatchPage({ id }: { id: number }) {
   const playable = kind !== null && !readOnly ? original : null
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
-  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed } = useWatchClock(id, playable, ordered, player)
+  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player)
   const { resume: backToSound, scrollHandlers } = useFollow(list, currentId)
   // Every move of the playhead by the person also ends "Back where you stopped", which would name a place left behind.
   const resume = useCallback(() => {
@@ -163,6 +180,13 @@ export default function WatchPage({ id }: { id: number }) {
     }
     say('')
     goTo(ordered[to])
+  }
+  const checks = useMemo(() => (riskIds ? linesToCheck(ordered, riskIds) : []), [ordered, riskIds])
+  const stepCheck = (direction: 1 | -1) => {
+    const to = checkStep(checks, lineIndex, currentIndex >= 0 ? currentIndex : null, direction)
+    // Past the last one it starts again from the first, so the bar's button always goes somewhere.
+    const line = checks[to ?? (direction === 1 ? 0 : checks.length - 1)]
+    if (line) goTo(line)
   }
   const fixIndex = fix ? lineIndex.get(fix.lineId) : undefined
   const fixLine = fixIndex === undefined ? null : ordered[fixIndex]
@@ -218,6 +242,9 @@ export default function WatchPage({ id }: { id: number }) {
     player.current?.seek(0)
     showCurrent(0)
     writePref(browserStorage(), positionKey(id), 0)
+    writePref(browserStorage(), positionTimeKey(id), Date.now())
+    writePref(browserStorage(), serverSeenKey(id), 0)
+    void readerApi.saveWatchPosition(id, 0).catch(() => undefined)
     clearResumed()
   }
 
@@ -250,7 +277,12 @@ export default function WatchPage({ id }: { id: number }) {
         // One row for the way back and the menu, so the header takes no extra row and the spoken line is on the first screen.
         <div className="watch-back-row">
           <a className="watch-back" href={routeHref({ name: 'library' })}>‹ Library</a>
-          {drama && !readOnly && <WatchMore id={id} withWork />}
+          {drama && !readOnly && (
+            <span className="watch-back-actions">
+              <ButtonLink href={routeHref({ name: 'drama', id, stage: null })} title="Work on this title">Edit</ButtonLink>
+              <WatchMore id={id} />
+            </span>
+          )}
         </div>
       ) : <Breadcrumbs crumbs={routeCrumbs({ name: 'watch', id }, { title: drama ? titleOf(drama) : null, verb })} />}
       meta={badge ? <p className="page-meta"><Badge>{badge}</Badge></p> : null}
@@ -276,6 +308,7 @@ export default function WatchPage({ id }: { id: number }) {
           <div className="watch-card-actions"><ButtonLink variant="primary" href={readHref(drama)}>Open the Reader</ButtonLink></div>
         </section>
       ) : drama && (
+        <>
         <div className="watch-layout">
           <div className="watch-main">
             {media === undefined || mediaError ? null : original ? (
@@ -292,8 +325,13 @@ export default function WatchPage({ id }: { id: number }) {
                   lineShownByPage
                   loopLineAt={lineAt}
                 />
-                {resumedAt !== null && (
+                {skipTo !== null && (
                   <div className="watch-resume">
+                    <button type="button" className={buttonClass()} onClick={() => playFrom(skipTo)}>Skip quiet</button>
+                  </div>
+                )}
+                {resumedAt !== null && (
+                  <div className={original === 'video' ? 'watch-resume is-over' : 'watch-resume'} data-testid="watch-resume">
                     <p>Back where you stopped, at {formatClock(resumedAt)}.</p>
                     <button type="button" className={buttonClass()} onClick={startOver}>Start from the beginning</button>
                   </div>
@@ -308,6 +346,21 @@ export default function WatchPage({ id }: { id: number }) {
                 </div>
               </section>
             )}
+            {original === 'video' && <CastCard key={id} id={id} canMake={holds(session, 'jobs.start')} canCast={holds(session, 'media.stream')} />}
+            {original && <NextCard key={id} id={id} boxRef={playerBoxRef} canStart={holds(session, 'jobs.start')} />}
+            {original && canEdit && riskIds !== null && riskIds.size > 0 && (
+              <div className="card watch-check" role="group" aria-label="Lines to check" data-testid="watch-check">
+                <p className="watch-check-count">
+                  {checks.length > 0 ? <strong>{checks.length} {checks.length === 1 ? 'line' : 'lines'} to check</strong> : 'No lines left to check'}
+                </p>
+                {checks.length > 0 && (
+                  <span className="watch-check-actions">
+                    <button type="button" className={buttonClass()} aria-label="Previous line to check" title="Previous line to check" onClick={() => stepCheck(-1)}>‹</button>
+                    <button type="button" className={buttonClass('primary')} onClick={() => stepCheck(1)}>Go to the next one</button>
+                  </span>
+                )}
+              </div>
+            )}
             {original && ordered.length > 0 && (
               <NowCard
                 line={fixLine ?? current}
@@ -317,6 +370,7 @@ export default function WatchPage({ id }: { id: number }) {
                 busy={busy}
                 status={markStatus || status}
                 onMark={canEdit ? (verdict) => void mark(fixLine ?? current, verdict) : undefined}
+                check={checkOf(fixLine ?? current, checks)}
                 onJump={jumpToMarked}
                 markBusy={markBusy}
                 onOpen={startFix}
@@ -370,8 +424,12 @@ export default function WatchPage({ id }: { id: number }) {
                 />
               )}
             </section>
+            {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
           </div>
         </div>
+        {/* Under both columns: a card that appears or changes above the lines would move them (and the page) under the person. */}
+        {original && <Bookmarks dramaId={id} mediaRef={mediaRef} canEdit={canEdit} onPlay={playFrom} />}
+        </>
       )}
     </PageShell>
   )
@@ -387,6 +445,8 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const [currentId, setCurrentId] = useState<number | null>(null)
   const [resumedAt, setResumedAt] = useState<number | null>(null)
+  const [skipTo, setSkipTo] = useState<number | null>(null)
+  const skipRef = useRef<number | null>(null)
   // Read by the clock's listeners, which are attached once per media element.
   const orderedRef = useRef(ordered)
   const currentRef = useRef<number | null>(null)
@@ -395,6 +455,12 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
 
   const showCurrent = useCallback((time: number) => {
     clockRead.current = true
+    // The target is the same for the whole quiet stretch, so state changes only where it starts and ends.
+    const skip = quietSkip(orderedRef.current, time)
+    if (skip !== skipRef.current) {
+      skipRef.current = skip
+      setSkipTo(skip)
+    }
     const next = currentLine(orderedRef.current, time)?.id ?? null
     if (next === currentRef.current) return
     currentRef.current = next
@@ -418,9 +484,42 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
     let settled = false
     let raf = 0
     let saver = 0
-    const save = () => {
-      if (settled) writePref(storage, positionKey(id), el.currentTime)
+    let lastServerSave = 0
+    // The account's place from another device. The saved place waits for it, but not for long: a slow answer must not
+    // keep the title from opening where this browser stopped.
+    let server: { seconds: number; at: number | null } | null = null
+    let answered = false
+    let metaRead = false
+    let gone = false
+    const settle = () => {
+      if (settled || gone) return
+      settled = true
+      const local = { seconds: Number(readPref(storage, positionKey(id), 0)) || 0, at: Number(readPref(storage, positionTimeKey(id), 0)) || null }
+      const seen = readPref<number | null>(storage, serverSeenKey(id), null)
+      const at = resumePoint(newerPlace(local, freshServerPlace(server, typeof seen === 'number' ? seen : null)), el.duration)
+      if (server) writePref(storage, serverSeenKey(id), server.seconds)
+      if (at === null) return
+      player.current?.seek(at)
+      setResumedAt(at)
     }
+    const heard = () => {
+      answered = true
+      if (metaRead) settle()
+    }
+    readerApi.watchPosition(id).then((p) => {
+      server = { seconds: p.seconds, at: parseTime(p.updated_at) || null }
+    }, () => undefined).finally(heard)
+    const waitLimit = window.setTimeout(heard, 2000)
+    const save = (toServer = true) => {
+      if (!settled) return
+      writePref(storage, positionKey(id), el.currentTime)
+      writePref(storage, positionTimeKey(id), Date.now())
+      if (!toServer) return
+      lastServerSave = Date.now()
+      writePref(storage, serverSeenKey(id), el.currentTime)
+      void readerApi.saveWatchPosition(id, el.currentTime).catch(() => undefined)
+    }
+    const tick = () => save(Date.now() - lastServerSave >= SERVER_SAVE_EVERY_MS)
     const frame = () => {
       showCurrent(el.currentTime)
       raf = requestAnimationFrame(frame)
@@ -430,10 +529,12 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
       window.clearInterval(saver)
     }
     const onPlay = () => {
+      // Pressed before the saved place was settled: playing from where the person pressed wins over a late seek.
+      settled = true
       stopClock()
       setResumedAt(null)
       raf = requestAnimationFrame(frame)
-      saver = window.setInterval(save, SAVE_EVERY_MS)
+      saver = window.setInterval(tick, SAVE_EVERY_MS)
     }
     const onPause = () => {
       stopClock()
@@ -442,37 +543,36 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
     }
     const onSeeked = () => showCurrent(el.currentTime)
     const onMeta = () => {
-      if (settled) return
-      settled = true
-      const at = resumePoint(readPref(storage, positionKey(id), 0), el.duration)
-      if (at === null) return
-      player.current?.seek(at)
-      setResumedAt(at)
+      metaRead = true
+      if (answered) settle()
     }
+    const onLeave = () => save()
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
     el.addEventListener('ended', onPause)
     el.addEventListener('seeked', onSeeked)
     el.addEventListener('loadedmetadata', onMeta)
-    window.addEventListener('pagehide', save)
+    window.addEventListener('pagehide', onLeave)
     if (el.readyState >= 1) onMeta()
     if (!el.paused) onPlay()
     return () => {
       stopClock()
       save()
+      gone = true
+      window.clearTimeout(waitLimit)
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)
       el.removeEventListener('ended', onPause)
       el.removeEventListener('seeked', onSeeked)
       el.removeEventListener('loadedmetadata', onMeta)
-      window.removeEventListener('pagehide', save)
+      window.removeEventListener('pagehide', onLeave)
     }
   }, [id, playable, player, showCurrent])
 
   const clearResumed = useCallback(() => setResumedAt(null), [])
   // The line Loop line repeats, by the card's own rule, so the line repeated is the line the card shows.
   const lineAt = useCallback((time: number) => loopLineAt(orderedRef.current, time), [])
-  return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed }
+  return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo }
 }
 
 /**
@@ -714,17 +814,19 @@ const WatchList = memo(function WatchList({ lines, currentId, sourceLanguage, ca
   scroll: ReturnType<typeof useFollow>['scrollHandlers']
   listRef: RefObject<HTMLOListElement | null>
 }) {
+  const slots = useMemo(() => speakerSlots(lines), [lines])
   return (
     <ol className="watch-list" ref={listRef} {...scroll}>
       {lines.map((l) => (
-        <WatchRow key={l.id} line={l} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
+        <WatchRow key={l.id} line={l} slot={l.speaker ? slots.get(l.speaker) ?? null : null} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
       ))}
     </ol>
   )
 })
 
-const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canPlay, onPick }: {
+const WatchRow = memo(function WatchRow({ line: l, slot, current, sourceLanguage, canPlay, onPick }: {
   line: ReviewLine
+  slot: number | null
   current: boolean
   sourceLanguage: string
   canPlay: boolean
@@ -734,6 +836,7 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
     <>
       <span className="watch-row-meta">
         {rowMeta(l)}
+        {l.speaker && <span className="watch-row-speaker">{l.speaker}</span>}
         <LineMarkBadge line={l} />
         {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>
@@ -742,7 +845,7 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
     </>
   )
   return (
-    <li className={current ? 'is-current' : undefined}>
+    <li className={current ? 'is-current' : undefined} data-speaker={slot ?? undefined}>
       {canPlay ? (
         <button
           type="button"
@@ -764,7 +867,15 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
   )
 })
 
-function WatchMore({ id, withWork = false }: { id: number; withWork?: boolean }) {
+// "Check 2 of 7" and why, while the line on the card is one still to check.
+function checkOf(line: ReviewLine | null, checks: ReviewLine[]) {
+  const at = line ? checks.findIndex((l) => l.id === line.id) : -1
+  if (!line || at < 0) return null
+  const why = queueReason(line)?.text ?? (line.mark ? 'Someone marked this line as not right.' : 'This line looks unsure.')
+  return { index: at + 1, total: checks.length, reason: why }
+}
+
+function WatchMore({ id }: { id: number }) {
   const more = useDetailsMenu()
   const close = (e: MouseEvent<HTMLAnchorElement>) => {
     const menu = e.currentTarget.closest('details')
@@ -774,7 +885,6 @@ function WatchMore({ id, withWork = false }: { id: number; withWork?: boolean })
     <details className="watch-more" ref={more}>
       <summary className={buttonClass()}>More</summary>
       <div className="watch-more-panel">
-        {withWork && <a href={routeHref({ name: 'drama', id, stage: null })} onClick={close}>Work on this title</a>}
         <a href={routeHref({ name: 'follow', id })} onClick={close}>Follow along with sound from another app</a>
         <a href={routeHref({ name: 'read', id, page: null })} onClick={close}>Read the lines</a>
         <a href={routeHref({ name: 'drama', id, stage: 'export' })} onClick={close}>Save subtitles</a>

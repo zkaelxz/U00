@@ -29,6 +29,7 @@ public class QuickReadActivity extends Activity {
     private LruCache<Integer, Bitmap> cache;
     private PageAdapter adapter;
     private ListView list;
+    private View tint;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -57,8 +58,58 @@ public class QuickReadActivity extends Activity {
         ZoomFrame frame = new ZoomFrame();
         frame.addView(list, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tint = new View(this);
+        tint.setClickable(false);
+        frame.addView(tint, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(frame);
         frame.setFitsSystemWindows(true);
+        applyNight();
+    }
+
+    private android.content.SharedPreferences nightPrefs() {
+        return getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+    }
+
+    private void applyNight() {
+        android.content.SharedPreferences p = nightPrefs();
+        WindowManager.LayoutParams attrs = getWindow().getAttributes();
+        attrs.screenBrightness = NightFilter.windowBrightness(p.getInt("night_brightness", 100));
+        getWindow().setAttributes(attrs);
+        tint.setBackgroundColor(NightFilter.tint(p.getBoolean("night_warm", false), p.getInt("night_warmth", 60)));
+    }
+
+    private void askNight() {
+        android.content.SharedPreferences p = nightPrefs();
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, 0);
+        android.widget.TextView label = new android.widget.TextView(this);
+        label.setText("Brightness");
+        box.addView(label);
+        android.widget.SeekBar level = new android.widget.SeekBar(this);
+        level.setMax(100);
+        level.setProgress(p.getInt("night_brightness", 100));
+        level.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean user) {
+                p.edit().putInt("night_brightness", value).apply();
+                applyNight();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) {}
+        });
+        box.addView(level);
+        android.widget.CheckBox warm = new android.widget.CheckBox(this);
+        warm.setText("Warm night colours");
+        warm.setChecked(p.getBoolean("night_warm", false));
+        warm.setOnCheckedChangeListener((b, on) -> {
+            p.edit().putBoolean("night_warm", on).apply();
+            applyNight();
+        });
+        box.addView(warm);
+        new android.app.AlertDialog.Builder(this).setTitle("Night reading").setView(box)
+                .setPositiveButton("Done", null).show();
     }
 
     /** The report text sits beside the picture under the same name, and goes with it. */
@@ -77,7 +128,8 @@ public class QuickReadActivity extends Activity {
 
     private void askReport(File page) {
         new android.app.AlertDialog.Builder(this)
-                .setItems(new String[] {"Send a report"}, (d, which) -> askNote(page))
+                .setItems(new String[] {"Send a report", "Brightness and night colours"},
+                        (d, which) -> { if (which == 0) askNote(page); else askNight(); })
                 .show();
     }
 

@@ -26,10 +26,10 @@ describe('customize menu registry', () => {
   })
 
   it('hides chosen items from every surface', () => {
-    const c = ctx(['discover'])
-    expect(ids(c)).not.toContain('discover')
-    expect(railIds(c)).not.toContain('discover')
-    expect(railIds(c)).toContain('live')
+    const c = ctx(['live'])
+    expect(ids(c)).not.toContain('live')
+    expect(railIds(c)).not.toContain('live')
+    expect(railIds(ctx([]))).toContain('live')
   })
 
   it('keeps Library and Settings whatever is stored', () => {
@@ -55,8 +55,8 @@ describe('customize menu registry', () => {
 
 describe('stored choice', () => {
   it('drops unknown, locked, duplicate and non-string entries', () => {
-    expect(sanitizeHidden(['discover', 'discover', 'library', 'settings', 'nope', 3, null])).toEqual(['discover'])
-    expect(sanitizeHidden('discover')).toEqual([])
+    expect(sanitizeHidden(['live', 'live', 'library', 'settings', 'nope', 3, null])).toEqual(['live'])
+    expect(sanitizeHidden('live')).toEqual([])
     expect(sanitizeHidden(undefined)).toEqual([])
   })
 
