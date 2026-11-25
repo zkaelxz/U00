@@ -3,7 +3,7 @@
 .assistant-page code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 
 /* Chat */
-.assistant-chat { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+.assistant-chat { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; max-height: 36rem; overflow-y: auto; }
 .assistant-turn { display: grid; gap: var(--space-2); min-width: 0; }
 .assistant-question {
   margin: 0; justify-self: end; max-width: 85%; padding: var(--space-2) var(--space-3);
