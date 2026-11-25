@@ -33,15 +33,21 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
     undoTimer.current = null
     setDeleted(null)
   }, [])
+  const offerUndo = useCallback((b: WatchBookmark) => {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    setDeleted(b)
+    undoTimer.current = setTimeout(clearUndo, UNDO_MS)
+  }, [clearUndo])
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
   useEffect(() => {
     let cancelled = false
+    clearUndo()
     readerApi.bookmarks(dramaId).then((r) => !cancelled && setItems(r.bookmarks), () => undefined) // bookmarks are optional
     return () => {
       cancelled = true
     }
-  }, [dramaId])
+  }, [dramaId, clearUndo])
 
   const run = useCallback(async (work: () => Promise<void>) => {
     setStatus('')
@@ -69,18 +75,26 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
     await readerApi.deleteBookmark(dramaId, b.id)
     setItems((all) => all.filter((x) => x.id !== b.id))
     setEditing(null)
-    clearUndo()
-    setDeleted(b)
-    undoTimer.current = setTimeout(clearUndo, UNDO_MS)
+    offerUndo(b)
+    setStatus(`Bookmark at ${formatClock(b.at_seconds)} deleted.`)
   })
 
-  const undoDelete = () => run(async () => {
+  const undoDelete = () => {
     if (!deleted) return
-    const saved = await readerApi.addBookmark(dramaId, deleted.at_seconds, deleted.note)
-    setItems((all) => withBookmark(all, saved))
+    const gone = deleted
+    // Taken out before the request so a second tap cannot restore it twice; a failure offers it again.
     clearUndo()
-    setStatus(`Bookmark at ${formatClock(saved.at_seconds)} restored.`)
-  })
+    void run(async () => {
+      try {
+        const saved = await readerApi.addBookmark(dramaId, gone.at_seconds, gone.note)
+        setItems((all) => withBookmark(all, saved))
+        setStatus(`Bookmark at ${formatClock(saved.at_seconds)} restored.`)
+      } catch (e) {
+        offerUndo(gone)
+        throw e
+      }
+    })
+  }
 
   if (!canEdit && items.length === 0) return null
   return (
@@ -89,10 +103,12 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
         <h2 className="card-title" id="watch-bookmarks-title">Bookmarks</h2>
         {canEdit && <button type="button" className={buttonClass()} onClick={() => void add()}>Bookmark this moment</button>}
       </header>
-      <p className="watch-now-status" role="status">
-        {deleted ? `Bookmark at ${formatClock(deleted.at_seconds)} deleted. ` : status}
-        {deleted && <button type="button" className={buttonClass()} onClick={() => void undoDelete()}>Undo</button>}
-      </p>
+      <div className="watch-bookmark-status">
+        <p className="watch-now-status" role="status">{status}</p>
+        {deleted && (
+          <button type="button" className={buttonClass()} aria-label={`Undo deleting the bookmark at ${formatClock(deleted.at_seconds)}`} onClick={undoDelete}>Undo</button>
+        )}
+      </div>
       {items.length === 0 ? (
         <p className="muted">Nothing saved yet. Each account sees only its own.</p>
       ) : (
