@@ -86,6 +86,18 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
   return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
 }
 
+/** An admin's (or the PC owner's) switch to list every account's sessions, not just their own. */
+function ShowEveryone({ onChange }: { onChange: (on: boolean) => void }) {
+  const [on, setOn] = useState(false)
+  if (!cancelsAnyJob(useSession())) return null
+  return (
+    <label className="checkbox-row">
+      <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); onChange(e.target.checked) }} />
+      Show everyone's sessions
+    </label>
+  )
+}
+
 /** Kept out of LivePage so that component stays under the length ceiling in componentLength.test.ts. */
 function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiting: boolean }) {
   return (
@@ -146,9 +158,7 @@ export default function LivePage() {
   const [enginesFailed, setEnginesFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const canSeeEveryone = cancelsAnyJob(useSession())
-  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone } = useLiveSession(setError, canSeeEveryone)
-  const [everyone, setEveryone] = useState(false)
+  const { session, sessionId, stopping, joined, began, stop, adoptRunning, showEveryone } = useLiveSession(setError)
 
   useEffect(() => {
     translateApi.engines().then(setEngines, () => {
@@ -237,8 +247,7 @@ export default function LivePage() {
   const ownPlayer = session?.status?.delayed_player === true && session.status.player_stopped !== true && pc !== 'remote'
   const videoLive = !!session && status === 'running' && !stopping && (!!session.url || !!session.status?.stream || ownPlayer)
   const streamRef = videoLive ? sessionStream(session?.url, session?.status?.stream) : null
-  const feed = session ? feedCues(session.cues) : []
-  const total = session?.next ?? 0
+  const [feed, total] = [session ? feedCues(session.cues) : [], session?.next ?? 0]
   const lag = session?.status ? lagLine(session.status) : null
 
   // Held steady between small changes of the estimate: each change seeks the picture.
@@ -432,12 +441,7 @@ export default function LivePage() {
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
         </form>
-        {canSeeEveryone && (
-          <label className="checkbox-row">
-            <input type="checkbox" checked={everyone} onChange={(e) => { setEveryone(e.target.checked); showEveryone(e.target.checked) }} />
-            Show everyone's sessions
-          </label>
-        )}
+        <ShowEveryone onChange={showEveryone} />
         {error && (
           <p className="error live-error" role="alert">
             {error}

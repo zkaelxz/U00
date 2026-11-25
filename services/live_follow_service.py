@@ -387,7 +387,7 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
     now = time.time()
     with _add_lock:
         recent = [t for t in _adds.get(owner, ()) if now - t < 3600]
-        if not (is_pc_owner(principal) or principal.get("is_admin")) and len(recent) >= MAX_ADDS_PER_HOUR:
+        if not (is_pc_owner(principal) or bool(principal and principal.get("is_admin"))) and len(recent) >= MAX_ADDS_PER_HOUR:
             raise RateLimitedError("Too many channels added in the last hour. Try again later.")
         if follow_store.find(owner, url) is not None:
             raise ConflictError("Channel has already been added.")

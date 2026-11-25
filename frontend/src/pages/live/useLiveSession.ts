@@ -6,6 +6,7 @@
  * down). Stop captions the audio already captured and then ends; a second
  * Stop ends at once.
  */
+import { cancelsAnyJob, useSession } from '../../hooks/useSession'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { hasStatus } from '../../api/client'
@@ -33,7 +34,8 @@ type StartedLink = { id: string; url: string }
 const canReplace = (cur: Session | null) =>
   !cur || (cur.status !== null && !isActive(cur.status.status) && cur.cues.length === 0)
 
-export function useLiveSession(setError: (text: string | null) => void, canSeeEveryone = false) {
+export function useLiveSession(setError: (text: string | null) => void) {
+  const canSeeEveryone = cancelsAnyJob(useSession())
   const [session, setSession] = useState<Session | null>(null)
   // 'finishing': the first Stop was taken and the session captions what it
   // already captured; the button then offers Stop now.
