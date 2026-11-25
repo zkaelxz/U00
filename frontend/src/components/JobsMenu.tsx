@@ -115,7 +115,7 @@ export function JobsMenu() {
             Jobs
           </p>
           {shown.length === 0 ? (
-            <p className="muted jobs-empty" role={loaded === null && !error ? 'status' : undefined}>{loaded === null && !error ? 'Loading…' : 'No jobs yet.'}</p>
+            <p className="muted jobs-empty">{loaded !== null ? 'No jobs yet.' : error ? 'Could not load jobs.' : 'Loading…'}</p>
           ) : (
             <ul className="jobs-list">
               {shown.map((j) => {
