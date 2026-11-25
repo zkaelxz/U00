@@ -253,12 +253,12 @@ def post_restructure(payload: TitleRestructureApplyRequest, request: Request,
 @router.get("/{drama_id}/next", dependencies=[require_permission("library.read")], response_model=NextEpisode,
             summary="The title after this one in its series, and whether it is translated yet",
             responses=error_responses(404))
-def get_next_episode(drama_id: int = Path(ge=1, lt=2**63), request: Request = None):
+def get_next_episode(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     return next_episode_service.get_next(request.state.principal, drama_id)
 
 
 @router.post("/{drama_id}/next/prepare", dependencies=[require_permission("jobs.start")], response_model=NextEpisode,
              summary="Queue the next title's steps now, as the caller", responses=error_responses(403, 404, 409, 422))
-def post_prepare_next_episode(drama_id: int = Path(ge=1, lt=2**63), request: Request = None):
+def post_prepare_next_episode(request: Request, drama_id: int = Path(ge=1, lt=2**63)):
     return next_episode_service.prepare_next(request.state.principal, drama_id, holds_paid_engines(request),
                                              at_pc=is_at_pc(request))
