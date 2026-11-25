@@ -579,3 +579,35 @@ class TestSendVideo:
         _, token = self._member("y@example.com", ["media.import_url", "jobs.start"])
         r = _client().post(f"{BASE}/video", headers=_auth(token), json={})
         assert r.status_code == 400
+
+
+class TestFollow:
+    def test_follow_needs_a_token_and_sources_import(self, isolated_db, monkeypatch):
+        from services import sources_tracking_service
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page",
+                            lambda url, principal=None: {"title": "T", "already": False})
+        assert _client().post(f"{BASE}/follow", json={"url": "https://a.example/x"}).status_code == 401
+        u, token = _member("a@example.com")
+        auth_service.revoke_permission(u["id"], "sources.import")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        assert _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"}).status_code == 403
+
+    def test_follow_answers_and_maps_errors(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import sources_tracking_service
+        u, _ = _member("a@example.com")
+        auth_service.grant_permission(u["id"], "sources.import")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page",
+                            lambda url, principal=None: {"title": "T", "already": False})
+        r = _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"})
+        assert r.status_code == 200 and r.json() == {"title": "T", "already": False}
+        assert _client().post(f"{BASE}/follow", headers=_auth(token), json={}).status_code == 400
+
+        def refuse(url, principal=None):
+            raise InvalidInputError("No source for this site")
+        monkeypatch.setattr(sources_tracking_service, "follow_from_page", refuse)
+        r = _client().post(f"{BASE}/follow", headers=_auth(token), json={"url": "https://a.example/x"})
+        assert r.status_code == 422 and "No source" in r.text

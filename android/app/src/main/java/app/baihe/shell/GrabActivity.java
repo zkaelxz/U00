@@ -516,6 +516,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
         menu.getMenu().add("Pictures from my gallery");
         menu.getMenu().add("Ad block list");
+        menu.getMenu().add("Follow this series");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
@@ -533,6 +534,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Settings".equals(title)) showSettings();
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
+            else if ("Follow this series".equals(title)) followSeries();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
@@ -540,6 +542,32 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return true;
         });
         menu.show();
+    }
+
+    /** Has the PC watch this site's series for new chapters; the phone then pings when one arrives. */
+    private void followSeries() {
+        String link = ServerAddress.publicSourceUrl(web.getUrl());
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (link == null || !link.startsWith("http")) {
+            say("Open a series or chapter page first.");
+            return;
+        }
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Asking Baihe to follow this series...");
+        sender.execute(() -> {
+            try {
+                String title = new BaiheClient(server, token).follow(link);
+                say("Following " + (title.isEmpty() ? "this series" : title)
+                        + ". Your phone will tell you when a new chapter comes out.", GrabUi.Kind.OK);
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
     }
 
     /**

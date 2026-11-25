@@ -143,6 +143,15 @@ final class BaiheClient {
         }
     }
 
+    /** Asks the PC to watch this page's series for new chapters; returns the series title. */
+    String follow(String pageUrl) throws BridgeException {
+        try {
+            return call("POST", "/follow", new JSONObject().put("url", pageUrl)).optString("title", "");
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Tells the server to drop the pages of this run it has not started; the page in flight finishes. */
     void cancelRun(String id) throws BridgeException {
         try {
