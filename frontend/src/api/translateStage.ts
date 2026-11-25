@@ -24,6 +24,7 @@ import type {
   GlossaryTitleTerm,
   GlossaryImportBody,
   GlossaryImportResult,
+  GlossaryInbox,
   GlossaryNameClusters,
   GlossaryTerm,
   WordReplacement,
@@ -162,6 +163,13 @@ export const saveAddressTerms = (id: number, terms: AddressTermChoice[], f?: Fet
   postJson<AddressTermsSaveResult>(`/api/glossary/dramas/${id}/address-terms`, { terms }, f)
 export const getGlossaryNameClusters = (id: number, f?: Fetch) =>
   getJson<GlossaryNameClusters>(`/api/glossary/dramas/${id}/name-clusters`, f)
+/** Names the app found after translate runs, waiting for Add or Ignore. */
+export const getGlossaryInbox = (id: number, f?: Fetch) =>
+  getJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox`, f)
+export const acceptGlossaryInbox = (id: number, term: string, translation: string, f?: Fetch) =>
+  postJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox/accept`, { term, translation }, f)
+export const rejectGlossaryInbox = (id: number, term: string, f?: Fetch) =>
+  postJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox/reject`, { term }, f)
 /** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */
 export const deleteGlossaryTerms = (id: number, termIds: number[], f?: Fetch) =>
   postJson<GlossaryBulkDeleteResult>(`/api/glossary/dramas/${id}/terms/bulk-delete`, { term_ids: termIds, confirm: true }, f)

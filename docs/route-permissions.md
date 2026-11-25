@@ -274,6 +274,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
 | `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-page` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-pages` | device_token (extension.send) |
 | `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
@@ -311,6 +313,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/from-novel/apply` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/from-novel/cancel` | jobs.cancel |
 | `POST /api/glossary/dramas/{drama_id}/import` | lines.edit |
+| `GET /api/glossary/dramas/{drama_id}/inbox` | lines.read |
+| `POST /api/glossary/dramas/{drama_id}/inbox/accept` | lines.edit |
+| `POST /api/glossary/dramas/{drama_id}/inbox/reject` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/instructions` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/instructions/draft` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/instructions/project` | lines.edit |
@@ -544,6 +549,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/lines/{line_id}/study` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
 | `GET /api/reader/dramas/{drama_id}/notes` | library.read |

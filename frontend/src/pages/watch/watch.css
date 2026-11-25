@@ -140,6 +140,11 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 .watch-chapters button:hover, .watch-chapters button:focus-visible { background: var(--surface-2); }
 .watch-chapters button[aria-current='true'] { font-weight: 600; background: var(--surface-2); }
 
+.watch-study { margin-top: var(--space-2, 0.5rem); }
+.watch-study-words { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; margin: 0.5rem 0 0; padding: 0; list-style: none; }
+.watch-study-word { display: flex; flex-direction: column; min-width: 3rem; }
+.watch-study-reading { font-size: var(--text-sm); color: var(--text-muted, inherit); }
+.watch-study-meaning { font-size: var(--text-sm); max-width: 14rem; }
 .watch-feedback { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
 .watch-feedback-label { display: flex; flex-direction: column; gap: 0.25rem; flex: 1 1 14rem; }
 .watch-feedback-label textarea { width: 100%; }

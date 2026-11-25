@@ -383,6 +383,7 @@ export default function WatchPage({ id }: { id: number }) {
             {original && ordered.length > 0 && (
               <NowCard
                 line={fixLine ?? current}
+                dramaId={id}
                 sourceLanguage={sourceLanguage}
                 canEdit={canEdit}
                 fix={fix}
