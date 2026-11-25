@@ -19,10 +19,14 @@ final class GrabBridge {
         void onBegin(List<String> titles, int count, JSONArray chapters, String next);
 
         void onDone(List<PageImage> images, int unreadable, boolean truncated);
+
+        /** The page held a novel chapter and no comic pages: its text, for a Quick read. */
+        void onText(String text);
     }
 
     /** Past these the grab stops collecting and sends what it has. */
     static final int MAX_IMAGES = 300;
+    static final int MAX_TEXT_CHARS = 400_000;
     static final long MAX_TOTAL_BASE64_CHARS = 24L * 1024 * 1024;
 
     private final Listener listener;
@@ -32,6 +36,7 @@ final class GrabBridge {
     private int unreadable;
     private boolean truncated;
     private boolean begun;
+    private String novelText;
 
     GrabBridge(Listener listener) {
         this.listener = listener;
@@ -44,6 +49,7 @@ final class GrabBridge {
         unreadable = 0;
         truncated = false;
         begun = false;
+        novelText = null;
     }
 
     synchronized void cancel() {
@@ -120,6 +126,13 @@ final class GrabBridge {
         images.add(new PageImage(key, url, "image/jpeg", ""));
     }
 
+    /** A chapter's prose from a page with no comic pictures; kept only up to a generous chapter's length. */
+    @JavascriptInterface
+    public synchronized void text(String given, String body) {
+        if (!accepts(given) || !begun || body == null || body.trim().isEmpty()) return;
+        novelText = body.length() > MAX_TEXT_CHARS ? body.substring(0, MAX_TEXT_CHARS) : body;
+    }
+
     @JavascriptInterface
     public synchronized void skipped(String given, String key) {
         if (accepts(given)) unreadable++;
@@ -130,14 +143,18 @@ final class GrabBridge {
         List<PageImage> collected;
         int bad;
         boolean cut;
+        String prose;
         synchronized (this) {
             if (!accepts(given) || !begun) return;
             nonce = null;
+            prose = novelText;
+            novelText = null;
             collected = images;
             bad = unreadable;
             cut = truncated;
             images = new ArrayList<>();
         }
-        listener.onDone(collected, bad, cut);
+        if (prose != null && collected.isEmpty()) listener.onText(prose);
+        else listener.onDone(collected, bad, cut);
     }
 }

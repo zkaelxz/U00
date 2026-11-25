@@ -264,6 +264,32 @@
     .map(function (t) { return t.replace(/\s+/g, " ").trim(); })
     .filter(function (t) { return t; });
   Baihe.begin(nonce, JSON.stringify({ titles: titles, count: items.length, chapters: chapterLinks(), next: nextChapter() }));
+  // A novel chapter has no comic pictures: its prose is the container with the most text of its own
+  // (text nodes and paragraphs directly inside it), so menus and comment lists around it are not taken.
+  function chapterText() {
+    var best = null, bestLen = 0;
+    var all = document.querySelectorAll("article, main, section, div");
+    for (var n = 0; n < all.length && n < 4000; n++) {
+      var el = all[n], len = 0;
+      for (var c = el.firstChild; c; c = c.nextSibling) {
+        if (c.nodeType === 3) len += c.nodeValue.trim().length;
+        else if (c.tagName === "P") len += (c.textContent || "").trim().length;
+      }
+      if (len > bestLen) { best = el; bestLen = len; }
+    }
+    if (!best || bestLen < 400) return "";
+    return (best.innerText || best.textContent || "").split("\n")
+      .map(function (t) { return t.trim(); })
+      .filter(function (t) { return t.length > 1; }).join("\n");
+  }
+  if (items.length < 3) {
+    var prose = chapterText();
+    if (prose) {
+      Baihe.text(nonce, prose);
+      Baihe.done(nonce);
+      return;
+    }
+  }
 
   function toBase64(blob) {
     return new Promise(function (resolve, reject) {

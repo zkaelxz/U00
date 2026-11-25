@@ -112,6 +112,8 @@ public class GrabLogicTest {
             public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
                 got.addAll(images);
             }
+
+            public void onText(String text) {}
         });
         bridge.start("secret");
         bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
@@ -163,6 +165,8 @@ public class GrabLogicTest {
                 kept[0] = images.size();
                 cut[0] = truncated;
             }
+
+            public void onText(String text) {}
         });
         bridge.start("n");
         bridge.begin("n", "{\"titles\":[],\"count\":3}");
@@ -397,5 +401,37 @@ public class GrabLogicTest {
         assertEquals("a", again.get(0).key);
         assertEquals("c", again.get(1).key);
         assertTrue(PcFetch.unfetched(batch, null).isEmpty());
+    }
+
+    @Test
+    public void bridgeHandsOverANovelChapterOnlyWhenNoPicturesCame() {
+        final List<String> texts = new ArrayList<>();
+        final int[] pictureRuns = {0};
+        GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
+            public void onBegin(List<String> titles, int count, JSONArray chapters, String next) {}
+
+            public void onDone(List<PageImage> images, int unreadable, boolean truncated) {
+                pictureRuns[0]++;
+            }
+
+            public void onText(String text) {
+                texts.add(text);
+            }
+        });
+        bridge.start("n");
+        bridge.begin("n", "{\"titles\":[],\"count\":0}");
+        bridge.text("wrong", "ignored");
+        bridge.text("n", "第一章\n正文");
+        bridge.done("n");
+        assertEquals(1, texts.size());
+        assertEquals("第一章\n正文", texts.get(0));
+        assertEquals(0, pictureRuns[0]);
+        bridge.start("m");
+        bridge.begin("m", "{\"titles\":[],\"count\":1}");
+        bridge.text("m", "prose");
+        bridge.image("m", "p0", "", "image/png", "AAAA");
+        bridge.done("m");
+        assertEquals(1, texts.size());
+        assertEquals(1, pictureRuns[0]);
     }
 }

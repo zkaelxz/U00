@@ -50,6 +50,10 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
         <activity
+            android:name=".NovelReadActivity"
+            android:label="Quick read"
+            android:exported="false" />
+        <activity
             android:name=".QuickReadActivity"
             android:label="Quick read"
             android:exported="false" />
