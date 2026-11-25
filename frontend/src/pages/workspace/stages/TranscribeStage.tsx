@@ -551,7 +551,6 @@ export default function TranscribeStage({
       <MediaTabPanel id="transcribe" active={tab}>
         <div className="source-grid">
           <Field label="Source language">
-            <div>
             <select className="w-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="zh">Chinese</option>
               <option value="ja">Japanese</option>
@@ -559,14 +558,12 @@ export default function TranscribeStage({
               <option value="id">Indonesian</option>
               <option value="th">Thai</option>
             </select>
-            {mode === 'whisper' && (
-              <label className="field-check">
-                <input type="checkbox" checked={autoLanguage} onChange={(e) => setAutoLanguage(e.target.checked)} />
-                {' '}Auto (any language): listen first, then use the language it hears
-              </label>
-            )}
-            </div>
           </Field>
+          {mode === 'whisper' && (
+            <Field label="Auto (any language)">
+              <input type="checkbox" checked={autoLanguage} onChange={(e) => setAutoLanguage(e.target.checked)} />
+            </Field>
+          )}
           {cf && (
             <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
               <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
