@@ -1,6 +1,6 @@
 .home-shelves { display: flex; flex-direction: column; gap: var(--space-4); }
-/* Every shelf hidden: no empty block to take a second page gap. */
-.home-shelves:empty { display: none; }
+/* With every shelf hidden, All titles would only push the list down, and an empty block would take a second page gap. */
+.home-shelves:not(:has(.home-shelf, .home-running)) { display: none; }
 .home-shelf { display: flex; flex-direction: column; gap: var(--space-2); }
 .home-shelf-head { display: flex; align-items: center; gap: var(--space-2); }
 .home-shelf-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 700; }

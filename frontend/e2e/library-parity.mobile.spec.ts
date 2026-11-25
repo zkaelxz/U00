@@ -186,3 +186,12 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
     for (const h of heights) expect(h, sel).toBeGreaterThanOrEqual(44)
   }
 })
+
+test('with every shelf empty, the phone draws no All titles jump above the list', async ({ page }) => {
+  await page.route('**/api/library/home', (r) => r.fulfill({ json: {
+    needs_you: [], needs_you_count: 0, running: [], running_count: 0, ready: [], ready_count: 0, can_control_queue: true,
+  } }))
+  await page.goto('/')
+  await expect(page.locator('.drama-card').first()).toBeVisible()
+  await expect(page.getByTestId('home-shelves')).toBeHidden()
+})
