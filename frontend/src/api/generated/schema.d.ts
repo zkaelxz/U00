@@ -3493,6 +3493,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/by-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Which of these source page links already have a title the caller can see (Find & Add results) */
+        post: operations["post_titles_by_links_api_dramas_by_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/same": {
         parameters: {
             query?: never;
@@ -7803,6 +7820,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/items/{item_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel a waiting item, or the job of a running one */
+        post: operations["cancel_item_api_queue_items__item_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/items/{item_id}/hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause a waiting item; the rest of the queue goes on */
+        post: operations["hold_item_api_queue_items__item_id__hold_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/items/{item_id}/move": {
         parameters: {
             query?: never;
@@ -7831,6 +7882,23 @@ export interface paths {
         put?: never;
         /** Remove an item that is not running */
         post: operations["remove_item_api_queue_items__item_id__remove_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/items/{item_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused item */
+        post: operations["resume_item_api_queue_items__item_id__resume_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -23464,8 +23532,11 @@ export interface components {
             model: string | null;
             /** Session Id */
             session_id: string;
+            /** Source Language */
+            source_language: string | null;
             /** Status */
             status: string;
+            stream: components["schemas"]["LiveStreamRef"] | null;
         };
         /** LiveStreamRef */
         LiveStreamRef: {
@@ -25787,6 +25858,11 @@ export interface components {
             engine: string | null;
             /** Finished At */
             finished_at: number | null;
+            /**
+             * Held
+             * @default false
+             */
+            held: boolean;
             /** Id */
             id: number;
             /** Job Id */
@@ -32330,6 +32406,22 @@ export interface components {
             source_language: string;
             /** Uses Default */
             uses_default: boolean;
+        };
+        /**
+         * TitleLinkLookup
+         * @description Source page links to look for among the caller's titles (a page of search results).
+         */
+        TitleLinkLookup: {
+            /** Urls */
+            urls: string[];
+        };
+        /**
+         * TitleLinkMatches
+         * @description One entry per link asked, in the same order: the title that carries it, or null. The links are not echoed.
+         */
+        TitleLinkMatches: {
+            /** Title Ids */
+            title_ids: (number | null)[];
         };
         /** TitleLinkProbe */
         TitleLinkProbe: {
@@ -43918,6 +44010,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_titles_by_links_api_dramas_by_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleLinkLookup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleLinkMatches"];
                 };
             };
             /** @description Unprocessable Content */
@@ -56837,6 +56962,122 @@ export interface operations {
             };
         };
     };
+    cancel_item_api_queue_items__item_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    hold_item_api_queue_items__item_id__hold_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     move_item_api_queue_items__item_id__move_post: {
         parameters: {
             query?: never;
@@ -56900,6 +57141,64 @@ export interface operations {
         };
     };
     remove_item_api_queue_items__item_id__remove_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    resume_item_api_queue_items__item_id__resume_post: {
         parameters: {
             query?: never;
             header?: never;

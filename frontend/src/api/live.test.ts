@@ -158,7 +158,7 @@ describe('cues', () => {
 
 describe('sessions', () => {
   it('picks an active session, else the newest', () => {
-    const s = (id: string, status: string) => ({ session_id: id, status, engine: null, model: null, cue_count: 0 })
+    const s = (id: string, status: string) => ({ session_id: id, status, engine: null, model: null, cue_count: 0, source_language: null, stream: null })
     expect(pickSession([])).toBeNull()
     expect(pickSession([s('a', 'done'), s('b', 'running'), s('c', 'cancelled')])).toBe('b')
     expect(pickSession([s('a', 'done'), s('c', 'error')])).toBe('c')

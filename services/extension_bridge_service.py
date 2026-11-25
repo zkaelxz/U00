@@ -654,6 +654,13 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     return outcomes
 
 
+def _comic_language(raw) -> str:
+    """The page language the sender named, when it is one comic reading handles; else "" so the
+    title, the source or the page's own text decides (services/page_server)."""
+    language = str(raw or "").strip().lower()
+    return language if language in ("zh", "ja", "ko") else ""
+
+
 def run_images(payload, images, principal=None, on_page=None) -> dict:
     """principal None is the PC's own token (the local owner); a device
     token passes its member, who may only send into a title they can edit.
@@ -666,7 +673,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     source_url = str(payload.get("source_url") or "")
     decoded = _decode_images(images, allow_fetch=not store)
     job = {"drama_id": drama_id, "source_url": source_url, "store": store,
-           "source_language": str(payload.get("source_language") or ""),
+           "source_language": _comic_language(payload.get("source_language")),
            "typeset": payload.get("typeset") is True, "typeset_style": typeset_style,
            "typeset_max_width": _typeset_max_width(payload.get("typeset_max_width")),
            "glossary_version": _glossary_version(drama_id),

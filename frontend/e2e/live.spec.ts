@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { SCREENS, SID, cue, expectSwitchKeepsItsSize, mockLive, openLive, pendingCue } from './liveMocks'
+import { mockEmbedHosts } from './liveVideoMocks'
 import { runClock } from './mockHelpers'
 
 // Live page (#/live): start a session from a pasted link, watch lines
@@ -571,5 +572,53 @@ test('the form offers and starts on what the server says, and a remembered choic
   expect(m.posts[0].body).toMatchObject({
     model: 'translategemma:27b', source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 2, max_minutes: 20,
   })
+  expect(m.unmocked).toEqual([])
+})
+
+test('watching: stream chips switch sessions, lines scroll in their own box with a new-lines button, and Chat is a tab', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const other = `live_${'2'.repeat(32)}`
+  const row = (id: string, language: string) => ({ session_id: id, status: 'running', engine: 'deepseek', cue_count: 0, source_language: language, stream: { kind: 'youtube', id: 'abcdefghijk' } })
+  m.state.chat = { state: 'reading', message: 'Reading the chat.', next_id: 1, messages: [
+    { id: 1, author: 'Ann', text: '今天好开心', paid: '', sent_at: 0, translation: 'So happy today', state: 'done' },
+  ] }
+  await page.route(`**/api/live/sessions/${other}?*`, (route) => route.fulfill({ json: {
+    session_id: other, status: 'running', message: 'Listening', model: null, progress: 0, notes: [], cues: [], next_index: 0,
+  } }))
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.sessions = [row(SID, 'zh'), row(other, 'ja')]
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = Array.from({ length: 30 }, (_, i) => cue(i))
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 30 lines')
+
+  // Two running streams: a chip each, the one watched selected.
+  const chips = live.getByRole('tab', { name: /Chinese|Japanese/ })
+  await expect(chips).toHaveCount(2)
+  await expect(live.getByRole('tab', { name: 'Chinese · YouTube' })).toHaveAttribute('aria-selected', 'true')
+
+  // The lines scroll inside their own box; scrolled away from the newest, new lines wait under a button.
+  const box = live.getByLabel('Live lines', { exact: true })
+  await box.evaluate((el) => { el.scrollTop = 300 })
+  await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeGreaterThan(100)
+  m.state.cues = Array.from({ length: 33 }, (_, i) => cue(i))
+  const fresh = live.getByTestId('live-new-lines')
+  await expect(fresh).toHaveText('3 new lines')
+  await fresh.click()
+  await expect.poll(() => box.evaluate((el) => el.scrollTop)).toBeLessThan(24)
+  await expect(fresh).toHaveCount(0)
+
+  // Chat is a tab beside Lines: hidden until chosen.
+  await expect(live.getByTestId('live-chat')).toBeHidden()
+  await live.getByRole('tab', { name: 'Chat', exact: true }).click()
+  await expect(live.getByTestId('live-chat')).toContainText('So happy today')
+
+  await live.getByRole('tab', { name: 'Japanese · YouTube' }).click()
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
+  await page.screenshot({ path: `${SCREENS}/desktop-watching.png` })
   expect(m.unmocked).toEqual([])
 })

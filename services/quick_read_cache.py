@@ -1,11 +1,14 @@
-"""Quick read's temporary results cache on disk: size- and age-limited, never a saved series or title."""
+"""Quick read's temporary results cache and per-title memory on disk: size- and age-limited,
+never a saved series or title."""
 
 import functools
 import hashlib
 import json
 import os
+import re
 import threading
 import time
+from urllib.parse import urlsplit
 
 import db
 from lib import atomic_write
@@ -114,3 +117,63 @@ def _sweep() -> None:
             total -= size
         except OSError:
             pass
+
+
+# A chapter slug such as "psycho-eyes-chapter-1", "ep12" or "第3话"; what precedes it names the title.
+_CHAPTER_PART = re.compile(r"(?i)(?:^|[-_.])(?:chapter|chap|ch|episode|ep|capitulo|raw)[-_.]?\d.*$"
+                           r"|^第?\d+(?:[.-]\d+)*(?:话|話|回|화|章)?$|^(?:chapter|ch|ep|episode)$")
+
+
+@functools.lru_cache(maxsize=256)
+def title_key(url: str) -> str:
+    """The title a chapter link belongs to, so Quick read's memory of names, pronouns and
+    language carries from one chapter to the next: the source adapter's series id when one
+    serves the link, else the link with its chapter part cut. A link with no chapter part to
+    cut stays as it is, so it is never merged with another title's."""
+    url = str(url or "")
+    try:
+        from sources import registry
+        cls = registry.adapter_class_for_url(url)
+        # Parsing a link needs no client; a stand-in keeps the adapter from building one.
+        parsed = cls(client=object(), allow_adult=False).parse_url(url) if cls else None
+    except Exception:
+        cls, parsed = None, None
+    if cls is not None and parsed and parsed[0] == "series":
+        return f"{cls.name}:{parsed[1]}"
+    if cls is not None and parsed and parsed[0] == "chapter" and getattr(parsed[1], "series_id", None):
+        return f"{cls.name}:{parsed[1].series_id}"
+    split = urlsplit(url)
+    parts = [p for p in split.path.split("/") if p]
+    cut = _CHAPTER_PART.sub("", parts[-1]) if parts else ""
+    if not parts or cut == parts[-1]:
+        return url
+    parts = [*parts[:-1], cut] if cut else parts[:-1]
+    if not parts:
+        return url
+    return f"{(split.hostname or '').lower()}/{'/'.join(parts)}"
+
+
+def source_language(url: str) -> str:
+    """The comic language a link's source adapter serves ("" when none, or several)."""
+    try:
+        from sources import registry
+        cls = registry.adapter_class_for_url(str(url or ""))
+    except Exception:
+        return ""
+    languages = list(getattr(cls, "languages", None) or [])
+    return languages[0] if len(languages) == 1 and languages[0] in ("zh", "ja", "ko") else ""
+
+
+def _memory_key(title: str) -> str:
+    return make_key("title-memory", title)
+
+
+def title_memory(title: str) -> dict:
+    """{"names", "cast", "language"} Quick read kept for a title, or {}."""
+    hit = get(_memory_key(title)) if title else None
+    return hit if isinstance(hit, dict) else {}
+
+
+def remember_title(title: str, memory: dict) -> None:
+    if title:
+        put(_memory_key(title), memory)

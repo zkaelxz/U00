@@ -318,6 +318,7 @@ def _quick_read_answers_forgotten():
         extension_bridge_service._quick_read_cache.clear()
     with page_turns._context_lock:
         page_turns._chapter_names.clear()
+        page_turns._cast.clear()
 
 
 @pytest.fixture(autouse=True)

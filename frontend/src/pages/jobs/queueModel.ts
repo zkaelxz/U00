@@ -28,7 +28,7 @@ export const ADD_STEP_LABELS: Record<AddStep, string> = {
 }
 
 export const STEP_HELP: Record<AddStep, string> = {
-  all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. Nothing starts until you press Start queue.",
+  all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. The queue starts by itself unless it is paused or has a start time.",
   transcribe: "Uses the title's saved Transcribe options. Replaces its current lines; the old ones stay in line History.",
   translate: "Uses the title's saved Translate options and engine.",
   export: 'Saves English subtitles (SRT) as the title\'s subtitle download.',
@@ -64,7 +64,7 @@ export function itemName(i: QueueItem): string {
 export function runStateText(q: QueueState): string | null {
   if (q.state === 'running') return 'Running: one item at a time.'
   if (q.state === 'paused') return 'Paused: no new item starts. A running one finishes.'
-  if (waitingCount(q.items)) return 'Not running.'
+  if (waitingCount(q.items)) return q.schedule && !q.schedule.missed ? 'Waiting for the start time.' : 'Not running.'
   return q.items.length ? 'Nothing waiting.' : null
 }
 

@@ -34,6 +34,8 @@ final class BaiheClient {
     volatile UploadStats stats;
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
     volatile String fetchUserAgent;
+    /** Quick read only: the page's language when its text showed it ("" lets the PC decide). */
+    volatile String sourceLanguage = "";
 
     private volatile boolean aborted;
     private final java.util.Set<HttpURLConnection> open = new java.util.HashSet<>();
@@ -285,6 +287,7 @@ final class BaiheClient {
         if (store) body.put("drama_id", dramaId);
         else {
             body.put("typeset", true);
+            if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
         }
         return body;

@@ -8,7 +8,7 @@ import {
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
   version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
@@ -104,7 +104,7 @@ describe('the Step choice', () => {
     for (const key of Object.keys(ADD_STEP_LABELS)) expect(STEP_HELP[key as keyof typeof STEP_HELP]).toBeTruthy()
   })
 
-  it('tells the person All steps does not start anything', () => {
-    expect(STEP_HELP.all).toContain('Nothing starts until you press Start queue.')
+  it('tells the person All steps starts the queue by itself', () => {
+    expect(STEP_HELP.all).toContain('The queue starts by itself unless it is paused or has a start time.')
   })
 })

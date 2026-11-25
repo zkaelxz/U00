@@ -6,8 +6,9 @@ import org.junit.Test;
 
 public class QuickReadZoomTest {
     @Test
-    public void scaleStaysBetweenFitAndFourTimes() {
-        assertEquals(1f, QuickReadZoom.clampScale(0.4f), 0f);
+    public void scaleStaysBetweenHalfAndFourTimes() {
+        assertEquals(0.5f, QuickReadZoom.clampScale(0.2f), 0f);
+        assertEquals(0.7f, QuickReadZoom.clampScale(0.7f), 0f);
         assertEquals(2.5f, QuickReadZoom.clampScale(2.5f), 0f);
         assertEquals(4f, QuickReadZoom.clampScale(9f), 0f);
     }
@@ -18,6 +19,13 @@ public class QuickReadZoomTest {
         assertEquals(-1000f, QuickReadZoom.clampPan(-5000f, 2f, 1000f), 0f);
         assertEquals(-300f, QuickReadZoom.clampPan(-300f, 2f, 1000f), 0f);
         assertEquals(0f, QuickReadZoom.clampPan(-300f, 1f, 1000f), 0f);
+    }
+
+    @Test
+    public void aPageSmallerThanTheScreenSitsInTheMiddle() {
+        assertEquals(250f, QuickReadZoom.clampPan(0f, 0.5f, 1000f), 0f);
+        assertEquals(250f, QuickReadZoom.clampPan(-800f, 0.5f, 1000f), 0f);
+        assertEquals(250f, QuickReadZoom.panAfterZoom(-600f, 2f, 0.5f, 600f, 1000f), 0f);
     }
 
     @Test
@@ -41,10 +49,12 @@ public class QuickReadZoomTest {
         assertEquals(2000, QuickReadZoom.listHeight(2000, 1f));
         assertEquals(1000, QuickReadZoom.listHeight(2000, 2f));
         assertEquals(667, QuickReadZoom.listHeight(2000, 3f));
+        assertEquals(4000, QuickReadZoom.listHeight(2000, 0.5f));
     }
 
     @Test
     public void doubleTapTogglesBetweenFitAndTwoTimes() {
+        assertEquals(1f, QuickReadZoom.afterDoubleTap(0.5f), 0f);
         assertEquals(2f, QuickReadZoom.afterDoubleTap(1f), 0f);
         assertEquals(1f, QuickReadZoom.afterDoubleTap(3.2f), 0f);
     }
