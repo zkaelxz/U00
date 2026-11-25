@@ -112,6 +112,17 @@ export function verdictChange(line: Pick<ReviewLine, 'reviewed' | 'mark'>, verdi
 export const lineHeading = (l: Timed) => `Line #${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 export const rowMeta = (l: Timed) => `#${lineNumber(l.idx)} · ${clockTenths(l.start)}`
 
+/** How many colours a speaker can take before one repeats; the CSS defines exactly this many. */
+export const SPEAKER_COLOURS = 6
+
+/** Each speaker's colour slot, by first line spoken: hashing the name could give two of a drama's few speakers the
+ *  same colour, and a rename must not recolour the lines. Lines with no speaker get none. */
+export function speakerSlots(ordered: readonly Pick<ReviewLine, 'speaker'>[]): Map<string, number> {
+  const slots = new Map<string, number>()
+  for (const l of ordered) if (l.speaker && !slots.has(l.speaker)) slots.set(l.speaker, slots.size % SPEAKER_COLOURS)
+  return slots
+}
+
 /** "Audio drama · Chinese to English": the kind of title and its languages, from the shared labels; empty when the
  *  title has neither. */
 export function titleKindAndLanguages(mediaType: string | null | undefined, sourceLanguage: string | null | undefined): string {

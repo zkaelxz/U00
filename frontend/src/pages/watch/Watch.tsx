@@ -43,8 +43,8 @@ import { NowCard } from './NowCard'
 import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
-  attentionIndex, checkStep, currentLine, linesToCheck, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, loopLineAt, openFix, ownScrollUntil,
-  parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, spokenOrder,
+  attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
+  ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, speakerSlots, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -753,17 +753,19 @@ const WatchList = memo(function WatchList({ lines, currentId, sourceLanguage, ca
   scroll: ReturnType<typeof useFollow>['scrollHandlers']
   listRef: RefObject<HTMLOListElement | null>
 }) {
+  const slots = useMemo(() => speakerSlots(lines), [lines])
   return (
     <ol className="watch-list" ref={listRef} {...scroll}>
       {lines.map((l) => (
-        <WatchRow key={l.id} line={l} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
+        <WatchRow key={l.id} line={l} slot={l.speaker ? slots.get(l.speaker) ?? null : null} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
       ))}
     </ol>
   )
 })
 
-const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canPlay, onPick }: {
+const WatchRow = memo(function WatchRow({ line: l, slot, current, sourceLanguage, canPlay, onPick }: {
   line: ReviewLine
+  slot: number | null
   current: boolean
   sourceLanguage: string
   canPlay: boolean
@@ -773,6 +775,7 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
     <>
       <span className="watch-row-meta">
         {rowMeta(l)}
+        {l.speaker && <span className="watch-row-speaker">{l.speaker}</span>}
         <LineMarkBadge line={l} />
         {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>
@@ -781,7 +784,7 @@ const WatchRow = memo(function WatchRow({ line: l, current, sourceLanguage, canP
     </>
   )
   return (
-    <li className={current ? 'is-current' : undefined}>
+    <li className={current ? 'is-current' : undefined} data-speaker={slot ?? undefined}>
       {canPlay ? (
         <button
           type="button"

@@ -73,7 +73,14 @@ public class MainActivity extends Activity {
                 if (address != null && ServerAddress.sameOrigin(address, url)) return false;
                 String scheme = request.getUrl().getScheme();
                 if ("baihegrab".equals(scheme)) {
-                    ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    String quickRead = ShareLink.quickReadLink(url);
+                    if (quickRead != null) {
+                        startActivity(new Intent(MainActivity.this, GrabActivity.class)
+                                .putExtra(GrabActivity.EXTRA_COMMAND, "read")
+                                .putExtra(GrabActivity.EXTRA_URL, quickRead));
+                    } else {
+                        ShellTabs.show(MainActivity.this, GrabActivity.class);
+                    }
                     return true;
                 }
                 if ("http".equals(scheme) || "https".equals(scheme)) {

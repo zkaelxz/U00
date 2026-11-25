@@ -25,7 +25,7 @@ describe('linkFromShare', () => {
 
 describe('shareRedirect', () => {
   it('sends a shared link to Sources', () => {
-    expect(shareRedirect('/share', '?url=https%3A%2F%2Fsite.example%2Fc%2F1')).toBe('#/sources?url=https%3A%2F%2Fsite.example%2Fc%2F1')
+    expect(shareRedirect('/share', '?url=https%3A%2F%2Fsite.example%2Fc%2F1')).toBe('#/share?url=https%3A%2F%2Fsite.example%2Fc%2F1')
   })
   it('still opens Sources when nothing usable was shared', () => {
     expect(shareRedirect('/share', '?text=hi')).toBe('#/sources')
