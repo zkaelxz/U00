@@ -5954,6 +5954,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/lines/dramas/{drama_id}/lines/{line_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Thumbs-down on one line: marks it wrong and keeps an optional better wording for the learned style (409 if `expected_en` differs) */
+        post: operations["post_line_feedback_api_lines_dramas__drama_id__lines__line_id__feedback_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/lines/dramas/{drama_id}/lines/{line_id}/mark": {
         parameters: {
             query?: never;
@@ -22235,6 +22252,13 @@ export interface components {
              * @description Unchecked lines left alone because they are marked wrong or mixed (a line both flagged and marked counts here too).
              */
             skipped_marked: number;
+        };
+        /** LinesFeedbackRequest */
+        LinesFeedbackRequest: {
+            /** Better */
+            better?: string | null;
+            /** Expected En */
+            expected_en?: string | null;
         };
         /** LinesFindReplaceApplyRequest */
         LinesFindReplaceApplyRequest: {
@@ -50559,6 +50583,60 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_line_feedback_api_lines_dramas__drama_id__lines__line_id__feedback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinesFeedbackRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReviewLinesLine"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
