@@ -66,6 +66,7 @@ export function NewChapters({
     try {
       onRestored(await restoreNotification(n.id))
       setUndo(null)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-opener="new:${n.id}"]`)?.focus())
     } catch (e) {
       setError(e)
     } finally {
@@ -80,6 +81,7 @@ export function NewChapters({
       await dismissNotification(n.id)
       onDismissed(n.id)
       setUndo(n)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-undo-notice]')?.focus())
     } catch (e) {
       setError(e)
     } finally {
@@ -172,14 +174,22 @@ export function NewChapters({
           />
         </div>
       )}
-      {undo && (
-        <p className="muted" role="status" data-testid="new-chapters-undo">
-          Dismissed {undo.title || titleOf(undo)}.{' '}
-          <button type="button" className="link" disabled={busy === undo.id} onClick={() => restore(undo)}>
-            Undo
-          </button>
-        </p>
-      )}
+      <p className="muted" role="status" data-testid="new-chapters-undo" hidden={!undo}>
+        {undo && (
+          <>
+            Dismissed {undo.title || titleOf(undo)}.{' '}
+            <button
+              type="button"
+              className="link"
+              data-undo-notice
+              disabled={busy === undo.id}
+              onClick={() => restore(undo)}
+            >
+              Undo
+            </button>
+          </>
+        )}
+      </p>
       {notifications.length > 0 && (
         <Paged items={notifications} testId="new-chapters-more">
           {(visible) => (
