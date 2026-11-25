@@ -15,6 +15,11 @@ export function canOpenDiagnostics(): boolean {
   return s.status !== 'ready' || !s.me.auth_enabled || s.me.permissions.includes('admin.diagnostics')
 }
 
+// Fallback line for a failed background step whose own message was unusable: the log is for admins only.
+export function failedWithLogHint(what: string): string {
+  return `${what} ${canOpenDiagnostics() ? 'Details are in the app log.' : ASK_PC_OWNER}`
+}
+
 const DEPENDENCY_ADMIN = 'A tool or package this needs is not installed or not reachable. See Diagnostics.'
 const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not reachable. ${ASK_PC_OWNER}`
 

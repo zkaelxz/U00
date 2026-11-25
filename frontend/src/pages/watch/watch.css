@@ -28,6 +28,8 @@
 .watch-player .review-player-frame:not(.is-fullscreen) .review-seek { flex-basis: 100%; }
 /* Over a picture it is a pill on the picture's top, so it costs the phone no row; an audio strip has nothing to cover. */
 .watch-player { position: relative; }
+/* A sideways swipe on the picture seeks; the page may still scroll up and down. */
+.watch-player .review-stage { touch-action: pan-y pinch-zoom; }
 .watch-resume.is-over { position: absolute; top: var(--space-3); left: var(--space-3); z-index: 2; }
 .watch-resume {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); width: fit-content; max-width: calc(100% - 2 * var(--space-3));
@@ -160,3 +162,7 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 .watch-bookmark-status { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
 
 .watch-party-link { width: 100%; margin: 0.5rem 0; }
+.watch-swipe-note { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); padding: var(--space-2) var(--space-3); border-radius: var(--radius-2, 8px); background: rgb(0 0 0 / 0.7); color: #fff; font-weight: 600; pointer-events: none; z-index: 2; }
+/* Not a scroll anchor: when the line card above it changes height the browser would otherwise move the page to keep this card still, which
+   scrolls the page while the list follows the sound. */
+.watch-sleep { overflow-anchor: none; }

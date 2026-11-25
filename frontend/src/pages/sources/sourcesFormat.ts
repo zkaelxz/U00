@@ -1,6 +1,6 @@
 // Pure logic and copy for the Sources page.
 // No React here, so everything is unit-tested in sourcesFormat.test.ts.
-import { safeDetail } from '../../components/errorMessages'
+import { failedWithLogHint, safeDetail } from '../../components/errorMessages'
 import { humanizeValue } from '../../components/labels'
 import type {
   SourceDetail,
@@ -176,7 +176,7 @@ export function describeSourceError(err: unknown, source: string, remote = false
     return { text: told ?? `${source} isn't reachable right now.` }
   }
   const detail = typeof e.message === 'string' ? safeDetail(e.message) : null
-  return { text: detail ?? `${source} failed. Details are in the app log.` }
+  return { text: detail ?? failedWithLogHint(`${source} failed.`) }
 }
 
 // ---------------------------------------------------------------- header

@@ -544,6 +544,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Follow this series".equals(title)) followSeries();
             else if ("Pick up where I left off".equals(title)) pickUp();
             else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
+            else if (title.startsWith("Saved chapters")) showSaved();
             else if (title.startsWith("Bookmarks")) showBookmarks();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
@@ -613,6 +614,30 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 })
                 .setNegativeButton("Close", null)
                 .show();
+    }
+
+    /** Chapters saved for offline reading: tap to read, hold to delete. */
+    private void showSaved() {
+        List<SavedChapters.Saved> saved = SavedChapters.list(SavedChapters.root(this));
+        if (saved.isEmpty()) {
+            say("No saved chapters. In Quick read, hold a page and choose Save to phone.");
+            return;
+        }
+        String[] names = new String[saved.size()];
+        for (int i = 0; i < names.length; i++) names[i] = saved.get(i).title + " (" + saved.get(i).pages + " pages)";
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Saved chapters (hold one to delete it)")
+                .setItems(names, (d, which) -> startActivity(new Intent(this, QuickReadActivity.class)
+                        .putExtra(QuickReadActivity.EXTRA_SAVED, saved.get(which).dir.getName())))
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.getListView().setOnItemLongClickListener((parent, view, which, id) -> {
+            SavedChapters.delete(saved.get(which).dir);
+            dialog.dismiss();
+            say("Deleted from this phone.");
+            return true;
+        });
+        dialog.show();
     }
 
     private static final String KEY_BOOKMARKS = "bookmarks";
@@ -1391,7 +1416,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
         boolean continuing = partsContinuing;
         boolean moreParts = followingParts && chaptersLeft > 1;
-        if (!continuing) QuickReadSession.begin();
+        if (!continuing) {
+            QuickReadSession.begin();
+            QuickReadSession.setTitle(runName);
+        }
         QuickReadSession.onCancel(this::cancelGrab);
         long readStarted = System.currentTimeMillis();
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);

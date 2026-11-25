@@ -32,7 +32,7 @@ from api.schemas import (AddressTerms, AddressTermsSaveRequest, AddressTermsSave
                          GlossaryCatalogues, GlossaryDismissals, GlossaryDismissRequest,
                          GlossaryDismissResult, GlossaryImportRequest,
                          GlossaryImportResult, GlossaryInstructions, GlossaryInstructionsUpdate, InstructionsDraft,
-                         GlossaryInbox, GlossaryInboxAccept, GlossaryInboxReject, GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
+                         GlossaryInbox, GlossaryInboxAccept, GlossaryInboxReject, GlossaryInboxRestore, GlossaryNameClusters, GlossaryVariants, NameFixPreview, NameFixRequest,
                          NameFixResult,
                          NameConsistency, NameReportMarkRequest, NameReportMarkResult,
                          NameReportCancelRequest, NameReportRunResult, NameReportStatus,
@@ -231,6 +231,14 @@ def accept_glossary_inbox(body: GlossaryInboxAccept, drama_id: int = Path(ge=1))
              responses=error_responses(404))
 def reject_glossary_inbox(body: GlossaryInboxReject, drama_id: int = Path(ge=1)):
     return glossary_inbox_service.reject(drama_id, body.term)
+
+
+@router.post("/dramas/{drama_id}/inbox/restore", dependencies=[require_permission("lines.edit")],
+             response_model=GlossaryInbox,
+             summary="Undo Ignore: put the ignored spellings back in the inbox",
+             responses=error_responses(404))
+def restore_glossary_inbox(body: GlossaryInboxRestore, drama_id: int = Path(ge=1)):
+    return glossary_inbox_service.restore(drama_id, body.terms)
 
 
 # --- Name check across all titles -----------------------------------------------------

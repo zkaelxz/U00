@@ -6,7 +6,7 @@ import { cancelJob } from '../../../api/jobs'
 import { cancelHint } from '../../../types/jobs'
 import { getSpeechCoverage, startSpeechCoverage } from '../../../api/speechCoverage'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
+import { isForbidden, LINES_READ_FORBIDDEN, failedWithLogHint, safeDetail } from '../../../components/errorMessages'
 import { Section } from '../../../components/Section'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import { routeHref } from '../../../router'
@@ -142,7 +142,7 @@ export function SpeechCoverage({ hasAudio, busy }: Props) {
         )}
         {status?.status === 'error' && (
           <p className="error" role="alert">
-            {safeDetail(status.message) ?? 'The check failed. Details are in the app log.'}
+            {safeDetail(status.message) ?? failedWithLogHint('The check failed.')}
           </p>
         )}
         {status?.status === 'cancelled' && <p className="muted">The check was cancelled.</p>}

@@ -1,3 +1,4 @@
+import { failedWithLogHint } from '../../../components/errorMessages'
 import { formatElapsed } from './autotuneGlossary'
 import type { RawStatus, SpeechCoverageReport } from '../../../types/speechCoverage'
 
@@ -48,5 +49,5 @@ export function coverageBlocker(hasAudio: boolean, busy: boolean): string | null
 export function failedText(report: SpeechCoverageReport): string {
   if (report.failed_reason === 'unreadable') return "The audio's length couldn't be read, so it wasn't checked."
   if (report.failed_reason === 'decode') return 'The audio could not be decoded for the check.'
-  return 'The check failed. Details are in the app log.'
+  return failedWithLogHint('The check failed.')
 }

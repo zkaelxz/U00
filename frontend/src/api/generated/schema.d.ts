@@ -4815,6 +4815,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/glossary/dramas/{drama_id}/inbox/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Ignore: put the ignored spellings back in the inbox */
+        post: operations["restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/glossary/dramas/{drama_id}/instructions": {
         parameters: {
             query?: never;
@@ -11390,6 +11407,23 @@ export interface paths {
         put?: never;
         /** Dismiss one new-chapter notification */
         post: operations["post_dismiss_api_sources_notifications__notification_id__dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sources/notifications/{notification_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo dismissing one new-chapter notification */
+        post: operations["post_restore_api_sources_notifications__notification_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -21252,6 +21286,11 @@ export interface components {
         GlossaryInboxReject: {
             /** Term */
             term: string;
+        };
+        /** GlossaryInboxRestore */
+        GlossaryInboxRestore: {
+            /** Terms */
+            terms: string[];
         };
         /** GlossaryInstructions */
         GlossaryInstructions: {
@@ -48128,6 +48167,50 @@ export interface operations {
             };
         };
     };
+    restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxRestore"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_instructions_api_glossary_dramas__drama_id__instructions_get: {
         parameters: {
             query?: never;
@@ -68652,6 +68735,46 @@ export interface operations {
         };
     };
     post_dismiss_api_sources_notifications__notification_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceNotification"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_restore_api_sources_notifications__notification_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;

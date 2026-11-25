@@ -316,6 +316,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/glossary/dramas/{drama_id}/inbox` | lines.read |
 | `POST /api/glossary/dramas/{drama_id}/inbox/accept` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/inbox/reject` | lines.edit |
+| `POST /api/glossary/dramas/{drama_id}/inbox/restore` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/instructions` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/instructions/draft` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/instructions/project` | lines.edit |
@@ -745,6 +746,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/sources/jobs/{job_id}/result` | library.read |
 | `GET /api/sources/notifications` | library.read |
 | `POST /api/sources/notifications/{notification_id}/dismiss` | sources.import |
+| `POST /api/sources/notifications/{notification_id}/restore` | sources.import |
 | `GET /api/sources/profiles` | admin.settings |
 | `POST /api/sources/profiles/{domain}/{kind}/rollback` | admin.settings |
 | `POST /api/sources/search` | library.read |

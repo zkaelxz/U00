@@ -123,3 +123,15 @@ def reject(drama_id: int, term: str) -> dict:
         data["rejected"] = list(dict.fromkeys([*data["rejected"], *(s["text"] for s in item["spellings"])]))[-MAX_REJECTED:]
         _save(drama_id, data)
         return _view(data)
+
+
+def restore(drama_id: int, terms: list) -> dict:
+    """Takes ignored spellings off the title's ignore list (the Undo of Ignore) and rescans so
+    the name is back in the inbox."""
+    _drama(drama_id)
+    with _lock:
+        data = _load(_drama(drama_id))
+        gone = {_key(t) for t in terms if isinstance(t, str)}
+        data["rejected"] = [t for t in data["rejected"] if _key(t) not in gone]
+        _save(drama_id, data)
+    return refresh(drama_id)
