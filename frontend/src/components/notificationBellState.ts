@@ -80,6 +80,8 @@ export function targetLink(target: NotificationTarget | null | undefined): { hre
     return { href: routeHref({ name: 'drama', id: target.drama_id, stage: 'review' }), title: 'Open the Review step of this title' }
   if (target.page === 'series' && isId(target.series_id))
     return { href: routeHref({ name: 'series', id: target.series_id }), title: 'Open the series page' }
+  if (target.page === 'watch' && isId(target.drama_id)) return { href: routeHref({ name: 'watch', id: target.drama_id }), title: 'Open this title on the Watch page' }
+  if (target.page === 'title' && isId(target.drama_id)) return { href: routeHref({ name: 'drama', id: target.drama_id, stage: null }), title: 'Open this title' }
   if (target.page === 'jobs') return { href: routeHref({ name: 'jobs' }), title: 'Open the Jobs page' }
   return null
 }

@@ -511,3 +511,71 @@ class TestPageReport:
         _, token = _member("a@example.com")
         assert _client().post(f"{BASE}/report", headers=_auth(token), json={"note": "x"}).status_code == 400
         assert _client().post(f"{BASE}/report", headers=_auth("nope"), json={}).status_code in (401, 403)
+
+
+class TestSendVideo:
+    """POST /video hands a page link to Quick video translate under the token's own rights."""
+
+    def _member(self, email, perms):
+        u, token = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_member_with_both_rights_starts_a_run(self, isolated_db, monkeypatch):
+        from services import quick_video_service
+        seen = {}
+
+        def fake_start(principal, url, profile_id, watch_once, holds_paid, at_pc):
+            seen.update(user=principal["user_id"], url=url, profile=profile_id, once=watch_once,
+                        paid=holds_paid, at_pc=at_pc)
+            return {"drama_id": 7, "watch_once": False}
+
+        monkeypatch.setattr(quick_video_service, "start", fake_start)
+        u, token = self._member("v@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc?t=5"})
+        assert r.status_code == 200 and r.json() == {"drama_id": 7}
+        assert seen == {"user": u["id"], "url": "https://youtu.be/abc?t=5", "profile": None,
+                        "once": False, "paid": False, "at_pc": False}
+
+    @pytest.mark.parametrize("missing", ["media.import_url", "jobs.start"])
+    def test_missing_right_is_refused_before_anything_starts(self, isolated_db, monkeypatch, missing):
+        from services import quick_video_service
+        monkeypatch.setattr(quick_video_service, "start", lambda *a, **k: pytest.fail("started"))
+        u, _ = self._member("w@example.com", ["media.import_url", "jobs.start"])
+        auth_service.revoke_permission(u["id"], missing)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 403
+
+    def test_a_refusal_from_the_service_is_shown_as_text(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import quick_video_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("Pick a profile in Settings first.")
+
+        monkeypatch.setattr(quick_video_service, "start", refuse)
+        _, token = self._member("x@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 422 and r.json() == {"error": "Pick a profile in Settings first."}
+
+    def test_the_title_limit_keeps_its_409(self, isolated_db, monkeypatch):
+        from lib.errors import ConflictError
+        from services import quick_video_service
+
+        def full(*a, **k):
+            raise ConflictError("You have the most titles allowed.")
+
+        monkeypatch.setattr(quick_video_service, "start", full)
+        _, token = self._member("z@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={"url": "https://youtu.be/abc"})
+        assert r.status_code == 409
+
+    def test_no_url_is_refused(self, isolated_db):
+        _, token = self._member("y@example.com", ["media.import_url", "jobs.start"])
+        r = _client().post(f"{BASE}/video", headers=_auth(token), json={})
+        assert r.status_code == 400
