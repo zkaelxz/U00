@@ -47,7 +47,7 @@ import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
-  newerPlace, ownScrollUntil, parkedOutcome, parkFix, positionKey, positionTimeKey, quietSkip, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, SERVER_SAVE_EVERY_MS, speakerSlots, spokenOrder,
+  freshServerPlace, newerPlace, ownScrollUntil, parkedOutcome, parkFix, positionKey, positionTimeKey, quietSkip, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, SERVER_SAVE_EVERY_MS, serverSeenKey, speakerSlots, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -242,6 +242,7 @@ export default function WatchPage({ id }: { id: number }) {
     showCurrent(0)
     writePref(browserStorage(), positionKey(id), 0)
     writePref(browserStorage(), positionTimeKey(id), Date.now())
+    writePref(browserStorage(), serverSeenKey(id), 0)
     void readerApi.saveWatchPosition(id, 0).catch(() => undefined)
     clearResumed()
   }
@@ -489,7 +490,9 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
       if (settled || gone) return
       settled = true
       const local = { seconds: Number(readPref(storage, positionKey(id), 0)) || 0, at: Number(readPref(storage, positionTimeKey(id), 0)) || null }
-      const at = resumePoint(newerPlace(local, server), el.duration)
+      const seen = readPref<number | null>(storage, serverSeenKey(id), null)
+      const at = resumePoint(newerPlace(local, freshServerPlace(server, typeof seen === 'number' ? seen : null)), el.duration)
+      if (server) writePref(storage, serverSeenKey(id), server.seconds)
       if (at === null) return
       player.current?.seek(at)
       setResumedAt(at)
@@ -508,6 +511,7 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
       writePref(storage, positionTimeKey(id), Date.now())
       if (!toServer) return
       lastServerSave = Date.now()
+      writePref(storage, serverSeenKey(id), el.currentTime)
       void readerApi.saveWatchPosition(id, el.currentTime).catch(() => undefined)
     }
     const tick = () => save(Date.now() - lastServerSave >= SERVER_SAVE_EVERY_MS)

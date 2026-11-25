@@ -17,6 +17,8 @@ export const SAVE_EVERY_MS = 5000
 export const positionKey = (dramaId: number) => `watch.at.${dramaId}`
 /** When this browser last wrote `positionKey` (ms since 1970), to tell it from a newer place saved on another device. */
 export const positionTimeKey = (dramaId: number) => `watch.atTime.${dramaId}`
+/** The account's place as this browser last sent or heard it, in seconds. */
+export const serverSeenKey = (dramaId: number) => `watch.serverSeen.${dramaId}`
 /** The account's server save, sent at most this often while playing (and on every pause and leave). */
 export const SERVER_SAVE_EVERY_MS = 15000
 
@@ -25,6 +27,12 @@ export interface SavedPlace { seconds: number; at: number | null }
 
 /** Which saved place to go on from: this browser's, or the account's from the server when that one is newer. A place
  *  this browser saved before it kept times (`at` null) is kept, as it was before the server had places. */
+/** The account's place, or null when it is the one this browser already sent or heard: the server's time also moves
+ *  when the Reader saves a page, which would make an old place look newer than this browser's. */
+export function freshServerPlace(server: SavedPlace | null, seen: number | null): SavedPlace | null {
+  return server && seen !== null && Math.abs(server.seconds - seen) < 0.5 ? null : server
+}
+
 export function newerPlace(local: SavedPlace, server: SavedPlace | null): number {
   if (!server || !(server.seconds > 0)) return local.seconds
   if (!(local.seconds > 0)) return server.seconds
