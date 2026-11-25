@@ -4111,6 +4111,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/video": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: send a video page's link to Quick video translate */
+        post: operations["post_video_api_ext_bridge_video_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/extension/devices": {
         parameters: {
             query?: never;
@@ -45124,6 +45141,26 @@ export interface operations {
         };
     };
     post_title_api_ext_bridge_title_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_video_api_ext_bridge_video_post: {
         parameters: {
             query?: never;
             header?: never;

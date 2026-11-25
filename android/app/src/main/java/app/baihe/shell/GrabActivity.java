@@ -410,6 +410,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
+        menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
@@ -420,12 +421,41 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if ("Translate this page".equals(title)) setTranslate(true);
             else if ("Show original page".equals(title)) setTranslate(false);
             else if ("Settings".equals(title)) showSettings();
+            else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
         menu.show();
+    }
+
+    /**
+     * Sends this page's link to Quick video translate on the PC, which downloads and subtitles it.
+     * Only the link goes: the phone's logins stay here, so a video that needs one will not download.
+     */
+    private void sendVideo() {
+        String link = ServerAddress.videoLink(web.getUrl());
+        if (link.isEmpty()) {
+            say("Open a video page on a public website first.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Sending the video link to Baihe...");
+        sender.execute(() -> {
+            try {
+                new BaiheClient(server, token).sendVideo(link);
+                say("Sent. Baihe is downloading and subtitling it; follow it in Baihe's Jobs.", GrabUi.Kind.OK);
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
     }
 
     private void setTranslate(boolean on) {
