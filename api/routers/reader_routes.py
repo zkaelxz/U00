@@ -52,8 +52,8 @@ from api.schemas import (ErrorResponse, ReaderAnswer, ReaderAskRequest, ReaderEx
                          ReaderRecapRequest, ReaderRelationshipMap, ReaderRichExportRequest,
                          ReaderRichExportResult, ReaderScopedLlmRequest, ReaderVocabList,
                          ReaderWhoRequest, ReaderWikiClearRequest, ReaderWikiClearResult,
-                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, error_responses)
-from services import export_service, reader_service
+                         ReaderWikiList, ReaderWikiUpdateRequest, ReaderWikiUpdateResult, StudyLine, error_responses)
+from services import export_service, reader_service, study_service
 from lib.errors import ForbiddenError, NotFoundError
 
 router = APIRouter(prefix="/api/reader", tags=["reader"])
@@ -209,6 +209,12 @@ def post_lookup(body: ReaderLookupRequest, request: Request, drama_id: int = Pat
         return reader_service.lookup_page_definitions(
             drama_id, body.page, body.chapter_size, use_llm=True,
             engine_name=engine, model=model)
+
+
+@router.get("/dramas/{drama_id}/lines/{line_id}/study", dependencies=[require_permission("lines.read")], response_model=StudyLine,
+            summary="One line's words with readings and meanings (local data only, no paid call)", responses=_READ_ERRS)
+def get_line_study(drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
+    return study_service.line_study(drama_id, line_id)
 
 
 @router.get("/dramas/{drama_id}/vocab", dependencies=[require_permission("library.read")], response_model=ReaderVocabList,

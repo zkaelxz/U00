@@ -27,6 +27,8 @@ __all__ = [
     "ReaderLookupRequest",
     "ReaderDefinition",
     "ReaderLookupResult",
+    "StudyWord",
+    "StudyLine",
     "ReaderVocabWord",
     "ReaderVocabList",
     "ReaderRichExportRequest",
@@ -185,6 +187,20 @@ class ReaderLookupResult(BaseModel):
     page: int
     definitions: Dict[str, ReaderDefinition]
     saved: int
+
+
+class StudyWord(BaseModel):
+    word: str
+    reading: Optional[str] = None
+    meanings: List[str] = []
+
+
+class StudyLine(BaseModel):
+    line_id: int
+    language: str
+    original: str
+    words: List[StudyWord]
+    needs_install: Optional[str] = None
 
 
 class ReaderVocabWord(BaseModel):

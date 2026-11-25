@@ -23,6 +23,7 @@ import type {
   ReaderWikiClearResult,
   ReaderWikiList,
   ReaderWikiUpdateResult,
+  StudyLine,
   RichDeckDownload,
 } from '../types/reader'
 import { apiUrl, fetchBody, getJson, postJson, queryOf, type Fetch } from './client'
@@ -94,6 +95,7 @@ export async function downloadRichDeck(id: number, fetchImpl?: Fetch): Promise<R
 
 export const readerApi = {
   page: (id: number, p: ReaderPageParams, f?: Fetch) => getJson<ReaderPage>(pagePath(id, p), f),
+  lineStudy: (id: number, lineId: number, f?: Fetch) => getJson<StudyLine>(`${root(id)}/lines/${lineId}/study`, f),
   overview: (id: number, f?: Fetch) => getJson<ReaderOverview>(`${root(id)}/overview`, f),
   saveProgress: (id: number, page: number, chapter_size: number, f?: Fetch) =>
     postJson<ReaderProgress>(`${root(id)}/progress`, { page, chapter_size }, f),
