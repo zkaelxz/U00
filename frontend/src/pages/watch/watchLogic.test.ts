@@ -4,6 +4,7 @@ import { ApiError } from '../../api/client'
 import type { ReviewLine } from '../../types/review'
 import { START_SLACK_S } from '../reader/readAlongLogic'
 import {
+  checkStep, linesToCheck,
   attentionIndex, clockTenths, currentLine, fieldKey, fixIsDirty, focusAfterFix, FOLLOW_AT, FOLLOW_PAUSE_MS, followPaused, followScroll,
   lineHeading, lineToFix, loopLineAt, openFix, OWN_SCROLL_MS, ownScrollUntil, parkedOutcome, parkFix, positionKey, readParkedFix,
   quietSkip, QUIET_LEAD_S, resumePoint, rowMeta, saveFix, SPEAKER_COLOURS, speakerSlots, spokenOrder, stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, verdictChange, watchKey,
@@ -419,6 +420,23 @@ describe('the mark and jump keys', () => {
 
   it('leaves the letters to a field being typed in', () => {
     expect(['g', 'x', 'm', 'n', 'p'].map((k) => watchKey(k, field))).toEqual([null, null, null, null, null])
+  })
+})
+
+describe('lines to check', () => {
+  const l = (id: number, reviewed = false) => ({ id, reviewed })
+  const ordered = [l(1), l(2, true), l(3), l(4), l(5)]
+  const index = new Map(ordered.map((x, i) => [x.id, i]))
+  it('keeps the risky lines nobody has said look right, in spoken order', () => {
+    expect(linesToCheck(ordered, new Set([4, 2, 1])).map((x) => x.id)).toEqual([1, 4])
+  })
+  it('steps to the next and previous one from the spoken line', () => {
+    const checks = linesToCheck(ordered, new Set([1, 4]))
+    expect(checkStep(checks, index, null, 1)).toBe(0)
+    expect(checkStep(checks, index, 0, 1)).toBe(1)
+    expect(checkStep(checks, index, 3, 1)).toBeNull()
+    expect(checkStep(checks, index, 3, -1)).toBe(0)
+    expect(checkStep(checks, index, 0, -1)).toBeNull()
   })
 })
 
