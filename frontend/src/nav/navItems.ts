@@ -74,20 +74,16 @@ export const NAV_ITEMS: NavItem[] = [
     advanced: true,
     rail: { group: 'library', active: ['library-tools', 'manga', 'manga-series', 'manga-read'] },
   }),
-  // Every way in creates a title, so the item needs the permission the Library's Add box needs:
-  // making a title by hand, or One-click translate from a link.
-  item('Add', { name: 'make-subtitles' }, {
-    requires: 'library.create',
-    hideWithoutPermission: true,
-    orRequires: 'media.import_url',
-    rail: { group: 'find', active: ['make-subtitles'] },
+  // One page for finding a title by name and adding one from a link or file. Which actions it offers follows the
+  // person's rights (making a title, Import from a link, Sources import), so a read-only account still sees the search.
+  item('Find & Add', { name: 'make-subtitles' }, {
+    requires: 'library.read',
+    rail: { group: 'find', active: ['make-subtitles', 'discover', 'sources', 'sources-manage'] },
   }),
   item('Text', { name: 'translate' }, {
     requires: 'library.read',
     rail: { group: 'tools', active: ['translate'] },
   }),
-  // Discover and Sources are two tabs of one entry; Discover carries the switch (pages/FindSwitch.tsx) and Sources links back from Paste a link.
-  item('Find', { name: 'discover' }, { requires: 'library.read', rail: { group: 'find', active: ['discover', 'sources', 'sources-manage'] } }),
   // Read-only digest of New chapters and followed channels; both of its reads are library.read.
   item('Updates', { name: 'updates' }, { requires: 'library.read', rail: { group: 'find', active: ['updates'] } }),
   item('Live', { name: 'live' }, { requires: 'library.read', rail: { group: 'tools', active: ['live'] } }),
