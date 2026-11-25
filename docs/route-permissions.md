@@ -274,6 +274,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
 | `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-page` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-pages` | device_token (extension.send) |
 | `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |

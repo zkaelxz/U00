@@ -181,6 +181,15 @@ CREATE TABLE IF NOT EXISTS chapter_notification_dismissals (
     user_id INTEGER NOT NULL,
     PRIMARY KEY (notification_id, user_id)
 );
+-- The page each account was last reading on each site, so another phone can pick up there.
+CREATE TABLE IF NOT EXISTS grab_last_pages (
+    user_id INTEGER NOT NULL,
+    host TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (user_id, host)
+);
 CREATE TABLE IF NOT EXISTS cache_index (
     url TEXT PRIMARY KEY,
     sha256 TEXT NOT NULL,
