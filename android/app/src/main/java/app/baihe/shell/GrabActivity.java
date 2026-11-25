@@ -1021,6 +1021,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
     private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
+    private volatile String pageLanguage = "";
     private JSONArray pageChapters = new JSONArray();
 
     private static final long GRAB_TIMEOUT_MS = 9 * 60 * 1000;
@@ -1034,6 +1035,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageUrl = "";
     private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
+
+    @Override
+    public void onLanguage(String language) {
+        pageLanguage = language;
+    }
 
     @Override
     public void onBegin(List<String> titles, int count, JSONArray chapterLinks, String next) {
@@ -1055,6 +1061,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String agent = pageAgent;
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
+        String language = pageLanguage;
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -1105,6 +1112,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
+            client.sourceLanguage = language;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
