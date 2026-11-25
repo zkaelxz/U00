@@ -15,6 +15,9 @@ export function isMetered(nav: { connection?: Connection } | undefined = typeof 
 
 export const lowDataActive = (mode: LowDataMode, metered: boolean) => mode === 'on' || (mode === 'auto' && metered)
 
+// Live's picture is the one costly part of a session (the lines are text): held back on a metered connection until the person asks for it.
+export const videoHeldBack = (saver: boolean, metered: boolean, forced: boolean) => saver && metered && !forced
+
 export function useLowData(): { mode: LowDataMode; setMode: (m: LowDataMode) => void; active: boolean } {
   const [stored, setMode] = usePersistedState<string>('comic.lowData', 'auto')
   const mode: LowDataMode = stored === 'on' || stored === 'off' ? stored : 'auto'

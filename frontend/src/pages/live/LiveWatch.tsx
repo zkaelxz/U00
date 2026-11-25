@@ -19,6 +19,7 @@ import { LiveCaptions } from './LiveCaptions'
 import { LiveChatSection } from './LiveChat'
 import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
+import { isMetered, videoHeldBack } from '../comic/lowData'
 import { ViewingOptions, type TextSize } from './ViewingOptions'
 import { chipLabels, useRunningSessions } from './useRunningSessions'
 import type { Session } from './useLiveSession'
@@ -40,7 +41,12 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const status = session.status?.status ?? 'queued'
   const active = isActive(status)
   const running = useRunningSessions(session.id, cancelsAnyJob(useSession()))
-  const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [storedShowVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [dataSaver, setDataSaver] = usePersistedState<boolean>('live.dataSaver', true)
+  // Asking for the picture while it is held back lasts until the page is reloaded, so the saved choice stays as it was.
+  const [forced, setForced] = useState(false)
+  const held = videoHeldBack(dataSaver, isMetered(), forced)
+  const showVideo = storedShowVideo && !held
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
@@ -90,7 +96,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   // Beside the picture when there is one; above the lines otherwise, so the text options never depend on a video.
   const options = (
     <ViewingOptions textSize={textSize} onTextSize={setTextSize} showOriginal={showOriginal} onShowOriginal={setShowOriginal}
-      captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={setShowVideo} hasPicture={videoLive}
+      captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={(v) => (v && held ? setForced(true) : setShowVideo(v))} dataSaver={dataSaver} onDataSaver={setDataSaver} hasPicture={videoLive}
       onFloat={pictureShown && canPopOut() ? popOut : null}
       delay={delayable ? {
         seconds: delay, auto: delayAuto, manual: videoDelay,

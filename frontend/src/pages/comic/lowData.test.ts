@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { isMetered, lowDataActive } from './lowData'
+import { isMetered, lowDataActive, videoHeldBack } from './lowData'
 
 describe('low data mode', () => {
   it('Auto follows the data-saver switch or a cellular connection', () => {
@@ -16,5 +16,12 @@ describe('low data mode', () => {
     expect(lowDataActive('off', true)).toBe(false)
     expect(lowDataActive('auto', true)).toBe(true)
     expect(lowDataActive('auto', false)).toBe(false)
+  })
+
+  it('holds Live video back only on a metered connection, until it is asked for', () => {
+    expect(videoHeldBack(true, true, false)).toBe(true)
+    expect(videoHeldBack(true, true, true)).toBe(false)
+    expect(videoHeldBack(true, false, false)).toBe(false)
+    expect(videoHeldBack(false, true, false)).toBe(false)
   })
 })
