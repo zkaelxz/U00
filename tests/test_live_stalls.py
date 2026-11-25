@@ -1078,3 +1078,15 @@ def test_speed_text_says_faster_or_slower_than_real_time():
     assert live_whisper.speed_text(0.67, 10) == "10 s of audio in 0.7 s (about 15x faster than real time)"
     assert live_whisper.speed_text(25, 10) == "10 s of audio in 25.0 s (2.5x slower than real time)"
     assert live_whisper.speed_text(None, 10) == ""
+
+
+class TestModelPrefetch:
+    def test_reads_a_downloaded_model_once_and_skips_while_capturing(self, tmp_path, monkeypatch):
+        (tmp_path / "model.bin").write_bytes(b"x" * 100)
+        monkeypatch.setattr(live_whisper, "_prefetched", {})
+        monkeypatch.setattr(live_whisper.whisper_models, "model_snapshot_folder",
+                            lambda size: str(tmp_path) if size == "have" else None)
+        assert live_whisper.prefetch_model_files("missing") is False
+        assert live_whisper.prefetch_model_files("have", busy=lambda: True) is False
+        assert live_whisper.prefetch_model_files("have") is True
+        assert live_whisper.prefetch_model_files("have") is False   # not again within the interval
