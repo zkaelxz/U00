@@ -43,17 +43,9 @@ import java.util.concurrent.Executors;
  * Google sign-in does not work inside an embedded web view, and a token can be revoked.
  */
 public class GrabActivity extends Activity implements GrabBridge.Listener {
-<<<<<<< HEAD
-    private static final String PREFS = "grab";
-    private static final String KEY_SERVER = "server";
-    private static final String KEY_TOKEN = "token";
-=======
     static final String PREFS = "grab";
     static final String KEY_SERVER = "server";
     static final String KEY_TOKEN = "token";
-    private static final String KEY_QUEUE = "queue";
-    private static final String KEY_HISTORY = "history";
->>>>>>> origin/baihe-subtitler
     private static final String KEY_READ_AHEAD = "read_ahead";
 
     private WebView web;
