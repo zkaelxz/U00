@@ -275,9 +275,9 @@ def test_restart_marks_the_running_item_interrupted_and_runs_nothing(jobs):
 
 def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
     did = _drama()
-    q.add_item(None, did, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "02:00", now=now)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     start_at = q.get_queue(None)["schedule"]["start_at"]
     q.restore_at_startup(now=start_at + 60)
     sched = q.get_queue(None)["schedule"]
@@ -293,9 +293,9 @@ def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
 
 def test_a_schedule_fires_once_at_its_time_and_clears(jobs):
     a, b = _drama("A"), _drama("B")
-    q.add_item(None, a, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "23:30", now=now)
+    q.add_item(None, a, "transcribe", True, at_pc=True)      # a start time is the start: adding doesn't run it
     start_at = q.get_queue(None)["schedule"]["start_at"]
     assert now < start_at <= now + 86400
     q.tick(now=start_at - 1)
@@ -306,10 +306,10 @@ def test_a_schedule_fires_once_at_its_time_and_clears(jobs):
     jobs.finish(f"transcribe_{a}")
     q.tick(now=start_at + 10)
     assert q.get_queue(None)["state"] == "idle"
-    # Added later, it waits: the schedule fired once.
+    # The schedule fired once and is gone: an item added later starts the idle queue itself.
     q.add_item(None, b, "transcribe", True, at_pc=True)
     q.tick(now=start_at + 86400 + 10)
-    assert jobs.started == [f"transcribe_{a}"]
+    assert jobs.started == [f"transcribe_{a}", f"transcribe_{b}"]
 
 
 def test_next_occurrence_is_strictly_after_now():
@@ -360,7 +360,7 @@ def test_all_steps_adds_three_ordered_items_each_waiting(jobs):
     q.add_all_steps(None, did, True, at_pc=True)
     assert [(i["step"], i["drama_id"], i["status"]) for i in _items()] == [
         ("transcribe", did, "waiting"), ("translate", did, "waiting"), ("export", did, "waiting")]
-    assert q.get_queue(None)["state"] == "idle"
+    assert q.get_queue(None)["state"] == "running"
 
 
 def test_all_steps_adds_nothing_when_any_step_is_refused(jobs):
@@ -502,9 +502,9 @@ def test_a_start_time_passed_long_ago_while_the_pc_slept_is_missed(jobs):
     # A sleeping PC runs no tick: on wake, hours late, the queue must not
     # start on its own any more than after a restart.
     did = _drama()
-    q.add_item(None, did, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "02:00", now=now)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     start_at = q.get_queue(None)["schedule"]["start_at"]
     q.tick(now=start_at + q.SCHEDULE_LATE_SECONDS + 1)
     assert jobs.started == []
@@ -514,9 +514,9 @@ def test_a_start_time_passed_long_ago_while_the_pc_slept_is_missed(jobs):
 
 def test_a_start_time_a_little_late_still_fires(jobs):
     did = _drama()
-    q.add_item(None, did, "transcribe", True, at_pc=True)
     now = 1_900_000_000.0
     q.set_schedule(None, "02:00", now=now)
+    q.add_item(None, did, "transcribe", True, at_pc=True)
     start_at = q.get_queue(None)["schedule"]["start_at"]
     q.tick(now=start_at + q.SCHEDULE_LATE_SECONDS - 1)
     assert jobs.started == [f"transcribe_{did}"]
@@ -679,7 +679,7 @@ def test_bulk_add_queues_each_title_and_skips_the_refused_with_a_reason(jobs):
     assert all(s["reason"] for s in out["skipped"])
     assert [(i["drama_id"], i["step"]) for i in _items()] == [
         (d, s) for d in (a, b) for s in ("transcribe", "translate", "export")]
-    assert out["queue"]["state"] == "idle"
+    assert out["queue"]["state"] == "running"
 
 
 def test_bulk_add_one_step_and_a_bad_step(jobs):
@@ -823,3 +823,98 @@ def test_a_policy_call_changes_only_what_it_sends(jobs):
     assert state["stop_on_failure"] and state["overlap_online_translate"]
     q.set_policy(None, stop_on_failure=False)
     assert q.get_queue(None)["overlap_online_translate"] is True
+
+
+def test_adding_an_item_starts_the_idle_queue_by_itself(jobs):
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}"]
+
+
+def test_adding_never_overrides_a_pause_a_start_time_or_a_failure_stop(jobs):
+    a = _drama("A")
+    q.set_schedule(None, "23:30", now=1_900_000_000.0)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    assert q.get_queue(None)["state"] == "idle"
+    q.set_schedule(None, None)
+    q.start(None)
+    q.pause(None)
+    q.add_item(None, a, "export", True, at_pc=True)
+    assert q.get_queue(None)["state"] == "paused"
+    with q._lock:
+        doc = q._load()
+        doc["state"], doc["notice"] = q.IDLE, "Stopped because an item failed."
+        q._save(doc)
+    q.add_item(None, a, "export", True, at_pc=True)
+    assert q.get_queue(None)["state"] == "idle"
+    q.tick()
+    assert jobs.started == []
+
+
+def test_any_admin_may_control_the_queue_but_a_member_may_not(jobs):
+    admin = {"user_id": 1, "is_admin": True, "permissions": ["jobs.start"]}
+    member = {"user_id": 2, "is_admin": False, "permissions": ["jobs.start"]}
+    assert q.get_queue(admin)["can_control"] is True
+    q.pause(admin)
+    q.set_schedule(admin, "23:30", now=1_900_000_000.0)
+    q.start(admin)
+    with pytest.raises(ForbiddenError):
+        q.pause(member)
+
+
+def test_a_member_pauses_resumes_and_cancels_their_own_waiting_item(jobs):
+    u = auth_service.add_user("m@example.com")
+    mine = _drama("Mine", owner_user_id=u["id"], is_private=1)
+    other = _drama("Other")
+    member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    q.pause(None)
+    q.start(None)
+    q.add_item(None, other, "transcribe", True, at_pc=True)     # first in line, running at the next tick
+    q.tick()
+    q.add_item(member, mine, "transcribe", False, at_pc=True)
+    item = [i for i in q.get_queue(member)["items"]][0]
+    q.hold_item(member, item["id"], True)
+    assert q.get_queue(member)["items"][0]["held"] is True
+    jobs.finish(f"transcribe_{other}")
+    q.tick()
+    assert jobs.started == [f"transcribe_{other}"]              # the paused item is skipped
+    q.hold_item(member, item["id"], False)
+    q.tick()
+    assert jobs.started == [f"transcribe_{other}", f"transcribe_{mine}"]
+    q.cancel_item(member, item["id"])
+    assert background_jobs.get_status(f"transcribe_{mine}")["status"] in ("cancelled", "running")
+    jobs.finish(f"transcribe_{mine}")
+
+
+def test_cancelling_a_waiting_item_marks_it_cancelled_and_only_its_adder_may(jobs):
+    u = auth_service.add_user("m@example.com")
+    v = auth_service.add_user("n@example.com")
+    mine = _drama("Mine", owner_user_id=u["id"], is_private=1)
+    member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    stranger = {"user_id": v["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    q.pause(None)
+    q.add_item(member, mine, "transcribe", False, at_pc=True)
+    item_id = q.get_queue(member)["items"][0]["id"]
+    with pytest.raises(NotFoundError):
+        q.cancel_item(stranger, item_id)
+    q.cancel_item(member, item_id)
+    assert _status() == [("transcribe", "cancelled")]
+    with pytest.raises(ConflictError):
+        q.cancel_item(member, item_id)
+
+
+def test_a_members_add_never_starts_another_accounts_waiting_items(jobs):
+    u = auth_service.add_user("m@example.com")
+    mine = _drama("Mine", owner_user_id=u["id"], is_private=1)
+    owners = _drama("Owners")
+    member = {"user_id": u["id"], "is_admin": False, "permissions": ["jobs.start"]}
+    q.pause(None)
+    q.add_item(None, owners, "transcribe", True, at_pc=True)
+    with q._lock:
+        doc = q._load()
+        doc["state"] = q.IDLE
+        q._save(doc)
+    q.add_item(member, mine, "transcribe", False, at_pc=True)
+    q.tick()
+    assert q.get_queue(None)["state"] == "idle" and jobs.started == []
