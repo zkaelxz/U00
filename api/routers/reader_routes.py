@@ -172,7 +172,8 @@ def get_watch_position(request: Request, drama_id: int = Path(ge=1)):
     return reader_service.get_watch_position(drama_id, user_id=principal_user_id(request) or 0)
 
 
-@router.post("/dramas/{drama_id}/watch-position", dependencies=[require_permission("lines.edit")],
+# library.read, not lines.edit: the place is the caller's own row (their user_id), so anyone who may watch may keep it.
+@router.post("/dramas/{drama_id}/watch-position", dependencies=[require_permission("library.read")],
              response_model=ReaderWatchPosition, summary="Save where this account is in the player",
              responses=_READ_ERRS)
 def post_watch_position(body: ReaderWatchPositionRequest, request: Request, drama_id: int = Path(ge=1)):

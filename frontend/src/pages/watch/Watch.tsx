@@ -140,7 +140,7 @@ export default function WatchPage({ id }: { id: number }) {
   const playable = kind !== null && !readOnly ? original : null
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
-  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player, canEdit)
+  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player)
   const { resume: backToSound, scrollHandlers } = useFollow(list, currentId)
   // Every move of the playhead by the person also ends "Back where you stopped", which would name a place left behind.
   const resume = useCallback(() => {
@@ -242,7 +242,7 @@ export default function WatchPage({ id }: { id: number }) {
     showCurrent(0)
     writePref(browserStorage(), positionKey(id), 0)
     writePref(browserStorage(), positionTimeKey(id), Date.now())
-    if (canEdit) void readerApi.saveWatchPosition(id, 0).catch(() => undefined)
+    void readerApi.saveWatchPosition(id, 0).catch(() => undefined)
     clearResumed()
   }
 
@@ -434,12 +434,7 @@ export default function WatchPage({ id }: { id: number }) {
  * changes with the voice rather than at the next timeupdate (about four a second); state changes only when the line
  * does, so the page does not redraw every frame. The position is kept per title in this browser.
  */
-function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: ReviewLine[], player: RefObject<PlayerHandle | null>, canSave: boolean) {
-  // Read by the save, so the session arriving does not restart the clock (and seek to the saved place a second time).
-  const canSaveRef = useRef(canSave)
-  useEffect(() => {
-    canSaveRef.current = canSave
-  }, [canSave])
+function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: ReviewLine[], player: RefObject<PlayerHandle | null>) {
   const playerBoxRef = useRef<HTMLDivElement | null>(null)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const [currentId, setCurrentId] = useState<number | null>(null)
@@ -511,7 +506,7 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
       if (!settled) return
       writePref(storage, positionKey(id), el.currentTime)
       writePref(storage, positionTimeKey(id), Date.now())
-      if (!toServer || !canSaveRef.current) return
+      if (!toServer) return
       lastServerSave = Date.now()
       void readerApi.saveWatchPosition(id, el.currentTime).catch(() => undefined)
     }
