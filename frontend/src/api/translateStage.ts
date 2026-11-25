@@ -170,6 +170,8 @@ export const acceptGlossaryInbox = (id: number, term: string, translation: strin
   postJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox/accept`, { term, translation }, f)
 export const rejectGlossaryInbox = (id: number, term: string, f?: Fetch) =>
   postJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox/reject`, { term }, f)
+export const restoreGlossaryInbox = (id: number, terms: string[], f?: Fetch) =>
+  postJson<GlossaryInbox>(`/api/glossary/dramas/${id}/inbox/restore`, { terms }, f)
 /** Deletes the named terms in one request (by id); ids no longer in the glossary come back in not_found. */
 export const deleteGlossaryTerms = (id: number, termIds: number[], f?: Fetch) =>
   postJson<GlossaryBulkDeleteResult>(`/api/glossary/dramas/${id}/terms/bulk-delete`, { term_ids: termIds, confirm: true }, f)
