@@ -315,6 +315,8 @@ def _require_pc_for_admin(row, at_pc: bool):
         raise ForbiddenError(ADMIN_AT_PC_ONLY)
 
 
+MAX_DISPLAY_NAME = 100   # matches AdminAddUserRequest and the form
+
 ADD_AT_PC_ONLY = "People can only be added at the main PC."
 
 
@@ -334,22 +336,17 @@ def admin_add_user(email: str, display_name: str = "", extension_send: bool = Fa
     return _admin_view(user, actor_id, time.time())
 
 
-DELETE_AT_PC_ONLY = "People can only be deleted at the main PC."
-
-
-def admin_delete_user(user_id: int, actor_id=None, at_pc: bool = False) -> dict:
+def admin_delete_user(user_id: int, actor_id=None) -> dict:
     """The People screen's "Delete…" on a deactivated member: removes the
     account for good, so the email can be added again as a new person.
-    PC-only (403 elsewhere, checked first): it can't be undone and a remote
-    admin session has no second factor. Checks: 404, own account (409), an
+    Allowed from any device an admin is signed in on (owner decision
+    2026-11-25; it can't be undone, so only a deactivated member). Checks: 404, own account (409), an
     admin (409: remove their admin rights first), still active (409:
     deactivate first, so every deactivation cleanup has already run).
     Titles, series and audit rows keep the old id; with no account behind
     it only admins see that person's private items. The shared-glossary
     detach is repeated because an account deactivated before that cleanup
     existed would otherwise keep its groups attached."""
-    if not at_pc:
-        raise ForbiddenError(DELETE_AT_PC_ONLY)
     row = _require_user(user_id)
     if actor_id is not None and user_id == actor_id:
         raise ConflictError("You can't delete your own account.")
@@ -479,6 +476,21 @@ def admin_set_paid_limit(user_id: int, monthly_cap_usd, actor_id=None) -> dict:
     db.auth_update_user(user_id, monthly_paid_cap_usd=monthly_cap_usd)
     write_audit(actor_id, "user.paid_limit",
                 f"user {user_id}: " + ("none" if monthly_cap_usd is None else f"${monthly_cap_usd:.2f}"))
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
+def admin_set_display_name(user_id: int, display_name, actor_id=None) -> dict:
+    """The People screen's "Edit name": sets or clears (empty) the optional
+    name shown beside an account's email; returns the admin_list_users row.
+    Allowed on the caller's own account and on an admin's, from away too
+    (owner decision 2026-11-25: a name can't lock anyone out). The audit row records only
+    whether a name was set, never the name itself (it can be a real name)."""
+    _require_user(user_id)
+    name = " ".join(str(display_name or "").split())
+    if len(name) > MAX_DISPLAY_NAME:
+        raise InvalidInputError(f"The name can be at most {MAX_DISPLAY_NAME} characters.")
+    db.auth_update_user(user_id, display_name=name)
+    write_audit(actor_id, "user.rename", f"user {user_id}: " + ("name set" if name else "name cleared"))
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 

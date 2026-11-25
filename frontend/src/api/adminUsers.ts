@@ -2,7 +2,7 @@
 // Reads need admin.users.read, writes admin.users. The writes are not
 // local_only() routes, so they use plain postJson, not pcOnlyFetch: an admin
 // may change member accounts from away, and the server refuses (403) any
-// change to an admin account there, and adding or deleting a person.
+// other change to an admin account there, and adding a person.
 import type {
   AdminAddUserRequest, AdminSessionsRevoked, AdminUser, AdminUserDeleted, AdminUserList, AuditPage, AuditQuery,
 } from '../types/adminUsers'
@@ -19,7 +19,7 @@ export const listAdminUsers = (f?: Fetch) => getJson<AdminUserList>(`${BASE}/use
 export const addAdminUser = (body: AdminAddUserRequest, f?: Fetch) =>
   postJson<AdminUser>(`${BASE}/users`, body, f)
 
-/** Deletes a deactivated member account for good (main PC only). */
+/** Deletes a deactivated member account for good. */
 export const deleteAdminUser = (id: number, f?: Fetch) =>
   deleteJson<AdminUserDeleted>(`${BASE}/users/${id}`, f)
 
@@ -36,6 +36,10 @@ export const setUserPermission = (id: number, permission: string, granted: boole
   const url = `${BASE}/users/${id}/permissions/${encodeURIComponent(permission)}`
   return granted ? postJson<AdminUser>(url, undefined, f) : deleteJson<AdminUser>(url, f)
 }
+
+/** Sets or clears (empty) a person's optional name; allowed on any account, from any device. */
+export const setUserDisplayName = (id: number, displayName: string, f?: Fetch) =>
+  postJson<AdminUser>(`${BASE}/users/${id}/display-name`, { display_name: displayName }, f)
 
 /** A member's own monthly limit for paid engines, in USD; null clears it. */
 export const setUserPaidLimit = (id: number, monthlyCapUsd: number | null, f?: Fetch) =>

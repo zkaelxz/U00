@@ -71,8 +71,8 @@ describe('status text', () => {
   it('maps refusals to plain words', () => {
     expect(describeFollowError(new ApiError(403, { code: 'forbidden', message: 'x' }))).toMatch(/import from a link/)
     expect(describeFollowError(new ApiError(429, { code: 'rate_limited', message: 'x' }))).toMatch(/less than a minute/)
-    expect(describeFollowError(new ApiError(409, { code: 'conflict', message: 'You already follow that channel.' })))
-      .toMatch(/already follow/)
+    expect(describeFollowError(new ApiError(409, { code: 'conflict', message: 'Channel has already been added.' })))
+      .toBe('Channel has already been added.')
   })
 })
 

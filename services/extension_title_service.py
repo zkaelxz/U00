@@ -333,6 +333,19 @@ _TITLE_PROMPT = ("Translate this {language} comic or novel title into natural En
                  "Title: {title}")
 
 
+def name_in_english(drama_id: int) -> str:
+    """The English title just filled in for a title made from a page that gave only its original
+    name ("" when it already had one, has no original, or the translation was skipped). For the
+    add forms, whose titles are named from a source page or a link rather than by the extension."""
+    drama = db.get_drama(drama_id) or {}
+    original = str(drama.get("title_zh") or "").strip()
+    if not original or str(drama.get("title_en") or "").strip():
+        return ""
+    if not _translate_title_once(drama_id, original, drama.get("source_language") or ""):
+        return ""
+    return str((db.get_drama(drama_id) or {}).get("title_en") or "")
+
+
 def _translate_title_once(drama_id: int, original: str, language: str) -> bool:
     """Puts an English title on a title the capture just created from a page that gave only the
     original name, with one small AI call on the engine the extension is set up with (the same one
