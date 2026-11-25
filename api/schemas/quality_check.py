@@ -4,7 +4,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-__all__ = ["QualityClip", "QualityCheck"]
+__all__ = ["QualityClip", "QualityCheck", "QualityPoint", "QualitySeries", "QualityHistory"]
 
 
 class QualityClip(BaseModel):
@@ -33,3 +33,22 @@ class QualityCheck(BaseModel):
     margin: Optional[float] = None
     max_age_days: int
     clips: List[QualityClip]
+
+
+class QualityPoint(BaseModel):
+    when: str = Field(description="When that release check ran, the PC's local time (YYYY-MM-DD HH:MM).")
+    score: Optional[float] = Field(None, description="The clip's score in that run (median of its repeats); None when it failed.")
+    baseline: Optional[float] = None
+
+
+class QualitySeries(BaseModel):
+    id: str
+    kind: str
+    metric: Optional[str] = Field(None, description="cer or wer (scored as 1 - error), der (lower is better) or chrf.")
+    language: Optional[Literal["zh", "ja", "ko", "en"]] = Field(None, description="None for a clip no run recorded a language for.")
+    points: List[QualityPoint] = Field(description="Oldest first.")
+
+
+class QualityHistory(BaseModel):
+    runs: int = Field(description="How many release check results were read.")
+    series: List[QualitySeries]

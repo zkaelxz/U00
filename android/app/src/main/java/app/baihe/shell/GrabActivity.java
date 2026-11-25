@@ -141,12 +141,52 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         settings.setAllowContentAccess(false);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setSafeBrowsingEnabled(true);
+        // With multiple windows off, a pop-up replaces the page being read; on, onCreateWindow decides.
+        settings.setSupportMultipleWindows(true);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        AdHosts.setExtra(prefs().getString(KEY_EXTRA_ADS, ""));
+        web.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override
+            public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
+                // A tap on a real link may open a new window; anything a script opens by itself is a pop-up.
+                if (!userGesture || !(resultMsg.obj instanceof WebView.WebViewTransport)) return false;
+                WebView catcher = new WebView(GrabActivity.this);
+                catcher.setWebViewClient(new WebViewClient() {
+                    private boolean handled;
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest request) {
+                        take(v, request.getUrl());
+                        return true;
+                    }
+
+                    @Override
+                    public void onPageStarted(WebView v, String url, Bitmap favicon) {
+                        take(v, Uri.parse(url));
+                    }
+
+                    private void take(WebView v, Uri uri) {
+                        if (handled) return;
+                        handled = true;
+                        boolean web = "https".equals(uri.getScheme()) || "http".equals(uri.getScheme());
+                        if (web && !AdHosts.blocks(uri.getHost())) GrabActivity.this.web.loadUrl(uri.toString());
+                        v.stopLoading();
+                        v.post(v::destroy);
+                    }
+                });
+                ((WebView.WebViewTransport) resultMsg.obj).setWebView(catcher);
+                resultMsg.sendToTarget();
+                return true;
+            }
+        });
         web.addJavascriptInterface(bridge, "Baihe");
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 String scheme = request.getUrl().getScheme();
-                return !"https".equals(scheme) && !"http".equals(scheme);
+                if (!"https".equals(scheme) && !"http".equals(scheme)) return true;
+                // A redirect to an ad network is cut off, so the page stays where it is.
+                return request.isForMainFrame() && AdHosts.blocks(request.getUrl().getHost());
             }
 
             @Override
@@ -266,6 +306,53 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             web.loadUrl(url);
         }
+    }
+
+    private static final String KEY_EXTRA_ADS = "extra_ad_hosts";
+
+    /** Sites the built-in list misses; blocking one stops its pop-ups and its requests from loading. */
+    private void editAdList() {
+        EditText hosts = new EditText(this);
+        hosts.setHint("One site per line, like ads.example.com");
+        hosts.setText(prefs().getString(KEY_EXTRA_ADS, ""));
+        hosts.setMinLines(4);
+        hosts.setGravity(android.view.Gravity.TOP);
+        new AlertDialog.Builder(this)
+                .setTitle("Also block these sites")
+                .setView(hosts)
+                .setPositiveButton("Save", (d, w) -> {
+                    String saved = String.join("\n", AdHosts.parseExtra(hosts.getText().toString()));
+                    prefs().edit().putString(KEY_EXTRA_ADS, saved).apply();
+                    AdHosts.setExtra(saved);
+                    say("Blocking " + AdHosts.parseExtra(saved).size() + " more sites. Reload the page to see it.");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static final int REQUEST_GALLERY = 41;
+
+    private void pickGallery() {
+        Intent pick = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+                .addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(pick, "Pictures to translate"), REQUEST_GALLERY);
+    }
+
+    /** Picked pictures take the same road as ones shared from the gallery, so the title prompt and limits are shared. */
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_GALLERY || result != RESULT_OK || data == null) return;
+        ArrayList<Uri> picked = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) picked.add(data.getClipData().getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            picked.add(data.getData());
+        }
+        if (picked.isEmpty()) return;
+        Intent shared = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/*")
+                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, picked);
+        shareImages(shared);
     }
 
     /** What another app shared: a link opens in the browser, images go straight to Baihe. */
@@ -423,6 +510,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
+        menu.getMenu().add("Pictures from my gallery");
+        menu.getMenu().add("Ad block list");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
@@ -434,6 +523,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if ("Translate this page".equals(title)) setTranslate(true);
             else if ("Show original page".equals(title)) setTranslate(false);
             else if ("Settings".equals(title)) showSettings();
+            else if ("Pictures from my gallery".equals(title)) pickGallery();
+            else if ("Ad block list".equals(title)) editAdList();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));

@@ -35,7 +35,7 @@ from api.auth import holds_paid_engines, is_at_pc, local_only, require_engines_a
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
-                         DramaSeriesUpdate, NextEpisode, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleSettingSources,
+                         DramaSeriesUpdate, NextEpisode, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleLinkLookup, TitleLinkMatches, TitleSettingSources,
                          DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
@@ -93,6 +93,14 @@ def _with_english_title(request: Request, result: dict) -> dict:
 def post_same_titles(payload: SameTitleQuery, request: Request):
     return SameTitleList(items=drama_service.find_same_titles(
         **payload.model_dump(), principal=request.state.principal))
+
+
+@router.post("/by-links", dependencies=[require_permission("library.read")], response_model=TitleLinkMatches,
+             summary="Which of these source page links already have a title the caller can see (Find & Add results)",
+             responses=error_responses(422))
+def post_titles_by_links(payload: TitleLinkLookup, request: Request):
+    return TitleLinkMatches(title_ids=drama_service.find_titles_by_links(
+        payload.urls, principal=request.state.principal))
 
 
 @router.post("/{drama_id}/metadata", dependencies=[require_permission("admin.library")], response_model=DramaDetail,

@@ -632,7 +632,7 @@ def test_list_sessions(live, monkeypatch):
     assert _terminal(sid)
     listed = live_service.list_sessions()
     assert [s["session_id"] for s in listed] == [sid]
-    assert set(listed[0]) == {"session_id", "status", "engine", "model", "cue_count"}
+    assert set(listed[0]) == {"session_id", "status", "engine", "model", "cue_count", "source_language", "stream"}
 
 
 def test_url_guard_is_the_one_policy(live, monkeypatch):

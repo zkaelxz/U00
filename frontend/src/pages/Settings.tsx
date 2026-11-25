@@ -57,7 +57,8 @@ import { TranscriptionExperimentsCard } from './settings/TranscriptionExperiment
 import { WebSearchSection } from './settings/WebSearchSection'
 import type { SettingsOverview, SettingsSchemaRow, SettingsToggleKey } from '../types/settings'
 import { filterElsewhere, filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS, tabFoldKeys, tabOfCard, type SettingsTab } from './settings/settingsIndex'
-import { FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
+import { CardChangesProvider, FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
+import { useSettingsChanges } from './settings/settingsChanges'
 import { Tabs } from '../components/Tabs'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
@@ -101,6 +102,7 @@ export default function SettingsPage() {
   // (a replaced key keeps configured=true but clears its Test).
   const [routingToken, setRoutingToken] = useState(0)
   const bumpRouting = () => setRoutingToken((t) => t + 1)
+  const cardChanges = useSettingsChanges()
   const [storedTab, setStoredTab] = usePersistedState<SettingsTab>('settings.tab', 'translation')
   // A search hit or a link opens its card, and Expand all / Collapse all act on the tab on screen: see FoldSignals.
   const [opens, setOpens] = useState<Record<string, number>>({})
@@ -333,6 +335,7 @@ export default function SettingsPage() {
           </ul>
         </nav>
       )}
+      <CardChangesProvider value={cardChanges}>
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
         {settings && prefProps && panel('translation', (
@@ -440,6 +443,7 @@ export default function SettingsPage() {
         ))}
       </VisibleCardsProvider>
       </FoldSignalsProvider>
+      </CardChangesProvider>
     </PageShell>
   )
 }

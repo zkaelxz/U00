@@ -528,8 +528,9 @@ def run_all(manifest: dict, opts) -> dict:
     with gpu_guard(opts.use_gpu, "Release check"):
         for n, clip in enumerate(manifest["clips"]):
             print(f"[{n + 1}/{len(manifest['clips'])}] {clip['id']} ({clip['kind']}) ...", flush=True)
+            # The language lets Diagnostics group score trends per language without reading the private manifest.
             row = {"id": clip["id"], "kind": clip["kind"], "baseline": clip.get("baseline"),
-                   "fixed_decoding": bool(clip.get("fixed_decoding"))}
+                   "language": clip.get("language"), "fixed_decoding": bool(clip.get("fixed_decoding"))}
             try:
                 if clip["kind"] == "transcription":
                     row.update(run_repeated(run_transcription, clip, opts, repeats))

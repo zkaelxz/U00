@@ -60,6 +60,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/ab/next` | admin.diagnostics |
 | `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/suggest` | admin.diagnostics |
 | `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
@@ -190,6 +191,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/quality` | admin.diagnostics |
+| `GET /api/diagnostics/quality/history` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
@@ -227,6 +229,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/titles/{title_id}/import-to-library` | library.create |
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
+| `POST /api/dramas/by-links` | library.read |
 | `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
@@ -549,7 +552,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/reader/dramas/{drama_id}/vocab/export.csv` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/vocab/rich` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/watch-position` | library.read |
-| `POST /api/reader/dramas/{drama_id}/watch-position` | lines.edit |
+| `POST /api/reader/dramas/{drama_id}/watch-position` | library.read |
 | `GET /api/reader/dramas/{drama_id}/wiki` | library.read |
 | `POST /api/reader/dramas/{drama_id}/wiki/clear` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/wiki/export.md` | lines.read |

@@ -15,7 +15,7 @@ import { browserSession } from '../../api/sessionStore'
 import type { DramaDetail } from '../../api/types'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
-import { readHref } from '../../components/libraryView'
+import { parseTime, readHref } from '../../components/libraryView'
 import { PageShell } from '../../components/PageShell'
 import { RetryBanner } from '../../components/RetryBanner'
 import { buttonClass } from '../../components/uiClasses'
@@ -48,7 +48,7 @@ import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
-  ownScrollUntil, parkedOutcome, parkFix, positionKey, quietSkip, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, speakerSlots, spokenOrder,
+  freshServerPlace, newerPlace, ownScrollUntil, parkedOutcome, parkFix, positionKey, positionTimeKey, quietSkip, readParkedFix, resumePoint, rowMeta, saveFix, SAVE_EVERY_MS, SERVER_SAVE_EVERY_MS, serverSeenKey, speakerSlots, spokenOrder,
   stepIndex, titleKindAndLanguages, unparkedFix, unparkFix, watchKey, watchVerb, type LineFix,
 } from './watchLogic'
 import './watch.css'
@@ -242,6 +242,9 @@ export default function WatchPage({ id }: { id: number }) {
     player.current?.seek(0)
     showCurrent(0)
     writePref(browserStorage(), positionKey(id), 0)
+    writePref(browserStorage(), positionTimeKey(id), Date.now())
+    writePref(browserStorage(), serverSeenKey(id), 0)
+    void readerApi.saveWatchPosition(id, 0).catch(() => undefined)
     clearResumed()
   }
 
@@ -481,9 +484,42 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
     let settled = false
     let raf = 0
     let saver = 0
-    const save = () => {
-      if (settled) writePref(storage, positionKey(id), el.currentTime)
+    let lastServerSave = 0
+    // The account's place from another device. The saved place waits for it, but not for long: a slow answer must not
+    // keep the title from opening where this browser stopped.
+    let server: { seconds: number; at: number | null } | null = null
+    let answered = false
+    let metaRead = false
+    let gone = false
+    const settle = () => {
+      if (settled || gone) return
+      settled = true
+      const local = { seconds: Number(readPref(storage, positionKey(id), 0)) || 0, at: Number(readPref(storage, positionTimeKey(id), 0)) || null }
+      const seen = readPref<number | null>(storage, serverSeenKey(id), null)
+      const at = resumePoint(newerPlace(local, freshServerPlace(server, typeof seen === 'number' ? seen : null)), el.duration)
+      if (server) writePref(storage, serverSeenKey(id), server.seconds)
+      if (at === null) return
+      player.current?.seek(at)
+      setResumedAt(at)
     }
+    const heard = () => {
+      answered = true
+      if (metaRead) settle()
+    }
+    readerApi.watchPosition(id).then((p) => {
+      server = { seconds: p.seconds, at: parseTime(p.updated_at) || null }
+    }, () => undefined).finally(heard)
+    const waitLimit = window.setTimeout(heard, 2000)
+    const save = (toServer = true) => {
+      if (!settled) return
+      writePref(storage, positionKey(id), el.currentTime)
+      writePref(storage, positionTimeKey(id), Date.now())
+      if (!toServer) return
+      lastServerSave = Date.now()
+      writePref(storage, serverSeenKey(id), el.currentTime)
+      void readerApi.saveWatchPosition(id, el.currentTime).catch(() => undefined)
+    }
+    const tick = () => save(Date.now() - lastServerSave >= SERVER_SAVE_EVERY_MS)
     const frame = () => {
       showCurrent(el.currentTime)
       raf = requestAnimationFrame(frame)
@@ -493,10 +529,12 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
       window.clearInterval(saver)
     }
     const onPlay = () => {
+      // Pressed before the saved place was settled: playing from where the person pressed wins over a late seek.
+      settled = true
       stopClock()
       setResumedAt(null)
       raf = requestAnimationFrame(frame)
-      saver = window.setInterval(save, SAVE_EVERY_MS)
+      saver = window.setInterval(tick, SAVE_EVERY_MS)
     }
     const onPause = () => {
       stopClock()
@@ -505,30 +543,29 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
     }
     const onSeeked = () => showCurrent(el.currentTime)
     const onMeta = () => {
-      if (settled) return
-      settled = true
-      const at = resumePoint(readPref(storage, positionKey(id), 0), el.duration)
-      if (at === null) return
-      player.current?.seek(at)
-      setResumedAt(at)
+      metaRead = true
+      if (answered) settle()
     }
+    const onLeave = () => save()
     el.addEventListener('play', onPlay)
     el.addEventListener('pause', onPause)
     el.addEventListener('ended', onPause)
     el.addEventListener('seeked', onSeeked)
     el.addEventListener('loadedmetadata', onMeta)
-    window.addEventListener('pagehide', save)
+    window.addEventListener('pagehide', onLeave)
     if (el.readyState >= 1) onMeta()
     if (!el.paused) onPlay()
     return () => {
       stopClock()
       save()
+      gone = true
+      window.clearTimeout(waitLimit)
       el.removeEventListener('play', onPlay)
       el.removeEventListener('pause', onPause)
       el.removeEventListener('ended', onPause)
       el.removeEventListener('seeked', onSeeked)
       el.removeEventListener('loadedmetadata', onMeta)
-      window.removeEventListener('pagehide', save)
+      window.removeEventListener('pagehide', onLeave)
     }
   }, [id, playable, player, showCurrent])
 

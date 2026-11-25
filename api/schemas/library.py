@@ -2,7 +2,7 @@
 (bulk actions, backup and storage are in library_admin.py).
 """
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, model_validator
 
@@ -19,6 +19,8 @@ __all__ = [
     "SameTitle",
     "SameTitleList",
     "SameTitleQuery",
+    "TitleLinkLookup",
+    "TitleLinkMatches",
     "DramaSeriesUpdate",
     "DramaListResponse",
     "ExportReadiness",
@@ -207,6 +209,17 @@ class SameTitle(BaseModel):
 
 class SameTitleList(BaseModel):
     items: List[SameTitle]
+
+
+class TitleLinkLookup(BaseModel):
+    """Source page links to look for among the caller's titles (a page of search results)."""
+    model_config = ConfigDict(extra="forbid")
+    urls: List[Annotated[str, Field(max_length=2000)]] = Field(max_length=60)
+
+
+class TitleLinkMatches(BaseModel):
+    """One entry per link asked, in the same order: the title that carries it, or null. The links are not echoed."""
+    title_ids: List[Optional[int]]
 
 
 class DramaSeriesUpdate(BaseModel):
@@ -690,6 +703,9 @@ class LibraryReadyEntry(LibraryShelfTitle):
     read_percent: float
     length_seconds: Optional[float] = None
     page_count: int = 0
+    # Where this account stopped playing it (0 for never) and when, from the Watch page on any device.
+    watched_seconds: float = 0.0
+    watched_at: Optional[str] = None
 
 
 class LibraryHome(BaseModel):

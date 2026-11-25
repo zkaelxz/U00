@@ -14,7 +14,7 @@ import { navIconPath } from './navIcons'
 import { Icon } from './navLinks'
 import './phoneBar.css'
 
-const BAR_LABELS = ['Library', 'Add', 'Jobs']
+const BAR_LABELS = ['Library', 'Find & Add', 'Jobs']
 const MORE_ICON = 'M5 12h.01M12 12h.01M19 12h.01'
 
 export function PhoneBar({ route, context, moreOpen, onMore, words = false }: { route: Route; context: NavContext; moreOpen: boolean; onMore: () => void; words?: boolean }) {
