@@ -6,15 +6,11 @@ import { readerApi } from '../../api/reader'
 import { buttonClass } from '../../components/uiClasses'
 import { formatClock } from '../../labels'
 import type { WatchBookmark } from '../../types/reader'
+import { withBookmark } from './bookmarkList'
 
 const FAILED = 'The bookmark could not be saved. Try again in a moment.'
 // Long enough to notice a slip and tap Undo, short enough that the line does not linger.
 const UNDO_MS = 8000
-
-/** The list with `saved` placed in time order, ties by id. */
-export function withBookmark(all: WatchBookmark[], saved: WatchBookmark): WatchBookmark[] {
-  return [...all, saved].sort((a, b) => a.at_seconds - b.at_seconds || a.id - b.id)
-}
 
 export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   dramaId: number
@@ -26,7 +22,9 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   const [status, setStatus] = useState('')
   const [editing, setEditing] = useState<{ id: number; draft: string } | null>(null)
   // Delete is one tap, so the last deleted bookmark (with its note) can be put back for a few seconds.
-  const [deleted, setDeleted] = useState<WatchBookmark | null>(null)
+  const [deletedIn, setDeleted] = useState<{ dramaId: number; bookmark: WatchBookmark } | null>(null)
+  // Another title's offer must not restore into this one if the page switches titles without remounting.
+  const deleted = deletedIn?.dramaId === dramaId ? deletedIn.bookmark : null
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const clearUndo = useCallback(() => {
     if (undoTimer.current) clearTimeout(undoTimer.current)
@@ -35,19 +33,18 @@ export function Bookmarks({ dramaId, mediaRef, canEdit, onPlay }: {
   }, [])
   const offerUndo = useCallback((b: WatchBookmark) => {
     if (undoTimer.current) clearTimeout(undoTimer.current)
-    setDeleted(b)
+    setDeleted({ dramaId, bookmark: b })
     undoTimer.current = setTimeout(clearUndo, UNDO_MS)
-  }, [clearUndo])
+  }, [clearUndo, dramaId])
   useEffect(() => () => { if (undoTimer.current) clearTimeout(undoTimer.current) }, [])
 
   useEffect(() => {
     let cancelled = false
-    clearUndo()
     readerApi.bookmarks(dramaId).then((r) => !cancelled && setItems(r.bookmarks), () => undefined) // bookmarks are optional
     return () => {
       cancelled = true
     }
-  }, [dramaId, clearUndo])
+  }, [dramaId])
 
   const run = useCallback(async (work: () => Promise<void>) => {
     setStatus('')

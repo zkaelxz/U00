@@ -2,7 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
 import type { WatchBookmark } from '../../types/reader'
-import { Bookmarks, withBookmark } from './Bookmarks'
+import { Bookmarks } from './Bookmarks'
+import { withBookmark } from './bookmarkList'
 
 const render = (canEdit: boolean) =>
   renderToStaticMarkup(<Bookmarks dramaId={1} mediaRef={{ current: null }} canEdit={canEdit} onPlay={() => {}} />)
