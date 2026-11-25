@@ -60,6 +60,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/snapshot/restore-drama` | local_only() |
 | `GET /api/benchmark/ab/next` | admin.diagnostics |
 | `POST /api/benchmark/ab/pick` | local_only() |
+| `GET /api/benchmark/ab/suggest` | admin.diagnostics |
 | `GET /api/benchmark/ab/summary` | admin.diagnostics |
 | `GET /api/benchmark/arena` | admin.diagnostics |
 | `GET /api/benchmark/arena/export` | admin.diagnostics |
@@ -190,6 +191,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/ports` | local_only() |
 | `GET /api/diagnostics/pyannote` | admin.diagnostics |
 | `GET /api/diagnostics/quality` | admin.diagnostics |
+| `GET /api/diagnostics/quality/history` | admin.diagnostics |
 | `GET /api/diagnostics/real-model-check` | admin.diagnostics |
 | `POST /api/diagnostics/real-model-check` | local_only() |
 | `GET /api/diagnostics/remote-health` | admin.diagnostics |
@@ -227,6 +229,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/titles/{title_id}/import-to-library` | library.create |
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
+| `POST /api/dramas/by-links` | library.read |
 | `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
@@ -509,8 +512,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items` | jobs.start |
 | `POST /api/queue/items/all-steps` | jobs.start |
 | `POST /api/queue/items/bulk` | jobs.start |
+| `POST /api/queue/items/{item_id}/cancel` | jobs.start |
+| `POST /api/queue/items/{item_id}/hold` | jobs.start |
 | `POST /api/queue/items/{item_id}/move` | jobs.start |
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
+| `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |

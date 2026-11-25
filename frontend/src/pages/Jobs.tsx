@@ -32,7 +32,7 @@ import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
 import {
   KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks, withLinkedJob,
-  normalizeFilters, progressPercent, relativeTime, sortJobs, statusCounts,
+  normalizeFilters, normalizeSort, progressPercent, relativeTime, sortJobs, statusCounts,
   type JobFilters, type KindFilter, type RangeFilter, type SortDir, type SortKey,
 } from './jobs/jobsFilter'
 import { SettingsMentions } from '../components/SettingLink'
@@ -60,7 +60,8 @@ export default function JobsPage() {
   const phone = useMediaQuery('(max-width: 640px)')
   const [stored, setStored] = usePersistedState<JobFilters>('jobs.filters', NO_FILTERS)
   const filters = useMemo(() => normalizeFilters(stored), [stored])
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'default', dir: 'desc' })
+  const [storedSort, setSort] = usePersistedState<{ key: SortKey; dir: SortDir }>('jobs.sort', { key: 'default', dir: 'desc' })
+  const sort = useMemo(() => normalizeSort(storedSort), [storedSort])
   const [limit, setLimit] = useState(PAGE)
   const [titles, setTitles] = useState<ReadonlyMap<number, string>>(new Map())
   const [actionError, setActionError] = useState<unknown>(null)
@@ -134,7 +135,7 @@ export default function JobsPage() {
       return next
     })
   const sortBy = (key: 'started' | 'duration') =>
-    setSort((cur) => (cur.key === key ? { key, dir: cur.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+    setSort(sort.key === key ? { key, dir: sort.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' })
 
   const rowProps = {
     now, titles, authOn, pc, open, places,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
-import type { QualityCheck, QualityClip } from '../../types/diagnostics'
-import { clipStatus, differenceText, marginText, metricLabel, nextStep, sortedClips, verdict, verdictDetail } from './qualityFormat'
+import type { QualityCheck, QualityClip, QualitySeries } from '../../types/diagnostics'
+import { clipStatus, differenceText, groupByLanguage, trendDirection, trendText, marginText, metricLabel, nextStep, sortedClips, verdict, verdictDetail } from './qualityFormat'
 
 const clip = (over: Partial<QualityClip> = {}): QualityClip => ({
   id: 'title59-transcription', kind: 'transcription', metric: 'cer', score: 0.655, baseline: 0.642,
@@ -68,5 +68,25 @@ describe('quality card', () => {
     expect(nextStep(check({ passed: false, clips: [worse] }))).toContain('Run the check again')
     expect(nextStep(check({ found: false }))).toContain('tools.release_check')
     expect(nextStep(check({ fresh: false }))).toBe('Run the check again before a release.')
+  })
+})
+
+describe('score trends', () => {
+  const pt = (when: string, score: number | null) => ({ when, score, baseline: null })
+  const series = (o: Partial<QualitySeries>): QualitySeries => ({ id: 'c', kind: 'transcription', metric: 'cer', language: 'zh', points: [], ...o })
+
+  it('groups by language in a fixed order and puts unrecorded languages last', () => {
+    const groups = groupByLanguage([series({ id: 'a', language: null }), series({ id: 'b', language: 'ko' }), series({ id: 'c', language: 'zh' })])
+    expect(groups.map((g) => [g.language, g.series.map((s) => s.id)])).toEqual([['zh', ['c']], ['ko', ['b']], ['other', ['a']]])
+  })
+  it('reads a higher score as better, except for speaker error rate', () => {
+    const up = [pt('2026-11-10 09:00', 0.6), pt('2026-11-20 09:00', 0.7)]
+    expect(trendDirection(series({ points: up }))).toBe('better')
+    expect(trendDirection(series({ metric: 'der', points: up }))).toBe('worse')
+    expect(trendDirection(series({ points: [pt('2026-11-10 09:00', 0.6)] }))).toBeNull()
+  })
+  it('spells the numbers out for a screen reader and skips failed runs', () => {
+    expect(trendText(series({ points: [pt('2026-11-10 09:00', 0.6), pt('2026-11-20 09:00', null)] }))).toBe('0.600 on 2026-11-10')
+    expect(trendText(series({ points: [] }))).toBe('No score recorded yet.')
   })
 })

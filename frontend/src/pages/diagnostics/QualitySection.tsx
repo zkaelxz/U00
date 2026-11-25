@@ -6,6 +6,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import type { QualityCheck } from '../../types/diagnostics'
+import { QualityTrend } from './QualityTrend'
 import { clipStatus, differenceText, kindLabel, marginText, metricLabel, nextStep, num, sortedClips, verdict, verdictDetail } from './qualityFormat'
 
 // Shape and colour carry the result as well as the word, so it reads without telling green from red.
@@ -78,6 +79,7 @@ export function QualitySection() {
               <p className="muted">Not measured yet, because there is no checked test set: translation, comic reading, Live.</p>
             </>
           )}
+          <QualityTrend />
           {step && <p className="quality-next" data-testid="quality-next">{step}</p>}
           <p className="muted">This page only shows results. The check is started by hand on the PC, and the numbers stay on the PC.</p>
         </>

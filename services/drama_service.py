@@ -38,6 +38,7 @@ import shutil
 import time
 import unicodedata
 import uuid
+from urllib.parse import urlsplit
 from typing import Any
 
 import background_jobs
@@ -430,6 +431,26 @@ def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None)
     # The same link is the surer sign, so it must survive the cut when many titles share a name.
     found.sort(key=lambda t: t["same"] != "link")
     return found[:MAX_SAME_TITLES]
+
+
+def _page_link_key(url) -> str:
+    """A link's key only when it names a page. display_url collapses a token-like path to the bare host,
+    and a host alone would make every such link on that site match each other."""
+    key = _link_key(url)
+    return key if urlsplit(key).path else ""
+
+
+def find_titles_by_links(urls, principal=None) -> list:
+    """For each link, the id of a title the caller can see that carries it (the oldest when several do),
+    else None, in the order given. Links match on their display-safe form like find_same_titles. One pass
+    over the visible titles, so a page of search results costs one query, not one per result."""
+    by_link = {}
+    for row in sorted(db.list_dramas(visible_to=ownership_service.visible_to_filter(principal)),
+                      key=lambda r: r["id"], reverse=True):
+        key = _page_link_key(row.get("source_url"))
+        if key:
+            by_link[key] = row["id"]
+    return [by_link.get(key) if (key := _page_link_key(u)) else None for u in urls]
 
 
 def set_source_url_once(drama_id, url) -> bool:

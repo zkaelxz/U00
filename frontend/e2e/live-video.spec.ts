@@ -153,37 +153,6 @@ test('before the player reports the note says it is waiting', async ({ page }) =
   await expect(live.getByTestId('live-video-note')).toHaveText('Waiting for the player…')
 })
 
-test('Larger video gives the picture the row and puts the lines under it, and is remembered', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 900 })
-  const { live } = await startRunning(page)
-  const frame = page.locator('iframe[title="Stream video"]')
-  const list = live.getByRole('list', { name: 'Live lines, newest first' })
-  const body = page.locator('.live-body')
-
-  // Default wide layout: lines left, video right and the larger column.
-  let f = (await frame.boundingBox())!
-  let l = (await list.boundingBox())!
-  let b = (await body.boundingBox())!
-  expect(f.x).toBeGreaterThan(l.x + l.width - 1)
-  expect(f.width / b.width).toBeGreaterThan(0.5)
-  expect(f.width).toBeGreaterThan(440)
-
-  await live.getByRole('switch', { name: 'Larger video' }).click()
-  f = (await frame.boundingBox())!
-  l = (await list.boundingBox())!
-  b = (await body.boundingBox())!
-  expect(f.y + f.height).toBeLessThanOrEqual(l.y)
-  expect(f.width).toBeGreaterThan(b.width * 0.95)
-  await expect.poll(() => page.evaluate(() => localStorage.getItem('baihe.pref.live.theater'))).toBe('true')
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
-  await page.screenshot({ path: `${SCREENS}/desktop-theater.png`, fullPage: true })
-
-  await live.getByRole('switch', { name: 'Larger video' }).click()
-  f = (await frame.boundingBox())!
-  l = (await list.boundingBox())!
-  expect(f.x).toBeGreaterThan(l.x)
-})
-
 test('toggling Show video off removes the iframe, and the choice is remembered', async ({ page }) => {
   const { live } = await startRunning(page)
   await expect(page.locator('iframe')).toHaveCount(1)

@@ -7,11 +7,11 @@ import { QueueRow } from './JobQueue'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 7, drama_id: 3, title: 'Signal', step: 'transcribe', status: 'waiting', reason: null, job_id: null,
-  engine: null, paid: false, changed_settings: [], mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: null, paid: false, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const noop = () => undefined
 const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStaticMarkup(
-  createElement(QueueRow, { item: item(p), first, last, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop }),
+  createElement(QueueRow, { item: item(p), first, last, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop }),
 )
 
 describe('QueueRow', () => {
@@ -40,7 +40,7 @@ describe('QueueRow', () => {
   it('never offers Remove on a running item, and points at Cancel instead', () => {
     const html = row({ status: 'running' })
     expect(html).not.toContain('Remove Transcribe Signal')
-    expect(html).toContain('cancel its job in the list below')
+    expect(html).toContain('Cancel…')
   })
 
   it('disables Move up on the first item and Move down on the last', () => {
@@ -61,9 +61,24 @@ describe('QueueRow', () => {
 describe('Remove on a queued item', () => {
   it('asks first: the first step is "Remove…", not an immediate remove', () => {
     const html = renderToStaticMarkup(
-      createElement(QueueRow, { item: item({ status: 'waiting' }), first: true, last: true, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop }),
+      createElement(QueueRow, { item: item({ status: 'waiting' }), first: true, last: true, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop }),
     )
     expect(html).toContain('Remove…')
     expect(html).not.toContain('Confirm remove')
+  })
+})
+
+describe('Pause and Cancel on a queued item', () => {
+  it('offers Pause and Cancel on a waiting item, and Resume once it is paused', () => {
+    expect(row({ status: 'waiting' })).toContain('Pause Transcribe Signal')
+    expect(row({ status: 'waiting' })).toContain('Cancel…')
+    const paused = row({ status: 'waiting', held: true })
+    expect(paused).toContain('Resume Transcribe Signal')
+    expect(paused).toContain('Paused')
+  })
+  it('offers Cancel but not Pause on a running item', () => {
+    const html = row({ status: 'running' })
+    expect(html).toContain('Cancel…')
+    expect(html).not.toContain('Pause Transcribe')
   })
 })

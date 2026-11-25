@@ -17,6 +17,7 @@ import type {
   DiagnosticsSupportReport,
   PortsOverview,
   QualityCheck,
+  QualityHistory,
   ResourceReadings,
   RemoteHealth,
   RemoteIpCheckStatus,
@@ -57,6 +58,7 @@ export const getPorts = (f?: Fetch) => getJson<PortsOverview>(`${BASE}/ports`, f
 
 export const getResources = (f?: Fetch) => getJson<ResourceReadings>(`${BASE}/resources`, f)
 export const getQuality = (f?: Fetch) => getJson<QualityCheck>(`${BASE}/quality`, f)
+export const getQualityHistory = (f?: Fetch) => getJson<QualityHistory>(`${BASE}/quality/history`, f)
 
 export const getModelCache = (f?: Fetch) => getJson<DiagnosticsModelCache>(`${BASE}/model-cache`, f)
 

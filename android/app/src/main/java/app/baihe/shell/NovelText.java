@@ -32,6 +32,33 @@ final class NovelText {
         return "zh";
     }
 
+    /**
+     * The comic language a page shows: its text when it holds enough Chinese, Japanese or Korean
+     * (a raw site's menus and titles are in the comic's language even beside English ones), else
+     * its lang attribute, else "" for the PC to decide.
+     */
+    static String pageLanguage(String htmlLang, String text) {
+        int han = 0, kana = 0, hangul = 0;
+        String sample = text == null ? "" : text;
+        for (int i = 0; i < sample.length(); ) {
+            int c = sample.codePointAt(i);
+            i += Character.charCount(c);
+            if (c >= 0x3040 && c <= 0x30FF) kana++;
+            else if ((c >= 0xAC00 && c <= 0xD7AF) || (c >= 0x1100 && c <= 0x11FF)) hangul++;
+            else if ((c >= 0x4E00 && c <= 0x9FFF) || (c >= 0x3400 && c <= 0x4DBF)) han++;
+        }
+        if (han + kana + hangul >= 10) {
+            if (hangul > han && hangul > kana) return "ko";
+            if (kana > 0 && kana * 20 >= han + kana) return "ja";
+            return "zh";
+        }
+        String lang = htmlLang == null ? "" : htmlLang.trim().toLowerCase(java.util.Locale.ROOT);
+        if (lang.startsWith("ja")) return "ja";
+        if (lang.startsWith("ko")) return "ko";
+        if (lang.startsWith("zh")) return "zh";
+        return "";
+    }
+
     /** The text cut at paragraph breaks into parts of at most {@code max} characters, in order. */
     static List<String> split(String text, int max) {
         List<String> parts = new ArrayList<>();

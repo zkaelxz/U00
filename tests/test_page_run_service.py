@@ -59,6 +59,7 @@ def test_a_title_with_lines_only_finds_names(names):
 def test_a_pressed_start_goes_ahead_of_items_waiting_for_the_queue_and_starts_none_of_them(names):
     other = _drama("Other")
     q.add_item(None, other, "transcribe", True, at_pc=True)
+    q.pause(None)     # an added item starts the queue by itself; this one is left waiting
     did = _bare()
     runs.start_title_flow(None, did, True, at_pc=True)
     q.tick()

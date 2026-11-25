@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { pickScore, pickSummaryLine, pickTotalsLine } from './blindPickText'
+import { blindStartText, pickScore, pickSummaryLine, pickTotalsLine } from './blindPickText'
 
 describe('blind pick text', () => {
   it('says nothing for a run nobody picked', () => {
@@ -23,5 +23,14 @@ describe('blind pick text', () => {
     expect(pickScore(null)).toBeNull()
     expect(pickScore({ won: 10, lost: 8, tie: 1 })).toBeNull()
     expect(pickScore({ won: 12, lost: 6, tie: 2 })).toBeCloseTo(0.65)
+  })
+})
+
+describe('blindStartText', () => {
+  it('counts the cases left', () => {
+    expect(blindStartText({ found: true, remaining: 3, total: 5 })).toBe('3 of 5 cases left to pick.')
+  })
+  it('says what to do first when no two runs qualify', () => {
+    expect(blindStartText({ found: false })).toContain('Model Arena')
   })
 })
