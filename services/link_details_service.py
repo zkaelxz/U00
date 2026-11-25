@@ -72,7 +72,7 @@ _random = random.Random()
 
 def _empty(kind: str, url: str) -> dict:
     return {"kind": kind, "title": "", "channel": "", "release_date": "", "is_live": False,
-            "summary": "", "platform": "", "series_suggestion": "", "note": "",
+            "duration_seconds": None, "summary": "", "platform": "", "series_suggestion": "", "note": "",
             "display_url": engine_shared.display_url(url)}
 
 
@@ -132,13 +132,18 @@ def video_link_fields(url: str, cancel) -> dict:
     return link
 
 
+def _whole_seconds(value):
+    """The video's length in whole seconds, None when the link gives none (a live stream, say)."""
+    return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else None
+
+
 def _video_view(url: str, cancel) -> dict:
     link = video_link_fields(url, cancel)
     view = _empty("video", url)
     channel = _tidy(link.get("channel"))
     view.update(title=_tidy(link.get("title")), channel=channel,
                 release_date=release_date_of(link), is_live=link.get("status") == "is_live",
-                series_suggestion=channel)
+                series_suggestion=channel, duration_seconds=_whole_seconds(link.get("duration")))
     return view
 
 

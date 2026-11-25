@@ -114,6 +114,36 @@ export function foundForLink(link: string, p: LinkProbeState): string {
 export const linkCanRun = (allowed: boolean, p: LinkProbeState): boolean =>
   allowed && !(p.state === 'read' && p.probe.kind === 'source')
 
+/** "1 h 5 min", "42 min" or "under a minute". */
+export function lengthText(seconds: number): string {
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 1) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  const m = minutes % 60
+  return m ? `${Math.floor(minutes / 60)} h ${m} min` : `${Math.floor(minutes / 60)} h`
+}
+
+const PREVIEW_LABELS = ['Source language', 'Speech recognizer', 'Engine and model', 'Cost'] as const
+
+/** What a run will use before Start: the video's length from the link, then the profile's language,
+ *  recognizer, translation engine and cost, as plain label/value rows. A language the profile leaves
+ *  unset is worked out from the speech when the run starts, which is not a detection made here. */
+export function previewRows(
+  probe: LinkProbeState, summary: ReadonlyArray<{ label: string; value: string }>,
+): Array<{ label: string; value: string }> {
+  const rows: Array<{ label: string; value: string }> = []
+  if (probe.state === 'read' && probe.probe.kind === 'video') {
+    const s = probe.probe.duration_seconds
+    rows.push({ label: 'Length', value: probe.probe.is_live ? 'Live stream' : s ? lengthText(s) : 'Not given by the link' })
+  }
+  for (const label of PREVIEW_LABELS) {
+    const row = summary.find((r) => r.label === label)
+    if (!row) continue
+    rows.push({ label, value: label === 'Source language' && row.value === 'Not set' ? 'Worked out from the speech' : row.value })
+  }
+  return rows
+}
+
 /** The line saying what "Make English subtitles" will do with a file, from the choices on screen. */
 export function planForFile(o: { pc: PcMode; language: string; engine: string }): string {
   const where = o.pc === 'remote' ? 'on the main PC' : 'on this PC'
