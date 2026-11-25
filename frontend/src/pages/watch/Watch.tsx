@@ -33,6 +33,7 @@ import type { ReviewLine } from '../../types/review'
 import { holds } from '../diagnostics/adminUsers'
 import { lineEditPatch } from '../reader/readerLineEdit'
 import { stageLabel } from '../workspace/stages'
+import { LineFeedback } from './LineFeedback'
 import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
@@ -374,6 +375,7 @@ export default function WatchPage({ id }: { id: number }) {
                 check={checkOf(fixLine ?? current, checks)}
                 onJump={jumpToMarked}
                 markBusy={markBusy}
+                feedback={canEdit && (fixLine ?? current)?.mark === 'wrong' && !fix ? <LineFeedback key={(fixLine ?? current)?.id} id={id} line={(fixLine ?? current) as ReviewLine} onSaved={(saved) => setLines((ls) => ls?.map((l) => (l.id === saved.id ? saved : l)) ?? ls)} /> : undefined}
                 onOpen={startFix}
                 onDraft={setDraft}
                 onSave={() => void save()}

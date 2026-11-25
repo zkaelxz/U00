@@ -5,10 +5,11 @@ type Schemas = components['schemas']
 
 // The fields added after the first fixtures stay optional: the page treats a missing one as false,
 // no spending and no limit.
-type LaterFields = 'has_own_ollama_key' | 'month_paid_spend_usd' | 'monthly_paid_cap_usd'
+type LaterFields = 'has_own_ollama_key' | 'month_paid_spend_usd' | 'monthly_paid_cap_usd' | 'last_seen_at' | 'daily_job_limit' | 'jobs_today'
 export type AdminUser = Omit<Schemas['AdminUser'], LaterFields> & Partial<Pick<Schemas['AdminUser'], LaterFields>>
 export type AdminUserList = Omit<Schemas['AdminUserList'], 'users'> & { users: AdminUser[] }
 export type AdminAddUserRequest = Schemas['AdminAddUserRequest']
+export type AdminDevice = Schemas['AdminDevice']
 export type AdminSessionsRevoked = Schemas['AdminSessionsRevoked']
 export type AdminUserDeleted = Schemas['AdminUserDeleted']
 export type AuditEvent = Schemas['AuditEvent']

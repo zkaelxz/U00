@@ -39,6 +39,7 @@ __all__ = [
     "ReviewRecordsTmSuggestion",
     "LinesPatchRequest",
     "LinesReviewedRequest",
+    "LinesFeedbackRequest",
     "LinesMarkRequest",
     "LinesMatchIn",
     "LinesFindReplaceApplyRequest",
@@ -444,6 +445,13 @@ class LinesMarkRequest(BaseModel):
     mark: Optional[Literal["wrong", "mixed"]]
     # As for LinesReviewedRequest: a mark is about the English the person read.
     expected_en: Optional[str] = Field(default=None, max_length=2000)
+
+
+class LinesFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # As for LinesMarkRequest: the feedback is about the English the person read.
+    expected_en: Optional[str] = Field(default=None, max_length=2000)
+    better: Optional[str] = Field(default=None, max_length=2000)
 
 
 class LinesMatchIn(BaseModel):

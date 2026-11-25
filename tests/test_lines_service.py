@@ -623,3 +623,28 @@ class TestMarkEpisodeReviewedSkipsMarked:
         assert out["reviewed"] == 1 and _mark(did, ids[0]) == ("wrong", 0)
         sources = {e["source_text"] for e in db.list_translation_memory(db.get_drama(did)["series_id"])}
         assert sources == {"谢谢"}
+
+
+class TestGiveFeedback:
+    def test_thumbs_down_marks_wrong_and_keeps_the_better_wording_as_an_edit_sample(self, isolated_db):
+        did, ids = _seed()
+        out = svc.give_feedback(did, ids[0], "Hello", "Hi there")
+        # The line itself is untouched: feedback is a suggestion, not an edit.
+        assert (out["en"], out["mark"]) == ("Hello", "wrong")
+        samples = db.list_edit_samples(did)
+        assert [(s["ai_version"], s["user_version"], s["line_id"], s["mark"]) for s in samples] == [
+            ("Hello", "Hi there", ids[0], "wrong")]
+
+    def test_without_wording_it_only_marks(self, isolated_db):
+        did, ids = _seed()
+        for better in (None, "   ", "Hello"):
+            svc.give_feedback(did, ids[0], "Hello", better)
+        assert _mark(did, ids[0]) == ("wrong", 0)
+        assert db.list_edit_samples(did) == []
+
+    def test_a_changed_english_is_a_conflict_and_records_nothing(self, isolated_db):
+        did, ids = _seed()
+        with pytest.raises(ConflictError):
+            svc.give_feedback(did, ids[0], "Hello (old)", "Hi there")
+        assert _mark(did, ids[0]) == (None, 0)
+        assert db.list_edit_samples(did) == []

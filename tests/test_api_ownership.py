@@ -72,6 +72,8 @@ OWNERSHIP_EXEMPT_PARAMS = {
                    "title and the caller's own account (404 otherwise)",
     "auth_session_id": "the caller's own sign-in session; auth_service scopes it to the "
                        "caller's user id from their session (404 otherwise)",
+    "device_session_id": "one signed-in device of the user in the same path: auth_service.admin_revoke_device "
+                         "deletes it only when it belongs to that user (404 otherwise); admin.users only",
     "device_token_id": "an extension device token: the own route scopes it to the caller's "
                        "user id from their session (404 otherwise); the route for "
                        "everyone's tokens is local_only()",
