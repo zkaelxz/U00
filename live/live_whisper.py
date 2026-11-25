@@ -87,6 +87,12 @@ _outstanding_lock = threading.Lock()
 _outstanding = None
 
 
+# One decode at a time across Live sessions: two sessions share one loaded model, and a second
+# concurrent call would hit the "one Whisper thread" guard below. A session waiting for its turn
+# still notices Stop and its chunk time limit.
+_turn = threading.Lock()
+
+
 def outstanding_label():
     """Label of the Whisper call still alive in this process, else None. It
     outlives an abandoned call's job, so admin "nothing running" checks use it:
@@ -201,6 +207,18 @@ class WhisperRunner:
         return self.busy_with()
 
     def run(self, call, timeout: float, label: str):
+        deadline = self._clock() + timeout
+        while not _turn.acquire(timeout=self._poll):
+            if self._should_stop():
+                raise background_jobs.JobCancelled("live whisper")
+            if self._clock() >= deadline:
+                raise ChunkTimeout(timeout)
+        try:
+            return self._run_in_turn(call, timeout, label)
+        finally:
+            _turn.release()
+
+    def _run_in_turn(self, call, timeout: float, label: str):
         """call(progress_cb) -> result. progress_cb(fraction) must be called by
         `call` once per segment: it is where an abandoned worker ends. Raises
         WhisperBusy when an earlier call is still alive, JobCancelled once Stop

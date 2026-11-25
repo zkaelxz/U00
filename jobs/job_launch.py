@@ -188,7 +188,7 @@ def _refuse_if_restructuring_locked(job_id):
                 raise ConflictError(_RESTRUCTURING_MESSAGE)
 
 
-def _admit_locked(job_id, gpu_touching, description, owner_user_id):
+def _admit_locked(job_id, gpu_touching, description, owner_user_id, priority=False):
     """Caller holds _lock. The admission start_job and start_process_job
     share: None when the start is refused (a restore holds the exclusive
     lock, or job_id is already running or queued), else the status the run
@@ -203,7 +203,7 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id):
     if existing and existing["status"] in ("running", "queued"):
         return None
     queued = gpu_touching and get_gpu_limit_enabled() and (
-        user_caps.wait_for_cap(_jobs, owner_user_id) or _gpu_queue_waiting_locked()
+        user_caps.wait_for_cap(_jobs, owner_user_id) or (_gpu_queue_waiting_locked() and not priority)
         or not _gpu_slot_available_locked(job_id, description))
     user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=bool(queued))
     return "queued" if queued else "running"
@@ -221,9 +221,11 @@ def _new_run_locked(job_id: str, mirror: bool = True) -> dict:
 
 def start_job(job_id: str, target, *args, gpu_touching: bool = False,
               description: str | None = None, run_settings: dict | None = None, line_fields=None,
-              **kwargs) -> bool:
+              priority: bool = False, **kwargs) -> bool:
     """
     Starts target(*args, **kwargs) in a background thread under job_id.
+    priority: a job that is useless late (a live stream) takes a free GPU slot ahead of jobs
+    already waiting, and queues at the front if none is free. It never pre-empts a running job.
     Returns False without starting anything if a job with that ID is
     already running or queued -- so a second click on "Translate" doesn't
     launch a duplicate.
@@ -262,16 +264,20 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
-        status = _admit_locked(job_id, gpu_touching, description, owner_user_id)
+        status = _admit_locked(job_id, gpu_touching, description, owner_user_id, priority)
         if status is None:
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
                                    run_settings, line_fields=line_fields)
         _new_run_locked(job_id)
         if status == "queued":
-            _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
-                                "kwargs": kwargs, "description": description, "kind": "thread",
-                                "cap_exempt": user_caps.refusing()})
+            queued = {"job_id": job_id, "target": target, "args": args,
+                      "kwargs": kwargs, "description": description, "kind": "thread",
+                      "cap_exempt": user_caps.refusing()}
+            if priority:
+                _gpu_queue.insert(0, queued)
+            else:
+                _gpu_queue.append(queued)
             _note_gpu_wait_reason_locked(job_id)
             return True
         run = _jobs[job_id]

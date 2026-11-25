@@ -230,13 +230,14 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
     assert all(not os.path.exists(s[1]) for s in seen)  # removed on finish
 
 
-def test_second_start_while_one_runs_is_conflict(live):
+def test_two_streams_run_together_and_a_third_is_a_conflict(live):
     from lib.errors import ConflictError
     a = _start()
     assert _wait(lambda: "out_dir" in live)
+    b = _start(url="https://www.youtube.com/watch?v=other")
     with pytest.raises(ConflictError):
-        _start(url="https://www.youtube.com/watch?v=other")
-    assert list(live_service._sessions) == [a]
+        _start(url="https://www.youtube.com/watch?v=third")
+    assert set(live_service._sessions) == {a, b}
 
 
 def test_same_stream_start_joins_the_running_session(live):
@@ -273,9 +274,9 @@ def test_session_on_saved_cookies_is_not_joined_by_another_account(live):
     a = _start(url="https://www.youtube.com/watch?v=abcdefghijk", use_saved_cookies=True)
     assert _wait(lambda: "out_dir" in live)
     live_service._sessions[a]["owner_user_id"] = 1
-    with pytest.raises(ConflictError):
-        live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
-                                   principal={"user_id": 2})
+    other = live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                       principal={"user_id": 2})
+    assert other["session_id"] != a and "joined" not in other
 
 
 def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
@@ -293,14 +294,15 @@ def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live)
         s.connect(("127.0.0.1", port))
 
 
-def test_refused_second_start_builds_no_engine(live, monkeypatch):
+def test_refused_third_start_builds_no_engine(live, monkeypatch):
     from lib.errors import ConflictError
     _start()
     assert _wait(lambda: "out_dir" in live)
+    _start(url="https://www.youtube.com/watch?v=other")
     built = []
     monkeypatch.setattr(live_service, "_build_engine", lambda *a: built.append(a))
     with pytest.raises(ConflictError):
-        _start(url="https://www.youtube.com/watch?v=other")
+        _start(url="https://www.youtube.com/watch?v=third")
     assert built == []
 
 
@@ -946,3 +948,7 @@ def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(liv
 def test_twitch_never_gets_a_delayed_player(live):
     sid = _start(url="https://www.twitch.tv/some_streamer", delayed_player=True)
     assert live_service.get_session(sid)["delayed_player"] is False
+
+
+    other = live_service.start_session(url, engine="fake", principal={"user_id": 3})
+    assert other["session_id"] != a and "joined" not in other

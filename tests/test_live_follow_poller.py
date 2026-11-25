@@ -357,12 +357,11 @@ def test_auto_start_refused_for_a_member_follow(env, starts):
 
 
 @pytest.mark.parametrize("gate, note", [
-    ("session", "not started: another Live session is running"),
-    ("gpu", "not started: a GPU job is running"),
+    ("gpu", "not started: no GPU room right now"),
     ("cap", "not started: this month's spending cap is used up"),
     ("engine", "not started: a saved Live option is no longer valid"),
     ("default_engine", "not started: that engine is not available"),
-    ("conflict", "not started: another Live session is running"),
+    ("conflict", "not started: two Live sessions are already running"),
     ("key", "not started: no key is saved for that engine"),
     ("tool", "not started: Live capture needs ffmpeg, which isn't installed or isn't on PATH on this PC"),
     ("engine_down", "not started: Ollama isn't running on this PC"),
@@ -373,12 +372,9 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     from lib.errors import (ConflictError, MissingKeyError,
                                          UnsupportedOperationError)
     fid = _auto(env)
-    if gate == "session":
-        monkeypatch.setattr(live_service, "list_sessions",
-                            lambda principal=None: [{"status": "running"}])
-    elif gate == "gpu":
-        monkeypatch.setattr(background_jobs, "list_all_jobs",
-                            lambda: {"t": {"status": "running", "gpu_touching": True}})
+    if gate == "gpu":
+        live_follow_store.update(fid, options=json.dumps({"engine": "fake", "max_minutes": 7, "use_gpu": True}))
+        monkeypatch.setattr(poller, "_gpu_full", lambda: True)
     elif gate == "cap":
         def over(engine, free_tier, model=None):
             raise UnsupportedOperationError("cap")
@@ -410,7 +406,6 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(poller, "probe", lambda row: live())
     monkeypatch.setattr(notification_service, "notify_live_follow", lambda *a, **k: None)
-    monkeypatch.setattr(live_service, "list_sessions", lambda principal=None: [])
     monkeypatch.setattr(live_service, "start_session",
                         lambda url, **kw: starts.append(url) or {"session_id": "s"})
     assert _check(fid, NOW + 3600)["started_stream_id"] == "abcdefghijk"
@@ -419,10 +414,14 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
 
 def test_a_deferred_auto_start_says_so_when_it_starts_later(env, starts, monkeypatch):
     fid = _auto(env)
-    monkeypatch.setattr(live_service, "list_sessions", lambda principal=None: [{"status": "running"}])
+    from lib.errors import ConflictError
+
+    def full(url, **kw):
+        raise ConflictError("x")
+    monkeypatch.setattr(live_service, "start_session", full)
     _check(fid)
     assert starts == [] and len(env["sent"]) == 1 and env["sent"][0][1]["start_action"] is True
-    monkeypatch.setattr(live_service, "list_sessions", lambda principal=None: [])
+    monkeypatch.setattr(live_service, "start_session", lambda url, **kw: starts.append(url) or {"session_id": "s"})
     _check(fid, NOW + 3600)
     assert len(starts) == 1 and len(env["sent"]) == 2
     args, kw = env["sent"][1]
@@ -692,3 +691,22 @@ def test_a_live_twitch_row_notifies_once_per_broadcast(env):
     env["answers"][fid] = live("315904999999")
     _check(fid, NOW + 7200)
     assert len(env["sent"]) == 2
+
+
+def test_gpu_full_is_false_with_a_free_slot_and_room_true_when_taken_or_held(monkeypatch):
+    from jobs import gpu_guard, gpu_slots, job_settings
+    monkeypatch.setattr(gpu_guard, "hold_reason", lambda: None)
+    monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 2)
+    monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 0)
+    assert poller._gpu_full() is False
+    monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 1)
+    monkeypatch.setattr(gpu_slots, "_vram_room_for_another_gpu_job", lambda: True)
+    assert poller._gpu_full() is False       # one running, a second may join
+    monkeypatch.setattr(gpu_slots, "_vram_room_for_another_gpu_job", lambda: False)
+    assert poller._gpu_full() is True        # no VRAM to join
+    monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 2)
+    monkeypatch.setattr(gpu_slots, "_vram_room_for_another_gpu_job", lambda: True)
+    assert poller._gpu_full() is True        # every slot taken
+    monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 0)
+    monkeypatch.setattr(gpu_guard, "hold_reason", lambda: "hot")
+    assert poller._gpu_full() is True        # the guard holds jobs
