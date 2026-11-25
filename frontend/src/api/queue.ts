@@ -43,3 +43,8 @@ export const startNovelFlow = (dramaId: number, url: string, lines: Omit<NovelFl
 export const getFileRun = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, f)
 export const startFileRun = (dramaId: number, body: { job_id: string; engine: string; locale: string | null }, f?: Fetch) =>
   postJson<TitleFlowRun>(`/api/queue/file-run/${dramaId}`, body, f)
+
+// The translating that follows a chapter import: comic pages, or a novel's text, lines, names and translation.
+export const getAfterImport = (dramaId: number, f?: Fetch) => getJson<TitleFlowRun>(`/api/queue/after-import/${dramaId}`, f)
+export const startAfterImport = (dramaId: number, f?: Fetch) =>
+  postJson<TitleFlowRun>(`/api/queue/after-import/${dramaId}`, undefined, f)

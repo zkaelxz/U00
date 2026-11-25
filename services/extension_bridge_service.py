@@ -135,8 +135,22 @@ def run_text(payload, principal=None) -> dict:
         raise page_server.EndpointError(400, "one of source/target language must be English -- the same "
                                  "limit the Translate page has")
     store = bool(payload.get("store", True))
-    return page_server.translate_text_block(text, source_language, target_language, store=store,
-                                user_id=_user_id(principal), member=principal is not None)
+    # A Quick read of a novel part is remembered like a redrawn page, so reading the chapter again
+    # costs no tokens. A saved send is not: its history row must be written.
+    key = None
+    if not store:
+        config = page_server.get_translation_config()
+        key = quick_read_cache.make_key("text", hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                                        source_language, target_language, config.get("engine"),
+                                        config.get("model"), quick_read_cache.pipeline_version())
+        hit = quick_read_cache.get(key)
+        if hit is not None:
+            return {**hit, "cached": True}
+    result = page_server.translate_text_block(text, source_language, target_language, store=store,
+                                              user_id=_user_id(principal), member=principal is not None)
+    if key is not None and result.get("translated_text") and not result.get("notes"):
+        quick_read_cache.put(key, result)
+    return result
 
 
 def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:

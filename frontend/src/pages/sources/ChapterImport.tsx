@@ -99,6 +99,12 @@ export function ImportSetup({ imp, source, seriesId, display, comic, title, lang
           </p>
         )}
         {failed && <p className="warn" role="alert">{describeSourceError(failed, display).text}</p>}
+        {imp.afterQueued && !failed && (
+          <p className="muted" role="status">
+            Translation is queued and starts when the import ends. Follow it on the Jobs page.
+          </p>
+        )}
+        <ErrorBanner error={imp.afterError} onDismiss={imp.clearAfterError} describe={{ serverText: true }} />
         {shownResult && (
           <div className="sources-outcomes" data-testid="import-outcomes">
             <p className={shownResult.failed_count || shownResult.not_attempted_count ? 'warn' : undefined}>
@@ -151,6 +157,17 @@ export function ImportBar({ imp, chapters, selected, phone }: BarProps) {
       >
         {imp.running ? 'Importing…' : importLabel(count)}
       </button>
+      {imp.canTranslateAfter && (
+        <label className="sources-translate-after">
+          <input
+            type="checkbox"
+            checked={imp.translateAfter}
+            disabled={imp.running}
+            onChange={(e) => imp.setTranslateAfter(e.target.checked)}
+          />{' '}
+          Translate after import
+        </label>
+      )}
       {imp.running ? (
         <button type="button" className={buttonClass('secondary')} onClick={() => void imp.job.cancel()}>
           Cancel

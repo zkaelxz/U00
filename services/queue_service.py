@@ -60,8 +60,8 @@ DOWNLOAD = "download"
 NAMES = "names"
 IMPORT, TEXT, LINES = "import", "text", "lines"
 # The Add box's run: follow the transcription its upload started, then translate with the box's choices.
-FOLLOW, RUN_TRANSLATE = "follow", "run_translate"
-_PAGE_STEPS = (IMPORT, TEXT, LINES, NAMES, FOLLOW, RUN_TRANSLATE)
+FOLLOW, RUN_TRANSLATE, RUN_SCANLATE = "follow", "run_translate", "run_scanlate"
+_PAGE_STEPS = (IMPORT, TEXT, LINES, NAMES, FOLLOW, RUN_TRANSLATE, RUN_SCANLATE)
 _ALL_STEPS = (DOWNLOAD,) + STEPS + _PAGE_STEPS
 # A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
 _LEGACY_CHAIN = (DOWNLOAD,) + STEPS
@@ -110,7 +110,7 @@ def _empty() -> dict:
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
                  "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ("source",),
                  IMPORT: ("url", "local"), TEXT: (), LINES: ("engine", "model", "chapter_from", "chapter_to", "one_narrator", "cost_accepted"), FOLLOW: ("job_id",),
-                 RUN_TRANSLATE: ("engine", "locale")}
+                 RUN_TRANSLATE: ("engine", "locale", "model"), RUN_SCANLATE: ("engine",)}
 
 
 def _clean_settings(raw, step: str) -> dict:

@@ -132,6 +132,8 @@ const FOLLOW_FORBIDDEN =
 export function describeFollowError(err: unknown): string {
   const e = err as Partial<ApiError> | null
   if (e?.status === 403) return FOLLOW_FORBIDDEN
+  // The server's one short sentence ("Channel has already been added."), not the generic conflict title and detail.
+  if (e?.status === 409 && e.message) return e.message
   if (e?.status === 429) return 'This channel was checked less than a minute ago. Try again in a minute.'
   const { title, detail } = describeError(err, { serverText: true })
   return detail ? `${title} ${detail}` : title

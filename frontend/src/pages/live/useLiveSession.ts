@@ -38,6 +38,8 @@ export function useLiveSession(setError: (text: string | null) => void) {
   // 'finishing': the first Stop was taken and the session captions what it
   // already captured; the button then offers Stop now.
   const [stopping, setStopping] = useState<false | 'finishing' | 'now'>(false)
+  // The session was already running when this browser started it, so Stop only leaves it.
+  const [joined, setJoined] = useState(false)
   // The last session this browser started and its link, so a reload still shows its video.
   const [startedLink, setStartedLink] = usePersistedState<StartedLink | null>('live.startedLink', null)
   const startedLinkRef = useLatest(startedLink)
@@ -165,8 +167,9 @@ export function useLiveSession(setError: (text: string | null) => void) {
   }, [sessionId, poll, polling, stream.syncs])
 
   /** A session this page just started with `url`. */
-  const began = (id: string, url: string) => {
+  const began = (id: string, url: string, joinedRunning = false) => {
     setStopping(false)
+    setJoined(joinedRunning)
     setStartedLink({ id, url })
     setSession({ id, url, status: null, cues: [], next: 0 })
   }
@@ -191,6 +194,12 @@ export function useLiveSession(setError: (text: string | null) => void) {
     setError(null)
     try {
       const r = await stopLive(session.id)
+      if (joined) {
+        // Leaving: the session goes on for the others, and is no longer visible here.
+        setSession(null)
+        setStopping(false)
+        return
+      }
       if (r.finishing && !again) setStopping('finishing')
       await poll(session.id)
     } catch (err) {
@@ -200,5 +209,5 @@ export function useLiveSession(setError: (text: string | null) => void) {
     }
   }
 
-  return { session, sessionId, stopping, began, stop, adoptRunning }
+  return { session, sessionId, stopping, joined, began, stop, adoptRunning }
 }
