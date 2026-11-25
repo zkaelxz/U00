@@ -46,6 +46,9 @@ _WHISPER_MB = {
     "breeze-asr-25": (4800, 3800),
     # An estimate from the 1.5 GB float16 model.bin plus activations, not a measurement.
     "anime-whisper": (2200, 1600),
+    # An estimate: 3.1 GB of float16 weights plus two 30 s windows decoded at once through
+    # transformers (float32 on the CPU), not a measurement. Batch 8 peaked at 15 GB.
+    "thonburian-large-v3": (6000, 8000),
 }
 _QWEN_ASR_MB = {"0.6B": (2500, 2500), "1.7B": (5200, 5200)}
 _ESTIMATES_MB = {

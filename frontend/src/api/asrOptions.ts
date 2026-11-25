@@ -80,8 +80,11 @@ export function asrBackendOptions(): string[] {
 
 // Backends that exist for one language only; the server refuses them elsewhere too.
 const LANGUAGE_ONLY_BACKENDS: Record<string, string> = { anime_whisper: 'ja' }
+// Languages the server transcribes with Whisper only.
+const WHISPER_ONLY_LANGUAGES: string[] = ['id', 'th']
 
 export function asrBackendOptionsFor(language: string): string[] {
+  if (WHISPER_ONLY_LANGUAGES.includes(language)) return ['whisper']
   return asrBackendOptions().filter((o) => !LANGUAGE_ONLY_BACKENDS[o] || LANGUAGE_ONLY_BACKENDS[o] === language)
 }
 

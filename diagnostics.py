@@ -57,7 +57,7 @@ OPTIONAL_DEPENDENCIES = {
                  "feature"),
     "kiwipiepy": ("kiwipiepy", "Korean word segmentation (Reader)", "feature"),
     "budoux": ("budoux", "Japanese/Chinese phrase-aware subtitle line breaking", "feature"),
-    "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), "
+    "transformers": ("transformers", "Qwen3-ASR and Qwen3 forced alignment (5.15 or newer), Thai Thonburian Whisper, "
                                      "ML bubble detection (Scanlate), PaddleOCR-VL-For-Manga "
                                      "(needs transformers 5+)", "feature"),
     "torch": ("torch", "ML bubble detection/inpainting (Scanlate), PaddleOCR-VL-For-Manga, "

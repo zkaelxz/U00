@@ -112,6 +112,7 @@ EXPECTED_TOP_LEVEL_FILES = [
     "subtitle_formats.py",
     "subtitle_parse.py",
     "subtitle_sidecar.py",
+    "text_only_whisper.py",
     "timing_drift.py",
     "title_library.py",
     "translation_finish.py",
