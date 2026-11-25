@@ -15,9 +15,9 @@ export function castLabel(state: CastStatus['state'] | null): string {
     case 'working':
       return 'Making the English-subtitled copy. This takes a while.'
     case 'unsupported':
-      return 'The subtitled copy is in a format most TVs refuse (not .mp4). Make it again from an .mp4 source.'
+      return 'The subtitled copy is not an .mp4, which most TVs refuse. You can still save it to your phone.'
     case 'missing':
-      return 'A TV needs a copy with the English subtitles burned in. Make it once, then cast.'
+      return 'Casting and saving use a copy with the English subtitles burned in. Make it once, then cast or save.'
     default:
       return ''
   }

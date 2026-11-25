@@ -105,6 +105,9 @@ public class MainActivity extends Activity {
                 return true;
             }
         });
+        // A WebView drops downloads unless told what to do with them; Baihe's "Save to phone" needs this.
+        web.setDownloadListener((url, userAgent, contentDisposition, mimeType, contentLength) ->
+                SaveDownload.enqueue(this, savedAddress(), url, userAgent, contentDisposition, mimeType));
         // Without these two callbacks WebView silently refuses requestFullscreen() and the
         // player's full-screen button, which Chrome handles itself.
         web.setWebChromeClient(new WebChromeClient() {
