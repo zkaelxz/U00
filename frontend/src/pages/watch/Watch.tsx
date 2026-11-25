@@ -37,6 +37,7 @@ import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
 import { NextCard } from './NextCard'
+import { SaveSoundCard } from './SaveSoundCard'
 import { Player, type PlayerHandle } from '../workspace/stages/review/Player'
 import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
@@ -418,6 +419,7 @@ export default function WatchPage({ id }: { id: number }) {
                 />
               )}
             </section>
+            {original === 'audio' && <SaveSoundCard key={id} id={id} canStream={holds(session, 'media.stream')} canReadLines={holds(session, 'lines.read')} />}
           </div>
         </div>
       )}
