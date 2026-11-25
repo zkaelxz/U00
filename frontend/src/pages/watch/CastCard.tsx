@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { getCastStatus, makeCastLink } from '../../api/cast'
+import { artifactUrl } from '../../api/client'
 import { startBurnedVideo } from '../../api/export'
 import { buttonClass } from '../../components/uiClasses'
 import type { CastStatus } from '../../types/cast'
@@ -22,7 +23,8 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const holder = useRef<HTMLVideoElement | null>(null)
-  const show = supported && canCast && reachableByTv(window.location.hostname)
+  const show = canCast
+  const castable = supported && reachableByTv(window.location.hostname)
 
   const look = useCallback(async () => {
     try {
@@ -83,14 +85,18 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
   }
 
   return (
-    <section className="card watch-cast" aria-label="Cast to TV">
-      <p><strong>Cast to TV</strong></p>
+    <section className="card watch-cast" aria-label="Cast and save for offline">
+      <p><strong>Watch elsewhere</strong></p>
       <p role="status">{note || castLabel(state)}</p>
       <div className="watch-card-actions">
-        {state === 'ready' && (
+        {state === 'ready' && castable && (
           <button type="button" className={buttonClass('primary')} disabled={busy} onClick={() => void cast()}>
             Cast to TV
           </button>
+        )}
+        {(state === 'ready' || state === 'unsupported') && (
+          // The copy has the English subtitles burned in, so any player shows them with no signal.
+          <a className={buttonClass()} href={artifactUrl(id, 'video')} download>Save to phone</a>
         )}
         {(state === 'missing' || state === 'unsupported') && canMake && (
           <button type="button" className={buttonClass()} disabled={busy} onClick={() => void make()}>
