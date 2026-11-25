@@ -20,8 +20,15 @@ __all__ = [
     "ReaderOverview",
     "ReaderProgressRequest",
     "ReaderProgress",
+    "ReaderWatchPositionRequest",
+    "ReaderWatchPosition",
     "ReaderNotesRequest",
     "ReaderNotes",
+    "WatchBookmarkRequest",
+    "WatchBookmarkNoteRequest",
+    "WatchBookmark",
+    "WatchBookmarks",
+    "WatchBookmarkDeleted",
     "ReaderMediaAvailability",
     "ReaderEngineFields",
     "ReaderLookupRequest",
@@ -141,6 +148,17 @@ class ReaderProgress(BaseModel):
     percent_complete: float
 
 
+class ReaderWatchPositionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    seconds: float = Field(ge=0, le=7 * 24 * 3600)
+
+
+class ReaderWatchPosition(BaseModel):
+    drama_id: int
+    seconds: float
+    updated_at: Optional[str] = None
+
+
 class ReaderNotesRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     notes: str = Field(max_length=100_000)
@@ -149,6 +167,33 @@ class ReaderNotesRequest(BaseModel):
 class ReaderNotes(BaseModel):
     drama_id: int
     notes: str
+
+
+class WatchBookmarkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    at_seconds: float = Field(ge=0, le=10_000_000, allow_inf_nan=False)
+    note: str = Field(default="", max_length=300)
+
+
+class WatchBookmarkNoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: str = Field(max_length=300)
+
+
+class WatchBookmark(BaseModel):
+    id: int
+    at_seconds: float
+    note: str
+    created_at: str
+
+
+class WatchBookmarks(BaseModel):
+    drama_id: int
+    bookmarks: List[WatchBookmark]
+
+
+class WatchBookmarkDeleted(BaseModel):
+    id: int
 
 
 class ReaderMediaAvailability(BaseModel):

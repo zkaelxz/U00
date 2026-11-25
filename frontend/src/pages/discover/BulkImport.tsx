@@ -6,6 +6,7 @@
  * The optional pattern generator fills in paginated URLs from "{page}".
  * A listing a plain fetch can't read can be pasted as text (PastedListing).
  */
+import { Paged } from '../../components/ShowMore'
 import { useState, type FormEvent } from 'react'
 
 import { BULK_JOB_ID, bulkCommit, getBulkExtractResult, startBulkExtract } from '../../api/discover'
@@ -180,8 +181,10 @@ function BulkReview({ result, onAdded }: { result: BulkExtractResult; onAdded: (
         <>
           <h3>Review {result.entries.length} entries</h3>
           <p className="muted">Untick any that look wrong. The audio-drama hint is a best guess.</p>
+          <Paged items={result.entries.map((e, i) => ({ e, i }))} testId="bulk-more">
+            {(visible) => (
           <ul className="discover-review">
-            {result.entries.map((e, i) => (
+            {visible.map(({ e, i }) => (
               <li key={e.entry_id ?? `${i}-${e.title}`}>
                 <label>
                   <input type="checkbox" checked={included.has(i)} onChange={() => toggle(i)} />
@@ -196,6 +199,8 @@ function BulkReview({ result, onAdded }: { result: BulkExtractResult; onAdded: (
               </li>
             ))}
           </ul>
+            )}
+          </Paged>
           <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />
           <button type="button" className={buttonClass('secondary')} disabled={toAdd.length === 0 || busy} aria-busy={busy} onClick={add}>
             {busy ? 'Adding…' : `Add ${toAdd.length} to catalogue`}

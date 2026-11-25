@@ -634,6 +634,19 @@ test.describe('with sound', () => {
     await expect(page.getByText(/no sound or video/)).toHaveCount(0)
   })
 
+  test('a place this account saved on another device comes back here, and a pause saves the place for the account', async ({ page }) => {
+    await page.route(/\/api\/reader\/dramas\/3\/watch-position$/, (r) => r.request().method() === 'GET'
+      ? r.fulfill({ json: { drama_id: 3, seconds: 30, updated_at: new Date().toISOString().replace('Z', '') } })
+      : r.fallback())
+    await page.goto('/#/watch/3')
+    await expect(page.getByText('Back where you stopped, at 0:30.')).toBeVisible()
+    await expect(time(page)).toHaveText(/^0:30\.00/)
+    const saved = page.waitForRequest((r) => r.method() === 'POST' && /\/api\/reader\/dramas\/3\/watch-position$/.test(new URL(r.url()).pathname))
+    await playButton(page).click()
+    await pauseButton(page).click()
+    expect((await saved).postDataJSON().seconds).toBeGreaterThanOrEqual(30)
+  })
+
   test('a saved position comes back paused, and Start from the beginning returns to 0:00', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('baihe.pref.watch.at.3', '20'))
     await page.goto('/#/watch/3')
@@ -1154,6 +1167,32 @@ test.describe('with sound', () => {
       await page.mouse.up()
       await spokenRowAtFollowPlace(page, 3000)
     })
+  })
+})
+
+test.describe('lines to check', () => {
+  test.beforeEach(() => seedCheckLines({ warnings: true, audio: true }))
+
+  test('the bar counts the risky lines, steps to each in place, and It\'s fine takes one off', async ({ page }) => {
+    await page.goto('/#/watch/3')
+    const bar = page.getByRole('group', { name: 'Lines to check' })
+    await expect(bar).toContainText('3 lines to check')
+    await bar.getByRole('button', { name: 'Go to the next one' }).click()
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #7 · /)
+    const check = now(page).getByTestId('watch-now-check')
+    await expect(check).toContainText('Check 1 of 3')
+    await check.getByRole('button', { name: "It's fine" }).click()
+    await expect(bar).toContainText('2 lines to check')
+    await expect(check).toHaveCount(0)
+    await bar.getByRole('button', { name: 'Go to the next one' }).click()
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #12 · /)
+    await expect(check).toContainText('Check 1 of 2')
+    await check.getByRole('button', { name: 'Fix the English' }).click()
+    await expect(field(page)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await bar.getByRole('button', { name: 'Previous line to check' }).click()
+    // Nothing to check before line 12 now, so it goes round to the last one.
+    await expect(now(page).getByTestId('watch-now-meta')).toHaveText(/^Line #24 · /)
   })
 })
 

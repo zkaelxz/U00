@@ -272,6 +272,31 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
+    private static final int REQUEST_GALLERY = 41;
+
+    private void pickGallery() {
+        Intent pick = new Intent(Intent.ACTION_GET_CONTENT).setType("image/*")
+                .addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+        startActivityForResult(Intent.createChooser(pick, "Pictures to translate"), REQUEST_GALLERY);
+    }
+
+    /** Picked pictures take the same road as ones shared from the gallery, so the title prompt and limits are shared. */
+    @Override
+    protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request != REQUEST_GALLERY || result != RESULT_OK || data == null) return;
+        ArrayList<Uri> picked = new ArrayList<>();
+        if (data.getClipData() != null) {
+            for (int i = 0; i < data.getClipData().getItemCount(); i++) picked.add(data.getClipData().getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            picked.add(data.getData());
+        }
+        if (picked.isEmpty()) return;
+        Intent shared = new Intent(Intent.ACTION_SEND_MULTIPLE).setType("image/*")
+                .putParcelableArrayListExtra(Intent.EXTRA_STREAM, picked);
+        shareImages(shared);
+    }
+
     /** What another app shared: a link opens in the browser, images go straight to Baihe. */
     private void handleShare(Intent intent) {
         if (intent == null) return;
@@ -342,15 +367,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         say("Enter a title name.");
                         return;
                     }
-                    sendShared(uris, title, cut, server, token);
+                    sendShared(uris, title, cut, server, token, false);
                 })
+                // A screenshot of a page to read now: translated and shown, nothing saved, no title needed.
+                .setNeutralButton("Quick read", (d, w) -> sendShared(uris, "", cut, server, token, true))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token) {
+    private void sendShared(List<Uri> uris, String title, boolean cut, String server, String token, boolean read) {
         grabbing = true;
         uploading = true;
+        quickRead = read;
+        if (read) {
+            runName = "Shared pictures";
+            runUrl = "";
+            cancelRequested = false;
+        }
         runOnUiThread(() -> {
             grab.setBusy(true);
             quick.setBusy(true);
@@ -377,8 +410,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 finishGrab("Could not read the shared images.");
                 return;
             }
-            upload(new BaiheClient(server, token), "", java.util.Collections.singletonList(title),
-                    null, images, unreadable, truncated);
+            BaiheClient client = new BaiheClient(server, token);
+            if (read) {
+                client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                read(client, "", images, unreadable, truncated);
+                return;
+            }
+            upload(client, "", java.util.Collections.singletonList(title), null, images, unreadable, truncated);
         });
     }
 
@@ -414,6 +452,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showMore(android.view.View anchor) {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
+        menu.getMenu().add("Pictures from my gallery");
+        menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
@@ -428,12 +468,42 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Stop translating".equals(title)) cancelGrab();
             else if (title.startsWith("Open Quick read")) openReader();
             else if ("Settings".equals(title)) showSettings();
+            else if ("Pictures from my gallery".equals(title)) pickGallery();
+            else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
         menu.show();
+    }
+
+    /**
+     * Sends this page's link to Quick video translate on the PC, which downloads and subtitles it.
+     * Only the link goes: the phone's logins stay here, so a video that needs one will not download.
+     */
+    private void sendVideo() {
+        String link = ServerAddress.videoLink(web.getUrl());
+        if (link.isEmpty()) {
+            say("Open a video page on a public website first.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Sending the video link to Baihe...");
+        sender.execute(() -> {
+            try {
+                new BaiheClient(server, token).sendVideo(link);
+                say("Sent. Baihe is downloading and subtitling it; follow it in Baihe's Jobs.", GrabUi.Kind.OK);
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
     }
 
     private void setTranslate(boolean on) {

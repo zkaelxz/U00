@@ -7,7 +7,7 @@
 .manga-series p { margin: 0; }
 .manga-series-title { font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .manga-series .actions, .manga-folder .actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.manga-chapters { display: grid; gap: var(--space-2); margin: 0; padding-left: 1.5em; }
+.manga-chapters { display: grid; gap: var(--space-2); margin: 0; padding-left: 1.5em; max-height: 32rem; overflow-y: auto; }
 .manga-chapters a { overflow-wrap: anywhere; }
 .manga-folder code { overflow-wrap: anywhere; }
 .manga-folder-form { display: grid; gap: var(--space-2); }

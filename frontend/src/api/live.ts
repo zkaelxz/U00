@@ -139,6 +139,7 @@ export const LIVE_FORM_FALLBACK: LiveFormOptions = {
   default_model: LIVE_DEFAULT_MODEL,
   thinking_switch_engines: THINKING_SWITCH_ENGINES,
   language_whisper_defaults: {},
+  language_chunk_defaults: {},
   spend_limit_range: SPEND_LIMIT_RANGE,
   monthly_cap_set: false,
   defaults: (({ source_language, whisper_size, segment_seconds, overlap_seconds, max_minutes, player_height, spend_limit_usd }) =>
@@ -173,7 +174,8 @@ export type StoredLiveOptions = LiveOptions & { caption_preset: CaptionPresetNam
 
 /** The form a browser starts on: the server's defaults over DEFAULT_FORM, with the model that suits `language` (the form's own language when omitted). */
 export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm => ({
-  ...DEFAULT_FORM, ...opts.defaults, whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
+  ...DEFAULT_FORM, ...opts.defaults, ...opts.language_chunk_defaults?.[language ?? opts.defaults.source_language],
+  whisper_size: languageWhisperDefault(opts, language ?? opts.defaults.source_language),
 })
 
 /** What a browser's remembered options keep when the settings are chosen for the viewer (a member, or another

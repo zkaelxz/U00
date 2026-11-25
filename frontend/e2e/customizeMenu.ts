@@ -7,15 +7,15 @@ export async function hideDiscoverFromSettings(page: Page) {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
   const card = page.getByRole('region', { name: 'Menu items' })
-  await card.getByRole('switch', { name: 'Find' }).click()
-  await expect(card.getByRole('switch', { name: 'Find' })).toHaveAttribute('aria-checked', 'false')
+  await card.getByRole('switch', { name: 'Find & Add' }).click()
+  await expect(card.getByRole('switch', { name: 'Find & Add' })).toHaveAttribute('aria-checked', 'false')
   return card
 }
 
 export async function expectDiscoverGone(page: Page) {
   await openMenu(page)
   await expect(navLink(page, 'Library')).toBeVisible()
-  await expect(navLink(page, 'Find')).toHaveCount(0)
+  await expect(navLink(page, 'Find & Add')).toHaveCount(0)
   await expect(navLink(page, 'Live')).toBeVisible()
 }
 
