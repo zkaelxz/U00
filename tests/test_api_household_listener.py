@@ -418,13 +418,15 @@ class TestNoAdminPermissionsOnHousehold:
         app = _household_app()
         views = [(m, p) for methods, p, perm in self._admin_routes(app)
                  if perm in auth_service.ADMIN_VIEW_PERMISSIONS for m in methods]
-        assert sorted(views) == [("GET", "/api/admin/audit"), ("GET", "/api/admin/users")]
+        assert sorted(views) == [("GET", "/api/admin/audit"), ("GET", "/api/admin/users"),
+                                 ("GET", "/api/admin/users/{user_id}/devices")]
         s = _admin_session()
         db.auth_insert_audit(None, "login.denied", "not_allowlisted email stranger@gmail.com")
         h = _household_client(app)
-        for _m, path in views:
-            assert h.get(path, headers=_h(s)).status_code == 200, path
         users = h.get("/api/admin/users", headers=_h(s)).json()["users"]
+        for _m, path in views:
+            url = path.replace("{user_id}", str(users[0]["id"]))
+            assert h.get(url, headers=_h(s)).status_code == 200, path
         assert [u["email"] for u in users] == ["owner@example.com"]
         r = h.get("/api/admin/audit", headers=_h(s))
         assert "stranger@gmail.com" not in r.text and "s***@gmail.com" in r.text
