@@ -174,6 +174,13 @@ CREATE TABLE IF NOT EXISTS chapter_notifications (
     created_at REAL NOT NULL,
     dismissed INTEGER NOT NULL DEFAULT 0
 );
+-- Who dismissed a notification: dismissing hides it for that account only (user_id 0 is the PC itself).
+-- chapter_notifications.dismissed stays the everyone-level flag, set when its series is unlinked.
+CREATE TABLE IF NOT EXISTS chapter_notification_dismissals (
+    notification_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (notification_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS cache_index (
     url TEXT PRIMARY KEY,
     sha256 TEXT NOT NULL,

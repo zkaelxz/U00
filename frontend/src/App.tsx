@@ -67,6 +67,7 @@ const SettingsPage = lazy(() => import('./pages/Settings'))
 const SourcesPage = lazy(() => import('./pages/Sources'))
 const UpdatesPage = lazy(() => import('./pages/Updates'))
 const MakeSubtitlesPage = lazy(() => import('./pages/MakeSubtitlesPage'))
+const SharePage = lazy(() => import('./pages/SharePage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
@@ -378,12 +379,13 @@ export default function App() {
       {route.name === 'settings' && <SettingsPage />}
       {route.name === 'admin' && <AdminPage />}
       {route.name === 'translate' && <TranslatePage />}
-      {route.name === 'make-subtitles' && <MakeSubtitlesPage />}
+      {route.name === 'make-subtitles' && <MakeSubtitlesPage key={route.url ?? ''} link={route.url ?? null} />}
+      {route.name === 'share' && <SharePage url={route.url ?? null} />}
       {(route.name === 'sources' || route.name === 'sources-manage') && featureOn('sources', features) && (
         <SourcesPage tab={route.name === 'sources' ? route.tab : 'manage'} sharedUrl={route.name === 'sources' ? route.url : undefined} openSeries={route.name === 'sources' ? route.open : undefined} area={route.name === 'sources-manage' ? route.tab : undefined} />
       )}
       {route.name === 'discover' && <DiscoverPage />}
-      {route.name === 'live' && <LivePage />}
+      {route.name === 'live' && <LivePage initialUrl={route.url} />}
       {route.name === 'updates' && <UpdatesPage />}
       {route.name === 'diagnostics' && <DiagnosticsPage />}
       {route.name === 'assistant' && <AssistantPage />}

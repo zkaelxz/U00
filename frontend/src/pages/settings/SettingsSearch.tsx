@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import { CardFoldContext } from '../../components/cardFold'
 import { buttonClass } from '../../components/uiClasses'
+import type { CardChange } from './settingsChanges'
 import { settingsCardStartsOpen, settingsCardKey, tabOfCard, type SettingsTab } from './settingsIndex'
 
 // null: no search, every card shows. Otherwise only the listed cards do.
@@ -20,6 +21,11 @@ const NO_SIGNALS: FoldSignals = { opens: {}, bulk: {} as FoldSignals['bulk'] }
 const FoldSignalsContext = createContext<FoldSignals>(NO_SIGNALS)
 export const FoldSignalsProvider = FoldSignalsContext.Provider
 
+// Cards a release added or moved, and how to clear one when it is opened.
+type ChangesValue = { changes: Readonly<Record<string, CardChange>>; seen: (id: string) => void }
+const ChangesContext = createContext<ChangesValue>({ changes: {}, seen: () => {} })
+export const CardChangesProvider = ChangesContext.Provider
+
 /**
  * Wraps one Settings card so the search can hide it and the card folds (its open state is remembered
  * per card). `summary` is the current value shown while it is closed; a card that has its own meta line
@@ -28,6 +34,8 @@ export const FoldSignalsProvider = FoldSignalsContext.Provider
 export function SettingsCard({ id, summary, children }: { id: string; summary?: string; children: ReactNode }) {
   const visible = useContext(VisibleCardsContext)
   const signals = useContext(FoldSignalsContext)
+  const { changes, seen } = useContext(ChangesContext)
+  const change = changes[id]
   const tab = tabOfCard(id)
   const bulk = tab ? signals.bulk[tab] : undefined
   const open = signals.opens[id] ?? 0
@@ -38,7 +46,9 @@ export function SettingsCard({ id, summary, children }: { id: string; summary?: 
     [id, summary, open, expand, close],
   )
   return (
-    <div id={`settings-card-${id}`} className="settings-card" hidden={visible !== null && !visible.has(id)}>
+    // Any click inside counts as having looked: the summary click that opens the card, or one in an open card.
+    <div id={`settings-card-${id}`} className="settings-card" hidden={visible !== null && !visible.has(id)}
+      data-change={change} onClickCapture={change ? () => seen(id) : undefined}>
       <CardFoldContext.Provider value={fold}>{children}</CardFoldContext.Provider>
     </div>
   )

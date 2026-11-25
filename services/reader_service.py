@@ -429,7 +429,7 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
 # Progress and length
 # ---------------------------------------------------------------------------
 
-def get_reading_overview(drama_id: int) -> dict:
+def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
     """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
     last_line_idx}. Timed media use the real duration, text a reading-time
@@ -440,14 +440,15 @@ def get_reading_overview(drama_id: int) -> dict:
         display = story_context.listening_time(last_end)["display"] if count else "0m"
     else:
         display = story_context.reading_time(words)["display"]
-    prog = db.get_progress(drama_id) or {}
+    prog = db.get_progress(drama_id, user_id=user_id) or {}
     return {"drama_id": drama_id, "length_display": display, "line_count": count,
             "percent_complete": float(prog.get("percent_complete") or 0.0),
             "last_page": int(prog.get("last_page") or 1),
             "last_line_idx": prog.get("last_line_idx")}
 
 
-def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE) -> dict:
+def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
+                          user_id: int = 0) -> dict:
     """Records that `page` was viewed: last line = the page's last line,
     percent from it. Writes only the progress row (partial upsert)."""
     _require_drama(drama_id)
@@ -458,27 +459,51 @@ def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_
     _, last_row = db.load_line_page(drama_id, min(page * chapter_size, total) - 1, 1)
     last_idx = last_row[0]["idx"]
     percent = story_context.compute_percent_complete(last_idx, total)
-    db.save_progress(drama_id, last_line_idx=last_idx, last_page=page, percent_complete=percent)
+    db.save_progress(drama_id, last_line_idx=last_idx, last_page=page, percent_complete=percent,
+                     user_id=user_id)
     return {"drama_id": drama_id, "last_page": page, "last_line_idx": last_idx,
             "percent_complete": percent}
+
+
+def get_watch_position(drama_id: int, user_id: int = 0) -> dict:
+    """Where this account stopped watching or listening, so another device can offer to go on from it."""
+    _require_drama(drama_id)
+    prog = db.get_progress(drama_id, user_id=user_id) or {}
+    seconds = float(prog.get("audio_position_seconds") or 0.0)
+    return {"drama_id": drama_id, "seconds": seconds,
+            "updated_at": prog.get("last_accessed_at") if seconds else None}
+
+
+def save_watch_position(drama_id: int, seconds: float, user_id: int = 0) -> dict:
+    """Records the playback position for this account. A listening title also gets the percent that
+    puts it on the Continue shelf; the reading history is left alone because a player saves often."""
+    drama = _require_drama(drama_id)
+    percent = None
+    if drama.get("media_type") in _LISTENING_MEDIA_TYPES:
+        _, last_end, _ = db.line_reading_stats(drama_id)
+        if last_end:
+            percent = round(min(seconds / last_end * 100.0, 100.0), 2)
+    db.save_progress(drama_id, audio_position_seconds=seconds, percent_complete=percent,
+                     record_history=False, user_id=user_id)
+    return get_watch_position(drama_id, user_id)
 
 
 # ---------------------------------------------------------------------------
 # Notes
 # ---------------------------------------------------------------------------
 
-def get_notes(drama_id: int) -> dict:
+def get_notes(drama_id: int, user_id: int = 0) -> dict:
     _require_drama(drama_id)
-    return {"drama_id": drama_id, "notes": db.get_personal_notes(drama_id)}
+    return {"drama_id": drama_id, "notes": db.get_personal_notes(drama_id, user_id=user_id)}
 
 
-def save_notes(drama_id: int, notes: str) -> dict:
+def save_notes(drama_id: int, notes: str, user_id: int = 0) -> dict:
     _require_drama(drama_id)
     if not isinstance(notes, str):
         raise InvalidInputError("notes must be text.")
     if len(notes) > MAX_NOTES_CHARS:
         raise InvalidInputError(f"notes are longer than {MAX_NOTES_CHARS} characters.")
-    db.save_personal_notes(drama_id, notes)
+    db.save_personal_notes(drama_id, notes, user_id=user_id)
     return {"drama_id": drama_id, "notes": notes}
 
 

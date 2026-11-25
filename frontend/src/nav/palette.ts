@@ -4,6 +4,7 @@
  * may not open is never offered; the open title's stages come from the stage
  * list the workspace already has. Pure, so the matching is testable without a DOM.
  */
+import { inPhoneShell } from '../phoneShell'
 import type { DramaSummary } from '../api/types'
 import type { ReviewLine } from '../types/review'
 import { dramaName } from '../components/libraryView'
@@ -33,7 +34,7 @@ const PAGE_KEYWORDS: Record<string, string> = {
   diagnostics: 'health logs disk',
   jobs: 'queue progress running',
   translate: 'translate text',
-  'make-subtitles': 'transcribe srt whisper audio video file link new title quick translate',
+  'make-subtitles': 'find add search sources discover transcribe srt whisper audio video file link new title quick translate',
   discover: 'find titles online discover sources download novel chapters comics sites',
   live: 'stream youtube captions',
   updates: 'new chapters live channels scheduled streams whats new',
@@ -63,6 +64,7 @@ export function settingsEntries(ctx: NavContext): PaletteEntry[] {
     (s) =>
       (reads || MEMBER_CARDS.has(s.cardId)) &&
       (ownKey || s.cardId !== 'ollama-key') &&
+      (inPhoneShell() || s.cardId !== 'phone-app') &&
       (s.cardId !== 'updates' || canUpdateApp(ctx.session)) &&
       !(away && PC_ONLY_CARDS.has(s.cardId)),
   ).map((s, i) => ({

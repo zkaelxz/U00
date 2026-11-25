@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 import { DRAMA_ID, NO_LINES, mockMakeSubtitles } from './makeSubtitlesMocks'
+import { mockSources, posted } from './sourcesMocks'
 
 // File to English SRT from the Add page's box. Every API call is mocked; nothing is
 // created, transcribed or translated for real.
@@ -290,4 +291,18 @@ test('the English variant options are spelled out', async ({ page }) => {
   await c.getByLabel('Audio or video file').setInputFiles(AUDIO)
   await options(c)
   await expect(c.getByLabel('English variant').locator('option')).toHaveText([/^(Default \(.+\)|Settings default)$/, 'English (US)', 'English (UK)', 'English (Australia)'])
+})
+
+test('Find & Add: a name searches Sources and each match opens its series there', async ({ page }) => {
+  const s = await mockSources(page)
+  await page.goto('/#/make-subtitles')
+  await expect(page.getByRole('heading', { name: 'Find & Add', level: 1 })).toBeVisible()
+  const box = page.getByRole('textbox', { name: 'Paste a link, or type a name to search' })
+  await box.fill('Heaven')
+  await box.press('Enter')
+  await expect.poll(() => posted(s, '/api/sources/search').length).toBe(1)
+  expect(posted(s, '/api/sources/search')[0].body).toEqual({ query: 'Heaven' })
+  await page.getByRole('button', { name: 'Cancel' }).click()
+  await expect(page.getByTestId('search-results').getByRole('link', { name: 'Open on Alpha Comics' }).first()).toHaveAttribute('href', /^#\/sources\?.*source=alpha/)
+  await expect(page.getByRole('link', { name: 'Manage sources' })).toHaveAttribute('href', '#/sources?tab=manage')
 })

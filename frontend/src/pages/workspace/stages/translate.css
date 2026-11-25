@@ -148,3 +148,6 @@
   .translate-switches > .muted { grid-column: 1 / -1; }
 }
 .stage-translate .term-edit-row td { padding: var(--space-2) 0 var(--space-3); }
+
+/* A big glossary scrolls inside the panel instead of stretching the page. */
+.stage-translate .glossary-scroll { max-height: 36rem; overflow-y: auto; }

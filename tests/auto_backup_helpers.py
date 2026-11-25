@@ -212,6 +212,7 @@ def _seed_drama(c, title, series_id=None, sc=None, profiles=(), tag="A"):
         _insert(c, "reading_history", drama_id=did, profile_id=p, line_id=lines[2], line_idx=2,
                 percent_complete=50.0, accessed_at="x")
     _insert(c, "chapter_marks", drama_id=did, user_id=0, chapter_id=f"ch-{tag}", read_at="x", bookmarked=1)
+    _insert(c, "watch_bookmarks", drama_id=did, user_id=0, at_seconds=1.5, note=f"bm-{tag}", created_at="x")
     _insert(c, "usage_log", drama_id=did, engine="claude", model="m", operation="translate",
             input_tokens=1, output_tokens=1, estimated_cost_usd=0.5, created_at="x")
     _insert(c, "bulk_jobs", drama_id=did, engine="claude", model="m", provider_batch_id="b1",

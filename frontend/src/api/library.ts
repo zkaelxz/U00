@@ -19,6 +19,7 @@ import type {
   LibraryVoice,
   LibraryVoiceBankResponse,
   ReadingHistoryClearResult,
+  LibraryHome,
 } from '../types/library'
 import { deleteJson, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -30,6 +31,7 @@ export const getCosts = (f?: Fetch) => getJson<LibraryCostResponse>('/api/librar
 export const getAllSeries = (f?: Fetch) =>
   getJson<LibrarySeriesResponse>('/api/library/series?include_single=true', f)
 export const getHistory = (f?: Fetch) => getJson<LibraryHistoryResponse>('/api/library/history', f)
+export const getHome = (f?: Fetch) => getJson<LibraryHome>('/api/library/home', f)
 export const getContinueReading = (f?: Fetch) =>
   getJson<LibraryContinueResponse>('/api/library/continue', f)
 export const getFilterOptions = (f?: Fetch) =>
