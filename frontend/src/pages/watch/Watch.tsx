@@ -39,6 +39,7 @@ import { playerKeyAction } from '../workspace/stages/review/playerLogic'
 import '../workspace/stages/review/review.css'
 import { titleKind } from '../workspace/titleKind'
 import { NowCard } from './NowCard'
+import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
 import { useWatchMarks } from './useWatchMarks'
 import {
@@ -339,6 +340,7 @@ export default function WatchPage({ id }: { id: number }) {
                 cardRef={cardRef}
               />
             )}
+            {original && <Bookmarks dramaId={id} mediaRef={mediaRef} canEdit={canEdit} onPlay={playFrom} />}
           </div>
           <div className="watch-side">
             {original && <TopicChapterList dramaId={id} at={current?.start ?? null} onPick={playFrom} />}

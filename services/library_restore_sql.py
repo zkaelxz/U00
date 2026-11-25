@@ -207,7 +207,7 @@ _ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("dramas", "created_by_user_
                        ("series", "owner_user_id"),
                        ("job_records", "owner_user_id"), ("translate_history", "user_id"),
                        ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"),
-                       ("chapter_marks", "user_id"))
+                       ("chapter_marks", "user_id"), ("watch_bookmarks", "user_id"))
 
 
 def settle_accounts(conn, live_path: str) -> None:
@@ -241,9 +241,10 @@ def settle_accounts(conn, live_path: str) -> None:
 
 # The account-naming columns of rows that come from the backup when the live
 # accounts are kept (audit_log is the live library's own then).
-# chapter_marks has no NULL for the PC owner (its 0 is the PC), so it is matched by match_mark_accounts.
+# These have no NULL for the PC owner (their 0 is the PC), so they are matched by match_mark_accounts.
+_MARK_TABLES = ("chapter_marks", "watch_bookmarks")
 _RESTORED_ACCOUNT_ID_COLUMNS = tuple(c for c in _ACCOUNT_ID_COLUMNS
-                                     if c[0] not in ("audit_log", "chapter_marks"))
+                                     if c[0] != "audit_log" and c[0] not in _MARK_TABLES)
 _SOURCES_ACCOUNT_ID_COLUMNS = (("tracked_series", "linked_by_user_id"),
                                ("tracked_series", "save_cbz_by_user_id"),
                                ("saved_series_owners", "owner_user_id"),
@@ -340,21 +341,25 @@ def match_owners(conn, mapping: dict) -> int:
 
 
 def match_mark_accounts(conn, mapping: dict) -> None:
-    """On the staged library.db's restored chapter marks: an account's marks go to the live
-    account `mapping` names, and are dropped when it names none (handing them to the PC
-    would mix them into the PC's own). The PC's marks (user_id 0) stay the PC's."""
-    if "user_id" not in {r[1] for r in conn.execute('PRAGMA main.table_info("chapter_marks")')}:
+    """On the staged library.db's restored chapter marks and watch bookmarks: an account's
+    rows go to the live account `mapping` names, and are dropped when it names none (handing
+    them to the PC would mix them into the PC's own). The PC's rows (user_id 0) stay the PC's.
+    A table the backup predates, or one with no user_id yet, is left alone."""
+    tables = [t for t in _MARK_TABLES
+              if "user_id" in {r[1] for r in conn.execute(f'PRAGMA main.table_info("{t}")')}]
+    if not tables:
         return
     conn.execute("CREATE TEMP TABLE mark_map (old INTEGER PRIMARY KEY, new INTEGER)")
     try:
         conn.executemany("INSERT INTO temp.mark_map (old, new) VALUES (?, ?)",
                          [(old, new) for old, new in mapping.items() if old > 0 and new > 0])
-        conn.execute("DELETE FROM main.chapter_marks WHERE user_id IS NOT 0 "
-                     "AND user_id NOT IN (SELECT old FROM temp.mark_map)")
-        # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on the primary key.
-        conn.execute("UPDATE OR REPLACE main.chapter_marks SET user_id = -(SELECT new FROM "
-                     "temp.mark_map WHERE old = user_id) WHERE user_id > 0")
-        conn.execute("UPDATE main.chapter_marks SET user_id = -user_id WHERE user_id < 0")
+        for table in tables:
+            conn.execute(f"DELETE FROM main.{table} WHERE user_id IS NOT 0 "
+                         "AND user_id NOT IN (SELECT old FROM temp.mark_map)")
+            # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on a primary key.
+            conn.execute(f"UPDATE OR REPLACE main.{table} SET user_id = -(SELECT new FROM "
+                         "temp.mark_map WHERE old = user_id) WHERE user_id > 0")
+            conn.execute(f"UPDATE main.{table} SET user_id = -user_id WHERE user_id < 0")
     finally:
         conn.execute("DROP TABLE temp.mark_map")
 

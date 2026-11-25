@@ -1126,6 +1126,18 @@ def test_delete_refuses_an_account_reactivated_after_the_check(isolated_db, monk
     assert detached == []   # a refused delete leaves their shared glossary groups linked
 
 
+def test_deleting_an_account_deletes_its_watch_bookmarks_only(isolated_db):
+    d = db.create_drama(title_en="Stream")
+    m, _ = _member()
+    other, _ = _member("other@example.com")
+    for uid in (0, m["id"], other["id"]):
+        db.add_watch_bookmark(d, uid, 5.0, "", 10)
+    auth_service.deactivate_user(m["id"])
+    auth_service.admin_delete_user(m["id"])
+    assert db.list_watch_bookmarks(d, m["id"]) == []
+    assert db.list_watch_bookmarks(d) and db.list_watch_bookmarks(d, other["id"])
+
+
 def test_deleting_an_account_deletes_its_chapter_marks_only(isolated_db):
     d = db.create_drama(title_en="Comic", media_type="manga")
     m, _ = _member()

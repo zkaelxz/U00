@@ -150,6 +150,48 @@ def set_chapter_marks(drama_id: int, chapter_ids, read: bool | None = None,
         conn.commit()
 
 
+def list_watch_bookmarks(drama_id: int, user_id: int = 0) -> list[dict]:
+    """This account's bookmarks on a title, in the order of the moment they mark (0: the PC itself)."""
+    with contextlib.closing(db.get_conn()) as conn:
+        rows = conn.execute(
+            "SELECT id, at_seconds, note, created_at FROM watch_bookmarks "
+            "WHERE drama_id = ? AND user_id = ? ORDER BY at_seconds, id", (drama_id, user_id)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_watch_bookmark(drama_id: int, user_id: int, at_seconds: float, note: str, limit: int) -> dict | None:
+    """Saves a bookmark, or returns None when the account already has `limit` on this title.
+    The count and the insert share one statement, so two taps at once can't pass the limit."""
+    now = clock.utcnow().isoformat()
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute(
+            "INSERT INTO watch_bookmarks (drama_id, user_id, at_seconds, note, created_at) "
+            "SELECT ?, ?, ?, ?, ? WHERE (SELECT COUNT(*) FROM watch_bookmarks "
+            "WHERE drama_id = ? AND user_id = ?) < ?",
+            (drama_id, user_id, at_seconds, note, now, drama_id, user_id, limit))
+        conn.commit()
+        if cur.rowcount == 0:
+            return None
+        return {"id": db.inserted_id(cur), "at_seconds": at_seconds, "note": note, "created_at": now}
+
+
+def set_watch_bookmark_note(drama_id: int, user_id: int, bookmark_id: int, note: str) -> bool:
+    """False when this account has no such bookmark on this title."""
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("UPDATE watch_bookmarks SET note = ? WHERE id = ? AND drama_id = ? AND user_id = ?",
+                           (note, bookmark_id, drama_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def delete_watch_bookmark(drama_id: int, user_id: int, bookmark_id: int) -> bool:
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("DELETE FROM watch_bookmarks WHERE id = ? AND drama_id = ? AND user_id = ?",
+                           (bookmark_id, drama_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+
+
 def reading_marks_by_drama(user_id: int = 0) -> dict:
     """{drama_id: (percent_complete, {read chapter ids})} for every title with a resume point
     or a read chapter, in two queries, for the Library list's reading filter and unread count.

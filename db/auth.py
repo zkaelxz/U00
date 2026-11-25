@@ -741,6 +741,7 @@ def auth_delete_inactive_member(user_id: int) -> bool:
         if cur.rowcount > 0:
             # No foreign key reaches these: user_id 0 there means the PC, which has no users row.
             conn.execute("DELETE FROM chapter_marks WHERE user_id = ?", (user_id,))
+            conn.execute("DELETE FROM watch_bookmarks WHERE user_id = ?", (user_id,))
         conn.commit()
         return cur.rowcount > 0
 

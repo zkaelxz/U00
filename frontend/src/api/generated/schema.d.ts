@@ -7911,6 +7911,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reader/dramas/{drama_id}/bookmarks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's bookmarks on a title */
+        get: operations["get_bookmarks_api_reader_dramas__drama_id__bookmarks_get"];
+        put?: never;
+        /** Save a moment with an optional note */
+        post: operations["post_bookmark_api_reader_dramas__drama_id__bookmarks_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a bookmark */
+        delete: operations["delete_bookmark_api_reader_dramas__drama_id__bookmarks__bookmark_id__delete"];
+        options?: never;
+        head?: never;
+        /** Change a bookmark's note */
+        patch: operations["patch_bookmark_api_reader_dramas__drama_id__bookmarks__bookmark_id__patch"];
+        trace?: never;
+    };
     "/api/reader/dramas/{drama_id}/captions/{track}": {
         parameters: {
             query?: never;
@@ -33774,6 +33810,44 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** WatchBookmark */
+        WatchBookmark: {
+            /** At Seconds */
+            at_seconds: number;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Note */
+            note: string;
+        };
+        /** WatchBookmarkDeleted */
+        WatchBookmarkDeleted: {
+            /** Id */
+            id: number;
+        };
+        /** WatchBookmarkNoteRequest */
+        WatchBookmarkNoteRequest: {
+            /** Note */
+            note: string;
+        };
+        /** WatchBookmarkRequest */
+        WatchBookmarkRequest: {
+            /** At Seconds */
+            at_seconds: number;
+            /**
+             * Note
+             * @default
+             */
+            note?: string;
+        };
+        /** WatchBookmarks */
+        WatchBookmarks: {
+            /** Bookmarks */
+            bookmarks: components["schemas"]["WatchBookmark"][];
+            /** Drama Id */
+            drama_id: number;
+        };
         /** WebSearchConfig */
         WebSearchConfig: {
             /** Base Url */
@@ -57022,6 +57096,185 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_bookmarks_api_reader_dramas__drama_id__bookmarks_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchBookmarks"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_bookmark_api_reader_dramas__drama_id__bookmarks_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchBookmarkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchBookmark"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_bookmark_api_reader_dramas__drama_id__bookmarks__bookmark_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                bookmark_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchBookmarkDeleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    patch_bookmark_api_reader_dramas__drama_id__bookmarks__bookmark_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                bookmark_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchBookmarkNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchBookmark"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

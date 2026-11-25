@@ -122,3 +122,15 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 }
 .watch-chapters button:hover, .watch-chapters button:focus-visible { background: var(--surface-2); }
 .watch-chapters button[aria-current='true'] { font-weight: 600; background: var(--surface-2); }
+
+/* Bookmarks: each row plays from its moment; Note and Delete sit beside it and stay finger-sized on a phone. */
+.watch-bookmarks { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.watch-bookmarks li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
+.watch-bookmark-play { flex: 1 1 12rem; min-height: 44px; text-align: left; background: none; border: 0; border-radius: var(--radius-sm); padding: var(--space-2); color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.watch-bookmark-play:hover { background: var(--surface-2); }
+.watch-bookmark-actions, .watch-bookmark-edit { display: flex; gap: var(--space-1); align-items: center; }
+.watch-bookmark-edit { flex: 1 1 100%; }
+.watch-bookmark-edit input { flex: 1 1 auto; min-width: 0; }
+@media (pointer: coarse), (max-width: 640px) {
+  .watch-bookmark-actions .btn, .watch-bookmark-edit .btn { min-height: 44px; }
+}

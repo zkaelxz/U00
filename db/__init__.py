@@ -633,7 +633,7 @@ from db.reading import (  # noqa: E402,F401
     clear_reading_history, create_profile, delete_profile, get_chapter_marks, get_personal_notes, get_profile,
     get_progress, list_continue_reading, list_profiles, list_reading_history,
     get_view_prefs, reading_marks_by_drama, save_personal_notes, save_progress, save_view_prefs,
-    set_chapter_marks)
+    set_chapter_marks, list_watch_bookmarks, add_watch_bookmark, set_watch_bookmark_note, delete_watch_bookmark)
 
 
 # ---------------------------------------------------------------------------
