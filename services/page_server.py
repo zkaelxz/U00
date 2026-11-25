@@ -404,7 +404,7 @@ def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language
     hard-to-read text a second look with the picture model (page_reread_service), before the
     glossary is matched against it. A failure here only costs that quality, never the
     translation."""
-    from services import comic_glossary_service, extension_service, page_reread_service
+    from services import comic_fixes_service, comic_glossary_service, extension_service, page_reread_service
     language = _page_source_language(drama, language)
     try:
         extras = extension_service.page_extras(drama, config, engine, image)
@@ -421,6 +421,9 @@ def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language
             extras.get("character_notes", ""), language, bubbles, glossary)
     except Exception:
         pass
+    if drama:
+        extras["character_notes"] = comic_fixes_service.with_fixes(
+            extras.get("character_notes", ""), drama, bubbles)
     return extras
 
 

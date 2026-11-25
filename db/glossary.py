@@ -180,6 +180,19 @@ def bump_translation_memory_use(entry_id: int):
         conn.commit()
 
 
+def forget_translation_memory(series_id: int, source_text: str, translation: str) -> int:
+    """Drops the series' entry for `source_text` only while it still holds `translation`, so
+    an undone fix stops being offered without touching a later, different approval."""
+    source_text, translation = (source_text or "").strip(), (translation or "").strip()
+    if not series_id or not source_text or not translation:
+        return 0
+    with contextlib.closing(db.get_conn()) as conn:
+        cur = conn.execute("DELETE FROM translation_memory WHERE series_id = ? AND source_text = ? "
+                           "AND translation = ?", (series_id, source_text, translation))
+        conn.commit()
+    return cur.rowcount
+
+
 def update_translation_memory_after_replace(series_id: int, old_translation: str,
                                             new_translation: str) -> int:
     """Find-and-replace just changed a line's translation from old to new:

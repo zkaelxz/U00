@@ -35,7 +35,7 @@ import background_jobs
 from jobs import job_launch
 import db
 import storage
-from services import comic_view_service
+from services import comic_fixes_service, comic_view_service
 import page_import_limits as limits
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError)
@@ -371,7 +371,7 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
     "stale" and the current rev) otherwise, so a job that rewrote the page
     is never overwritten blind. The box must stay inside the page. The edit
     goes on the page's undo list. Returns the page detail."""
-    require_drama(drama_id)
+    drama = require_drama(drama_id)
     page = require_page(drama_id, page_id)
     changes, expected = dict(changes or {}), dict(expected or {})
     if not changes:
@@ -387,6 +387,10 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
                               for k in ("x", "y", "w", "h")})
     status, rev = db.edit_region(page_id, region_id, changes, expected_rev, expected)
     _raise_for_write(status, rev)
+    if "translated_text" in changes:
+        comic_fixes_service.record_fix(
+            drama, current.get("translated_text"), changes["translated_text"],
+            next((b for b in db.load_bubbles(page_id) if b["id"] == region_id), None))
     return get_page_detail(drama_id, page_id)
 
 
@@ -431,8 +435,11 @@ def undo_region_edit(drama_id: int, page_id: int, expected_rev: int) -> dict:
     else wrote the page after that change ("history_changed": undoing would
     overwrite that write, so the undo list is cleared instead). Returns the
     page detail."""
-    require_drama(drama_id)
-    require_page(drama_id, page_id)
+    drama = require_drama(drama_id)
+    page = require_page(drama_id, page_id)
+    # Read before the undo: the transaction below reverses exactly this entry when the page is
+    # still at the rev this read saw.
+    undoing = db.latest_page_edit(page) if int(page.get("rev") or 0) == int(expected_rev) else None
     status, rev = db.undo_region_edit(page_id, expected_rev)
     if status == "no_page":
         raise NotFoundError("No such page in this title.")
@@ -444,7 +451,18 @@ def undo_region_edit(drama_id: int, page_id: int, expected_rev: int) -> dict:
         raise _stale("history_changed", rev,
                      "This page was changed after your last edit (by a job or another "
                      "edit), so that edit can't be undone safely. The undo list was cleared.")
+    _forget_undone_fix(drama, page_id, undoing)
     return get_page_detail(drama_id, page_id)
+
+
+def _forget_undone_fix(drama: dict, page_id: int, entry: dict | None) -> None:
+    """An undone English edit was kept as a series fix (edit_region); it is dropped again."""
+    if not entry or entry.get("op", "edit") != "edit" or "translated_text" not in (entry.get("after") or {}):
+        return
+    region = next((b for b in db.load_bubbles(page_id) if b["id"] == entry.get("region_id")), None)
+    if region is not None:
+        comic_fixes_service.forget_fix(drama, region.get("source_text") or "",
+                                       entry["after"]["translated_text"] or "")
 
 
 # --- S2: import -------------------------------------------------------------

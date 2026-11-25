@@ -246,6 +246,12 @@ def edit_history_depth(page: dict, region_ids=None) -> int:
     return len(history)
 
 
+def latest_page_edit(page: dict) -> dict | None:
+    """The entry an undo of this page row would reverse, or None."""
+    history = _load_history(page.get("edit_history"))
+    return history[-1] if history else None
+
+
 def _page_rev_and_history(conn, page_id: int):
     row = conn.execute("SELECT COALESCE(rev, 0), edit_history FROM pages WHERE id = ?",
                        (page_id,)).fetchone()

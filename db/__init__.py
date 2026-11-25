@@ -568,6 +568,7 @@ from db.comic_pages import (  # noqa: F401
     EDIT_HISTORY_LIMIT,
     MAX_REGIONS_PER_PAGE,
     edit_history_depth,
+    latest_page_edit,
     edit_region,
     create_region,
     delete_region,
@@ -594,7 +595,7 @@ from db.known_titles import (  # noqa: E402,F401
 # ---------------------------------------------------------------------------
 
 from db.glossary import (  # noqa: E402,F401
-    bump_translation_memory_use, create_series, get_or_create_series, get_series_id_by_name,
+    bump_translation_memory_use, create_series, forget_translation_memory, get_or_create_series, get_series_id_by_name,
     import_translation_memory, insert_glossary_term_if_absent, list_series, list_translation_memory,
     list_translation_memory_for_sources, record_translation_memory, update_glossary_term, update_translation_memory_after_replace,
     upsert_glossary_term, count_glossary_terms_by_series, list_glossary_terms, list_glossary_dismissals,
