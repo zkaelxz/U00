@@ -30,9 +30,20 @@ WHISPER_MODELS = {
                   "large-v3 on Japanese; line timing only"),
     "breeze-asr-25": ("Chinese (Breeze-ASR-25, Taiwanese Mandarin) -- opt-in, about 3 GB; steadier than "
                       "large-v3 on the whispered clips we tested"),
+    "thonburian-large-v3": ("Thai (Thonburian, large-v3 fine-tune) -- about 3 GB, needs a GPU to be quick; "
+                            "fewer errors than large-v3 on our Thai stream test; line timing only"),
 }
 DEFAULT_WHISPER_SIZE = "large-v3"
 BREEZE_KEY = "breeze-asr-25"
+THONBURIAN_KEY = "thonburian-large-v3"
+
+# Keys run through transformers by text_only_whisper rather than by faster-whisper: models
+# that write no timestamps. Pinned like PINNED_CT2_REPOS; the same Apache-2.0 repo the
+# owner's Thai test used.
+TEXT_ONLY_REPOS = {
+    THONBURIAN_KEY: ("biodatlab/whisper-th-large-v3-combined",
+                     model_pins.revision("biodatlab/whisper-th-large-v3-combined")),
+}
 
 # Sizes the Workspace pickers no longer offer (Live keeps them). The API and
 # titles that saved one still accept them. tiny and base exist only here and in Live's
@@ -71,14 +82,15 @@ ANIME_WHISPER_MANIFEST = "baihe-manifest.json"
 
 # Approximate download sizes in GB. A member can start these downloads, so free space
 # is checked first rather than letting a full drive fail partway through.
-_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5, "breeze-asr-25": 3.1}
+_DOWNLOAD_GB = {ANIME_WHISPER_KEY: 1.5, "ja-1.5b": 3, "kotoba-v2": 1.5, "breeze-asr-25": 3.1,
+                THONBURIAN_KEY: 3.1}
 _DOWNLOAD_MARGIN_BYTES = 256 * 1024 ** 2
 
 # Models that must not be asked for word timestamps. kotoba's CTranslate2 config copies
 # large-v3's alignment_heads (decoder layers 7-19) onto a 2-layer decoder, so
 # word_timestamps=True can fail inside ctranslate2. Their lines keep Whisper's segment
 # times, which the Qwen3 forced aligner refines where it is installed.
-WORD_TIMESTAMP_UNSUPPORTED = frozenset({"kotoba-v2"})
+WORD_TIMESTAMP_UNSUPPORTED = frozenset({"kotoba-v2", THONBURIAN_KEY})
 
 
 def supports_word_timestamps(model_size: str) -> bool:
@@ -116,6 +128,9 @@ WHISPER_LANGUAGE_RULES = {
     "breeze-asr-25": LanguageRule(
         only_for=("zh",),
         reason="Breeze-ASR-25 is a Taiwanese Mandarin model and is only for Chinese titles."),
+    THONBURIAN_KEY: LanguageRule(
+        only_for=("th",),
+        reason="Thonburian is a Thai fine-tune and is only for Thai titles."),
 }
 
 
@@ -154,7 +169,8 @@ def whisper_language_exclusions() -> dict:
 # breeze-asr-25 is Chinese-only and large-v2 sized, so it needs a GPU too.
 # ja-1.5b is last and Japanese-only (WHISPER_LANGUAGE_RULES): it scored best on Japanese read
 # speech (docs/asr-experiments.md), but needs a GPU to keep up.
-LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "breeze-asr-25", "ja-1.5b")
+LIVE_WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3", "breeze-asr-25", "ja-1.5b",
+                      THONBURIAN_KEY)
 
 
 
@@ -163,9 +179,12 @@ def default_whisper_size_for(source_language: str) -> str:
     Chinese prefers Breeze-ASR-25 (lower and steadier CER than large-v3 on the hand-checked
     Chinese titles, docs/asr-experiments.md) but only once it is already downloaded: a default
     must never start a 3 GB download or fail on a missing model. Other languages keep
-    DEFAULT_WHISPER_SIZE."""
+    DEFAULT_WHISPER_SIZE. Thai prefers Thonburian the same way (the owner's Thai stream test,
+    CER 0.204 against large-v3's 0.263)."""
     if source_language == "zh" and is_whisper_model_cached(BREEZE_KEY):
         return BREEZE_KEY
+    if source_language == "th" and is_whisper_model_cached(THONBURIAN_KEY):
+        return THONBURIAN_KEY
     return DEFAULT_WHISPER_SIZE
 
 
@@ -340,7 +359,44 @@ def is_whisper_model_cached(model_size: str) -> bool:
         return _anime_whisper_ready(anime_whisper_folder())
     if model_size in PINNED_CT2_REPOS:
         return _pinned_snapshot(model_size) is not None
+    if model_size in TEXT_ONLY_REPOS:
+        return _text_only_snapshot(model_size) is not None
     return _generic_snapshot(model_size) is not None
+
+
+def model_snapshot_folder(model_size: str):
+    """Folder of a downloaded faster-whisper model, or None when it is not on this PC."""
+    if model_size == ANIME_WHISPER_KEY:
+        return anime_whisper_folder() if _anime_whisper_ready(anime_whisper_folder()) else None
+    if model_size in TEXT_ONLY_REPOS:
+        return _text_only_snapshot(model_size)
+    return _pinned_snapshot(model_size) if model_size in PINNED_CT2_REPOS else _generic_snapshot(model_size)
+
+
+def _text_only_snapshot(model_size: str):
+    import text_only_whisper
+    repo, revision = TEXT_ONLY_REPOS[model_size]
+    return text_only_whisper.snapshot_folder(_hub_dir(), repo, revision)
+
+
+def fetch_text_only_model(model_size: str, token) -> str:
+    """Local folder of a TEXT_ONLY_REPOS model, downloading only its listed data files."""
+    cached = _text_only_snapshot(model_size)
+    if cached:
+        return cached
+    import text_only_whisper
+    repo, revision = TEXT_ONLY_REPOS[model_size]
+    _refuse_without_room(_hub_dir(), model_size)
+    try:
+        return text_only_whisper.fetch(repo, revision, token)
+    except Exception as exc:
+        if model_pins.is_revision_gone(exc):
+            raise ModelDownloadError(model_pins.revision_gone_message(repo)) from exc
+        if is_network_error(exc):
+            raise
+        raise ModelDownloadError(
+            f"Couldn't download the '{model_size}' model ({type(exc).__name__}). "
+            "Check your Hugging Face token in Settings and try again.") from exc
 
 
 def _generic_repo(model_size: str) -> str | None:
@@ -709,6 +765,15 @@ def gpu_compute_type() -> str:
     return next((t for t in _GPU_COMPUTE_PREFERENCE if t in supported), "float16")
 
 
+def _load_text_only(model_size: str, use_gpu: bool, token):
+    """(model, device info) for a TEXT_ONLY_REPOS key. A local model path is not used: it names
+    a faster-whisper folder, which this loader cannot read. Offline, load_whisper_model has
+    already refused a model that is not on disk, so this only reads the download."""
+    import text_only_whisper
+    folder = fetch_text_only_model(model_size, token)
+    return text_only_whisper.load(folder, use_gpu, WHISPER_LANGUAGE_RULES[model_size].only_for[0])
+
+
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None,
                         hf_token: str | None = None):
     """Loads (and on first use, downloads) a Whisper model.
@@ -753,14 +818,18 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
-        if model_size == ANIME_WHISPER_KEY:
+        if model_size in TEXT_ONLY_REPOS:
+            model, device_info = _load_text_only(model_size, use_gpu, _tok)
+        elif model_size == ANIME_WHISPER_KEY:
             model_path = _fetch_anime_whisper(_tok)
         elif model_size in PINNED_CT2_REPOS and not local_model_path:
             model_path = _fetch_pinned_model(model_size, _tok)
         elif not local_model_path and _generic_repo(model_size):
             # Offline, the check above already found the pinned folder on disk.
             model_path = _generic_snapshot(model_size) if offline else _download_model(model_size, _tok)
-        if use_gpu:
+        if model_size in TEXT_ONLY_REPOS:
+            pass    # loaded above, on its own device
+        elif use_gpu:
             try:
                 compute_type = gpu_compute_type()
                 model = _build("cuda", compute_type)

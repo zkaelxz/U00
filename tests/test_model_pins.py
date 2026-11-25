@@ -34,9 +34,10 @@ def _repos_the_loaders_name():
     # Every size a title may store or Live may pick.
     sizes = {*transcribe_options_service._allowed_whisper_sizes(), *whisper_models.WHISPER_MODELS,
              *whisper_models.HIDDEN_WHISPER_SIZES, *whisper_models.LIVE_WHISPER_SIZES} - set(
-                 whisper_models.PINNED_CT2_REPOS)
+                 whisper_models.PINNED_CT2_REPOS) - set(whisper_models.TEXT_ONLY_REPOS)
     repos = {whisper_models.faster_whisper_repo(size) for size in sizes}
     repos |= {repo for repo, _rev in whisper_models.PINNED_CT2_REPOS.values()}
+    repos |= {repo for repo, _rev in whisper_models.TEXT_ONLY_REPOS.values()}
     repos.add(whisper_models.ANIME_WHISPER_PIN["repo"])
     repos |= {qwen3_native.asr_repo_id(size) for size in qwen3_native.APPROX_DOWNLOAD_GB
               if size != "aligner"}

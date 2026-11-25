@@ -241,6 +241,7 @@ export const MODEL_DOWNLOAD_IDS: Record<string, string[]> = {
   'pyannote diarization model': ['pyannote_diarization'],
   'Whisper (faster-whisper)': [
     'whisper_large_v3', 'whisper_large_v3_turbo', 'whisper_ja_1_5b', 'whisper_kotoba_v2', 'whisper_medium', 'whisper_anime', 'whisper_breeze_asr_25',
+    'whisper_thonburian',
   ],
 }
 

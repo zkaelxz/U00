@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MediaLinkProbe } from '../../api/linkDetails'
 import {
   HANDOFF_LIFE_MS, SETTLE_MS, clearHandoff, fileKind, foundForFile, foundForLink, handOff, linkCanRun, linkFrom, linkTaker, peekHandoff, planForFile,
-  planForLink, type FileRunRequest,
+  lengthText, planForLink, previewRows, type FileRunRequest,
 } from './addBoxModel'
 
 const probe = (o: Partial<MediaLinkProbe>): MediaLinkProbe => ({
@@ -179,5 +179,30 @@ describe('Add box: when a link counts as given (each take probes it on the PC)',
     t.typed(`${LINK}x`)
     t.clear()
     expect(seen).toEqual([LINK, null, null])
+  })
+})
+
+describe('previewRows', () => {
+  const summary = [
+    { label: 'Source language', value: 'Not set' }, { label: 'Speech recognizer', value: 'Whisper large-v3' },
+    { label: 'Engine and model', value: 'gemma' }, { label: 'Cost', value: 'Free' }, { label: 'Batch size', value: '30' },
+  ]
+  const read = (extra: object) => ({ state: 'read', probe: { kind: 'video', title: '', channel: '', release_date: '', is_live: false, summary: '', platform: '', series_suggestion: '', note: '', display_url: '', ...extra } }) as never
+  it('leads with the length, then language, recognizer, engine and cost only', () => {
+    const rows = previewRows(read({ duration_seconds: 3900 }), summary)
+    expect(rows.map((r) => [r.label, r.value])).toEqual([
+      ['Length', '1 h 5 min'], ['Source language', 'Worked out from the speech'],
+      ['Speech recognizer', 'Whisper large-v3'], ['Engine and model', 'gemma'], ['Cost', 'Free'],
+    ])
+  })
+  it('names a live stream and a link without a length', () => {
+    expect(previewRows(read({ is_live: true }), [])[0].value).toBe('Live stream')
+    expect(previewRows(read({ duration_seconds: null }), [])[0].value).toBe('Not given by the link')
+    expect(previewRows({ state: 'reading' } as never, summary)[0].label).toBe('Source language')
+  })
+  it('writes short lengths plainly', () => {
+    expect(lengthText(20)).toBe('under a minute')
+    expect(lengthText(42 * 60)).toBe('42 min')
+    expect(lengthText(2 * 3600)).toBe('2 h')
   })
 })

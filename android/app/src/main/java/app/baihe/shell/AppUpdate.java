@@ -178,6 +178,27 @@ final class AppUpdate {
         }
     }
 
+    /** A small text answer (at most 64 KB) from the signed-in server, or null when it could not be had. */
+    static String fetchText(String url, String cookie) {
+        try {
+            HttpURLConnection conn = open(url, cookie);
+            try {
+                if (conn.getResponseCode() != 200) return null;
+                try (InputStream in = conn.getInputStream()) {
+                    byte[] buffer = new byte[64 * 1024];
+                    int filled = 0;
+                    int n;
+                    while (filled < buffer.length && (n = in.read(buffer, filled, buffer.length - filled)) > 0) filled += n;
+                    return new String(buffer, 0, filled, "UTF-8");
+                }
+            } finally {
+                conn.disconnect();
+            }
+        } catch (IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
     private static HttpURLConnection open(String url, String cookie) throws IOException {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setInstanceFollowRedirects(false);

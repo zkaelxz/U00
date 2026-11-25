@@ -50,7 +50,7 @@ _adding_sets = set()
 
 
 def _unit(language: str) -> str:
-    return "char" if language in SOURCE_LANGUAGES else "word"
+    return "char" if language in scoring.CHARACTER_LANGUAGES else "word"
 
 
 def _comparable(text: str, normaliser: str, unit: str) -> str:

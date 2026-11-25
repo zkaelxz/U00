@@ -3,21 +3,19 @@
 .live-form .field-row { margin-bottom: 0; }
 .live-check { display: inline-flex; align-items: center; gap: var(--space-2); }
 .live-error { margin: var(--space-3) 0 0; }
-.live-form.watching > :not(.actions) { display: none; }
-/* A fixed-height box, so a long stream scrolls inside it instead of growing the page; newest line first. */
-.live-cues-box { max-height: min(60vh, 28rem); overflow-y: auto; overscroll-behavior: contain; }
-.live-feed { margin-top: var(--space-4, 1.25rem); display: grid; gap: var(--space-2); min-width: 0; }
+/* While a session runs the form is not needed; LiveWatch has Stop. */
+.live-form.watching { display: none; }
+.live-feed { display: grid; gap: var(--space-2); min-width: 0; }
 .live-feed > p { margin: 0; }
 /* Lists here reset padding with `!important` for the same reason: `.panel ul` out-ranks a single class (see index.css). */
 .live-cues { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
-.live-cues li { display: grid; grid-template-columns: auto 1fr; column-gap: var(--space-3); row-gap: 2px; padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
-.live-ts { grid-row: span 2; color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
+.live-cues li { display: grid; gap: 2px; padding: var(--space-2) var(--space-3) !important; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
+.live-ts { color: var(--muted); font-family: var(--font-mono); font-size: var(--text-sm); }
 .live-src, .live-en { min-width: 0; overflow-wrap: anywhere; }
-.live-src { color: var(--muted); }
-/* Video beside the lines on wide screens, above them on phones. */
-.live-body { display: grid; gap: var(--space-3); min-width: 0; }
-.live-body.has-video { margin-top: var(--space-4, 1.25rem); }
-.live-body .live-feed { margin-top: 0; }
+/* The translation is what is read; the original sits small under it. */
+.live-en { font-size: var(--text-lg, 1.125rem); font-weight: var(--weight-bold); }
+.live-en.muted, .live-en.warn { font-size: var(--text-md); font-weight: normal; }
+.live-src { color: var(--muted); font-size: var(--text-sm); }
 .live-video { align-content: start; padding: var(--space-3); gap: var(--space-2); }
 .live-video .card-title { margin: 0; font-size: var(--text-md); }
 .live-video-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; background: black; border-radius: var(--radius-sm); overflow: hidden; }
@@ -31,19 +29,7 @@
 .live-caption span { display: inline-block; padding: 0.15em 0.5em; border-radius: 0.25em; background: rgba(0, 0, 0, 0.72); color: #fff; font-size: clamp(0.9rem, 3.4cqw, 2rem); line-height: 1.35; overflow-wrap: anywhere; text-shadow: 0 0 2px #000, 0 0 4px #000; }
 .live-caption[data-pending] span { color: #e6e6e6; }
 .live-video input[type='range'] { width: 100%; min-height: 44px; }
-/* Wide layout follows the page's own width (no fixed pixels): the form keeps a readable measure, the video gets ~60%. */
-.live-wide .live-form, .live-wide .live-error { max-width: 52rem; }
-.live-theater-field { display: none; }
-@media (min-width: 641px) {
-  .live-theater-field { display: block; }
-  .live-body.has-video { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); align-items: start; }
-  .live-body.has-video .live-video { grid-column: 2; grid-row: 1; position: sticky; top: calc(var(--bar-h, 0px) + var(--space-2)); }
-  .live-body.has-video .live-feed { grid-column: 1; grid-row: 1; }
-  /* Larger video: the picture takes the row, the lines go under it. */
-  .live-body.has-video.theater { grid-template-columns: minmax(0, 1fr); }
-  .live-body.has-video.theater .live-video { grid-column: 1; grid-row: 1; position: static; }
-  .live-body.has-video.theater .live-feed { grid-column: 1; grid-row: 2; }
-}
+.live-wide .live-error { max-width: 52rem; }
 .live-notes { list-style: none; margin: 0 0 var(--space-2); padding: 0; display: grid; gap: 2px; }
 
 /* Followed channels (live/FollowedChannels.tsx): rows wrap on a phone, never scroll sideways. */
@@ -70,3 +56,53 @@
 .live-chat-author { color: var(--muted); font-size: var(--text-sm); }
 .live-chat-paid { font-weight: 600; }
 .live-save { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); }
+
+/* Watching: a phone stacks the picture over a lines box that takes the rest of the screen, Stop pinned under it.
+   A PC puts the picture on the left and a 400px lines column on the right, Stop in the bar above them. */
+.live-watch { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
+.live-watch[data-running] { display: flex; flex-direction: column; height: calc(100dvh - var(--bar-h, 0px) - var(--live-chrome, 8rem)); min-height: 24rem; }
+.live-watch .live-feed { min-height: 0; }
+.live-watch[data-running] .live-feed { flex: 1; display: flex; flex-direction: column; }
+.live-watch[data-running] .live-pane:not([hidden]) { flex: 1; }
+.live-pane { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.live-pane[hidden] { display: none; }
+.live-lines { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
+.live-cues-box { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.live-new-lines { position: absolute; top: var(--space-2); left: 50%; transform: translateX(-50%); min-height: 44px; padding: 0 var(--space-4); border-radius: 999px; background: var(--text); color: var(--bg); border: 0; font-weight: var(--weight-bold); box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.25)); }
+.live-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.live-chips button { min-height: 44px; padding: 0 var(--space-3); border-radius: 999px; display: inline-flex; align-items: center; gap: var(--space-2); }
+.live-chips button[aria-selected='true'] { border: 2px solid var(--accent); font-weight: var(--weight-bold); }
+.live-chip-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger, #b3261e); }
+.live-tabs { display: flex; width: fit-content; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--radius-md, 12px); overflow: hidden; }
+.live-tabs button { min-height: 44px; padding: 0 var(--space-4); border: 0; border-radius: 0; }
+.live-tabs button[aria-selected='true'] { background: var(--accent); color: var(--on-accent, #fff); font-weight: var(--weight-bold); }
+.live-stopbar { position: sticky; bottom: 0; padding: var(--space-2) 0; background: var(--bg); }
+.live-stopbar button { width: 100%; min-height: 48px; }
+@media (min-width: 900px) {
+  .live-watch[data-running] { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'bar bar' 'video feed'; }
+  .live-watch[data-running] .live-chips, .live-watch[data-running] .live-stopbar { grid-area: bar; align-self: center; }
+  .live-watch[data-running] .live-stopbar { justify-self: end; position: static; padding: 0; background: none; }
+  .live-watch[data-running] .live-stopbar button { width: auto; min-width: 8rem; }
+  .live-watch[data-running] .live-video { grid-area: video; align-self: start; }
+  .live-watch[data-running] .live-feed { grid-area: feed; }
+}
+
+/* Live now: followed channels on the air come first, one tap from captions. */
+.live-now { margin-bottom: var(--space-3); min-width: 0; }
+.live-now-list { list-style: none; margin: 0; padding: 0 !important; display: grid; gap: var(--space-2); }
+.live-now-card { display: grid; gap: var(--space-2); padding: var(--space-3) !important; border: 1px solid var(--accent); border-radius: var(--radius-sm); background: var(--field-bg); min-width: 0; }
+.live-now-card[data-picked] { border-width: 2px; }
+.live-now-card button { width: 100%; min-height: 48px; }
+/* A followed row shows its name and status; the controls open under it. */
+.live-follow-toggle { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-2); width: 100%; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; text-align: left; font: inherit; }
+.live-follow-chevron { margin-left: auto; color: var(--muted); }
+.live-follow-body { display: grid; gap: var(--space-2); min-width: 0; }
+.live-follow-body[hidden] { display: none; }
+.live-follow-row[data-picked] { border-color: var(--accent); }
+
+/* The phone app floats the picture in a small window (picture-in-picture): the picture and its captions
+   fill it and everything else steps aside. Fixed on the card itself, so no other part of the page matters. */
+html.shell-pip .live-video { position: fixed; inset: 0; z-index: 2147483000; padding: 0; margin: 0; gap: 0; border: 0; border-radius: 0; background: black; }
+html.shell-pip .live-video > :not(.live-video-frame) { display: none; }
+html.shell-pip .live-video-frame { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
+html.shell-pip body { overflow: hidden; }

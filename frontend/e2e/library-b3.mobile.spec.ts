@@ -35,7 +35,7 @@ test('dashboard, costs and series fit a phone', async ({ page }) => {
 
 test('New drama: Summary and Create + fill with AI fit a phone', async ({ page }) => {
   await page.goto('/')
-  await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).click()
+  await page.getByRole('navigation', { name: 'Quick' }).getByRole('link', { name: 'Find & Add', exact: true }).click()
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByText('Credits, summary and series').click()
@@ -53,7 +53,7 @@ const usageStats = {
 }
 
 for (const width of [390, 360]) {
-  test(`stats line keeps Add on the title row and usage folds away at ${width}`, async ({ page }) => {
+  test(`stats line: usage folds away at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 740 })
     await page.route('**/api/library/stats', (r) => r.fulfill({ json: usageStats }))
     await page.goto('/')
@@ -61,9 +61,6 @@ for (const width of [390, 360]) {
     await expect(summary).toHaveText('$3.47 spent')
     await expect(page.getByTestId('stats-usage')).toBeHidden()
     expect(await hitHeight(summary)).toBeGreaterThanOrEqual(44)
-    const title = await page.getByRole('heading', { name: 'Library' }).boundingBox()
-    const button = await page.locator('.page-head').getByRole('link', { name: 'Add', exact: true }).boundingBox()
-    expect(Math.abs((button?.y ?? 0) - (title?.y ?? 99))).toBeLessThan(30)
     await expectNoSidewaysScroll(page)
     await summary.click()
     await expect(page.getByTestId('stats-usage')).toBeVisible()

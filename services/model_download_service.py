@@ -253,6 +253,8 @@ def _fetch_whisper(size: str):
             whisper_models._fetch_anime_whisper(token)
         elif size in whisper_models.PINNED_CT2_REPOS:
             whisper_models._fetch_pinned_model(size, token)
+        elif size in whisper_models.TEXT_ONLY_REPOS:
+            whisper_models.fetch_text_only_model(size, token)
         else:
             whisper_models._download_model(size, token)
     return fetch
@@ -270,6 +272,7 @@ WHISPER_DOWNLOADS = {
     "whisper_medium": ("medium", "Whisper medium (about 1.5 GB)"),
     "whisper_anime": ("anime-whisper", "anime-whisper, Japanese (about 1.5 GB)"),
     "whisper_breeze_asr_25": ("breeze-asr-25", "Breeze-ASR-25, Chinese (about 3 GB)"),
+    "whisper_thonburian": ("thonburian-large-v3", "Thonburian, Thai (about 3 GB)"),
 }
 
 

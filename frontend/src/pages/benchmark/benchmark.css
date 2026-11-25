@@ -236,3 +236,13 @@
 .sweep-decide { display: grid; gap: var(--space-2); max-width: 40rem; }
 .sweep-tags { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
 .sweep-tags > li { display: grid; gap: 2px; padding: var(--space-2) 0; border-top: 1px solid var(--border); }
+
+/* Quality tab: the verdict leads, and the rows that got worse are tinted as well as badged. */
+.quality-verdict { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-2); }
+.quality-verdict p { margin: 0; font-size: var(--text-sm); }
+.quality-verdict.quality-bad { background: var(--bad-soft); }
+.quality-verdict.quality-ok { background: var(--ok-soft); }
+.quality-verdict.quality-warn { background: var(--warn-soft); }
+.quality-result { display: inline-flex; align-items: center; gap: 5px; }
+.quality-row-bad td { background: var(--bad-soft); }
+.quality-next { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-2); }

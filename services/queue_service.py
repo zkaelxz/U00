@@ -51,7 +51,7 @@ QUEUE_KEY = "job_queue"
 QUEUE_VERSION = 1
 MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
-MAX_ITEMS_PER_MEMBER = 50
+MAX_ITEMS_PER_MEMBER = 100
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
@@ -151,6 +151,8 @@ def _clean_item(raw) -> Optional[dict]:
             "chain": chain, "needs": needs if chain else [],
             # Started by a button, not by the queue's Start: runs without the queue running.
             "now": bool(raw.get("now")),
+            # A waiting item its adder paused: the queue skips it until it is resumed.
+            "held": bool(raw.get("held")),
             "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
@@ -256,11 +258,16 @@ def _may_change(principal, item: dict, owner_of=_title_owner) -> bool:
     return uid is not None and item["user_id"] == uid and _sees(principal, item, owner_of)
 
 
+def _controls(principal) -> bool:
+    """Who may start, pause or schedule the queue: the queue's owner, or any admin (a phone has no admin_override)."""
+    return _overrides(principal) or bool(principal.get("is_admin"))
+
+
 def _require_controls(principal) -> None:
     # Starting the queue starts every account's items on the owner's PC and
-    # keys, so only the queue's owner may start, pause or schedule it.
-    if not _overrides(principal):
-        raise ForbiddenError("Only the PC owner can start, pause or schedule the queue.")
+    # keys, so only an admin (or the PC owner) may start, pause or schedule it.
+    if not _controls(principal):
+        raise ForbiddenError("Only an admin can start, pause or schedule the queue.")
 
 
 # --- reading -----------------------------------------------------------------
@@ -288,6 +295,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
     out = {k: item[k] for k in ("id", "drama_id", "step", "status", "job_id",
                                 "added_at", "started_at", "finished_at")}
     out["reason"] = item["reason"] or None
+    out["held"] = bool(item.get("held")) and item["status"] == WAITING
     out["title"] = _title_name(drama)
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
@@ -324,7 +332,7 @@ def get_queue(principal) -> dict:
         "schedule": dict(doc["schedule"]) if doc["schedule"] else None,
         "notice": doc["notice"],
         "max_items": MAX_ITEMS,
-        "can_control": _overrides(principal),
+        "can_control": _controls(principal),
         "monthly_cap_usd": monthly,
         "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of)
                   for i in doc["items"] if _sees(principal, i, owner_of)],
@@ -432,6 +440,18 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     return settings
 
 
+def _auto_start(doc: dict, uid) -> None:
+    """A newly waiting item starts the queue by itself, unless someone paused it, a start time is
+    set (a missed one stays missed), or it stopped after a failure (its notice says to start it).
+    Another account's waiting items would start with it, so those must be left alone: only an
+    idle queue holding nothing but the caller's own items is started here."""
+    if doc["state"] != IDLE or doc["notice"] or doc["schedule"]:
+        return
+    if any(i["status"] == WAITING and not i["now"] and i["user_id"] != uid for i in doc["items"]):
+        return
+    doc["state"] = ACTIVE
+
+
 def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None,
                   auto_series: Optional[int] = None, now: bool = False) -> None:
     """Appends `entries` (step, settings) in order, all or none, under one lock. In a `chain` each
@@ -455,6 +475,8 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 "needs": [s for s, _ in entries[:n]] if chain else [], "now": now,
                 "started_at": None, "finished_at": None})
             doc["next_id"] += 1
+        if not now:
+            _auto_start(doc, uid)
         _save(doc)
     _wake.set()
 
@@ -480,7 +502,7 @@ def _add_steps(principal, drama_id: int, steps: tuple, holds_paid: bool, at_pc: 
 
 
 def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
-    """Appends Transcribe, Translate and Export for one title, in that order. Nothing starts here."""
+    """Appends Transcribe, Translate and Export for one title, in that order. The queue starts by itself, as for any added item."""
     _add_steps(principal, drama_id, STEPS, holds_paid, at_pc)
     return get_queue(principal)
 
@@ -518,7 +540,7 @@ def remove_waiting_auto_items(series_id: int) -> int:
 
 def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
     """Adds `step` ("all" = the chain) for each title. A title failing the add checks is
-    skipped with its reason; the rest go in. Nothing starts."""
+    skipped with its reason; the rest go in. The queue starts by itself, as for any added item."""
     if step != "all" and step not in STEPS:
         raise InvalidInputError("Step must be transcribe, translate, export or all.")
     steps = STEPS if step == "all" else (step,)
@@ -579,12 +601,48 @@ def remove_item(principal, item_id: int) -> dict:
     return _mutate_item(principal, item_id, change)
 
 
+def hold_item(principal, item_id: int, held: bool) -> dict:
+    """Pauses (or resumes) one waiting item; the rest of the queue goes on."""
+    def change(doc, item):
+        if item["status"] != WAITING:
+            raise ConflictError("Only a waiting item can be paused or resumed.")
+        item["held"] = held
+        if not held:
+            _auto_start(doc, item["user_id"])
+    return _mutate_item(principal, item_id, change)
+
+
+def cancel_item(principal, item_id: int) -> dict:
+    """Cancels a waiting item (it stays listed as cancelled, with Retry) or the job of a running one."""
+    with _lock:
+        doc = _load()
+        item = _find(doc, item_id)
+        if not _sees(principal, item):
+            raise NotFoundError("No such queue item.")
+        if not _may_change(principal, item):
+            raise ForbiddenError("Only the account that added this item can change it.")
+        if item["status"] == WAITING:
+            _finish(item, CANCELLED, "Cancelled.", _clock())
+            item["held"] = False
+            _save(doc)
+            job_id = None
+        elif item["status"] == RUNNING and item["job_id"]:
+            job_id = item["job_id"]
+        else:
+            raise ConflictError("Only a waiting or running item can be cancelled.")
+    if job_id:
+        jobs_service.cancel_job(job_id, principal)
+        _wake.set()
+    return get_queue(principal)
+
+
 def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
         item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    at_pc=item["at_pc"] and at_pc)
+                    held=False, at_pc=item["at_pc"] and at_pc)
+        _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
 
 
@@ -924,7 +982,10 @@ def _start_next(now: float, deferred=frozenset()) -> None:
     with _lock:
         doc = _load(now)
         running = [i for i in doc["items"] if i["status"] == RUNNING]
-        waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred]
+        # A paused item holds back its own chain too: a later step would only be skipped for the missing earlier one.
+        held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
+        waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
+                   and not i.get("held") and i["chain"] not in held_chains]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         item = next((i for i in waiting if i["now"]), None)
         if item is None and doc["state"] == ACTIVE:

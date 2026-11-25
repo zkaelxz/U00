@@ -14,6 +14,7 @@ import type {
   BenchmarkExportFormat,
   BenchmarkOptions,
   BenchmarkPairNext,
+  BenchmarkPairSuggestion,
   BenchmarkPickChoice,
   BenchmarkPickSummary,
   BenchmarkResult,
@@ -184,6 +185,8 @@ export function getBenchmarkArena(runIds: number[], f?: Fetch) {
 // ---- blind A/B: the owner picks the better of two runs' outputs --------------
 
 const pairQuery = (runA: number, runB: number) => `run_a=${runA}&run_b=${runB}`
+
+export const getBenchmarkPairSuggestion = (f?: Fetch) => getJson<BenchmarkPairSuggestion>(`${BASE}/ab/suggest`, f)
 
 export const getBenchmarkPair = (runA: number, runB: number, f?: Fetch) =>
   getJson<BenchmarkPairNext>(`${BASE}/ab/next?${pairQuery(runA, runB)}`, f)

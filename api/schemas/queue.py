@@ -35,7 +35,9 @@ class QueueItem(BaseModel):
     paid: bool = False
     # Transcribe items: what this item changes from the title's saved options.
     changed_settings: List["QueueSettingRow"] = []
-    # The caller may reorder, remove or retry it.
+    # A waiting item its adder paused; the queue skips it until it is resumed.
+    held: bool = False
+    # The caller may reorder, pause, cancel, remove or retry it.
     mine: bool
     added_at: Optional[float] = None
     started_at: Optional[float] = None
@@ -56,7 +58,7 @@ class QueueState(BaseModel):
     schedule: Optional[QueueSchedule] = None
     notice: Optional[str] = None
     max_items: int
-    # Start, pause, schedule and the policy are the PC owner's.
+    # Start, pause, schedule and the policy are an admin's (or the PC owner's).
     can_control: bool
     monthly_cap_usd: float
     items: List[QueueItem]

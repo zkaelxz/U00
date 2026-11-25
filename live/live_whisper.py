@@ -395,7 +395,7 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
 # Rough VRAM faster-whisper needs per size (float16), for deciding whether a
 # failed first load is worth freeing Ollama again.
 _VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500,
-                   "large-v3-turbo": 3500, "ja-1.5b": 4200, "breeze-asr-25": 4200}
+                   "large-v3-turbo": 3500, "ja-1.5b": 4200, "breeze-asr-25": 4200, "thonburian-large-v3": 5000}
 _VRAM_NEEDED_LARGE_MB = 5500
 # A chunk that takes more than this many times its own audio is called out in
 # the status, so the owner sees a stall without opening the log.
@@ -464,6 +464,39 @@ class ChunkTiming:
         translate = time.monotonic() - (self._whisper_done or time.monotonic()) - queue_wait
         return log_chunk(idx, self.audio, self.queued, self.whisper, max(0.0, translate), self.cold,
                          note, self.use_gpu, cues=cues, queue_wait=queue_wait, queue_depth=queue_depth)
+
+
+# The first load after a restart reads gigabytes from a cold disk (80 s for Breeze, 23 s warm);
+# reading the files ahead leaves them in the OS cache without holding any GPU memory.
+PREFETCH_EVERY_SECONDS = 1800
+_prefetched: dict = {}
+_prefetch_lock = threading.Lock()
+
+
+def prefetch_model_files(model_size: str, busy=lambda: False) -> bool:
+    """Starts reading a downloaded model's files in the background, at most once per
+    PREFETCH_EVERY_SECONDS; False when nothing was started. `busy` skips it while a session
+    is capturing, so the read never competes with a live decode for the disk."""
+    folder = whisper_models.model_snapshot_folder(model_size)
+    if folder is None or busy():
+        return False
+    with _prefetch_lock:
+        now = time.monotonic()
+        if now - _prefetched.get(model_size, -PREFETCH_EVERY_SECONDS) < PREFETCH_EVERY_SECONDS:
+            return False
+        _prefetched[model_size] = now
+
+    def read():
+        try:
+            for root, _dirs, names in os.walk(folder):
+                for name in names:
+                    with open(os.path.join(root, name), "rb") as f:
+                        while f.read(8 << 20):
+                            pass
+        except OSError as exc:
+            _log("info", f"Live: could not read {model_size} ahead of time: {type(exc).__name__}")
+    threading.Thread(target=read, daemon=True, name="live-model-prefetch").start()
+    return True
 
 
 def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> float:

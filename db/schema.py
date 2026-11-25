@@ -446,6 +446,22 @@ CHAPTER_MARKS_DDL = """
         );"""
 
 
+# A saved moment in a title's sound or video, with an optional note, for one account. user_id 0 is the PC
+# itself (no sign-in), so it is not a foreign key; deleting an account deletes its rows (db.auth).
+WATCH_BOOKMARKS_DDL = """
+        CREATE TABLE IF NOT EXISTS watch_bookmarks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            drama_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL DEFAULT 0,
+            at_seconds REAL NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (drama_id) REFERENCES dramas(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_watch_bookmarks_title ON watch_bookmarks(drama_id, user_id);
+"""
+
+
 def _create_reading_tables(conn):
     conn.executescript("""
 
@@ -462,7 +478,10 @@ def _create_reading_tables(conn):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             color TEXT,
-            created_at TEXT
+            created_at TEXT,
+            -- The sign-in account this profile is the reading data of; NULL is the PC itself
+            -- (the lowest-id profile). Made on an account's first write (db.reading).
+            user_id INTEGER
         );
 
         -- Household profiles (Jellyfin-style) -- one shared library,
@@ -506,6 +525,7 @@ def _create_reading_tables(conn):
         -- (comic_chapters.group_pages), which stays the same when pages are renumbered;
         -- a row for a chapter that no longer exists is simply never matched.
 """ + db.CHAPTER_MARKS_DDL.format(name="chapter_marks") + """
+""" + WATCH_BOOKMARKS_DDL + """
 
         CREATE TABLE IF NOT EXISTS reading_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

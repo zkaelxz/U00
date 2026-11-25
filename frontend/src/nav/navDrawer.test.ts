@@ -56,17 +56,17 @@ describe('PhoneBar', () => {
   // Add needs library.create; the bar leaves out what the person may not use.
   const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'library.create'] } } as SessionState }
 
-  it('has Library, Add, Jobs in that order and a More button that controls the drawer', () => {
+  it('has Library, Find & Add, Jobs in that order and a More button that controls the drawer', () => {
     const html = bar(0)
-    const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
-    expect(labels).toEqual(['Library', 'Add', 'Jobs', 'More'])
+    const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1].replace('&amp;', '&'))
+    expect(labels).toEqual(['Library', 'Find & Add', 'Jobs', 'More'])
     expect(html).toContain('aria-label="More"')
     expect(html).toContain('aria-controls="nav-drawer"')
     expect(bar(0, library, true)).toContain('aria-expanded="true"')
   })
 
-  it('leaves out an item the person may not use', () => {
-    const labels = [...bar(0, library, false, ctx).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
+  it('leaves out an item the person hid', () => {
+    const labels = [...bar(0, library, false, { ...ctx, hidden: ['make-subtitles'] }).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
     expect(labels).toEqual(['Library', 'Jobs', 'More'])
   })
 
@@ -83,7 +83,7 @@ describe('NavGroups', () => {
     const html = renderToStaticMarkup(withJobs(0, createElement(NavGroups, { route: library, context: ctx })))
     const groups = visibleRailGroups(ctx)
     const labels = groups.flatMap((g) => g.items.map((i) => i.item.label))
-    const seen = [...html.matchAll(/<span class="rail-label">([^<]+)<\/span>/g)].map((m) => m[1])
+    const seen = [...html.matchAll(/<span class="rail-label">([^<]+)<\/span>/g)].map((m) => m[1].replace('&amp;', '&'))
     expect(seen).toEqual(labels)
     for (const g of groups) if (g.heading) expect(html).toContain(`>${g.heading}</h2>`)
   })

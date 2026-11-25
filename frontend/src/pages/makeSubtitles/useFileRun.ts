@@ -26,7 +26,7 @@ import {
   IDLE, blockerText, finishedStepJob, flowReducer, mediaTypeFor, parseSaved, reattachIds, savedFor, stepForJob, titleFor, type FlowStep,
 } from './makeSubtitlesFlow'
 
-export const LANGUAGES = ['zh', 'ja', 'ko']
+export const LANGUAGES = ['zh', 'ja', 'ko', 'id', 'th']
 const SRT_MIME = 'application/x-subrip'
 
 // A transcription that found no lines ends "done" with a failed_reason; translating it would only be refused.

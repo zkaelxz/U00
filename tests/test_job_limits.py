@@ -344,7 +344,7 @@ class TestPerUserJobCaps:
             assert bg.get_status(f"gpu_wait_{n}")["status"] == "queued"
         with pytest.raises(RateLimitedError) as err:
             job_launch.start_job("gpu_wait_more", lambda: None, gpu_touching=True)
-        assert "5 jobs waiting" in err.value.message
+        assert f"{user_caps.MAX_QUEUED_JOBS_PER_USER} jobs waiting" in err.value.message
         assert all(e["job_id"] != "gpu_wait_more" for e in gpu_queue._gpu_queue)
         self._as(monkeypatch, 8)
         assert job_launch.start_job("other_gpu", lambda: None, gpu_touching=True) is True

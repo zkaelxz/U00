@@ -42,6 +42,7 @@ from live import live_cue_feed
 from live import live_cue_translation
 from live import live_pipeline
 from live import live_player
+from live import live_whisper
 import language_packs
 from live import live_translate
 import storage
@@ -67,6 +68,9 @@ from lib import acting
 WHISPER_SIZES = whisper_models.LIVE_WHISPER_SIZES
 SEGMENT_RANGE = (3, 60)
 OVERLAP_RANGE = (0, 8)
+# Breeze (Chinese) hears 10 s chunks too slowly: on a V100, 6 s + 1.5 s cut lag from about 13.5 s to 9 s,
+# while 4 s + 1 s repeated lines. Japanese stays on the shared default, which Fast captions shortens.
+LANGUAGE_CHUNK_DEFAULTS = {"zh": {"segment_seconds": 6, "overlap_seconds": 1.5}}
 MAX_MINUTES_RANGE = (1, 240)
 WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60
@@ -273,11 +277,19 @@ def _gb(mb: float) -> str:
     return f"{max(mb, 0) / 1024:.1f} GB"
 
 
+def gpu_available() -> bool:
+    """Whether an NVIDIA GPU is present, for a start that picks its own GPU setting."""
+    try:
+        return diagnostics_torch.nvidia_driver_info() is not None
+    except Exception:
+        return False
+
+
 def _language_whisper_defaults() -> dict:
     """Models the form starts on instead of its default for a language, so a stream in that
     language needs no change. Only models already on this PC: Live never starts a big download
-    on its own. Japanese (whisper-ja) and Korean (large-v3) get theirs only where an NVIDIA GPU
-    is present, since neither keeps up with a stream on a CPU."""
+    on its own. Japanese (whisper-ja), Korean and Indonesian (large-v3) and Thai (Thonburian) get
+    theirs only where an NVIDIA GPU is present, since none keeps up with a stream on a CPU."""
     out = {}
     if whisper_models.is_whisper_model_cached(whisper_models.BREEZE_KEY):
         out["zh"] = whisper_models.BREEZE_KEY
@@ -286,10 +298,22 @@ def _language_whisper_defaults() -> dict:
     except Exception:
         has_gpu = False
     if has_gpu:
-        for language, model in (("ja", "ja-1.5b"), ("ko", "large-v3")):
+        for language, model in (("ja", "ja-1.5b"), ("ko", "large-v3"), ("id", "large-v3"),
+                                ("th", whisper_models.THONBURIAN_KEY)):
             if whisper_models.is_whisper_model_cached(model):
                 out[language] = model
     return out
+
+
+def _prefetch_defaults(defaults: dict) -> dict:
+    """Opening the Live form is the moment a session is likely, so the models it starts on are read
+    into the OS cache now. Returns `defaults` unchanged."""
+    def capturing():
+        with _lock:
+            return bool(_active_sessions_locked())
+    for model in set(defaults.values()):
+        live_whisper.prefetch_model_files(model, busy=capturing)
+    return defaults
 
 
 def form_options() -> dict:
@@ -310,7 +334,8 @@ def form_options() -> dict:
         "default_model": live_default_model(LIVE_DEFAULT_ENGINE),
         "thinking_switch_engines": list(thinking.NO_THINKING_ENGINES),
         # Per language, only where a better-than-default model is already downloaded.
-        "language_whisper_defaults": _language_whisper_defaults(),
+        "language_whisper_defaults": _prefetch_defaults(_language_whisper_defaults()),
+        "language_chunk_defaults": LANGUAGE_CHUNK_DEFAULTS,
         "spend_limit_range": list(live_spend_service.SESSION_LIMIT_RANGE),
         # A monthly cap bounds every session already, so the form hides the session limit then.
         "monthly_cap_set": bool(translate_run_service.month_cap_usd()),
@@ -675,6 +700,12 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  spend_limit_usd)
 
 
+def _reads_saved_cookies(use_saved_cookies) -> bool:
+    """A start at the PC asks for the saved cookies, but with none set up nothing signed-in is read, so
+    such a session is as shareable as any other (counting the request alone made every PC start private)."""
+    return bool(use_saved_cookies) and any(settings_service.get_cookie_settings().values())
+
+
 def _start_registered(session_id, out_dir, url, source_language, whisper_size, segment_seconds,
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
@@ -714,7 +745,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
                                  "join_key": _join_key(url, stream_ref(url)),
-                                 "private": bool(use_saved_cookies) or term_hints is not None, "viewers": set(),
+                                 "private": _reads_saved_cookies(use_saved_cookies) or term_hints is not None, "viewers": set(),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:
@@ -927,5 +958,6 @@ def list_sessions(principal=None, everyone: bool = False) -> list:
         job = background_jobs.get_status(sid)
         cues = (job or {}).get("result") or []
         result.append({"session_id": sid, "status": _status(job), "engine": entry.get("engine"),
-                       "model": entry.get("model"), "cue_count": len(cues) if isinstance(cues, list) else 0})
+                       "model": entry.get("model"), "cue_count": len(cues) if isinstance(cues, list) else 0,
+                       "source_language": entry.get("source_language"), "stream": entry.get("stream")})
     return result

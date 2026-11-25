@@ -14,7 +14,7 @@ const rail = (page: Page) => page.getByRole('navigation', { name: 'Main' })
 const ITEMS: [string, RegExp][] = [
   ['Library', /#\/library$/],
   ['Library tools', /#\/library-tools$/],
-  ['Find', /#\/discover$/],
+  ['Find & Add', /#\/make-subtitles$/],
   ['Text', /#\/translate$/],
   ['Live', /#\/live$/],
   ['Jobs', /#\/jobs$/],
@@ -103,7 +103,7 @@ test('the dock shows icons at rest, opens to labelled rows on hover from 900px, 
   const resting = (await dock.boundingBox())!.width
   expect(resting).toBeLessThan(90)
   // Labels stay the accessible names and a tooltip names each icon.
-  await expect(rail(page).getByRole('link', { name: 'Find', exact: true })).toHaveAttribute('title', 'Find')
+  await expect(rail(page).getByRole('link', { name: 'Find & Add', exact: true })).toHaveAttribute('title', 'Find & Add')
   await dock.hover()
   await expect.poll(async () => (await dock.boundingBox())!.width).toBeGreaterThan(resting * 2)
   await expect(page.getByRole('button', { name: 'Side menu' })).toHaveCount(0)

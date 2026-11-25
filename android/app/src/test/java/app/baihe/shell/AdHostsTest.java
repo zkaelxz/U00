@@ -19,4 +19,17 @@ public class AdHostsTest {
         assertFalse(AdHosts.blocks("doubleclick.net.example.com"));
         assertFalse(AdHosts.blocks(null));
     }
+
+    @Test
+    public void ownAdditionsBlockTheHostAndItsSubdomains() {
+        AdHosts.setExtra("https://www.Ads.Example.com/banner.js, tracker.example.org\nnotahost");
+        try {
+            assertTrue(AdHosts.blocks("ads.example.com"));
+            assertTrue(AdHosts.blocks("x.tracker.example.org"));
+            assertFalse(AdHosts.blocks("example.com"));
+            assertFalse(AdHosts.blocks("notahost"));
+        } finally {
+            AdHosts.setExtra("");
+        }
+    }
 }

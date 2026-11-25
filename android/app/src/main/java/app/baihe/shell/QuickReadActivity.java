@@ -29,6 +29,9 @@ public class QuickReadActivity extends Activity {
     private LruCache<Integer, Bitmap> cache;
     private PageAdapter adapter;
     private ListView list;
+    private View tint;
+    // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
+    private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
     protected void onCreate(Bundle state) {
@@ -51,19 +54,95 @@ public class QuickReadActivity extends Activity {
             askReport(files.get(position));
             return true;
         });
+        list.setOnItemClickListener((parent, view, position, id) -> {
+            if (position >= files.size()) return;
+            File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
+            if (!original.isFile()) {
+                android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (!showingOriginal.remove(position)) showingOriginal.add(position);
+            cache.remove(position);
+            adapter.notifyDataSetChanged();
+        });
+        QuickReadSession.attach();
         refresh();
         // Pages arrive while the reader is open, so the list grows as the grab writes them.
         QuickReadSession.listen(() -> runOnUiThread(this::refresh));
         ZoomFrame frame = new ZoomFrame();
         frame.addView(list, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        tint = new View(this);
+        tint.setClickable(false);
+        frame.addView(tint, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(frame);
         frame.setFitsSystemWindows(true);
+        applyNight();
+    }
+
+    private android.content.SharedPreferences nightPrefs() {
+        return getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+    }
+
+    private void applyNight() {
+        android.content.SharedPreferences p = nightPrefs();
+        WindowManager.LayoutParams attrs = getWindow().getAttributes();
+        attrs.screenBrightness = NightFilter.windowBrightness(p.getInt("night_brightness", 100));
+        getWindow().setAttributes(attrs);
+        tint.setBackgroundColor(NightFilter.tint(p.getBoolean("night_warm", false), p.getInt("night_warmth", 60)));
+    }
+
+    private void askNight() {
+        android.content.SharedPreferences p = nightPrefs();
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, 0);
+        android.widget.TextView label = new android.widget.TextView(this);
+        label.setText("Brightness");
+        box.addView(label);
+        android.widget.SeekBar level = new android.widget.SeekBar(this);
+        level.setMax(100);
+        level.setProgress(p.getInt("night_brightness", 100));
+        level.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar bar, int value, boolean user) {
+                p.edit().putInt("night_brightness", value).apply();
+                applyNight();
+            }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar bar) {}
+            @Override public void onStopTrackingTouch(android.widget.SeekBar bar) {}
+        });
+        box.addView(level);
+        android.widget.CheckBox warm = new android.widget.CheckBox(this);
+        warm.setText("Warm night colours");
+        warm.setChecked(p.getBoolean("night_warm", false));
+        warm.setOnCheckedChangeListener((b, on) -> {
+            p.edit().putBoolean("night_warm", on).apply();
+            applyNight();
+        });
+        box.addView(warm);
+        new android.app.AlertDialog.Builder(this).setTitle("Night reading").setView(box)
+                .setPositiveButton("Done", null).show();
     }
 
     /** The report text sits beside the picture under the same name, and goes with it. */
     private static String reportName(String pictureName) {
         return pictureName.replaceAll("\\.jpg$", ".json");
+    }
+
+    /** The sent picture sits beside the redraw; a page the PC left alone has none, since it is its own original. */
+    static String originalName(String pictureName) {
+        return pictureName.replaceAll("\\.jpg$", ".orig.jpg");
+    }
+
+    static void writeOriginal(android.content.Context context, String pictureName, byte[] jpeg) {
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(
+                new File(quickReadDir(context), originalName(pictureName)))) {
+            out.write(jpeg);
+        } catch (java.io.IOException ignored) {
+            // The page still reads; a tap on it just has no original to show.
+        }
     }
 
     static void writeReportText(android.content.Context context, String pictureName, String text) {
@@ -77,8 +156,75 @@ public class QuickReadActivity extends Activity {
 
     private void askReport(File page) {
         new android.app.AlertDialog.Builder(this)
-                .setItems(new String[] {"Send a report"}, (d, which) -> askNote(page))
+                .setItems(new String[] {"Send a report", "Redo this page", "Brightness and night colours"},
+                        (d, which) -> {
+                            if (which == 0) askNote(page);
+                            else if (which == 1) redoPage(page);
+                            else askNight();
+                        })
                 .show();
+    }
+
+    /**
+     * Asks the PC to read this page again, ignoring what it remembers, and swaps the new redraw in.
+     * The picture comes from the original kept beside the page, else from the address the report
+     * sidecar holds, which the PC downloads itself.
+     */
+    private void redoPage(File page) {
+        android.content.SharedPreferences prefs = getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+        String server = prefs.getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
+        File original = new File(page.getParentFile(), originalName(page.getName()));
+        File text = new File(page.getParentFile(), reportName(page.getName()));
+        android.widget.Toast.makeText(this, "Redoing this page...", android.widget.Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String message = "Redone.";
+            try {
+                String meta = text.isFile() ? new String(java.nio.file.Files.readAllBytes(text.toPath()),
+                        java.nio.charset.StandardCharsets.UTF_8) : "{}";
+                org.json.JSONObject info = new org.json.JSONObject(meta);
+                PageImage image;
+                if (original.isFile()) {
+                    String data = java.util.Base64.getEncoder().encodeToString(java.nio.file.Files.readAllBytes(original.toPath()));
+                    image = new PageImage("redo", "", "image/jpeg", data);
+                } else if (info.optString("image_url").startsWith("http")) {
+                    image = new PageImage("redo", info.optString("image_url"), "image/jpeg", "", true);
+                } else {
+                    throw new BaiheClient.BridgeException(0, "This page has no picture to read again.");
+                }
+                BaiheClient client = new BaiheClient(server, token);
+                client.redo = true;
+                client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                byte[][] fresh = {null};
+                client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
+                    try {
+                        java.util.List<byte[]> jpegs = QuickRead.typesetPages(new org.json.JSONObject().put("pages",
+                                new org.json.JSONArray().put(answer)));
+                        if (!jpegs.isEmpty()) fresh[0] = jpegs.get(0);
+                    } catch (org.json.JSONException ignored) {
+                        // No redraw came back; the check below reports it.
+                    }
+                });
+                if (fresh[0] == null) throw new BaiheClient.BridgeException(0, "The PC could not redo this page.");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(page)) {
+                    out.write(fresh[0]);
+                }
+            } catch (BaiheClient.BridgeException e) {
+                message = e.getMessage();
+            } catch (Exception e) {
+                message = "Could not redo this page.";
+            }
+            String shown = message;
+            runOnUiThread(() -> {
+                int at = files.indexOf(page);
+                if (at >= 0) {
+                    cache.remove(at);
+                    showingOriginal.remove(at);
+                    adapter.notifyDataSetChanged();
+                }
+                android.widget.Toast.makeText(this, shown, android.widget.Toast.LENGTH_LONG).show();
+            });
+        }, "page-redo").start();
     }
 
     private void askNote(File page) {
@@ -141,7 +287,7 @@ public class QuickReadActivity extends Activity {
      * up and down by itself; this frame only adds the scale and the sideways drag.
      */
     private final class ZoomFrame extends FrameLayout {
-        private float scale = QuickReadZoom.MIN;
+        private float scale = QuickReadZoom.FIT;
         private float pan;
         // A pinch's fingers would also scroll the list, so the list is cut off until they all lift.
         private boolean pinching;
@@ -170,7 +316,7 @@ public class QuickReadActivity extends Activity {
 
                 @Override
                 public boolean onScroll(MotionEvent down, MotionEvent move, float dx, float dy) {
-                    if (scale > QuickReadZoom.MIN && !pinching) {
+                    if (scale > QuickReadZoom.FIT && !pinching) {
                         pan = QuickReadZoom.clampPan(pan - dx, scale, list.getWidth());
                         list.setTranslationX(pan);
                     }
@@ -191,7 +337,7 @@ public class QuickReadActivity extends Activity {
             list.setScaleY(scale);
             list.setTranslationX(pan);
             ViewGroup.LayoutParams size = list.getLayoutParams();
-            int height = scale == QuickReadZoom.MIN
+            int height = scale == QuickReadZoom.FIT
                     ? ViewGroup.LayoutParams.MATCH_PARENT
                     : QuickReadZoom.listHeight(getHeight() - getPaddingTop() - getPaddingBottom(), scale);
             if (size.height != height) {
@@ -245,8 +391,11 @@ public class QuickReadActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        QuickReadSession.abandon();
-        clear(this);
+        // A chapter still being translated keeps going without the reader; its pages stay for the next open.
+        if (!QuickReadSession.detach()) {
+            QuickReadSession.abandon();
+            clear(this);
+        }
         super.onDestroy();
     }
 
@@ -263,19 +412,27 @@ public class QuickReadActivity extends Activity {
         for (File f : old) f.delete();
     }
 
+    private File fileFor(int position) {
+        File page = files.get(position);
+        if (!showingOriginal.contains(position)) return page;
+        File original = new File(page.getParentFile(), originalName(page.getName()));
+        return original.isFile() ? original : page;
+    }
+
     private Bitmap load(int position) {
         Bitmap cached = cache.get(position);
         if (cached != null) return cached;
+        File source = fileFor(position);
         int width = getResources().getDisplayMetrics().widthPixels;
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(files.get(position).getPath(), bounds);
+        BitmapFactory.decodeFile(source.getPath(), bounds);
         int sample = 1;
         // Pages are often much wider than the screen; half-size steps keep them sharp enough.
         while (bounds.outWidth / (sample * 2) >= width) sample *= 2;
         BitmapFactory.Options options = new BitmapFactory.Options();
         options.inSampleSize = sample;
-        Bitmap bitmap = BitmapFactory.decodeFile(files.get(position).getPath(), options);
+        Bitmap bitmap = BitmapFactory.decodeFile(source.getPath(), options);
         if (bitmap != null) cache.put(position, bitmap);
         return bitmap;
     }

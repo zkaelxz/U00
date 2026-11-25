@@ -19,6 +19,7 @@ import type {
   LibraryVoice,
   LibraryVoiceBankResponse,
   ReadingHistoryClearResult,
+  LibraryHome,
 } from '../types/library'
 import { deleteJson, getJson, postJson, postMultipart, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -30,6 +31,7 @@ export const getCosts = (f?: Fetch) => getJson<LibraryCostResponse>('/api/librar
 export const getAllSeries = (f?: Fetch) =>
   getJson<LibrarySeriesResponse>('/api/library/series?include_single=true', f)
 export const getHistory = (f?: Fetch) => getJson<LibraryHistoryResponse>('/api/library/history', f)
+export const getHome = (f?: Fetch) => getJson<LibraryHome>('/api/library/home', f)
 export const getContinueReading = (f?: Fetch) =>
   getJson<LibraryContinueResponse>('/api/library/continue', f)
 export const getFilterOptions = (f?: Fetch) =>
@@ -80,6 +82,10 @@ export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
 
 export const sameTitles = (body: SameTitleQuery, f?: Fetch) =>
   postJson<{ items: SameTitle[] }>('/api/dramas/same', body, f)
+
+/** For each source page link, the id of a title the caller can see that carries it, else null; same order, links not echoed. */
+export const titlesByLinks = (urls: string[], f?: Fetch) =>
+  postJson<{ title_ids: (number | null)[] }>('/api/dramas/by-links', { urls }, f)
 
 // Partial update: send only the fields the user changed.
 export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>

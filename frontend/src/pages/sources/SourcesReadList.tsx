@@ -4,7 +4,6 @@ import { useState } from 'react'
 
 import { buttonClass } from '../../components/uiClasses'
 import type { SourceSummary } from '../../types/sources'
-import { SiteLink } from './SiteLink'
 import { SiteState } from './SitesTab'
 import { SourceDetail } from './SourceDetail'
 
@@ -21,22 +20,20 @@ export function SourcesReadList({ sources, onSearchOnly }: Props) {
           <div className="source-card-line">
             <span>
               <strong>{s.display_name}</strong>
-              <SiteLink s={s} />
               {!s.enabled && <small className="muted"> Off</small>}
             </span>
             <SiteState light={s.health} extensionOnly={s.extension_only} />
           </div>
-          <div className="source-card-line">
-            {s.enabled && s.supports.search && (
-              <button
-                type="button"
-                className={buttonClass('primary', 'sm')}
-                aria-label={`Search ${s.display_name}`}
-                onClick={() => onSearchOnly(s.name)}
-              >
-                Search this source
-              </button>
-            )}
+          <div className="source-card-actions">
+            <button
+              type="button"
+              className={buttonClass('primary', 'sm')}
+              aria-label={`Search ${s.display_name}`}
+              disabled={!(s.enabled && s.supports.search)}
+              onClick={() => onSearchOnly(s.name)}
+            >
+              Search
+            </button>
             <button
               type="button"
               className={buttonClass('secondary', 'sm')}
@@ -46,6 +43,17 @@ export function SourcesReadList({ sources, onSearchOnly }: Props) {
             >
               Details
             </button>
+            {s.homepage ? (
+              <a
+                className={buttonClass('secondary', 'sm')}
+                href={s.homepage}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`Open ${s.display_name} website`}
+              >
+                Open site ↗
+              </a>
+            ) : <span aria-hidden="true" />}
           </div>
           {open === s.name && (
             <div className="source-detail-wrap">

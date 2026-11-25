@@ -763,7 +763,7 @@ _EXTRA_KEYS = ("follow_id", "action", "starts_at", "target")
 # A waiting entry's target: the page the bell's Open goes to, and the one id
 # that page needs (None: the page needs none). The frontend builds the link.
 TARGET_PAGES = {"glossary": "drama_id", "review": "drama_id", "series": "series_id",
-                "jobs": None}
+                "jobs": None, "watch": "drama_id", "title": "drama_id", "live": "follow_id"}
 WAITING_PREFIX = "Waiting for you: "
 _WAITING_MAX = 300
 
@@ -783,6 +783,29 @@ def clean_target(target):
     if type(value) is not int or value <= 0:
         return None
     return {"page": page, id_key: value}
+
+
+_READ_ONLY_MEDIA = ("novel", "manga", "manhua", "manhwa")
+
+
+def _finished_target(description):
+    """Where a finished job's entry opens: Watch for a title that plays, else
+    the title itself. None for a job that names no title. A phone alert's tap
+    uses it, so the person lands on the result instead of hunting for it."""
+    m = _DRAMA_REF.search(description or "")
+    if not m:
+        return None
+    drama_id = int(m.group(1))
+    try:
+        import db
+        drama = db.get_drama(drama_id)
+    except Exception:
+        return None
+    if not isinstance(drama, dict):
+        return None
+    # Narrated novels are worked as novels whatever their media type says.
+    reads = drama.get("media_type") in _READ_ONLY_MEDIA or drama.get("content_mode") == "novel_narration"
+    return {"page": "title" if reads else "watch", "drama_id": drama_id}
 
 
 def _waiting_text(text) -> str:
@@ -1069,7 +1092,8 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             category = "jobs"
             kind = "job_done" if status == "done" else "job_failed"
             message = build_message(description, status, with_errors=with_errors, reason=reason)
-        _record(kind, message, job_id, owner_user_id)
+        target = _finished_target(description) if kind == "job_done" and not with_errors else None
+        _record(kind, message, job_id, owner_user_id, {"target": target} if target else None)
         if category == "jobs":
             if status == "done" and not with_errors and not _ran_long(job_id):
                 return   # a quick success stays in the bell
@@ -1178,7 +1202,7 @@ def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_act
     never blocks."""
     try:
         message = redact_secrets(_tidy(text, 200))
-        extra: dict = {"follow_id": int(follow_id)}
+        extra: dict = {"follow_id": int(follow_id), "target": {"page": "live", "follow_id": int(follow_id)}}
         if start_action:
             extra["action"] = "start_live"
         if starts_at is not None:

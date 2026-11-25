@@ -17,7 +17,7 @@ import { buttonClass } from '../../components/uiClasses'
 import { browserStorage } from '../../hooks/usePersistedState'
 import { useCanUpload } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
-import { SOURCE_LANGUAGES } from '../libraryForm'
+import { COMIC_SOURCE_LANGUAGES } from '../libraryForm'
 import { newDramaRequest } from '../sources/urlImportFormat'
 import { ADD_WAYS, addComic, canAdd, cbzPages, folderPages, startPrefs, type AddComicInput, type AddWay } from './addComicLogic'
 import { markReadTranslated, MODE_OPTIONS, saveComicPrefs, type ComicMode } from './comicLogic'
@@ -91,7 +91,7 @@ export function AddComicDialog({ open, onClose, readTranslated = false }: { open
         </Field>
         <Field label="Language">
           <select value={language} disabled={made !== null} onChange={(e) => setLanguage(e.target.value)}>
-            {SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{humanize('language', l)}</option>)}
+            {COMIC_SOURCE_LANGUAGES.map((l) => <option key={l} value={l}>{humanize('language', l)}</option>)}
           </select>
         </Field>
         {!readTranslated && (
