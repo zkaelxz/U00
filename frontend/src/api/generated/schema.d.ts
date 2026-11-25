@@ -3493,6 +3493,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/by-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Which of these source page links already have a title the caller can see (Find & Add results) */
+        post: operations["post_titles_by_links_api_dramas_by_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/same": {
         parameters: {
             query?: never;
@@ -32329,6 +32346,22 @@ export interface components {
             /** Uses Default */
             uses_default: boolean;
         };
+        /**
+         * TitleLinkLookup
+         * @description Source page links to look for among the caller's titles (a page of search results).
+         */
+        TitleLinkLookup: {
+            /** Urls */
+            urls: string[];
+        };
+        /**
+         * TitleLinkMatches
+         * @description One entry per link asked, in the same order: the title that carries it, or null. The links are not echoed.
+         */
+        TitleLinkMatches: {
+            /** Title Ids */
+            title_ids: (number | null)[];
+        };
         /** TitleLinkProbe */
         TitleLinkProbe: {
             current: components["schemas"]["LinkDetailFields"];
@@ -43916,6 +43949,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_titles_by_links_api_dramas_by_links_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TitleLinkLookup"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TitleLinkMatches"];
                 };
             };
             /** @description Unprocessable Content */

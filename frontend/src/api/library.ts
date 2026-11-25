@@ -83,6 +83,10 @@ export const createDrama = (body: DramaCreateRequest, f?: Fetch) =>
 export const sameTitles = (body: SameTitleQuery, f?: Fetch) =>
   postJson<{ items: SameTitle[] }>('/api/dramas/same', body, f)
 
+/** For each source page link, the id of a title the caller can see that carries it, else null; same order, links not echoed. */
+export const titlesByLinks = (urls: string[], f?: Fetch) =>
+  postJson<{ title_ids: (number | null)[] }>('/api/dramas/by-links', { urls }, f)
+
 // Partial update: send only the fields the user changed.
 export const updateDramaMetadata = (id: number, body: DramaMetadataUpdate, f?: Fetch) =>
   postJson<DramaDetail>(`/api/dramas/${id}/metadata`, body, f)
