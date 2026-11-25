@@ -348,6 +348,84 @@ class TestWhisperRunner:
         return live_whisper.WhisperRunner(should_stop, lambda t, key=None: None, clock=clock or FakeClock(),
                                           poll=0.005, grace=0.05)
 
+    def test_two_runners_take_turns_instead_of_hitting_the_busy_guard(self):
+        first_in, release, order = threading.Event(), threading.Event(), []
+
+        def slow(cb):
+            order.append("a")
+            first_in.set()
+            release.wait(5)
+            return 1
+        a, b = self._runner(), self._runner()
+        result = {}
+        t = threading.Thread(target=lambda: result.update(a=a.run(slow, 5, "a")))
+        t.start()
+        assert first_in.wait(5)
+        u = threading.Thread(target=lambda: result.update(b=b.run(lambda cb: order.append("b") or 2, 5, "b")))
+        u.start()
+        time.sleep(0.05)
+        assert order == ["a"]      # b waits for its turn
+        release.set()
+        t.join(5)
+        u.join(5)
+        assert result == {"a": 1, "b": 2} and order == ["a", "b"]
+
+    def test_a_runner_waiting_for_its_turn_still_stops(self):
+        hold, stopped, inside = threading.Event(), threading.Event(), threading.Event()
+        a = self._runner()
+        t = threading.Thread(target=lambda: a.run(lambda cb: inside.set() or hold.wait(5), 5, "a"))
+        t.start()
+        assert inside.wait(5)
+        b = self._runner(should_stop=stopped.is_set)
+        stopped.set()
+        with pytest.raises(background_jobs.JobCancelled):
+            b.run(lambda cb: 0, 5, "b")
+        hold.set()
+        t.join(5)
+
+    def test_a_runner_that_waits_past_its_limit_times_out(self):
+        hold, inside, clock = threading.Event(), threading.Event(), FakeClock()
+        a = self._runner(clock=clock)
+        t = threading.Thread(target=lambda: a.run(lambda cb: inside.set() or hold.wait(5), 1000, "a"))
+        t.start()
+        assert inside.wait(5)
+        b = self._runner(clock=clock)
+        timer = threading.Timer(0.05, lambda: clock.advance(100))
+        timer.start()
+        with pytest.raises(live_whisper.ChunkTimeout):
+            b.run(lambda cb: 0, 60, "b")
+        hold.set()
+        t.join(5)
+
+    def test_a_runner_only_names_its_own_call_as_still_running(self):
+        hold, inside = threading.Event(), threading.Event()
+        a, b = self._runner(), self._runner()
+        t = threading.Thread(target=lambda: a.run(lambda cb: inside.set() or hold.wait(5), 5, "a-call"))
+        t.start()
+        assert inside.wait(5)
+        assert _wait(lambda: a.busy_with() == "a-call")
+        assert b.busy_with() is None
+        hold.set()
+        t.join(5)
+
+    def test_a_stuck_call_in_one_session_makes_the_other_skip_as_busy(self):
+        release, inside = threading.Event(), threading.Event()
+        a = self._runner()
+        stopped = threading.Event()
+        a_stop = self._runner(should_stop=stopped.is_set)
+
+        def stuck(cb):
+            inside.set()
+            release.wait(5)
+        t = threading.Thread(target=lambda: pytest.raises(background_jobs.JobCancelled, a_stop.run, stuck, 5, "a"))
+        t.start()
+        assert inside.wait(5)
+        stopped.set()
+        t.join(5)
+        with pytest.raises(live_whisper.WhisperBusy):
+            a.run(lambda cb: 0, 5, "b")
+        release.set()
+
     def test_returns_the_value_and_passes_errors_on(self):
         assert self._runner().run(lambda cb: 7, 5, "chunk 0") == 7
         with pytest.raises(ValueError):

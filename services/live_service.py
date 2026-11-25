@@ -34,7 +34,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 import background_jobs
-from jobs import job_launch
+from jobs import job_launch, job_settings
 import db
 import diagnostics_torch
 from live import live_chat
@@ -74,6 +74,8 @@ LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
 MAX_SESSIONS = 32
+# Two streams share the one loaded Whisper and take turns (live_whisper._turn); a third would only add lag.
+MAX_LIVE_SESSIONS = 2
 MAX_URL_LEN = 2000
 # Kept per session, newest last: the skipped-chunk and catch-up events the status
 # line would otherwise overwrite a second later.
@@ -387,15 +389,16 @@ def _join_running(url: str, principal) -> Optional[str]:
     key = _join_key(url, stream_ref(url))
     uid = ownership_service.user_id(principal)
     with _lock:
-        sid = _active_session_locked()
-        entry = _sessions.get(sid) if sid else None
-        if entry is None or entry.get("join_key") != key:
-            return None
-        if entry.get("private") and entry.get("owner_user_id") != uid:
-            return None
-        if uid is not None:
-            entry.setdefault("viewers", set()).add(uid)
-        return sid
+        for sid in _active_sessions_locked():
+            entry = _sessions[sid]
+            if entry.get("join_key") != key:
+                continue
+            if entry.get("private") and entry.get("owner_user_id") != uid:
+                return None
+            if uid is not None:
+                entry.setdefault("viewers", set()).add(uid)
+            return sid
+        return None
 
 
 def join_running_stream(url: str) -> bool:
@@ -404,16 +407,31 @@ def join_running_stream(url: str) -> bool:
     return _join_running(url, None) is not None
 
 
-def _active_session_locked():
-    """The id of a session that is reserved, queued or running,
-    else None. Call with _lock held."""
+def _active_sessions_locked() -> list:
+    """Ids of the sessions that are reserved, queued or running. Call with _lock held."""
+    out = []
     for sid, entry in _sessions.items():
         if not entry.get("dir"):
             continue    # finished: its job removed the directory
         job = background_jobs.get_status(sid)
         if job is None or job.get("status") in ("queued", "running"):
-            return sid
-    return None
+            out.append(sid)
+    return out
+
+
+def _refuse_start_locked(use_gpu: bool = False) -> None:
+    """Raises ConflictError when no session may start now. Call with _lock held."""
+    active = _active_sessions_locked()
+    # A GPU session over the "GPU jobs at once" limit would sit queued, captioning nothing, until the first ends.
+    if use_gpu and sum(1 for sid in active if _sessions[sid].get("gpu")) >= job_settings.get_gpu_max_parallel():
+        raise ConflictError("Another live session is using the GPU. Raise 'GPU jobs at once' in Settings "
+                            "to caption two streams on the GPU, or start this one without the GPU.")
+    if len(active) >= MAX_LIVE_SESSIONS:
+        raise ConflictError(f"{MAX_LIVE_SESSIONS} live sessions are already running. Stop one first.")
+    # With a session running, a leftover call may be that session's own; its next call waits its turn.
+    if not active and _previous_whisper_call() is not None:
+        raise ConflictError("The previous session's Whisper call is still finishing. "
+                            "Try again in a moment.")
 
 
 def missing_tool():
@@ -640,11 +658,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     # would be refused costs no key lookup or model load. Re-checked below
     # under the same lock hold as the reservation.
     with _lock:
-        if _active_session_locked() is not None:
-            raise ConflictError("A live session is already running. Stop it first.")
-        if _previous_whisper_call() is not None:
-            raise ConflictError("The previous session's Whisper call is still finishing. "
-                                "Try again in a moment.")
+        _refuse_start_locked()
     engine_name, eng = _build_engine(engine, model)
     translate_run_service.refuse_when_cap_spent(
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(eng, "model", None))
@@ -679,17 +693,13 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                 "spend_guard": live_spend_service.LiveSpendGuard(
                     chat_engine, engine_name, functools.partial(_stop_for_spend, session_id), budget)}
     with _lock:
-        # One session at a time (a design limit):
-        # each holds the GPU and an engine for up to max_minutes. The
-        # check and the reservation share one lock hold, so two starts
-        # can't both pass.
-        if _active_session_locked() is not None:
+        # Each session holds an engine for up to max_minutes. The check and the
+        # reservation share one lock hold, so two starts can't both pass.
+        try:
+            _refuse_start_locked(bool(use_gpu))
+        except ConflictError:
             shutil.rmtree(out_dir, ignore_errors=True)
-            raise ConflictError("A live session is already running. Stop it first.")
-        if _previous_whisper_call() is not None:
-            shutil.rmtree(out_dir, ignore_errors=True)
-            raise ConflictError("The previous session's Whisper call is still finishing. "
-                                "Try again in a moment.")
+            raise
         if len(_sessions) >= MAX_SESSIONS:
             # Forget the oldest finished sessions (dicts keep insertion order).
             for sid in list(_sessions):
@@ -699,7 +709,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                     del _sessions[sid]
                 if len(_sessions) < MAX_SESSIONS:
                     break
-        _sessions[session_id] = {"dir": out_dir, "engine": engine_name,
+        _sessions[session_id] = {"dir": out_dir, "engine": engine_name, "gpu": bool(use_gpu),
                                  "model": getattr(eng, "model", None), "starting": True,
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
@@ -723,7 +733,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                 segment_seconds=segment_seconds, overlap_seconds=overlap_seconds,
                 use_gpu=bool(use_gpu), reply_without_thinking=bool(reply_without_thinking),
                 max_minutes=max_minutes),
-            gpu_touching=bool(use_gpu), description=f"Live capture (local Whisper, {engine_name}"
+            gpu_touching=bool(use_gpu), priority=True, description=f"Live capture (local Whisper, {engine_name}"
             f"{' ' + eng.model if getattr(eng, 'model', None) else ''})", line_fields=())
     except Exception:
         _remove_dir(session_id)

@@ -35,7 +35,6 @@ import shutil
 import threading
 import time
 
-import background_jobs
 from jobs import job_launch
 import storage
 from services import live_follow_service as follows
@@ -435,15 +434,25 @@ _STARTED = "started Live automatically"
 _DEFERRED = "live-deferred"
 
 
-def _gate_refusal(engine, model) -> str:
+def _gpu_full() -> bool:
+    """True when a GPU job could not start now: every slot is taken, the GPU guard holds jobs,
+    or too little VRAM is free to join the running ones. A Live start queued behind them would
+    caption nothing until they end."""
+    from jobs import gpu_guard, gpu_slots, job_settings
+    if gpu_guard.hold_reason():
+        return True
+    holders = gpu_slots.holder_count()
+    if holders == 0:
+        return False
+    return holders >= job_settings.get_gpu_max_parallel() or not gpu_slots._vram_room_for_another_gpu_job()
+
+
+def _gate_refusal(engine, model, use_gpu=False) -> str:
     """Why an automatic start may not happen now, else ""."""
-    from services import line_ai_service, live_service, paid_job_service, settings_service
+    from services import line_ai_service, paid_job_service, settings_service
     from lib.errors import ServiceError
-    if any(s["status"] in ("queued", "running") for s in live_service.list_sessions(None)):
-        return "not started: another Live session is running"
-    if any(j.get("gpu_touching") and j.get("status") in ("queued", "running")
-           for j in background_jobs.list_all_jobs().values()):
-        return "not started: a GPU job is running"
+    if use_gpu and _gpu_full():
+        return "not started: no GPU room right now"
     from engine_backends import engine_registry
     if engine not in engine_registry.ENGINES:
         return "not started: that engine is not available"
@@ -476,7 +485,7 @@ def _auto_start(row, stream_id):
         return "not started: a saved Live option is no longer valid"
     if live_service.join_running_stream(follows.stream_url(row)):
         return "already captioned by a running Live session"
-    refusal = _gate_refusal(opts["engine"] or live_service.LIVE_DEFAULT_ENGINE, opts["model"])
+    refusal = _gate_refusal(opts["engine"] or live_service.LIVE_DEFAULT_ENGINE, opts["model"], opts["use_gpu"])
     if refusal:
         return refusal
     try:
@@ -487,7 +496,7 @@ def _auto_start(row, stream_id):
             glossary_drama_id=opts["glossary_drama_id"],
             series_id=opts["series_id"], principal=None)
     except ConflictError:
-        return "not started: another Live session is running"
+        return "not started: two Live sessions are already running"
     except MissingKeyError:
         return "not started: no key is saved for that engine"
     except DependencyUnavailableError as exc:

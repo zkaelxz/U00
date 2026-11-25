@@ -230,13 +230,26 @@ def test_each_start_gets_own_session_and_dir(live, monkeypatch):
     assert all(not os.path.exists(s[1]) for s in seen)  # removed on finish
 
 
-def test_second_start_while_one_runs_is_conflict(live):
+def test_two_streams_run_together_and_a_third_is_a_conflict(live):
     from lib.errors import ConflictError
     a = _start()
     assert _wait(lambda: "out_dir" in live)
+    b = _start(url="https://www.youtube.com/watch?v=other")
     with pytest.raises(ConflictError):
-        _start(url="https://www.youtube.com/watch?v=other")
-    assert list(live_service._sessions) == [a]
+        _start(url="https://www.youtube.com/watch?v=third")
+    assert set(live_service._sessions) == {a, b}
+
+
+def test_a_second_gpu_session_is_refused_when_one_gpu_job_runs_at_a_time(live, monkeypatch):
+    from jobs import job_settings
+    from lib.errors import ConflictError
+    monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 1)
+    _start(use_gpu=True)
+    assert _wait(lambda: "out_dir" in live)
+    with pytest.raises(ConflictError, match="GPU jobs at once"):
+        _start(url="https://www.youtube.com/watch?v=other", use_gpu=True)
+    monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 2)
+    assert _start(url="https://www.youtube.com/watch?v=other", use_gpu=True)
 
 
 def test_same_stream_start_joins_the_running_session(live):
@@ -269,13 +282,12 @@ def test_viewer_sees_the_session_and_stop_only_leaves(live):
 
 
 def test_session_on_saved_cookies_is_not_joined_by_another_account(live):
-    from lib.errors import ConflictError
     a = _start(url="https://www.youtube.com/watch?v=abcdefghijk", use_saved_cookies=True)
     assert _wait(lambda: "out_dir" in live)
     live_service._sessions[a]["owner_user_id"] = 1
-    with pytest.raises(ConflictError):
-        live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
-                                   principal={"user_id": 2})
+    other = live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",
+                                       principal={"user_id": 2})
+    assert other["session_id"] != a and "joined" not in other
 
 
 def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live):
@@ -293,14 +305,15 @@ def test_capture_runs_through_a_guarded_proxy_closed_when_the_session_ends(live)
         s.connect(("127.0.0.1", port))
 
 
-def test_refused_second_start_builds_no_engine(live, monkeypatch):
+def test_refused_third_start_builds_no_engine(live, monkeypatch):
     from lib.errors import ConflictError
     _start()
     assert _wait(lambda: "out_dir" in live)
+    _start(url="https://www.youtube.com/watch?v=other")
     built = []
     monkeypatch.setattr(live_service, "_build_engine", lambda *a: built.append(a))
     with pytest.raises(ConflictError):
-        _start(url="https://www.youtube.com/watch?v=other")
+        _start(url="https://www.youtube.com/watch?v=third")
     assert built == []
 
 
@@ -913,7 +926,6 @@ def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chun
 
 
 def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
-    from lib.errors import ConflictError
     url = "https://www.youtube.com/watch?v=abcdefghijk"
     owner, admin = {"user_id": 1}, {"user_id": 2, "is_admin": True}
     a = live_service.start_session(url, engine="fake", principal=owner)["session_id"]
@@ -923,8 +935,8 @@ def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):
     assert live_service.stop_session(a, principal=admin)["stopping"] is False
     assert background_jobs.is_running(a)
     live_service._sessions[a]["private"] = True
-    with pytest.raises(ConflictError):
-        live_service.start_session(url, engine="fake", principal={"user_id": 3})
+    other = live_service.start_session(url, engine="fake", principal={"user_id": 3})
+    assert other["session_id"] != a and "joined" not in other
 
 
 def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(live):

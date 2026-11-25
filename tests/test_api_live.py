@@ -23,6 +23,7 @@ from services import auth_service, live_service, translate_service
 PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
 URL = "https://www.youtube.com/watch?v=abc"
 OTHER_URL = "https://www.youtube.com/watch?v=other"
+THIRD_URL = "https://www.youtube.com/watch?v=third"
 SECRET = "sk-ant-" + "a" * 40
 
 
@@ -239,11 +240,12 @@ def test_auth_on_permissions(fake_live, monkeypatch):
     assert r.status_code == 200
     sid = r.json()["session_id"]
     # An omitted engine runs the free Ollama default, so no engines.paid is
-    # needed; 409 because another stream's session is running, not 403.
-    assert c.post("/api/live/sessions", json={"url": OTHER_URL}, headers=importer).status_code == 409
+    # needed. A second stream may run beside the first; the third is the 409, not a 403.
+    assert c.post("/api/live/sessions", json={**free, "url": OTHER_URL}, headers=importer).status_code == 200
+    assert c.post("/api/live/sessions", json={"url": THIRD_URL}, headers=importer).status_code == 409
     spender = _headers("media.import_url", "engines.paid", email="pay@example.com")
-    # past the permission checks; refused only because one session is running
-    assert c.post("/api/live/sessions", json={**paid, "url": OTHER_URL}, headers=spender).status_code == 409
+    # past the permission checks; refused only because two sessions are running
+    assert c.post("/api/live/sessions", json={**paid, "url": THIRD_URL}, headers=spender).status_code == 409
     # reads: library.read; stop: jobs.cancel (both household defaults).
     # Auth B2: a session is its starter's; another user gets a 404.
     assert c.get(f"/api/live/sessions/{sid}", headers=importer).status_code == 200
@@ -257,20 +259,21 @@ def test_auth_on_permissions(fake_live, monkeypatch):
     assert c.post(f"/api/live/sessions/{sid}/stop", headers=importer).status_code == 200
 
 
-def test_one_session_at_a_time(client, fake_live):
+def test_two_sessions_at_a_time(client, fake_live):
     body = {"url": URL, "engine": "fake"}
     first = client.post("/api/live/sessions", json=body)
     assert first.status_code == 200
+    assert client.post("/api/live/sessions", json={**body, "url": OTHER_URL}).status_code == 200
     for _ in range(3):
-        r = client.post("/api/live/sessions", json={**body, "url": OTHER_URL})
+        r = client.post("/api/live/sessions", json={**body, "url": THIRD_URL})
         assert r.status_code == 409 and r.json()["error"]["code"] == "conflict"
-    assert len(live_service._sessions) == 1
+    assert len(live_service._sessions) == 2
     joined = client.post("/api/live/sessions", json=body)
     assert joined.status_code == 200 and joined.json() == {"session_id": first.json()["session_id"], "joined": True}
     sid = first.json()["session_id"]
     client.post(f"/api/live/sessions/{sid}/stop")
     assert _wait(lambda: client.get(f"/api/live/sessions/{sid}").json()["status"] == "cancelled")
-    assert _wait(lambda: client.post("/api/live/sessions", json=body).status_code == 200)
+    assert _wait(lambda: client.post("/api/live/sessions", json={**body, "url": THIRD_URL}).status_code == 200)
 
 
 def test_job_gets_stream_check_and_proxy(client, fake_live):
