@@ -454,7 +454,7 @@ def test_a_novel_after_import_run_makes_text_lines_names_then_translates(novel, 
     seen = []
     monkeypatch.setattr(translate_run_service, "start_translate_run",
                         lambda drama_id, **kw: seen.append(kw) or novel._start(f"translate_{drama_id}"))
-    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 0)
+    monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda: 5)
     did = _drama("Novel", lines=(), media_type="novel")
     novel._start(f"sourceimport_{did}")
     runs.start_after_import(None, did, "ollama", runs.lines_choice(did, {}), at_pc=True)
@@ -536,3 +536,20 @@ def test_the_names_step_runs_on_the_engine_stored_for_the_adder(isolated_db, mon
     did = _drama("Novel", media_type="novel")
     runs.start_step(None, db.get_drama(did), q.NAMES, {"source": "novel", "engine": "ollama", "model": "m"})
     assert seen == [("ollama", "m")]
+
+
+def test_the_after_import_translate_needs_a_cap_when_it_starts_but_the_add_boxs_does_not(isolated_db, monkeypatch):
+    from lib.errors import UnsupportedOperationError
+    from services import translate_run_service
+    started = []
+    monkeypatch.setattr(translate_run_service, "start_translate_run",
+                        lambda drama_id, *a, **kw: started.append(kw) or {"job_id": "j"})
+    monkeypatch.setattr(translate_run_service, "engine_cap_applies", lambda *a: True)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0)     # the owner cleared the cap meanwhile
+    did = _drama("Novel", media_type="novel")
+    admin = {"user_id": 1, "permissions": ["jobs.start", "engines.paid"]}
+    with pytest.raises(UnsupportedOperationError):
+        runs.start_step(admin, db.get_drama(did), q.RUN_TRANSLATE, {"engine": "claude", "capped": True})
+    assert started == []
+    runs.start_step(admin, db.get_drama(did), q.RUN_TRANSLATE, {"engine": "claude"})
+    assert len(started) == 1
