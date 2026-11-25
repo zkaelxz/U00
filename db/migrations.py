@@ -129,6 +129,12 @@ def _add_topic_chapters_column(conn):
         db._safe_alter(conn, "ALTER TABLE dramas ADD COLUMN topic_chapters TEXT")
 
 
+def _add_glossary_inbox_column(conn):
+    # JSON {"items": [...], "rejected": [terms]} (services/glossary_inbox_service.py); NULL: nothing scanned yet.
+    if "glossary_inbox" not in {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}:
+        db._safe_alter(conn, "ALTER TABLE dramas ADD COLUMN glossary_inbox TEXT")
+
+
 def _migrate_drama_columns(conn):
     drama_cols = {r[1] for r in conn.execute("PRAGMA table_info(dramas)").fetchall()}
     if "whisper_repeat_guard" not in drama_cols and "hallucination_silence_sec" in drama_cols:

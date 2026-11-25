@@ -26,7 +26,7 @@ import { StrongerEngine } from './StrongerEngine'
 import type { StrongerOffer } from './strongerEngineLogic'
 import { buildPatch, LINE_LANGUAGES, lineLangChip, sourceTextLang, titleDefaultLabel, type LineDraft } from './reviewDraft'
 import { queueAction, queueReason, type QueueAction } from './checkQueueModel'
-import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, lineCps, READING_SPEED_FLAG, unsurePieces, type PanelMode } from './reviewLogic'
+import { CONFLICT_MESSAGE, formatTenths, formatTime, isShaky, isToolMode, unsureLevel, lineCps, READING_SPEED_FLAG, unsurePieces, type PanelMode } from './reviewLogic'
 import { JOB_RUNNING_MESSAGE } from './reviewResegment'
 import { lineNumber } from '../../../../lineNumber'
 import { isSourceChanged } from '../sourceChanged'
@@ -580,6 +580,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
       data-testid={`line-${line.id}`}
       data-line-id={line.id}
       data-flagged={line.flag ? 'true' : undefined}
+      data-unsure={unsureLevel(line) ?? undefined}
       aria-current={active ? 'true' : undefined}
       tabIndex={active ? 0 : -1}
       onClick={onRowClick}
