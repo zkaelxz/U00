@@ -43,6 +43,9 @@ ASR_BACKEND_CHOICES = ("whisper", "qwen3_asr", "qwen3_asr_vad", "qwen3_asr_long"
 LANGUAGE_ONLY_ASR_BACKENDS = {
     "anime_whisper": ("ja", "anime-whisper is only for Japanese titles."),
 }
+# Languages only Whisper transcribes: the Qwen3 backends need the Qwen3 forced aligner,
+# which lists neither, and nothing measured Qwen3-ASR on them here.
+WHISPER_ONLY_LANGUAGES = ("id", "th")
 # Backends that used to be offered. A title may still have one saved, so it
 # loads as the default backend with a notice; the saved value is left alone.
 REMOVED_ASR_BACKENDS = {"moss_td": "MOSS-Transcribe-Diarize"}
@@ -204,6 +207,8 @@ def _raise_if_cancelled():
 
 def asr_backend_language_problem(choice, language):
     """Why this backend is not offered for this language, or None when it is."""
+    if choice and choice != "whisper" and language in WHISPER_ONLY_LANGUAGES:
+        return "Indonesian and Thai titles are transcribed with Whisper only."
     only = LANGUAGE_ONLY_ASR_BACKENDS.get(choice)
     return only[1] if only and language != only[0] else None
 

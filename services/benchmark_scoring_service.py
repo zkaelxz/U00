@@ -14,7 +14,6 @@ import unicodedata
 
 import benchmark
 import segment
-from core import SOURCE_LANGUAGES
 from services.benchmark_script_service import _PAIRS
 
 MAX_TEXT_CHARS = 4000
@@ -25,7 +24,7 @@ PASS_THRESHOLD = 0.8
 # 0.3 on hand-checked en/zh pairs), so 0.8 would fail nearly everything.
 CHRF_PASS_THRESHOLD = 0.5
 # Languages whose transcripts are scored per character (no word spaces).
-_CHARACTER_LANGUAGES = SOURCE_LANGUAGES
+CHARACTER_LANGUAGES = ("zh", "ja", "ko", "th")
 
 
 # Traditional-only character -> its Simplified form, for when OpenCC is absent.
@@ -171,7 +170,7 @@ def score_output(stage: str, output: str, reference: str | None, source_language
     # counts still show the script. Before the edit distance, because a
     # Traditional character is otherwise a substitution.
     normaliser = script_normaliser(stage, source_language)
-    unit = "char" if stage == "ocr" or source_language in _CHARACTER_LANGUAGES else "word"
+    unit = "char" if stage == "ocr" or source_language in CHARACTER_LANGUAGES else "word"
     metric = "cer" if unit == "char" else "wer"
     if not reference:
         return None, metric, None

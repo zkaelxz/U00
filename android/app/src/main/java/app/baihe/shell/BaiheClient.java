@@ -143,6 +143,15 @@ final class BaiheClient {
         }
     }
 
+    /** Starts Live captions on a stream page's link, in the stream's spoken language (zh, ja or ko). */
+    void startLive(String link, String language) throws BridgeException {
+        try {
+            call("POST", "/live", new JSONObject().put("url", link).put("source_language", language));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Tells the server to drop the pages of this run it has not started; the page in flight finishes. */
     void cancelRun(String id) throws BridgeException {
         try {

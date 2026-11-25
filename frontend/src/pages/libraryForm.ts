@@ -5,7 +5,9 @@ import type { DramaCreateRequest, DramaDeleteResult } from '../types/library'
 export const MAX_NAME_LEN = 300
 export const MAX_SUMMARY_LEN = 5000
 export const MAX_URL_LEN = 2000
-export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
+export const SOURCE_LANGUAGES = ['zh', 'ja', 'ko', 'id', 'th']
+// Comics are read with Chinese, Japanese and Korean OCR only.
+export const COMIC_SOURCE_LANGUAGES = ['zh', 'ja', 'ko']
 // Choices offered when creating a drama. 'music' and 'other' were dropped from
 // the picker (user decision 2026-09-29); the API still accepts them so older
 // dramas that use them keep loading and saving.

@@ -78,12 +78,18 @@ const WHISPER_LABELS: Record<string, string> = {
   'ja-1.5b': 'Japanese only: whisper-ja 1.5B, anime and games, opt-in, about 3 GB, needs a GPU',
   'kotoba-v2': 'Japanese only: kotoba-whisper v2.0, opt-in, about 1.5 GB, fast; line timing only',
   'breeze-asr-25': 'Chinese only: Breeze-ASR-25 (Taiwanese Mandarin), opt-in, about 3 GB',
+  'thonburian-large-v3': 'Thai only: Thonburian, about 3 GB; line timing only',
 }
 // Breeze measured ahead of large-v3 on the hand-checked Chinese titles, and is the default for Chinese once downloaded,
 // so on a Chinese title it takes the "recommended" wording and large-v3 loses it.
 const ZH_WHISPER_LABELS: Record<string, string> = {
   'large-v3': 'Most accurate',
   'breeze-asr-25': 'Recommended for Chinese: Breeze-ASR-25 (Taiwanese Mandarin), about 3 GB',
+}
+// Thonburian measured ahead of large-v3 on the Thai stream test and is the default for Thai once downloaded.
+const TH_WHISPER_LABELS: Record<string, string> = {
+  'large-v3': 'All-language model',
+  'thonburian-large-v3': 'Recommended for Thai: Thonburian, about 3 GB; line timing only',
 }
 // Download sizes, mirrored from services/transcribe_pipeline._MODEL_DOWNLOAD_SIZES for the two models the picker offers.
 const WHISPER_DOWNLOAD: Record<string, string> = { 'large-v3': 'about 3 GB', 'large-v3-turbo': 'about 1.6 GB' }
@@ -92,12 +98,13 @@ function whisperModelHelp(size: string, notDownloaded: boolean, notUsed: string 
   const parts = [
     notDownloaded ? `This model will be downloaded on first use${WHISPER_DOWNLOAD[size] ? ` (${WHISPER_DOWNLOAD[size]})` : ''}.` : '',
     size === 'ja-1.5b' ? 'Its licence is not declared; use it for personal work.' : '',
+    size === 'thonburian-large-v3' ? 'It writes text only: each line takes its times from where speech was detected, and long lines are cut by length.' : '',
     size === 'kotoba-v2' ? 'It gives line timing only. The Qwen3 forced aligner refines it when installed; otherwise the Whisper line times are kept and the job says so.' : '',
   ].filter(Boolean)
   return parts.length ? parts.join(' ') : undefined
 }
 const FIX_HIGHLIGHTED = 'Fix the highlighted option, then transcribe again.'
-const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean' }
+const LANGUAGE_NAMES: Record<string, string> = { zh: 'Chinese', ja: 'Japanese', ko: 'Korean', id: 'Indonesian', th: 'Thai' }
 interface Props {
   // The selected Media sub-tab; the Transcribe and Tools panels stay mounted and hide when not selected.
   tab: MediaTab
@@ -545,6 +552,8 @@ export default function TranscribeStage({
               <option value="zh">Chinese</option>
               <option value="ja">Japanese</option>
               <option value="ko">Korean</option>
+              <option value="id">Indonesian</option>
+              <option value="th">Thai</option>
             </select>
           </Field>
           {cf && (
@@ -552,7 +561,7 @@ export default function TranscribeStage({
               <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                 {whisperChoices.map((o) => (
                   <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
-                    {o.hidden ? `${o.size} (older choice, hidden)` : (language === 'zh' && ZH_WHISPER_LABELS[o.size]) || WHISPER_LABELS[o.size] || o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
+                    {o.hidden ? `${o.size} (older choice, hidden)` : (language === 'zh' && ZH_WHISPER_LABELS[o.size]) || (language === 'th' && TH_WHISPER_LABELS[o.size]) || WHISPER_LABELS[o.size] || o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
                   </option>
                 ))}
               </select>

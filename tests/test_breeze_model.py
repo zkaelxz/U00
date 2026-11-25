@@ -98,12 +98,12 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: False)
         assert live_service.form_options()["language_whisper_defaults"] == {}
 
-    def test_live_starts_japanese_and_korean_on_their_models_with_a_gpu(self, monkeypatch):
+    def test_live_starts_the_other_languages_on_their_models_with_a_gpu(self, monkeypatch):
         from services import live_service
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         monkeypatch.setattr(live_service.diagnostics_torch, "nvidia_driver_info", lambda: {"name": "gpu"})
         assert live_service.form_options()["language_whisper_defaults"] == {
-            "zh": KEY, "ja": "ja-1.5b", "ko": "large-v3"}
+            "zh": KEY, "ja": "ja-1.5b", "ko": "large-v3", "id": "large-v3", "th": wm.THONBURIAN_KEY}
         monkeypatch.setattr(live_service.diagnostics_torch, "nvidia_driver_info", lambda: None)
         assert live_service.form_options()["language_whisper_defaults"] == {"zh": KEY}
 
@@ -111,9 +111,9 @@ class TestRegistry:
     def test_selectable_only_for_chinese(self, language, allowed):
         assert wm.whisper_model_fits_language(KEY, language) is allowed
 
-    def test_the_picker_payload_carries_the_reason_for_japanese_and_korean(self):
+    def test_the_picker_payload_carries_the_reason_for_every_other_language(self):
         payload = wm.whisper_language_exclusions()[KEY]
-        assert set(payload) == {"ja", "ko"} and "Chinese" in payload["ja"]
+        assert set(payload) == {"ja", "ko", "id", "th"} and "Chinese" in payload["ja"]
 
     def test_the_server_accepts_it_for_a_chinese_title_only(self, isolated_db):
         zh = isolated_db.create_drama(title_en="zh", source_language="zh")

@@ -4196,6 +4196,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: start Live captions on a stream page's link */
+        post: operations["post_live_api_ext_bridge_live_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/novel": {
         parameters: {
             query?: never;
@@ -14636,7 +14653,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language?: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko" | "id" | "th";
             /** Source Text */
             source_text: string;
             /**
@@ -15109,7 +15126,7 @@ export interface components {
              * @default zh
              * @enum {string}
              */
-            source_language?: "zh" | "ja" | "ko";
+            source_language?: "zh" | "ja" | "ko" | "id" | "th";
             /** Text */
             text: string;
             /**
@@ -15229,7 +15246,7 @@ export interface components {
             /** Pass Threshold */
             pass_threshold: number;
             /** Source Languages */
-            source_languages: ("zh" | "ja" | "ko")[];
+            source_languages: ("zh" | "ja" | "ko" | "id" | "th")[];
             /** Stages */
             stages: ("translation" | "transcription" | "ocr")[];
             /** Tiers */
@@ -30339,6 +30356,8 @@ export interface components {
             whisper_cached_medium: boolean;
             /** Whisper Cached Small */
             whisper_cached_small: boolean;
+            /** Whisper Cached Thonburian Large V3 */
+            whisper_cached_thonburian_large_v3: boolean;
             /** Whisper Cached Tiny */
             whisper_cached_tiny: boolean;
             /** Yt Dlp */
@@ -46099,6 +46118,26 @@ export interface operations {
         };
     };
     get_health_api_ext_bridge_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_live_api_ext_bridge_live_post: {
         parameters: {
             query?: never;
             header?: never;

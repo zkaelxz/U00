@@ -27,6 +27,15 @@ public class QuickReadSessionTest {
     }
 
     @Test
+    public void aLongChapterStartsTheNextOnePastItsMiddle() {
+        open(30);
+        QuickReadSession.reached(15);
+        assertEquals(0, fetched);
+        QuickReadSession.reached(16);
+        assertEquals(1, fetched);
+    }
+
+    @Test
     public void nothingIsFetchedWhileTheChapterIsStillArriving() {
         QuickReadSession.begin();
         QuickReadSession.add("page-0.jpg");
