@@ -67,11 +67,12 @@ _STREAM = [require_permission("media.stream")]
                        304: {"description": "Not modified"}, **_ERRS})
 def get_page_image(request: Request, drama_id: int = Path(ge=1), page_id: int = Path(ge=1),
                    variant: Literal["original", "rendered"] = Query("original"),
-                   size: Literal["full", "reader"] = Query(
-                       "full", description="reader: a smaller JPEG copy of the same page for the viewer")):
+                   size: Literal["full", "reader", "low"] = Query(
+                       "full", description="reader: a smaller JPEG copy of the same page for the viewer; "
+                                           "low: a narrower, more compressed one for mobile data")):
     found = comic_view_service.resolve_page_image(drama_id, page_id, variant)
-    if size == "reader":
-        found = comic_reader_copy_service.reader_copy(drama_id, found)
+    if size != "full":
+        found = comic_reader_copy_service.reader_copy(drama_id, found, low=size == "low")
     name = f"page_{found['ordinal']}.{_EXT[found['content_type']]}"
     resp = FileResponse(found["path"], media_type=found["content_type"], filename=name,
                         content_disposition_type="inline", stat_result=found["stat"],

@@ -63384,8 +63384,8 @@ export interface operations {
         parameters: {
             query?: {
                 variant?: "original" | "rendered";
-                /** @description reader: a smaller JPEG copy of the same page for the viewer */
-                size?: "full" | "reader";
+                /** @description reader: a smaller JPEG copy of the same page for the viewer; low: a narrower, more compressed one for mobile data */
+                size?: "full" | "reader" | "low";
             };
             header?: never;
             path: {
