@@ -43,10 +43,6 @@ _CHAPTER_PATH = re.compile(r"^/comics/([0-9]{1,12})/chapters/([0-9]{1,12})/?$")
 
 LayoutChanged = layout_changed_class("NewXToon")
 
-# Search cards put "<age> ago <title> <latest ep> <views> <n>" in one link's text.
-_CARD_AGE = re.compile(r"^\d+\s*(?:초|분|시간|일|주|개월|달|년)\s*전\s+")
-_CARD_STATS = re.compile(r"\s+\d+\s*화(?:\s+[\d,]+)*\s*$")
-
 _SITE_SUFFIX = re.compile(r"\s*[—–-]\s*뉴엑스툰\s*$")
 
 
@@ -62,9 +58,6 @@ def _is_ad(url: str) -> bool:
 def _clean(text) -> str:
     return re.sub(r"\s+", " ", str(text or "")).strip()
 
-
-def _card_title(text: str) -> str:
-    return _CARD_STATS.sub("", _CARD_AGE.sub("", text)).strip()
 
 
 @register
@@ -96,6 +89,14 @@ class NewXToonSource(SourceAdapter):
     def _page(self, path: str, action: str) -> str:
         return self.site.get(path, action=action, use_cache=False).text
 
+    @staticmethod
+    def _card_title(a, img) -> str:
+        """The card's link text also holds the latest-episode line and counts, so read the title element."""
+        h3 = a.find("h3")
+        label = _clean(a.get("aria-label")).split(",")[0]
+        return _clean((h3.get("title") or h3.get_text(" ") if h3 else "")
+                      or label or a.get("title") or a.get_text(" ") or (img.get("alt") if img else ""))
+
     def search(self, query: str, page: int = 1):
         if page > 1 or not query.strip():
             return []
@@ -106,7 +107,7 @@ class NewXToonSource(SourceAdapter):
             if not m or m.group(1) in seen:
                 continue
             img = a.find("img")
-            title = _card_title(_clean(a.get("title") or a.get_text(" ") or (img.get("alt") if img else "")))
+            title = self._card_title(a, img)
             if not title:
                 continue
             seen.add(m.group(1))

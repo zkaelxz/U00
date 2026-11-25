@@ -60,12 +60,18 @@ class TestSearch:
         assert results[0].cover_url == "https://files.example.invalid/c12.jpg"
         assert results[1].cover_url == ""
 
-    def test_card_text_is_stripped_to_the_series_title(self):
-        card = ('<html><body><a href="/comics/31"><img src="https://files.example.invalid/c31.jpg">'
-                '<span>5시간 전</span><span>꽃은 밤을 걷는다</span><span>99화</span>'
-                '<span>6,774</span><span>1</span></a></body></html>')
-        a, _ = _adapter({f"{BASE}/search?q=x": html(card)})
-        assert [r.title for r in a.search("x")] == ["꽃은 밤을 걷는다"]
+    def test_card_title_comes_from_the_title_element_not_the_card_text(self):
+        def card(sid, title, ep, views):
+            return (f'<a class="comic-link" href="/comics/{sid}" aria-label="{title}, 로맨스, 웹툰">'
+                    f'<img src="https://files.example.invalid/c{sid}.jpg">'
+                    f'<h3 title="{title}">{title}</h3><p class="mt-1 truncate" title="{ep}">{ep}</p>'
+                    f'<p><span>{views}</span><span>0</span></p></a>')
+        page = ("<html><body>" + card(10339, "꽃은 밤을 걷는다", "99화", "6,774")
+                + card(17549, "좋아하면 멍청해진다", "28. 맨정신", "1,600")
+                + card(8433, "인소의 법칙", "인소의 법칙 294화", "2,000")
+                + '<a href="/comics/9" aria-label="라벨만, 장르, 웹툰">x 5화 3</a></body></html>')
+        a, _ = _adapter({f"{BASE}/search?q=x": html(page)})
+        assert [r.title for r in a.search("x")] == ["꽃은 밤을 걷는다", "좋아하면 멍청해진다", "인소의 법칙", "라벨만"]
 
     def test_later_pages_are_empty_without_a_request(self):
         a, _ = _adapter({})
