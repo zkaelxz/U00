@@ -12,11 +12,55 @@ and cancelled jobs don't count.
 
 import contextlib
 import threading
+import time
 
+import db
 from lib.errors import RateLimitedError
 
 MAX_RUNNING_JOBS_PER_USER = 2
 MAX_QUEUED_JOBS_PER_USER = 10
+
+
+# A member's daily limit is the PC owner's brake per person, set in People and access. The limit and
+# the day's count live in app_settings (no schema change), keyed by user id, so they survive a restart
+# and a second server process sees them.
+JOBS_PER_DAY_KEY = "member_jobs_per_day.{}"
+JOBS_TODAY_KEY = "member_jobs_today.{}"
+
+
+def jobs_per_day(user_id) -> int | None:
+    """The member's daily job limit, or None when they have none."""
+    value = db.get_app_setting(JOBS_PER_DAY_KEY.format(user_id))
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
+
+
+def set_jobs_per_day(user_id, limit: int | None) -> None:
+    db.set_app_setting(JOBS_PER_DAY_KEY.format(user_id), limit)
+
+
+def jobs_today(user_id, today: str | None = None) -> int:
+    """How many jobs this member has started today (the PC's local date, when the count resets)."""
+    row = db.get_app_setting(JOBS_TODAY_KEY.format(user_id)) or {}
+    return row.get("n", 0) if row.get("day") == (today or time.strftime("%Y-%m-%d")) else 0
+
+
+def count_daily_start(owner_user_id, today: str | None = None) -> None:
+    """Counts one job started by this member today, or raises RateLimitedError (429) when they are
+    at their daily limit. The check and the count are one database transaction, so two starts at
+    once can't both take the last one. Nobody without a limit (and never the PC owner) is counted."""
+    limit = None if owner_user_id is None else jobs_per_day(owner_user_id)
+    if limit is None:
+        return
+    day = today or time.strftime("%Y-%m-%d")
+
+    def take_one(row):
+        n = row.get("n", 0) if isinstance(row, dict) and row.get("day") == day else 0
+        if n >= limit:
+            raise RateLimitedError(
+                f"You've reached your limit of {limit} {'job' if limit == 1 else 'jobs'} for today. "
+                "It starts again tomorrow, or the PC owner can raise it.")
+        return {"day": day, "n": n + 1}
+    db.update_app_setting(JOBS_TODAY_KEY.format(owner_user_id), take_one, default={})
 
 
 _refusing = threading.local()

@@ -24,7 +24,9 @@ test('closed Settings cards are one row tall, not 60px taller', async ({ page })
   // Advanced transcription is a Developer Mode card; with it shown the tab has two closed cards to measure.
   await page.route('**/api/assistant/settings', async (route) => {
     const resp = await route.fetch()
-    return route.fulfill({ response: resp, json: { ...(await resp.json()), developer_mode: true } })
+    // Read the body before fulfilling: fulfilling with `response` disposes it, so a later .json() throws.
+    const body = await resp.json()
+    return route.fulfill({ response: resp, json: { ...body, developer_mode: true } })
   })
   await page.goto('/#/settings')
   await page.getByRole('tab', { name: 'Transcription and jobs' }).click()

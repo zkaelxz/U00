@@ -36,6 +36,7 @@ from lib.errors import (ConflictError, ForbiddenError, InvalidInputError,
                                      NotFoundError, RateLimitedError, UnauthenticatedError,
                                      UnsupportedOperationError)
 import paid_limits
+from jobs import user_caps
 
 # One catalogue, one place. Household defaults are granted to a newly
 # allowlisted user; the opt-in list exists but is granted only explicitly.
@@ -274,6 +275,13 @@ def _live_session_count(user_id: int, now: float) -> int:
     return sum(1 for s in db.auth_list_sessions(user_id) if _is_live(s, now))
 
 
+def _last_seen_at(user_id: int):
+    """When any device of this user last made a request, or None with no session row. Rows the idle
+    timeout has expired stay until the startup sweep, so a person gone a few days still shows a time."""
+    seen = [s["last_seen_at"] for s in db.auth_list_sessions(user_id)]
+    return max(seen) if seen else None
+
+
 def admin_list_users(actor_id=None, now: float | None = None) -> list:
     """The admin Users view: list_users plus each user's live session count
     and whether the row is the caller. No session details (no IP prefix or
@@ -299,6 +307,9 @@ def _admin_view(user: dict, actor_id, now: float, with_key: set | None = None,
     return dict(user, active_sessions=_live_session_count(user["id"], now),
                 is_self=actor_id is not None and user["id"] == actor_id,
                 has_own_ollama_key=user["id"] in with_key,
+                last_seen_at=_last_seen_at(user["id"]),
+                daily_job_limit=None if user["is_admin"] else user_caps.jobs_per_day(user["id"]),
+                jobs_today=user_caps.jobs_today(user["id"]),
                 month_paid_spend_usd=round(spend.get(user["id"], 0.0), 6),
                 monthly_paid_cap_usd=None if user["is_admin"] or cap is None else float(cap))
 
@@ -397,6 +408,33 @@ def admin_revoke_sessions(user_id: int, actor_id=None, at_pc: bool = False) -> d
                                                                member_only=not at_pc)}
 
 
+def admin_list_devices(user_id: int, now: float | None = None) -> list:
+    """The signed-in devices of another user, most recently used first. Reading an admin's list is
+    allowed away from the PC: it changes nothing and shows the same coarse label and network prefix
+    as the person's own list."""
+    _require_user(user_id)
+    return list_own_sessions(user_id, current_session_id=-1, now=now)
+
+
+def admin_revoke_device(user_id: int, session_id: int, actor_id=None, at_pc: bool = False) -> dict:
+    """Signs one device of another user out at once. Not the caller's own account (409: that list is
+    in Settings, and Sign out also clears this device's cookies); an admin's device needs `at_pc` (403),
+    like every change to an admin account. 404 for a session that is not this user's."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("Your own devices are in Settings > Signed-in devices.")
+    _require_pc_for_admin(row, at_pc)
+    # Away from the PC the delete itself re-checks the user is no admin, so a grant-admin at the PC
+    # landing after the read above cannot be overtaken.
+    if not db.auth_delete_session(session_id, user_id, member_only=not at_pc):
+        if not at_pc and (db.auth_get_user(user_id) or {}).get("is_admin"):
+            raise ForbiddenError(ADMIN_AT_PC_ONLY)
+        raise NotFoundError(_SESSION_NOT_FOUND)
+    _recheck_streams(user_id)
+    write_audit(actor_id, "session.revoke_device", f"user {user_id} session {session_id}")
+    return {"revoked": 1}
+
+
 _LAST_ADMIN_REVOKE = ("This is the last active admin. Baihe needs at least one, so their admin "
                       "rights can't be removed.")
 
@@ -477,6 +515,28 @@ def admin_set_paid_limit(user_id: int, monthly_cap_usd, actor_id=None) -> dict:
     db.auth_update_user(user_id, monthly_paid_cap_usd=monthly_cap_usd)
     write_audit(actor_id, "user.paid_limit",
                 f"user {user_id}: " + ("none" if monthly_cap_usd is None else f"${monthly_cap_usd:.2f}"))
+    return _admin_view(get_user(user_id), actor_id, time.time())
+
+
+MAX_MEMBER_JOBS_PER_DAY = 10000
+
+
+def admin_set_job_limit(user_id: int, jobs_per_day, actor_id=None) -> dict:
+    """The People screen's daily limit on the background jobs a member starts (None clears it); returns
+    the admin_list_users row. Beside the running and waiting caps in jobs/user_caps.py, which are the
+    same for everyone. Only on a member account: an admin has none (409), which also rules out the
+    caller's own account."""
+    row = _require_user(user_id)
+    if actor_id is not None and user_id == actor_id:
+        raise ConflictError("You can't set your own limit.")
+    if row["is_admin"]:
+        raise ConflictError("Admins have no daily job limit.")
+    if jobs_per_day is not None and (isinstance(jobs_per_day, bool) or not isinstance(jobs_per_day, int)
+                                     or not 0 < jobs_per_day <= MAX_MEMBER_JOBS_PER_DAY):
+        raise InvalidInputError(f"Enter a whole number from 1 to {MAX_MEMBER_JOBS_PER_DAY:,}, or clear it.")
+    user_caps.set_jobs_per_day(user_id, jobs_per_day)
+    write_audit(actor_id, "user.job_limit",
+                f"user {user_id}: " + ("none" if jobs_per_day is None else f"{jobs_per_day} a day"))
     return _admin_view(get_user(user_id), actor_id, time.time())
 
 
