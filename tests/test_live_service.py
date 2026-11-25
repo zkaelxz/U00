@@ -135,7 +135,7 @@ def test_form_options_start_chinese_on_a_shorter_chunk_only():
 def test_form_options_carry_the_language_rules():
     options = live_service.form_options()
     assert "ja-1.5b" in options["whisper_sizes"]
-    assert set(options["whisper_exclusions"]["ja-1.5b"]) == {"zh", "ko"}
+    assert set(options["whisper_exclusions"]["ja-1.5b"]) == {"zh", "ko", "id", "th"}
 
 
 def test_missing_key_is_dependency_error(live, monkeypatch):

@@ -37,7 +37,7 @@ _SENTINEL_BASE = 0xE000
 _SENTINEL_END = 0xF8FF
 _SENTINEL_RE = re.compile("[-]")
 
-_CJK_LETTER_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
+_CJK_LETTER_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯\u0e01-\u0e5b]")
 _TAG_RE = re.compile(r"<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\}")
 # The local part is bounded: an unbounded one is quadratic on "a.a.a.a...".
 _URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b[\w.+-]{1,64}@[\w-]+\.[\w.-]+\b", re.I)
@@ -73,7 +73,7 @@ _CLOSE_QUOTES = '”’'
 
 
 def has_cjk_letters(text: str) -> bool:
-    """True when `text` holds ideographs, kana or hangul -- not English, so
+    """True when `text` holds ideographs, kana, hangul or Thai -- not English, so
     never cleaned. Full-width punctuation alone does not count: removing
     that is the point of the cjk_punctuation rule."""
     return bool(_CJK_LETTER_RE.search(text or ""))

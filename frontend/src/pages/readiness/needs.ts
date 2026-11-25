@@ -314,6 +314,7 @@ const LIVE_SIZE_FLAGS: Record<string, keyof SetupReadiness> = {
   tiny: 'whisper_cached_tiny', base: 'whisper_cached_base', small: 'whisper_cached_small', medium: 'whisper_cached_medium',
   'large-v3-turbo': 'whisper_cached_large_v3_turbo', 'large-v3': 'whisper_cached_large_v3',
   'breeze-asr-25': 'whisper_cached_breeze_asr_25', 'ja-1.5b': 'whisper_cached_ja_15b',
+  'thonburian-large-v3': 'whisper_cached_thonburian_large_v3',
 }
 
 /**

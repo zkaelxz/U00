@@ -92,7 +92,7 @@ describe('the kind badge', () => {
   })
 
   it('is just the kind for a language without a label, for English, and with no language', () => {
-    expect(kindBadgeText('audio_drama', 'th')).toBe('Audio drama')
+    expect(kindBadgeText('audio_drama', 'vi')).toBe('Audio drama')
     expect(kindBadgeText('audio_drama', 'en')).toBe('Audio drama')
     expect(kindBadgeText('audio_drama', '')).toBe('Audio drama')
     expect(kindBadgeText('audio_drama', null)).toBe('Audio drama')
@@ -104,7 +104,7 @@ describe('the kind badge', () => {
     const html = render(AT.check, { home: true, badge: true })
     expect(html).toContain('<h1 data-testid="drama-title" title="Signal">Signal</h1><span class="title-top-kind" data-testid="title-kind">Audio drama · Chinese to English</span></div>')
     expect(html.indexOf('data-testid="title-kind"')).toBeLessThan(html.indexOf('class="title-top-actions"'))
-    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'th' } })).toContain('data-testid="title-kind">Audio drama</span>')
+    expect(render(AT.check, { home: true, badge: true, drama: { ...drama, source_language: 'vi' } })).toContain('data-testid="title-kind">Audio drama</span>')
     expect(render(AT.check, { openStep: 'translate' })).not.toContain('title-kind')
     browser(true)
     expect(render(AT.check, { home: true, badge: true })).not.toContain('title-kind')

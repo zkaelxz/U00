@@ -48,6 +48,9 @@ REVISIONS = {
     "quantumcookie/anime-whisper-ct2-fp16": "8ad0b0053dd0af6e108eea290e6f50a3aea49008",
     # Chinese (Taiwanese Mandarin) CTranslate2 build offered as whisper_models.PINNED_CT2_REPOS.
     "phate334/Breeze-ASR-25-ct2": "ac4ec98cf46e00218e29e704b3181a2d7bd94f77",
+    # Thai (Thonburian Whisper, Apache-2.0), run through transformers by text_only_whisper;
+    # the revision the owner's Thai stream test used (2026-11-25).
+    "biodatlab/whisper-th-large-v3-combined": "ba7197f618400e41b4826c18b2f48e0bc45ed3ca",
     # NVIDIA Nemotron-3-Diarization (diarize_nemotron), OpenMDW-1.1; the download fetches only config, processor
     # config and model.safetensors, never the .nemo or .gguf copies in the same repo.
     "nvidia/Nemotron-3-Diarization": "52a432672732425e4c19765b9fec9b5810e6f4ba",
