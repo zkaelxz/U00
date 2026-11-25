@@ -11,11 +11,13 @@ import { listFollows } from '../api/liveFollows'
 import { listNotifications, listSources, listTracked } from '../api/sources'
 import { featureOn } from '../api/features'
 import { Badge } from '../components/Badge'
-import { ErrorBanner } from '../components/ErrorBanner'
+import { ButtonLink } from '../components/Button'
+import { RetryBanner } from '../components/RetryBanner'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
 import { useFeatures } from '../hooks/useFeatures'
 import { routeHref } from '../router'
+import { sourcesHref } from './sources/manageTabs'
 import type { LiveFollow } from '../types/live'
 import type { SourceNotification, SourceSummary, TrackedSeries } from '../types/sources'
 import { ago, isoTime } from './sources/sourcesFormat'
@@ -57,6 +59,7 @@ export default function UpdatesPage() {
   const sourcesOn = featureOn('sources', features)
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(() => {
     // One failing list must not hide the other: chapters and channels come from different stores.
@@ -80,6 +83,11 @@ export default function UpdatesPage() {
     void load()
   }, [load])
 
+  const refresh = () => {
+    setRefreshing(true)
+    void load().finally(() => setRefreshing(false))
+  }
+
   const display = (name: string) => data?.sources.find((s) => s.name === name)?.display_name ?? name
   const items = data ? buildUpdates(data.notifications, data.tracked, data.follows, display) : []
 
@@ -88,13 +96,19 @@ export default function UpdatesPage() {
       width="narrow"
       title="Updates"
       meta="New chapters and channels that are live or scheduled, newest first."
-      actions={<button type="button" className={buttonClass('secondary')} onClick={() => void load()}>Refresh</button>}
+      actions={<button type="button" className={buttonClass('secondary')} onClick={refresh} disabled={refreshing}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}
     >
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
-      {data && items.length === 0 && (
-        <p className="muted" data-testid="updates-empty">
-          Nothing new. Chapters of tracked series and your followed channels show up here.
-        </p>
+      <RetryBanner error={error} what="updates" onRetry={refresh} busy={refreshing} />
+      {data && !error && items.length === 0 && (
+        <>
+          <p className="muted" data-testid="updates-empty">
+            Nothing new. Chapters of tracked series and your followed channels show up here.
+          </p>
+          <div className="actions">
+            {sourcesOn && <ButtonLink variant="secondary" href={sourcesHref('new')}>Track a series</ButtonLink>}
+            <ButtonLink variant="secondary" href={routeHref({ name: 'live' })}>Follow a channel</ButtonLink>
+          </div>
+        </>
       )}
       {items.length > 0 && (
         <Paged items={items} testId="updates-more">

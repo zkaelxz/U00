@@ -30,8 +30,8 @@ import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId
 import { PageShell } from '../components/PageShell'
 import { routeHref } from '../router'
 import { Card } from '../components/Card'
-import { ErrorBanner } from '../components/ErrorBanner'
 import { RetryBanner } from '../components/RetryBanner'
+import { buttonClass } from '../components/uiClasses'
 import { Tabs } from '../components/Tabs'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -79,6 +79,8 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
   const [tracked, setTracked] = useState<TrackedSeries[]>([])
   const [notifications, setNotifications] = useState<SourceNotification[]>([])
   const [loadError, setLoadError] = useState<unknown>(null)
+  // Until the first answer the tracked list is empty, which must not read as "nothing tracked".
+  const [trackingLoaded, setTrackingLoaded] = useState(false)
   const [trackingError, setTrackingError] = useState<unknown>(null)
   const [untrackBusy, setUntrackBusy] = useState<string | null>(null)
   const [untrackError, setUntrackError] = useState<unknown>(null)
@@ -133,13 +135,19 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
       if (t) setTracked(t)
       if (n) setNotifications(n)
       setTrackingError(failure)
+      setTrackingLoaded(true)
     })
   }, [])
 
-  useEffect(() => {
+  const loadSources = useCallback(() => {
+    setLoadError(null)
     listSources().then(setSources, setLoadError)
+  }, [])
+
+  useEffect(() => {
+    loadSources()
     loadTracking()
-  }, [loadTracking])
+  }, [loadSources, loadTracking])
 
   const display = useCallback(
     (name: string) => sources?.find((s) => s.name === name)?.display_name ?? name,
@@ -275,7 +283,7 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
         />
       )}
     >
-      <ErrorBanner error={loadError} />
+      <RetryBanner error={loadError} what="the sources" onRetry={loadSources} />
 
       {panel('find', (
         <>
@@ -288,6 +296,9 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
                 <UrlBox display={display} onOpenSeries={openFromUrl} handoff={linkHandoff} />
                 <p className="muted">No link yet? <a href={routeHref({ name: 'discover' })}>Discover</a> finds titles on official platforms and baihehub.</p>
               </div>
+            )}
+            {canSearch && !sources && !loadError && (
+              <p className="muted" role="status" hidden={mode !== 'search'}>Loading sources…</p>
             )}
             {canSearch && sources && (
               <div className="sources-find" hidden={mode !== 'search'}>
@@ -363,9 +374,14 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
               untrackError={untrackError}
               clearUntrackError={() => setUntrackError(null)}
             />
-          ) : !trackingError && (
-            <p className="muted">No tracked series yet. Open a series on the Find tab and track it to hear about new chapters here.</p>
-          )}
+          ) : !trackingError && (trackingLoaded ? (
+            <>
+              <p className="muted">No tracked series yet. Open a series on the Find tab and track it to hear about new chapters here.</p>
+              <div className="actions"><button type="button" className={buttonClass('secondary')} onClick={() => selectTab('find')}>Go to Find</button></div>
+            </>
+          ) : (
+            <p className="muted" role="status">Loading…</p>
+          ))}
         </>
       ))}
 
