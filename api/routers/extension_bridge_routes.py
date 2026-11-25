@@ -32,7 +32,7 @@ from lib.errors import InvalidInputError
 from services import extension_bridge_service
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import (live_service, model_readiness_service, quick_video_service,
+from services import (grab_last_page_service, live_service, model_readiness_service, quick_video_service,
                       sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
 from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
@@ -267,6 +267,35 @@ def _follow(payload: dict, principal) -> dict:
     except ServiceError as e:
         status = 422 if isinstance(e, InvalidInputError) else 404 if isinstance(e, NotFoundError) else 409
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None
+
+
+@router.post("/last-page", dependencies=[require_device_token()],
+             summary="Device token: remember the page this account is reading on a site")
+async def post_last_page(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _remember_page(payload, principal))
+
+
+@router.post("/last-pages", dependencies=[require_device_token()],
+             summary="Device token: the page this account last read on each site")
+async def post_last_pages(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: grab_last_page_service.places(_account(principal)))
+
+
+def _account(principal) -> int:
+    # user 0 means "the PC" in sources.db, so a token without an account must not land there.
+    user_id = (principal or {}).get("user_id")
+    if not user_id:
+        raise page_server.EndpointError(403, "Not allowed.")
+    return int(user_id)
+
+
+def _remember_page(payload: dict, principal) -> dict:
+    try:
+        return grab_last_page_service.remember(_account(principal), payload.get("url"), payload.get("title"))
+    except InvalidInputError as e:
+        raise page_server.EndpointError(422, e.message) from None
 
 
 @router.post("/cancel", dependencies=[require_device_token()],

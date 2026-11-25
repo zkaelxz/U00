@@ -4162,6 +4162,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/last-page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: remember the page this account is reading on a site */
+        post: operations["post_last_page_api_ext_bridge_last_page_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/last-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the page this account last read on each site */
+        post: operations["post_last_pages_api_ext_bridge_last_pages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/live": {
         parameters: {
             query?: never;
@@ -45969,6 +46003,46 @@ export interface operations {
         };
     };
     get_health_api_ext_bridge_health_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_last_page_api_ext_bridge_last_page_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_last_pages_api_ext_bridge_last_pages_post: {
         parameters: {
             query?: never;
             header?: never;

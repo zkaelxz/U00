@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -150,6 +151,26 @@ final class BaiheClient {
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
+    }
+
+    /** Tells the PC which page this account is reading, so its other phones can offer to go on from it. */
+    void rememberPage(String pageUrl, String title) throws BridgeException {
+        try {
+            call("POST", "/last-page", new JSONObject().put("url", pageUrl).put("title", title == null ? "" : title));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** The page this account last read on each site, most recent first, as {host, url, title}. */
+    List<String[]> lastPages() throws BridgeException {
+        List<String[]> out = new ArrayList<>();
+        JSONArray pages = call("POST", "/last-pages", new JSONObject()).optJSONArray("pages");
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page != null) out.add(new String[] {page.optString("host"), page.optString("url"), page.optString("title")});
+        }
+        return out;
     }
 
     /** Starts Live captions on a stream page's link, in the stream's spoken language (zh, ja or ko). */
