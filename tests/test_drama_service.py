@@ -614,3 +614,30 @@ def test_a_member_cannot_create_past_the_title_limit_but_an_admin_can(isolated_d
     admin = {"user_id": auth_service.add_user("a@example.com")["id"], "is_admin": True, "permissions": ["library.create"], "admin_override": True}
     for n in range(3):
         ds.create_drama(source_language="zh", title_en=f"A{n}", principal=admin)
+
+
+def test_find_titles_by_links_answers_in_order_and_only_for_visible_titles(isolated_db):
+    a_id, a = _user("a@example.com")
+    _, b = _user("b@example.com")
+    hidden = db.get_or_create_series("Hidden", owner_user_id=a_id, is_private=True)
+    mine = ds.create_drama(source_language="zh", title_en="Mine", series_id=hidden, principal=a)["id"]
+    assert ds.set_source_url_once(mine, "https://site.example/series/7?token=x")
+    urls = ["https://site.example/series/9", "https://site.example/series/7", "", "not a link"]
+    assert ds.find_titles_by_links(urls, principal=a) == [None, mine, None, None]
+    assert ds.find_titles_by_links(urls, principal=b) == [None, None, None, None]
+
+
+def test_find_titles_by_links_takes_the_oldest_title_when_several_carry_one_link(isolated_db):
+    first = ds.create_drama(source_language="zh", title_en="One")["id"]
+    second = ds.create_drama(source_language="zh", title_en="Two")["id"]
+    assert ds.set_source_url_once(first, "https://site.example/s/1")
+    assert ds.set_source_url_once(second, "https://site.example/s/1")
+    assert ds.find_titles_by_links(["https://site.example/s/1/"]) == [first]
+
+
+def test_find_titles_by_links_ignores_links_that_reduce_to_a_bare_host(isolated_db):
+    token_path = "https://site.example/title/" + "a1b2c3d4" * 5 + "/name"
+    stored = ds.create_drama(source_language="zh", title_en="Tokened")["id"]
+    ds.set_source_url_once(stored, token_path)
+    other = "https://site.example/title/" + "f9e8d7c6" * 5 + "/other"
+    assert ds.find_titles_by_links([token_path, other, "https://site.example/"]) == [None, None, None]
