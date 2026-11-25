@@ -277,6 +277,14 @@ def _gb(mb: float) -> str:
     return f"{max(mb, 0) / 1024:.1f} GB"
 
 
+def gpu_available() -> bool:
+    """Whether an NVIDIA GPU is present, for a start that picks its own GPU setting."""
+    try:
+        return diagnostics_torch.nvidia_driver_info() is not None
+    except Exception:
+        return False
+
+
 def _language_whisper_defaults() -> dict:
     """Models the form starts on instead of its default for a language, so a stream in that
     language needs no change. Only models already on this PC: Live never starts a big download

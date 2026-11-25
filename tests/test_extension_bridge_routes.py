@@ -5,6 +5,7 @@ member's rights.
 """
 
 import base64
+import functools
 import io
 
 import pytest
@@ -579,6 +580,74 @@ class TestSendVideo:
         _, token = self._member("y@example.com", ["media.import_url", "jobs.start"])
         r = _client().post(f"{BASE}/video", headers=_auth(token), json={})
         assert r.status_code == 400
+
+
+class TestStartLive:
+    """POST /live starts Live on a stream link with the PC's defaults, under the token's rights."""
+
+    def _live_member(self, email, perms=("media.import_url",)):
+        u, _ = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_starts_with_safe_defaults(self, isolated_db, monkeypatch):
+        from services import live_service, model_readiness_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(url=url, **kw)
+            return {"session_id": "live_" + "a" * 32}
+
+        # form_options reads the real signature for its defaults.
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(fake_start))
+        ready = []
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda at_pc, *a, **k: ready.append(at_pc))
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        u, token = self._live_member("l@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token),
+                           json={"url": "https://www.twitch.tv/somebody", "source_language": "ja"})
+        assert r.status_code == 200 and r.json() == {"session_id": "live_" + "a" * 32, "joined": False}
+        assert seen["url"] == "https://www.twitch.tv/somebody" and seen["source_language"] == "ja"
+        assert seen["use_saved_cookies"] is False and seen["principal"]["user_id"] == u["id"]
+        assert not seen.get("delayed_player")
+        assert ready == [False]
+        assert seen["engine"] == "ollama" and seen["use_gpu"] is False
+
+    def test_import_right_is_required(self, isolated_db, monkeypatch):
+        from services import live_service
+        monkeypatch.setattr(live_service, "start_session", lambda *a, **k: pytest.fail("started"))
+        _, token = self._live_member("m@example.com", perms=())
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 403
+
+    def test_a_service_refusal_is_plain_text(self, isolated_db, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import live_service, model_readiness_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("url must be a public http(s) web address.")
+
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(refuse))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        _, token = self._live_member("n@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "http://10.0.0.1/x"})
+        assert r.status_code == 422 and "public" in r.json()["error"]
+
+    def test_no_url_is_refused(self, isolated_db):
+        _, token = self._live_member("o@example.com")
+        assert _client().post(f"{BASE}/live", headers=_auth(token), json={}).status_code == 400
+
+    def test_a_bad_language_value_is_a_422(self, isolated_db):
+        _, token = self._live_member("p@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(token),
+                           json={"url": "https://www.twitch.tv/x", "source_language": ["zh"]})
+        assert r.status_code == 422
 
 
 class TestFollow:

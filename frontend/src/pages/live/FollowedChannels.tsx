@@ -17,6 +17,7 @@ import {
   checkAllFollows,
   checkChannelsInput,
   checkFollow,
+  channelPageUrl,
   checkedText,
   describeFollowError,
   followStatusText,
@@ -33,6 +34,7 @@ import { HelpTip } from '../../components/HelpTip'
 import { Section } from '../../components/Section'
 import { Toggle } from '../../components/Toggle'
 import { ConfirmButton } from '../../components/ConfirmButton'
+import { ExternalLink } from '../discover/ExternalLink'
 import { buttonClass } from '../../components/uiClasses'
 import type { BadgeTone } from '../../components/labels'
 import type { LiveFollow, LiveFollowMode, LiveFollowOptions, LiveFollowUpdate, LiveFormOptions } from '../../types/live'
@@ -268,6 +270,8 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
   const reasonId = `live-follow-reason-${f.id}`
   const autoNoteId = `live-follow-auto-${f.id}`
   const bodyId = `live-follow-body-${f.id}`
+  // In the phone app a link to another site opens in Grab, where a stream or video can be sent to Baihe.
+  const pageUrl = channelPageUrl(f.channel)
   const [hourlyHelpId, modeHelpId] = [useId(), useId()]
   return (
     <li className="live-follow-row" data-testid="live-follow-row" ref={rowRef} data-picked={picked || undefined}>
@@ -315,6 +319,11 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
             onClick={onEdit}>
             {editing ? 'Close settings' : 'Edit settings'}
           </button>
+          {pageUrl && (
+            <ExternalLink href={pageUrl} className={buttonClass('ghost', 'sm')}>
+              Open channel page
+            </ExternalLink>
+          )}
           <ConfirmButton name={name} label="Remove…" verb="remove" confirmLabel="Confirm remove" size="sm"
             busy={busy === `remove:${f.id}`} disabled={!!busy} onConfirm={onRemove} />
         </div>

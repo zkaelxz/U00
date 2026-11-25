@@ -58,6 +58,17 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
   }
 }
 
+/**
+ * The channel's own page, for opening it in a browser (in the phone app, Grab). The follow carries only
+ * a short label ("@name", "channel/UC...", "twitch/name"), so the address is rebuilt from it; null for
+ * a follow whose stored address is no longer valid.
+ */
+export function channelPageUrl(label: string): string | null {
+  if (!label || label === 'invalid') return null
+  if (label.startsWith('twitch/')) return `https://www.twitch.tv/${encodeURIComponent(label.slice('twitch/'.length))}`
+  return `https://www.youtube.com/${label.split('/').map((part) => encodeURIComponent(part).replace('%40', '@')).join('/')}`
+}
+
 /** One line naming a follow's saved Live options. */
 export function optionsSummary(o: LiveFollowOptions): string {
   return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · ${o.max_minutes === null ? 'no time limit' : `stop after ${o.max_minutes} min`}`

@@ -518,6 +518,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Ad block list");
         menu.getMenu().add("Follow this series");
         menu.getMenu().add("Send video to Baihe");
+        menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
@@ -536,6 +537,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Ad block list".equals(title)) editAdList();
             else if ("Follow this series".equals(title)) followSeries();
             else if ("Send video to Baihe".equals(title)) sendVideo();
+            else if ("Start Live here".equals(title)) askStartLive();
             else if ("Add to queue".equals(title)) askAddToQueue();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
@@ -596,6 +598,38 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 say(e.getMessage(), GrabUi.Kind.BAD);
             }
         });
+    }
+
+    /** Asks which language the stream speaks, then starts Live captions on it from the PC. */
+    private void askStartLive() {
+        String link = ServerAddress.videoLink(web.getUrl());
+        if (link.isEmpty()) {
+            say("Open a live stream page on a public website first.");
+            return;
+        }
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        String[] codes = {"zh", "ja", "ko"};
+        new AlertDialog.Builder(this)
+                .setTitle("Start Live: what language is spoken?")
+                .setItems(new String[] {"Chinese", "Japanese", "Korean"}, (d, which) -> {
+                    say("Starting Live...");
+                    sender.execute(() -> {
+                        try {
+                            new BaiheClient(server, token).startLive(link, codes[which]);
+                            say("Live started on the PC. Watch it in Baihe's Live page.", GrabUi.Kind.OK);
+                        } catch (BaiheClient.BridgeException e) {
+                            say(e.getMessage(), GrabUi.Kind.BAD);
+                        }
+                    });
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void setTranslate(boolean on) {

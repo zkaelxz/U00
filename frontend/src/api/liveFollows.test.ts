@@ -9,6 +9,7 @@ import {
   checkChannelsInput,
   splitChannels,
   MAX_CHANNELS_PER_ADD,
+  channelPageUrl,
   checkedText,
   describeFollowError,
   followOptions,
@@ -102,5 +103,22 @@ describe('requests', () => {
     expect(o).toEqual({ source_language: 'ja', whisper_size: 'tiny', engine: null, model: 'gemma4:12b', max_minutes: 13, use_gpu: true, glossary_drama_id: null, series_id: null })
     expect(optionsSummary(o)).toBe('ja · Ollama gemma4:12b · Whisper tiny · GPU · stop after 13 min')
     expect(renderToStaticMarkup(createElement('span', null, optionsSummary(o)))).not.toContain('http')
+  })
+})
+
+describe('channelPageUrl', () => {
+  it('rebuilds the channel page from the short label', () => {
+    expect(channelPageUrl('@name')).toBe('https://www.youtube.com/@name')
+    expect(channelPageUrl('channel/UCabc_-123')).toBe('https://www.youtube.com/channel/UCabc_-123')
+    expect(channelPageUrl('twitch/some_one')).toBe('https://www.twitch.tv/some_one')
+  })
+
+  it('gives nothing for a follow with no valid address', () => {
+    expect(channelPageUrl('invalid')).toBeNull()
+    expect(channelPageUrl('')).toBeNull()
+  })
+
+  it('keeps a hostile label inside the page address', () => {
+    expect(channelPageUrl('@a b?x=1#y')).toBe('https://www.youtube.com/@a%20b%3Fx%3D1%23y')
   })
 })
