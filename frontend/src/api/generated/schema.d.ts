@@ -49,7 +49,7 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a deactivated member account (PC only) */
+        /** Delete a deactivated member account */
         delete: operations["delete_user_api_admin_users__user_id__delete"];
         options?: never;
         head?: never;
@@ -84,6 +84,23 @@ export interface paths {
         put?: never;
         /** Deactivate a user and end their sessions */
         post: operations["deactivate_user_api_admin_users__user_id__deactivate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/display-name": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set or clear a person's optional name */
+        post: operations["set_user_display_name_api_admin_users__user_id__display_name_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13198,6 +13215,14 @@ export interface components {
             /** Tokens */
             tokens: components["schemas"]["AdminDeviceToken"][];
         };
+        /**
+         * AdminDisplayNameRequest
+         * @description People > Edit name; empty clears it.
+         */
+        AdminDisplayNameRequest: {
+            /** Display Name */
+            display_name: string;
+        };
         /** AdminSessionsRevoked */
         AdminSessionsRevoked: {
             /** Revoked */
@@ -18902,6 +18927,11 @@ export interface components {
              * @default
              */
             title_zh?: string;
+            /**
+             * Translate Title
+             * @default false
+             */
+            translate_title?: boolean;
             /**
              * Voice Actors
              * @default
@@ -34094,6 +34124,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminUser"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_user_display_name_api_admin_users__user_id__display_name_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminDisplayNameRequest"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

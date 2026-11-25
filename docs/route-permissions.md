@@ -12,6 +12,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/admin/users/{user_id}` | admin.users |
 | `POST /api/admin/users/{user_id}/activate` | admin.users |
 | `POST /api/admin/users/{user_id}/deactivate` | admin.users |
+| `POST /api/admin/users/{user_id}/display-name` | admin.users |
 | `DELETE /api/admin/users/{user_id}/ollama-key` | admin.users |
 | `POST /api/admin/users/{user_id}/paid-limit` | admin.users |
 | `DELETE /api/admin/users/{user_id}/permissions/{permission}` | admin.users |

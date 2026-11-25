@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
-from api.auth import is_at_pc, local_only, require_permission
+from api.auth import is_at_pc, local_only, require_engines_allowed, require_permission
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
@@ -40,9 +40,10 @@ from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
+from services import extension_bridge_service, extension_title_service, page_server
 from services import (series_defaults_service, cover_art_service, drama_service, link_details_service, source_link_service,
                       title_copy_service, title_restructure_service)
-from lib.errors import InvalidInputError
+from lib.errors import ForbiddenError, InvalidInputError
 from lib.storage_errors import require_readable
 
 router = APIRouter(prefix="/api/dramas", tags=["dramas"])
@@ -54,6 +55,7 @@ router = APIRouter(prefix="/api/dramas", tags=["dramas"])
 def post_drama(payload: DramaCreateRequest, request: Request):
     fields = payload.model_dump()
     url = fields.pop("source_url").strip()
+    translate_title = fields.pop("translate_title")
     if url:
         # Only a request at the PC reads the link; elsewhere a nameless
         # title is named after the link's host.
@@ -61,10 +63,27 @@ def post_drama(payload: DramaCreateRequest, request: Request):
             fields, url, is_at_pc(request), principal=request.state.principal)
     else:
         result = drama_service.create_drama(**fields, principal=request.state.principal)
+    if translate_title or result.get("title_from_link") == "link":
+        result = _with_english_title(request, result)
     return DramaCreateResult(**to_detail(result).model_dump(),
                              preset_defaults=result.get("preset_defaults"),
                              profile_skipped=result.get("profile_skipped", []),
                              title_from_link=result.get("title_from_link"))
+
+
+def _with_english_title(request: Request, result: dict) -> dict:
+    """`result` with an English title beside a title named only in its original language, made by
+    one small call on the engine the extension is set up with. Skipped, never refused, when no
+    engine is ready or the caller may not use it: the title is already made and can be named by hand."""
+    name = extension_bridge_service.engine_name_if_ready()
+    if not name or (result.get("title_en") or "").strip():
+        return result
+    try:
+        require_engines_allowed(request, name, model=page_server.get_translation_config().get("model"))
+    except ForbiddenError:
+        return result
+    english = extension_title_service.name_in_english(result["id"])
+    return {**result, "title_en": english} if english else result
 
 
 # A POST so the typed link travels in the body, never in a URL or an access log.
