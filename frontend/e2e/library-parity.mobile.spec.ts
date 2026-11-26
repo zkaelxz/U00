@@ -152,9 +152,8 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
     ready_count: 12,
     needs_you: [
       { ...title(14, 'Uririn collab'), kind: 'failed', step: 'translate', reason: 'The Claude key was refused.', risk_count: null, series_id: null, hold_kind: null },
-      { ...title(15, 'Chion: chat'), kind: 'check', step: null, reason: null, risk_count: 7, series_id: null, hold_kind: null },
     ],
-    needs_you_count: 2,
+    needs_you_count: 1,
     running: [{ ...title(16, 'Chion: zatsudan'), step: 'transcribe', status: 'running', job_id: null, started_at: null }],
     running_count: 2,
     can_control_queue: true,
@@ -165,6 +164,10 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
     localStorage.setItem('baihe.pref.watch.atTime.12', String(Date.parse('2026-11-25T08:00:00Z')))
   })
   await page.goto('/')
+  // Off until asked for; the choice is remembered in this browser.
+  await expect(page.getByRole('region', { name: 'Ready' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Needs you' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Show Ready and Needs you' }).click()
   const ready = page.getByRole('region', { name: 'Ready' })
   const cards = ready.getByRole('link')
   await expect(cards).toHaveCount(3)
@@ -178,14 +181,12 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
 
   const needs = page.getByRole('region', { name: 'Needs you' })
   await expect(needs.getByRole('link', { name: 'Fix the key' })).toHaveAttribute('href', /settings/)
-  await expect(needs.getByRole('link', { name: 'Check 7 lines' })).toHaveAttribute('href', '#/watch/15')
-  // Stoppers come before checks.
   await expect(needs.getByRole('listitem').first()).toContainText('Translating stopped')
   await expect(page.getByTestId('home-running')).toContainText('Transcribing Chion: zatsudan')
   await expect(page.getByTestId('home-running')).toContainText('1 more is waiting its turn')
 
   await expectNoSidewaysScroll(page)
-  for (const sel of ['.home-ready-card', '.home-act', '.home-running', '.home-more', '.home-all']) {
+  for (const sel of ['.home-ready-card', '.home-act', '.home-running', '.home-more', '.home-toggle', '.home-all']) {
     const heights = await page.locator(sel).evaluateAll((els) => els.map((e) => Math.round(window.hitHeight(e))))
     expect(heights.length, sel).toBeGreaterThan(0)
     for (const h of heights) expect(h, sel).toBeGreaterThanOrEqual(44)
