@@ -46,7 +46,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     static final String PREFS = "grab";
     static final String KEY_SERVER = "server";
     static final String KEY_TOKEN = "token";
-    private static final String KEY_READ_AHEAD = "read_ahead";
+    static final String KEY_READ_AHEAD = "read_ahead";
 
     private WebView web;
     private EditText address;
@@ -333,27 +333,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
-    private static final String KEY_EXTRA_ADS = "extra_ad_hosts";
-
-    /** Sites the built-in list misses; blocking one stops its pop-ups and its requests from loading. */
-    private void editAdList() {
-        EditText hosts = new EditText(this);
-        hosts.setHint("One site per line, like ads.example.com");
-        hosts.setText(prefs().getString(KEY_EXTRA_ADS, ""));
-        hosts.setMinLines(4);
-        hosts.setGravity(android.view.Gravity.TOP);
-        new AlertDialog.Builder(this)
-                .setTitle("Also block these sites")
-                .setView(hosts)
-                .setPositiveButton("Save", (d, w) -> {
-                    String saved = String.join("\n", AdHosts.parseExtra(hosts.getText().toString()));
-                    prefs().edit().putString(KEY_EXTRA_ADS, saved).apply();
-                    AdHosts.setExtra(saved);
-                    say("Blocking " + AdHosts.parseExtra(saved).size() + " more sites. Reload the page to see it.");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
+    static final String KEY_EXTRA_ADS = "extra_ad_hosts";
 
     private static final int REQUEST_GALLERY = 41;
 
@@ -560,8 +540,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.item("Send video to Baihe", this::sendVideo);
         menu.item("Start Live here", this::askStartLive);
         menu.section("App");
-        menu.item("English text style", this::askTextStyle);
-        menu.item("Ad block list", this::editAdList);
         menu.item("Settings", this::showSettings);
         menu.item("Open Baihe", this::openBaihe);
         menu.show();
@@ -653,41 +631,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     static TextStyle textStyle(android.content.SharedPreferences p) {
         return new TextStyle(p.getInt("text_size", 0), p.getBoolean("text_outline", false), p.getInt("text_font", 0));
-    }
-
-    /** The size, outline and typeface of the English on pages Quick read redraws; the next pages translated use it. */
-    private void askTextStyle() {
-        TextStyle now = textStyle(prefs());
-        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
-        box.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        box.setPadding(pad, pad, pad, 0);
-        android.widget.Spinner size = new android.widget.Spinner(this);
-        size.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.SIZES));
-        size.setSelection(now.size);
-        box.addView(size);
-        android.widget.Spinner font = new android.widget.Spinner(this);
-        font.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.FONTS));
-        font.setSelection(now.font);
-        box.addView(font);
-        android.widget.CheckBox outline = new android.widget.CheckBox(this);
-        outline.setText("Outline the letters");
-        outline.setChecked(now.outline);
-        box.addView(outline);
-        android.widget.TextView note = new android.widget.TextView(this);
-        note.setText("Larger text can get tight in small bubbles. It applies to pages translated from now on.");
-        box.addView(note);
-        new AlertDialog.Builder(this)
-                .setTitle("English text style")
-                .setView(box)
-                .setPositiveButton("Save", (d, w) -> {
-                    prefs().edit().putInt("text_size", size.getSelectedItemPosition())
-                            .putBoolean("text_outline", outline.isChecked())
-                            .putInt("text_font", font.getSelectedItemPosition()).apply();
-                    say("Saved. Pages translated from now on use it.");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
     }
 
     static final String KEY_RECENT = "recent_pages";
@@ -1088,64 +1031,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void showSettings() {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        form.setPadding(pad, pad, pad, 0);
-        EditText server = new EditText(this);
-        server.setHint("Server address");
-        server.setSingleLine(true);
-        server.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        server.setText(prefs().getString(KEY_SERVER, ""));
-        EditText token = new EditText(this);
-        // The saved token is never shown again; an empty field keeps the one already saved.
-        token.setHint("Token (starts with baihe_dt_)");
-        token.setSingleLine(true);
-        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        form.addView(server);
-        form.addView(token);
-        android.widget.CheckBox ahead = new android.widget.CheckBox(this);
-        ahead.setText("Quick read: translate the next chapter before I reach it");
-        ahead.setChecked(prefs().getBoolean(KEY_READ_AHEAD, true));
-        // Saved on the tap: it does not depend on the address and token passing their check.
-        ahead.setOnCheckedChangeListener((box, on) -> prefs().edit().putBoolean(KEY_READ_AHEAD, on).apply());
-        form.addView(ahead);
-        new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
-                .setView(form)
-                .setPositiveButton("Save", (d, w) -> {
-                    String origin = ServerAddress.normalizeServer(server.getText().toString());
-                    if (origin == null) {
-                        say("The server address must start with https://.");
-                        return;
-                    }
-                    String candidate = ServerAddress.tokenToCheck(token.getText().toString(),
-                            prefs().getString(KEY_TOKEN, ""), origin, prefs().getString(KEY_SERVER, ""));
-                    if (candidate.isEmpty()) {
-                        say("Enter the token.");
-                        return;
-                    }
-                    verifyAndSave(origin, candidate);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    /**
-     * Nothing is saved until the server answers /health with this token, and the host it
-     * answered from is shown, so a lookalike address is visible before the token is trusted.
-     */
-    private void verifyAndSave(String origin, String token) {
-        sender.execute(() -> {
-            try {
-                new BaiheClient(origin, token).health();
-                prefs().edit().putString(KEY_SERVER, origin).putString(KEY_TOKEN, token).apply();
-                say("Connected to " + ServerAddress.hostOf(origin));
-            } catch (BaiheClient.BridgeException e) {
-                say(e.getMessage());
-            }
-        });
+        startActivity(new Intent(this, GrabSettingsActivity.class));
     }
 
     private void startGrab() {
