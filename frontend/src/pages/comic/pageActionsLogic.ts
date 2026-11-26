@@ -1,6 +1,8 @@
 // Pure helpers for the page menu a long press opens: the press timing and the saved picture's name.
 
 export const LONG_PRESS_MS = 500
+// Holding on after the original shows (see ComicPageView) opens the page menu this much later.
+export const MENU_AFTER_PEEK_MS = 700
 // A finger that travels further than this is scrolling or panning, not holding.
 export const LONG_PRESS_MOVE_PX = 10
 

@@ -277,6 +277,11 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, lowData.active ? 'low' : 'reader'),
     [id, prefs.typeset, original.originals, lowData.active],
   )
+  // Only a page showing its translation has an original to peek at.
+  const peekFor = useCallback(
+    (p: ComicPageInfo) => (prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? comicImageUrl(id, p.id, 'original', p.image_version, lowData.active ? 'low' : 'reader') : undefined),
+    [id, prefs.typeset, original.originals, lowData.active],
+  )
   const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
   const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
 
@@ -490,6 +495,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
               menu={{ dramaId: id, title: title ?? '' }}
+              peekSrc={peekFor(p)}
               onProblem={onProblem}
               figureRef={figureRef(n)}
             />
