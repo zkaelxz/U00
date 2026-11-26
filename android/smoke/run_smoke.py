@@ -150,7 +150,7 @@ def run(apk):
             wait_for("the Quick read screen", lambda: "QuickReadActivity" in resumed_activity())
 
         def live():
-            shell("am", "start", "-n", f"{PACKAGE}/.MainActivity", "--es", "route", "#/live")
+            shell("am", "start", "-n", f"{PACKAGE}/.MainActivity", "--es", "route", "'#/live'")  # quoted: the phone's shell reads a bare # as a comment
             wait_for("Studio to open the Live route", lambda: server.seen("hash=%23%2Flive") or
                      server.seen("/#/live"), 30)
 
