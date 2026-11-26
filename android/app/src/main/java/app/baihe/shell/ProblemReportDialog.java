@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.graphics.Bitmap;
 import android.graphics.Matrix;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -28,11 +29,21 @@ final class ProblemReportDialog {
 
     private ProblemReportDialog() {}
 
-    static void show(Activity activity, String screen, String pageUrl) {
-        Bitmap full = Bitmap.createBitmap(Math.max(1, activity.getWindow().getDecorView().getWidth()),
-                Math.max(1, activity.getWindow().getDecorView().getHeight()), Bitmap.Config.ARGB_8888);
+    /**
+     * `area` is the page view: only its rectangle is copied, because the address bar above it shows
+     * the full address (query and all), which the report deliberately leaves out.
+     */
+    static void show(Activity activity, String screen, String pageUrl, View area) {
+        int[] at = new int[2];
+        area.getLocationInWindow(at);
+        Rect source = new Rect(at[0], at[1], at[0] + area.getWidth(), at[1] + area.getHeight());
+        if (source.isEmpty()) {
+            ask(activity, screen, pageUrl, null);
+            return;
+        }
+        Bitmap full = Bitmap.createBitmap(source.width(), source.height(), Bitmap.Config.ARGB_8888);
         try {
-            PixelCopy.request(activity.getWindow(), full, result -> {
+            PixelCopy.request(activity.getWindow(), source, full, result -> {
                 Bitmap shot = result == PixelCopy.SUCCESS ? shrink(full) : null;
                 ask(activity, screen, pageUrl, shot);
             }, new Handler(Looper.getMainLooper()));
@@ -71,7 +82,7 @@ final class ProblemReportDialog {
             preview.setAdjustViewBounds(true);
             preview.setMaxHeight((int) (220 * dp));
             form.addView(preview);
-            include.setText("Include this screenshot");
+            include.setText("Include a screenshot of the page");
             include.setChecked(true);
             form.addView(include);
         }

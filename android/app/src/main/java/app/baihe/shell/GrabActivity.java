@@ -543,7 +543,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.item("Start Live here", this::askStartLive);
         menu.section("App");
         menu.item("Settings", this::showSettings);
-        menu.item("Report a problem", () -> ProblemReportDialog.show(this, "Grab", web.getUrl()));
+        menu.item("Report a problem", () -> ProblemReportDialog.show(this, "Grab", web.getUrl(), web));
         menu.item("Open Baihe", this::openBaihe);
         menu.show();
     }
