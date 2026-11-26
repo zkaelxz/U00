@@ -56,7 +56,6 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        CrashLog.install(this);
         String crash = CrashLog.takePending(this);
         if (crash != null) {
             showCrash(crash);
