@@ -692,7 +692,7 @@ class LibraryShelfTitle(BaseModel):
 
 
 class LibraryNeedsYouEntry(BaseModel):
-    """`kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
+    """`kind`: failed (a queued step failed or was interrupted) or
     series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
     `hold_kind` says why: review after the first episode, stopped, ceiling or queue)."""
     drama_id: Optional[int] = None
@@ -724,6 +724,8 @@ class LibraryReadyEntry(LibraryShelfTitle):
     # Where this account stopped playing it (0 for never) and when, from the Watch page on any device.
     watched_seconds: float = 0.0
     watched_at: Optional[str] = None
+    # Lines that look unsure: shown as a quiet note on the card, not a reason to ask for the owner.
+    unsure_count: int = 0
 
 
 class LibraryHome(BaseModel):

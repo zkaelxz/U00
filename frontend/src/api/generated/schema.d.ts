@@ -22809,6 +22809,11 @@ export interface components {
             read_percent: number;
             /** Title */
             title: string;
+            /**
+             * Unsure Count
+             * @default 0
+             */
+            unsure_count: number;
             /** Updated At */
             updated_at: string | null;
             /** Watched At */

@@ -1,6 +1,6 @@
 /*
  * The Library's first screen: Ready (finished titles to watch or read), Needs you (what only a person can unblock,
- * stoppers first, optional checks last) and one Running line. A shelf with nothing in it is not drawn. A viewer who
+ * stoppers first) and one Running line. A shelf with nothing in it is not drawn. A viewer who
  * can't control the PC queue (a household member) sees their own running and stopped titles under "Titles you
  * added" instead, with no buttons they could not use.
  */
@@ -14,6 +14,8 @@ import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { browserStorage, readPref } from '../hooks/usePersistedState'
 import { freshServerPlace, newerPlace, positionKey, positionTimeKey, serverSeenKey } from '../pages/watch/watchLogic'
+import { pluralLocale } from '../labels'
+import { titleKind } from '../pages/workspace/titleKind'
 import { routeHref } from '../router'
 import type { LibraryHome } from '../types/library'
 import { HelpTip } from './HelpTip'
@@ -36,7 +38,6 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
   const viewer: NeedsViewer = {
     canControlQueue: home.data?.can_control_queue ?? false,
     canOpenSettings: pc !== 'remote',
-    canEditLines: useHolds('lines.edit'),
   }
   const now = useNow(active > 0)
   if (!home.data) return null
@@ -64,6 +65,8 @@ function seenOf(storage: ReturnType<typeof browserStorage>, id: number): number 
 }
 
 function ReadyShelf({ home }: { home: LibraryHome }) {
+  // The note points at the Watch page's check bar, which only someone who can edit lines gets, and only video and audio titles have.
+  const canEditLines = useHolds('lines.edit')
   const storage = browserStorage()
   const cards = useMemo(() => readyOrder(home.ready.map((e) => ({
     e, ...readyCard(e, newerPlace(
@@ -93,6 +96,7 @@ function ReadyShelf({ home }: { home: LibraryHome }) {
                   : <span className="home-bar" aria-hidden="true"><span style={{ width: `${Math.round(progress * 100)}%` }} /></span>}
               </span>
               <span className="home-ready-title">{e.title}</span>
+              {canEditLines && e.unsure_count > 0 && ['video', 'audio'].includes(titleKind(e.media_type, e.content_mode)) && <span className="home-ready-note">{pluralLocale(e.unsure_count, 'line')} to check</span>}
               <span className="home-ready-action">{label}</span>
             </a>
           </li>
@@ -113,7 +117,7 @@ function NeedsShelf({ home, viewer }: { home: LibraryHome; viewer: NeedsViewer }
       <header className="home-shelf-head">
         <h2 id="home-needs">Needs you</h2>
         <span className="home-count warn">{rows.length}</span>
-        <HelpTip label="Needs you" id="home-needs-help">Titles waiting for you: a step that stopped, a series paused after its first episode, or lines that look unsure.</HelpTip>
+        <HelpTip label="Needs you" id="home-needs-help">Titles waiting for you: a step that stopped, or a series paused after its first episode.</HelpTip>
       </header>
       <ul className="home-list">
         {rows.map(({ e, row }) => (

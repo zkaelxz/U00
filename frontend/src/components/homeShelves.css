@@ -22,7 +22,8 @@
 .home-bar > span { display: block; height: 100%; border-radius: var(--radius-pill); background: var(--accent); }
 .home-bar.wide { height: 6px; }
 .home-ready-title { font-weight: 600; line-height: 1.25; overflow-wrap: anywhere; }
-.home-ready-action { color: var(--accent-text); font-size: var(--text-sm); font-weight: 600; }
+.home-ready-note { color: var(--muted); font-size: var(--text-sm); }
+.home-ready-action { margin-top: auto; color: var(--accent-text); font-size: var(--text-sm); font-weight: 600; }
 
 .home-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-panel); background: var(--surface); }
 .home-list-row { display: flex; align-items: center; gap: var(--space-3); padding: 10px var(--space-3); }
