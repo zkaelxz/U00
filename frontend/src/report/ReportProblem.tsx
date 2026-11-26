@@ -71,6 +71,7 @@ function environment() {
     viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio || 1 },
     hostname: window.location.hostname,
     buildId: buildIdFrom(scripts.map((s) => s.src)),
+    title: document.title,
   }
 }
 
@@ -237,6 +238,16 @@ function ReportResult({ result, hadScreenshot, onClose }: {
     }
   }
 
+  // Where the phone or browser offers a share sheet, one tap sends the report to a chat or mail app.
+  const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+  const share = async () => {
+    try {
+      await navigator.share({ title: 'Baihe problem report', text: result.markdown })
+    } catch {
+      // Dismissing the share sheet rejects; nothing went wrong.
+    }
+  }
+
   const failed = result.kind === 'failed' ? describeError(result.error) : null
   return (
     <div className="report-form" data-testid="report-result">
@@ -252,6 +263,9 @@ function ReportResult({ result, hadScreenshot, onClose }: {
       )}
       <div className="actions report-actions">
         <button type="button" className="primary" onClick={() => void copy()}>Copy report</button>
+        {canShare && (
+          <button type="button" className={buttonClass('secondary')} onClick={() => void share()}>Share…</button>
+        )}
         <a className="button-link" href={issue.url} target="_blank" rel="noopener noreferrer">
           Open GitHub issue
         </a>

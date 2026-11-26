@@ -80,6 +80,7 @@ class BugReportClient(BaseModel):
     environment: str = Field("", max_length=60)
     build_id: str = Field("", max_length=120)
     user_agent: str = Field("", max_length=500)
+    page_title: str = Field("", max_length=200)
     viewport: Optional[BugReportViewport] = None
     mode: Literal["pc", "lan", "remote", "unknown"] = "unknown"
 
