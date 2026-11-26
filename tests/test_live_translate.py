@@ -34,6 +34,15 @@ from live import live_translate as lt
 HAS_FFMPEG = shutil.which("ffmpeg") is not None
 
 
+@pytest.fixture(autouse=True)
+def _no_first_chunk_lead_in(request, monkeypatch):
+    # Fake captures here write whole-slot chunks; only TestFirstChunkLeadIn runs the real lead-in.
+    if request.cls is not None and request.cls.__name__ == "TestFirstChunkLeadIn":
+        return
+    from live import live_audio
+    monkeypatch.setattr(live_audio, "first_chunk_lead_in", lambda *a: 0.0)
+
+
 class TestListCompletedChunks:
     def test_missing_dir_returns_empty(self, tmp_path):
         assert lt.list_completed_chunks(str(tmp_path / "nope"), -1) == []
@@ -1423,3 +1432,57 @@ def test_stop_capture_kills_an_ffmpeg_that_ignores_sigterm():
     assert proc.poll() is not None and time.monotonic() - started < 5
     assert log == ["halt", "join"]
     proc.stdout.close()
+
+
+class TestFirstChunkLeadIn:
+    """The first chunk closes early: silence before the audio moves the first cut
+    ahead while every later cut stays on the segment grid."""
+
+    @pytest.mark.parametrize("segment, lead", [(6, 3.0), (10, 5.0), (3, 1.0), (2, 0.0)])
+    def test_lead_in_per_segment_length_for_chinese(self, segment, lead):
+        from live import live_audio
+        assert live_audio.first_chunk_lead_in(segment, "zh") == lead
+
+    @pytest.mark.parametrize("language", ["ja", "ko", "en"])
+    def test_other_languages_keep_their_normal_first_chunk(self, language):
+        from live import live_audio
+        assert live_audio.first_chunk_lead_in(4, language) == 0.0
+
+    def test_a_cue_dated_inside_the_lead_in_starts_at_zero(self):
+        from live import live_cue_feed
+        cues = live_cue_feed.pending_cues([{"start": 2.97, "end": 4.0, "text": "x"}], -3.0, 0)
+        assert cues[0]["start"] == 0.0 and cues[0]["end"] == pytest.approx(1.0)
+
+    @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
+    def test_first_chunk_holds_only_the_lead_in_and_the_early_audio(self, tmp_path, monkeypatch):
+        from live import live_audio
+        tone = tmp_path / "tone.wav"
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=8",
+                        "-ac", "2", "-ar", "44100", str(tone)], check=True, timeout=60,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        class _Pump:
+            error = None
+
+            def __init__(self, url, sink, **kw):
+                self.sink = sink
+
+            def start(self):
+                self.sink.write(tone.read_bytes())
+                self.sink.close()
+                return self
+
+            def halt(self):
+                pass
+
+            def join(self, timeout=None):
+                pass
+        monkeypatch.setattr(lt.live_fetch, "StreamPump", _Pump)
+        out_dir = str(tmp_path / "chunks")
+        capture = lt.start_segment_capture("http://x.example/", out_dir, 6, lead_in_seconds=3.0)
+        assert capture.proc.wait(30) == 0
+        lengths = [live_audio.wav_seconds(os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in range(2)]
+        # 3 s lead-in + 8 s of audio: the grid cuts at 6, then the rest.
+        assert lengths == [pytest.approx(6.0, abs=0.1), pytest.approx(5.0, abs=0.1)]
+        first = _read_samples(os.path.join(out_dir, "chunk_00000.wav"))
+        assert max(abs(x) for x in first[:int(2.9 * 16000)]) == 0

@@ -89,6 +89,8 @@ def _translator_threads():
 @pytest.fixture
 def job(isolated_db, monkeypatch, tmp_path):
     background_jobs.clear_all_jobs()
+    # The fake stream hands over whole-slot chunks, as a capture without the first-chunk lead-in does.
+    monkeypatch.setattr(lt.live_audio, "first_chunk_lead_in", lambda *a: 0.0)
     proc = FakeProc()
     stops = []
     monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://stream")

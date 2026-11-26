@@ -40,7 +40,7 @@ def live(monkeypatch, isolated_db):
     monkeypatch.setattr(live_translate, "resolve_stream_url", lambda url, **k: "http://media")
     calls = {"process": [], "procs": []}
 
-    def fake_capture(source_url, out_dir, segment_seconds, proxy=None):
+    def fake_capture(source_url, out_dir, segment_seconds, proxy=None, **kw):
         calls["out_dir"] = out_dir
         calls["proxy"] = proxy
         p = FakeProc()

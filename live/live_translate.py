@@ -79,6 +79,7 @@ from typing import Any
 import background_jobs
 from lib.errors import DependencyUnavailableError
 from lib.no_window import NO_WINDOW
+from live import live_audio
 from live import live_cue_feed
 from live import live_fetch
 from live import live_pipeline
@@ -122,7 +123,8 @@ class SegmentCapture:
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
                            sample_rate: int = 16000, proxy: str | None = None,
-                           start_number: int = 0, live_only: bool = False) -> SegmentCapture:
+                           start_number: int = 0, live_only: bool = False,
+                           lead_in_seconds: float = 0.0) -> SegmentCapture:
     """
     Starts ffmpeg writing numbered mono WAV chunks (chunk_00000.wav,
     chunk_00001.wav, ...), each `segment_seconds` long, from its stdin,
@@ -140,13 +142,18 @@ def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 
 
     start_number: the first chunk's number, so a capture restarted after a
     stream break carries on the session's numbering. live_only: see
-    live_fetch.StreamPump.
+    live_fetch.StreamPump. lead_in_seconds: silence put before the audio so
+    the first chunk closes early (live_audio.first_chunk_lead_in); the caller
+    shifts its timeline to match.
     """
     os.makedirs(out_dir, exist_ok=True)
     clear_stale_chunks(out_dir)
     pattern = os.path.join(out_dir, "chunk_%05d.wav")
+    # A synthetic lead-in is cheaper than a custom cut list: every later cut stays
+    # on the fixed segment_time grid, so the chunk-slot arithmetic is untouched.
+    lead_in = ["-af", f"adelay={int(round(lead_in_seconds * 1000))}:all=1"] if lead_in_seconds > 0 else []
     cmd = ["ffmpeg", "-y", "-protocol_whitelist", "pipe", "-format_whitelist",
-           FFMPEG_FORMAT_WHITELIST, "-i", "pipe:0", "-vn", "-ac", "1", "-ar", str(sample_rate),
+           FFMPEG_FORMAT_WHITELIST, "-i", "pipe:0", "-vn", *lead_in, "-ac", "1", "-ar", str(sample_rate),
            "-f", "segment", "-segment_time", str(segment_seconds), "-reset_timestamps", "1",
            "-segment_start_number", str(int(start_number)), pattern]
     # Its own process group/session, so background_jobs.kill_tree (the cancel
@@ -859,8 +866,14 @@ class _LiveRun(ChunkCaptioner):
                     self.should_stop, control.wake) as worker:
                 if self.source_url is None:
                     raise RuntimeError("source_url is set before capture starts")
+                lead_in = live_audio.first_chunk_lead_in(self.segment_seconds, self.source_language)
+                # Only passed when used, so a capture without a lead-in keeps its old call.
+                capture_args: dict[str, Any] = {"lead_in_seconds": lead_in} if lead_in else {}
                 self.proc = start_segment_capture(
-                    self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy)
+                    self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy,
+                    **capture_args)
+                # The lead-in puts every chunk's audio that much later in the file's clock.
+                self.state["jump"] -= lead_in
                 self.capture_started = _timeline_clock()
                 self._start_player()
                 finishing = self._capture_loop(control, worker)
