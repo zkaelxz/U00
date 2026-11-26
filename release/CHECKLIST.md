@@ -10,7 +10,7 @@ Run order is cheapest and most likely to fail first. Flows 1 to 4 are the instal
 - If anything under `extension/` changed, `extension/manifest.json` has a new version.
 - The tag needs the owner's typed yes.
 - Right after tagging, set `SOURCE_VERSION` in `portable.py` to the next version with `-dev` (after v0.1.5, `0.1.6-dev`, since the next release is 0.1.6). It is what a library made by a source checkout records, so the release you just tagged refuses checkout libraries made after it.
-- Right after tagging, while `baihe-subtitler`'s head is still the tag commit, dispatch Android APK (`android-apk.yml`) on `baihe-subtitler` (Actions -> "Android APK" -> Run workflow, or `gh workflow run android-apk.yml --ref baihe-subtitler`). Only a manual run on that branch publishes, and "Get the newest phone app" serves whatever it last published, so without this the phone app lags the release. Check the run's commit is the tag's.
+- Right after tagging, while `baihe-subtitler`'s head is still the tag commit, dispatch Android APK (`android-apk.yml`) on `baihe-subtitler` (Actions -> "Android APK" -> Run workflow, or `gh workflow run android-apk.yml --ref baihe-subtitler`). Only a manual run on that branch publishes, and "Get the newest phone app" serves whatever it last published, so without this the phone app lags the release. Check the run's commit is the tag's. That run also installs the APK on an emulator and opens the app, Studio, Grab, Quick read and the Live route (the "Phone smoke test" job); it publishes nothing if that fails, and Promote Release refuses a tag whose commit has no passing run. If it is red, fix the phone app and tag a new patch version.
 
 ## The flows
 
@@ -25,7 +25,7 @@ Run order is cheapest and most likely to fail first. Flows 1 to 4 are the instal
 9. **Novel.** One real novel: import, add chapters, translate, rename a chapter, glossary scan, Apply. Good: no chapter repeated or lost; an interrupted add keeps its marker. Resume pending batches on the Translate stage if a bulk batch was used.
 10. **Comic.** One real page set: import, translate, "Open in Scanlate", redo a page, press Open folder on the PC itself. Look at balloon text in the real page, not only a mock.
 11. **Browser extension.** Unzip the new `extension/` copy over the folder, press Reload at `chrome://extensions`, and check the card reads the version in `extension/manifest.json`. Capture one real page: it lands under the right title with a chapter label.
-12. **Phone and sign-in.** From a phone: sign in (real Google sign-in if the release touched it), open a title, and check the app shows one Baihe Studio icon (Android).
+12. **Phone and sign-in.** The emulator test already covers that the app opens and the screens load, so this is what only a real phone shows. Install the newest phone app (Settings > App updates > "Get the newest phone app", or the build's APK link) and check each: the app opens and stays open; sign in (real Google sign-in if the release touched it); open a title; the Studio and Grab tabs switch; Grab opens a page and Quick read reads a chapter; Live opens and plays a followed stream; the home screen shows one Baihe Studio icon. Good: nothing closes by itself and nothing shows a "Baihe hit a problem" screen. Bad: any crash or blank screen; copy the text it shows into the release thread.
 
 ## What to copy back
 - A tick or "skipped" per flow, the Windows version, the GPU, and for any failure the text of the error and the time it happened. Never paste API keys, tokens or the data folder path.
