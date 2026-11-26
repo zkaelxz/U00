@@ -541,6 +541,12 @@ def test_ips_stripped_and_browser_versions_kept(client):
     assert "(Sample Title)" in md and "At a glance: #1" in md
 
 
+def test_phone_build_and_crash_text_are_kept_and_scrubbed(client):
+    md = _post(client, _report(phone_info="Build 12, Android SDK 34",
+                               phone_crash="java.lang.IllegalStateException at 10.0.0.7 " + KEY)).json()["markdown"]
+    assert "Build 12" in md and "IllegalStateException" in md and "10.0.0.7" not in md and KEY not in md
+
+
 def test_server_section_lists_recent_jobs_and_bundled_extension(client, monkeypatch):
     import background_jobs
     monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {

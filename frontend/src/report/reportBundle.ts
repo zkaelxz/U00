@@ -27,6 +27,7 @@ type ReportEnv = {
   hostname: string
   buildId: string
   title?: string
+  phone?: { phone: string; crash: string } | null
 }
 
 /** 'pc' at the main PC; otherwise LAN when the page host is a private address. */
@@ -88,6 +89,8 @@ export function buildReport(notes: ReportNotes, snap: CaptureSnapshot, meta: Met
     build_id: env.buildId.slice(0, 120),
     user_agent: env.userAgent.slice(0, 500),
     page_title: (env.title ?? '').slice(0, 200),
+    phone_info: (env.phone?.phone ?? '').slice(0, 300),
+    phone_crash: (env.phone?.crash ?? '').slice(0, 8000),
     viewport: env.viewport,
     mode: reportMode(pc, env.hostname),
   }
