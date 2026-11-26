@@ -47,6 +47,7 @@ final class AlertSchedule {
             arm(context);
         } catch (RuntimeException e) {
             // A phone that refuses the alarm only loses the faster checks; leaving the app must not crash it.
+            CrashLog.noteCaught(context, "Alert alarm (leaving the app) refused", e);
         }
     }
 
@@ -56,6 +57,7 @@ final class AlertSchedule {
             cancelAlarm(context);
         } catch (RuntimeException e) {
             // Same as leftApp: the app must open even when the alarm service refuses.
+            CrashLog.noteCaught(context, "Alert alarm (entering the app) refused", e);
         }
     }
 

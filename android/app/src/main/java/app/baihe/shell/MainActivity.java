@@ -57,6 +57,7 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         String crash = CrashLog.takePending(this);
+        if (crash == null) crash = CrashLog.takeCaught(this);
         if (crash != null) {
             showCrash(crash);
             return;
@@ -70,7 +71,7 @@ public class MainActivity extends Activity {
      */
     private void showCrash(String trace) {
         TextView text = new TextView(this);
-        text.setText("Baihe closed unexpectedly last time. Copy this and send it so it can be fixed:\n\n" + trace);
+        text.setText("Baihe hit a problem. Copy this and send it so it can be fixed:\n\n" + trace);
         text.setTextIsSelectable(true);
         text.setPadding(32, 32, 32, 32);
         ScrollView scroll = new ScrollView(this);
@@ -200,6 +201,7 @@ public class MainActivity extends Activity {
             AlertSchedule.ensure(this);
         } catch (RuntimeException e) {
             // Some phones refuse the job; alerts then stay off but the app must still open.
+            CrashLog.noteCaught(this, "Alert job could not be scheduled", e);
         }
         if (Build.VERSION.SDK_INT >= 33 && !prefs().getBoolean("alerts_asked", false)) {
             prefs().edit().putBoolean("alerts_asked", true).apply();
