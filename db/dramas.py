@@ -101,6 +101,14 @@ def set_media_hash_if_unchanged(drama_id: int, media_hash: str, audio, video) ->
         return cur.rowcount > 0
 
 
+def restore_source_video(drama_id: int, name: str) -> None:
+    """Names a restored video again only while the title has none, so a video added meanwhile stays."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET source_video_filename = ? WHERE id = ? AND source_video_filename IS NULL",
+                     (name, drama_id))
+        conn.commit()
+
+
 def clear_media_hash(drama_id: int) -> None:
     with contextlib.closing(db.get_conn()) as conn:
         conn.execute("UPDATE dramas SET media_hash = NULL WHERE id = ?", (drama_id,))
