@@ -134,3 +134,26 @@ def test_a_second_chapter_run_is_refused_and_cancel_ends_the_first():
     out = _node("worker_series")["cancelled"]
     assert out["second"] == {"ok": False, "error": "A chapter run is already going."}
     assert out["done"]["text"].endswith("Stopped: cancelled.")
+
+
+def test_page_facts_carry_the_declared_author_summary_and_an_https_cover_only():
+    out = _node("page_meta")
+    assert (out["declared"]["author"], out["declared"]["summary"], out["declared"]["coverUrl"]) == \
+        ("Alex Example", "A story.", "https://cdn.example/cover.jpg")
+    assert out["plainCover"]["coverUrl"] == "" and out["plainCover"]["author"] == ""
+
+
+def test_the_chapter_heading_prefers_one_that_names_a_chapter_number():
+    out = _node("page_meta")
+    assert out["chapterTitles"] == ["书名", "第12话 重逢", "书名 第12话", "书名 第12话 - 站"]
+    assert out["bookFirstHeading"] == "第12章 重逢"
+    assert out["plainHeading"] == "夜雨"
+
+
+def test_the_worker_sends_page_titles_with_saved_pages_and_details_with_the_title():
+    out = _node("worker_page_titles")
+    assert out["saved"]["page_titles"] == ["第3话"]
+    assert "page_titles" not in out["quick"]
+    assert (out["meta"]["author"], out["meta"]["summary"], out["meta"]["cover_url"]) == \
+        ("Alex Example", "A story.", "https://cdn.example/c.jpg")
+    assert not {"author", "summary", "cover_url"} & set(out["bare"])

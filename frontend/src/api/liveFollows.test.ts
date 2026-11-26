@@ -102,9 +102,17 @@ describe('requests', () => {
       url: 'https://x', source_language: 'ja', whisper_size: 'tiny', segment_seconds: 4, overlap_seconds: 1,
       engine: null, model: 'gemma4:12b', max_minutes: 12.6, use_gpu: true, reply_without_thinking: true,
     })
-    expect(o).toEqual({ source_language: 'ja', whisper_size: 'tiny', engine: null, model: 'gemma4:12b', max_minutes: 13, use_gpu: true, glossary_drama_id: null, series_id: null })
+    expect(o).toEqual({ source_language: 'ja', whisper_size: 'tiny', engine: null, model: 'gemma4:12b', max_minutes: 13, use_gpu: true, glossary_drama_id: null, series_id: null, captions: null })
     expect(optionsSummary(o)).toBe('ja · Ollama gemma4:12b · Whisper tiny · GPU · stop after 13 min')
     expect(renderToStaticMarkup(createElement('span', null, optionsSummary(o)))).not.toContain('http')
+  })
+  it('keeps a Balanced captions choice from the Live form', () => {
+    const o = followOptions({
+      url: 'https://x', source_language: 'zh', whisper_size: 'small', segment_seconds: 8, overlap_seconds: 3,
+      engine: null, model: null, max_minutes: 60, use_gpu: false, reply_without_thinking: true,
+    })
+    expect(o.captions).toBe('balanced')
+    expect(optionsSummary(o)).toContain('balanced captions')
   })
 })
 

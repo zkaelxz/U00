@@ -11,6 +11,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { browserStorage } from './hooks/usePersistedState'
+import { setShellDark } from './phoneShell'
 
 export type ThemePref = 'system' | 'light' | 'dark' | 'sepia' | 'oled'
 /** The look a theme resolves to once "system" is settled. */
@@ -78,10 +79,24 @@ export function getThemePref(): ThemePref {
   return current
 }
 
+const systemDark = (): boolean => globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false
+
+export function reportShellTheme(pref: ThemePref): void {
+  const look = resolveTheme(pref, systemDark())
+  setShellDark(look === 'dark' || look === 'oled')
+}
+
+/** Keeps the phone app's top bar in step with the page, including when the phone's own setting flips under "Match this device". */
+export function watchShellTheme(): void {
+  reportShellTheme(loadTheme())
+  globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => reportShellTheme(getThemePref()))
+}
+
 /** Save, apply and announce a new choice. */
 export function setThemePref(pref: ThemePref): void {
   saveTheme(pref)
   applyTheme(pref)
+  reportShellTheme(pref)
   emit(pref)
 }
 
@@ -92,6 +107,7 @@ function subscribe(listener: () => void): () => void {
     if (e.key !== null && e.key !== THEME_KEY) return
     const next = loadTheme()
     applyTheme(next)
+    reportShellTheme(next)
     emit(next)
   }
   window.addEventListener('storage', onStorage)

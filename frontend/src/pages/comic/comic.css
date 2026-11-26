@@ -145,6 +145,10 @@
 .comic-chrome-off .comic-head,
 .comic-chrome-off .comic-bottom { display: none; }
 
+/* The app header goes too, and the offsets that assume it is there drop to the notch. */
+:root.reader-immersive { --bar-h: env(safe-area-inset-top, 0px); }
+.reader-immersive .app-header { display: none; }
+
 /* Phone: full-bleed pages, slim sticky top bar, 56px bottom scrubber. */
 .comic-phone { --comic-avail-h: calc(100dvh - var(--bar-h, 0px) - 100px - 56px - env(safe-area-inset-bottom, 0px)); }
 .comic-phone .comic-stage {

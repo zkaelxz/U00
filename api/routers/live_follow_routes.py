@@ -66,7 +66,7 @@ def update_follow(body: LiveFollowUpdate, request: Request, follow_id: int = _ID
     return live_follow_service.update_follow(
         follow_id, mode=body.mode, auto_check=body.auto_check,
         options=body.options.model_dump() if body.options else None,
-        principal=request.state.principal)
+        nickname=body.nickname, principal=request.state.principal)
 
 
 @router.post("/{follow_id}/remove", dependencies=[require_permission("media.import_url")],

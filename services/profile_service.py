@@ -28,7 +28,7 @@ import math
 import db
 from engine_backends import engine_registry
 import translation_guide
-from services import series_defaults_service, settings_service
+from services import novel_genre_service, series_defaults_service, settings_service
 from lib.errors import InvalidInputError, NotFoundError
 
 # Settings the presets table already stores as columns; the rest of the series
@@ -207,7 +207,8 @@ def locale_and_note(drama: dict, default_locale: str, default_style_note: str):
     run's, else the Settings defaults (the Queue, the Library batch, the stronger-engine redo)."""
     start = translate_start(drama)
     return (start.get("locale") or default_locale,
-            start["style_note"] if "style_note" in start else default_style_note)
+            start["style_note"] if "style_note" in start
+            else novel_genre_service.default_style_note(drama, default_style_note))
 
 
 def remember_run(drama_id: int, drama: dict, *, on_title_engine: bool, model, style_preset,

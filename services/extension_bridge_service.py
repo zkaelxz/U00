@@ -153,7 +153,7 @@ def run_text(payload, principal=None) -> dict:
     return result
 
 
-def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:
+def _record_chapter(drama_id, results: list, source_url: str, run_id, titles=()) -> None:
     """Files the pages this capture newly saved under their chapter, so the reader's chapter list
     shows them instead of "Chapter unknown". Never raises: a label is a convenience and must
     not fail the import."""
@@ -163,7 +163,8 @@ def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:
     try:
         page_ids = [r["page_id"] for r in results
                     if r.get("stored") and r.get("page_id") and not r.get("already_stored")]
-        ref = extension_title_service.capture_chapter_ref(source_url, run_id) if page_ids else None
+        ref = (extension_title_service.capture_chapter_ref(
+            source_url, run_id, extension_title_service.page_titles(titles)) if page_ids else None)
         if ref is None:
             return
         pages = [db.get_page(pid, int(drama_id)) for pid in page_ids]
@@ -287,18 +288,20 @@ def _run_id(payload) -> str:
 # filter cannot see a picture the page listed twice (a hidden copy, or one address per size) when
 # the copies land in different requests. Each Quick read run remembers the pictures it has taken.
 _MAX_REMEMBERED_RUNS = 50
-_runs_seen: "OrderedDict[str, set]" = OrderedDict()
+_runs_seen: "OrderedDict[str, dict]" = OrderedDict()
 _runs_seen_lock = threading.Lock()
 
 
 def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
     """(kept, repeats): the pictures whose bytes no earlier request of this run has taken. The
-    claim is made under one lock so two requests holding the same picture cannot both keep it."""
+    claim is made under one lock so two requests holding the same picture cannot both keep it.
+    A picture is remembered with the page key that sent it: the same key again is the phone
+    asking once more for a page whose answer never reached it, not a copy, so it is kept."""
     if not run_id:
         return decoded, []
     kept, repeats = [], []
     with _runs_seen_lock:
-        taken = _runs_seen.setdefault(run_id, set())
+        taken = _runs_seen.setdefault(run_id, {})
         _runs_seen.move_to_end(run_id)
         while len(_runs_seen) > _MAX_REMEMBERED_RUNS:
             _runs_seen.popitem(last=False)
@@ -308,12 +311,15 @@ def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
                 kept.append(image)
                 continue
             digest = hashlib.sha256(image["content"]).hexdigest()
-            if digest in taken:
-                repeats.append(image)
-            else:
-                taken.add(digest)
+            if digest not in taken:
+                taken[digest] = image["key"]
                 image["run_claim"] = digest
                 kept.append(image)
+            elif image["key"] and taken[digest] == image["key"]:
+                # The claim stays with the request that made it, so this one never releases it.
+                kept.append(image)
+            else:
+                repeats.append(image)
     return kept, repeats
 
 
@@ -325,7 +331,7 @@ def _release_unread(decoded: list, outcomes: list, run_id: str) -> None:
             return
         for image, (outcome, _value) in zip(decoded, outcomes):
             if outcome != "page" and image.get("run_claim"):
-                taken.discard(image["run_claim"])
+                taken.pop(image["run_claim"], None)
 
 
 def cancel_run(payload) -> dict:
@@ -388,7 +394,10 @@ def record_page_report(payload, principal=None) -> dict:
     reporter = f"user:{user_id}" if user_id is not None else "device"
     try:
         _page_report_limiter.hit(reporter)
-        saved = bug_report_service.create_page_report(payload, reporter=reporter)
+        make = (bug_report_service.create_app_report
+                if isinstance(payload, dict) and payload.get("kind") == "app"
+                else bug_report_service.create_page_report)
+        saved = make(payload, reporter=reporter)
     except InvalidInputError as e:
         raise page_server.EndpointError(400, e.message) from None
     except ConflictError as e:
@@ -772,7 +781,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         elif not stopped:
             stopped = "cancelled by the extension"
     if store:
-        _record_chapter(drama_id, results, source_url, job["run_id"])
+        _record_chapter(drama_id, results, source_url, job["run_id"], payload.get("page_titles"))
     return {"pages": results, "skipped": skipped, "failed": failed,
             "received": len(images),
             **({"unfetched": unfetched} if unfetched else {}),

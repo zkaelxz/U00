@@ -92,7 +92,7 @@ INVALID_STATUS = "This channel's address is not valid any more. Remove it and fo
 _OPTION_DEFAULTS = {"source_language": "zh", "whisper_size": "small", "engine": None,
                     "model": None, "max_minutes": live_service.DEFAULT_MAX_MINUTES,
                     "use_gpu": False, "glossary_drama_id": None,
-                    "series_id": None, "terms": []}
+                    "series_id": None, "captions": None, "terms": []}
 
 
 def is_pc_owner(principal) -> bool:
@@ -290,6 +290,8 @@ def clean_options(options, principal=None) -> dict:
     if out["max_minutes"] is not None:
         out["max_minutes"] = int(live_service._num("max_minutes", out["max_minutes"],
                                                    *live_service.MAX_MINUTES_RANGE))
+    if out["captions"] not in (None, *live_service.CAPTION_CHOICES):
+        raise InvalidInputError("captions must be fast or balanced.")
     if not isinstance(out["use_gpu"], bool):
         raise InvalidInputError("use_gpu must be true or false.")
     out["terms"] = clean_terms(out["terms"])
@@ -352,16 +354,30 @@ def _options(row, strict=False) -> dict:
         return dict(_OPTION_DEFAULTS)
 
 
+NICKNAME_MAX = 60
+
+
+def clean_nickname(text) -> str:
+    """The account's own label: one line of printable text, so it is safe in a notice and a list row."""
+    if not isinstance(text, str):
+        raise InvalidInputError("The name must be text.")
+    one_line = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    if len(one_line) > NICKNAME_MAX:
+        raise InvalidInputError(f"Use at most {NICKNAME_MAX} characters for the name.")
+    return one_line
+
+
 # --- views -------------------------------------------------------------------
 
 def view(row, principal=None) -> dict:
     """What a client may see: no URL, path or raw error text."""
     if not valid_url(row):
         row = {**row, "last_state": "error", "last_status": INVALID_STATUS, "stream_title": "",
-               "starts_at": None, "channel_name": ""}
+               "starts_at": None, "channel_name": "", "nickname": ""}
     return {"id": row["id"],
             "channel": _label(row["channel_url"]) if valid_url(row) else "invalid",
             "channel_name": row.get("channel_name") or "",
+            "nickname": row.get("nickname") or "",
             "mode": row["mode"] if row["mode"] in MODES else "notify",
             "auto_check": bool(row.get("auto_check")),
             "options": _options(row), "poll_minutes": int(row["poll_minutes"]),
@@ -431,7 +447,7 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
     return view(follow_store.get(follow_id), principal)
 
 
-def update_follow(follow_id, mode=None, options=None, auto_check=None, principal=None) -> dict:
+def update_follow(follow_id, mode=None, options=None, auto_check=None, nickname=None, principal=None) -> dict:
     """Turning the automatic check off also turns an automatic start back
     into Notify me, which can't work without it. An automatic start's
     options are the PC owner's to change; its own owner acting away from the
@@ -455,6 +471,8 @@ def update_follow(follow_id, mode=None, options=None, auto_check=None, principal
             fields["pc_owner"] = 1
     if options is not None:
         fields["options"] = _dump(clean_options(options, principal))
+    if nickname is not None:
+        fields["nickname"] = clean_nickname(nickname)
     follow_store.update(row["id"], **fields)
     if checking:
         _poller().start_if_needed()
@@ -544,4 +562,4 @@ def start_from_follow(follow_id, principal=None, use_saved_cookies=False) -> dic
         max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"],
         use_saved_cookies=use_saved_cookies, glossary_drama_id=opts["glossary_drama_id"],
         series_id=opts["series_id"], own_terms=opts["terms"], principal=principal,
-        **live_service.language_chunk(opts["source_language"]))
+        **live_service.language_chunk(opts["source_language"], opts["captions"]))

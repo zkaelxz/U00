@@ -67,6 +67,16 @@ _CSRF_RE = re.compile(r"(x-csrf-token[\"']?\s*[:=]\s*[\"']?)[^\s\"',;]+", re.IGN
 _COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
 # URL userinfo: scheme://user:pass@host -> scheme://***@host.
 _USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
+# Home-network and public addresses in log lines or messages. The lookbehind keeps
+# four-part browser versions ("Chrome/120.0.6099.43") intact.
+_IPV4_RE = re.compile(r"(?<![\w.-])(?<![^/]/)(?:\d{1,3}\.){3}\d{1,3}(?![\w-]|\.\d)")
+# IPv6 needs "::" or five or more groups, so clock times ("12:00:01") are left alone.
+_IPV6_RE = re.compile(r"(?i)(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])")
+
+
+def _mask_ipv6(m):
+    text = m.group(0)
+    return "[IP]" if "::" in text or text.count(":") >= 5 else text
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -89,6 +99,8 @@ def _pre_scrub(text: str) -> str:
     text = _USERINFO_RE.sub("***@", text)
     text = diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
+    text = _IPV4_RE.sub("[IP]", text)
+    text = _IPV6_RE.sub(_mask_ipv6, text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 
 
@@ -227,6 +239,34 @@ def _setup_summary() -> str:
     return _scrub(", ".join(parts))
 
 
+RECENT_JOBS = 10
+
+
+def _recent_jobs() -> list:
+    """The newest jobs this process remembers, as one line each, so an admin can open the
+    job a report is about. Ids and states only plus a scrubbed reason for a failed one."""
+    try:
+        import background_jobs
+        jobs = background_jobs.list_all_jobs()
+    except Exception:     # a job table problem must not lose the report
+        return []
+    newest = sorted(jobs.items(), key=lambda kv: kv[1].get("started_at") or 0, reverse=True)
+    out = []
+    for job_id, job in newest[:RECENT_JOBS]:
+        line = f"{_scrub(job_id, 80)} · {_scrub(job.get('status'), 20)}"
+        if job.get("description"):
+            line += f" · {_scrub(job['description'], 120)}"
+        if job.get("status") == "error" and job.get("error"):
+            line += f" · {_scrub(job['error'], 200)}"
+        out.append(line)
+    return out
+
+
+def _bundled_extension() -> str:
+    from services import extension_bridge_service
+    return extension_bridge_service.bundled_extension_version() or ""
+
+
 def _log_tail() -> list:
     from services import diagnostics_gaps_service
     try:
@@ -268,6 +308,9 @@ def _clean_client(c: dict) -> dict:
         "environment": _scrub(c.get("environment"), 60),
         "build_id": _scrub(c.get("build_id"), 120),
         "user_agent": _scrub(c.get("user_agent"), 500),
+        "page_title": _scrub(c.get("page_title"), 200),
+        "phone_info": _scrub(c.get("phone_info"), 300),
+        "phone_crash": _scrub(c.get("phone_crash"), 8000),
         "viewport": {k: viewport.get(k) for k in ("width", "height", "dpr")
                      if isinstance(viewport.get(k), (int, float))},
         "mode": c.get("mode") if c.get("mode") in ("pc", "lan", "remote", "unknown") else "unknown",
@@ -299,8 +342,11 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
     out = [f"## What happened\n\n{c['what_happened'] or '(not given)'}\n",
            f"## What I expected\n\n{c['expected'] or '(not given)'}\n",
            "## Context\n",
+           f"- At a glance: #{report['id']} · {c['mode']} · `{c['route'] or '/'}` · "
+           f"{len(c['errors'])} uncaught error(s), {len(c['console'])} console message(s), "
+           f"{len(c['failed_requests'])} failed call(s)",
            f"- Report: #{report['id']} (saved {report['created_at']})",
-           f"- Page: `{c['route'] or '/'}`",
+           f"- Page: `{c['route'] or '/'}`" + (f" ({_cell(c['page_title'])})" if c.get("page_title") else ""),
            f"- Mode: {c['mode']}",
            f"- App: {c['app_version'] or '?'} · API {c['api_version'] or '?'}"
            + (f" ({c['environment']})" if c["environment"] else ""),
@@ -310,6 +356,10 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
            "- Screenshot: " + ("saved with the report on the PC (attach it by hand)"
                                if report.get("has_screenshot") else "none"),
            ""]
+    if c.get("phone_info") or c.get("phone_crash"):
+        out += ["## Phone app\n", f"- Phone: {_cell(c.get('phone_info')) or '(unknown)'}", ""]
+        if c.get("phone_crash"):
+            out += ["### Last crash the phone kept\n", _fence(c["phone_crash"]), ""]
     if c["route_history"]:
         out.append("## Recent pages\n")
         out += [f"- {_cell(r.get('at'))} `{r.get('route', '')}`" for r in c["route_history"]]
@@ -334,7 +384,12 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
     if include_server and s:
         out += ["## Server (added by the PC)\n",
                 f"- Git commit: {s.get('git_commit') or 'unknown'}",
-                f"- Setup: {s.get('setup') or 'unknown'}", ""]
+                f"- Setup: {s.get('setup') or 'unknown'}",
+                f"- Extension bundled with this app: {s.get('extension_version') or 'unknown'}", ""]
+        if s.get("recent_jobs"):
+            out.append("### Recent jobs (newest first)\n")
+            out.append(_fence("\n".join(s["recent_jobs"])))
+            out.append("")
         if s.get("log_tail"):
             out.append(f"### Server log (last {len(s['log_tail'])} lines, redacted)\n")
             out.append(_fence("\n".join(s["log_tail"])))
@@ -446,6 +501,8 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
                 raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
         server = {"git_commit": _cached("git", _git_commit),
                   "setup": _cached("setup", _setup_summary, SETUP_CACHE_SECONDS),
+                  "extension_version": _bundled_extension(),
+                  "recent_jobs": _recent_jobs(),
                   "log_tail": _log_tail() if client.get("include_server_log", True) else []}
         report_id = max(_read_counter(root), max(existing, default=0)) + 1
         folder = os.path.join(root, f"{stamp}_{report_id}")
@@ -561,6 +618,45 @@ def _page_region(r: dict) -> dict:
     row["left_alone"] = bool(r.get("left_alone"))
     row["untranslated"] = bool(r.get("untranslated"))
     return row
+
+
+def create_app_report(payload: dict, reporter: str | None = None) -> dict:
+    """A report sent from the phone app's own screens (Grab), which have no web dialog: the
+    reader's note, which screen and page address, the app build, the last crash the phone kept
+    and, when the reader ticked it, a picture of the screen. Same scrubbing and storage as any
+    other report, so admins find it in the same list."""
+    if not isinstance(payload, dict):
+        raise InvalidInputError("The report is not valid.")
+    jpeg = None
+    image = payload.get("image")
+    if image not in (None, ""):
+        if not isinstance(image, str) or not image.startswith(_PAGE_IMAGE_PREFIX):
+            raise InvalidInputError("The screenshot must be a JPEG.")
+        if len(image) - len(_PAGE_IMAGE_PREFIX) > (MAX_PAGE_IMAGE_BYTES * 4) // 3 + 4:
+            raise InvalidInputError("The screenshot is larger than 4 MB.")
+        try:
+            jpeg = base64.b64decode(image[len(_PAGE_IMAGE_PREFIX):], validate=True)
+        except ValueError:
+            raise InvalidInputError("The screenshot could not be read.") from None
+        if not jpeg or len(jpeg) > MAX_PAGE_IMAGE_BYTES or not jpeg.startswith(b"\xff\xd8\xff"):
+            raise InvalidInputError("The screenshot must be a JPEG under 4 MB.")
+    note = _scrub(payload.get("note"), 1000).strip()
+    screen = _scrub(payload.get("screen"), 80).strip()
+    page_url = _scrub(display_url(str(payload.get("page_url") or "")[:2000]), 300)
+    info = _scrub(payload.get("phone"), 300).strip()
+    crash = _scrub(payload.get("crash"), 8000).strip()
+    lines = ["## Phone app\n",
+             f"- Screen: {_cell(screen) or '(unknown)'}",
+             f"- Page address: `{_cell(page_url)}`" if page_url else "- Page address: (none)",
+             f"- Phone: {_cell(info) or '(unknown)'}",
+             f"- Screenshot: {'attached' if jpeg else 'not included'}", ""]
+    if crash:
+        lines += ["### Last crash the phone kept\n", _fence(crash), ""]
+    return create_report(
+        {"what_happened": "Phone app report: " + (note or "(no note)"),
+         "route": page_url, "include_server_log": True},
+        screenshot=jpeg, include_server_in_response=False, reporter=reporter,
+        extra_markdown="\n" + "\n".join(lines))
 
 
 def create_page_report(payload: dict, reporter: str | None = None) -> dict:
