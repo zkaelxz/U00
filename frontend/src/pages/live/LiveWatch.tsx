@@ -111,6 +111,15 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
       } : null} />
   )
 
+  // Under the picture when there is one, else above the lines: a bar pinned to the bottom covered the last lines.
+  const stopBar = active && !tv.on && (
+    <div className="live-stopbar">
+      <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
+      {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
+    </button>
+    </div>
+  )
+
   return (
     <div ref={root} className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}
       data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined}>
@@ -134,9 +143,11 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
               ? <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
               : streamRef && <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
           )}
+          {stopBar}
           {!tv.on && options}
         </div>
       )}
+      {!(videoLive && !(tv.on && !pictureShown)) && stopBar}
       <div className="live-feed">
         {/* Only the status line is announced: the lines below change every chunk. */}
         <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status">
@@ -170,13 +181,6 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
         {total > 0 && !tv.on && <SaveSession cues={session.cues} />}
         {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
-      {active && !tv.on && (
-        <div className="live-stopbar">
-          <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
-            {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
-          </button>
-        </div>
-      )}
     </div>
   )
 }
