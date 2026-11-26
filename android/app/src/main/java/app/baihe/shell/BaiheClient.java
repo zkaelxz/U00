@@ -101,6 +101,34 @@ final class BaiheClient {
         return rest;
     }
 
+    /** Clients with a streamed answer open, so coming back to the app can reach them. */
+    private static final java.util.Set<BaiheClient> streaming = new java.util.HashSet<>();
+    private volatile long lastHeard;
+    private volatile boolean skipRetryWait;
+
+    /**
+     * Back in the app after time away: a stream that heard nothing since the app left is cut so the
+     * batch is asked again at once, instead of waiting out the read timeout on a connection Android
+     * may have cut silently. Call off the main thread.
+     */
+    static void dropQuietStreams(long since) {
+        java.util.List<BaiheClient> live;
+        synchronized (streaming) {
+            live = new java.util.ArrayList<>(streaming);
+        }
+        for (BaiheClient client : live) client.dropIfQuiet(since);
+    }
+
+    private void dropIfQuiet(long since) {
+        if (lastHeard >= since || aborted) return;
+        skipRetryWait = true;
+        java.util.List<HttpURLConnection> live;
+        synchronized (open) {
+            live = new java.util.ArrayList<>(open);
+        }
+        for (HttpURLConnection c : live) c.disconnect();
+    }
+
     private final String origin;
     private final String token;
 
@@ -246,12 +274,15 @@ final class BaiheClient {
             } catch (BridgeException e) {
                 todo = notDelivered(batch, delivered);
                 if (attempt >= STREAM_RETRIES || aborted || todo.isEmpty() || !worthRetrying(e)) throw e;
-                try {
-                    Thread.sleep(RETRY_WAIT_MS * (attempt + 1));
-                } catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    throw e;
+                if (!skipRetryWait) {
+                    try {
+                        Thread.sleep(RETRY_WAIT_MS * (attempt + 1));
+                    } catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
                 }
+                skipRetryWait = false;
                 if (aborted) throw e;
             }
         }
@@ -276,6 +307,8 @@ final class BaiheClient {
 
     private JSONObject callStream(String path, JSONObject body, PageListener onPage) throws BridgeException {
         HttpURLConnection conn = null;
+        lastHeard = System.currentTimeMillis();
+        synchronized (streaming) { streaming.add(this); }
         try {
             conn = track((HttpURLConnection) new URL(origin + "/api/ext-bridge" + path).openConnection());
             conn.setRequestMethod("POST");
@@ -304,6 +337,7 @@ final class BaiheClient {
             try (InputStream in = conn.getInputStream()) {
                 String line;
                 while ((line = readLine(in)) != null) {
+                    lastHeard = System.currentTimeMillis();
                     if (line.isEmpty()) continue;
                     JSONObject item = new JSONObject(line);
                     if (item.has("page")) onPage.onPage(item.getJSONObject("page"));
@@ -320,6 +354,7 @@ final class BaiheClient {
         } catch (IOException e) {
             throw new BridgeException(0, aborted ? "Cancelled." : "Could not reach Baihe.", !aborted);
         } finally {
+            synchronized (streaming) { streaming.remove(this); }
             if (conn != null) {
                 synchronized (open) { open.remove(conn); }
                 conn.disconnect();
