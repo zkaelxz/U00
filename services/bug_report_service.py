@@ -67,6 +67,9 @@ _CSRF_RE = re.compile(r"(x-csrf-token[\"']?\s*[:=]\s*[\"']?)[^\s\"',;]+", re.IGN
 _COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
 # URL userinfo: scheme://user:pass@host -> scheme://***@host.
 _USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
+# Home-network and public addresses in log lines or messages. The lookbehind keeps
+# four-part browser versions ("Chrome/120.0.6099.43") intact.
+_IPV4_RE = re.compile(r"(?<![\w./-])(?:\d{1,3}\.){3}\d{1,3}(?![\w.-])")
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -89,6 +92,7 @@ def _pre_scrub(text: str) -> str:
     text = _USERINFO_RE.sub("***@", text)
     text = diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
+    text = _IPV4_RE.sub("[IP]", text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 
 
@@ -227,6 +231,34 @@ def _setup_summary() -> str:
     return _scrub(", ".join(parts))
 
 
+RECENT_JOBS = 10
+
+
+def _recent_jobs() -> list:
+    """The newest jobs this process remembers, as one line each, so an admin can open the
+    job a report is about. Ids and states only plus a scrubbed reason for a failed one."""
+    try:
+        import background_jobs
+        jobs = background_jobs.list_all_jobs()
+    except Exception:     # a job table problem must not lose the report
+        return []
+    newest = sorted(jobs.items(), key=lambda kv: kv[1].get("started_at") or 0, reverse=True)
+    out = []
+    for job_id, job in newest[:RECENT_JOBS]:
+        line = f"{_scrub(job_id, 80)} · {_scrub(job.get('status'), 20)}"
+        if job.get("description"):
+            line += f" · {_scrub(job['description'], 120)}"
+        if job.get("status") == "error" and job.get("error"):
+            line += f" · {_scrub(job['error'], 200)}"
+        out.append(line)
+    return out
+
+
+def _bundled_extension() -> str:
+    from services import extension_bridge_service
+    return extension_bridge_service.bundled_extension_version() or ""
+
+
 def _log_tail() -> list:
     from services import diagnostics_gaps_service
     try:
@@ -268,6 +300,7 @@ def _clean_client(c: dict) -> dict:
         "environment": _scrub(c.get("environment"), 60),
         "build_id": _scrub(c.get("build_id"), 120),
         "user_agent": _scrub(c.get("user_agent"), 500),
+        "page_title": _scrub(c.get("page_title"), 200),
         "viewport": {k: viewport.get(k) for k in ("width", "height", "dpr")
                      if isinstance(viewport.get(k), (int, float))},
         "mode": c.get("mode") if c.get("mode") in ("pc", "lan", "remote", "unknown") else "unknown",
@@ -299,8 +332,11 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
     out = [f"## What happened\n\n{c['what_happened'] or '(not given)'}\n",
            f"## What I expected\n\n{c['expected'] or '(not given)'}\n",
            "## Context\n",
+           f"- At a glance: #{report['id']} · {c['mode']} · `{c['route'] or '/'}` · "
+           f"{len(c['errors'])} uncaught error(s), {len(c['console'])} console message(s), "
+           f"{len(c['failed_requests'])} failed call(s)",
            f"- Report: #{report['id']} (saved {report['created_at']})",
-           f"- Page: `{c['route'] or '/'}`",
+           f"- Page: `{c['route'] or '/'}`" + (f" ({_cell(c['page_title'])})" if c.get("page_title") else ""),
            f"- Mode: {c['mode']}",
            f"- App: {c['app_version'] or '?'} · API {c['api_version'] or '?'}"
            + (f" ({c['environment']})" if c["environment"] else ""),
@@ -334,7 +370,12 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
     if include_server and s:
         out += ["## Server (added by the PC)\n",
                 f"- Git commit: {s.get('git_commit') or 'unknown'}",
-                f"- Setup: {s.get('setup') or 'unknown'}", ""]
+                f"- Setup: {s.get('setup') or 'unknown'}",
+                f"- Extension bundled with this app: {s.get('extension_version') or 'unknown'}", ""]
+        if s.get("recent_jobs"):
+            out.append("### Recent jobs (newest first)\n")
+            out.append(_fence("\n".join(s["recent_jobs"])))
+            out.append("")
         if s.get("log_tail"):
             out.append(f"### Server log (last {len(s['log_tail'])} lines, redacted)\n")
             out.append(_fence("\n".join(s["log_tail"])))
@@ -446,6 +487,8 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
                 raise ConflictError("Too many saved bug reports. Delete some in Diagnostics on the PC.")
         server = {"git_commit": _cached("git", _git_commit),
                   "setup": _cached("setup", _setup_summary, SETUP_CACHE_SECONDS),
+                  "extension_version": _bundled_extension(),
+                  "recent_jobs": _recent_jobs(),
                   "log_tail": _log_tail() if client.get("include_server_log", True) else []}
         report_id = max(_read_counter(root), max(existing, default=0)) + 1
         folder = os.path.join(root, f"{stamp}_{report_id}")

@@ -527,3 +527,26 @@ def test_remote_page_reports_stop_before_the_owners_room_runs_out(fakes, monkeyp
     svc.create_page_report(_page_payload())          # the PC owner's own report still saves
     with pytest.raises(ConflictError):
         svc.create_page_report(_page_payload(), reporter="user:7")
+
+
+def test_ips_stripped_and_browser_versions_kept(client):
+    body = _report(what_happened="Cannot reach 192.168.1.50 or 10.0.0.7:8600 today",
+                   page_title="Sample Title",
+                   user_agent="Mozilla/5.0 (Linux; Android 14) Chrome/120.0.6099.43 Mobile")
+    md = _post(client, body).json()["markdown"]
+    assert "192.168.1.50" not in md and "10.0.0.7" not in md and "[IP]" in md
+    assert "120.0.6099.43" in md
+    assert "(Sample Title)" in md and "At a glance: #1" in md
+
+
+def test_server_section_lists_recent_jobs_and_bundled_extension(client, monkeypatch):
+    import background_jobs
+    monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {
+        "job-old": {"status": "done", "started_at": 1},
+        "job-bad": {"status": "error", "started_at": 2, "description": "Translate",
+                    "error": f"boom {KEY} on 192.168.1.9"}})
+    md = _post(client).json()["markdown"]
+    assert md.index("job-bad") < md.index("job-old")
+    assert "Translate" in md and "boom" in md
+    assert KEY not in md and "192.168.1.9" not in md
+    assert "Extension bundled with this app:" in md
