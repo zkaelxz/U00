@@ -224,3 +224,34 @@ def test_the_pipeline_version_follows_the_code_files(tmp_path, monkeypatch):
 
 def test_health_says_the_app_reads_picture_addresses(isolated_db):
     assert bridge.health_payload()["picture_addresses"] is True
+
+
+def _b64_image(shade):
+    return {"key": f"p{shade}", "data": base64.b64encode(_png_bytes(shade)).decode()}
+
+
+def test_a_picture_repeated_across_requests_of_one_run_is_read_once(pipeline):
+    run = {"run_id": "run-repeat-0001"}
+    first = _run([_b64_image(240)], **run)
+    # The same picture listed again by the page lands in a later request of the same read.
+    second = _run([{**_b64_image(240), "key": "again"}, _b64_image(200)], **run)
+    assert [p["key"] for p in first["pages"]] == ["p240"]
+    assert [p["key"] for p in second["pages"]] == ["p200"]
+    assert second["skipped"][0]["key"] == "again"
+    assert len(pipeline) == 2
+
+
+def test_the_same_picture_in_another_run_is_still_read(pipeline):
+    _run([_b64_image(240)], run_id="run-repeat-0002")
+    answer = _run([_b64_image(240)], run_id="run-repeat-0003")
+    assert [p["key"] for p in answer["pages"]] == ["p240"]
+
+
+def test_a_picture_that_failed_may_be_sent_again_in_the_same_run(pipeline, monkeypatch):
+    run = {"run_id": "run-repeat-0004"}
+    real = page_server.translate_image
+    monkeypatch.setattr(page_server, "translate_image",
+                        lambda *a, **k: (_ for _ in ()).throw(page_server.EndpointError(500, "boom")))
+    assert _run([_b64_image(240)], **run)["failed"]
+    monkeypatch.setattr(page_server, "translate_image", real)
+    assert [p["key"] for p in _run([_b64_image(240)], **run)["pages"]] == ["p240"]
