@@ -10,7 +10,7 @@ const SIZES: { value: TextSize; label: string; name: string }[] = [
   { value: 's', label: 'S', name: 'Small' },
   { value: 'm', label: 'M', name: 'Medium' },
   { value: 'l', label: 'L', name: 'Large' },
-  { value: 'xl', label: 'TV', name: 'TV' },
+  { value: 'xl', label: 'XL', name: 'XL' },
 ]
 
 type Props = {
@@ -30,12 +30,14 @@ type Props = {
   /** The delay slider: set when the picture can be held back, with its current state. */
   delay: { seconds: number; auto: boolean; manual: number; onSlide: (s: number) => void; onAuto: (v: boolean) => void } | null
   onFloat: (() => void) | null
+  /** Full-screen layout for a TV or other big screen. */
+  onTv: () => void
 }
 
-export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat }: Props) {
+export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat, onTv }: Props) {
   return (
     <Section storageKey="live.viewing" title="Viewing options" defaultOpen>
-      <Field label="Text size" help="How large the lines are in the list. TV is big enough to read from a sofa. It does not change the captions drawn over the picture.">
+      <Field label="Text size" help="How large the lines are in the list. For a TV across the room, use TV mode. It does not change the captions drawn over the picture.">
         <div className="live-sizes" role="radiogroup" aria-label="Text size">
           {SIZES.map((s) => (
             <button key={s.value} type="button" role="radio" aria-checked={textSize === s.value} aria-label={s.name}
@@ -44,6 +46,9 @@ export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOrigi
             </button>
           ))}
         </div>
+      </Field>
+      <Field label="TV mode" help="Full screen for a TV or big screen: large white lines on black, the picture beside or above. Leave with Esc, the remote's Back or Exit.">
+        <button type="button" className={buttonClass('secondary')} data-testid="live-tv-enter" onClick={onTv}>Enter</button>
       </Field>
       <Field label="Show original" help="Keeps the spoken-language line under each translation. Turn it off to read the translation alone.">
         <Toggle checked={showOriginal} onChange={onShowOriginal} />
