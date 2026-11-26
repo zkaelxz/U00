@@ -50,6 +50,8 @@ public class MainActivity extends Activity {
     private View customView;
     /** The Studio | Grab strip, hidden while the app is a small floating window. */
     private View strip;
+    /** The comic reader asked for the whole screen; kept so a rebuilt strip stays hidden. */
+    private boolean barsHidden;
     /** A Live session's picture is on screen, so leaving the app should float it (picture-in-picture). */
     private boolean liveWatching;
     private WebChromeClient.CustomViewCallback customViewCallback;
@@ -106,6 +108,13 @@ public class MainActivity extends Activity {
         // credentials must not be typed into a view this app controls, so Google addresses
         // and sign-in redirects open in the system browser; other sites open in Baihe Grab.
         web.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                // A page that reloads while its reader hid the strip never runs the cleanup that shows it again.
+                barsHidden = false;
+                showStrip();
+            }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
@@ -212,7 +221,8 @@ public class MainActivity extends Activity {
             @Override
             public void setBarsHidden(boolean hidden) {
                 runOnUiThread(() -> {
-                    if (strip != null) strip.setVisibility(hidden ? View.GONE : View.VISIBLE);
+                    barsHidden = hidden;
+                    showStrip();
                 });
             }
         }), "BaiheShell");
@@ -248,6 +258,7 @@ public class MainActivity extends Activity {
         strip = ShellTabs.strip(this, palette, false);
         root.addView(strip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        showStrip();
         ViewGroup parent = (ViewGroup) web.getParent();
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
@@ -267,7 +278,13 @@ public class MainActivity extends Activity {
         // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
         if (customView != null || web == null) return;
         setContentView(page());
-        if (strip != null && isInPictureInPictureMode()) strip.setVisibility(View.GONE);
+    }
+
+    /** The strip shows unless the app is a small floating window or the reader asked for the whole screen. */
+    private void showStrip() {
+        if (strip == null) return;
+        boolean floating = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode();
+        strip.setVisibility(floating || barsHidden ? View.GONE : View.VISIBLE);
     }
 
     private boolean pipAllowed() {
@@ -314,7 +331,7 @@ public class MainActivity extends Activity {
     @Override
     public void onPictureInPictureModeChanged(boolean inPip, android.content.res.Configuration config) {
         super.onPictureInPictureModeChanged(inPip, config);
-        if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        if (strip != null) strip.setVisibility(inPip || barsHidden ? View.GONE : View.VISIBLE);
         if (web == null) return;
         web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
         // The window animates between sizes, so the WebView can be left laid out for the small one (page zoomed

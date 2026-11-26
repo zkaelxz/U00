@@ -294,6 +294,8 @@ final class BaiheClient {
                 return streamOnce(pageUrl, todo, tracking);
             } catch (BridgeException e) {
                 todo = notDelivered(batch, delivered);
+                // Every page arrived and only the closing line was lost: the read is complete.
+                if (e.dropped && !aborted && todo.isEmpty() && !batch.isEmpty()) return new JSONObject();
                 if (attempt >= STREAM_RETRIES || aborted || todo.isEmpty() || !worthRetrying(e)) throw e;
                 if (!skipRetryWait) {
                     try {

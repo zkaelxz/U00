@@ -321,7 +321,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if ("start".equals(command)) {
             startQueue();
         } else if ("bookmark".equals(command)) {
-            toggleBookmark();
+            // The Bookmarks screen's button only adds: there, Remove is on each card.
+            String open = ServerAddress.browsable(web.getUrl());
+            if (open != null && GrabBookmarks.has(GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, "")), open)) {
+                say("This page is already bookmarked.");
+            } else {
+                toggleBookmark();
+            }
         } else if (url != null && ("open".equals(command) || "read".equals(command))) {
             if ("read".equals(command)) {
                 if (grabbing || loadingNext || chaptersLeft > 0) {

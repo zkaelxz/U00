@@ -335,6 +335,8 @@ def _cell(text) -> str:
 
 
 def build_markdown(report: dict, include_server: bool = True) -> str:
+    """`include_server` False is the text the public issue link carries: no server section, and
+    no page title, which on a title's page is the name of the work being read."""
     c, s = report["client"], report.get("server") or {}
     vp = c.get("viewport") or {}
     viewport = (f"{vp.get('width', '?')}x{vp.get('height', '?')}"
@@ -346,7 +348,7 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
            f"{len(c['errors'])} uncaught error(s), {len(c['console'])} console message(s), "
            f"{len(c['failed_requests'])} failed call(s)",
            f"- Report: #{report['id']} (saved {report['created_at']})",
-           f"- Page: `{c['route'] or '/'}`" + (f" ({_cell(c['page_title'])})" if c.get("page_title") else ""),
+           f"- Page: `{c['route'] or '/'}`" + (f" ({_cell(c['page_title'])})" if include_server and c.get("page_title") else ""),
            f"- Mode: {c['mode']}",
            f"- App: {c['app_version'] or '?'} · API {c['api_version'] or '?'}"
            + (f" ({c['environment']})" if c["environment"] else ""),
