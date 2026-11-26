@@ -354,7 +354,7 @@ export default function SourceStage() {
       {kind === 'novel' && <NovelFlow busy={busy} onJobStarted={setJobId} />}
       {kind === 'novel' && <NovelChaptersPanel />}
       {kind === 'comic' && <ComicPagesPanel dramaId={dramaId} reloadKey={reloads} />}
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind === 'novel'} optional={sections === 'optional'} />
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')
