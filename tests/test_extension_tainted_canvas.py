@@ -89,6 +89,10 @@ class TestPageSideFallback:
         assert "would not take a picture" in out["refused"]["error"] and out["refused"]["sent"] == []
         assert out["refused"]["marks"][-1] == "remove data-baihe-shot"
 
+    def test_page_mode_takes_the_page_showing_not_the_first_one_mounted(self):
+        out = _run("content", "page_mode_takes_the_page_in_view")
+        assert out["fetched"] == [out["fetched"][0]] and "2" in out["fetched"][0], out
+
     def test_a_page_taller_than_the_window_is_pictured_in_strips(self):
         out = _run("content", "canvas_screenshot_tall_page_is_stitched")
         assert out["ok"] is True, out

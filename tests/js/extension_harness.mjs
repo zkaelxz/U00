@@ -228,6 +228,14 @@ async function content(scenario) {
         refused: await shoot({ screenshot: { on: true, reply: { ok: false, error: "the browser would not take a picture of the tab" } } }),
       };
     }
+    case "page_mode_takes_the_page_in_view": {
+      // A long strip keeps every page mounted; the one scrolled past sits above the screen.
+      const [past, current] = [placed(fakeCanvas(800, 1200), -1500), placed(fakeCanvas(800, 1200), 100)];
+      past.getAttribute = (a) => (a === "data-src" ? IMG_URL : null);
+      current.getAttribute = (a) => (a === "data-src" ? IMG_URL_2 : null);
+      container([past, current]);
+      return run(visible, { canvases: [past, current], fetchImage: byUrl });
+    }
     case "canvas_screenshot_tall_page_is_stitched": {
       // A 1500-tall page 100 down a window 800 tall: the reader scrolls, so two pictures cover it.
       const canvas = fakeCanvas(800, 1500);

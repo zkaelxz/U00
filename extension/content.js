@@ -1327,6 +1327,21 @@
     return { hash: await sha256Hex(new TextEncoder().encode(`url|${url}`)), url, fetch: true };
   }
 
+  // A long-strip reader keeps every page mounted, so the topmost element is the first page of the
+  // chapter, not the one being read. The page showing most on screen is the one the person means.
+  function mostInView(elements) {
+    let best = elements[0];
+    let bestArea = 0;
+    for (const el of elements) {
+      const r = el.getBoundingClientRect();
+      const w = Math.min(r.right ?? r.left + r.width, window.innerWidth) - Math.max(r.left, 0);
+      const h = Math.min(r.bottom ?? r.top + r.height, window.innerHeight) - Math.max(r.top, 0);
+      const area = w > 0 && h > 0 ? w * h : 0;
+      if (area > bestArea) { best = el; bestArea = area; }
+    }
+    return best;
+  }
+
   async function translateVisibleRun({ dramaId, store, all }, run) {
     if (looksLikeChallengePage()) {
       return {
@@ -1340,7 +1355,7 @@
       return { ok: false, error: "No page-sized images found here. If the page is still " +
                                  "loading, or you need to scroll to it, try again." };
     }
-    const chosen = all ? elements : [elements[0]];
+    const chosen = all ? elements : [mostInView(elements)];
     // Keyed by content hash, not by element: a reader that shows the
     // same image in two places (a spread and its thumbnail, a preloaded
     // next page) would otherwise encode and upload identical megabytes
