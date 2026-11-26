@@ -399,3 +399,9 @@ def test_a_channels_word_list_is_cleaned_saved_and_used_by_its_live_start(follow
 def test_a_bad_word_list_is_refused(follows, terms):
     with pytest.raises(InvalidInputError):
         svc.add_follow("@name", principal=ALICE, options={"terms": terms})
+
+
+def test_a_full_word_list_of_cjk_words_fits_the_options_cap(follows):
+    terms = [{"original": f"{i:02d}" + "高" * 28, "translation": "t" * 40} for i in range(50)]
+    v = svc.add_follow("@name", principal=ALICE, options={"terms": terms})
+    assert len(v["options"]["terms"]) == 50

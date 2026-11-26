@@ -63,7 +63,7 @@ MAX_INPUT_LEN = 300
 MAX_NAME_LEN = 100
 MAX_STATUS_LEN = 120
 # Room for a word list of MAX_TERMS entries written in CJK (3 bytes a character) beside the other options.
-MAX_OPTIONS_BYTES = 12000
+MAX_OPTIONS_BYTES = 12000   # measured as UTF-8, not as \uXXXX escapes
 MAX_TERMS = 50
 TERM_ORIGINAL_MAX = 30
 TERM_TRANSLATION_MAX = 40
@@ -403,7 +403,7 @@ def _check_mode(mode, principal, owner_user_id, auto_check) -> str:
 
 
 def _dump(options: dict) -> str:
-    text = json.dumps(options, sort_keys=True)
+    text = json.dumps(options, sort_keys=True, ensure_ascii=False)
     if len(text.encode("utf-8")) > MAX_OPTIONS_BYTES:
         raise InvalidInputError("The Live options are too long.")
     return text
