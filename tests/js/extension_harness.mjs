@@ -228,6 +228,20 @@ async function content(scenario) {
         refused: await shoot({ screenshot: { on: true, reply: { ok: false, error: "the browser would not take a picture of the tab" } } }),
       };
     }
+    case "canvas_screenshot_tall_page_is_stitched": {
+      // A 1500-tall page 100 down a window 800 tall: the reader scrolls, so two pictures cover it.
+      const canvas = fakeCanvas(800, 1500);
+      let scrollY = 0;
+      canvas.getBoundingClientRect = () => ({ top: 100 - scrollY, left: 0, width: 800, height: 1500 });
+      canvas.scrollIntoView = () => {};
+      container([canvas]);
+      const h = loadContent({ canvases: [canvas], fetchImage: okImage(), bitmap: { width: 800, height: 800 }, screenshot: { on: true } });
+      h.sandbox.__bitmap = { width: 800, height: 800 };
+      h.sandbox.scrollTo = (_x, y) => { scrollY = Math.max(0, Math.min(y, 800)); };
+      Object.defineProperty(h.sandbox, "scrollY", { get: () => scrollY });
+      const result = await h.ask(visible);
+      return { ok: result.ok, error: result.error, shots: h.shots.length, sent: h.sent.flatMap((m) => m.images).length };
+    }
     case "page_drawn_before_its_batch_answers": {
       // The worker forwards a finished page while its batch is still out; the batch's own
       // answer then carries no pages. The page must be drawn before that answer arrives.

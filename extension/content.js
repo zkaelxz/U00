@@ -206,7 +206,10 @@
       c.height = size;
       const ctx = c.getContext("2d", { willReadFrequently: true });
       ctx.drawImage(el, 0, 0, size, size);
-      return ctx.getImageData(0, 0, size, size).data.join(",");
+      const data = ctx.getImageData(0, 0, size, size).data;
+      // A site that replaces getImageData hands back a 1x1 stand-in: that is an unreadable
+      // element, not a blank one.
+      return data.length === size * size * 4 ? data.join(",") : null;
     } catch (e) {
       return null;
     }
@@ -309,9 +312,10 @@
     el.scrollIntoView({ block: "center", inline: "nearest" });
     await sleep(250);
     const rect = el.getBoundingClientRect();
-    if (rect.height > window.innerHeight + 2 || rect.width > window.innerWidth + 2) {
-      throw refuse("a screenshot cannot take a page taller than the window, so zoom the browser out");
+    if (rect.width > window.innerWidth + 2) {
+      throw refuse("a screenshot cannot take a page wider than the window, so zoom the browser out");
     }
+    if (rect.height > window.innerHeight + 2) return extractTallViaScreenshot(el, refuse);
     const wait = SCREENSHOT_GAP_MS - (Date.now() - lastShotAt);
     if (wait > 0) await sleep(wait);
     document.documentElement.setAttribute("data-baihe-shot", "1");
@@ -342,6 +346,75 @@
     taintedCanvases.add(el);
     return { data: base64(buffer), content_type: "image/png", width, height, hash: await sha256Hex(buffer),
              url: el.currentSrc || el.src || location.href, screenshot: true };
+  }
+
+  // One tab picture, decoded. Shared by the single and the stitched paths.
+  async function shotOfTab(refuse) {
+    const wait = SCREENSHOT_GAP_MS - (Date.now() - lastShotAt);
+    if (wait > 0) await sleep(wait);
+    document.documentElement.setAttribute("data-baihe-shot", "1");
+    let response;
+    try {
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+      response = await chrome.runtime.sendMessage({ type: "captureTab" });
+    } finally {
+      document.documentElement.removeAttribute("data-baihe-shot");
+      lastShotAt = Date.now();
+    }
+    if (!response || !response.ok) throw refuse(response && response.error || "the screenshot failed");
+    const raw = atob(response.data.data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) bytes[i] = raw.charCodeAt(i);
+    return createImageBitmap(new Blob([bytes], { type: "image/png" }));
+  }
+
+  // A page taller than the window (a long-strip reader): the reader is scrolled a screen at a
+  // time, each strip of the page that is on screen is cropped from a tab picture, and the strips
+  // are joined. Only pixels the person's own browser is showing are used.
+  async function extractTallViaScreenshot(el, refuse) {
+    const scroller = makeScroller();
+    const startTop = scroller.top();
+    const first = el.getBoundingClientRect();
+    const fullHeight = first.height;
+    let canvas = null;
+    let scale = 1;
+    let done = 0;
+    let guard = 0;
+    try {
+      while (done < fullHeight - 1 && guard < 40) {
+        guard += 1;
+        const rect = el.getBoundingClientRect();
+        // Bring the first undone row to the top of the screen; at the end of the chapter the
+        // reader stops short and the row is lower down, which screenY below accounts for.
+        scroller.to(Math.max(0, scroller.top() + rect.top + done));
+        await sleep(300);
+        const now = el.getBoundingClientRect();
+        // Where the first undone row sits on screen; off screen means the reader did not move.
+        const screenY = now.top + done;
+        if (screenY < 0 || screenY >= window.innerHeight) throw refuse("the reader would not scroll to the rest of this page");
+        const rows = Math.min(fullHeight - done, window.innerHeight - screenY);
+        const shot = await shotOfTab(refuse);
+        scale = shot.width / window.innerWidth;
+        if (!canvas) {
+          canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(now.width * scale));
+          canvas.height = Math.max(1, Math.round(fullHeight * scale));
+        }
+        canvas.getContext("2d").drawImage(
+          shot, Math.round(now.left * scale), Math.round(screenY * scale), canvas.width, Math.round(rows * scale),
+          0, Math.round(done * scale), canvas.width, Math.round(rows * scale));
+        done += rows;
+      }
+    } finally {
+      scroller.to(startTop);
+    }
+    if (!canvas || done < fullHeight - 1) throw refuse("the whole page could not be pictured");
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) throw refuse("the screenshot could not be joined");
+    const buffer = await blob.arrayBuffer();
+    taintedCanvases.add(el);
+    return { data: base64(buffer), content_type: "image/png", width: canvas.width, height: canvas.height,
+             hash: await sha256Hex(buffer), url: el.currentSrc || el.src || location.href, screenshot: true };
   }
 
   async function extractPixels(el) {
@@ -1473,7 +1546,11 @@
          node && node !== document.body && node !== document.documentElement;
          node = node.parentElement) {
       const overflow = getComputedStyle(node).overflowY;
-      if ((overflow === "auto" || overflow === "scroll") &&
+      // A reader built on a custom scrollbar (Bilibili Manga) hides the native one with
+      // overflow:hidden but still scrolls by scrollTop. Only a box about as tall as the screen
+      // counts, so a cropped thumbnail frame is not taken for the reader.
+      const scrollsByScript = overflow === "hidden" && node.clientHeight >= window.innerHeight * 0.5;
+      if ((overflow === "auto" || overflow === "scroll" || scrollsByScript) &&
           node.scrollHeight > node.clientHeight + 50) {
         return node;
       }
