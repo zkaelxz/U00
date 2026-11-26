@@ -50,3 +50,16 @@ describe('check for updates', () => {
     expect(() => m.checkForUpdates()).not.toThrow()
   })
 })
+
+describe('hiding the app strip', () => {
+  it('asks the app to hide and show its strip, and is quiet without it', async () => {
+    const hide = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), setBarsHidden: hide } })
+    const m = await import('./phoneShell')
+    m.setShellBarsHidden(true)
+    m.setShellBarsHidden(false)
+    expect(hide.mock.calls).toEqual([[true], [false]])
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(() => m.setShellBarsHidden(true)).not.toThrow()
+  })
+})
