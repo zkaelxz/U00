@@ -43,6 +43,7 @@ import { usePcProfile } from './hooks/usePcProfile'
 import { lockPcProfile, profilePicked, rememberProfilePicked } from './api/pcProfile'
 import { buttonClass } from './components/uiClasses'
 import { routeHref, useRoute } from './router'
+import { watchApiReachability, type ApiState } from './apiReachability'
 
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
 const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
@@ -71,48 +72,6 @@ const SharePage = lazy(() => import('./pages/SharePage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
-const API_STATUS_RECHECK_MS = 30_000
-const API_STATUS_CONFIRM_MS = 3_000
-
-type ApiState = 'unknown' | 'up' | 'down'
-
-// A phone suspends the page's network when another app is in front, so a check that fails there says nothing
-// about the server: a failure only counts after a second try while the page is visible, and coming back to the
-// front (focus, visibilitychange, online, pageshow: a WebView fires only some of them) re-checks at once.
-export function watchApiReachability(
-  probe: () => Promise<unknown>,
-  setState: (state: ApiState) => void,
-  win: Pick<Window, 'addEventListener' | 'removeEventListener'>,
-  doc: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>,
-): () => void {
-  let stopped = false
-  let retry: ReturnType<typeof setTimeout> | undefined
-  const check = (confirming = false) => {
-    clearTimeout(retry)
-    if (doc.visibilityState === 'hidden') return
-    probe().then(
-      () => !stopped && setState('up'),
-      () => {
-        if (stopped) return
-        if (confirming) setState('down')
-        else retry = setTimeout(() => check(true), API_STATUS_CONFIRM_MS)
-      },
-    )
-  }
-  const recheck = () => check()
-  check()
-  const timer = setInterval(recheck, API_STATUS_RECHECK_MS)
-  const winEvents = ['focus', 'online', 'pageshow']
-  winEvents.forEach((e) => win.addEventListener(e, recheck))
-  doc.addEventListener('visibilitychange', recheck)
-  return () => {
-    stopped = true
-    clearTimeout(retry)
-    clearInterval(timer)
-    winEvents.forEach((e) => win.removeEventListener(e, recheck))
-    doc.removeEventListener('visibilitychange', recheck)
-  }
-}
 
 // "Can't reach Baihe" everywhere once a check has failed. With room for words (a wide window or a pop-out) the
 // last answered check also shows "Connected", and before the first answer nothing shows, so a slow start never

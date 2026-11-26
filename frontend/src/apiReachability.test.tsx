@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { watchApiReachability } from './App'
+import { watchApiReachability } from './apiReachability'
 
 // Runs the poll against a tiny event target so it needs no DOM.
 function makeTarget(visibility: 'visible' | 'hidden' = 'visible') {
