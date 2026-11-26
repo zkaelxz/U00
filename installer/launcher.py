@@ -196,6 +196,18 @@ def health_ok(port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+# A server that is busy (a long page read, say) can take far longer than the
+# 1 s probe to answer; only a port that is held earns the longer wait, so a
+# stopped app still starts fast.
+BUSY_HEALTH_SECONDS = 20.0
+
+
+def app_answers(port: int) -> bool:
+    if health_ok(port):
+        return True
+    return port_open(port) and health_ok(port, BUSY_HEALTH_SECONDS)
+
+
 def port_open(port: int) -> bool:
     with socket.socket() as s:
         s.settimeout(0.5)
@@ -635,7 +647,7 @@ def launch(headless: bool = False) -> int:
         env["BAIHE_API_PORT"] = str(stored)
     port = port_from_env(env)
     url = app_url(port)
-    if not health_ok(port):
+    if not app_answers(port):
         if not portable.is_installed() and not os.environ.get(portable.DATA_DIR_ENV, "").strip():
             # Without app\INSTALLED (an interrupted upgrade) the server would
             # keep the library in the program folder, which Setup replaces.
