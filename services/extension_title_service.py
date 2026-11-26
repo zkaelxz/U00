@@ -17,6 +17,7 @@ the stored display name only, never the page address or a filesystem path.
 import re
 import threading
 import unicodedata
+from collections.abc import Set
 from urllib.parse import parse_qsl, urlsplit
 
 import comic_chapter_links
@@ -526,14 +527,14 @@ def _han_number(text: str):
     return str(total) if total else None
 
 
-def _without_site_tail(label: str, site: set) -> str:
+def _without_site_tail(label: str, site: Set[str]) -> str:
     tail = _SITE_TAIL.search(label)
     if tail and (term_key(tail.group(1)).replace(" ", "") in site or _SITE_WORD.search(tail.group(1).strip())):
         return label[:tail.start()].strip()
     return label
 
 
-def _number_in(text: str, site: set = frozenset()):
+def _number_in(text: str, site: Set[str] = frozenset()):
     """(number, label) for the first chapter mark in one page title, else None. The label is
     the title from that mark on within its own piece ("第12话 重逢" out of
     "Name 第12话 重逢 - Site"), so the series and site names around it are left out."""
