@@ -45,6 +45,31 @@ describe('watchApiReachability', () => {
     expect(states).toEqual(['down', 'up'])
   })
 
+  it('counts a refocus during the wait as the confirming check', async () => {
+    const probe = vi.fn().mockRejectedValue(new Error('down'))
+    const states: string[] = []
+    const t = makeTarget()
+    watchApiReachability(probe, (s) => states.push(s), t as never, t as never)
+    await flush()
+    t.fire('focus')
+    await flush()
+    expect(states).toEqual(['down'])
+  })
+
+  it('forgets a failure seen before the app was sent to the background', async () => {
+    const probe = vi.fn().mockRejectedValue(new Error('down'))
+    const states: string[] = []
+    const t = makeTarget()
+    watchApiReachability(probe, (s) => states.push(s), t as never, t as never)
+    await flush()
+    t.visibilityState = 'hidden'
+    t.fire('visibilitychange')
+    t.visibilityState = 'visible'
+    t.fire('visibilitychange')
+    await flush()
+    expect(states).toEqual([])
+  })
+
   it('does not check while the page is hidden', async () => {
     const probe = vi.fn().mockRejectedValue(new Error('down'))
     const states: string[] = []

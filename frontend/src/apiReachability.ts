@@ -15,16 +15,28 @@ export function watchApiReachability(
   doc: Pick<Document, 'addEventListener' | 'removeEventListener' | 'visibilityState'>,
 ): () => void {
   let stopped = false
+  let failedOnce = false
   let retry: ReturnType<typeof setTimeout> | undefined
-  const check = (confirming = false) => {
-    clearTimeout(retry)
-    if (doc.visibilityState === 'hidden') return
+  const check = () => {
+    if (doc.visibilityState === 'hidden') {
+      failedOnce = false
+      return
+    }
     probe().then(
-      () => !stopped && setState('up'),
       () => {
         if (stopped) return
-        if (confirming) setState('down')
-        else retry = setTimeout(() => check(true), API_STATUS_CONFIRM_MS)
+        failedOnce = false
+        setState('up')
+      },
+      () => {
+        // A check that was in flight when the app went to the background fails for that reason alone.
+        if (stopped || doc.visibilityState === 'hidden') return
+        if (failedOnce) return setState('down')
+        failedOnce = true
+        retry ??= setTimeout(() => {
+          retry = undefined
+          check()
+        }, API_STATUS_CONFIRM_MS)
       },
     )
   }
