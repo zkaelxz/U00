@@ -24,12 +24,19 @@ export const seriesTitle = (folder: string) => folder.replace(/ \[[^\]]+\]$/, ''
 
 const seriesKey = (source: string, series: string) => `${source}/${series}`
 
+// The direction last chosen on any series of a site starts every new series of that site the same way: a site that
+// publishes right-to-left manga should not need the switch turned on for each series.
+const siteDirectionKey = (source: string) => `manga.direction.${source}`
+
 export function loadMangaPrefs(storage: StorageLike | null, source: string, series: string): ComicPrefs {
   const raw = readPref<Record<string, unknown>>(storage, `manga.view.${seriesKey(source, series)}`, {})
-  return { ...sanitizePrefs(raw, MANGA_DEFAULTS), typeset: false, text: false }
+  const direction = readPref(storage, siteDirectionKey(source), '')
+  const defaults = direction ? { ...MANGA_DEFAULTS, rtl: direction === 'rtl' } : MANGA_DEFAULTS
+  return { ...sanitizePrefs(raw, defaults), typeset: false, text: false }
 }
 
 export function saveMangaPrefs(storage: StorageLike | null, source: string, series: string, prefs: ComicPrefs): boolean {
+  writePref(storage, siteDirectionKey(source), prefs.rtl ? 'rtl' : 'ltr')
   return writePref(storage, `manga.view.${seriesKey(source, series)}`, prefs)
 }
 

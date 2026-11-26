@@ -15,6 +15,7 @@ import { ErrorBanner } from '../components/ErrorBanner'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import type { ComicPageInfo } from '../types/comic'
 import type { SavedChapterPages } from '../types/savedComics'
+import { useAutoScroll } from './comic/useAutoScroll'
 import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
 import { clampPage, inRenderWindow, spreadDisplayOrder, ZOOM, type ComicPrefs } from './comic/comicLogic'
@@ -62,6 +63,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const pages = useMemo(() => pageInfos(data?.pages ?? []), [data])
   const count = pages.length
   const prefs = useMemo(() => stored ?? loadMangaPrefs(browserStorage(), source, series), [stored, source, series])
+  const scroller = useAutoScroll(prefs.mode === 'vertical')
   const start = count ? clampPage(initialPage, count) : null
   const current = picked ?? start
   const { activeJump, requestJump } = useJumpRequest(start)
@@ -161,7 +163,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
   const label = current !== null && count ? spreadCounter(count) : ''
 
   const view = (
-    <ComicViewControl prefs={prefs} onChange={setPrefs} canTypeset={false} phone={phone}>
+    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={false} phone={phone}>
       {phone && current !== null && count > 1 && <ComicGoTo count={count} onGo={go} />}
     </ComicViewControl>
   )
