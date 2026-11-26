@@ -18,6 +18,7 @@ const DEVELOPER_MODE_EVENT = 'baihe:developer-mode'
 // One page mounts many hooks at once (Settings has about a dozen); they share one request.
 // The cache is dropped on every announce and never keeps a failed load.
 let sharedLoad: Promise<boolean> | null = null
+let sharedLoadAt = 0
 
 export function announceDeveloperMode(on: boolean): void {
   sharedLoad = null
@@ -57,6 +58,7 @@ export function loadDeveloperModeShared(deps: DeveloperModeDeps = DEFAULT_DEPS):
   if (!sharedLoad) {
     const mine = fetchDeveloperMode(deps)
     sharedLoad = mine
+    sharedLoadAt = performance.now()
     mine.catch(() => {
       if (sharedLoad === mine) sharedLoad = null
     })
@@ -74,7 +76,9 @@ export function useDeveloperModeKnown(enabled = true): boolean | null {
     if (!enabled) return
     let live = true
     let seq = 0
-    const refresh = () => {
+    const refresh = (e?: Event) => {
+      // A flip announced without announceDeveloperMode() still has to reach the server.
+      if (e && sharedLoadAt < e.timeStamp) sharedLoad = null
       const mine = ++seq
       void loadDeveloperModeShared().then((v) => {
         if (live && mine === seq) setOn(v)
