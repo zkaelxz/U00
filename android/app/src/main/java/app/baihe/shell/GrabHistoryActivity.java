@@ -91,6 +91,7 @@ public class GrabHistoryActivity extends Activity {
                 refresh();
             }));
             card.addView(actions);
+            card.setOnClickListener(v -> command("open", item.url));
             list.addView(card);
         }
 
@@ -99,10 +100,14 @@ public class GrabHistoryActivity extends Activity {
             CharSequence when = DateUtils.getRelativeTimeSpanString(
                     entry.at, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS);
             LinearLayout card = card(entry.name, when + ": " + entry.message);
-            if (!entry.url.isEmpty()) {
+            if (entry.url.isEmpty()) {
+                card.addView(text("No page address was saved for this one.", 13, false, palette.muted));
+            } else {
+                // The whole card goes back to the page: a small button is easy to miss on a phone.
+                card.setOnClickListener(v -> command("open", entry.url));
                 LinearLayout actions = row();
                 actions.addView(button("Open page", palette.accent, v -> command("open", entry.url)));
-                if (entry.quick) actions.addView(button("Read again", palette.accent, v -> command("read", entry.url)));
+                actions.addView(button("Read again", palette.accent, v -> command("read", entry.url)));
                 card.addView(actions);
             }
             list.addView(card);
@@ -153,20 +158,29 @@ public class GrabHistoryActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         int pad = GrabUi.dp(this, 12);
         card.setPadding(pad, pad, pad, pad);
-        card.setBackgroundColor(palette.surface);
+        card.setBackground(GrabUi.box(this, palette.surface, palette.border, 12, 1));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         params.setMargins(0, 0, 0, GrabUi.dp(this, 8));
         card.setLayoutParams(params);
-        card.addView(text(name, 16, true, palette.text));
+        TextView heading = text(name, 16, true, palette.text);
+        heading.setMaxLines(2);
+        heading.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        card.addView(heading);
         card.addView(text(detail, 14, false, palette.muted));
         return card;
     }
 
     private TextView button(String label, int color, View.OnClickListener onClick) {
         TextView view = text(label, 15, true, color);
-        int pad = GrabUi.dp(this, 10);
-        view.setPadding(0, pad, pad * 2, pad);
+        view.setGravity(Gravity.CENTER);
+        view.setMinHeight(GrabUi.dp(this, 48));
+        view.setPadding(GrabUi.dp(this, 14), 0, GrabUi.dp(this, 14), 0);
+        view.setBackground(GrabUi.box(this, palette.surface, palette.border, 10, 1));
+        LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        gap.setMargins(0, 0, GrabUi.dp(this, 8), 0);
+        view.setLayoutParams(gap);
         view.setOnClickListener(onClick);
         return view;
     }
