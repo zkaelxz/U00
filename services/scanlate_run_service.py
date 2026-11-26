@@ -283,15 +283,26 @@ def _translation_context(drama_id: int, page_id: int) -> str:
                                        _predecessor_tail(drama_id, page_id)) if part)
 
 
-def _side_by_side_context(summary: str, previous_regions: list) -> str:
+# Enough of a translated page to show how its names and club or place terms were put.
+_STORED_LINES = 12
+
+
+def _side_by_side_context(summary: str, stored_page_id, previous_regions: list) -> str:
     """The context of a page translated while the page before it still is: the newest
-    summary this run has, and the previous page's last lines as read, with no English yet."""
+    summary this run has, the English of the newest page it stored (in the blind test of
+    2026-11-26, pages without it romanised a club name an earlier page had put in English),
+    and the previous page's last lines as read, with no English yet."""
+    stored = [f"{(b.get('source_text') or '').strip()} => {(b.get('translated_text') or '').strip()}"
+              for b in (db.load_bubbles(stored_page_id) if stored_page_id is not None else [])
+              if (b.get("translated_text") or "").strip() and not b.get("skip")]
+    earlier = ("Lines of an earlier page of this chapter (source => English); put the same names "
+               "and terms the same way: " + " | ".join(stored[-_STORED_LINES:])) if stored else ""
     lines = [(b.get("source_text") or "").strip() for b in previous_regions
              if not b.get("skip") and b.get("kind") != "sfx" and (b.get("source_text") or "").strip()]
     tail = ("Last lines of the previous page (source only; it is being translated at the same "
             "time, so its English isn't ready); the first lines of this page may continue the "
             "same sentence: " + " | ".join(lines[-_TAIL_REGIONS:])) if lines else ""
-    return " ".join(part for part in (summary, tail) if part)
+    return " ".join(part for part in (summary, earlier, tail) if part)
 
 
 _STAMP_LOOKBACK_PAGES = 4
@@ -782,9 +793,9 @@ def _translate_stage(drama_id: int, drama: dict, page_id: int, mode: str, engine
                      chapter_brief: str = "", keep_text: bool = False, side_by_side=None):
     """Detection's result for one page, translated in memory: nothing is stored, so
     pages can do this side by side. Returns _detect_stage's final outcome string or
-    the dict _save_stage stores. `side_by_side` is (summary, {page id: regions as
-    read}) for a page whose predecessor is still being translated: the page's
-    context is then built from those instead of the stored predecessor's English."""
+    the dict _save_stage stores. `side_by_side` is (summary, newest stored page id,
+    {page id: regions as read}) for a page whose predecessor is still being translated:
+    the page's context is then built from those instead of the stored predecessor's English."""
     started = time.monotonic()
     result = (detected.result() if detected is not None
               else _detect_stage(drama_id, drama, page_id, mode, detect_kwargs, jid, keep_text))
@@ -792,7 +803,7 @@ def _translate_stage(drama_id: int, drama: dict, page_id: int, mode: str, engine
     if isinstance(result, str):
         return result
     existing, expected_ids, expected_rev, bubbles, detect_notes = result
-    summary, unsaved = side_by_side or ("", {})
+    summary, stored_page_id, unsaved = side_by_side or ("", None, {})
     _flag_repeated_site_marks(drama_id, page_id, bubbles, unsaved)
     reused = keep_text and not detect_notes and bool(existing)
     notes = ([("info", "Detector: skipped, the text already read was reused.")] if reused
@@ -804,7 +815,7 @@ def _translate_stage(drama_id: int, drama: dict, page_id: int, mode: str, engine
     english_before = [b.get("translated_text") for b in bubbles]
     if bubbles and not _ocr_lost_text(existing, detect_notes):
         previous = _predecessor_page(drama_id, page_id) if unsaved else None
-        context = (_side_by_side_context(summary, unsaved[previous["id"]])
+        context = (_side_by_side_context(summary, stored_page_id, unsaved[previous["id"]])
                    if previous is not None and previous["id"] in unsaved
                    else _translation_context(drama_id, page_id))
         translated_ok, new_context = _translate(
@@ -964,7 +975,8 @@ class _SideBySide:
     """The pages of a run translated `width` at a time. Translating stores nothing, so pages
     can do it at once; storing (save) stays one page at a time in the run's order. A page
     started while the page before it is still being translated is told that page's text as
-    read, and the newest summary a stored page gave, instead of the English it doesn't have."""
+    read, with the newest summary and the English of the newest page stored, instead of the
+    English it doesn't have."""
 
     def __init__(self, width: int, page_ids: list, detected: dict, translate):
         self.width = width
@@ -975,6 +987,7 @@ class _SideBySide:
                       if width > 1 else None)
         self._started = {}                 # page id -> its translation Future, not yet stored
         self._summary = ""
+        self._stored = None                # the newest page stored, whose English later pages see
         self._timing_job = job_timing.current_job()
 
     def start_through(self, end: int) -> None:
@@ -988,12 +1001,12 @@ class _SideBySide:
 
     def _start(self, pool, pid: int, unsaved_before: list) -> None:
         detected = {p: self._detected[p] for p in unsaved_before + [pid]}
-        summary, timing_job = self._summary, self._timing_job
+        summary, stored, timing_job = self._summary, self._stored, self._timing_job
 
         def run():
             job_timing.set_current_job(timing_job)
             unsaved = {p: _read_regions(detected[p], p) for p in unsaved_before}
-            return self._translate(pid, detected[pid], (summary, unsaved))
+            return self._translate(pid, detected[pid], (summary, stored, unsaved))
         self._started[pid] = pool.submit(contextvars.copy_context().run, run)
 
     def save(self, pid: int, save):
@@ -1007,6 +1020,8 @@ class _SideBySide:
         outcome = save(translated)
         if isinstance(translated, dict) and translated["new_context"]:
             self._summary = translated["new_context"]
+        if outcome in ("translated", "done"):
+            self._stored = pid
         return outcome
 
     def __enter__(self):

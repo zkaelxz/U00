@@ -481,6 +481,19 @@ def test_a_page_beside_its_predecessor_gets_that_pages_text_not_its_old_english(
     assert "Old hello" not in second and "An old summary." not in second
 
 
+def test_a_page_beside_its_predecessor_sees_the_english_of_the_newest_stored_page(harness, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pages = [_page(did, i) for i in range(4)]
+    _detect_by_page(monkeypatch, {pid: [_region(text)] for pid, text in
+                                  zip(pages, ("你好", "世界", "破裂", "再见"))})
+    patch_setting(monkeypatch, "scanlate_page_image", False)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", pages, "llm", _HostedLLM(), "auto")
+    # The fourth page starts once the first is stored, while the third is still in flight.
+    fourth = _page_prompt(prompts, "再见")
+    assert "你好 => EN 你好" in fourth and "source only" in fourth and "破裂" in fourth
+
+
 def test_an_engine_on_this_pc_still_carries_the_previous_pages_english(harness, monkeypatch):
     did, pages = _three_pages(monkeypatch)
     prompts = _llm_calls(monkeypatch)
