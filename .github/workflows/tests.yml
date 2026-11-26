@@ -199,14 +199,19 @@ jobs:
       - name: Check requirements, constraints and installer lock agree
         run: python scripts/check_constraints.py
 
-  # Fails when a tracked file, or a commit this PR adds (message, author or
-  # committer), contains one of the owner's private terms: real names, family
+  # Fails when a tracked file or path, the PR's title or description (which the
+  # squash commit carries), or a commit this PR or push adds (message, author or
+  # committer) contains one of the owner's private terms: real names, family
   # nicknames, PC names, personal emails. The repository is public, so the terms
   # live only in the PRIVATE_TERMS secret (one per line) and nothing here prints
-  # them: a hit names the file and line, or the commit, only. A hash list was
-  # rejected because short names are trivially guessed from their hashes. Runs
-  # no code from the PR. Dependabot runs get no secrets and change no prose, so
-  # they skip; any other run without the secret fails rather than passing blind.
+  # them: a hit names the file and line, the commit, or the PR text only. A hash
+  # list was rejected because short names are trivially guessed from their
+  # hashes. The secret is only as private as push access: a branch of this repo
+  # can edit this workflow, so a fork PR gets no secret and fails. Dependabot
+  # runs get no secrets and change no prose, so they skip; any other run without
+  # the secret fails rather than passing blind. The history is fetched quietly
+  # because the runner masks every term in the log, and a listed branch name
+  # with a masked part would hint at a term.
   privacy:
     needs: changes
     runs-on: ubuntu-latest
@@ -215,14 +220,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
 
       - name: No private names, nicknames, PC names or personal emails
         env:
           PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
           ACTOR: ${{ github.actor }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          EVENT: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
         run: |
           set -euo pipefail
           if [ -z "$PRIVATE_TERMS" ]; then
@@ -231,15 +238,32 @@ jobs:
             exit 1
           fi
           terms="$RUNNER_TEMP/terms"
-          printf '%s\n' "$PRIVATE_TERMS" | tr -d '\r' | sed '/^[[:space:]]*$/d' > "$terms"
+          printf '%s\n' "$PRIVATE_TERMS" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$terms"
+          if [ ! -s "$terms" ]; then echo "::error::PRIVATE_TERMS holds no terms."; exit 1; fi
           found=0
-          if hits="$(git grep -I -n -i -w -F -f "$terms" -- . | cut -d: -f1,2)"; then
-            printf '%s\n' "$hits" | sed 's/^/::error::Private term in /'
+          has_term() { grep -q -i -w -F -f "$terms" <<<"$1"; }
+          set +e; hits="$(git grep -I -n -i -w -F -f "$terms" -- .)"; rc=$?; set -e
+          if [ "$rc" -eq 0 ]; then
+            printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/::error::Private term in /'
             found=1
+          elif [ "$rc" -ne 1 ]; then
+            echo "::error::git grep failed ($rc)."; exit 1
           fi
-          if [ -n "$BASE_SHA" ]; then
-            for c in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
-              if git log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | grep -q -i -w -F -f "$terms"; then
+          if has_term "$(git ls-files)"; then echo "::error::Private term in a tracked file or folder name."; found=1; fi
+          range=""
+          if [ "$EVENT" = pull_request ]; then
+            has_term "$PR_TITLE" && { echo "::error::Private term in the PR title."; found=1; }
+            has_term "$PR_BODY" && { echo "::error::Private term in the PR description."; found=1; }
+            range="HEAD^1..HEAD^2"
+          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "${PUSH_BEFORE//0/}" != "" ]; then
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          if [ -n "$range" ]; then
+            git fetch --quiet --no-tags --unshallow origin
+            commits="$(git rev-list "$range")"
+            for c in $commits; do
+              meta="$(git log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c")"
+              if has_term "$meta"; then
                 echo "::error::Private term in the message, author or committer of commit $c"
                 found=1
               fi

@@ -256,13 +256,16 @@ Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
 
 ### Privacy check
 
-The repository is public. The `privacy` job fails when a tracked file, or the message, author or committer of a commit the
-PR adds, contains one of the owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP).
-The terms live only in the `PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job
-prints the file and line or the commit, never the term. Fix a hit by using a made-up value (`Alex Example`,
-`DESKTOP-EXAMPLE`, `C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email.
-Dependabot runs get no secrets and skip it; any other run without the secret fails. To change the list, update the secret
-(`gh secret set PRIVATE_TERMS < terms.txt` from a private copy), never a file in the repository.
+The repository is public. The `privacy` job fails when a tracked file or file name, the PR title or description (the
+squash commit carries them), or the message, author or committer of a commit the PR or push adds contains one of the
+owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). The terms live only in the
+`PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job prints the file and line,
+the commit or which PR field, never the term. Fix a hit by using a made-up value (`Alex Example`, `DESKTOP-EXAMPLE`,
+`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. Dependabot runs get
+no secrets and skip it; any other run without the secret fails, which includes fork PRs. The secret is only as private
+as push access, since a branch of this repository can change the workflow. Keep very short or common words out of the
+list: the runner masks each term in the log. To change the list, update the secret (`gh secret set PRIVATE_TERMS <
+terms.txt` from a private copy), never a file in the repository.
 
 ## Windows script checks
 
