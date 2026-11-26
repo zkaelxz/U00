@@ -403,7 +403,7 @@
         var y = r.top + done;
         if (y < 0 || y >= window.innerHeight) return false;
         var rows = Math.min(height - done, window.innerHeight - y);
-        var ok = await ask(function (id) { Baihe.snap(nonce, id, r.left, y, r.width, rows, window.innerWidth); });
+        var ok = await ask(function (id) { Baihe.snap(nonce, id, key, r.left, y, r.width, rows, window.innerWidth); });
         if (!ok) return false;
         strips++;
         done += rows;

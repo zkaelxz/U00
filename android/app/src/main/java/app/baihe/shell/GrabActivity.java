@@ -1166,6 +1166,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         grabbing = false;
         uploading = false;
         bridge.cancel();
+        strips.clear();
         String next = null;
         if (chaptersLeft > 0) {
             chaptersLeft--;
@@ -1237,11 +1238,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // A site that keeps its comic canvases from being read gets its pages from what the web view
     // shows on screen: strips are cropped here, joined here, and filed as the page. Nothing leaves
     // the app except to the running grab, by its secret callback name.
-    private final List<Bitmap> strips = new ArrayList<>();
+    private final PageStrips<Bitmap> strips = new PageStrips<>();
     private boolean desktopAgent;
 
     @Override
-    public void onSnap(String id, double left, double top, double width, double height, double viewWidth) {
+    public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {
         final String run = runningGrab;
         runOnUiThread(() -> {
             if (web == null || run.isEmpty() || !grabbing || web.getWidth() <= 0 || web.getHeight() <= 0) {
@@ -1262,10 +1263,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         int w = Math.min(shot.getWidth() - x, (int) Math.round(width * scale));
                         int h = Math.min(shot.getHeight() - y, (int) Math.round(height * scale));
                         if (w > 0 && h > 0) {
-                            synchronized (strips) {
-                                strips.add(Bitmap.createBitmap(shot, x, y, w, h));
+                            // A grab that ended while the picture was taken must not leave a strip behind.
+                            if (grabbing && run.equals(runningGrab)) {
+                                strips.add(key, Bitmap.createBitmap(shot, x, y, w, h));
+                                ok = true;
                             }
-                            ok = true;
                         }
                     }
                     shot.recycle();
@@ -1281,11 +1283,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     public void onStitch(String id, String key) {
         final String run = runningGrab;
-        List<Bitmap> taken;
-        synchronized (strips) {
-            taken = new ArrayList<>(strips);
-            strips.clear();
-        }
+        List<Bitmap> taken = strips.take(key);
         sender.execute(() -> {
             boolean ok = false;
             if (!taken.isEmpty() && grabbing && run.equals(runningGrab)) {
