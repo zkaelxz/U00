@@ -35,10 +35,11 @@ router = APIRouter(prefix="/api/media", tags=["media"])
                          "with details.reason \"confirm_replace_audio\" otherwise); the old file "
                          "is kept in the drama folder, never overwritten.",
              responses=error_responses(404, 409, 422))
-def post_upload_media(drama_id: int = Path(ge=1), file: UploadFile = File(...),
+def post_upload_media(request: Request, drama_id: int = Path(ge=1), file: UploadFile = File(...),
                       confirm_replace_audio: bool = Form(False)):
     return media_upload_service.upload_media(drama_id, file.filename, file.file,
-                                             confirm_replace_audio=confirm_replace_audio)
+                                             confirm_replace_audio=confirm_replace_audio,
+                                             principal=request.state.principal)
 
 
 @router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=MediaStatus,
@@ -83,7 +84,8 @@ def post_upload_and_transcribe(
         transcribe_options_service.validate_transcribe_options(drama_id, **opts.model_dump())
         upload = media_upload_service.upload_media(drama_id, file.filename, file.file,
                                                    transcribe_options=opts.model_dump(),
-                                                   confirm_replace_audio=confirm_replace_audio)
+                                                   confirm_replace_audio=confirm_replace_audio,
+                                                   principal=request.state.principal)
     if upload["job_id"]:  # video: the extraction job starts and follows the run
         return {"upload": upload, "job_id": upload["job_id"]}
     run_job_id = upload.pop("transcribe_job_id")  # audio: started under the upload claim

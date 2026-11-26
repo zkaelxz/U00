@@ -17,7 +17,7 @@ COPY_TAG = "Test copy"
 # original would let the extension or a sync treat the copy as the same title.
 _NOT_COPIED = ("id", "created_at", "updated_at", "notion_page_id", "source_url",
                "source_url_full", "episode_number", "last_translate_errors",
-               "owner_user_id", "is_private", "series_id")
+               "owner_user_id", "is_private", "series_id", "media_hash")
 # Per-title tables copied row for row. Line ids are new, so tables that point
 # at a line id (notes, emotions, reading history) are left out.
 _CHILD_TABLES = ("lines", "characters", "pages")

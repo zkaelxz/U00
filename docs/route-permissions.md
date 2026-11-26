@@ -149,6 +149,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/data-usage/move` | local_only() |
 | `GET /api/data-usage/previous-library` | local_only() |
 | `POST /api/data-usage/previous-library/delete` | local_only() |
+| `GET /api/data-usage/raw-videos` | local_only() |
+| `POST /api/data-usage/raw-videos/to-trash` | local_only() |
 | `POST /api/data-usage/to-trash` | local_only() |
 | `GET /api/data-usage/trash` | local_only() |
 | `POST /api/data-usage/trash/empty` | local_only() |
@@ -237,6 +239,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
 | `POST /api/dramas/by-links` | library.read |
+| `GET /api/dramas/duplicates` | library.read |
+| `POST /api/dramas/duplicates/scan` | admin.library |
 | `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |

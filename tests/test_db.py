@@ -962,7 +962,7 @@ _INIT_DB_MIGRATED_COLUMNS = {
         "split_by_sentences", "vocabulary_hint", "translate_thinking", "source_url_full",
         "keep_original", "translate_by_sentence", "release_date", "difficult_audio",
         "translate_start_json", "transcribe_start_json", "ass_styles", "episode_brief",
-        "created_by_user_id", "topic_chapters", "glossary_inbox"),
+        "created_by_user_id", "topic_chapters", "glossary_inbox", "media_hash"),
     "presets": ("options_json", "is_default"),
     "series": ("instructions", "owner_user_id", "is_private", "default_settings", "speaker_colours",
                "speaker_mode", "shared_group_id", "auto_pipeline", "streamer"),

@@ -121,6 +121,8 @@ def remove_media(drama_id, confirm=False) -> dict:
     cleared = {f: None for f in _MEDIA_FIELDS
                if failure is None or not os.path.isfile(paths[f] or "")}
     if cleared:
+        if len(cleared) == len(_MEDIA_FIELDS):
+            cleared["media_hash"] = None  # it described the files just removed
         db.update_drama(drama_id, **cleared)
     if "audio_filename" in cleared:
         storage.drop_separated_vocals(folder)

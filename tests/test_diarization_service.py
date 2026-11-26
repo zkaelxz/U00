@@ -23,6 +23,14 @@ from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputE
                                       UnsupportedOperationError)
 
 
+@pytest.fixture(autouse=True)
+def no_auto_clips_thread(monkeypatch):
+    """A finished detection starts a real clip-cutting thread; it would still be running when the test's
+    database goes away and then fail on its own thread, which pytest reports as an error in a later test."""
+    from services import voice_clone_service
+    monkeypatch.setattr(voice_clone_service, "start_auto_clips", lambda drama_id: False)
+
+
 def _drama_with_audio(isolated_db, **fields):
     fields.setdefault("title_en", "D")
     fields.setdefault("audio_filename", "audio.wav")

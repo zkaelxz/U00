@@ -157,6 +157,8 @@ def _sanitise_file_refs(table: str, row: dict, import_as):
     for col, subdir in IMPORT_FILE_COLUMNS.get(table, {}).items():
         if col in row:
             row[col] = _import_file_ref(import_as.get("media_dir"), row[col], subdir)
+    if table == "dramas" and not (row.get("audio_filename") or row.get("source_video_filename")):
+        row["media_hash"] = None  # a backup file must not make a title with no media block a file
 
 
 def _remap_json_lines(value, line_map, import_as=None):

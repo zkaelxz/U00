@@ -2181,6 +2181,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data-usage/raw-videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Old source videos of finished titles (subtitles kept), with an opaque id each; no paths */
+        get: operations["get_raw_videos_api_data_usage_raw_videos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/data-usage/raw-videos/to-trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move listed source videos into Baihe's Trash folder (confirm=true and the size shown for each). One that changed, was pinned or got a job meanwhile is skipped. */
+        post: operations["post_raw_videos_to_trash_api_data_usage_raw_videos_to_trash_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/data-usage/to-trash": {
         parameters: {
             query?: never;
@@ -3607,6 +3641,40 @@ export interface paths {
         put?: never;
         /** Which of these source page links already have a title the caller can see (Find & Add results) */
         post: operations["post_titles_by_links_api_dramas_by_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dramas/duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Titles that look like one title added twice (same file, link or name) */
+        get: operations["get_duplicate_titles_api_dramas_duplicates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dramas/duplicates/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hash the files of titles added before duplicates were checked, in the background */
+        post: operations["post_duplicate_scan_api_dramas_duplicates_scan_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -20262,6 +20330,30 @@ export interface components {
              */
             keep_original?: boolean;
         };
+        /** DuplicateGroup */
+        DuplicateGroup: {
+            /** Items */
+            items: components["schemas"]["DuplicateItem"][];
+            /**
+             * Same
+             * @enum {string}
+             */
+            same: "file" | "link" | "name";
+        };
+        /** DuplicateGroups */
+        DuplicateGroups: {
+            /** Groups */
+            groups: components["schemas"]["DuplicateGroup"][];
+            /** Unhashed */
+            unhashed: number;
+        };
+        /** DuplicateItem */
+        DuplicateItem: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+        };
         /** EffectiveGlossaryTerm */
         EffectiveGlossaryTerm: {
             /** Aliases */
@@ -22086,6 +22178,13 @@ export interface components {
             job_id: string;
             /** Runs */
             runs: components["schemas"]["JobStageRun"][];
+        };
+        /** JobStarted */
+        JobStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
         };
         /** JobsClearFinishedResult */
         JobsClearFinishedResult: {
@@ -26569,6 +26668,78 @@ export interface components {
             has_raw_novel_context: boolean;
             /** Removed */
             removed: boolean;
+        };
+        /** RawVideo */
+        RawVideo: {
+            /**
+             * Id
+             * @description Opaque; only valid until the server restarts.
+             */
+            id: string;
+            /** Modified At */
+            modified_at: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Title */
+            title: string;
+        };
+        /** RawVideoChoice */
+        RawVideoChoice: {
+            /**
+             * Expected Size Bytes
+             * @description The size the user was shown.
+             */
+            expected_size_bytes: number;
+            /** Id */
+            id: string;
+        };
+        /** RawVideoList */
+        RawVideoList: {
+            /** Busy Reason */
+            busy_reason: string | null;
+            /** Min Age Days */
+            min_age_days: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Videos */
+            videos: components["schemas"]["RawVideo"][];
+        };
+        /** RawVideoSkipped */
+        RawVideoSkipped: {
+            /** Id */
+            id: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "no_longer_offered" | "changed";
+        };
+        /** RawVideoTrashDone */
+        RawVideoTrashDone: {
+            /**
+             * Moved Bytes
+             * @description Moved into Trash; nothing is freed until it is deleted from there.
+             */
+            moved_bytes: number;
+            /** Moved Count */
+            moved_count: number;
+            /** Skipped */
+            skipped: components["schemas"]["RawVideoSkipped"][];
+        };
+        /** RawVideoTrashRequest */
+        RawVideoTrashRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Min Age Days
+             * @default 30
+             */
+            min_age_days?: number;
+            /** Videos */
+            videos: components["schemas"]["RawVideoChoice"][];
         };
         /** ReadImageEstimate */
         ReadImageEstimate: {
@@ -41123,6 +41294,106 @@ export interface operations {
             };
         };
     };
+    get_raw_videos_api_data_usage_raw_videos_get: {
+        parameters: {
+            query?: {
+                min_age_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawVideoList"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_raw_videos_to_trash_api_data_usage_raw_videos_to_trash_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RawVideoTrashRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawVideoTrashDone"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_to_trash_api_data_usage_to_trash_post: {
         parameters: {
             query?: never;
@@ -44861,6 +45132,55 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_duplicate_titles_api_dramas_duplicates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicateGroups"];
+                };
+            };
+        };
+    };
+    post_duplicate_scan_api_dramas_duplicates_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
