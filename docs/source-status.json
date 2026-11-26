@@ -262,6 +262,17 @@
       ],
       "pace": "Fast off: terms not cleared. robots.txt asks ClaudeBot for Crawl-delay 1; the 2.0 s host_min_interval floor stays.",
       "pace_verified": "2026-11-26"
+    },
+    "wfwf": {
+      "status": "caveat",
+      "last_verified": "2026-11-26",
+      "reason": "Search, series, the episode list (with its paging), a chapter's image URLs and the Referer rule were read live against wfwf546.com 2026-11-26 with plain GETs; no image download or import has been run through the app. No robots.txt (the path answers with the site's error page) and no terms page, so terms are unreviewed. The pages carry gambling ads that are never followed, and the site lists adult works. The domain number rotates; a new address waits for the owner's confirmation.",
+      "notes": "",
+      "hosts": [
+        "wfwf546.com"
+      ],
+      "pace": "Fast off: no terms page was found, so the site is not vetted for Fast.",
+      "pace_verified": "2026-11-26"
     }
   },
   "generic": {

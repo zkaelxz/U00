@@ -24,7 +24,7 @@ HELP_ROUTE = "settings"
 # past it, so a pasted link says to use the extension, which reads the page in the person's
 # own browser. Matched on the host and its subdomains.
 BUILT_IN_EXTENSION_ONLY_HOSTS = ("mangafire.to", "kagane.moe", "syosetu.org", "novelpia.com",
-                                  "novel.naver.com", "novel18.syosetu.com")
+                                  "novel.naver.com", "novel18.syosetu.com", "soraraw.com")
 # blacktoon rotates its number (510, 511, ...), so any digits match.
 _ROTATING_EXTENSION_ONLY_HOST = re.compile(r"(^|\.)blacktoon\d*\.com$")
 
