@@ -43,12 +43,20 @@ final class AlertSchedule {
     static void leftApp(Context context) {
         if (!ShellSettings.isOn(context, ShellSettings.ALERTS)) return;
         ShellSettings.prefs(context).edit().putLong(UNTIL, System.currentTimeMillis() + RECENT_WINDOW_MS).apply();
-        arm(context);
+        try {
+            arm(context);
+        } catch (RuntimeException e) {
+            // A phone that refuses the alarm only loses the faster checks; leaving the app must not crash it.
+        }
     }
 
     /** The app is in front again: the page itself shows what is new. */
     static void enteredApp(Context context) {
-        cancelAlarm(context);
+        try {
+            cancelAlarm(context);
+        } catch (RuntimeException e) {
+            // Same as leftApp: the app must open even when the alarm service refuses.
+        }
     }
 
     /** Called after each alarm check; sets the next one while the window lasts. */
