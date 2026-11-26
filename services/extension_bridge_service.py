@@ -283,6 +283,51 @@ def _run_id(payload) -> str:
     return value if isinstance(value, str) and _RUN_ID.match(value) else ""
 
 
+# A phone sends a chapter as several requests that run side by side, so the per-request duplicate
+# filter cannot see a picture the page listed twice (a hidden copy, or one address per size) when
+# the copies land in different requests. Each Quick read run remembers the pictures it has taken.
+_MAX_REMEMBERED_RUNS = 50
+_runs_seen: "OrderedDict[str, set]" = OrderedDict()
+_runs_seen_lock = threading.Lock()
+
+
+def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
+    """(kept, repeats): the pictures whose bytes no earlier request of this run has taken. The
+    claim is made under one lock so two requests holding the same picture cannot both keep it."""
+    if not run_id:
+        return decoded, []
+    kept, repeats = [], []
+    with _runs_seen_lock:
+        taken = _runs_seen.setdefault(run_id, set())
+        _runs_seen.move_to_end(run_id)
+        while len(_runs_seen) > _MAX_REMEMBERED_RUNS:
+            _runs_seen.popitem(last=False)
+        for image in decoded:
+            # A picture answered from the cache has no bytes here; it was accepted when first read.
+            if image["content"] is None:
+                kept.append(image)
+                continue
+            digest = hashlib.sha256(image["content"]).hexdigest()
+            if digest in taken:
+                repeats.append(image)
+            else:
+                taken.add(digest)
+                image["run_claim"] = digest
+                kept.append(image)
+    return kept, repeats
+
+
+def _release_unread(decoded: list, outcomes: list, run_id: str) -> None:
+    """A picture that failed or was stopped is not "taken": the phone may send it again."""
+    with _runs_seen_lock:
+        taken = _runs_seen.get(run_id)
+        if taken is None:
+            return
+        for image, (outcome, _value) in zip(decoded, outcomes):
+            if outcome != "page" and image.get("run_claim"):
+                taken.discard(image["run_claim"])
+
+
 def cancel_run(payload) -> dict:
     """POST /cancel: the remaining pages of a batch carrying this run id are not worked on."""
     run_id = _run_id(payload)
@@ -705,11 +750,19 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         decoded = [i for i in decoded if i["content"] is None or id(i) in kept_ids]
         if not decoded and not unfetched:
             raise page_server.EndpointError(422, "none of those images look like comic pages")
+    # Only a Quick read: a saved send already reuses a stored page with the same bytes, and a
+    # Redo asks for the same picture again on purpose.
+    if not store and not job["redo"]:
+        decoded, repeats = _drop_repeats_in_run(decoded, job["run_id"])
+        skipped += [{"key": image["key"], "url": image["url"], "reason": "same picture as an earlier page of this read"}
+                    for image in repeats]
     job["single"] = len(decoded) == 1
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
     results, failed, stopped = [], [], ""
-    for outcome, value in (_translate_all(decoded, job, on_page) if decoded else []):
+    outcomes = _translate_all(decoded, job, on_page) if decoded else []
+    _release_unread(decoded, outcomes, job["run_id"])
+    for outcome, value in outcomes:
         if outcome == "page":
             results.append(value)
         elif outcome in ("failed", "fatal"):
