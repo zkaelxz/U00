@@ -269,3 +269,18 @@ def test_scheduled_check_skips_quietly(isolated_db):
     from services import sources_registry_service as registry_svc
     flags = {t["title"]: t["extension_only"] for t in registry_svc.list_tracked()}
     assert flags == {"Marked": True, "Other": False}
+
+
+@pytest.mark.parametrize("url", [
+    "https://blacktoon510.com/webtoon/18608.html",
+    "https://mangafire.to/title/70px7-example",
+    "https://www.kagane.moe/series/example",
+])
+def test_challenge_protected_sites_stop_early_without_a_marker(isolated_db, url):
+    with pytest.raises(ext.ExtensionOnlyError):
+        ext.require_url_not_extension_only(url)
+
+
+def test_lookalike_host_is_not_stopped(isolated_db):
+    ext.require_url_not_extension_only("https://notmangafire.to/title/1")
+    ext.require_url_not_extension_only("https://mangafire.to.example/title/1")
