@@ -13,7 +13,7 @@ test('on a phone the quick bar sits at the bottom by default and moves to the to
   expect(top.y).toBeLessThan(2)
   const header = (await page.locator('.app-header').boundingBox())!
   expect(header.y).toBeGreaterThanOrEqual(top.y + top.height - 1)
-  await expect(bar.getByRole('link', { name: 'Jobs' })).toBeVisible()
+  await expect(bar.getByRole('link', { name: 'Live' })).toBeVisible()
 })
 
 test('left and right behave as the bottom bar on a phone', async ({ page }) => {
