@@ -76,7 +76,7 @@ def registered_adapters() -> dict:
     from sources.adapters import BUILTIN
     rank = {name: i for i, name in enumerate(BUILTIN)}
     found = {n: c for n, c in registry.adapter_classes().items()
-             if not getattr(c, "is_demo", False)}
+             if not getattr(c, "is_demo", False) and not registry.is_unlisted(c)}
     return {n: found[n] for n in sorted(found, key=lambda n: (rank.get(n, len(rank)), n))}
 
 

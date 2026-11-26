@@ -168,7 +168,8 @@ def _summary(name: str, cls) -> dict:
 # ---------------------------------------------------------------------------
 
 def list_sources() -> list:
-    return [_summary(name, cls) for name, cls in _visible_classes().items()]
+    return [_summary(name, cls) for name, cls in _visible_classes().items()
+            if not registry.is_unlisted(cls)]
 
 
 def get_source(name: str) -> dict:
