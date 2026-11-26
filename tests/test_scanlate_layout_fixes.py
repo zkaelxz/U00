@@ -388,3 +388,13 @@ def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
     notch &= img[:100, 110:310] < 128
     assert notch.any() and not mask[notch].any()
     assert mask[:22, 25:53][img[:22, 135:163] == 0].all()
+
+
+def test_box_nearly_inside_a_balloon_keeps_the_dark_corners_it_cuts_across():
+    img = _page([(150, 100, 120, 80)], size=(200, 300), ground=0)
+    box = {"x": 60, "y": 40, "w": 180, "h": 120}
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    # The corners of the box lie outside the outline, on the dark art.
+    assert not mask[0, 0] and not mask[0, -1] and not mask[-1, 0] and not mask[-1, -1]
+    assert mask[60, 90]

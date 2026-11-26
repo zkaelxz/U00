@@ -323,6 +323,22 @@ def _art_from_edge(roi, filled, outside):
     return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
 
 
+def _without_thick_dark_patches(filled, roi):
+    """All ones except the parts of `roi`'s dark, unfilled area where a disc wider than a stroke
+    fits (BALLOON_STROKE_MAX_PX)."""
+    import cv2
+
+    missing = (filled == 0).astype(np.uint8)
+    n, labels = cv2.connectedComponents(missing, connectivity=8)
+    depth = cv2.distanceTransform(missing, cv2.DIST_L2, 3)
+    keep = np.ones_like(filled)
+    for i in range(1, n):
+        part = labels == i
+        if depth[part].max() >= scanlate_tuning.BALLOON_STROKE_MAX_PX:
+            keep[part] = 0
+    return keep
+
+
 def bubble_erase_mask(image_path: str, box: dict, image=None):
     """Where cleanup may erase inside `box`: the balloon's interior plus any
     lettering joined to its outline (a stroke touching the outline bends the
@@ -369,8 +385,11 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
         filled = filled | joined.astype(np.uint8)
     elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
-        # No paper outside the balloon in the box: the box lies within it.
-        filled = np.ones_like(filled)
+        # No paper outside the balloon in the box: the box lies within it, so the strokes the
+        # interior missed (lettering cut by the box edge) are lettering. A dark patch thicker
+        # than any stroke at the box's corner is the art outside the outline; filling it made
+        # square white notches on the outline.
+        filled = _without_thick_dark_patches(filled, roi)
     # Otherwise the balloon sits on dark art or tone, so no paper surrounds
     # it, yet part of the box is not balloon: only its interior is cleared.
     # Clearing the whole box wiped the outline and the art along it into a

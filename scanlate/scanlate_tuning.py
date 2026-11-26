@@ -87,6 +87,9 @@ BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
 BALLOON_FILLS_BOX = 0.9
+# A dark patch with a disc this wide (px) inside it is art or the outside of the balloon, not a
+# stroke of lettering.
+BALLOON_STROKE_MAX_PX = 6
 # Grey art beside a balloon counts as outside it when it survives an opening of
 # this size: screentone's grey fringes round its dots do not, and lettering that
 # touches screentone would otherwise be left half-erased.
