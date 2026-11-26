@@ -124,8 +124,12 @@ html.shell-pip body { overflow: hidden; }
 .live-watch[data-tv] .live-cues li { background: transparent; border: 0; padding: var(--space-2) 0 !important; }
 .live-watch[data-tv] .live-ts { display: none; }
 /* The newest translated line is the one to read: it scales with the screen's height, and pending or failed rows stay small and grey. */
-.live-watch[data-tv] .live-lines .live-en { font-size: clamp(var(--text-xl), 5.5dvh, calc(var(--text-2xl) * 5)); line-height: 1.25; color: white; }
-.live-watch[data-tv] .live-lines .live-src { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.75); }
+.live-watch[data-tv] .live-lines { --tv-scale: 1; }
+.live-watch[data-tv] .live-lines[data-tv-size='s'] { --tv-scale: 0.55; }
+.live-watch[data-tv] .live-lines[data-tv-size='m'] { --tv-scale: 0.75; }
+.live-watch[data-tv] .live-lines[data-tv-size='xl'] { --tv-scale: 1.3; }
+.live-watch[data-tv] .live-lines .live-en { font-size: calc(clamp(var(--text-xl), 5.5dvh, calc(var(--text-2xl) * 5)) * var(--tv-scale)); line-height: 1.25; color: white; }
+.live-watch[data-tv] .live-lines .live-src { font-size: calc(clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)) * var(--tv-scale)); color: rgba(255, 255, 255, 0.75); }
 .live-watch[data-tv] .live-lines .live-en.muted, .live-watch[data-tv] .live-lines .live-en.warn { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.7); }
 /* Older lines recede; a pending row on top does not dim the translation under it. */
 .live-watch[data-tv] .live-cues li:not(:first-child) { opacity: 0.7; }
