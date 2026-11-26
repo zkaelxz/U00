@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mockLive, openLive } from './liveMocks'
+import { mockLive, openLive, openMoreOptions } from './liveMocks'
 
 // Live says what it is missing before Start: the controls that need a package, a model or a GPU
 // are off with the reason, and the missing pieces list under Start with their fix.
@@ -34,6 +34,7 @@ test('a PC with everything installed starts as before', async ({ page }) => {
 test('the GPU box starts ticked when a GPU is found, and unticking it is remembered', async ({ page }) => {
   const m = await mockLive(page, { readiness: { gpu_found: true } })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   const box = live.getByLabel('Use GPU for Whisper', { exact: true })
   await expect(box).toBeChecked()
@@ -48,6 +49,7 @@ test('a model saved as the form default by an older version follows the language
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ whisper_size: 'small', source_language: 'ko' })))
   await mockLive(page, { liveOptions: { language_whisper_defaults: { ko: 'large-v3' } } })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Whisper model', { exact: true })).toHaveValue('large-v3')
 })
@@ -57,6 +59,7 @@ test('the GPU box is off with a reason when no NVIDIA GPU is found, and Start se
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ use_gpu: true })))
   const m = await mockLive(page, { readiness: { gpu_found: false } })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).toBeDisabled()
   await expect(live.getByLabel('Use GPU for Whisper', { exact: true })).not.toBeChecked()
@@ -70,6 +73,7 @@ test('the GPU box is off with a reason when no NVIDIA GPU is found, and Start se
 test('away from the PC, a Whisper model that is not downloaded cannot be picked; at the PC it downloads on first use', async ({ page }) => {
   await mockLive(page, { remote: true, readiness: { whisper_cached_medium: false } })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   const medium = live.getByLabel('Whisper model', { exact: true }).locator('option[value="medium"]')
   await expect(medium).toBeDisabled()
@@ -79,6 +83,7 @@ test('away from the PC, a Whisper model that is not downloaded cannot be picked;
 test('at the PC, a model that is not downloaded is offered and says it downloads first', async ({ page }) => {
   await mockLive(page, { readiness: { whisper_cached_medium: false } })
   const live = await openLive(page)
+  await openMoreOptions(live)
   await live.getByText('Advanced').click()
   const medium = live.getByLabel('Whisper model', { exact: true }).locator('option[value="medium"]')
   await expect(medium).toBeEnabled()

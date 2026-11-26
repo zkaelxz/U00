@@ -181,6 +181,15 @@ CREATE TABLE IF NOT EXISTS chapter_notification_dismissals (
     user_id INTEGER NOT NULL,
     PRIMARY KEY (notification_id, user_id)
 );
+-- The page each account was last reading on each site, so another phone can pick up there.
+CREATE TABLE IF NOT EXISTS grab_last_pages (
+    user_id INTEGER NOT NULL,
+    host TEXT NOT NULL,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (user_id, host)
+);
 CREATE TABLE IF NOT EXISTS cache_index (
     url TEXT PRIMARY KEY,
     sha256 TEXT NOT NULL,
@@ -596,7 +605,7 @@ from sources.store_tracking import (  # noqa: E402,F401
     save_poll_validators, list_tracked_series,
     known_chapter_ids, record_new_chapters, CHECK_CYCLE_LEASE_KEY, _setting_float,
     claim_check_cycle, release_check_cycle, mark_checked, list_notifications,
-    dismiss_notification, new_chapter_counts_by_drama)
+    dismiss_notification, restore_notification, new_chapter_counts_by_drama)
 from sources.store_domains import (  # noqa: E402,F401
     remember_images, hashes_seen_elsewhere, get_extraction, put_extraction, delete_extraction,
     _domains_key, _last_good_key, domain_list, set_domain_list, last_good_domain,

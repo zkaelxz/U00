@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { hasStatus } from '../../../api/client'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { failedWithLogHint, safeDetail } from '../../../components/errorMessages'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { NovelGlossaryProposal } from '../../../types/autotuneGlossary'
 import { useStage } from '../StageContext'
@@ -208,7 +208,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
       {startProblem && <p className="error" role="alert">{startProblem}</p>}
       {cur?.status === 'error' && (
         <p className="error" role="alert">
-          {safeDetail(cur.message) ?? 'Extraction failed. Details are in the app log.'}
+          {safeDetail(cur.message) ?? failedWithLogHint('Extraction failed.')}
         </p>
       )}
       {cur?.status === 'cancelled' && <p className="muted">Extraction was cancelled.</p>}

@@ -7,21 +7,20 @@
 import { useEffect, useState } from 'react'
 
 import { feedCues, isActive, lagLine, statusLine, statusTone } from '../../api/live'
-import { Field } from '../../components/Field'
-import { Section } from '../../components/Section'
-import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { cancelsAnyJob, useSession } from '../../hooks/useSession'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { canPopOut, popOut, setLiveWatching } from '../../phoneShell'
 import { DelayedPlayer } from './DelayedPlayer'
-import { DEFAULT_DELAY, DELAY_RANGE, autoDelay, canDelay, sessionStream, steadyDelay } from './embedLogic'
+import { DEFAULT_DELAY, autoDelay, canDelay, sessionStream, steadyDelay } from './embedLogic'
 import { LinesPane } from './LinesPane'
 import { LiveCaptions } from './LiveCaptions'
 import { LiveChatSection } from './LiveChat'
 import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
+import { isMetered, videoHeldBack } from '../comic/lowData'
+import { ViewingOptions, type TextSize } from './ViewingOptions'
 import { chipLabels, useRunningSessions } from './useRunningSessions'
 import type { Session } from './useLiveSession'
 
@@ -42,10 +41,17 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const status = session.status?.status ?? 'queued'
   const active = isActive(status)
   const running = useRunningSessions(session.id, cancelsAnyJob(useSession()))
-  const [showVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [storedShowVideo, setShowVideo] = usePersistedState<boolean>('live.showVideo', true)
+  const [dataSaver, setDataSaver] = usePersistedState<boolean>('live.dataSaver', true)
+  // Asking for the picture while it is held back lasts until the page is reloaded, so the saved choice stays as it was.
+  const [forced, setForced] = useState(false)
+  const held = videoHeldBack(dataSaver, isMetered(), forced)
+  const showVideo = storedShowVideo && !held
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
+  const [textSize, setTextSize] = usePersistedState<TextSize>('live.textSize', 'm')
+  const [showOriginal, setShowOriginal] = usePersistedState<boolean>('live.showOriginal', true)
   const [tab, setTab] = useState<'lines' | 'chat'>('lines')
 
   // The picture exists only while the session runs and Stop has not been
@@ -86,6 +92,18 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
     return () => setLiveWatching(false)
   }, [pictureShown])
 
+  const delayable = (streamRef || ownPlayer) && showVideo && (ownPlayer || (streamRef && canDelay(streamRef)))
+  // Beside the picture when there is one; above the lines otherwise, so the text options never depend on a video.
+  const options = (
+    <ViewingOptions textSize={textSize} onTextSize={setTextSize} showOriginal={showOriginal} onShowOriginal={setShowOriginal}
+      captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={(v) => (v && held ? setForced(true) : setShowVideo(v))} dataSaver={dataSaver} onDataSaver={setDataSaver} hasPicture={videoLive}
+      onFloat={pictureShown && canPopOut() ? popOut : null}
+      delay={delayable ? {
+        seconds: delay, auto: delayAuto, manual: videoDelay,
+        onSlide: (v) => { setDelayAuto(false); setVideoDelay(v) }, onAuto: setDelayAuto,
+      } : null} />
+  )
+
   return (
     <div className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}>
       {running.length > 1 && (
@@ -106,34 +124,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
               ? <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
               : streamRef && <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
           )}
-          <Section storageKey="live.viewing" title="Viewing options" defaultOpen>
-            <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
-              <Toggle checked={captionsOn} onChange={setCaptionsOn} />
-            </Field>
-            {pictureShown && canPopOut() && (
-              <button type="button" className={buttonClass('secondary', 'sm')} onClick={popOut}>Float the picture</button>
-            )}
-            <Field label="Show video" help="Plays the stream next to the lines. It stops when you stop the session or turn this off.">
-              <Toggle checked={showVideo} onChange={setShowVideo} />
-            </Field>
-            {(streamRef || ownPlayer) && showVideo && (ownPlayer || (streamRef && canDelay(streamRef))) && (
-              <>
-                <Field label="Video delay" unit="s" help="The translation arrives several seconds after the speech. The picture plays this far behind live so they line up. Moving the slider sets it by hand.">
-                  <input type="range" min={DELAY_RANGE[0]} max={DELAY_RANGE[1]} step={1} value={delay} aria-valuetext={`${delay} s`}
-                    onChange={(e) => {
-                      setDelayAuto(false)
-                      setVideoDelay(e.target.valueAsNumber)
-                    }} />
-                </Field>
-                <Field label="Automatic video delay" help="Sets the delay from the chunk length and how long the last chunks took to caption.">
-                  <Toggle checked={delayAuto} onChange={setDelayAuto} />
-                </Field>
-                <p className="muted" data-testid="live-delay-mode">
-                  {delayAuto ? `Video delay: auto (about ${delay} s)` : `Video delay: ${videoDelay} s, set by hand`}
-                </p>
-              </>
-            )}
-          </Section>
+          {options}
         </div>
       )}
       <div className="live-feed">
@@ -147,6 +138,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
             {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
           </ul>
         )}
+        {!videoLive && options}
         {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
         {hasChat && (
           <div className="live-tabs" role="tablist" aria-label="Show">
@@ -156,7 +148,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           </div>
         )}
         <div className="live-pane" hidden={hasChat && tab === 'chat'}>
-          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} />}
+          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={textSize} showOriginal={showOriginal} />}
           {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
         </div>
         {/* Mounted while hidden: the chat keeps reading, and its messages keep their timing. */}

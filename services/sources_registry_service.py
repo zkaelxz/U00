@@ -464,6 +464,14 @@ def dismiss_notification(notification_id: int, user_id: int = 0) -> dict:
                 if n["id"] == notification_id)
 
 
+def restore_notification(notification_id: int, user_id: int = 0) -> dict:
+    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True, user_id=user_id)}:
+        raise NotFoundError("No such notification.")
+    store.restore_notification(notification_id, user_id)
+    return next(n for n in list_notifications(include_dismissed=True, user_id=user_id)
+                if n["id"] == notification_id)
+
+
 def require_link_editable(source: str, series_id: str, principal) -> None:
     """A tracked series auto-imports into its linked drama, so untracking,
     re-tracking or relinking it changes that drama. One linked to a drama

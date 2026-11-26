@@ -20,6 +20,10 @@ __all__ = [
     "CastApplyResult",
     "GlossaryTerm",
     "GlossaryTermUpsert",
+    "GlossaryInbox",
+    "GlossaryInboxAccept",
+    "GlossaryInboxReject",
+    "GlossaryInboxRestore",
     "GlossaryImportRequest",
     "GlossaryImportResult",
     "GlossaryBulkDeleteRequest",
@@ -665,6 +669,25 @@ class GlossaryNameClusters(BaseModel):
     clusters: List[GlossaryNameCluster] = Field(default_factory=list)
     # Names from the optional downloaded VTuber list found in the lines; empty unless the title opted in.
     known_vtuber_names: List[GlossaryNameCluster] = Field(default_factory=list)
+
+
+class GlossaryInbox(BaseModel):
+    """Names the app found on its own after a translate run, waiting for Add or Ignore."""
+    items: List[GlossaryNameCluster] = Field(default_factory=list)
+    count: int
+
+
+class GlossaryInboxAccept(BaseModel):
+    term: str = Field(min_length=1, max_length=200)
+    translation: str = Field(min_length=1, max_length=200)
+
+
+class GlossaryInboxReject(BaseModel):
+    term: str = Field(min_length=1, max_length=200)
+
+
+class GlossaryInboxRestore(BaseModel):
+    terms: List[str] = Field(min_length=1, max_length=12)
 
 
 class SpellingSuggestRequest(BaseModel):

@@ -31,6 +31,11 @@ public class QuickReadActivity extends Activity {
     private ListView list;
     private View tint;
     // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
+    static final String EXTRA_SAVED = "saved_chapter";
+    /** Set when a chapter saved on the phone is open: it has no grab behind it and is never cleared. */
+    private File savedDir;
+    // True even when the folder was refused, so leaving never clears or detaches a grab it does not own.
+    private boolean savedMode;
     private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
@@ -46,7 +51,7 @@ public class QuickReadActivity extends Activity {
         list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
             @Override public void onScrollStateChanged(android.widget.AbsListView view, int state) {}
             @Override public void onScroll(android.widget.AbsListView view, int first, int visible, int total) {
-                QuickReadSession.reached(first + visible - 1);
+                if (!savedMode) QuickReadSession.reached(first + visible - 1);
             }
         });
         list.setOnItemLongClickListener((parent, view, position, id) -> {
@@ -54,21 +59,40 @@ public class QuickReadActivity extends Activity {
             askReport(files.get(position));
             return true;
         });
+        // The list gives a click no position, and the bubble tapped is found from where the finger went down.
+        final float[] down = {0f, 0f};
+        list.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_DOWN) {
+                down[0] = event.getX();
+                down[1] = event.getY();
+            }
+            return false;
+        });
         list.setOnItemClickListener((parent, view, position, id) -> {
             if (position >= files.size()) return;
-            File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
-            if (!original.isFile()) {
-                android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            if (!showingOriginal.contains(position) && view.getWidth() > 0 && view.getHeight() > 0
+                    && showBubble(files.get(position), position, (down[0] - view.getLeft()) / view.getWidth(),
+                            (down[1] - view.getTop()) / view.getHeight())) {
                 return;
             }
-            if (!showingOriginal.remove(position)) showingOriginal.add(position);
-            cache.remove(position);
-            adapter.notifyDataSetChanged();
+            flipOriginal(position);
         });
-        QuickReadSession.attach();
-        refresh();
-        // Pages arrive while the reader is open, so the list grows as the grab writes them.
-        QuickReadSession.listen(() -> runOnUiThread(this::refresh));
+        String savedName = getIntent().getStringExtra(EXTRA_SAVED);
+        savedMode = getIntent().hasExtra(EXTRA_SAVED);
+        if (savedMode) {
+            File candidate = new File(SavedChapters.root(this), new File(savedName == null ? "" : savedName).getName());
+            if (SavedChapters.isSavedDir(SavedChapters.root(this), candidate)) savedDir = candidate;
+            if (savedDir == null) {
+                finish();
+                return;
+            }
+            files.addAll(SavedChapters.pagesOf(savedDir));
+        } else {
+            QuickReadSession.attach();
+            refresh();
+            // Pages arrive while the reader is open, so the list grows as the grab writes them.
+            QuickReadSession.listen(() -> runOnUiThread(this::refresh));
+        }
         ZoomFrame frame = new ZoomFrame();
         frame.addView(list, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
@@ -79,6 +103,85 @@ public class QuickReadActivity extends Activity {
         setContentView(frame);
         frame.setFitsSystemWindows(true);
         applyNight();
+    }
+
+    /** Flips a page between the PC's redraw and the picture the site sent. */
+    private void flipOriginal(int position) {
+        File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
+        if (!original.isFile()) {
+            android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (!showingOriginal.remove(position)) showingOriginal.add(position);
+        cache.remove(position);
+        adapter.notifyDataSetChanged();
+    }
+
+    /**
+     * A tap on lettering shows the text the PC read there, beside its English, and can ask for that
+     * text translated again on its own. False when the tap was not on lettering, so it flips the art.
+     */
+    private boolean showBubble(File page, int position, float fx, float fy) {
+        File meta = new File(page.getParentFile(), reportName(page.getName()));
+        if (!meta.isFile()) return false;
+        try {
+            org.json.JSONObject info = new org.json.JSONObject(new String(
+                    java.nio.file.Files.readAllBytes(meta.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+            org.json.JSONArray regions = info.optJSONArray("regions");
+            if (regions == null) return false;
+            int[][] boxes = new int[regions.length()][4];
+            for (int i = 0; i < boxes.length; i++) {
+                org.json.JSONObject r = regions.optJSONObject(i);
+                if (r == null || r.optString("source_text").trim().isEmpty()) continue;
+                boxes[i] = new int[] {r.optInt("x"), r.optInt("y"), r.optInt("w"), r.optInt("h")};
+            }
+            int hit = BubbleHit.at(boxes, info.optInt("width"), info.optInt("height"), fx, fy);
+            if (hit < 0) return false;
+            org.json.JSONObject region = regions.getJSONObject(hit);
+            askBubble(region.optString("source_text").trim(), region.optString("translated_text").trim(), position);
+            return true;
+        } catch (java.io.IOException | org.json.JSONException e) {
+            return false;
+        }
+    }
+
+    private void askBubble(String source, String english, int position) {
+        String shown = "Original:\n" + source + "\n\nEnglish:\n" + (english.isEmpty() ? "(none)" : english);
+        android.app.AlertDialog dialog = new android.app.AlertDialog.Builder(this)
+                .setMessage(shown)
+                .setPositiveButton("Close", null)
+                .setNegativeButton("Show art", (d, w) -> flipOriginal(position))
+                .setNeutralButton("Translate again", null)
+                .show();
+        // Set after show() so the dialog stays open while the PC answers.
+        dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v -> {
+            v.setEnabled(false);
+            ((android.widget.Button) v).setText("Translating...");
+            translateAgain(source, shown, dialog);
+        });
+    }
+
+    /** This text translated on its own, without the page around it, so a doubtful line has a second opinion. */
+    private void translateAgain(String source, String shown, android.app.AlertDialog dialog) {
+        android.content.SharedPreferences prefs = getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
+        String server = prefs.getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
+        String language = BubbleHit.languageOf(source);
+        new Thread(() -> {
+            String answer;
+            try {
+                if (language.isEmpty()) throw new BaiheClient.BridgeException(0, "This text is not Chinese, Japanese or Korean.");
+                answer = new BaiheClient(server, token).translateText(source, language, "en");
+            } catch (BaiheClient.BridgeException e) {
+                answer = e.getMessage();
+            }
+            String second = answer;
+            runOnUiThread(() -> {
+                if (isFinishing() || !dialog.isShowing()) return;
+                dialog.setMessage(shown + "\n\nThis text alone:\n" + second);
+                dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setVisibility(View.GONE);
+            });
+        }, "bubble-translate").start();
     }
 
     private android.content.SharedPreferences nightPrefs() {
@@ -155,14 +258,44 @@ public class QuickReadActivity extends Activity {
     }
 
     private void askReport(File page) {
+        if (savedMode) {
+            // A saved copy has no PC-side page memory or report text beside it.
+            new android.app.AlertDialog.Builder(this)
+                    .setItems(new String[] {"Brightness and night colours"}, (d, which) -> askNight()).show();
+            return;
+        }
         new android.app.AlertDialog.Builder(this)
-                .setItems(new String[] {"Send a report", "Redo this page", "Brightness and night colours"},
+                .setItems(new String[] {"Send a report", "Redo this page", "Brightness and night colours", "Save to phone"},
                         (d, which) -> {
                             if (which == 0) askNote(page);
                             else if (which == 1) redoPage(page);
-                            else askNight();
+                            else if (which == 2) askNight();
+                            else saveToPhone();
                         })
                 .show();
+    }
+
+    /** Copies the finished pages into the phone's own storage so the chapter reads without the PC or a connection. */
+    private void saveToPhone() {
+        if (!QuickReadSession.isComplete()) {
+            android.widget.Toast.makeText(this, "Wait until the chapter has finished translating.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        java.util.List<File> pages = new java.util.ArrayList<>(files);
+        String title = QuickReadSession.title();
+        File root = SavedChapters.root(this);
+        android.widget.Toast.makeText(this, "Saving...", android.widget.Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String message;
+            try {
+                SavedChapters.Saved saved = SavedChapters.save(root, pages, title);
+                message = saved == null ? "Nothing to save yet." : "Saved " + saved.pages + " pages. Find them in Grab > More > Saved chapters.";
+            } catch (java.io.IOException e) {
+                message = "Could not save: the phone may be full.";
+            }
+            String shown = message;
+            runOnUiThread(() -> android.widget.Toast.makeText(this, shown, android.widget.Toast.LENGTH_LONG).show());
+        }).start();
     }
 
     /**
@@ -195,6 +328,7 @@ public class QuickReadActivity extends Activity {
                 BaiheClient client = new BaiheClient(server, token);
                 client.redo = true;
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                client.textStyle = GrabActivity.textStyle(prefs);
                 byte[][] fresh = {null};
                 client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
                     try {
@@ -392,7 +526,7 @@ public class QuickReadActivity extends Activity {
     @Override
     protected void onDestroy() {
         // A chapter still being translated keeps going without the reader; its pages stay for the next open.
-        if (!QuickReadSession.detach()) {
+        if (!savedMode && !QuickReadSession.detach()) {
             QuickReadSession.abandon();
             clear(this);
         }

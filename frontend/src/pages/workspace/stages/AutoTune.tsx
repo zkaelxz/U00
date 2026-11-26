@@ -5,7 +5,7 @@ import { hasStatus } from '../../../api/client'
 import { cancelJob } from '../../../api/jobs'
 import { cancelHint } from '../../../types/jobs'
 import { ErrorBanner } from '../../../components/ErrorBanner'
-import { safeDetail } from '../../../components/errorMessages'
+import { failedWithLogHint, safeDetail } from '../../../components/errorMessages'
 import { Section } from '../../../components/Section'
 import { useMediaQuery } from '../../../hooks/useMediaQuery'
 import type { AutotuneCandidateScore } from '../../../types/autotuneGlossary'
@@ -169,7 +169,7 @@ export function AutoTune({ hasAudio, busy, override, extraNames, onApplied }: Pr
         {need && !active && <NeedsInstall need={need} />}
         {status?.status === 'error' && (
           <p className="error" role="alert">
-            {safeDetail(status.message) ?? 'Auto-tune failed. Details are in the app log.'}
+            {safeDetail(status.message) ?? failedWithLogHint('Auto-tune failed.')}
           </p>
         )}
         {status?.status === 'cancelled' && <p className="muted">Auto-tune was cancelled.</p>}

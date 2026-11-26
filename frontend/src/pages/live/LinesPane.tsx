@@ -33,14 +33,14 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
 }
 
 /** `total`: every line so far, which keeps counting after the box stops showing the oldest. */
-export function LinesPane({ cues, total, lang, waiting }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean }) {
+export function LinesPane({ cues, total, lang, waiting, size = 'm', showOriginal = true }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: 's' | 'm' | 'l'; showOriginal?: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   // The line count when the reader scrolled away from the newest; null while the newest is in view.
   const [awayAt, setAwayAt] = useState<number | null>(null)
   const fresh = awayAt === null ? 0 : Math.max(0, total - awayAt)
   const onScroll = (top: number) => setAwayAt((was) => (top < 24 ? null : was ?? total))
   return (
-    <div className="live-lines">
+    <div className="live-lines" data-size={size} data-original={showOriginal ? undefined : 'off'}>
       <div className="live-cues-box" ref={box} tabIndex={0} aria-label="Live lines" onScroll={(e) => onScroll(e.currentTarget.scrollTop)}>
         <CueFeed cues={cues} lang={lang} waiting={waiting} />
       </div>

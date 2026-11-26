@@ -425,6 +425,13 @@ const SHAKY_BELOW = 0.6
 export const isShaky = (line: Pick<ReviewLine, 'confidence' | 'reviewed'>) =>
   line.confidence != null && line.confidence < SHAKY_BELOW && !line.reviewed
 
+/** How strongly to tint an unchecked line the transcriber was unsure of: 'low' under 0.3, 'mid' under 0.6 (the Unsure badge), 'soft' under 0.8 (the Risk filter). */
+export function unsureLevel(line: Pick<ReviewLine, 'confidence' | 'reviewed'>): 'low' | 'mid' | 'soft' | null {
+  const c = line.confidence
+  if (c == null || line.reviewed) return null
+  return c < 0.3 ? 'low' : c < SHAKY_BELOW ? 'mid' : c < 0.8 ? 'soft' : null
+}
+
 /** Mirrors review_lines_service._risk_score > 0: any flag, a mark, or confidence under 0.8, on a translated unchecked line. */
 export const RISK_CONFIDENCE_BELOW = 0.8
 const isRisky = (line: Pick<ReviewLine, 'en' | 'reviewed' | 'flag' | 'confidence' | 'mark'>) =>

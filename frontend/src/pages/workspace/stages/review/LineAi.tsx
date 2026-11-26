@@ -11,6 +11,9 @@ import type { LineExplanation, LineImprovement, ReviewLine } from '../../../../t
 import { aiUnavailableText } from '../engineReady'
 import { AI_STALE_MESSAGE, suggestionIsStale } from './reviewLogic'
 
+const answerLabel = (a: LineImprovement) => a.model ? `${a.engine} ${a.model}` : a.engine
+const sameAnswer = (a: LineImprovement, b: LineImprovement) => a.engine === b.engine && a.model === b.model
+
 type AiMode = 'improve' | 'explain'
 
 interface Props {
@@ -29,6 +32,8 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
   const [issue, setIssue] = useState('')
   const [busy, setBusy] = useState(false)
   const [improvement, setImprovement] = useState<LineImprovement | null>(null)
+  // Answers from other engines or models for this line, kept so two can be read side by side.
+  const [earlier, setEarlier] = useState<LineImprovement[]>([])
   const [explanation, setExplanation] = useState<LineExplanation | null>(null)
   const [unavailable, setUnavailable] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -58,6 +63,10 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     if (busyRef.current) return
     busyRef.current = true
     setBusy(true)
+    if (m === 'improve' && improvement?.changed) {
+      const kept = improvement
+      setEarlier((prev) => [kept, ...prev.filter((p) => !sameAnswer(p, kept))].slice(0, 3))
+    }
     setImprovement(null)
     setExplanation(null)
     setUnavailable(false)
@@ -93,6 +102,7 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
     setBusy(true)
     onUse(text).then((ok) => ok && onClose()).finally(() => setBusy(false))
   }
+  const shownEarlier = earlier.filter((p) => !improvement?.changed || !sameAnswer(p, improvement))
   const stale = improvement ? suggestionIsStale(line, improvement.current_en) : false
 
   return (
@@ -119,31 +129,45 @@ export function LineAi({ dramaId, line, mode, onClose, onUse }: Props) {
               Close
             </button>
           </div>
-          {improvement && (
-            <div data-testid="line-ai-result">
-              {improvement.changed ? (
+          {(improvement || earlier.length > 0) && (
+            <div data-testid="line-ai-result" aria-live="polite">
+              {improvement?.changed ? (
                 <div className="review-ai-compare">
                   <div>
                     <span className="muted">Current</span>
                     <div className="review-ai-text">{improvement.current_en}</div>
                   </div>
                   <div>
-                    <span className="muted">Suggestion</span>
+                    <span className="muted">{earlier.length > 0 ? `Suggestion from ${answerLabel(improvement)}` : 'Suggestion'}</span>
                     <div className="review-ai-text" data-testid="line-ai-suggestion">{improvement.suggestion}</div>
                   </div>
                 </div>
-              ) : (
+              ) : improvement ? (
                 <p className="muted">The model kept this line as it is.</p>
-              )}
+              ) : null}
               {stale && <p className="error" role="alert">{AI_STALE_MESSAGE}</p>}
-              {improvement.changed && (
+              {improvement?.changed && (
                 <div className="review-actions">
                   <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || stale} onClick={() => use(improvement.suggestion)}>
-                    Use this
+                    {earlier.length > 0 ? `Use ${answerLabel(improvement)}` : 'Use this'}
                   </button>
                   <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={onClose}>Dismiss suggestion</button>
                 </div>
               )}
+              {shownEarlier.length > 0 && <span className="muted">Earlier suggestions</span>}
+              {shownEarlier.map((p) => (
+                <div className="review-ai-compare" key={`${p.engine}/${p.model ?? ''}`} data-testid="line-ai-earlier">
+                  <div>
+                    <span className="muted">{answerLabel(p)}</span>
+                    <div className="review-ai-text">{p.suggestion}</div>
+                  </div>
+                  <div className="review-actions">
+                    <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy || suggestionIsStale(line, p.current_en)} onClick={() => use(p.suggestion)}>
+                      Use {answerLabel(p)}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>

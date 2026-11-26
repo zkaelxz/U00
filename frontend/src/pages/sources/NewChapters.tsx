@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { Paged } from '../../components/ShowMore'
-import { CHECK_JOB_ID, dismissNotification, setTrackedDrama, setTrackedSave, startCheckNow } from '../../api/sources'
+import { CHECK_JOB_ID, dismissNotification, restoreNotification, setTrackedDrama, setTrackedSave, startCheckNow } from '../../api/sources'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Badge } from '../../components/Badge'
@@ -24,6 +24,7 @@ type Props = {
   canAct: boolean
   onOpen: (series: OpenSeries, opener: string) => void
   onDismissed: (id: number) => void
+  onRestored: (n: SourceNotification) => void
   onUntrack: (t: TrackedSeries) => void
   onTracked: (t: TrackedSeries[]) => void
   // A check finished: reload tracked series and notifications.
@@ -38,11 +39,12 @@ const AUTO_HELP =
 
 // A Card (always open), only rendered when there are notifications or tracked series.
 export function NewChapters({
-  notifications, tracked, sources, display, canAct, onOpen, onDismissed, onUntrack, onTracked, onChecked,
+  notifications, tracked, sources, display, canAct, onOpen, onDismissed, onRestored, onUntrack, onTracked, onChecked,
   untrackBusy, untrackError, clearUntrackError,
 }: Props) {
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState<number | null>(null)
+  const [undo, setUndo] = useState<SourceNotification | null>(null)
   const [linking, setLinking] = useState<string | null>(null)
   const check = useSourcesJob<CheckResult>(canAct ? CHECK_JOB_ID : null)
   const dramas = useDramaList(canAct && tracked.length > 0)
@@ -58,12 +60,28 @@ export function NewChapters({
     }
   }, [check.status, check.startedHere, check.result, onChecked])
 
-  async function dismiss(id: number) {
+  async function restore(n: SourceNotification) {
     setError(null)
-    setBusy(id)
+    setBusy(n.id)
     try {
-      await dismissNotification(id)
-      onDismissed(id)
+      onRestored(await restoreNotification(n.id))
+      setUndo(null)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>(`[data-opener="new:${n.id}"]`)?.focus())
+    } catch (e) {
+      setError(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function dismiss(n: SourceNotification) {
+    setError(null)
+    setBusy(n.id)
+    try {
+      await dismissNotification(n.id)
+      onDismissed(n.id)
+      setUndo(n)
+      requestAnimationFrame(() => document.querySelector<HTMLElement>('[data-undo-notice]')?.focus())
     } catch (e) {
       setError(e)
     } finally {
@@ -156,6 +174,22 @@ export function NewChapters({
           />
         </div>
       )}
+      <p className="muted" role="status" data-testid="new-chapters-undo" hidden={!undo}>
+        {undo && (
+          <>
+            Dismissed {undo.title || titleOf(undo)}.{' '}
+            <button
+              type="button"
+              className="link"
+              data-undo-notice
+              disabled={busy === undo.id}
+              onClick={() => restore(undo)}
+            >
+              Undo
+            </button>
+          </>
+        )}
+      </p>
       {notifications.length > 0 && (
         <Paged items={notifications} testId="new-chapters-more">
           {(visible) => (
@@ -179,7 +213,7 @@ export function NewChapters({
                   type="button"
                   className={buttonClass('ghost', 'sm')}
                   disabled={busy === n.id}
-                  onClick={() => dismiss(n.id)}
+                  onClick={() => dismiss(n)}
                 >
                   Dismiss
                 </button>

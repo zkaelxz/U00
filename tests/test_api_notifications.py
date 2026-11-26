@@ -299,7 +299,7 @@ def test_burst_summary():
 # --- delivery ----------------------------------------------------------------
 
 def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, posts, monkeypatch):
-    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-EXAMPLE")
     _write(env, discord=DISCORD)
     assert ns._deliver("Finished: Translation - @everyone") == {
         "discord": "sent", "ntfy": "not_configured"}
@@ -310,7 +310,7 @@ def test_discord_delivery_has_timeout_no_redirects_and_safe_payload(env, dns, po
     import json
     body = json.loads(call["data"].decode("utf-8"))
     assert body["allowed_mentions"] == {"parse": []}
-    assert body["content"] == "Baihe Studio (DESKTOP-WEEE): Finished: Translation - @everyone"
+    assert body["content"] == "Baihe Studio (DESKTOP-EXAMPLE): Finished: Translation - @everyone"
 
 
 def test_discord_card_footer_names_the_pc_and_no_name_leaves_it_out(monkeypatch):
@@ -1172,20 +1172,20 @@ def test_private_titles_switch_route_is_pc_only(env):
 
 def test_pc_name_replaces_the_windows_name_until_cleared(env, monkeypatch):
     import json
-    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-WEEE")
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-EXAMPLE")
     card = {"title": "Finished", "color": ns.COLOR_OK}
 
     def footer():
         return json.loads(ns._payload("discord", "x", card)[0])["embeds"][0]["footer"]["text"]
 
-    assert footer() == "Sent from DESKTOP-WEEE"
+    assert footer() == "Sent from DESKTOP-EXAMPLE"
     status = ns.set_categories(pc_name="  V100  ")
-    assert status["pc_name"] == "V100" and status["pc_name_default"] == "DESKTOP-WEEE"
+    assert status["pc_name"] == "V100" and status["pc_name_default"] == "DESKTOP-EXAMPLE"
     assert footer() == "Sent from V100"
     assert ns.set_categories(jobs=False)["pc_name"] == "V100"        # untouched
     assert ns.set_categories(pc_name="x" * 90)["pc_name"] == "x" * 39 + "\u2026"
     assert ns.set_categories(pc_name="")["pc_name"] == ""
-    assert footer() == "Sent from DESKTOP-WEEE"
+    assert footer() == "Sent from DESKTOP-EXAMPLE"
 
 
 def test_pc_name_route_is_pc_only_and_bounded(env):

@@ -11,6 +11,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -30,6 +31,8 @@ final class BaiheClient {
     volatile String runId;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
+    /** How the English lettering looks; null or the default sends nothing, so the PC keeps its own render. */
+    volatile TextStyle textStyle;
     /** Quick read only: where the requests' time went. */
     volatile UploadStats stats;
     /** The WebView's user agent, sent with a picture the PC is asked to download. */
@@ -150,6 +153,26 @@ final class BaiheClient {
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
+    }
+
+    /** Tells the PC which page this account is reading, so its other phones can offer to go on from it. */
+    void rememberPage(String pageUrl, String title) throws BridgeException {
+        try {
+            call("POST", "/last-page", new JSONObject().put("url", pageUrl).put("title", title == null ? "" : title));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** The page this account last read on each site, most recent first, as {host, url, title}. */
+    List<String[]> lastPages() throws BridgeException {
+        List<String[]> out = new ArrayList<>();
+        JSONArray pages = call("POST", "/last-pages", new JSONObject()).optJSONArray("pages");
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page != null) out.add(new String[] {page.optString("host"), page.optString("url"), page.optString("title")});
+        }
+        return out;
     }
 
     /** Starts Live captions on a stream page's link, in the stream's spoken language (zh, ja or ko). */
@@ -309,6 +332,11 @@ final class BaiheClient {
             body.put("typeset", true);
             if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);
+            TextStyle look = textStyle;
+            if (look != null && !look.isDefault()) {
+                body.put("typeset_style", new JSONObject().put("min_font", look.minFont())
+                        .put("stroke", look.outline).put("font", look.fontName()));
+            }
             if (redo) body.put("redo", true);
         }
         return body;

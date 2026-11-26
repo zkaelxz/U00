@@ -4231,6 +4231,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/last-page": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: remember the page this account is reading on a site */
+        post: operations["post_last_page_api_ext_bridge_last_page_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/last-pages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the page this account last read on each site */
+        post: operations["post_last_pages_api_ext_bridge_last_pages_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/live": {
         parameters: {
             query?: never;
@@ -4742,6 +4776,74 @@ export interface paths {
         put?: never;
         /** Import glossary text (CSV, TSV or JSON) into the series glossary */
         post: operations["post_import_glossary_api_glossary_dramas__drama_id__import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Names the app found after translate runs, waiting for Add or Ignore */
+        get: operations["get_glossary_inbox_api_glossary_dramas__drama_id__inbox_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Add one waiting name to the glossary with the English the user typed */
+        post: operations["accept_glossary_inbox_api_glossary_dramas__drama_id__inbox_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ignore one waiting name; it is not offered again for this title */
+        post: operations["reject_glossary_inbox_api_glossary_dramas__drama_id__inbox_reject_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/glossary/dramas/{drama_id}/inbox/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo Ignore: put the ignored spellings back in the inbox */
+        post: operations["restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8305,6 +8407,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reader/dramas/{drama_id}/lines/{line_id}/study": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One line's words with readings and meanings (local data only, no paid call) */
+        get: operations["get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reader/dramas/{drama_id}/lookup": {
         parameters: {
             query?: never;
@@ -11312,6 +11431,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/sources/notifications/{notification_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Undo dismissing one new-chapter notification */
+        post: operations["post_restore_api_sources_notifications__notification_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/sources/profiles": {
         parameters: {
             query?: never;
@@ -13418,6 +13554,75 @@ export interface paths {
         put?: never;
         /** Rebuild a voice print from the speakers linked to the person (confirm=true) */
         post: operations["retrain_voice_api_voices__series_id___character_id__retrain_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watch-party/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Start a watch party on a title the caller can see */
+        post: operations["create_room_api_watch_party_rooms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watch-party/rooms/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A watch party's current play state */
+        get: operations["get_room_api_watch_party_rooms__code__get"];
+        put?: never;
+        post?: never;
+        /** End a watch party */
+        delete: operations["delete_room_api_watch_party_rooms__code__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watch-party/rooms/{code}/state": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Play, pause or seek for everyone in the party */
+        post: operations["post_state_api_watch_party_rooms__code__state_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/watch-party/rooms/{code}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Server-sent events: the party's play state */
+        get: operations["stream_room_api_watch_party_rooms__code__stream_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -21077,6 +21282,33 @@ export interface components {
             skipped_existing: string[];
             /** Warnings */
             warnings: string[];
+        };
+        /**
+         * GlossaryInbox
+         * @description Names the app found on its own after a translate run, waiting for Add or Ignore.
+         */
+        GlossaryInbox: {
+            /** Count */
+            count: number;
+            /** Items */
+            items: components["schemas"]["GlossaryNameCluster"][];
+        };
+        /** GlossaryInboxAccept */
+        GlossaryInboxAccept: {
+            /** Term */
+            term: string;
+            /** Translation */
+            translation: string;
+        };
+        /** GlossaryInboxReject */
+        GlossaryInboxReject: {
+            /** Term */
+            term: string;
+        };
+        /** GlossaryInboxRestore */
+        GlossaryInboxRestore: {
+            /** Terms */
+            terms: string[];
         };
         /** GlossaryInstructions */
         GlossaryInstructions: {
@@ -32191,6 +32423,31 @@ export interface components {
          *     caller's, and the key is resolved on the PC.
          */
         StrongerLineTryRequest: Record<string, never>;
+        /** StudyLine */
+        StudyLine: {
+            /** Language */
+            language: string;
+            /** Line Id */
+            line_id: number;
+            /** Needs Install */
+            needs_install: string | null;
+            /** Original */
+            original: string;
+            /** Words */
+            words: components["schemas"]["StudyWord"][];
+        };
+        /** StudyWord */
+        StudyWord: {
+            /**
+             * Meanings
+             * @default []
+             */
+            meanings: string[];
+            /** Reading */
+            reading: string | null;
+            /** Word */
+            word: string;
+        };
         /** StyleApplyRequest */
         StyleApplyRequest: {
             /** Apply */
@@ -34530,6 +34787,46 @@ export interface components {
             bookmarks: components["schemas"]["WatchBookmark"][];
             /** Drama Id */
             drama_id: number;
+        };
+        /** WatchPartyCreateRequest */
+        WatchPartyCreateRequest: {
+            /** Drama Id */
+            drama_id: number;
+        };
+        /** WatchPartyEnded */
+        WatchPartyEnded: {
+            /** Ended */
+            ended: boolean;
+        };
+        /**
+         * WatchPartyRoom
+         * @description `position` was true at server time `at`; `now` is the server's clock when this was read, so a client can place
+         *     itself without trusting its own clock.
+         */
+        WatchPartyRoom: {
+            /** At */
+            at: number;
+            /** Code */
+            code: string;
+            /** Drama Id */
+            drama_id: number;
+            /** Now */
+            now: number;
+            /** Playing */
+            playing: boolean;
+            /** Position */
+            position: number;
+            /** Seq */
+            seq: number;
+            /** Watching */
+            watching: number;
+        };
+        /** WatchPartyStateRequest */
+        WatchPartyStateRequest: {
+            /** Playing */
+            playing: boolean;
+            /** Position */
+            position: number;
         };
         /** WebSearchConfig */
         WebSearchConfig: {
@@ -46328,6 +46625,46 @@ export interface operations {
             };
         };
     };
+    post_last_page_api_ext_bridge_last_page_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_last_pages_api_ext_bridge_last_pages_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     post_live_api_ext_bridge_live_post: {
         parameters: {
             query?: never;
@@ -47819,6 +48156,187 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_glossary_inbox_api_glossary_dramas__drama_id__inbox_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    accept_glossary_inbox_api_glossary_dramas__drama_id__inbox_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxAccept"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    reject_glossary_inbox_api_glossary_dramas__drama_id__inbox_reject_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxReject"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_glossary_inbox_api_glossary_dramas__drama_id__inbox_restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GlossaryInboxRestore"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GlossaryInbox"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -58854,6 +59372,47 @@ export interface operations {
             };
         };
     };
+    get_line_study_api_reader_dramas__drama_id__lines__line_id__study_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+                line_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StudyLine"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     post_lookup_api_reader_dramas__drama_id__lookup_post: {
         parameters: {
             query?: never;
@@ -63514,8 +64073,8 @@ export interface operations {
         parameters: {
             query?: {
                 variant?: "original" | "rendered";
-                /** @description reader: a smaller JPEG copy of the same page for the viewer */
-                size?: "full" | "reader";
+                /** @description reader: a smaller JPEG copy of the same page for the viewer; low: a narrower, more compressed one for mobile data */
+                size?: "full" | "reader" | "low";
             };
             header?: never;
             path: {
@@ -68306,6 +68865,46 @@ export interface operations {
         };
     };
     post_dismiss_api_sources_notifications__notification_id__dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                notification_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceNotification"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_restore_api_sources_notifications__notification_id__restore_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -75333,6 +75932,230 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    create_room_api_watch_party_rooms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchPartyCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchPartyRoom"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_room_api_watch_party_rooms__code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchPartyRoom"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_room_api_watch_party_rooms__code__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchPartyEnded"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_state_api_watch_party_rooms__code__state_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WatchPartyStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WatchPartyRoom"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    stream_room_api_watch_party_rooms__code__stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

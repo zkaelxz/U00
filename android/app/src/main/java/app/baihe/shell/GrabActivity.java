@@ -201,6 +201,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                rememberPlace(url, view.getTitle());
+                noteVisit(url, view.getTitle());
                 if (translateOn && !translateRestoring) web.evaluateJavascript(PageTranslate.ON, null);
                 if (quickAfterLoad) {
                     quickAfterLoad = false;
@@ -475,6 +477,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             BaiheClient client = new BaiheClient(server, token);
             if (read) {
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+                client.textStyle = textStyle(prefs());
                 read(client, "", images, unreadable, truncated);
                 return;
             }
@@ -515,15 +518,21 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
         menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
         menu.getMenu().add("Pictures from my gallery");
+        menu.getMenu().add("English text style");
         menu.getMenu().add("Ad block list");
         menu.getMenu().add("Follow this series");
+        menu.getMenu().add("Pick up where I left off");
         List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
         String here = ServerAddress.browsable(web.getUrl());
         menu.getMenu().add(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page");
         menu.getMenu().add(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")");
+        menu.getMenu().add("Recent pages");
+        int savedCount = SavedChapters.list(SavedChapters.root(this)).size();
+        menu.getMenu().add(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")");
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
+        menu.getMenu().add("Grab whole series");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
         if (QuickReadSession.isDetached()) menu.getMenu().add("Stop translating");
@@ -539,17 +548,176 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Settings".equals(title)) showSettings();
             else if ("Pictures from my gallery".equals(title)) pickGallery();
             else if ("Ad block list".equals(title)) editAdList();
+            else if ("English text style".equals(title)) askTextStyle();
             else if ("Follow this series".equals(title)) followSeries();
+            else if ("Pick up where I left off".equals(title)) pickUp();
             else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
+            else if (title.startsWith("Saved chapters")) showSaved();
+            else if ("Recent pages".equals(title)) showRecent();
             else if (title.startsWith("Bookmarks")) showBookmarks();
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
             else if ("Add to queue".equals(title)) askAddToQueue();
+            else if ("Grab whole series".equals(title)) askWholeSeries();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
         });
         menu.show();
+    }
+
+    private String lastRemembered = "";
+
+    /** Tells the PC which page of a public site is open, so this account's other phones can go on from it. */
+    private void rememberPlace(String url, String title) {
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        // No query: it can hold a login token, and this goes to the PC and into its backups.
+        String link = ServerAddress.publicSourceUrl(url);
+        if (server.isEmpty() || token.isEmpty() || link.isEmpty() || link.equals(lastRemembered)
+                || GrabBookmarks.isSite(link) || ServerAddress.sameOrigin(server, link)) return;
+        lastRemembered = link;
+        sender.execute(() -> {
+            try {
+                new BaiheClient(server, token).rememberPage(link, title);
+            } catch (BaiheClient.BridgeException e) {
+                // Only a convenience: a missed save is not worth interrupting the reader.
+            }
+        });
+    }
+
+    /** Lists the page this account last read on each site, from any of its phones; tap one to open it. */
+    private void pickUp() {
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) {
+            say("Set up Grab first: enter your server address and a phone token.");
+            showSettings();
+            return;
+        }
+        say("Asking Baihe where you left off...");
+        sender.execute(() -> {
+            try {
+                List<String[]> pages = new BaiheClient(server, token).lastPages();
+                runOnUiThread(() -> showPlaces(pages));
+            } catch (BaiheClient.BridgeException e) {
+                say(e.getMessage(), GrabUi.Kind.BAD);
+            }
+        });
+    }
+
+    private void showPlaces(List<String[]> pages) {
+        if (pages.isEmpty()) {
+            say("Nothing yet. Pages you read in Grab show up here, on every phone you sign in on.");
+            return;
+        }
+        String[] names = new String[pages.size()];
+        for (int i = 0; i < names.length; i++) {
+            String[] page = pages.get(i);
+            names[i] = page[0] + (page[2].isEmpty() ? "" : ": " + page[2]);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Where you left off")
+                .setItems(names, (d, which) -> {
+                    String link = ServerAddress.browsable(pages.get(which)[1]);
+                    if (link != null) web.loadUrl(link);
+                })
+                .setNegativeButton("Close", null)
+                .show();
+    }
+
+    /** Chapters saved for offline reading: tap to read, hold to delete. */
+    private void showSaved() {
+        List<SavedChapters.Saved> saved = SavedChapters.list(SavedChapters.root(this));
+        if (saved.isEmpty()) {
+            say("No saved chapters. In Quick read, hold a page and choose Save to phone.");
+            return;
+        }
+        String[] names = new String[saved.size()];
+        for (int i = 0; i < names.length; i++) names[i] = saved.get(i).title + " (" + saved.get(i).pages + " pages)";
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("Saved chapters (hold one to delete it)")
+                .setItems(names, (d, which) -> startActivity(new Intent(this, QuickReadActivity.class)
+                        .putExtra(QuickReadActivity.EXTRA_SAVED, saved.get(which).dir.getName())))
+                .setNegativeButton("Close", null)
+                .create();
+        dialog.getListView().setOnItemLongClickListener((parent, view, which, id) -> {
+            SavedChapters.delete(saved.get(which).dir);
+            dialog.dismiss();
+            say("Deleted from this phone.");
+            return true;
+        });
+        dialog.show();
+    }
+
+    static TextStyle textStyle(android.content.SharedPreferences p) {
+        return new TextStyle(p.getInt("text_size", 0), p.getBoolean("text_outline", false), p.getInt("text_font", 0));
+    }
+
+    /** The size, outline and typeface of the English on pages Quick read redraws; the next pages translated use it. */
+    private void askTextStyle() {
+        TextStyle now = textStyle(prefs());
+        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
+        box.setOrientation(android.widget.LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        box.setPadding(pad, pad, pad, 0);
+        android.widget.Spinner size = new android.widget.Spinner(this);
+        size.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.SIZES));
+        size.setSelection(now.size);
+        box.addView(size);
+        android.widget.Spinner font = new android.widget.Spinner(this);
+        font.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.FONTS));
+        font.setSelection(now.font);
+        box.addView(font);
+        android.widget.CheckBox outline = new android.widget.CheckBox(this);
+        outline.setText("Outline the letters");
+        outline.setChecked(now.outline);
+        box.addView(outline);
+        android.widget.TextView note = new android.widget.TextView(this);
+        note.setText("Larger text can get tight in small bubbles. It applies to pages translated from now on.");
+        box.addView(note);
+        new AlertDialog.Builder(this)
+                .setTitle("English text style")
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    prefs().edit().putInt("text_size", size.getSelectedItemPosition())
+                            .putBoolean("text_outline", outline.isChecked())
+                            .putInt("text_font", font.getSelectedItemPosition()).apply();
+                    say("Saved. Pages translated from now on use it.");
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private static final String KEY_RECENT = "recent_pages";
+    private static final int MAX_RECENT = 30;
+
+    /** Keeps the pages opened here on the phone only, so a page can be found again; nothing is sent anywhere. */
+    private void noteVisit(String url, String title) {
+        String link = ServerAddress.publicSourceUrl(url);
+        if (link.isEmpty()) return;
+        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
+        recent = GrabBookmarks.with(recent, title, link, MAX_RECENT);
+        prefs().edit().putString(KEY_RECENT, GrabBookmarks.serialize(recent)).apply();
+    }
+
+    private void showRecent() {
+        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
+        if (recent.isEmpty()) {
+            say("Nothing yet. Pages you open here show up in this list.");
+            return;
+        }
+        String[] names = new String[recent.size()];
+        for (int i = 0; i < names.length; i++) names[i] = recent.get(i).name;
+        new AlertDialog.Builder(this)
+                .setTitle("Recent pages")
+                .setItems(names, (d, which) -> web.loadUrl(recent.get(which).url))
+                .setNeutralButton("Clear", (d, w) -> {
+                    prefs().edit().remove(KEY_RECENT).apply();
+                    say("Recent pages cleared.");
+                })
+                .setNegativeButton("Close", null)
+                .show();
     }
 
     private static final String KEY_BOOKMARKS = "bookmarks";
@@ -799,6 +967,52 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** Reads the chapter list on the open series page and, after a warning, queues every chapter not yet done. */
+    private void askWholeSeries() {
+        String url = web.getUrl();
+        if (url == null || ServerAddress.browsable(url) == null) {
+            say(OPEN_FIRST);
+            return;
+        }
+        web.evaluateJavascript(SeriesRun.LINKS_JS, raw -> {
+            // evaluateJavascript hands back the script's string as a JSON string literal.
+            String json = "[]";
+            try {
+                json = new org.json.JSONTokener(raw == null ? "\"[]\"" : raw).nextValue().toString();
+            } catch (org.json.JSONException ignored) {
+                // Nothing readable lists no chapters.
+            }
+            List<GrabQueue.Item> links = SeriesRun.parseLinks(json, url);
+            if (links.size() < SeriesRun.MIN_LIST) {
+                say("Open the series page, the one that lists its chapters, first.");
+                return;
+            }
+            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.history(prefs()), GrabStore.queue(prefs()));
+            int room = GrabQueue.MAX_QUEUED - GrabStore.queue(prefs()).size();
+            if (plan.fresh.isEmpty() || room <= 0) {
+                say(plan.fresh.isEmpty() ? "Every chapter listed here is already done or waiting." : "The queue is full.");
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("Grab the whole series?")
+                    .setMessage(SeriesRun.warning(plan, room))
+                    .setPositiveButton("Add " + Math.min(plan.fresh.size(), room) + " chapters", (d, w) -> addSeries(plan, room))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+    }
+
+    private void addSeries(SeriesRun.Plan plan, int room) {
+        boolean idle = !grabbing && !loadingNext && chaptersLeft == 0;
+        int added = 0;
+        for (GrabQueue.Item item : plan.fresh) {
+            if (added >= room || !GrabStore.add(prefs(), item)) break;
+            added++;
+        }
+        if (idle && added > 0) startQueue();
+        else say("Added " + added + " chapters to the queue (" + GrabStore.queue(prefs()).size() + " waiting).");
     }
 
     private void addToQueue(String url, int chapters) {
@@ -1249,6 +1463,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.runId = runId;
             activeClient = client;
             client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
+            client.textStyle = textStyle(prefs());
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
             client.sourceLanguage = language;
@@ -1328,7 +1543,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void read(BaiheClient client, String url, List<PageImage> images, int unreadable, boolean truncated) {
         boolean continuing = partsContinuing;
         boolean moreParts = followingParts && chaptersLeft > 1;
-        if (!continuing) QuickReadSession.begin();
+        if (!continuing) {
+            QuickReadSession.begin();
+            QuickReadSession.setTitle(runName);
+        }
         QuickReadSession.onCancel(this::cancelGrab);
         long readStarted = System.currentTimeMillis();
         java.util.concurrent.ExecutorService pool = Executors.newFixedThreadPool(QUICK_READ_STREAMS);

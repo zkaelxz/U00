@@ -47,6 +47,7 @@ import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhis
 import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
 import { LiveNowCards } from './live/LiveNowCards'
+import { LanguagePicker, StreamLinkField } from './live/StartFields'
 import { useFollows } from './live/useFollows'
 import { ReadChatField } from './live/LiveChat'
 import { useLiveSession } from './live/useLiveSession'
@@ -193,29 +194,27 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>
-          <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
-            <input
-              type="url"
-              inputMode="url"
-              autoComplete="off"
-              spellCheck={false}
-              maxLength={opts.max_url_len}
-              placeholder="https://www.youtube.com/watch?v=…"
-              value={url}
-              disabled={active || busy}
-              onChange={(e) => setUrl(e.target.value)}
-            />
+          <StreamLinkField value={url} maxLength={opts.max_url_len} disabled={active || busy} onChange={setUrl} />
+          <LanguagePicker value={form.source_language} options={opts.languages} disabled={active || busy} onChange={changeLanguage} />
+          <Field label="Use glossary and packs from"
+            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
+            <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
+              onChange={(e) => setPrefs({ ...savedPrefs, ...glossaryIds(e.target.value) })}>
+              <option value="">None</option>
+              {glossaryGroups.map((g) => (
+                <optgroup key={g} label={g}>
+                  {glossaryOptions.filter((o) => o.group === g).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
           </Field>
+          {auto && <ChosenForYouNote text="The engine and caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
+          {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
+          {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
+          {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">
           <div className="field-row">
-            <Field label="Language">
-              <select value={form.source_language} disabled={active || busy} onChange={(e) => changeLanguage(e.target.value)}>
-                {opts.languages.map((l) => (
-                  <option key={l.code} value={l.code}>
-                    {l.label}
-                  </option>
-                ))}
-              </select>
-            </Field>
             {!auto && <Field label={AI_ENGINE_LABEL} help="Engines without a key are hidden; add keys in Settings.">
               <select value={engine} disabled={active || busy || !usable.length} onChange={(e) => setOpt('engine', e.target.value)}>
                 {!usable.length && <option value="">{engines ? '' : 'Loading…'}</option>}
@@ -238,7 +237,6 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
                   : 'Runs on this PC through Ollama. Pick another engine above to send the text to a hosted service instead.')
                 : 'Engine default uses the model the engine runs on its own.'} />}
           </div>
-          {auto && <ChosenForYouNote text="The engine and caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
           {!auto && engines && !usable.length && (
             <p className="muted" data-testid="live-no-engine-note">
               <a href={routeHref({ name: 'settings' })}>Add a key in Settings</a>
@@ -247,22 +245,6 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
           {!auto && engines && !usable.length && developerMode && (
             <p className="muted" data-testid="live-echo-note">Echo (testing) is available in Developer Mode</p>
           )}
-          <Field label="Use glossary and packs from"
-            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
-            <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
-              onChange={(e) => setPrefs({ ...savedPrefs, ...glossaryIds(e.target.value) })}>
-              <option value="">None</option>
-              {glossaryGroups.map((g) => (
-                <optgroup key={g} label={g}>
-                  {glossaryOptions.filter((o) => o.group === g).map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          </Field>
-          {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
-          {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
               <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
@@ -345,6 +327,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
                 {engineShortName({ name: engine })} can't switch thinking off from here, so this setting doesn't apply to it.
               </p>
             )}
+          </Section>}
           </Section>}
           {!active && (
             <div className="actions">

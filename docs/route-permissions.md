@@ -276,6 +276,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/capture-summary` | device_token (extension.send) |
 | `POST /api/ext-bridge/follow` | device_token (extension.send) |
 | `GET /api/ext-bridge/health` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-page` | device_token (extension.send) |
+| `POST /api/ext-bridge/last-pages` | device_token (extension.send) |
 | `POST /api/ext-bridge/live` | device_token (extension.send) |
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
@@ -313,6 +315,10 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/from-novel/apply` | lines.edit |
 | `POST /api/glossary/dramas/{drama_id}/from-novel/cancel` | jobs.cancel |
 | `POST /api/glossary/dramas/{drama_id}/import` | lines.edit |
+| `GET /api/glossary/dramas/{drama_id}/inbox` | lines.read |
+| `POST /api/glossary/dramas/{drama_id}/inbox/accept` | lines.edit |
+| `POST /api/glossary/dramas/{drama_id}/inbox/reject` | lines.edit |
+| `POST /api/glossary/dramas/{drama_id}/inbox/restore` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/instructions` | library.read |
 | `POST /api/glossary/dramas/{drama_id}/instructions/draft` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/instructions/project` | lines.edit |
@@ -546,6 +552,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/lines/{line_id}/study` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
 | `GET /api/reader/dramas/{drama_id}/notes` | library.read |
@@ -741,6 +748,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/sources/jobs/{job_id}/result` | library.read |
 | `GET /api/sources/notifications` | library.read |
 | `POST /api/sources/notifications/{notification_id}/dismiss` | sources.import |
+| `POST /api/sources/notifications/{notification_id}/restore` | sources.import |
 | `GET /api/sources/profiles` | admin.settings |
 | `POST /api/sources/profiles/{domain}/{kind}/rollback` | admin.settings |
 | `POST /api/sources/search` | library.read |
@@ -876,6 +884,11 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/voices/{series_id}/{character_id}/clear` | local_only() |
 | `POST /api/voices/{series_id}/{character_id}/remove-sample` | local_only() |
 | `POST /api/voices/{series_id}/{character_id}/retrain` | local_only() |
+| `POST /api/watch-party/rooms` | lines.read |
+| `DELETE /api/watch-party/rooms/{code}` | lines.read |
+| `GET /api/watch-party/rooms/{code}` | lines.read |
+| `POST /api/watch-party/rooms/{code}/state` | lines.read |
+| `GET /api/watch-party/rooms/{code}/stream` | lines.read |
 | `GET /api/web-search/config` | local_only() |
 | `POST /api/web-search/config` | local_only() |
 | `POST /api/web-search/search` | library.read |
