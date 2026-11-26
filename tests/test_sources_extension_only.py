@@ -273,6 +273,8 @@ def test_scheduled_check_skips_quietly(isolated_db):
 
 @pytest.mark.parametrize("url", [
     "https://blacktoon510.com/webtoon/18608.html",
+    "https://blacktoon511.com/webtoon/18608.html",
+    "https://www.blacktoon.com/webtoon/1.html",
     "https://mangafire.to/title/70px7-example",
     "https://www.kagane.moe/series/example",
 ])
@@ -284,3 +286,5 @@ def test_challenge_protected_sites_stop_early_without_a_marker(isolated_db, url)
 def test_lookalike_host_is_not_stopped(isolated_db):
     ext.require_url_not_extension_only("https://notmangafire.to/title/1")
     ext.require_url_not_extension_only("https://mangafire.to.example/title/1")
+    ext.require_url_not_extension_only("https://notblacktoon511.com/webtoon/1.html")
+    ext.require_url_not_extension_only("https://blacktoon511.com.example/webtoon/1.html")
