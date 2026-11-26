@@ -341,35 +341,51 @@
     }
   }
 
-  // Pictures of the web view's own screen, asked of the app one at a time. The app answers by
-  // calling the function below, which only this grab's secret name reaches.
+  // Pictures of the web view's own screen, asked of the app one strip at a time. The app crops
+  // each strip, joins them and files the page itself: a site that disables reading canvases
+  // disables it for every canvas this script could make, so nothing is joined here. The app
+  // answers by calling the function below, which only this grab's secret name reaches.
   var snapWaiters = {};
   var snapCount = 0;
-  window["__baiheSnap" + nonce] = function (id, base64) {
+  window["__baiheSnap" + nonce] = function (id, ok) {
     var waiter = snapWaiters[id];
-    if (waiter) { delete snapWaiters[id]; waiter(base64); }
+    if (waiter) { delete snapWaiters[id]; waiter(!!ok); }
   };
-  function snap() {
-    return new Promise(function (resolve, reject) {
+  function ask(send) {
+    return new Promise(function (resolve) {
       var id = "s" + (++snapCount);
-      var timer = setTimeout(function () { delete snapWaiters[id]; reject(new Error("no snapshot")); }, 15000);
-      snapWaiters[id] = function (base64) {
-        clearTimeout(timer);
-        if (!base64) { reject(new Error("no snapshot")); return; }
-        var image = new Image();
-        image.onload = function () { resolve(image); };
-        image.onerror = function () { reject(new Error("bad snapshot")); };
-        image.src = "data:image/jpeg;base64," + base64;
-      };
-      Baihe.snap(nonce, id);
+      var timer = setTimeout(function () { delete snapWaiters[id]; resolve(false); }, 20000);
+      snapWaiters[id] = function (ok) { clearTimeout(timer); resolve(ok); };
+      send(id);
     });
   }
-  // A canvas taller than the screen is scrolled a screen at a time; each strip is cropped from a
-  // snapshot and the strips are joined. Null when the page cannot be shown whole.
-  async function screenshotOf(el, box) {
+  // Toolbars, page counters and floating buttons sit over the pages on screen and would be
+  // pictured with them, so they are hidden while strips are taken and shown again after.
+  var hidden = [];
+  // Only what lies outside the box the pages scroll in: nothing inside it is overlay.
+  function hideOverlays(box, except) {
+    var all = document.querySelectorAll("body *");
+    for (var n = 0; n < all.length && n < 6000; n++) {
+      var el = all[n];
+      if (box.contains(el) || el.contains(box) || el.contains(except)) continue;
+      var style = getComputedStyle(el);
+      if (/^(fixed|sticky|absolute)$/.test(style.position) && style.visibility !== "hidden") {
+        hidden.push([el, el.style.visibility]);
+        el.style.setProperty("visibility", "hidden", "important");
+      }
+    }
+  }
+  function showOverlays() {
+    hidden.forEach(function (h) { if (h[1]) h[0].style.visibility = h[1]; else h[0].style.removeProperty("visibility"); });
+    hidden = [];
+  }
+  // A canvas taller than the screen is scrolled a screen at a time. False when the page cannot be
+  // shown whole.
+  async function screenshotOf(el, box, key) {
     var first = el.getBoundingClientRect();
-    if (first.width > window.innerWidth + 2) return null;
-    var height = first.height, done = 0, out = null, startTop = box.scrollTop;
+    if (first.width > window.innerWidth + 2) return false;
+    var height = first.height, done = 0, startTop = box.scrollTop, strips = 0;
+    if (!hidden.length) hideOverlays(box, el);
     try {
       for (var guard = 0; done < height - 1 && guard < 40; guard++) {
         var r = el.getBoundingClientRect();
@@ -379,27 +395,18 @@
         await new Promise(function (resolve) { setTimeout(resolve, 350); });
         r = el.getBoundingClientRect();
         var y = r.top + done;
-        if (y < 0 || y >= window.innerHeight) return null;
+        if (y < 0 || y >= window.innerHeight) return false;
         var rows = Math.min(height - done, window.innerHeight - y);
-        var shot = await snap();
-        var scale = shot.naturalWidth / window.innerWidth;
-        if (!out) {
-          out = document.createElement("canvas");
-          out.width = Math.max(1, Math.round(r.width * scale));
-          out.height = Math.max(1, Math.round(height * scale));
-        }
-        out.getContext("2d").drawImage(shot, Math.round(r.left * scale), Math.round(y * scale), out.width, Math.round(rows * scale),
-          0, Math.round(done * scale), out.width, Math.round(rows * scale));
+        var ok = await ask(function (id) { Baihe.snap(nonce, id, r.left, y, r.width, rows, window.innerWidth); });
+        if (!ok) return false;
+        strips++;
         done += rows;
       }
     } finally {
       box.scrollTop = startTop;
     }
-    if (!out || done < height - 1) return null;
-    var url = out.toDataURL("image/jpeg", 0.9);
-    if (typeof url === "string" && url.indexOf("data:image") === 0) return { type: "image/jpeg", data: url.split(",")[1] || "" };
-    var blob = await new Promise(function (resolve) { out.toBlob(resolve, "image/jpeg", 0.9); });
-    return blob ? { type: "image/jpeg", data: await toBase64(blob) } : null;
+    if (strips === 0 || done < height - 1) return false;
+    return ask(function (id) { Baihe.stitch(nonce, id, key); });
   }
 
   // Pictures are read four at a time, but handed over in page order.
@@ -424,9 +431,7 @@
           continue;
         }
         // The site disabled reading its canvas: take what the web view shows on screen instead.
-        var pictured = await screenshotOf(item.el, scrollBox());
-        if (pictured) Baihe.image(nonce, "p" + i, "", pictured.type, pictured.data);
-        else Baihe.skipped(nonce, "p" + i);
+        if (!(await screenshotOf(item.el, scrollBox(), "p" + i))) Baihe.skipped(nonce, "p" + i);
         continue;
       }
       var img = item.el;
@@ -441,5 +446,6 @@
       Baihe.skipped(nonce, "p" + i);
     }
   }
+  showOverlays();
   Baihe.done(nonce);
 })();
