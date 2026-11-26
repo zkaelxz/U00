@@ -46,7 +46,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     static final String PREFS = "grab";
     static final String KEY_SERVER = "server";
     static final String KEY_TOKEN = "token";
-    private static final String KEY_READ_AHEAD = "read_ahead";
+    static final String KEY_READ_AHEAD = "read_ahead";
 
     private WebView web;
     private EditText address;
@@ -148,6 +148,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         AdHosts.setExtra(prefs().getString(KEY_EXTRA_ADS, ""));
+        // Sign-in on YouTube, Twitch and similar sites sets cookies from a second site, which a WebView drops by default.
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebChromeClient(new android.webkit.WebChromeClient() {
             @Override
             public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
@@ -263,11 +265,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(palette.surface);
         bar.setPadding(gap, gap, gap, gap);
-        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Grab", false);
+        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Save", false);
         grab.setOnClickListener(v -> startGrab());
-        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
+        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Save chapters", false);
         chapters.setOnClickListener(v -> toggleChapters());
-        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
+        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Read now", true);
         quick.setOnClickListener(v -> {
             if (QuickReadSession.isDetached()) openReader();
             else if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
@@ -333,27 +335,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         }
     }
 
-    private static final String KEY_EXTRA_ADS = "extra_ad_hosts";
-
-    /** Sites the built-in list misses; blocking one stops its pop-ups and its requests from loading. */
-    private void editAdList() {
-        EditText hosts = new EditText(this);
-        hosts.setHint("One site per line, like ads.example.com");
-        hosts.setText(prefs().getString(KEY_EXTRA_ADS, ""));
-        hosts.setMinLines(4);
-        hosts.setGravity(android.view.Gravity.TOP);
-        new AlertDialog.Builder(this)
-                .setTitle("Also block these sites")
-                .setView(hosts)
-                .setPositiveButton("Save", (d, w) -> {
-                    String saved = String.join("\n", AdHosts.parseExtra(hosts.getText().toString()));
-                    prefs().edit().putString(KEY_EXTRA_ADS, saved).apply();
-                    AdHosts.setExtra(saved);
-                    say("Blocking " + AdHosts.parseExtra(saved).size() + " more sites. Reload the page to see it.");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
+    static final String KEY_EXTRA_ADS = "extra_ad_hosts";
 
     private static final int REQUEST_GALLERY = 41;
 
@@ -453,7 +435,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     sendShared(uris, title, cut, server, token, false);
                 })
                 // A screenshot of a page to read now: translated and shown, nothing saved, no title needed.
-                .setNeutralButton("Quick read", (d, w) -> sendShared(uris, "", cut, server, token, true))
+                .setNeutralButton("Read now", (d, w) -> sendShared(uris, "", cut, server, token, true))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -541,7 +523,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         GrabMenu menu = new GrabMenu(this, palette).section("This page");
         menu.item(translateOn ? "Show original page" : "Translate this page", () -> setTranslate(!translateOn));
         if (QuickReadSession.isDetached()) menu.item("Stop translating", this::cancelGrab);
-        else if (QuickReadSession.hasPages()) menu.item("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)", this::openReader);
+        else if (QuickReadSession.hasPages()) menu.item("Open reader (" + QuickReadSession.snapshot().size() + " pages)", this::openReader);
         menu.item(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page", this::toggleBookmark);
         menu.item("Add to queue", this::askAddToQueue);
         menu.item("Pictures from my gallery", this::pickGallery);
@@ -560,8 +542,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.item("Send video to Baihe", this::sendVideo);
         menu.item("Start Live here", this::askStartLive);
         menu.section("App");
-        menu.item("English text style", this::askTextStyle);
-        menu.item("Ad block list", this::editAdList);
         menu.item("Settings", this::showSettings);
         menu.item("Open Baihe", this::openBaihe);
         menu.show();
@@ -653,41 +633,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     static TextStyle textStyle(android.content.SharedPreferences p) {
         return new TextStyle(p.getInt("text_size", 0), p.getBoolean("text_outline", false), p.getInt("text_font", 0));
-    }
-
-    /** The size, outline and typeface of the English on pages Quick read redraws; the next pages translated use it. */
-    private void askTextStyle() {
-        TextStyle now = textStyle(prefs());
-        android.widget.LinearLayout box = new android.widget.LinearLayout(this);
-        box.setOrientation(android.widget.LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        box.setPadding(pad, pad, pad, 0);
-        android.widget.Spinner size = new android.widget.Spinner(this);
-        size.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.SIZES));
-        size.setSelection(now.size);
-        box.addView(size);
-        android.widget.Spinner font = new android.widget.Spinner(this);
-        font.setAdapter(new android.widget.ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, TextStyle.FONTS));
-        font.setSelection(now.font);
-        box.addView(font);
-        android.widget.CheckBox outline = new android.widget.CheckBox(this);
-        outline.setText("Outline the letters");
-        outline.setChecked(now.outline);
-        box.addView(outline);
-        android.widget.TextView note = new android.widget.TextView(this);
-        note.setText("Larger text can get tight in small bubbles. It applies to pages translated from now on.");
-        box.addView(note);
-        new AlertDialog.Builder(this)
-                .setTitle("English text style")
-                .setView(box)
-                .setPositiveButton("Save", (d, w) -> {
-                    prefs().edit().putInt("text_size", size.getSelectedItemPosition())
-                            .putBoolean("text_outline", outline.isChecked())
-                            .putInt("text_font", font.getSelectedItemPosition()).apply();
-                    say("Saved. Pages translated from now on use it.");
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
     }
 
     static final String KEY_RECENT = "recent_pages";
@@ -806,7 +751,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void setTranslate(boolean on) {
         translateOn = on;
         web.evaluateJavascript(on ? PageTranslate.ON : PageTranslate.OFF, null);
-        if (on) say("Translating this page to English. Grab and Quick read use the original page.");
+        if (on) say("Translating this page to English. Save and Read now use the original page.");
     }
 
     /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
@@ -815,7 +760,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             quick.setDanger(running);
             if (running) quick.setLabel("Cancel", palette.onAccent, R.drawable.ic_stop);
             else {
-                quick.setLabel("Quick read", palette.onAccent, R.drawable.ic_quick);
+                quick.setLabel("Read now", palette.onAccent, R.drawable.ic_quick);
                 quick.setBusy(false);
             }
         });
@@ -1004,7 +949,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (chaptersLeft > 0 && !followingParts) chapters.setLabel(
                 GrabQueue.untilEnd(chaptersLeft) ? "Stop (to the end)" : "Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
-            chapters.setLabel("Chapters", palette.muted, R.drawable.ic_chapters);
+            chapters.setLabel("Save chapters", palette.muted, R.drawable.ic_chapters);
             chapters.resetTint();
         }
     }
@@ -1043,6 +988,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     protected void onStop() {
         super.onStop();
+        // Android writes cookies to disk on its own schedule; a login made just before the app is killed would be lost.
+        android.webkit.CookieManager.getInstance().flush();
         AppUpdate.screenStopped(this);
     }
 
@@ -1089,64 +1036,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void showSettings() {
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (16 * getResources().getDisplayMetrics().density);
-        form.setPadding(pad, pad, pad, 0);
-        EditText server = new EditText(this);
-        server.setHint("Server address");
-        server.setSingleLine(true);
-        server.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
-        server.setText(prefs().getString(KEY_SERVER, ""));
-        EditText token = new EditText(this);
-        // The saved token is never shown again; an empty field keeps the one already saved.
-        token.setHint("Token (starts with baihe_dt_)");
-        token.setSingleLine(true);
-        token.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        form.addView(server);
-        form.addView(token);
-        android.widget.CheckBox ahead = new android.widget.CheckBox(this);
-        ahead.setText("Quick read: translate the next chapter before I reach it");
-        ahead.setChecked(prefs().getBoolean(KEY_READ_AHEAD, true));
-        // Saved on the tap: it does not depend on the address and token passing their check.
-        ahead.setOnCheckedChangeListener((box, on) -> prefs().edit().putBoolean(KEY_READ_AHEAD, on).apply());
-        form.addView(ahead);
-        new AlertDialog.Builder(this)
-                .setTitle("Settings")
-                .setMessage("Make the token at the PC in Baihe: Settings > Extension tokens per computer.")
-                .setView(form)
-                .setPositiveButton("Save", (d, w) -> {
-                    String origin = ServerAddress.normalizeServer(server.getText().toString());
-                    if (origin == null) {
-                        say("The server address must start with https://.");
-                        return;
-                    }
-                    String candidate = ServerAddress.tokenToCheck(token.getText().toString(),
-                            prefs().getString(KEY_TOKEN, ""), origin, prefs().getString(KEY_SERVER, ""));
-                    if (candidate.isEmpty()) {
-                        say("Enter the token.");
-                        return;
-                    }
-                    verifyAndSave(origin, candidate);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    /**
-     * Nothing is saved until the server answers /health with this token, and the host it
-     * answered from is shown, so a lookalike address is visible before the token is trusted.
-     */
-    private void verifyAndSave(String origin, String token) {
-        sender.execute(() -> {
-            try {
-                new BaiheClient(origin, token).health();
-                prefs().edit().putString(KEY_SERVER, origin).putString(KEY_TOKEN, token).apply();
-                say("Connected to " + ServerAddress.hostOf(origin));
-            } catch (BaiheClient.BridgeException e) {
-                say(e.getMessage());
-            }
-        });
+        startActivity(new Intent(this, GrabSettingsActivity.class));
     }
 
     private void startGrab() {

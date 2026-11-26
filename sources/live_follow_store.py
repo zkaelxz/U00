@@ -12,7 +12,7 @@ from sources import store
 # Columns the service may change after a row is created; anything else
 # (id, owner, created_at, the canonical URL) is fixed for the row's life.
 _UPDATABLE = frozenset({
-    "channel_name", "mode", "auto_check", "options", "stream_title", "pc_owner", "poll_minutes", "last_checked_at",
+    "channel_name", "nickname", "mode", "auto_check", "options", "stream_title", "pc_owner", "poll_minutes", "last_checked_at",
     "last_state", "last_status", "starts_at", "last_stream_id", "notified_state",
     "started_stream_id",
 })

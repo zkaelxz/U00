@@ -310,7 +310,7 @@ def test_the_followed_channels_table_has_its_columns(follows):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(followed_channels)")}
     assert {"id", "owner_user_id", "channel_url", "channel_name", "mode", "options",
             "poll_minutes", "last_checked_at", "last_status", "last_stream_id",
-            "created_at"} <= cols
+            "created_at", "nickname"} <= cols
     with pytest.raises(ValueError):
         live_follow_store.update(1, channel_url="https://evil.example/")
 
@@ -375,3 +375,38 @@ def test_a_twitch_follow_starts_live_on_the_channel_page(follows, monkeypatch):
     live_follow_store.update(v["id"], last_state="live", last_stream_id="123456789")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.twitch.tv/somename"
+
+
+def test_a_nickname_is_the_accounts_own_and_shown_in_its_view(follows):
+    a = svc.add_follow("@SomeStreamer", principal=ALICE)
+    assert a["nickname"] == ""
+    named = svc.update_follow(a["id"], nickname="  Late\nnight   host ", principal=ALICE)
+    assert named["nickname"] == "Late night host"
+    # Another account's follow of the same channel keeps its own (empty) name.
+    b = svc.add_follow("@SomeStreamer", principal=BOB)
+    assert b["nickname"] == ""
+    with pytest.raises(NotFoundError):
+        svc.update_follow(a["id"], nickname="x", principal=BOB)
+    assert svc.update_follow(a["id"], nickname="", principal=ALICE)["nickname"] == ""
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(a["id"], nickname="n" * 61, principal=ALICE)
+
+
+def test_an_old_sources_db_gains_the_nickname_column(follows):
+    import sqlite3
+    from sources import store
+    store.connect().close()
+    fid = svc.add_follow("@name", principal=ALICE)["id"]
+    conn = sqlite3.connect(store.db_path())
+    try:
+        conn.execute("ALTER TABLE followed_channels DROP COLUMN nickname")
+        conn.commit()
+    finally:
+        conn.close()
+    store._initialised.clear()   # the next process start: migrations run again
+    for _ in range(2):
+        with store.connect() as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(followed_channels)")]
+        assert cols.count("nickname") == 1
+    assert live_follow_store.get(fid)["nickname"] == ""
+    assert svc.update_follow(fid, nickname="Host", principal=ALICE)["nickname"] == "Host"
