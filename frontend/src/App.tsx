@@ -43,6 +43,7 @@ import { usePcProfile } from './hooks/usePcProfile'
 import { lockPcProfile, profilePicked, rememberProfilePicked } from './api/pcProfile'
 import { buttonClass } from './components/uiClasses'
 import { routeHref, useRoute } from './router'
+import { watchApiReachability, type ApiState } from './apiReachability'
 
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
 const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
@@ -71,9 +72,6 @@ const SharePage = lazy(() => import('./pages/SharePage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
-const API_STATUS_RECHECK_MS = 30_000
-
-type ApiState = 'unknown' | 'up' | 'down'
 
 // "Can't reach Baihe" everywhere once a check has failed. With room for words (a wide window or a pop-out) the
 // last answered check also shows "Connected", and before the first answer nothing shows, so a slow start never
@@ -82,22 +80,7 @@ type ApiState = 'unknown' | 'up' | 'down'
 function ApiStatus({ showConnected }: { showConnected: boolean }) {
   const [state, setState] = useState<ApiState>('unknown')
 
-  // Checked again on a timer and when the window comes back to the front: a single check
-  // at load never showed a server that stopped later, nor cleared once it came back.
-  useEffect(() => {
-    let stopped = false
-    const check = () => {
-      api.meta().then(() => !stopped && setState('up'), () => !stopped && setState('down'))
-    }
-    check()
-    const timer = window.setInterval(check, API_STATUS_RECHECK_MS)
-    window.addEventListener('focus', check)
-    return () => {
-      stopped = true
-      window.clearInterval(timer)
-      window.removeEventListener('focus', check)
-    }
-  }, [])
+  useEffect(() => watchApiReachability(() => api.meta(), setState, window, document), [])
 
   if (state === 'up' && showConnected) {
     return (
