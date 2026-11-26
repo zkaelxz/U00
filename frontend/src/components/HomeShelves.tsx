@@ -12,7 +12,7 @@ import { useJobs, useNow } from '../hooks/useJobs'
 import { useLoad } from '../hooks/useLoad'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
-import { browserStorage, readPref } from '../hooks/usePersistedState'
+import { browserStorage, readPref, usePersistedState } from '../hooks/usePersistedState'
 import { freshServerPlace, newerPlace, positionKey, positionTimeKey, serverSeenKey } from '../pages/watch/watchLogic'
 import { pluralLocale } from '../labels'
 import { titleKind } from '../pages/workspace/titleKind'
@@ -40,16 +40,23 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
     canOpenSettings: pc !== 'remote',
   }
   const now = useNow(active > 0)
+  // Off by default: the owner finds the two shelves crowd the first screen. Per browser, like other view choices.
+  const [shown, setShown] = usePersistedState('library-home-shelves', false)
   if (!home.data) return null
   return (
     <div className="home-shelves" data-testid="home-shelves">
-      <ReadyShelf home={home.data} />
+      {shown && <ReadyShelf home={home.data} />}
       {viewer.canControlQueue
         ? <>
-            <NeedsShelf home={home.data} viewer={viewer} />
+            {shown && <NeedsShelf home={home.data} viewer={viewer} />}
             <RunningRow home={home.data} jobs={jobs} now={now} />
           </>
-        : <YoursShelf home={home.data} viewer={viewer} jobs={jobs} now={now} />}
+        : <YoursShelf home={home.data} viewer={viewer} jobs={jobs} now={now} shown={shown} />}
+      {(home.data.ready_count > 0 || home.data.needs_you.length > 0) && (
+        <button type="button" className="home-toggle" aria-pressed={shown} onClick={() => setShown(!shown)}>
+          {shown ? 'Hide Ready and Needs you' : 'Show Ready and Needs you'}
+        </button>
+      )}
       {phone && total !== null && total > 0 && (
         <button type="button" className="home-all" onClick={showAll}>
           <span>All titles</span><span className="muted">{total}</span>
@@ -156,8 +163,9 @@ function RunningRow({ home, jobs, now }: { home: LibraryHome; jobs: ReturnType<t
   )
 }
 
-function YoursShelf({ home, viewer, jobs, now }: { home: LibraryHome; viewer: NeedsViewer; jobs: ReturnType<typeof useJobs>['jobs']; now: number }) {
-  const stopped = home.needs_you.filter((e) => e.kind === 'failed')
+function YoursShelf({ home, viewer, jobs, now, shown }: { home: LibraryHome; viewer: NeedsViewer; jobs: ReturnType<typeof useJobs>['jobs']; now: number; shown: boolean }) {
+  // A member's stopped titles are their Needs you, so they follow the toggle; what is running always shows.
+  const stopped = shown ? home.needs_you.filter((e) => e.kind === 'failed') : []
   if (home.running.length === 0 && stopped.length === 0) return null
   return (
     <section className="home-shelf" aria-labelledby="home-yours">

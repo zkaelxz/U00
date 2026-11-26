@@ -1,6 +1,7 @@
 .home-shelves { display: flex; flex-direction: column; gap: var(--space-4); }
 /* With every shelf hidden, All titles would only push the list down, and an empty block would take a second page gap. */
-.home-shelves:not(:has(.home-shelf, .home-running)) { display: none; }
+.home-shelves:not(:has(.home-shelf, .home-running, .home-toggle)) { display: none; }
+.home-toggle { align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
 .home-shelf { display: flex; flex-direction: column; gap: var(--space-2); }
 .home-shelf-head { display: flex; align-items: center; gap: var(--space-2); }
 .home-shelf-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 700; }
