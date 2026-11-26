@@ -27,9 +27,18 @@ export function RawVideosCard({ onChanged }: { onChanged: (message: string) => v
     setBusy(which)
     setError(null)
     try {
-      const done = await trashRawVideos(chosen, age)
-      const skipped = done.skipped.length ? ` ${done.skipped.length} skipped because they changed.` : ''
-      onChanged(`Moved ${done.moved_count} video${done.moved_count === 1 ? '' : 's'} (${formatDecimalBytes(done.moved_bytes)}) to Trash. Empty Trash to free the space.${skipped}`)
+      let count = 0
+      let bytes = 0
+      let skippedCount = 0
+      // The server takes up to 200 at a time; the first failure ends the run.
+      for (let i = 0; i < chosen.length; i += 200) {
+        const done = await trashRawVideos(chosen.slice(i, i + 200), age)
+        count += done.moved_count
+        bytes += done.moved_bytes
+        skippedCount += done.skipped.length
+      }
+      const skipped = skippedCount ? ` ${skippedCount} skipped because they changed.` : ''
+      onChanged(`Moved ${count} video${count === 1 ? '' : 's'} (${formatDecimalBytes(bytes)}) to Trash. Empty Trash to free the space.${skipped}`)
     } catch (e) {
       setError(e)
     } finally {
@@ -42,7 +51,7 @@ export function RawVideosCard({ onChanged }: { onChanged: (message: string) => v
     <section aria-label="Old source videos" className="du-trash" data-testid="raw-videos">
       <p className="muted du-why">
         Videos of finished titles you no longer need. The subtitles and the extracted audio stay, and a title you
-        marked Keep original is never listed. Videos go to Trash first, so you can restore them.
+        marked Keep original is never listed. Videos go to Trash first. Restoring one puts the file back in the title's folder; add it to the title again with Upload.
       </p>
       <label>
         Older than{' '}

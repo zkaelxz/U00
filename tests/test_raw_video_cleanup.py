@@ -80,3 +80,16 @@ def test_a_pin_after_listing_is_skipped(c):
     done = c.post(BASE + "/to-trash", json={"videos": [{"id": video["id"], "expected_size_bytes": 500}], "confirm": True})
     assert done.json()["moved_count"] == 0
     assert os.path.exists(os.path.join(db.drama_dir(did), "source.mp4"))
+
+
+def test_a_traversing_stored_name_is_never_offered(c):
+    victim = _title("Victim", keep_original=1)
+    did = _title("Hostile")
+    db.update_drama(did, source_video_filename=f"../{victim}/source.mp4")
+    assert [v["title"] for v in c.get(BASE).json()["videos"]] == []
+
+
+def test_a_missing_audio_file_keeps_the_video_out(c):
+    did = _title()
+    os.remove(os.path.join(db.drama_dir(did), "audio.flac"))
+    assert c.get(BASE).json()["videos"] == []

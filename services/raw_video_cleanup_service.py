@@ -10,10 +10,12 @@ import hashlib
 import hmac
 import os
 import secrets
+import sqlite3
 import stat
 import time
 
 import db
+from lib.safe_paths import plain_file_in
 from lib.errors import ConflictError, InvalidInputError, NotFoundError, ServiceError
 from services import disk_usage_guard as guard
 from services import disk_usage_hold as hold
@@ -34,15 +36,19 @@ def _video_id(drama_id: int, name: str) -> str:
 def _offerable(row, min_age_days: int, now: float, ctx):
     """(parts, size, mtime) when this title's source video may be offered, else None."""
     name = row.get("source_video_filename")
-    # The extracted audio is what stays; a video with no audio beside it is still the title's only media.
-    if not name or not row.get("audio_filename") or keep_original_service.is_pinned(row) or row.get("transcript_mode") == "hardsub_ocr":
+    if not name or keep_original_service.is_pinned(row) or row.get("transcript_mode") == "hardsub_ocr":
         return None
     if not db.drama_has_translated_lines(row["id"]) or drama_service.job_running_for_drama(row["id"]):
         return None
+    # Stored names are untrusted: plain_file_in refuses separators and links, and the folder is not created here.
+    folder = os.path.join(db.DRAMAS_DIR, str(row["id"]))
+    video, audio = plain_file_in(folder, name), plain_file_in(folder, row.get("audio_filename"))
+    # The extracted audio is what stays: it must be a different file that is really there.
+    if not video or not audio or not os.path.isfile(audio) or os.path.samefile(audio, video):
+        return None
     lib = os.path.dirname(os.path.abspath(db.LIBRARY_DIR))
-    path = os.path.join(db.drama_dir(row["id"]), name)
     try:
-        parts = guard.split_rel(os.path.relpath(os.path.abspath(path), lib))
+        parts = guard.split_rel(os.path.relpath(os.path.abspath(video), lib))
         guard._resolve(parts)
         st = os.lstat(os.path.join(ctx.root, *parts))
     except (ServiceError, OSError, ValueError):
@@ -81,9 +87,12 @@ def list_raw_videos(min_age_days: int = DEFAULT_MIN_AGE_DAYS) -> dict:
 
 
 def _still_offerable(drama_id: int, name: str) -> bool:
+    """The offer rule's database part again, read when asked. It runs once more right after the rename, when the
+    file is already gone, so it must not look at files."""
     row = db.get_drama(drama_id)
-    return bool(row and row.get("source_video_filename") == name and not keep_original_service.is_pinned(row)
-                and not drama_service.job_running_for_drama(drama_id))
+    return bool(row and row.get("source_video_filename") == name and row.get("audio_filename")
+                and not keep_original_service.is_pinned(row) and row.get("transcript_mode") != "hardsub_ocr"
+                and db.drama_has_translated_lines(drama_id) and not drama_service.job_running_for_drama(drama_id))
 
 
 def trash_raw_videos(videos, min_age_days: int = DEFAULT_MIN_AGE_DAYS, confirm=False) -> dict:
@@ -128,7 +137,11 @@ def trash_raw_videos(videos, min_age_days: int = DEFAULT_MIN_AGE_DAYS, confirm=F
                 except (NotFoundError, InvalidInputError):
                     skipped.append({"id": vid, "reason": "changed"})
                     continue
-                db.clear_source_video(drama_id, name)
+                try:
+                    db.clear_source_video(drama_id, name)
+                except sqlite3.Error:
+                    raise ServiceError("A video was moved to Trash but its title could not be updated. Restore it "
+                                       "from the Trash list and try again.") from None
                 moved += 1
                 moved_bytes += item["size_bytes"]
         except ServiceError as exc:
