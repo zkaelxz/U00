@@ -40,7 +40,7 @@ def _no_first_chunk_lead_in(request, monkeypatch):
     if request.cls is not None and request.cls.__name__ == "TestFirstChunkLeadIn":
         return
     from live import live_audio
-    monkeypatch.setattr(live_audio, "first_chunk_lead_in", lambda seconds: 0.0)
+    monkeypatch.setattr(live_audio, "first_chunk_lead_in", lambda *a: 0.0)
 
 
 class TestListCompletedChunks:
@@ -1438,10 +1438,20 @@ class TestFirstChunkLeadIn:
     """The first chunk closes early: silence before the audio moves the first cut
     ahead while every later cut stays on the segment grid."""
 
-    @pytest.mark.parametrize("segment, lead", [(6, 3.0), (4, 2.0), (10, 5.0), (3, 1.0), (2, 0.0)])
-    def test_lead_in_per_segment_length(self, segment, lead):
+    @pytest.mark.parametrize("segment, lead", [(6, 3.0), (10, 5.0), (3, 1.0), (2, 0.0)])
+    def test_lead_in_per_segment_length_for_chinese(self, segment, lead):
         from live import live_audio
-        assert live_audio.first_chunk_lead_in(segment) == lead
+        assert live_audio.first_chunk_lead_in(segment, "zh") == lead
+
+    @pytest.mark.parametrize("language", ["ja", "ko", "en"])
+    def test_other_languages_keep_their_normal_first_chunk(self, language):
+        from live import live_audio
+        assert live_audio.first_chunk_lead_in(4, language) == 0.0
+
+    def test_a_cue_dated_inside_the_lead_in_starts_at_zero(self):
+        from live import live_cue_feed
+        cues = live_cue_feed.pending_cues([{"start": 2.97, "end": 4.0, "text": "x"}], -3.0, 0)
+        assert cues[0]["start"] == 0.0 and cues[0]["end"] == pytest.approx(1.0)
 
     @pytest.mark.skipif(not HAS_FFMPEG, reason="needs a real ffmpeg binary")
     def test_first_chunk_holds_only_the_lead_in_and_the_early_audio(self, tmp_path, monkeypatch):
@@ -1469,7 +1479,7 @@ class TestFirstChunkLeadIn:
                 pass
         monkeypatch.setattr(lt.live_fetch, "StreamPump", _Pump)
         out_dir = str(tmp_path / "chunks")
-        capture = lt.start_segment_capture("http://x.example/", out_dir, 6)
+        capture = lt.start_segment_capture("http://x.example/", out_dir, 6, lead_in_seconds=3.0)
         assert capture.proc.wait(30) == 0
         lengths = [live_audio.wav_seconds(os.path.join(out_dir, f"chunk_{i:05d}.wav")) for i in range(2)]
         # 3 s lead-in + 8 s of audio: the grid cuts at 6, then the rest.

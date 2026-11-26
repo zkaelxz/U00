@@ -131,14 +131,20 @@ SHORTFALL_SLACK_SECONDS = 0.5
 
 # The first chunk has no earlier audio to overlap, so it closes sooner to put
 # the first subtitles on screen earlier; Whisper hears less context there.
+# Chinese only: Japanese measured no faster to the first cue and 5.7 points
+# worse on the first minute (the early cut moved every later cut).
+FIRST_CHUNK_LANGUAGES = frozenset({"zh"})
 FIRST_CHUNK_FRACTION = 0.5
 MIN_FIRST_CHUNK_SECONDS = 2.0
 
 
-def first_chunk_lead_in(segment_seconds: float) -> float:
+def first_chunk_lead_in(segment_seconds: float, language: str = "zh") -> float:
     """Seconds of silence to put before the audio so the first chunk closes
     after max(MIN_FIRST_CHUNK_SECONDS, half a segment) of real audio instead of
-    a whole segment. 0.0 when a segment is too short to gain a second."""
+    a whole segment. 0.0 for languages that did not gain, or when a segment is
+    too short to gain a second."""
+    if language not in FIRST_CHUNK_LANGUAGES:
+        return 0.0
     first = max(MIN_FIRST_CHUNK_SECONDS, segment_seconds * FIRST_CHUNK_FRACTION)
     lead = segment_seconds - first
     return lead if lead >= 1.0 else 0.0
