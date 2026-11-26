@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page } from '@playwright/test'
 
 // Parity X24. The config read passes the real seeded config through with the
 // drama's saved engine set to Ollama and the reachability flag the test

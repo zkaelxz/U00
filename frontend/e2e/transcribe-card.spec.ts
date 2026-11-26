@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { shot } from './shots'
 import { mediaPanel, selectMediaTab } from './mediaTabs'
 import { mockTranscription } from './transcriptionMissingMocks'

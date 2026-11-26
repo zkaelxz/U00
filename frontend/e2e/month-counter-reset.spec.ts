@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { openSettingsGroups } from './settingsNav'
 
 // Settings > Spending: reset the month counter (confirm), see both figures, undo.

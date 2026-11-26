@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { glossaryTab } from './glossaryTabs'
 import { withExportLines } from './stageLineMocks'
 import { gotoTranslate } from './translateTabs'

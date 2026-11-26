@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page, Route } from '@playwright/test'
 import { withExportLines } from './stageLineMocks'
 import { glossaryTab } from './glossaryTabs'
 import { suggestFrom } from './suggestTerms'

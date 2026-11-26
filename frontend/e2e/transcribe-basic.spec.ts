@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 import { untilTestEnds } from './stageLineMocks'
 import { enableDeveloperMode, openAdvanced, openTranscribeOptions, transcribeCard } from './sourceHelpers'

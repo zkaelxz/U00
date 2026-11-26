@@ -501,6 +501,11 @@ def isolated_db(_template_library):
     db.configure_library_dir(temp_dir)
     db.init_db()
     yield db
+    # Autouse fixtures tear down after this one, so _isolated_background_jobs would join the
+    # test's job threads only once the library is gone: a thread still starting up (applog's
+    # makedirs/open of logs/app.log) then races the rmtree and dies with FileNotFoundError,
+    # which pytest blames on whichever test is tearing down.
+    _join_leftover_job_threads()
     db.configure_library_dir(previous)
     rmtree_retrying(parent_dir)
 

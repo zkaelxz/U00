@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 import { openGroup } from './source-groups'
 import { mockSubtitleImport, SRT_FILE } from './subtitleImportMocks'
