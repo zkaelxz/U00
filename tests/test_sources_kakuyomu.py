@@ -9,7 +9,7 @@ import pytest
 
 from sources import registry
 from sources.adapters import kakuyomu
-from sources.models import AutomationPermission, ChapterInfo, FailureReason, FetchFailed, SourceError
+from sources.models import AutomationPermission, ChapterInfo, FetchFailed, SourceError
 
 from .sources_helpers import FakeClock, ScriptedTransport, html, make_client
 
