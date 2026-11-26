@@ -395,8 +395,12 @@ def test_an_old_sources_db_gains_the_nickname_column(follows):
     from sources import store
     store.connect().close()
     fid = svc.add_follow("@name", principal=ALICE)["id"]
-    with sqlite3.connect(store.db_path()) as conn:
+    conn = sqlite3.connect(store.db_path())
+    try:
         conn.execute("ALTER TABLE followed_channels DROP COLUMN nickname")
+        conn.commit()
+    finally:
+        conn.close()
     store._initialised.clear()   # the next process start: migrations run again
     for _ in range(2):
         with store.connect() as conn:

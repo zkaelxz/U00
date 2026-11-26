@@ -270,7 +270,7 @@ function NicknameEditor({ f, disabled, onSave }: { f: LiveFollow; disabled: bool
   const unchanged = text.trim() === f.nickname
   return (
     <form className="live-follow-nickname" onSubmit={(e) => { e.preventDefault(); if (!unchanged) onSave(text.trim()) }}>
-      <Field label="Your name for it" help="A name only you see, shown first in your Live list and alerts. Leave it empty to show the channel's own name.">
+      <Field label="Your name for it" help="Shown first in your Live list and alerts, including Discord or ntfy if the PC sends them. Leave it empty to show the channel's own name.">
         <input type="text" value={text} maxLength={60} placeholder={f.channel_name || f.channel} disabled={disabled} onChange={(e) => setText(e.target.value)} />
       </Field>
       <button type="submit" className={buttonClass('secondary', 'sm')} disabled={disabled || unchanged}>Save name</button>
