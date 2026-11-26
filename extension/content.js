@@ -951,7 +951,13 @@
     return Array.from(text).slice(0, 200).join("");
   }
 
+  // Some readers put the book's name in the first heading and the chapter's in a later one, so a
+  // heading (or tab title) that names a chapter number wins over the first heading.
   function chapterHeading() {
+    const named = [...["h1", "h2", "h3"].map((tag) => document.querySelector(tag)), { textContent: document.title }]
+      .map((el) => ((el && el.textContent) || "").replace(/\s+/g, " ").trim())
+      .find((text) => text && CHAPTER_LINK_TEXT.test(text));
+    if (named) return capHeading(named);
     for (const tag of ["h1", "h2", "h3"]) {
       const el = document.querySelector(tag);
       const text = el ? (el.textContent || "").replace(/\s+/g, " ").trim() : "";
@@ -978,7 +984,49 @@
     const siteName = String((siteMeta && siteMeta.content) || "").replace(/\s+/g, " ").trim()
       .slice(0, MAX_TITLE_CANDIDATE_CHARS);
     return { url: location.href, language: document.documentElement.lang || "", titles, siteName,
-             chapterLinks: chapterLinks() };
+             chapterLinks: chapterLinks(), ...seriesMeta() };
+  }
+
+  // The first of these meta tags that is set. Novel sites name the book's author in
+  // og:novel:author (a common Chinese reader template) or book:author; most others in author.
+  function metaContent(selectors, cap) {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      const text = String((el && el.content) || "").replace(/\s+/g, " ").trim();
+      if (text) return Array.from(text).slice(0, cap).join("");
+    }
+    return "";
+  }
+
+  // What the page declares about the work, for the app to fill a new title's blank author,
+  // summary and cover. The cover is only an https address; the app downloads and checks it.
+  function seriesMeta() {
+    const cover = metaContent(['meta[property="og:novel:cover"]', 'meta[property="og:image"]',
+                               'meta[name="twitter:image"]'], 2048);
+    return {
+      author: metaContent(['meta[property="og:novel:author"]', 'meta[property="book:author"]',
+                           'meta[name="author"]'], 200),
+      summary: metaContent(['meta[property="og:novel:description"]', 'meta[property="og:description"]',
+                            'meta[name="description"]'], 2000),
+      coverUrl: /^https:\/\//.test(cover) ? cover : "",
+    };
+  }
+
+  // Where the chapter's number is most likely written, in that order: a reader's headings
+  // name the chapter, the tab and social titles add the series and the site. The app reads the
+  // number and chapter name from the first that has one, when the address carries none.
+  // A label is a convenience: nothing read here may stop the pages from being sent.
+  function chapterTitles() {
+    const out = [];
+    try {
+      const shared = document.querySelector('meta[property="og:title"]');
+      const headings = ["h1", "h2", "h3"].map((tag) => { const el = document.querySelector(tag); return el && el.textContent; });
+      for (const raw of [...headings, shared && shared.content, document.title]) {
+        const text = Array.from(String(raw || "").replace(/\s+/g, " ").trim()).slice(0, MAX_TITLE_CANDIDATE_CHARS).join("");
+        if (text && !out.includes(text)) out.push(text);
+      }
+    } catch (e) { /* an odd page: the app falls back to the address or the import time */ }
+    return out.slice(0, 8);
   }
 
   // The site's own "next chapter" link, for a run that carries on chapter after chapter. Only a
@@ -1256,6 +1304,7 @@
       store,
       sourceUrl: location.href,
       sourceLanguage: pageLanguage(),
+      pageTitles: chapterTitles(),
       filterPages,
     });
   }
@@ -2288,7 +2337,7 @@
   // Exposed for the popup's injected checks and for tests.
   window.__baihe = { canvasSignature, translateVisible, sendInBatches, setOverlaysVisible, candidateElements, state, toast,
                      translatePageText, collectPageText, mainContentBlock,
-                     isTextPage, chapterHeading, saveNovelText, pageFacts,
+                     isTextPage, chapterHeading, saveNovelText, pageFacts, chapterTitles,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
                      completenessLine, nextChapterUrl, looksGated };

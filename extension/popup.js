@@ -67,7 +67,8 @@ function autoPickLabel(createEnabled) {
   return createEnabled ? "Auto: create or reuse from this page" : "Auto: reuse a matching title only";
 }
 
-const AUTO_FIELD_NAMES = { title_zh: "original title", title_en: "English title", source_url: "source link" };
+const AUTO_FIELD_NAMES = { title_zh: "original title", title_en: "English title", source_url: "source link",
+                           author: "author", summary: "summary" };
 
 function describeAutoTitle({ created, title, series_id: seriesId, filled = [] }) {
   const name = `“${title}”`;
