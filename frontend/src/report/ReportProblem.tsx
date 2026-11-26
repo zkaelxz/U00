@@ -25,6 +25,7 @@ import { copyText } from '../components/clipboard'
 import { describeError } from '../components/errorMessages'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { shellDiagnostics } from '../phoneShell'
 import { captureSnapshot } from './capture'
 import { SavedReports } from './SavedReports'
 import { SupportReportPanel } from './SupportReportPanel'
@@ -72,6 +73,7 @@ function environment() {
     hostname: window.location.hostname,
     buildId: buildIdFrom(scripts.map((s) => s.src)),
     title: document.title,
+    phone: shellDiagnostics(),
   }
 }
 
