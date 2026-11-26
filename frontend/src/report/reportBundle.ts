@@ -26,6 +26,7 @@ type ReportEnv = {
   viewport: { width: number; height: number; dpr?: number } | null
   hostname: string
   buildId: string
+  title?: string
 }
 
 /** 'pc' at the main PC; otherwise LAN when the page host is a private address. */
@@ -86,6 +87,7 @@ export function buildReport(notes: ReportNotes, snap: CaptureSnapshot, meta: Met
     environment: (meta?.environment ?? '').slice(0, 60),
     build_id: env.buildId.slice(0, 120),
     user_agent: env.userAgent.slice(0, 500),
+    page_title: (env.title ?? '').slice(0, 200),
     viewport: env.viewport,
     mode: reportMode(pc, env.hostname),
   }
