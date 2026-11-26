@@ -25,6 +25,9 @@ final class GrabBridge {
 
         /** The language the page's own text and lang attribute point to ("zh", "ja", "ko" or ""). */
         default void onLanguage(String language) {}
+
+        /** The page asks for a picture of what the web view shows; the answer goes back by id. */
+        default void onSnap(String id) {}
     }
 
     /** Past these the grab stops collecting and sends what it has. */
@@ -137,6 +140,16 @@ final class GrabBridge {
     public synchronized void text(String given, String body) {
         if (!accepts(given) || !begun || body == null || body.trim().isEmpty()) return;
         novelText = body.length() > MAX_TEXT_CHARS ? body.substring(0, MAX_TEXT_CHARS) : body;
+    }
+
+    /** Only while this grab runs, and only a short id the page itself made up. */
+    @JavascriptInterface
+    public void snap(String given, String id) {
+        synchronized (this) {
+            if (!accepts(given) || !begun) return;
+        }
+        if (id == null || !id.matches("s[0-9]{1,6}")) return;
+        listener.onSnap(id);
     }
 
     @JavascriptInterface
