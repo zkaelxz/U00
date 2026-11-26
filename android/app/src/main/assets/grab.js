@@ -409,7 +409,7 @@
     var first = el.getBoundingClientRect();
     if (first.width > window.innerWidth + 2) return false;
     var height = first.height, done = 0, startTop = box.scrollTop, strips = 0;
-    if (!hidden.length) hideOverlays(box, el);
+    hideOverlays(box, el);
     try {
       for (var guard = 0; done < height - 1 && guard < 40; guard++) {
         var r = el.getBoundingClientRect();
@@ -428,6 +428,8 @@
       }
     } finally {
       box.scrollTop = startTop;
+      // Shown again after every page, not once at the end: a grab that is cancelled or fails never reaches the end.
+      showOverlays();
     }
     if (strips === 0 || done < height - 1) return false;
     return ask(function (id) { Baihe.stitch(nonce, id, key); });
@@ -470,6 +472,5 @@
       Baihe.skipped(nonce, "p" + i);
     }
   }
-  showOverlays();
   Baihe.done(nonce);
 })();
