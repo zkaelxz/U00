@@ -23705,6 +23705,8 @@ export interface components {
              * @enum {string}
              */
             mode: "notify" | "auto";
+            /** Nickname */
+            nickname: string;
             options: components["schemas"]["LiveFollowOptions"];
             /** Poll Minutes */
             poll_minutes: number;
@@ -23816,6 +23818,8 @@ export interface components {
             auto_check?: boolean | null;
             /** Mode */
             mode?: ("notify" | "auto") | null;
+            /** Nickname */
+            nickname?: string | null;
             options?: components["schemas"]["LiveFollowOptions"] | null;
         };
         /** LiveFormDefaults */

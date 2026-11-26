@@ -20,6 +20,7 @@ export interface BugReportClient {
   environment: string
   build_id: string
   user_agent: string
+  page_title?: string
   viewport: { width: number; height: number; dpr?: number } | null
   mode: ReportMode
 }

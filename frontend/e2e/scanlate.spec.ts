@@ -24,7 +24,7 @@ test('translate all pages, follow the job, then read the typeset pages', async (
   await expect(engine.locator('option')).toHaveText('Ollama (local)')
   await expect(panel.locator('.field-help-text', { hasText: 'Keys stay on the PC' })).toContainText('Ollama (local): Ollama (free, local)')
 
-  await panel.getByRole('button', { name: 'Translate all pages' }).click()
+  await panel.getByRole('button', { name: 'Translate the rest' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done · Pages: 3 translated\./)
   expect(s.runs).toEqual([{ mode: 'missing', engine: 'ollama', detect_backend: 'auto', art_captions: false }])
   // The viewer reloaded: typeset images are available now.
@@ -46,7 +46,7 @@ test('closing the panel while a job runs still loads the typeset pages when it f
   const tools = page.getByRole('button', { name: 'Translate', exact: true })
   await tools.click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
-  await panel.getByRole('button', { name: 'Translate all pages' }).click()
+  await panel.getByRole('button', { name: 'Translate the rest' }).click()
   await expect.poll(() => s.runs.length).toBe(1)
   await tools.click()
   await expect(panel).toHaveCount(0)
@@ -66,13 +66,13 @@ test('redo pages needs a second press, export gives a download', async ({ page }
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   // A page's hand-edited text boxes are replaced, so the first press only asks.
-  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Start fresh' }).click()
   expect(s.runs).toEqual([])
-  await panel.getByRole('button', { name: 'Redo pages' }).press('Escape')
+  await panel.getByRole('button', { name: 'Start fresh' }).press('Escape')
   await expect(panel.getByRole('button', { name: 'Redo page 2' })).toHaveCount(0)
   expect(s.runs).toEqual([])
   await panel.getByLabel('How', { exact: true }).selectOption('full')
-  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Start fresh' }).click()
   await panel.getByRole('button', { name: 'Redo page 2' }).click()
   await expect(panel.getByTestId('job-status')).toHaveText(/Done/)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'page', page_id: 7 * 100 + 2 })
@@ -80,7 +80,7 @@ test('redo pages needs a second press, export gives a download', async ({ page }
 
   await panel.getByLabel('Pages', { exact: true }).selectOption('all')
   await panel.getByLabel('How', { exact: true }).selectOption('keep_text')
-  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Start fresh' }).click()
   expect(s.runs).toHaveLength(1)
   await panel.getByRole('button', { name: 'Redo all pages' }).click()
   await expect.poll(() => s.runs.length).toBe(2)
@@ -89,7 +89,7 @@ test('redo pages needs a second press, export gives a download', async ({ page }
 
   await panel.getByLabel('Pages', { exact: true }).selectOption('chosen')
   await panel.getByLabel('Which pages', { exact: true }).fill('1-2')
-  await panel.getByRole('button', { name: 'Redo pages' }).click()
+  await panel.getByRole('button', { name: 'Start fresh' }).click()
   await panel.getByRole('button', { name: 'Redo the chosen pages' }).click()
   await expect.poll(() => s.runs.length).toBe(3)
   expect(s.runs.at(-1)).toMatchObject({ mode: 'pages', page_ids: [701, 702], confirm: true })
@@ -107,7 +107,7 @@ test('an empty title shows the upload panel; picking files uploads them', async 
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel).toBeVisible()
   // Until a page exists the engine, run and export controls stay hidden; only the upload shows.
-  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toHaveCount(0)
+  await expect(panel.getByRole('button', { name: 'Translate the rest' })).toHaveCount(0)
   await panel.getByLabel('Page images or PDFs').setInputFiles([
     { name: 'a.png', mimeType: 'image/png', buffer: Buffer.from('x') },
     { name: 'b.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4') },
@@ -131,7 +131,7 @@ test('a missing OpenCV switches the run buttons off and says where to install it
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel.getByTestId('needs-scanlate_opencv')).toContainText('opencv-python')
-  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Translate the rest' })).toBeDisabled()
   await expect(panel.getByRole('link', { name: 'Open Diagnostics' })).toHaveAttribute('href', /opencv-python/)
   expect(s.runs).toEqual([])
 })

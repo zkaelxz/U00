@@ -534,6 +534,7 @@ class LiveFollowUpdate(BaseModel):
     mode: Optional[Literal["notify", "auto"]] = None
     auto_check: Optional[StrictBool] = None
     options: Optional[LiveFollowOptions] = None
+    nickname: Optional[str] = Field(default=None, max_length=60)   # "" clears it
 
 
 class LiveFollow(BaseModel):
@@ -541,6 +542,7 @@ class LiveFollow(BaseModel):
     id: int
     channel: str
     channel_name: str
+    nickname: str   # the account's own label for the channel; "" when none
     mode: Literal["notify", "auto"]
     auto_check: bool   # checked automatically every hour (off: manual checks only)
     options: LiveFollowOptions

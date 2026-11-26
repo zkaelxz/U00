@@ -72,6 +72,10 @@
             android:label="Bookmarks"
             android:exported="false" />
         <activity
+            android:name=".GrabSettingsActivity"
+            android:label="Settings"
+            android:exported="false" />
+        <activity
             android:name=".GrabHistoryActivity"
             android:label="Queue and history"
             android:exported="false" />
