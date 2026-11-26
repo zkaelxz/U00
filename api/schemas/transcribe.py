@@ -273,6 +273,9 @@ class TranscribeRunRequest(BaseModel):
     backend only). The server runs it, so the run route accepts it only from
     the PC itself (403 otherwise); omitted, the path saved in Settings applies."""
     source_language: Optional[str] = None
+    # "Auto (any language)": Whisper large-v3 hears the opening and the run uses what it finds
+    # (source_language is then ignored); never the turbo model.
+    detect_language: bool = False
     chinese_script: Optional[str] = None
     transcript_text: Optional[str] = None
     run_diarize: bool = False

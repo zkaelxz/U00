@@ -2,12 +2,12 @@
 // through the browser's own cast picker, by a short-lived link the TV can fetch without signing in.
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { getCastStatus, makeCastLink } from '../../api/cast'
+import { endShareLinks, getCastStatus, makeCastLink, makeShareLink } from '../../api/cast'
 import { artifactUrl } from '../../api/client'
 import { startBurnedVideo } from '../../api/export'
 import { buttonClass } from '../../components/uiClasses'
-import type { CastStatus } from '../../types/cast'
-import { castLabel, castUrl, reachableByTv } from './castLogic'
+import type { CastStatus, ShareDays } from '../../types/cast'
+import { SHARE_CHOICES, castLabel, castUrl, reachableByTv, shareNote } from './castLogic'
 
 const POLL_MS = 5000
 
@@ -22,9 +22,12 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
   const [state, setState] = useState<CastStatus['state'] | null>(null)
   const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
+  const [shareDays, setShareDays] = useState<ShareDays>(1)
+  const [shared, setShared] = useState<{ url: string; days: ShareDays } | null>(null)
   const holder = useRef<HTMLVideoElement | null>(null)
   const show = canCast
-  const castable = supported && reachableByTv(window.location.hostname)
+  const reachable = reachableByTv(window.location.hostname)
+  const castable = supported && reachable
 
   const look = useCallback(async () => {
     try {
@@ -84,6 +87,38 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
     }
   }
 
+  const share = async () => {
+    setBusy(true)
+    setNote('')
+    try {
+      const link = await makeShareLink(id, shareDays)
+      setShared({ url: castUrl(window.location.origin, link.path), days: shareDays })
+    } catch {
+      setNote('The link could not be made.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const copyShared = async () => {
+    try {
+      await navigator.clipboard.writeText(shared?.url ?? '')
+      setNote('Link copied.')
+    } catch {
+      setNote('Copy the link from the box.')
+    }
+  }
+
+  const endShared = async () => {
+    try {
+      await endShareLinks(id)
+      setShared(null)
+      setNote('Shared links ended.')
+    } catch {
+      setNote('The links could not be ended.')
+    }
+  }
+
   return (
     <section className="card watch-cast" aria-label="Cast and save for offline">
       <p><strong>Watch elsewhere</strong></p>
@@ -104,6 +139,29 @@ export function CastCard({ id, canMake, canCast }: { id: number; canMake: boolea
           </button>
         )}
       </div>
+      {state === 'ready' && reachable && (
+        <div className="watch-card-actions">
+          <label>
+            Share link for{' '}
+            <select value={shareDays} onChange={(e) => setShareDays(Number(e.target.value) as ShareDays)}>
+              {SHARE_CHOICES.map((c) => (
+                <option key={c.days} value={c.days}>{c.label}</option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className={buttonClass()} disabled={busy} onClick={() => void share()}>
+            Make a share link
+          </button>
+          <button type="button" className={buttonClass('danger')} onClick={() => void endShared()}>End shared links</button>
+          {shared && (
+            <>
+              <input readOnly aria-label="Share link" value={shared.url} onFocus={(e) => e.currentTarget.select()} />
+              <button type="button" className={buttonClass()} onClick={() => void copyShared()}>Copy</button>
+              <p>{shareNote(shared.days)}</p>
+            </>
+          )}
+        </div>
+      )}
       <video ref={holder} hidden muted preload="none" playsInline />
     </section>
   )

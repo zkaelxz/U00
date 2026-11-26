@@ -476,6 +476,26 @@ class TestStartTranscribeRun:
         assert callable(k["on_done"]) and callable(k["on_finish"])
         assert captured["drama_id"] == did
 
+    def test_auto_language_runs_the_detected_language_on_large_v3_and_saves_it(self, isolated_db, monkeypatch):
+        import inspect
+        from services import language_detect_service
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        isolated_db.update_drama(did, source_language="zh", whisper_size="turbo")
+        captured = _capture_worker_start(monkeypatch)
+        monkeypatch.setattr(language_detect_service, "detect", lambda *a: "ko")
+        transcribe_service.start_transcribe_run(did, detect_language=True)
+        assert captured["source_language"] == "ko"
+        assert captured["whisper_size"] == "large-v3" and captured["asr_backend_choice"] == "whisper"
+        assert isolated_db.get_drama(did)["source_language"] == "ko"
+        assert isolated_db.get_drama(did)["whisper_size"] == "turbo"   # the title's own model is untouched
+        assert "beam_size" in inspect.signature(transcribe_pipeline._transcribe_worker).parameters
+        assert captured["beam_size"] == 5
+
+    def test_auto_language_refuses_a_title_that_does_not_transcribe_with_whisper(self, isolated_db):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="have_transcript")
+        with pytest.raises(UnsupportedOperationError):
+            transcribe_service.start_transcribe_run(did, detect_language=True)
+
     def test_a_gpu_run_carries_the_same_args_on_the_cpu_for_a_crash_retry(self, isolated_db,
                                                                             monkeypatch):
         import inspect

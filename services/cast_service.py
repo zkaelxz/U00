@@ -1,6 +1,6 @@
-"""services/cast_service.py -- the short-lived links a TV fetches the subtitled copy of an episode
-by, since a TV has no sign-in. A link is a random secret naming one title; only its hash is kept,
-in memory, so a restart ends every link."""
+"""services/cast_service.py -- the short-lived links a TV or a friend fetches the subtitled copy of an
+episode by, since neither has a sign-in. A link is a random secret naming one title; only its hash is
+kept, in memory, so a restart ends every link."""
 
 import hashlib
 import os
@@ -10,19 +10,23 @@ import time
 from typing import Optional
 
 import background_jobs
-from lib.errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import artifact_service, auth_service, ownership_service
 
 LINK_SECONDS = 6 * 3600     # a long film plus pauses; the TV only needs the link while it plays
 MAX_LINKS_PER_USER = 5
 MAX_LINKS = 200
+# A link given to a person stays open for days, so it has its own count: casting again must not push
+# a shared link out, and a pile of shares must not push out the cast link a TV is playing from.
+SHARE_DAYS = (1, 3, 7)
+MAX_SHARES_PER_USER = 10
 # What a TV's built-in player opens; a .mkv copy is made by the export when the source is one.
 PLAYABLE = {".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm"}
 
 READY, WORKING, MISSING, UNSUPPORTED = "ready", "working", "missing", "unsupported"
 
 _lock = threading.Lock()
-_links: dict = {}     # sha256 of the secret -> {"drama_id", "user_id", "expires"}
+_links: dict = {}     # sha256 of the secret -> {"drama_id", "user_id", "expires", "share"}
 
 
 def _digest(secret: str) -> str:
@@ -59,9 +63,15 @@ def status(drama_id: int) -> dict:
     return {"state": READY}
 
 
-def create_link(principal, drama_id: int) -> dict:
+def create_link(principal, drama_id: int, share_days: Optional[int] = None) -> dict:
     """A link to the title's subtitled copy for the caller; the title is visible to them already
-    (the route's path guard) and the copy must exist and be in a format a TV opens."""
+    (the route's path guard) and the copy must exist and be in a format a TV opens. `share_days` makes
+    it a link to hand to a person: it lasts that many days instead of the TV's hours."""
+    if share_days is not None and share_days not in SHARE_DAYS:
+        raise InvalidInputError(f"A shared link lasts {', '.join(map(str, SHARE_DAYS))} days.")
+    share = share_days is not None
+    seconds = share_days * 86400 if share else LINK_SECONDS
+    cap = MAX_SHARES_PER_USER if share else MAX_LINKS_PER_USER
     # Visible to the caller in the Guest sense too: the route's path guard asks only that they may edit.
     ownership_service.require_visible(principal, "drama", drama_id)
     uid = ownership_service.user_id(principal)
@@ -77,14 +87,28 @@ def create_link(principal, drama_id: int) -> dict:
     now = time.time()
     with _lock:
         _prune(now)
-        mine = sorted((k for k, v in _links.items() if v["user_id"] == uid), key=lambda k: _links[k]["expires"])
-        # The oldest goes, so casting again always works.
-        for key in mine[:max(0, len(mine) - MAX_LINKS_PER_USER + 1)]:
+        mine = sorted((k for k, v in _links.items() if v["user_id"] == uid and v["share"] == share),
+                      key=lambda k: _links[k]["expires"])
+        # The oldest goes, so casting or sharing again always works.
+        for key in mine[:max(0, len(mine) - cap + 1)]:
             del _links[key]
         if len(_links) >= MAX_LINKS:
             raise ConflictError("Too many cast links are open. Try again later.")
-        _links[_digest(secret)] = {"drama_id": drama_id, "user_id": uid, "expires": now + LINK_SECONDS}
-    return {"path": f"/api/cast/video?k={secret}", "expires_in": LINK_SECONDS}
+        _links[_digest(secret)] = {"drama_id": drama_id, "user_id": uid, "expires": now + seconds,
+                                "share": share}
+    return {"path": f"/api/cast/video?k={secret}", "expires_in": seconds}
+
+
+def end_shares_of(principal, drama_id: int) -> int:
+    """Ends the caller's shared links to one title (a person who handed out a link can take it back);
+    returns how many ended. Cast links are left alone: a TV is playing from those."""
+    ownership_service.require_visible(principal, "drama", drama_id)
+    uid = ownership_service.user_id(principal)
+    with _lock:
+        gone = [k for k, v in _links.items() if v["share"] and v["user_id"] == uid and v["drama_id"] == drama_id]
+        for key in gone:
+            del _links[key]
+    return len(gone)
 
 
 def end_links_for(user_id: int) -> None:

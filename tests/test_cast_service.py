@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from lib.errors import ConflictError, NotFoundError
+from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from services import artifact_service, cast_service, ownership_service
 
 
@@ -148,3 +148,79 @@ def test_the_tv_fetch_counts_against_the_accounts_stream_cap(isolated_db, monkey
                         base_url="https://baihe.example.com", raise_server_exceptions=False)
     monkeypatch.setattr(media_routes, "MAX_STREAMS_PER_USER", 0)
     assert client.get(f"/api/cast/video?k={secret}").status_code == 429
+
+
+def test_a_shared_link_lasts_its_days_and_a_bad_length_is_refused(isolated_db, monkeypatch):
+    did = _title()
+    link = cast_service.create_link(None, did, share_days=3)
+    assert link["expires_in"] == 3 * 86400
+    secret = link["path"].split("k=")[1]
+    assert cast_service.resolve(secret)[1] == "video/mp4"
+    with pytest.raises(InvalidInputError):
+        cast_service.create_link(None, did, share_days=30)
+    now = cast_service.time.time()
+    monkeypatch.setattr(cast_service.time, "time", lambda: now + 3 * 86400 + 1)
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(secret)
+
+
+def test_shares_and_cast_links_do_not_push_each_other_out(isolated_db):
+    did = _title()
+    share = cast_service.create_link(None, did, share_days=1)["path"].split("k=")[1]
+    for _ in range(cast_service.MAX_LINKS_PER_USER + 2):
+        cast_service.create_link(None, did)
+    assert cast_service.resolve(share)
+    cast = cast_service.create_link(None, did)["path"].split("k=")[1]
+    for _ in range(cast_service.MAX_SHARES_PER_USER + 1):
+        cast_service.create_link(None, did, share_days=1)
+    assert cast_service.resolve(cast)
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(share)
+
+
+def test_ending_shares_leaves_cast_links_and_other_titles(isolated_db):
+    did, other = _title(), _title()
+    share = cast_service.create_link(None, did, share_days=7)["path"].split("k=")[1]
+    keep = cast_service.create_link(None, other, share_days=7)["path"].split("k=")[1]
+    cast = cast_service.create_link(None, did)["path"].split("k=")[1]
+    assert cast_service.end_shares_of(None, did) == 1
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(share)
+    assert cast_service.resolve(keep) and cast_service.resolve(cast)
+
+
+def test_a_shared_link_serves_only_its_own_titles_copy_over_the_route(isolated_db):
+    did = _title(body=b"0123456789")
+    _title(body=b"ZZZZZZZZZZ")
+    client = TestClient(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                        base_url="https://baihe.example.com", raise_server_exceptions=False)
+    secret = cast_service.create_link(None, did, share_days=1)["path"].split("k=")[1]
+    assert client.get(f"/api/cast/video?k={secret}").content == b"0123456789"
+    assert client.post(f"/api/cast/dramas/{did}/share", json={"days": 1}).status_code == 401
+    assert client.delete(f"/api/cast/dramas/{did}/share").status_code == 401
+
+
+def test_ending_shares_leaves_another_accounts_shares_alone(isolated_db):
+    from services import auth_service
+    a, b = db.auth_create_user("a@example.com"), db.auth_create_user("b@example.com")
+    for u in (a, b):
+        db.auth_grant_permission(u, "media.stream")
+    did = _title()
+    pa, pb = auth_service.member_principal(a), auth_service.member_principal(b)
+    mine = cast_service.create_link(pa, did, share_days=1)["path"].split("k=")[1]
+    theirs = cast_service.create_link(pb, did, share_days=1)["path"].split("k=")[1]
+    assert cast_service.end_shares_of(pa, did) == 1
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(mine)
+    assert cast_service.resolve(theirs)
+
+
+def test_a_shared_link_ends_when_its_account_loses_media_stream(isolated_db):
+    from services import auth_service
+    uid = db.auth_create_user("s@example.com")
+    db.auth_grant_permission(uid, "media.stream")
+    did = _title()
+    secret = cast_service.create_link(auth_service.member_principal(uid), did, share_days=7)["path"].split("k=")[1]
+    auth_service.revoke_permission(uid, "media.stream")
+    with pytest.raises(NotFoundError):
+        cast_service.resolve(secret)
