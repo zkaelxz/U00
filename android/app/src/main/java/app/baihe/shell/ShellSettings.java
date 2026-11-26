@@ -35,6 +35,9 @@ final class ShellSettings {
         /** Shrinks the app to a small floating window now. */
         void popOut();
 
+        /** Baihe is showing a dark (true) or light (false) look, whatever the phone's own setting. */
+        void themeChanged(boolean dark);
+
         /** Looks for a newer app build now and says what it found. */
         void checkForUpdates();
 
@@ -63,6 +66,11 @@ final class ShellSettings {
         public void setLiveWatching(boolean watching) {
             liveWatching = watching;
             host.liveWatching(watching);
+        }
+
+        @JavascriptInterface
+        public void setDark(boolean dark) {
+            host.themeChanged(dark);
         }
 
         @JavascriptInterface

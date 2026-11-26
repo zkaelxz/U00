@@ -32,6 +32,7 @@ import java.security.SecureRandom;
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
+    private static final String PAGE_DARK = "page_dark";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -199,6 +200,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void themeChanged(boolean dark) {
+                runOnUiThread(() -> followPageTheme(dark));
+            }
+
+            @Override
             public void checkForUpdates() {
                 runOnUiThread(() -> checkForUpdateNow());
             }
@@ -233,7 +239,7 @@ public class MainActivity extends Activity {
 
     /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
     private View page() {
-        GrabUi.Palette palette = GrabUi.Palette.of(this);
+        GrabUi.Palette palette = palette();
         getWindow().setStatusBarColor(palette.surface);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -246,6 +252,22 @@ public class MainActivity extends Activity {
         if (parent != null) parent.removeView(web);
         root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
+    private GrabUi.Palette palette() {
+        SharedPreferences p = prefs();
+        return p.contains(PAGE_DARK) ? new GrabUi.Palette(p.getBoolean(PAGE_DARK, false)) : GrabUi.Palette.of(this);
+    }
+
+    private void followPageTheme(boolean dark) {
+        SharedPreferences p = prefs();
+        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark) return;
+        p.edit().putBoolean(PAGE_DARK, dark).apply();
+        // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
+        if (customView != null || web == null) return;
+        setContentView(page());
+        if (strip != null && isInPictureInPictureMode()) strip.setVisibility(View.GONE);
     }
 
     private boolean pipAllowed() {
