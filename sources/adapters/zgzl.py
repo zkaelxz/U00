@@ -38,6 +38,9 @@ _HOSTS = {HOST, "www.zgzl.net"}
 _KEY = r"[0-9a-z]{1,12}"
 _CHAPTER_HREF = re.compile(r"^/read_(" + _KEY + r")/(" + _KEY + r")\.html$")
 
+# A long chapter is cut into several pages, "<chapter>_2.html" and on; the cap stops a loop.
+MAX_CHAPTER_PAGES = 30
+
 # Lines the site injects into every chapter body.
 _NOISE = re.compile(r"关闭小说畅读模式|本章阅读完毕|^\(\);?$")
 
@@ -137,10 +140,9 @@ class ZgzlSource(SourceAdapter):
             raise LayoutChanged("any chapters in the list")
         return chapters
 
-    def get_chapter_text(self, chapter) -> str:
-        book, chapter_id = _key(chapter.series_id), _key(chapter.chapter_id)
-        html = self._get(f"/read_{book}/{chapter_id}.html", f"Loading chapter {chapter.title}")
-        body = _soup(html).select_one("#novelcontent")
+    @staticmethod
+    def _page_text(soup) -> str:
+        body = soup.select_one("#novelcontent")
         if body is None:
             raise LayoutChanged("the chapter text")
         # The reading-mode notice is its own block with no line break after it, so it would
@@ -150,11 +152,37 @@ class ZgzlSource(SourceAdapter):
                 notice.decompose()
         for br in body.find_all("br"):
             br.replace_with("\n")
-        lines = [re.sub(r"[\s 　]+", " ", line).strip() for line in body.get_text().split("\n")]
-        text = "\n".join(line for line in lines if line and not _NOISE.search(line))
-        if not text:
+        lines = [re.sub(r"[\s \u3000]+", " ", line).strip() for line in body.get_text().split("\n")]
+        return "\n".join(line for line in lines if line and not _NOISE.search(line))
+
+    @staticmethod
+    def _next_part(soup, book: str, chapter_id: str, current: int) -> int:
+        """The part number the page's 下一页 link names, or 0 when this is the chapter's last part.
+        The link to the next chapter (下一章) has another id and is never followed."""
+        for a in soup.find_all("a", href=True):
+            if "下一页" not in a.get_text():
+                continue
+            link = urlsplit(str(a["href"]))
+            m = re.fullmatch(rf"/read_{re.escape(book)}/{re.escape(chapter_id)}_([0-9]{{1,3}})\.html", link.path)
+            # A link to another host is never ours to follow, whatever its path looks like.
+            if m and not link.netloc and int(m.group(1)) > current:
+                return int(m.group(1))
+        return 0
+
+    def get_chapter_text(self, chapter) -> str:
+        book, chapter_id = _key(chapter.series_id), _key(chapter.chapter_id)
+        parts, part = [], 1
+        while part and len(parts) < MAX_CHAPTER_PAGES:
+            suffix = "" if part == 1 else f"_{part}"
+            soup = _soup(self._get(f"/read_{book}/{chapter_id}{suffix}.html",
+                                   f"Loading chapter {chapter.title}" + (f", part {part}" if part > 1 else "")))
+            text = self._page_text(soup)
+            if text:
+                parts.append(text)
+            part = self._next_part(soup, book, chapter_id, part)
+        if not parts:
             raise SourceError("The page for this chapter had no text.", FailureReason.UNKNOWN)
-        return text
+        return "\n".join(parts)
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

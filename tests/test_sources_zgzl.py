@@ -93,6 +93,48 @@ def test_chapter_text_drops_the_sites_injected_lines():
     assert a.get_chapter_text(ChapterInfo("zgzl", "h", "c1", "第一章", url)) == "第一段。\n第二段。"
 
 
+def _part(text, nav, red=True):
+    notice = '<p><font size=4 color="#FF0000">《关闭小说畅读模式体验更好》</font></p>' if red else ""
+    return (f'<html><body><h1>第一章 (1 / 3)</h1><div id="novelcontent" class="novelcontent">{notice}'
+            f'&nbsp;&nbsp;{text}<br><br></div>{nav}</body></html>')
+
+
+class TestParts:
+    def test_the_red_reading_mode_line_stays_dropped_and_story_brackets_stay(self):
+        url = f"{BASE}/read_h/c1.html"
+        page = _part("【请宿主做点什么。】", "")
+        a, _ = _adapter({url: html(page)})
+        assert a.get_chapter_text(ChapterInfo("zgzl", "h", "c1", "第一章", url)) == "【请宿主做点什么。】"
+
+    def test_a_chapter_split_over_pages_is_joined_in_order_and_stops_at_the_next_chapter(self):
+        nav1 = '<a href="/read_h/c1_2.html" class="p4">下一页</a><a href="/read_h/c2.html">下一章</a>'
+        nav2 = '<a href="/read_h/c1.html">上一页</a><a href="/read_h/c1_3.html" class="p4">下一页</a>'
+        nav3 = '<a href="/read_h/c1_2.html">上一页</a><a href="/read_h/c2.html" class="p4">下一章</a>'
+        a, t = _adapter({f"{BASE}/read_h/c1.html": html(_part("第一页。", nav1)),
+                         f"{BASE}/read_h/c1_2.html": html(_part("第二页。", nav2)),
+                         f"{BASE}/read_h/c1_3.html": html(_part("第三页。", nav3))})
+        text = a.get_chapter_text(ChapterInfo("zgzl", "h", "c1", "第一章", f"{BASE}/read_h/c1.html"))
+        assert text == "第一页。\n第二页。\n第三页。"
+        assert t.urls() == [f"{BASE}/read_h/c1.html", f"{BASE}/read_h/c1_2.html", f"{BASE}/read_h/c1_3.html"]
+
+    def test_a_next_part_link_to_another_chapter_or_back_is_not_followed(self):
+        nav = ('<a href="/read_h/c9_2.html" class="p4">下一页</a>'
+               '<a href="https://elsewhere.example/read_h/c1_2.html">下一页</a>')
+        a, t = _adapter({f"{BASE}/read_h/c1.html": html(_part("只有一页。", nav))})
+        assert a.get_chapter_text(ChapterInfo("zgzl", "h", "c1", "第一章", "")) == "只有一页。"
+        assert len(t.urls()) == 1
+
+    def test_a_loop_between_parts_is_cut_by_the_part_number_and_the_cap(self, monkeypatch):
+        monkeypatch.setattr(zgzl, "MAX_CHAPTER_PAGES", 3)
+        pages = {f"{BASE}/read_h/c1.html": html(_part("甲。", '<a href="/read_h/c1_2.html">下一页</a>'))}
+        for n in range(2, 6):
+            pages[f"{BASE}/read_h/c1_{n}.html"] = html(
+                _part(f"乙{n}。", f'<a href="/read_h/c1_{n + 1}.html">下一页</a>'))
+        a, t = _adapter(pages)
+        assert a.get_chapter_text(ChapterInfo("zgzl", "h", "c1", "第一章", "")) == "甲。\n乙2。\n乙3。"
+        assert len(t.urls()) == 3
+
+
 class TestUnlisted:
     def test_it_is_registered_but_in_no_list(self, isolated_db):
         assert "zgzl" in registry.adapter_classes()
