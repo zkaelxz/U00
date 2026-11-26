@@ -316,6 +316,10 @@ describe('chosenForYou', () => {
       { source_language: 'ja', series_id: 3, glossary_drama_id: null })
     expect(chosenForYou({})).toEqual({})
   })
+  it('keeps a Balanced captions pick but not Fast, which is what everyone gets', () => {
+    expect(chosenForYou({ caption_preset: 'balanced', segment_seconds: 8 })).toEqual({ caption_preset: 'balanced' })
+    expect(chosenForYou({ caption_preset: 'fast' })).toEqual({})
+  })
 })
 
 describe('lagLine', () => {

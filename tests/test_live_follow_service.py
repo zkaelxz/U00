@@ -375,3 +375,34 @@ def test_a_twitch_follow_starts_live_on_the_channel_page(follows, monkeypatch):
     live_follow_store.update(v["id"], last_state="live", last_stream_id="123456789")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.twitch.tv/somename"
+
+
+def test_every_saved_follow_setting_persists_and_reaches_the_started_session(follows, monkeypatch):
+    from services import live_service
+    seen = {}
+    monkeypatch.setattr(live_service, "start_session",
+                        lambda url, **kw: seen.update(url=url, **kw) or {"session_id": "live_x"})
+    v = svc.add_follow("@name", principal=ALICE)
+    assert v["options"]["captions"] is None
+    changed = {"source_language": "ja", "whisper_size": "tiny", "engine": "fake", "model": "m1",
+               "max_minutes": 9, "use_gpu": True, "captions": "balanced"}
+    svc.update_follow(v["id"], options=changed, principal=ALICE)
+    # Read back through a fresh listing, as a reload or another device would.
+    stored = svc.list_follows(ALICE)["items"][0]["options"]
+    assert {k: stored[k] for k in changed} == changed
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert (seen["source_language"], seen["whisper_size"], seen["engine"], seen["model"],
+            seen["max_minutes"], seen["use_gpu"]) == ("ja", "tiny", "fake", "m1", 9, True)
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (8, 3)
+    svc.update_follow(v["id"], options={**changed, "source_language": "zh", "whisper_size": "small",
+                                        "captions": None}, principal=ALICE)
+    assert svc.list_follows(ALICE)["items"][0]["options"]["captions"] is None
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (6, 1.5)
+
+
+def test_captions_must_be_fast_or_balanced(follows):
+    v = svc.add_follow("@name", principal=ALICE)
+    for bad in ("slow", 8, True):
+        with pytest.raises(InvalidInputError):
+            svc.update_follow(v["id"], options={"captions": bad}, principal=ALICE)

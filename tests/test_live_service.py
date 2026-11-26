@@ -962,6 +962,21 @@ def test_a_start_at_the_pc_is_joinable_unless_saved_cookies_are_really_set(live,
     assert live_service._reads_saved_cookies(True) and not live_service._reads_saved_cookies(False)
 
 
+def test_a_pc_started_session_on_the_saved_cookie_login_is_hidden_from_members(live, monkeypatch):
+    url = "https://www.twitch.tv/example_channel"
+    member, admin = {"user_id": 3}, {"user_id": 1, "is_admin": True}
+    monkeypatch.setattr(live_service.settings_service, "get_cookie_settings",
+                        lambda: {"cookies_browser": "firefox", "cookies_file": None})
+    sid = live_service.start_session(url, engine="fake", principal=None, use_saved_cookies=True)["session_id"]
+    assert _wait(lambda: "out_dir" in live)
+    assert live_service._sessions[sid]["private"] is True
+    ids = lambda **kw: {s["session_id"] for s in live_service.list_sessions(**kw)}
+    assert ids(principal=member, everyone=True) == set()
+    assert ids(principal=admin) == {sid}
+    other = live_service.start_session(url, engine="fake", principal=member)
+    assert other["session_id"] != sid and "joined" not in other
+
+
 def test_list_shows_only_your_own_sessions_unless_an_admin_asks_for_everyone(live):
     member, admin, other = {"user_id": 4}, {"user_id": 1, "is_admin": True}, {"user_id": 5}
     sid = live_service.start_session("https://www.youtube.com/watch?v=abcdefghijk", engine="fake",

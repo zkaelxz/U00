@@ -718,3 +718,11 @@ def test_gpu_full_is_false_with_a_free_slot_and_room_true_when_taken_or_held(mon
     monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 0)
     monkeypatch.setattr(gpu_guard, "hold_reason", lambda: "hot")
     assert poller._gpu_full() is True        # the guard holds jobs
+
+
+def test_auto_start_uses_the_follows_captions_choice(env, starts):
+    fid = _follow(OWNER, "@owner_ch", mode="auto", auto_check=True,
+                  options={"engine": "fake", "whisper_size": "tiny", "captions": "balanced"})
+    env["answers"][fid] = live()
+    _check(fid)
+    assert (starts[0]["segment_seconds"], starts[0]["overlap_seconds"]) == (8, 3)

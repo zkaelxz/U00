@@ -88,7 +88,7 @@ INVALID_STATUS = "This channel's address is not valid any more. Remove it and fo
 _OPTION_DEFAULTS = {"source_language": "zh", "whisper_size": "small", "engine": None,
                     "model": None, "max_minutes": live_service.DEFAULT_MAX_MINUTES,
                     "use_gpu": False, "glossary_drama_id": None,
-                    "series_id": None}
+                    "series_id": None, "captions": None}
 
 
 def is_pc_owner(principal) -> bool:
@@ -286,6 +286,8 @@ def clean_options(options, principal=None) -> dict:
     if out["max_minutes"] is not None:
         out["max_minutes"] = int(live_service._num("max_minutes", out["max_minutes"],
                                                    *live_service.MAX_MINUTES_RANGE))
+    if out["captions"] not in (None, *live_service.CAPTION_CHOICES):
+        raise InvalidInputError("captions must be fast or balanced.")
     if not isinstance(out["use_gpu"], bool):
         raise InvalidInputError("use_gpu must be true or false.")
     title = out["glossary_drama_id"]
@@ -512,4 +514,4 @@ def start_from_follow(follow_id, principal=None, use_saved_cookies=False) -> dic
         max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"],
         use_saved_cookies=use_saved_cookies, glossary_drama_id=opts["glossary_drama_id"],
         series_id=opts["series_id"], principal=principal,
-        **live_service.language_chunk(opts["source_language"]))
+        **live_service.language_chunk(opts["source_language"], opts["captions"]))
