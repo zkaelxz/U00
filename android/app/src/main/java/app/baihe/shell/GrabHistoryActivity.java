@@ -82,8 +82,8 @@ public class GrabHistoryActivity extends Activity {
 
         list.addView(section(waiting.isEmpty() ? "Waiting: nothing" : "Waiting"));
         for (GrabQueue.Item item : waiting) {
-            LinearLayout card = card(item.name, item.chapters + (item.chapters == 1 ? " chapter" : " chapters")
-                    + " - saved to your library");
+            LinearLayout card = card(item.name, GrabQueue.siteOf(item.url) + " - " + GrabQueue.chaptersLabel(item.chapters)
+                    + ", saved to your library");
             LinearLayout actions = row();
             actions.addView(button("Open page", palette.accent, v -> command("open", item.url)));
             actions.addView(button("Remove", palette.bad, v -> {
