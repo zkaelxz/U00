@@ -513,56 +513,37 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         return line;
     }
 
-    /** Open Baihe and Settings are rarely needed mid-grab, so they sit behind one button. */
+    /** Sections put what a reader needs on this page first; Open Baihe and Settings sit last. */
     private void showMore(android.view.View anchor) {
-        android.widget.PopupMenu menu = new android.widget.PopupMenu(this, anchor);
-        menu.getMenu().add(translateOn ? "Show original page" : "Translate this page");
-        menu.getMenu().add("Pictures from my gallery");
-        menu.getMenu().add("English text style");
-        menu.getMenu().add("Ad block list");
-        menu.getMenu().add("Follow this series");
-        menu.getMenu().add("Pick up where I left off");
         List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
         String here = ServerAddress.browsable(web.getUrl());
-        menu.getMenu().add(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page");
-        menu.getMenu().add(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")");
-        menu.getMenu().add("Recent pages");
         int savedCount = SavedChapters.list(SavedChapters.root(this)).size();
-        menu.getMenu().add(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")");
-        menu.getMenu().add("Send video to Baihe");
-        menu.getMenu().add("Start Live here");
-        menu.getMenu().add("Add to queue");
-        menu.getMenu().add("Grab whole series");
         int waiting = GrabStore.queue(prefs()).size();
-        menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
-        if (QuickReadSession.isDetached()) menu.getMenu().add("Stop translating");
-        else if (QuickReadSession.hasPages()) menu.getMenu().add("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)");
-        menu.getMenu().add("Open Baihe");
-        menu.getMenu().add("Settings");
-        menu.setOnMenuItemClickListener(item -> {
-            String title = item.getTitle().toString();
-            if ("Translate this page".equals(title)) setTranslate(true);
-            else if ("Show original page".equals(title)) setTranslate(false);
-            else if ("Stop translating".equals(title)) cancelGrab();
-            else if (title.startsWith("Open Quick read")) openReader();
-            else if ("Settings".equals(title)) showSettings();
-            else if ("Pictures from my gallery".equals(title)) pickGallery();
-            else if ("Ad block list".equals(title)) editAdList();
-            else if ("English text style".equals(title)) askTextStyle();
-            else if ("Follow this series".equals(title)) followSeries();
-            else if ("Pick up where I left off".equals(title)) pickUp();
-            else if ("Bookmark this page".equals(title) || "Remove bookmark".equals(title)) toggleBookmark();
-            else if (title.startsWith("Saved chapters")) showSaved();
-            else if ("Recent pages".equals(title)) showRecent();
-            else if (title.startsWith("Bookmarks")) showBookmarks();
-            else if ("Send video to Baihe".equals(title)) sendVideo();
-            else if ("Start Live here".equals(title)) askStartLive();
-            else if ("Add to queue".equals(title)) askAddToQueue();
-            else if ("Grab whole series".equals(title)) askWholeSeries();
-            else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
-            else openBaihe();
-            return true;
-        });
+        GrabMenu menu = new GrabMenu(this, palette).section("This page");
+        menu.item(translateOn ? "Show original page" : "Translate this page", () -> setTranslate(!translateOn));
+        if (QuickReadSession.isDetached()) menu.item("Stop translating", this::cancelGrab);
+        else if (QuickReadSession.hasPages()) menu.item("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)", this::openReader);
+        menu.item(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page", this::toggleBookmark);
+        menu.item("Add to queue", this::askAddToQueue);
+        menu.item("Pictures from my gallery", this::pickGallery);
+        menu.section("This series");
+        menu.item("Follow this series", this::followSeries);
+        menu.item("Grab whole series", this::askWholeSeries);
+        menu.section("My lists");
+        menu.item("Pick up where I left off", this::pickUp);
+        menu.item(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")", this::showBookmarks);
+        menu.item("Recent pages", this::showRecent);
+        menu.item(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")", this::showSaved);
+        menu.item(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)",
+                () -> startActivity(new Intent(this, GrabHistoryActivity.class)));
+        menu.section("Video");
+        menu.item("Send video to Baihe", this::sendVideo);
+        menu.item("Start Live here", this::askStartLive);
+        menu.section("App");
+        menu.item("English text style", this::askTextStyle);
+        menu.item("Ad block list", this::editAdList);
+        menu.item("Settings", this::showSettings);
+        menu.item("Open Baihe", this::openBaihe);
         menu.show();
     }
 
