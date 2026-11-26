@@ -23770,6 +23770,11 @@ export interface components {
          */
         LiveFollowOptions: {
             /**
+             * Captions
+             * @description None = fast, the language's default chunk length.
+             */
+            captions?: ("fast" | "balanced") | null;
+            /**
              * Engine
              * @description None = Ollama on this PC, as a Live start.
              */

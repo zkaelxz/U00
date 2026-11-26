@@ -62,6 +62,7 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
       model: draft.model || null,
       use_gpu: !!draft.use_gpu && !gpuReason,
       max_minutes: minutesLimit(draft.max_minutes, opts.max_minutes_range),
+      captions: draft.captions === 'balanced' ? 'balanced' : null,
     })
   }
 
@@ -94,6 +95,13 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
             onChange={(e) => set('max_minutes', Number.isFinite(e.target.valueAsNumber) ? e.target.valueAsNumber : null)} />
         </Field>
       </div>
+      <Field label="Captions" help="Fast shows lines sooner. Balanced waits a little longer so the transcript is more accurate. Used by Start Live and automatic starts.">
+        <select value={draft.captions === 'balanced' ? 'balanced' : 'fast'} disabled={busy} data-testid="follow-captions"
+          onChange={(e) => set('captions', e.target.value === 'balanced' ? 'balanced' : null)}>
+          <option value="fast">Fast</option>
+          <option value="balanced">Balanced</option>
+        </select>
+      </Field>
       <label className="live-check">
         <input type="checkbox" checked={!!draft.use_gpu && !gpuReason} disabled={busy || !!gpuReason} onChange={(e) => set('use_gpu', e.target.checked)} />
         Use GPU for Whisper
