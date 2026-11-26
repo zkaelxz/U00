@@ -137,6 +137,7 @@
   var lastHeight = -1;
   var box = scrollBox();
   var stale = 0;
+  var lastGrowthStep = 0;
   // A long chapter is a hundred screens, so the walk is bounded by time as well as by steps.
   var deadline = Date.now() + 6 * 60 * 1000;
   for (var step = 0; step < 800 && Date.now() < deadline; step++) {
@@ -162,6 +163,7 @@
     var before = items.length;
     collect();
     var grew = items.length > before;
+    if (grew) lastGrowthStep = step;
     var atEnd = room >= 50 && box.scrollTop + box.clientHeight >= box.scrollHeight - 4;
     var stuck = room < 50 || (atEnd && box.scrollHeight === lastHeight);
     if (grew || !stuck) {
@@ -172,6 +174,9 @@
       collect();
       if (++stale >= 4) break;
     }
+    // A page whose height keeps shifting at the bottom (a footer or ad that loads late) never
+    // looks "stuck" above, so reaching the end with nothing new for a while also finishes.
+    if (atEnd && step - lastGrowthStep >= 8) break;
     lastHeight = box.scrollHeight;
   }
   collect();
@@ -308,13 +313,18 @@
   // itself with the page's cookies.
   async function bytesOf(img) {
     var src = img.currentSrc || img.src;
+    // A host that never answers would otherwise hold "Reading pages" open forever; the abort
+    // also covers a body that stops arriving.
+    var abort = new AbortController();
+    var timer = setTimeout(function () { abort.abort(); }, 30000);
     try {
-      var response = await fetch(src, { credentials: "include" });
+      var response = await fetch(src, { credentials: "include", signal: abort.signal });
       if (response.ok) {
         var blob = await response.blob();
         return { type: blob.type || "image/jpeg", data: await toBase64(blob) };
       }
-    } catch (e) { /* cross-origin or blocked: fall back to the pixels already on screen */ }
+    } catch (e) { /* cross-origin, blocked or timed out: fall back to the pixels already on screen */
+    } finally { clearTimeout(timer); }
     try {
       var canvas = document.createElement("canvas");
       canvas.width = img.naturalWidth;
