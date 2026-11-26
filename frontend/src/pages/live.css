@@ -114,6 +114,8 @@ html.shell-pip body { overflow: hidden; }
 .live-lines[data-size='s'] .live-src { font-size: var(--text-xs); }
 .live-lines[data-size='l'] .live-en { font-size: var(--text-2xl); }
 .live-lines[data-size='l'] .live-src { font-size: var(--text-md); }
+.live-lines[data-size='xl'] .live-en { font-size: calc(var(--text-2xl) * 1.7); line-height: 1.25; }
+.live-lines[data-size='xl'] .live-src { font-size: var(--text-xl); }
 .live-lines[data-original='off'] .live-src { display: none; }
 
 /* Start card: the link and Paste sit on one row, the language is a row of buttons (44px each), all wrapping on a narrow phone. */

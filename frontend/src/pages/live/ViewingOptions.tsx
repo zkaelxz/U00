@@ -5,11 +5,12 @@ import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { DELAY_RANGE } from './embedLogic'
 
-export type TextSize = 's' | 'm' | 'l'
+export type TextSize = 's' | 'm' | 'l' | 'xl'
 const SIZES: { value: TextSize; label: string; name: string }[] = [
   { value: 's', label: 'S', name: 'Small' },
   { value: 'm', label: 'M', name: 'Medium' },
   { value: 'l', label: 'L', name: 'Large' },
+  { value: 'xl', label: 'TV', name: 'TV' },
 ]
 
 type Props = {
@@ -34,7 +35,7 @@ type Props = {
 export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat }: Props) {
   return (
     <Section storageKey="live.viewing" title="Viewing options" defaultOpen>
-      <Field label="Text size" help="How large the lines are in the list. It does not change the captions drawn over the picture.">
+      <Field label="Text size" help="How large the lines are in the list. TV is big enough to read from a sofa. It does not change the captions drawn over the picture.">
         <div className="live-sizes" role="radiogroup" aria-label="Text size">
           {SIZES.map((s) => (
             <button key={s.value} type="button" role="radio" aria-checked={textSize === s.value} aria-label={s.name}
