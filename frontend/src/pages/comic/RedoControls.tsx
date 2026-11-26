@@ -74,8 +74,8 @@ export function RedoControls({ pageNumber, pageCount, allName, disabled, busy, o
       <div className="actions">
         <ConfirmButton
           name={target}
-          label="Redo…"
-          ariaLabel="Redo pages"
+          label="Start fresh…"
+          ariaLabel="Start fresh"
           verb="redo"
           confirmLabel={`Redo ${target}`}
           busy={busy}
