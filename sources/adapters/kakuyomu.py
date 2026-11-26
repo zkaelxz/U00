@@ -215,13 +215,13 @@ class KakuyomuSource(SourceAdapter):
             if work_id in seen or not isinstance(work, dict) or not work.get("title"):
                 continue
             seen.add(work_id)
-            extra = {"status": _status(work.get("serialStatus")),
-                     "description": str(work.get("introduction") or "").strip()}
+            extra: dict = {"status": _status(work.get("serialStatus")),
+                           "description": str(work.get("introduction") or "").strip()}
             author = self._author(state, work)
             if author:
                 extra["author"] = author
-            count = work.get("publicEpisodeCount")
-            if str(count).isdigit():
+            count = str(work.get("publicEpisodeCount") or "")
+            if count.isdigit():
                 extra["episodes"] = int(count)
             out.append(SearchResult(self.name, work_id, str(work["title"]),
                                     f"{self.base_url}/works/{work_id}", "", extra))
