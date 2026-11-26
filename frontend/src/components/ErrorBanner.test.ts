@@ -1,6 +1,6 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../api/client'
 import { ErrorBanner } from './ErrorBanner'
@@ -55,5 +55,17 @@ describe('extension_only', () => {
     expect(html).toContain('Extension help')
     expect(html).toContain('href="#/settings"')
     expect(renderToStaticMarkup(createElement(ErrorBanner, { error: err('conflict') }))).not.toContain('Extension help')
+  })
+
+  describe('on a phone', () => {
+    afterEach(() => vi.unstubAllGlobals())
+
+    it('points to Baihe Grab and hides the extension link', () => {
+      vi.stubGlobal('window', { location: { hash: '' }, matchMedia: () => ({ matches: true }) })
+      const html = renderToStaticMarkup(createElement(ErrorBanner, { error: e }))
+      expect(html).toContain('Baihe Grab')
+      expect(html).not.toContain('browser extension')
+      expect(html).not.toContain('Extension help')
+    })
   })
 })
