@@ -26,6 +26,8 @@ import java.net.URL;
  */
 final class AppUpdate {
     private static final int TIMEOUT_MS = 15_000;
+    /** The server downloads the APK from GitHub before it answers a refreshing check. */
+    private static final int REFRESH_TIMEOUT_MS = 90_000;
     /** The server answer is a few bytes; the cap is only a guard against a wrong host. */
     private static final int MAX_ANSWER_BYTES = 4096;
     private static final long MAX_APK_BYTES = 200L * 1024 * 1024;
@@ -76,8 +78,13 @@ final class AppUpdate {
 
     /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked. */
     static long check(String address, String cookie) {
+        return check(address, cookie, false);
+    }
+
+    /** {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
+    static long check(String address, String cookie, boolean refresh) {
         try {
-            HttpURLConnection conn = open(address + "/api/app/android", cookie);
+            HttpURLConnection conn = open(address + "/api/app/android" + (refresh ? "?refresh=true" : ""), cookie);
             try {
                 if (conn.getResponseCode() != 200) return CHECK_FAILED;
                 try (InputStream in = conn.getInputStream()) {
@@ -203,7 +210,7 @@ final class AppUpdate {
         HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
         conn.setInstanceFollowRedirects(false);
         conn.setConnectTimeout(TIMEOUT_MS);
-        conn.setReadTimeout(TIMEOUT_MS);
+        conn.setReadTimeout(url.endsWith("refresh=true") ? REFRESH_TIMEOUT_MS : TIMEOUT_MS);
         if (cookie != null) conn.setRequestProperty("Cookie", cookie);
         return conn;
     }
