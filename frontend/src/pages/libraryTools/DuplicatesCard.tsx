@@ -24,7 +24,8 @@ export function DuplicatesCard({ canScan }: { canScan: boolean }) {
   const [error, setError] = useState<unknown>(null)
   useEffect(() => {
     if (job.active) return
-    getDuplicateTitles().then(setFound, setError)
+    // A failed read just shows no list: the card sits on a busy page and a banner here would hide the page's own errors.
+    getDuplicateTitles().then(setFound, () => setFound(null))
   }, [job.active, job.done])
 
   return (
