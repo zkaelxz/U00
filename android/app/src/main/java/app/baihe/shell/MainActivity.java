@@ -202,6 +202,13 @@ public class MainActivity extends Activity {
             public void checkForUpdates() {
                 runOnUiThread(() -> checkForUpdateNow());
             }
+
+            @Override
+            public void setBarsHidden(boolean hidden) {
+                runOnUiThread(() -> {
+                    if (strip != null) strip.setVisibility(hidden ? View.GONE : View.VISIBLE);
+                });
+            }
         }), "BaiheShell");
         setContentView(page());
         open(getIntent());
