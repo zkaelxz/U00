@@ -1,7 +1,7 @@
 /*
  * The Comic page's Translate panel: upload pages (useCanUpload), pick an engine,
- * "Translate all pages" (skips pages that already have text), "Redo this
- * page" (confirm), "Redo all…" (confirm), job progress and cancel, the current page's
+ * "Translate the rest" (skips pages that already have text), "Start fresh…"
+ * (confirm; redoes a page, the chosen pages or all of them), job progress and cancel, the current page's
  * run notes, and ZIP/PDF export. One Scanlate job runs per drama; when it
  * finishes, onChanged() lets the viewer reload its pages so the typeset
  * images show. Server notes are rendered as text only.
@@ -351,7 +351,7 @@ export function ScanlatePanel({ dramaId, pageId, typeset, pageNumber, pageIds, s
           aria-describedby={blocked ? 'scanlate-blocked' : undefined}
           onClick={() => void start('missing')}
         >
-          {running && jobKind === 'run' ? 'Translating…' : `Translate ${targetName}`}
+          {running && jobKind === 'run' ? 'Translating…' : 'Translate the rest'}
         </button>
         {blocked && (
           <span id="scanlate-blocked" className={need ? 'visually-hidden' : 'muted'}>
