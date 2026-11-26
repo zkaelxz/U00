@@ -19,6 +19,7 @@ __all__ = [
     "SameTitle",
     "SameTitleList",
     "DuplicateGroup",
+    "DuplicateItem",
     "DuplicateGroups",
     "SameTitleQuery",
     "TitleLinkLookup",
