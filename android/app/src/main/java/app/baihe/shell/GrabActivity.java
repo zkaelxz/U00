@@ -1492,13 +1492,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         });
     }
 
-    /** A page with no comic pictures but a chapter's prose: a Quick read translates it into the text reader. */
+    /** A page with no comic pictures but a chapter's prose: Quick read translates it into the text reader, Grab saves it. */
     @Override
     public void onText(String text) {
-        if (!quickRead) {
-            finishGrab("This page is a novel chapter. Use Quick read to read it translated.");
-            return;
-        }
         String language = NovelText.languageOf(text);
         if (language.isEmpty()) {
             finishGrab("The page's text is not Chinese, Japanese or Korean, so there is nothing to translate.");
@@ -1507,7 +1503,35 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
-        sender.execute(() -> readNovel(new BaiheClient(server, token), text, language));
+        BaiheClient client = new BaiheClient(server, token);
+        // Cancel cuts the request in flight; without this it waited out a translation the PC was still running.
+        activeClient = client;
+        if (!quickRead) {
+            String url = pageUrl;
+            List<String> titles = pageTitles;
+            JSONArray chapterLinks = pageChapters;
+            sender.execute(() -> saveNovel(client, url, titles, chapterLinks, text));
+            return;
+        }
+        sender.execute(() -> readNovel(client, text, language));
+    }
+
+    /** Grab on a text chapter: its raw text is saved into a novel title, where the PC's novel tools translate it. */
+    private void saveNovel(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks, String text) {
+        try {
+            say("Saving the chapter");
+            JSONObject title = client.resolveTitle(url, titles, chapterLinks, "novel");
+            // The page's own heading (last of the candidates) names the chapter; the first is the browser tab title.
+            String heading = titles.isEmpty() ? "" : titles.get(titles.size() - 1);
+            JSONObject answer = client.saveNovelChapter(title.getLong("drama_id"), url, heading, text);
+            String where = title.optString("title", "Baihe");
+            boolean added = answer.optBoolean("saved", false);
+            finishGrab((added ? "Saved the chapter to " : "Already saved in ") + where, true);
+        } catch (BaiheClient.BridgeException e) {
+            finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
+        } catch (Exception e) {
+            finishGrab("Could not save the chapter.");
+        }
     }
 
     private void readNovel(BaiheClient client, String text, String language) {
@@ -1528,6 +1552,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     NovelReadSession.add(results.get(i).get());
                     done++;
                 } catch (java.util.concurrent.ExecutionException e) {
+                    // An aborted request is the person's Cancel, not a part that failed.
+                    if (cancelRequested || NovelReadSession.isStopped()) break;
                     Throwable cause = e.getCause();
                     String why = cause instanceof BaiheClient.BridgeException ? cause.getMessage() : "the part could not be translated";
                     NovelReadSession.add("(Part " + (i + 1) + " was not translated: " + why + ")");
