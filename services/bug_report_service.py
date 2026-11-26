@@ -69,7 +69,14 @@ _COOKIE_HDR_RE = re.compile(r"(?im)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*")
 _USERINFO_RE = re.compile(r"(?<=//)[^/\s@\"'<>]+@")
 # Home-network and public addresses in log lines or messages. The lookbehind keeps
 # four-part browser versions ("Chrome/120.0.6099.43") intact.
-_IPV4_RE = re.compile(r"(?<![\w./-])(?:\d{1,3}\.){3}\d{1,3}(?![\w.-])")
+_IPV4_RE = re.compile(r"(?<![\w.-])(?<![^/]/)(?:\d{1,3}\.){3}\d{1,3}(?![\w-]|\.\d)")
+# IPv6 needs "::" or five or more groups, so clock times ("12:00:01") are left alone.
+_IPV6_RE = re.compile(r"(?i)(?<![\w:])(?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4}(?![\w:])")
+
+
+def _mask_ipv6(m):
+    text = m.group(0)
+    return "[IP]" if "::" in text or text.count(":") >= 5 else text
 _TOKENISH_RE = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])")
 _USER_DIR_RE = re.compile(
     r"(?i)((?:[a-z]:)?[\\/]+(?:users|documents and settings|home)[\\/]+)[^\\/\s\"'<>|:*?]+")
@@ -93,6 +100,7 @@ def _pre_scrub(text: str) -> str:
     text = diagnostics_report.CREDENTIAL_PARAM_PATTERN.sub(r"\1[REDACTED]", text)
     text = _USER_DIR_RE.sub(r"\1[USER]", text)
     text = _IPV4_RE.sub("[IP]", text)
+    text = _IPV6_RE.sub(_mask_ipv6, text)
     return _TOKENISH_RE.sub("[REDACTED]", text)
 
 

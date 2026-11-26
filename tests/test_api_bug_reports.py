@@ -536,6 +536,8 @@ def test_ips_stripped_and_browser_versions_kept(client):
     md = _post(client, body).json()["markdown"]
     assert "192.168.1.50" not in md and "10.0.0.7" not in md and "[IP]" in md
     assert "120.0.6099.43" in md
+    v6 = svc._scrub("seen fe80::1 and 2001:db8:1:2:3:4:5:6 at 12:00:01, ends 10.0.0.7.")
+    assert "fe80" not in v6 and "2001" not in v6 and "10.0.0.7" not in v6 and "12:00:01" in v6
     assert "(Sample Title)" in md and "At a glance: #1" in md
 
 
