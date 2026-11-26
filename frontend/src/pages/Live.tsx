@@ -46,6 +46,7 @@ import { NeedsInstall } from './readiness/NeedsInstall'
 import { liveBlockers, liveGpuReason, liveNeeds, liveWhisperOptionNote, liveWhisperSize } from './readiness/needs'
 import { whisperExclusionReason } from './workspace/sourceForm'
 import { FollowedChannels } from './live/FollowedChannels'
+import { CheckAllChannels } from './live/CheckAllChannels'
 import { LiveNowCards } from './live/LiveNowCards'
 import { LanguagePicker, StreamLinkField } from './live/StartFields'
 import { useFollows } from './live/useFollows'
@@ -191,6 +192,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   return (
     <PageShell width="standard" title="Live" label="Live" className={active ? 'live-page live-wide' : 'live-page'}>
       <div className="panel">
+        {!active && <CheckAllChannels follows={follows} />}
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>

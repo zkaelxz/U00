@@ -35893,7 +35893,9 @@ export interface operations {
     };
     version_api_app_android_get: {
         parameters: {
-            query?: never;
+            query?: {
+                refresh?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -35907,6 +35909,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AndroidAppVersion"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -14,7 +14,6 @@ import type { ApiError } from '../../api/client'
 import {
   addFollow,
   autoStartBlocker,
-  checkAllFollows,
   checkChannelsInput,
   checkFollow,
   channelPageUrl,
@@ -67,7 +66,7 @@ type Props = {
 }
 
 export function FollowedChannels({ follows, picked, liveOptions, formOptions, engines, gpuReason }: Props) {
-  const { list, loadError, load, alive, anyChecking } = follows
+  const { list, loadError, load, alive } = follows
   const [text, setText] = useState('')
   // What is running: 'add', 'check-all', or `${action}:${id}`. One request at a time.
   const [busy, setBusy] = useState<string | null>(null)
@@ -102,13 +101,8 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
   const waiting = busy ? 'Wait for the current request to finish.' : null
   // Until the engines load, the form's translator isn't known yet and Follow would save the wrong one.
   const addReason = waiting ?? blocker ?? (engines === null ? 'Loading engines…' : null)
-  const changeable = items.filter((f) => f.mine || list?.can_auto_start)
-  const checkAllReason = waiting ?? (changeable.length === 0 ? 'Follow a channel first.' : anyChecking ? 'Checking… wait for the current checks to finish.' : null)
   const addReasonShown = !!text.trim() && !!addReason
-  // The same "wait" line would otherwise print twice.
   const emptyShown = !!list && !items.length && !loadError
-  // On an empty list the "No channels followed yet" line already says it, so "Follow a channel first." would repeat it.
-  const checkAllReasonShown = !!checkAllReason && !(addReasonShown && checkAllReason === addReason) && !(emptyShown && changeable.length === 0 && !waiting)
   const liveCount = items.filter((f) => f.live_now).length
   const summary = items.length
     ? `${items.length} channel${items.length === 1 ? '' : 's'}${liveCount ? ` · ${liveCount} live now` : ''}`
@@ -193,20 +187,6 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
           {addReasonShown && <p className="muted" id="live-follow-add-reason">{addReason}</p>}
         </form>
         </Section>}
-        <div className="actions">
-          <button type="button" className={buttonClass('ghost')} disabled={!!checkAllReason}
-              aria-describedby={checkAllReasonShown ? 'live-follow-check-all-reason' : undefined}
-              title={checkAllReason ? undefined : `Check ${list?.can_auto_start ? 'every followed channel' : 'each of your channels'} now, one after another.`}
-              onClick={() => void run('check-all', async () => {
-                const r = await checkAllFollows()
-                setNote(r.queued ? `Checking ${r.queued} channel${r.queued === 1 ? '' : 's'}…` : 'All channels were just checked.')
-                await load()
-              })}>
-              {anyChecking || busy === 'check-all' ? 'Checking…' : list?.can_auto_start ? 'Check all channels' : 'Check all my channels'}
-            </button>
-        </div>
-          {checkAllReasonShown && <p className="muted" id="live-follow-check-all-reason">{checkAllReason}</p>}
-
         {error && <p className="error" role="alert">{error}</p>}
         {note && <p className="muted" role="status">{note}</p>}
         {loadError && <p className="error" role="alert">{loadError}</p>}
