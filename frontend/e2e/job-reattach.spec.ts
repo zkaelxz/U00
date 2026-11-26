@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
 import { exportBlock, openExportBlock } from './exportBlocks'

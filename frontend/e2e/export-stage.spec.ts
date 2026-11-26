@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page } from '@playwright/test'
 
 import { asMediaType, exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 import { FIRST_OPEN, SEEDED_OPEN, expectOpen, mockSoftsubRun, summaryOf } from './exportBlocksCases'

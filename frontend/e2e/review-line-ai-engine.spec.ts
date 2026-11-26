@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page } from '@playwright/test'
 
 // The engine and model picker on the per-line AI panels (Re-write,
 // Why this?, Alternatives, Grammar). The run config is the real one with the
