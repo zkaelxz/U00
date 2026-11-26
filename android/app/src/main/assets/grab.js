@@ -16,7 +16,11 @@
     for (var n = 0; n < all.length && n < 4000; n++) {
       var el = all[n];
       var room = el.scrollHeight - el.clientHeight;
-      if (room > gap + 50 && el.clientHeight > 200 && /(auto|scroll)/.test(getComputedStyle(el).overflowY)) {
+      var overflow = getComputedStyle(el).overflowY;
+      // A reader on a custom scrollbar (Bilibili Manga) hides the native one with overflow:hidden
+      // but still scrolls by scrollTop; only a box about as tall as the screen counts.
+      var byScript = overflow === "hidden" && el.clientHeight >= window.innerHeight * 0.5;
+      if (room > gap + 50 && el.clientHeight > 200 && (/(auto|scroll)/.test(overflow) || byScript)) {
         best = el;
         gap = room;
       }
@@ -337,6 +341,67 @@
     }
   }
 
+  // Pictures of the web view's own screen, asked of the app one at a time. The app answers by
+  // calling the function below, which only this grab's secret name reaches.
+  var snapWaiters = {};
+  var snapCount = 0;
+  window["__baiheSnap" + nonce] = function (id, base64) {
+    var waiter = snapWaiters[id];
+    if (waiter) { delete snapWaiters[id]; waiter(base64); }
+  };
+  function snap() {
+    return new Promise(function (resolve, reject) {
+      var id = "s" + (++snapCount);
+      var timer = setTimeout(function () { delete snapWaiters[id]; reject(new Error("no snapshot")); }, 15000);
+      snapWaiters[id] = function (base64) {
+        clearTimeout(timer);
+        if (!base64) { reject(new Error("no snapshot")); return; }
+        var image = new Image();
+        image.onload = function () { resolve(image); };
+        image.onerror = function () { reject(new Error("bad snapshot")); };
+        image.src = "data:image/jpeg;base64," + base64;
+      };
+      Baihe.snap(nonce, id);
+    });
+  }
+  // A canvas taller than the screen is scrolled a screen at a time; each strip is cropped from a
+  // snapshot and the strips are joined. Null when the page cannot be shown whole.
+  async function screenshotOf(el, box) {
+    var first = el.getBoundingClientRect();
+    if (first.width > window.innerWidth + 2) return null;
+    var height = first.height, done = 0, out = null, startTop = box.scrollTop;
+    try {
+      for (var guard = 0; done < height - 1 && guard < 40; guard++) {
+        var r = el.getBoundingClientRect();
+        // Bring the first row not yet taken to the top of the screen; at the end of the chapter the
+        // reader stops short and the row is lower down, which y below accounts for.
+        box.scrollTop = Math.max(0, box.scrollTop + r.top + done);
+        await new Promise(function (resolve) { setTimeout(resolve, 350); });
+        r = el.getBoundingClientRect();
+        var y = r.top + done;
+        if (y < 0 || y >= window.innerHeight) return null;
+        var rows = Math.min(height - done, window.innerHeight - y);
+        var shot = await snap();
+        var scale = shot.naturalWidth / window.innerWidth;
+        if (!out) {
+          out = document.createElement("canvas");
+          out.width = Math.max(1, Math.round(r.width * scale));
+          out.height = Math.max(1, Math.round(height * scale));
+        }
+        out.getContext("2d").drawImage(shot, Math.round(r.left * scale), Math.round(y * scale), out.width, Math.round(rows * scale),
+          0, Math.round(done * scale), out.width, Math.round(rows * scale));
+        done += rows;
+      }
+    } finally {
+      box.scrollTop = startTop;
+    }
+    if (!out || done < height - 1) return null;
+    var url = out.toDataURL("image/jpeg", 0.9);
+    if (typeof url === "string" && url.indexOf("data:image") === 0) return { type: "image/jpeg", data: url.split(",")[1] || "" };
+    var blob = await new Promise(function (resolve) { out.toBlob(resolve, "image/jpeg", 0.9); });
+    return blob ? { type: "image/jpeg", data: await toBase64(blob) } : null;
+  }
+
   // Pictures are read four at a time, but handed over in page order.
   var reads = {};
   function ensureRead(upTo) {
@@ -354,7 +419,14 @@
       }
       if (item.kind === "canvas") {
         var shot = item.el.toDataURL("image/png");
-        Baihe.image(nonce, "p" + i, "", "image/png", shot.split(",")[1] || "");
+        if (typeof shot === "string" && shot.indexOf("data:image") === 0) {
+          Baihe.image(nonce, "p" + i, "", "image/png", shot.split(",")[1] || "");
+          continue;
+        }
+        // The site disabled reading its canvas: take what the web view shows on screen instead.
+        var pictured = await screenshotOf(item.el, scrollBox());
+        if (pictured) Baihe.image(nonce, "p" + i, "", pictured.type, pictured.data);
+        else Baihe.skipped(nonce, "p" + i);
         continue;
       }
       var img = item.el;
