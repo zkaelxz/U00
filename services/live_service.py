@@ -73,9 +73,18 @@ OVERLAP_RANGE = (0, 8)
 LANGUAGE_CHUNK_DEFAULTS = {"zh": {"segment_seconds": 6, "overlap_seconds": 1.5}}
 
 
-def language_chunk(language: str) -> dict:
-    """segment_seconds / overlap_seconds a start with no chunk choice of its own (a followed
-    channel's Start Live or auto-start) passes: the language's fast default, else start_session's."""
+# The "balanced" captions choice of a followed channel or a member's Live start: longer chunks, so
+# Whisper hears more context, at the cost of about 2 s more lag than the language's fast default.
+BALANCED_CHUNK = {"segment_seconds": 8, "overlap_seconds": 3}
+CAPTION_CHOICES = ("fast", "balanced")
+
+
+def language_chunk(language: str, captions=None) -> dict:
+    """segment_seconds / overlap_seconds a start with no chunk figures of its own (a followed
+    channel's Start Live or auto-start) passes. Unset and "fast" are the language's fast default
+    (else start_session's own); "balanced" is BALANCED_CHUNK."""
+    if captions == "balanced":
+        return dict(BALANCED_CHUNK)
     return dict(LANGUAGE_CHUNK_DEFAULTS.get(language, {}))
 
 

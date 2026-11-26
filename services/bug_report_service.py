@@ -309,6 +309,8 @@ def _clean_client(c: dict) -> dict:
         "build_id": _scrub(c.get("build_id"), 120),
         "user_agent": _scrub(c.get("user_agent"), 500),
         "page_title": _scrub(c.get("page_title"), 200),
+        "phone_info": _scrub(c.get("phone_info"), 300),
+        "phone_crash": _scrub(c.get("phone_crash"), 8000),
         "viewport": {k: viewport.get(k) for k in ("width", "height", "dpr")
                      if isinstance(viewport.get(k), (int, float))},
         "mode": c.get("mode") if c.get("mode") in ("pc", "lan", "remote", "unknown") else "unknown",
@@ -354,6 +356,10 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
            "- Screenshot: " + ("saved with the report on the PC (attach it by hand)"
                                if report.get("has_screenshot") else "none"),
            ""]
+    if c.get("phone_info") or c.get("phone_crash"):
+        out += ["## Phone app\n", f"- Phone: {_cell(c.get('phone_info')) or '(unknown)'}", ""]
+        if c.get("phone_crash"):
+            out += ["### Last crash the phone kept\n", _fence(c["phone_crash"]), ""]
     if c["route_history"]:
         out.append("## Recent pages\n")
         out += [f"- {_cell(r.get('at'))} `{r.get('route', '')}`" for r in c["route_history"]]
@@ -612,6 +618,45 @@ def _page_region(r: dict) -> dict:
     row["left_alone"] = bool(r.get("left_alone"))
     row["untranslated"] = bool(r.get("untranslated"))
     return row
+
+
+def create_app_report(payload: dict, reporter: str | None = None) -> dict:
+    """A report sent from the phone app's own screens (Grab), which have no web dialog: the
+    reader's note, which screen and page address, the app build, the last crash the phone kept
+    and, when the reader ticked it, a picture of the screen. Same scrubbing and storage as any
+    other report, so admins find it in the same list."""
+    if not isinstance(payload, dict):
+        raise InvalidInputError("The report is not valid.")
+    jpeg = None
+    image = payload.get("image")
+    if image not in (None, ""):
+        if not isinstance(image, str) or not image.startswith(_PAGE_IMAGE_PREFIX):
+            raise InvalidInputError("The screenshot must be a JPEG.")
+        if len(image) - len(_PAGE_IMAGE_PREFIX) > (MAX_PAGE_IMAGE_BYTES * 4) // 3 + 4:
+            raise InvalidInputError("The screenshot is larger than 4 MB.")
+        try:
+            jpeg = base64.b64decode(image[len(_PAGE_IMAGE_PREFIX):], validate=True)
+        except ValueError:
+            raise InvalidInputError("The screenshot could not be read.") from None
+        if not jpeg or len(jpeg) > MAX_PAGE_IMAGE_BYTES or not jpeg.startswith(b"\xff\xd8\xff"):
+            raise InvalidInputError("The screenshot must be a JPEG under 4 MB.")
+    note = _scrub(payload.get("note"), 1000).strip()
+    screen = _scrub(payload.get("screen"), 80).strip()
+    page_url = _scrub(display_url(str(payload.get("page_url") or "")[:2000]), 300)
+    info = _scrub(payload.get("phone"), 300).strip()
+    crash = _scrub(payload.get("crash"), 8000).strip()
+    lines = ["## Phone app\n",
+             f"- Screen: {_cell(screen) or '(unknown)'}",
+             f"- Page address: `{_cell(page_url)}`" if page_url else "- Page address: (none)",
+             f"- Phone: {_cell(info) or '(unknown)'}",
+             f"- Screenshot: {'attached' if jpeg else 'not included'}", ""]
+    if crash:
+        lines += ["### Last crash the phone kept\n", _fence(crash), ""]
+    return create_report(
+        {"what_happened": "Phone app report: " + (note or "(no note)"),
+         "route": page_url, "include_server_log": True},
+        screenshot=jpeg, include_server_in_response=False, reporter=reporter,
+        extra_markdown="\n" + "\n".join(lines))
 
 
 def create_page_report(payload: dict, reporter: str | None = None) -> dict:

@@ -262,6 +262,7 @@ def live_fields(info) -> dict:
 _UPLOAD_DATE_CHARS = frozenset("0123456789")
 # Longer than any real video; a bigger number is a site bug, not a length.
 _DURATION_MAX = 10 * 24 * 60 * 60
+_EPISODE_MAX = 99999
 
 
 def link_fields(info) -> dict:
@@ -277,7 +278,10 @@ def link_fields(info) -> dict:
     if isinstance(duration, bool) or not isinstance(duration, (int, float)) \
             or not math.isfinite(duration) or not 0 <= duration <= _DURATION_MAX:
         duration = None
-    fields.update(upload_date=upload, duration=duration,
+    episode = info.get("episode_number")
+    if isinstance(episode, bool) or not isinstance(episode, int) or not 1 <= episode <= _EPISODE_MAX:
+        episode = None
+    fields.update(upload_date=upload, duration=duration, episode_number=episode,
                   has_thumbnail=bool(info.get("thumbnail") or info.get("thumbnails")),
                   is_playlist=info.get("_type") in ("playlist", "multi_video"))
     return fields
@@ -418,9 +422,13 @@ def _valid_link(link) -> bool:
     def number(value):
         return value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)
                                  and math.isfinite(value))
-    return (isinstance(link, dict) and set(link) == _LINK_KEYS
+    episode = link.get("episode_number") if isinstance(link, dict) else None
+    # episode_number may be missing: a child from before it was read has none.
+    return (isinstance(link, dict) and _LINK_KEYS <= set(link) <= _LINK_KEYS | {"episode_number"}
             and all(isinstance(link[k], str) and len(link[k]) <= _TEXT_MAX
                     for k in _LINK_TEXT_KEYS)
+            and (episode is None or (isinstance(episode, int) and not isinstance(episode, bool)
+                                     and 1 <= episode <= _EPISODE_MAX))
             and number(link["release_timestamp"]) and number(link["duration"])
             and isinstance(link["has_thumbnail"], bool) and isinstance(link["is_playlist"], bool))
 

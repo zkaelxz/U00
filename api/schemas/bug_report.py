@@ -81,6 +81,8 @@ class BugReportClient(BaseModel):
     build_id: str = Field("", max_length=120)
     user_agent: str = Field("", max_length=500)
     page_title: str = Field("", max_length=200)
+    phone_info: str = Field("", max_length=300)
+    phone_crash: str = Field("", max_length=8000)
     viewport: Optional[BugReportViewport] = None
     mode: Literal["pc", "lan", "remote", "unknown"] = "unknown"
 

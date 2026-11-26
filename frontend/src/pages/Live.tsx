@@ -95,7 +95,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   // What Start accepts; the built-in copy until the server answers (Start checks again anyway).
   const [opts, setOpts] = useState(LIVE_FORM_FALLBACK)
   const { prefs: savedPrefs, setPrefs, setOpt, changeLanguage } = useLivePrefs(opts)
-  // Only the stream link, language and glossary are shown; Start sends the server's defaults for the rest.
+  // Only the stream link, language, glossary and the Fast/Balanced choice are shown; Start sends the server's defaults for the rest.
   const chosen = useChosenForYou()
   const auto = chosen.auto
   const prefs = auto ? chosenForYou(savedPrefs) : savedPrefs
@@ -109,9 +109,9 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   // The delayed player records on the PC and the server refuses it from away, so a choice
   // remembered on this browser is set aside there (the PC keeps it).
   const language = prefs.source_language ?? opts.defaults.source_language
-  const presetModel = prefs.caption_preset && prefs.whisper_size === undefined
+  const presetModel = !auto && prefs.caption_preset && prefs.whisper_size === undefined
     ? captionPresetModel(prefs.caption_preset, opts, language) : undefined
-  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
+  const form: LiveForm = { ...formDefaults(opts, prefs.source_language), ...prefs, ...(presetModel ? { whisper_size: presetModel } : {}), ...(auto && prefs.caption_preset === 'balanced' ? { segment_seconds: BALANCED_CAPTIONS.segment_seconds, overlap_seconds: BALANCED_CAPTIONS.overlap_seconds } : {}), url, ...(pc === 'remote' ? { delayed_player: false } : {}) }
   const holdsImport = useHolds('media.import_url')
   const follows = useFollows()
   const route = useRoute()
@@ -212,7 +212,16 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
               ))}
             </select>
           </Field>
-          {auto && <ChosenForYouNote text="The engine and caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
+          {auto && (
+            <Field label="Captions" help="Fast shows lines sooner. Balanced waits a little longer so the transcript is more accurate.">
+              <select data-testid="live-member-captions" value={prefs.caption_preset === 'balanced' ? 'balanced' : 'fast'} disabled={active || busy}
+                onChange={(e) => setPrefs(applyCaptionPreset(savedPrefs, e.target.value === 'balanced' ? 'balanced' : 'fast'))}>
+                <option value="fast">Fast</option>
+                <option value="balanced">Balanced</option>
+              </select>
+            </Field>
+          )}
+          {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
           {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">

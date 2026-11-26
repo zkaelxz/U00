@@ -543,6 +543,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.item("Start Live here", this::askStartLive);
         menu.section("App");
         menu.item("Settings", this::showSettings);
+        menu.item("Report a problem", () -> ProblemReportDialog.show(this, "Grab", web.getUrl(), web));
         menu.item("Open Baihe", this::openBaihe);
         menu.show();
     }
@@ -1202,6 +1203,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         grabbing = false;
         uploading = false;
         bridge.cancel();
+        strips.clear();
         String next = null;
         if (chaptersLeft > 0) {
             boolean toEnd = GrabQueue.untilEnd(chaptersLeft);
@@ -1280,11 +1282,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     // A site that keeps its comic canvases from being read gets its pages from what the web view
     // shows on screen: strips are cropped here, joined here, and filed as the page. Nothing leaves
     // the app except to the running grab, by its secret callback name.
-    private final List<Bitmap> strips = new ArrayList<>();
+    private final PageStrips<Bitmap> strips = new PageStrips<>();
     private boolean desktopAgent;
 
     @Override
-    public void onSnap(String id, double left, double top, double width, double height, double viewWidth) {
+    public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {
         final String run = runningGrab;
         runOnUiThread(() -> {
             if (web == null || run.isEmpty() || !grabbing || web.getWidth() <= 0 || web.getHeight() <= 0) {
@@ -1305,10 +1307,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         int w = Math.min(shot.getWidth() - x, (int) Math.round(width * scale));
                         int h = Math.min(shot.getHeight() - y, (int) Math.round(height * scale));
                         if (w > 0 && h > 0) {
-                            synchronized (strips) {
-                                strips.add(Bitmap.createBitmap(shot, x, y, w, h));
+                            // A grab that ended while the picture was taken must not leave a strip behind.
+                            if (grabbing && run.equals(runningGrab)) {
+                                strips.add(key, Bitmap.createBitmap(shot, x, y, w, h));
+                                ok = true;
                             }
-                            ok = true;
                         }
                     }
                     shot.recycle();
@@ -1324,11 +1327,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     public void onStitch(String id, String key) {
         final String run = runningGrab;
-        List<Bitmap> taken;
-        synchronized (strips) {
-            taken = new ArrayList<>(strips);
-            strips.clear();
-        }
+        List<Bitmap> taken = strips.take(key);
         sender.execute(() -> {
             boolean ok = false;
             if (!taken.isEmpty() && grabbing && run.equals(runningGrab)) {
@@ -1389,6 +1388,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String language = pageLanguage;
+        GrabBridge.PageMeta meta = bridge.meta();
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -1441,6 +1441,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
             client.sourceLanguage = language;
+            client.pageMeta = meta;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -1458,6 +1459,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
         BaiheClient client = new BaiheClient(server, token);
+        client.pageMeta = bridge.meta();
         // Cancel cuts the request in flight; without this it waited out a translation the PC was still running.
         activeClient = client;
         if (!quickRead) {
@@ -1476,7 +1478,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             say("Saving the chapter");
             JSONObject title = client.resolveTitle(url, titles, chapterLinks, "novel");
             // The page's own heading (last of the candidates) names the chapter; the first is the browser tab title.
-            String heading = titles.isEmpty() ? "" : titles.get(titles.size() - 1);
+            String heading = client.pageMeta.chapterHeading(titles.isEmpty() ? "" : titles.get(titles.size() - 1));
             JSONObject answer = client.saveNovelChapter(title.getLong("drama_id"), url, heading, text);
             String where = title.optString("title", "Baihe");
             boolean added = answer.optBoolean("saved", false);

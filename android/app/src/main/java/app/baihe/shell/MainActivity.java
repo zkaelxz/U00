@@ -32,6 +32,7 @@ import java.security.SecureRandom;
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
+    private static final String PAGE_DARK = "page_dark";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -199,6 +200,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void themeChanged(boolean dark) {
+                runOnUiThread(() -> followPageTheme(dark));
+            }
+
+            @Override
             public void checkForUpdates() {
                 runOnUiThread(() -> checkForUpdateNow());
             }
@@ -233,7 +239,7 @@ public class MainActivity extends Activity {
 
     /** The Studio | Grab strip above Baihe; rebuilt after a full-screen video because setContentView drops it. */
     private View page() {
-        GrabUi.Palette palette = GrabUi.Palette.of(this);
+        GrabUi.Palette palette = palette();
         getWindow().setStatusBarColor(palette.surface);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
@@ -248,12 +254,30 @@ public class MainActivity extends Activity {
         return root;
     }
 
+    /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
+    private GrabUi.Palette palette() {
+        SharedPreferences p = prefs();
+        return p.contains(PAGE_DARK) ? new GrabUi.Palette(p.getBoolean(PAGE_DARK, false)) : GrabUi.Palette.of(this);
+    }
+
+    private void followPageTheme(boolean dark) {
+        SharedPreferences p = prefs();
+        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark) return;
+        p.edit().putBoolean(PAGE_DARK, dark).apply();
+        // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
+        if (customView != null || web == null) return;
+        setContentView(page());
+        if (strip != null && isInPictureInPictureMode()) strip.setVisibility(View.GONE);
+    }
+
     private boolean pipAllowed() {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && ShellSettings.isOn(this, ShellSettings.PIP);
     }
 
     private void setLiveWatching(boolean watching) {
         liveWatching = watching;
+        // A player that has just appeared can leave the page wider than the screen until the next layout pass.
+        if (watching && web != null) web.postDelayed(this::refreshAfterResize, 600);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         // From Android 12 the system floats the app by itself on the home gesture; older ones use onUserLeaveHint.
         try {
@@ -293,6 +317,23 @@ public class MainActivity extends Activity {
         if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
         if (web == null) return;
         web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
+        // The window animates between sizes, so the WebView can be left laid out for the small one (page zoomed
+        // in after returning, black picture): ask for the layout and the page's viewport again once it settles.
+        refreshAfterResize();
+        web.postDelayed(this::refreshAfterResize, 350);
+    }
+
+    private void refreshAfterResize() {
+        if (web == null) return;
+        web.requestLayout();
+        web.invalidate();
+        // The viewport is only re-applied when the page really is zoomed or wider than the screen, so a
+        // normal return to the app never moves the person's scroll position.
+        web.evaluateJavascript("(function(){var v=window.visualViewport,"
+                + "bad=(v&&Math.abs(v.scale-1)>0.01)||document.documentElement.scrollWidth>window.innerWidth+1;"
+                + "if(!bad)return;var m=document.querySelector('meta[name=viewport]');"
+                + "if(m){var c=m.content;m.content='';m.content=c;}"
+                + "window.dispatchEvent(new Event('resize'));})()", null);
     }
 
     /** The clipboard can only be read while this window has focus (Android 10+). */
@@ -547,6 +588,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web == null) return;
+        // Coming back to the front is what cleared a stale layout by hand; do it without the person having to.
+        refreshAfterResize();
         web.removeCallbacks(poll);
         poll.run();
     }

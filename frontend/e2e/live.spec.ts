@@ -151,7 +151,7 @@ test('a member gets the link, language and glossary only; Start sends the defaul
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ engine: 'deepseek', segment_seconds: 3, source_language: 'ja' })))
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url'] })
   const live = await openLive(page)
-  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and caption settings are chosen for you.')
+  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and the rest of the caption settings are chosen for you.')
   await expect(live.getByText('Advanced')).toHaveCount(0)
   await expect(live.getByRole('radio', { name: 'Japanese' })).toBeChecked()
   await expect(live.getByTestId('live-glossary-title')).toBeVisible()

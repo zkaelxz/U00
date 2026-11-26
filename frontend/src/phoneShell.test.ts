@@ -63,3 +63,15 @@ describe('hiding the app strip', () => {
     expect(() => m.setShellBarsHidden(true)).not.toThrow()
   })
 })
+
+describe('problem report diagnostics', () => {
+  it('reads the build line and crash text, and is null without the call or with bad data', async () => {
+    const m = await import('./phoneShell')
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), diagnostics: () => '{"phone":"Build 12","crash":"boom"}' } })
+    expect(m.shellDiagnostics()).toEqual({ phone: 'Build 12', crash: 'boom' })
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), diagnostics: () => 'not json' } })
+    expect(m.shellDiagnostics()).toBeNull()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(m.shellDiagnostics()).toBeNull()
+  })
+})

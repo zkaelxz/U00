@@ -10,6 +10,9 @@ type Bridge = {
   // Added with picture-in-picture: an older app build lacks them.
   setLiveWatching?: (watching: boolean) => void
   popOut?: () => void
+  // Added so the app's top bar can follow Baihe's own theme: an older app build lacks it.
+  setDark?: (dark: boolean) => void
+  diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
 }
@@ -75,5 +78,26 @@ export function setShellBarsHidden(hidden: boolean): void {
     bridge()?.setBarsHidden?.(hidden)
   } catch {
     // The shell went away with the page.
+  }
+}
+
+/** Tells the app whether Baihe is showing a dark look, so its native top bar matches the page and not only the phone. */
+export function setShellDark(dark: boolean): void {
+  try {
+    bridge()?.setDark?.(dark)
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+/** The phone app's build line and kept crash text for a problem report; null in a browser or an older app build. */
+export function shellDiagnostics(): { phone: string; crash: string } | null {
+  try {
+    const raw = bridge()?.diagnostics?.()
+    if (!raw) return null
+    const d = JSON.parse(raw) as { phone?: unknown; crash?: unknown }
+    return { phone: typeof d.phone === 'string' ? d.phone : '', crash: typeof d.crash === 'string' ? d.crash : '' }
+  } catch {
+    return null
   }
 }
