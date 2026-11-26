@@ -105,7 +105,7 @@ describe('accountWords', () => {
 
 describe('nameWidth', () => {
   it('is one for Latin letters, two for kanji, kana, Hangul, fullwidth forms and emoji, none for joiners', () => {
-    expect(nameWidth('Alex')).toBe(3)
+    expect(nameWidth('Alex')).toBe(4)
     expect(nameWidth('白'.repeat(12))).toBe(24)
     expect(nameWidth('かな')).toBe(4)
     expect(nameWidth('한글')).toBe(4)

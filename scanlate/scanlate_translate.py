@@ -59,7 +59,7 @@ _FLOW_NOTE = (" Write the English a skilled comic letterer would: short, natural
               "sentence split across bubbles: translate them as that sentence, broken at "
               "the same point, so each bubble reads on from the one before.")
 
-# Alex found comic English flattened into generic modern speech: a senpai became "my senior",
+# The owner found comic English flattened into generic modern speech: a senpai became "my senior",
 # a wuxia sect elder spoke like an office manager.
 _TONE_NOTE = (" Keep the source's flavour: follow the glossary's forms of address, and where it "
               "has none keep an honorific or term of address romanised (-san, -nim, senpai, "

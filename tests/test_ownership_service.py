@@ -140,7 +140,7 @@ def test_admin_without_override_sees_everything_but_changes_as_a_member(people):
         own.set_private(remote, "drama", shared, True)
     assert db.get_item_ownership("drama", theirs)["is_private"] == 1
     own.set_private(remote, "drama", mine, True)
-    # A series holding a PC drama: admins flip it from away too (Alex,
+    # A series holding a PC drama: admins flip it from away too (owner,
     # 2026-11-16); members are still refused (test_series_with_a_pc_drama_only_admins_flip).
     sid = db.get_or_create_series("Mixed", owner_user_id=remote["user_id"])
     db.create_drama(title_zh="pc2", series_id=sid)
@@ -195,7 +195,7 @@ def test_remote_admin_changes_pc_made_items_as_their_own(people):
     assert not own.can_edit(remote, "series", a_series)
     with pytest.raises(NotFoundError):
         own.require_editable(people["a"], "series", pc_series)
-    # From away an admin flips a PC-made series' flag as their own (Alex,
+    # From away an admin flips a PC-made series' flag as their own (owner,
     # 2026-11-16); another member's series stays an admin-at-the-PC change.
     own.set_private(remote, "series", pc_series, False)
     assert db.get_item_ownership("series", pc_series)["is_private"] == 0
@@ -449,7 +449,7 @@ def test_series_assignment_guard(people):
     assert own.check_series_assignment(a, secret, None) == secret
     with pytest.raises(ConflictError, match="only its owner's titles"):
         own.check_series_assignment(a, secret, people["b_id"])
-    # Admins put anyone's title in it (Alex, 2026-11-16).
+    # Admins put anyone's title in it (owner, 2026-11-16).
     for who in (admin, LOCAL, None):
         assert own.check_series_assignment(who, secret, people["b_id"]) == secret
     assert own.check_series_assignment(b, shared, people["b_id"]) == shared
@@ -475,7 +475,7 @@ def test_move_into_private_series_refused_service_and_sql_agree(people):
 
 
 def test_admin_has_full_rights_on_series_whoever_owns_the_title(people):
-    """Alex, 2026-11-16: "an admin should have full rights regardless". The
+    """Owner, 2026-11-16: "an admin should have full rights regardless". The
     live case: titles made from the website belong to the admin's account,
     every series is a private PC-made one, and moving them in was refused."""
     admin_id = people["admin"]["user_id"]
@@ -705,7 +705,7 @@ def test_bulk_series_with_every_title_refused_creates_no_new_series(people):
 
 
 def test_set_owner_admins_only_and_pc_only_for_other_members_items(people):
-    """Alex, 2026-11-16: "assign the user" on the Sharing list."""
+    """Owner, 2026-11-16: "assign the user" on the Sharing list."""
     admin_id = people["admin"]["user_id"]
     remote = _p(admin_id, admin=True, override=False)
     a_title = db.create_drama(title_zh="a", owner_user_id=people["a_id"], is_private=1)

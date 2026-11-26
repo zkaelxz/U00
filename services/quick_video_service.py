@@ -40,7 +40,7 @@ _PAID = "This profile translates with a paid engine, which your account can't us
 _NO_CAP = ("Set a monthly spending cap in Settings > Spending first: this profile translates with a "
            "paid engine, which the queue runs only under a cap.")
 _RUN_STEPS = ("download", "transcribe", "translate", "export")
-# The From a URL picker's default (Alex, 2026-11-22): a taller picture costs disk and download
+# The From a URL picker's default (owner, 2026-11-22): a taller picture costs disk and download
 # time and is not needed to watch with subtitles.
 VIDEO_HEIGHT = 1080
 # Made when no profile was ever chosen, so a pasted link works on first use. It sets only the source

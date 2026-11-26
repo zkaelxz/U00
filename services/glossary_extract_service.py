@@ -63,7 +63,7 @@ def novel_glossary_engine(drama_id: int) -> str:
 
 
 def _title_model(drama: dict) -> Optional[str]:
-    # The title's own Translate pick counts as chosen (Alex, 2026-11-24), so a saved
+    # The title's own Translate pick counts as chosen (owner, 2026-11-24), so a saved
     # cloud tag runs without the owner's hosted-default opt-in, unlike
     # title_run_defaults; the routes' gate still holds it to engines.paid.
     from services import profile_service

@@ -121,7 +121,7 @@ _TWITCH_VIDEO = re.compile(r"[0-9]{1,15}")
 
 def stream_ref(url: str) -> Optional[dict]:
     """The embeddable video a start link points at, as a kind and an id only
-    (Alex, 2026-11-17: other signed-in devices may show the video, but the
+    (owner, 2026-11-17: other signed-in devices may show the video, but the
     fetched URL itself never leaves the server); None for any other link."""
     vid = live_chat.video_id(url)
     if vid:
@@ -794,7 +794,7 @@ def _listed(principal, session_id, entry) -> bool:
     """What the Live page lists and is pushed by default: the caller's own sessions,
     and the PC's own (a followed channel's auto-start) for an admin or the PC owner.
     An admin can still open any session by id, and the Jobs page shows every job
-    (Alex, 2026-11-25: another account's finished session opened on her Live page)."""
+    (owner, 2026-11-25: another account's finished session opened on her Live page)."""
     if principal is None:
         return True
     uid = ownership_service.user_id(principal)

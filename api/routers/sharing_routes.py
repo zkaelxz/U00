@@ -30,7 +30,7 @@ _FLIP_ERRS = error_responses(403, 404, 409, 422)
 
 
 # Household permissions, with the admin check in the service (as for a flip),
-# so an admin away from the PC can use the Sharing list too (Alex, 2026-11-16);
+# so an admin away from the PC can use the Sharing list too (owner, 2026-11-16);
 # set_private and set_owner still limit what they change there.
 @router.get("/items", dependencies=[require_permission("library.read")],
             response_model=SharingList, responses=error_responses(422),

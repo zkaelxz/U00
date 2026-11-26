@@ -92,7 +92,7 @@ def test_non_english_lines_are_untouched():
 
 def test_speaker_labels_markup_urls_and_glossary_terms_are_protected():
     assert clean("JOHN : i think so")[0] == "JOHN : I think so"
-    assert clean("- Sample (O.S.):  i go")[0] == "- Sample (O.S.): I go"
+    assert clean("- Anna (O.S.):  i go")[0] == "- Anna (O.S.): I go"
     assert clean("<i>hello</i>  i  go")[0] == "<i>hello</i> I go"
     assert clean("{\\an8}the  end")[0] == "{\\an8}the end"
     assert clean("see www.Foo.com,and go")[0] == "see www.Foo.com,and go"

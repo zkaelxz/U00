@@ -340,7 +340,7 @@ def page_picture(content: bytes):
     return data, mime, sent_width / width
 
 
-# Alex's blind test of six models on 10 text-heavy pages (2026-11-22): Gemma 4
+# The owner's blind test of six models on 10 text-heavy pages (2026-11-22): Gemma 4
 # 31B on Ollama's servers was best on the most pages at under half of Haiku's cost.
 PAGE_IMAGE_OLLAMA_MODEL = "gemma4:31b-cloud"
 # Measured on 16 comic pages: with the picture, Haiku 5.5 reads dialogue as well

@@ -112,7 +112,7 @@ class TestFlip:
         assert r.status_code == 409
         assert "other people's titles" in r.json()["error"]["message"]
         assert _private("series", world["series"]) == 0
-        # An admin flips it anyway (Alex, 2026-11-16: full rights regardless).
+        # An admin flips it anyway (owner, 2026-11-16: full rights regardless).
         assert _flip(c, world["admin"], "series", world["series"], True).status_code == 200
         assert _private("series", world["series"]) == 1
 

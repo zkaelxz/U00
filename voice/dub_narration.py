@@ -30,7 +30,7 @@ from lib.no_window import NO_WINDOW
 NARRATION_TTS_MAX_CHARS = 500
 
 # One even gap: longer pauses at paragraph ends put a stop after every line of a novel
-# written one paragraph per line, which Alex found worse (2026-11-22).
+# written one paragraph per line, which the owner found worse (2026-11-22).
 CLIP_GAP_MS = 350
 PACE_MIN, PACE_MAX = 0.75, 1.25
 

@@ -195,7 +195,7 @@ def default_engine(engines: list | None = None) -> str:
             free_tier=name == "gemini" and gemini_free)
         return estimate_cost_for_engine(stand_in, 1_000_000, 1_000_000)
 
-    # Luna read slang best of the cheap engines in the stream test, and Alex
+    # Luna read slang best of the cheap engines in the stream test, and the owner
     # chose it over DeepSeek, so it wins whenever its key works; the price
     # ranking only decides among the rest.
     if "openai" in usable:

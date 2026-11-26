@@ -3,7 +3,7 @@ import { openSettingsGroups } from './settingsNav'
 
 // A remote (household) admin holds no admin.library: Cancel on every job (owner
 // decision 2026-10-12), and the Sharing list with a note that other people's
-// items change at the PC (Alex, 2026-11-16). Every /api
+// items change at the PC (owner, 2026-11-16). Every /api
 // call is mocked; any other is aborted and must not happen.
 
 const me = (permissions: string[]) => ({

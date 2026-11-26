@@ -131,7 +131,7 @@ def _is_user_guide(path):
 
 
 def path_kind(path):
-    """Why this path alone sends a PR to the overlap lane (Alex's guard, 2026-11-14), or None."""
+    """Why this path alone sends a PR to the overlap lane (the owner's guard, 2026-11-14), or None."""
     name = path.rsplit("/", 1)[-1]
     if (path.startswith(ci_changes.EVERYTHING_PREFIXES) or path in ci_changes.EVERYTHING_FILES
             or any(fnmatch.fnmatchcase(path, p) for p in ci_changes.EVERYTHING_PATTERNS)):
