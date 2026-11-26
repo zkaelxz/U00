@@ -9,7 +9,7 @@ import {
   type SessionState,
 } from './useSession'
 
-const user = { id: 1, email: 'kae@example.com', display_name: 'Kae', is_admin: true, is_local_owner: false }
+const user = { id: 1, email: 'alex@example.com', display_name: 'Alex', is_admin: true, is_local_owner: false }
 const meOf = (over: Partial<AuthMe> = {}): AuthMe => ({
   auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet', user, permissions: ['lines.edit'], ...over,
 })

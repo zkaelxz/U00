@@ -1170,15 +1170,15 @@ def test_set_display_name_from_away_on_members_and_admins(isolated_db):
     c = _remote(_app())
     r = c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": "  Kid   One "}, headers=_h(s))
     assert r.status_code == 200 and r.json()["display_name"] == "Kid One"
-    r = c.post(f"/api/admin/users/{a['id']}/display-name", json={"display_name": "Kae"}, headers=_h(s))
-    assert r.status_code == 200 and r.json()["display_name"] == "Kae"
+    r = c.post(f"/api/admin/users/{a['id']}/display-name", json={"display_name": "Alex"}, headers=_h(s))
+    assert r.status_code == 200 and r.json()["display_name"] == "Alex"
     r = c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": ""}, headers=_h(s))
     assert r.json()["display_name"] == ""
     assert c.post(f"/api/admin/users/{m['id']}/display-name", json={"display_name": "x" * 101},
                   headers=_h(s)).status_code == 422
     assert c.post("/api/admin/users/4242/display-name", json={"display_name": "A"},
                   headers=_h(s)).status_code == 404
-    assert all("Kid" not in e["detail_redacted"] and "Kae" not in e["detail_redacted"]
+    assert all("Kid" not in e["detail_redacted"] and "Alex" not in e["detail_redacted"]
                for e in _audit("user.rename"))
     assert db.auth_get_user(m["id"]) and not _audit("user.delete")
 

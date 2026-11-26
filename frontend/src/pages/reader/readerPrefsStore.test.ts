@@ -162,7 +162,7 @@ describe('reader error copy', () => {
   it('shows safe validation text and hides paths', () => {
     const ok = new ApiError(400, { code: 'validation_error', message: 'No deepseek key is configured. Set one in Settings first.' })
     expect(readerErrorText(ok).detail).toBe('No deepseek key is configured. Set one in Settings first.')
-    const leak = new ApiError(400, { code: 'validation_error', message: 'bad file /home/kae/library/x.db' })
+    const leak = new ApiError(400, { code: 'validation_error', message: 'bad file /home/alex/library/x.db' })
     expect(readerErrorText(leak).detail).toBeNull()
     expect(readerErrorText(leak).retry).toBe(false)
   })

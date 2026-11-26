@@ -3,7 +3,7 @@ import { openSettingsGroups } from './settingsNav'
 
 // A remote (household) admin holds no admin.library: Cancel on every job (owner
 // decision 2026-10-12), and the Sharing list with a note that other people's
-// items change at the PC (Kae, 2026-11-16). Every /api
+// items change at the PC (owner, 2026-11-16). Every /api
 // call is mocked; any other is aborted and must not happen.
 
 const me = (permissions: string[]) => ({
@@ -12,12 +12,12 @@ const me = (permissions: string[]) => ({
 })
 
 const JOB = {
-  job_id: 'j1', status: 'running', progress: 0.3, message: '', description: 'Translate Kae',
+  job_id: 'j1', status: 'running', progress: 0.3, message: '', description: 'Translate Alex',
   gpu_touching: false, started_at: 1, finished_at: null, updated_at: 2, owned_by_me: false,
 }
 const OWN_JOB = { ...JOB, job_id: 'j2', description: 'Translate Mine', owned_by_me: true }
 const ITEM = {
-  kind: 'drama', id: 5, title: 'Kae title', owner_name: 'Kae', owner_user_id: 1, is_private: true, series_id: null,
+  kind: 'drama', id: 5, title: 'Alex title', owner_name: 'Alex', owner_user_id: 1, is_private: true, series_id: null,
   series_name: null, series_is_private: null, created_at_pc: false,
 }
 
@@ -41,16 +41,16 @@ async function mock(page: Page, permissions: string[]) {
 test('remote admin: Cancel on everyone\'s jobs (owner decision 2026-10-12)', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.users.read'])
   await page.goto('/#/jobs')
-  await expect(page.getByTestId('jobs-table')).toContainText('Translate Kae')
+  await expect(page.getByTestId('jobs-table')).toContainText('Translate Alex')
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
-  await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Cancel Translate Alex/ })).toBeVisible()
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
 test('PC admin still gets Cancel', async ({ page }) => {
   await mock(page, ['library.read', 'jobs.cancel', 'admin.library', 'admin.users.read'])
   await page.goto('/#/jobs')
-  await expect(page.getByRole('button', { name: /Cancel Translate Kae/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Cancel Translate Alex/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Cancel Translate Mine/ })).toBeVisible()
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })

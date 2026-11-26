@@ -375,11 +375,11 @@ class TestReviewFixes:
         assert os.path.exists(path)
 
     def test_warnings_and_problems_name_only_the_file_not_its_folders(self):
-        out = clips.check_clips([_row("C:\\Users\\kae\\Music\\a.wav", transcript="こんにちは"),
-                                 _row("/home/kae/b.wav", language="en")])
+        out = clips.check_clips([_row("C:\\Users\\alex\\Music\\a.wav", transcript="こんにちは"),
+                                 _row("/home/alex/b.wav", language="en")])
         assert [w["clip"] for w in out["warnings"]] == ["a.wav"]
         assert [p["clip"] for p in out["problems"]] == ["b.wav"]
-        assert "kae" not in json.dumps(out)
+        assert "alex" not in json.dumps(out)
 
     def test_stale_leftovers_are_swept_but_used_and_fresh_files_stay(self, isolated_db):
         _import([_row("a.wav")])

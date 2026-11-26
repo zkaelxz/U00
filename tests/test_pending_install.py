@@ -911,7 +911,7 @@ def test_a_finished_result_is_never_restored_from(data, monkeypatch, status):
 
 
 def test_a_restore_that_fails_names_only_the_packages(data, monkeypatch):
-    before = {"numpy": "2.5.3", "torch": "2.11.0+cu128", "../evil": "1", "pyyaml": "C:\\Users\\kae"}
+    before = {"numpy": "2.5.3", "torch": "2.11.0+cu128", "../evil": "1", "pyyaml": "C:\\Users\\alex"}
     _killed_mid_pip(before)
     fake = _recovering(monkeypatch, [{}, {}], rcs=(1,))
     pi.apply()

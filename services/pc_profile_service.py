@@ -1,4 +1,4 @@
-"""Owns the PC window's Kae/Guest profile: a PIN, the locked state and the PIN attempt limit."""
+"""Owns the PC window's Owner/Guest profile: a PIN, the locked state and the PIN attempt limit."""
 
 import hashlib
 import hmac
@@ -134,7 +134,7 @@ def set_pin(new_pin, current_pin=None, hide_existing=False) -> dict:
     new_pin = _check_format(new_pin)
     with _lock:
         if guest_active():
-            raise ForbiddenError("Switch to Kae first.")
+            raise ForbiddenError("Switch to Owner first.")
         if pin_is_set():
             now = time.time()
             _throttle_check(now)

@@ -194,7 +194,7 @@ describe('outcomes', () => {
     expect(outcomeTone('skipped')).toBe('muted')
   })
   it('never shows a path or key from a failure', () => {
-    expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'failed', error: 'open /home/kae/lib/x failed' })).toBe('Failed')
+    expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'failed', error: 'open /home/alex/lib/x failed' })).toBe('Failed')
     expect(outcomeText({ chapter_id: 'x', title: '', outcome: 'failed', error: 'api_key=sk-abcdefgh' })).toBe('Failed')
   })
   it('explains comic pages have no viewer yet', () => {
@@ -227,7 +227,7 @@ describe('import state (Step 107)', () => {
     retry: [
       { chapter_id: 'c3', title: 'Three', status: 'failed', error: 'The site took too long to answer.' },
       { chapter_id: 'c4', title: 'Four', status: 'not_attempted', error: 'Not attempted: the import stopped before this chapter.' },
-      { chapter_id: 'c5', title: 'Five', status: 'failed', error: 'open /home/kae/lib/x failed' },
+      { chapter_id: 'c5', title: 'Five', status: 'failed', error: 'open /home/alex/lib/x failed' },
     ],
     retry_count: 3, ...over,
   })

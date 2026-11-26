@@ -1211,7 +1211,7 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
 
     def test_only_the_fixed_text_is_kept_for_a_failed_load(self, synthetic_page, monkeypatch):
         def load_fails(*a, **k):
-            exc = ConnectionError("getaddrinfo failed for /home/kae/pages/p1.png")
+            exc = ConnectionError("getaddrinfo failed for /home/alex/pages/p1.png")
             exc.ml_load_failure = True
             raise exc
         monkeypatch.setattr(scanlate_detect, "detect_bubbles_ml", load_fails)
@@ -1219,7 +1219,7 @@ class TestMlFailureMemoryOnlyCoversTheModelLoad:
             scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
         with pytest.raises(scanlate_detect.BubbleModelUnavailable) as again:
             scanlate_detect.detect_bubbles(synthetic_page, backend="ml")
-        assert "/home/kae" not in str(again.value) and again.value.__cause__ is None
+        assert "/home/alex" not in str(again.value) and again.value.__cause__ is None
 
 
 class TestEnglishTextSkipped:

@@ -111,7 +111,7 @@ class TestJobResults:
 
     def test_no_path_url_or_unlisted_key_in_result(self, isolated_db):
         _run_job_with_result("dub_3", {
-            "failed_reason": "empty", "detail": r"C:\Users\kae\Videos\ep1.mp4 at https://x.example/a?k=1",
+            "failed_reason": "empty", "detail": r"C:\Users\alex\Videos\ep1.mp4 at https://x.example/a?k=1",
             "output_path": "/srv/library/1/out.wav", "segments": [{"start": 0}]})
         result = jobs_service.get_job("dub_3")["result"]
         text = str(result)

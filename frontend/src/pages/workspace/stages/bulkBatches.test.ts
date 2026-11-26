@@ -52,7 +52,7 @@ describe('bulk batches helpers', () => {
   it('keeps safe server text, drops an unsafe trailing detail, else falls back', () => {
     expect(plainServerText(null, 'Cancelled.')).toBe('Cancelled.')
     expect(plainServerText('Cancelled at the provider and here.', 'x')).toBe('Cancelled at the provider and here.')
-    expect(plainServerText('Stopped here, but the call failed. (/home/kae/secret.txt)', 'x')).toBe(
+    expect(plainServerText('Stopped here, but the call failed. (/home/alex/secret.txt)', 'x')).toBe(
       'Stopped here, but the call failed.',
     )
     expect(plainServerText('api_key=abc', 'Failed.')).toBe('Failed.')

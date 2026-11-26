@@ -18,8 +18,8 @@ export interface UserBody {
 
 export const USER: UserBody = {
   id: 7,
-  email: 'kae.household.member@example.com',
-  display_name: 'Kae',
+  email: 'alex.household.member@example.com',
+  display_name: 'Alex',
   is_admin: false,
   is_local_owner: false,
 }

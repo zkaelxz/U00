@@ -26,8 +26,8 @@ describe('describeError', () => {
 
   it('shows safe server text but never paths or keys', () => {
     expect(describeError(err('conflict', 'A job is already running.')).detail).toBe('A job is already running.')
-    expect(describeError(err('not_found', 'Missing /home/kae/library/x.srt')).detail).toBeNull()
-    expect(describeError(err('conflict', 'C:\\Users\\kae\\a.srt')).detail).toBeNull()
+    expect(describeError(err('not_found', 'Missing /home/alex/library/x.srt')).detail).toBeNull()
+    expect(describeError(err('conflict', 'C:\\Users\\alex\\a.srt')).detail).toBeNull()
     expect(describeError(err('dependency_unavailable', 'api_key=sk-abcdef123456')).detail).toBeNull()
     // Codes whose server text is not shown at all.
     expect(describeError(err('internal_error', 'safe words')).detail).toBeNull()

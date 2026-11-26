@@ -880,7 +880,7 @@ class TestDataDirLockdown:
         def write(self, s):
             self.text += s
 
-    def _run(self, calls, sid_out='"pc\\\\kae","S-1-5-21-1-2-3-1001"\r\n', rc=0):
+    def _run(self, calls, sid_out='"pc\\\\alex","S-1-5-21-1-2-3-1001"\r\n', rc=0):
         class R:
             def __init__(self, out="", code=0):
                 self.stdout, self.returncode = out, code
@@ -893,7 +893,7 @@ class TestDataDirLockdown:
     def test_new_folder_outside_the_profile_is_limited_to_this_account(self, tmp_path):
         calls, log = [], self._Log()
         ok = postinstall.restrict_new_data_dir(tmp_path / "D-Baihe", True, log, run=self._run(calls),
-                                               profile=str(tmp_path / "Users" / "kae"), is_windows=True)
+                                               profile=str(tmp_path / "Users" / "alex"), is_windows=True)
         assert ok is True
         icacls = calls[-1]
         assert icacls[0].lower().endswith(os.path.join("system32", "icacls.exe"))
@@ -906,7 +906,7 @@ class TestDataDirLockdown:
                                                         (True, False, False)])
     def test_left_alone(self, tmp_path, created, inside, windows):
         calls = []
-        profile = tmp_path / "Users" / "kae"
+        profile = tmp_path / "Users" / "alex"
         data = profile / "AppData" / "Local" / "Baihe Studio" if inside else tmp_path / "D-Baihe"
         assert postinstall.restrict_new_data_dir(data, created, self._Log(), run=self._run(calls),
                                                  profile=str(profile), is_windows=windows) is False

@@ -96,7 +96,7 @@ export const HAND_RUN_TESTS: HandRunTest[] = [
     title: 'Comic page picture plus bubble list, 16 pages (2026-11-11)',
     basis: 'one page',
     source: 'baihe/scanlate-vision-test/model-comparison-2026-11-11.md',
-    note: 'Chinese and Korean pages, hand-run on the 4080 PC. Time per page was not measured, so rows are ranked by cost. Kae chose Haiku 5.5 with the full page.',
+    note: 'Chinese and Korean pages, hand-run on the 4080 PC. Time per page was not measured, so rows are ranked by cost. The owner chose Haiku 5.5 with the full page.',
     rankCost: true,
     rows: COMIC_ROWS,
   },

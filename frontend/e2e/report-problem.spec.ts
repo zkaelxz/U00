@@ -134,7 +134,7 @@ test('Report a problem: server down still offers Copy and GitHub', async ({ page
   await page.getByRole('button', { name: 'Report a problem' }).click()
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   const key = 'sk-ant-api03-SECRETSECRETSECRET123456'
-  const win = String.raw`C:\Users\kaewinuser\AppData\Local\Baihe\library.db`
+  const win = String.raw`C:\Users\alexwinuser\AppData\Local\Baihe\library.db`
   await dialog.getByLabel(/What happened\?/).fill(`Broke with ${key} at ${win} ${'x'.repeat(4000)} 漢字`)
   await page.keyboard.press('Tab')
   await dialog.getByRole('button', { name: 'Send report' }).click()
@@ -142,10 +142,10 @@ test('Report a problem: server down still offers Copy and GitHub', async ({ page
   await expect(dialog.getByRole('button', { name: 'Copy report' })).toBeVisible()
   const href = (await dialog.getByRole('link', { name: 'Open GitHub issue' }).getAttribute('href'))!
   expect(href.length).toBeLessThanOrEqual(6000)
-  for (const bad of ['SECRETSECRET', 'kaewinuser', 'AppData']) expect(decodeURIComponent(href)).not.toContain(bad)
+  for (const bad of ['SECRETSECRET', 'alexwinuser', 'AppData']) expect(decodeURIComponent(href)).not.toContain(bad)
   await dialog.getByText('Report text').click()
   await expect(dialog.getByLabel('Report text')).toHaveValue(/not saved \(the server could not be reached\)/)
-  await expect(dialog.getByLabel('Report text')).not.toHaveValue(/SECRETSECRET|kaewinuser/)
+  await expect(dialog.getByLabel('Report text')).not.toHaveValue(/SECRETSECRET|alexwinuser/)
   await shot(page, 'desktop-server-down')
   // Esc closes it.
   await page.keyboard.press('Escape')

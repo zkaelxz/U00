@@ -92,7 +92,7 @@ def may_override(principal) -> bool:
 def _admin_anywhere(principal) -> bool:
     """Admins (at the PC or away) may put anyone's title in any series they
     may change and flip a series' flag with other people's titles in it
-    (Kae, 2026-11-16: "an admin should have full rights regardless"). The
+    (owner, 2026-11-16: "an admin should have full rights regardless"). The
     private-series rules exist to stop a member hiding someone else's title;
     an admin already sees every title, so for them they only got in the way."""
     if principal is None or principal.get("is_local_owner"):

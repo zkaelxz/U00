@@ -7943,7 +7943,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Switch the PC window to Kae with the PIN */
+        /** Switch the PC window to Owner with the PIN */
         post: operations["pc_profile_unlock_api_pc_profile_unlock_post"];
         delete?: never;
         options?: never;

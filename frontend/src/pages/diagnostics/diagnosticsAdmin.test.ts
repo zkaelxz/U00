@@ -183,7 +183,7 @@ describe('packages', () => {
     expect(adminErrorText(err(422, 'invalid_input', 'Needs confirm_text "RESET".'), 'reset'))
       .toBe('Needs confirm_text "RESET".')
     // A path-like server message never reaches the page.
-    expect(adminErrorText(err(409, 'conflict', 'Locked by /home/kae/lib'), 'reset'))
+    expect(adminErrorText(err(409, 'conflict', 'Locked by /home/alex/lib'), 'reset'))
       .toBe('That cannot be done right now because something else is already using it.')
     expect(adminErrorText(err(500, 'internal_error', 'boom'), 'reset'))
       .toBe('Something went wrong inside Baihe. Details are in the app log.')

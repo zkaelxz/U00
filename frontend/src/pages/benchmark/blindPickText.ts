@@ -16,7 +16,7 @@ export function pickSummaryLine(s: BenchmarkPickSummary): string {
   return parts.join(' · ')
 }
 
-/** Below this many picks a run's share of wins is too noisy to lead with (Kae, 2026-11-17). */
+/** Below this many picks a run's share of wins is too noisy to lead with (owner, 2026-11-17). */
 export const PICKS_HEADLINE_MIN = 20
 
 /** The run's share of your blind picks (a tie counts half), once it has enough of them to be the

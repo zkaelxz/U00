@@ -16,7 +16,7 @@ for (const width of [390, 360]) {
     await mockJobsApi(page, [], true)
     await mockQueueApi(page, [
       queueItem(1, { title: `Signal ${'x'.repeat(120)}`, step: 'translate', engine: 'claude', paid: true }),
-      queueItem(2, { drama_id: 4, title: 'Kae', status: 'skipped', reason: 'Skipped: The title was deleted.' }),
+      queueItem(2, { drama_id: 4, title: 'Alex', status: 'skipped', reason: 'Skipped: The title was deleted.' }),
     ])
     await page.goto('/#/jobs')
     const card = page.getByRole('region', { name: 'Queue' })
@@ -31,8 +31,8 @@ for (const width of [390, 360]) {
     }))
     expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 
-    await card.getByRole('button', { name: 'Move up Transcribe Kae' }).tap()
-    await expect(card.getByTestId('queue-items').locator('> li').first()).toContainText('Kae')
+    await card.getByRole('button', { name: 'Move up Transcribe Alex' }).tap()
+    await expect(card.getByTestId('queue-items').locator('> li').first()).toContainText('Alex')
     await card.getByRole('button', { name: 'Start queue now' }).tap()
     await expect(card.getByRole('button', { name: 'Pause' })).toBeVisible()
   })

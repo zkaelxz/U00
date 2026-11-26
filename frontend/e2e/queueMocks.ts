@@ -43,7 +43,7 @@ const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: str
   export: [{ label: 'Format', value: 'SRT' }, { label: 'Language', value: 'English' }],
 }
 
-const TITLES: Record<number, string> = { 3: 'Signal', 4: 'Kae' }
+const TITLES: Record<number, string> = { 3: 'Signal', 4: 'Alex' }
 
 export function queueItem(id: number, p: Partial<Item> = {}): Item {
   return {

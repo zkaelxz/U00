@@ -406,7 +406,7 @@ def test_create_and_move_respect_series_visibility(isolated_db):
     with pytest.raises(NotFoundError):
         ds.update_drama_metadata(b_drama, principal=b, series_id=secret)
     # Auth off (principal None) acts as the admin, who may file anyone's title
-    # in a private series (Kae, 2026-11-16).
+    # in a private series (owner, 2026-11-16).
     ds.update_drama_metadata(b_drama, series_id=secret)
     assert db.get_drama(b_drama)["series_id"] == secret
 

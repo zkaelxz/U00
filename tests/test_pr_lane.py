@@ -154,7 +154,7 @@ def test_only_the_user_guide_files_directly_in_docs_are_exempt(repo, path):
     ("db/schema_system.py", "database schema"),
     ("sources/store.py", "database schema"),
 ])
-def test_the_files_kae_guards_always_take_the_overlap_lane(repo, path, why):
+def test_the_files_owner_guards_always_take_the_overlap_lane(repo, path, why):
     assert pr_lane.path_kind(path) == why
     v = lane(repo, {path: "changed\n"})
     assert not v.clear and v.always == {path: why}

@@ -19,16 +19,16 @@ export function pageJobs() {
   const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', page: null }
   return [
     { ...base, job_id: 'translate_3', status: 'running', progress: 0.4, message: 'Batch 2 of 5', description: 'Translate Signal', started_at: t - 185, finished_at: null, drama_id: 3, kind: 'translate' },
-    { ...base, job_id: 'dub_4', status: 'queued', description: 'Dub Kae', started_at: null, finished_at: null, drama_id: 4, kind: 'dub', owned_by_me: false },
+    { ...base, job_id: 'dub_4', status: 'queued', description: 'Dub Alex', started_at: null, finished_at: null, drama_id: 4, kind: 'dub', owned_by_me: false },
     { ...base, job_id: 'transcribe_3', status: 'done', description: 'Transcribe Signal', started_at: t - 4000, finished_at: t - 3900, drama_id: 3, kind: 'transcribe', outcome: 'ok', outcome_message: '120 lines' },
-    { ...base, job_id: 'burned_video_4', status: 'error', description: 'Export Kae', error: 'Disk full', started_at: t - 9000, finished_at: t - 8990, drama_id: 4, kind: 'export', outcome: 'failed' },
+    { ...base, job_id: 'burned_video_4', status: 'error', description: 'Export Alex', error: 'Disk full', started_at: t - 9000, finished_at: t - 8990, drama_id: 4, kind: 'export', outcome: 'failed' },
     { ...base, job_id: 'lncrawl_9', status: 'done', description: 'Import novel', started_at: t - 20 * 86_400, finished_at: t - 20 * 86_400 + 30, kind: 'import', outcome: 'ok' },
   ]
 }
 
 export const DRAMA_TITLES = [
   { id: 3, title_zh: '信号', title_en: 'Signal' },
-  { id: 4, title_zh: null, title_en: 'Kae' },
+  { id: 4, title_zh: null, title_en: 'Alex' },
 ]
 
 export interface JobsMock {

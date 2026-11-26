@@ -181,9 +181,9 @@ def test_clean_note_drops_url_queries():
 
 def test_clean_note_strips_keys_and_paths():
     note = pages_svc.clean_note(
-        "boom sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123 at /home/kae/library/dramas/1/x.png "
-        r"and C:\Users\Kae\lib\p.png; see https://huggingface.co/x")
-    assert "abcdefghijklmnop" not in note and "/home/kae" not in note and "Users" not in note
+        "boom sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123 at /home/alex/library/dramas/1/x.png "
+        r"and C:\Users\Alex\lib\p.png; see https://huggingface.co/x")
+    assert "abcdefghijklmnop" not in note and "/home/alex" not in note and "Users" not in note
     assert "<path>" in note and "https://huggingface.co/x" in note
 
 
@@ -835,15 +835,15 @@ def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
 
     def detect(*a, **k):
         raise RuntimeError("401 for key sk-ant-api03-SECRETSECRETSECRET1234 reading "
-                           "/home/kae/baihe/library/dramas/1/pages/page_0000.png")
+                           "/home/alex/baihe/library/dramas/1/pages/page_0000.png")
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, engine="fake")
     st = wait_for_job(f"scanlate_{did}", timeout=20)
     assert st["status"] == "done" and "1 failed" in st["message"]
     notes = db.get_page(pid)["run_notes"]
-    assert "SECRETSECRET" not in notes and "/home/kae" not in notes and "<path>" in notes
+    assert "SECRETSECRET" not in notes and "/home/alex" not in notes and "<path>" in notes
     r = client.get(f"/api/scanlate/dramas/{did}/pages/{pid}")
-    assert "SECRETSECRET" not in r.text and "/home/kae" not in r.text
+    assert "SECRETSECRET" not in r.text and "/home/alex" not in r.text
 
 
 @needs_cv2
