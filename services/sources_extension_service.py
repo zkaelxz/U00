@@ -8,6 +8,7 @@ write that sets it is `sources_registry_service.set_extension_only`, next to the
 per-source switches.
 """
 
+import re
 from urllib.parse import urlsplit
 
 from lib.errors import ExtensionOnlyError
@@ -22,7 +23,9 @@ HELP_ROUTE = "settings"
 # Sites behind a Cloudflare challenge that a plain fetch can't pass. Baihe does not try to get
 # past it, so a pasted link says to use the extension, which reads the page in the person's
 # own browser. Matched on the host and its subdomains.
-BUILT_IN_EXTENSION_ONLY_HOSTS = ("blacktoon510.com", "mangafire.to", "kagane.moe")
+BUILT_IN_EXTENSION_ONLY_HOSTS = ("mangafire.to", "kagane.moe")
+# blacktoon rotates its number (510, 511, ...), so any digits match.
+_ROTATING_EXTENSION_ONLY_HOST = re.compile(r"(^|\.)blacktoon\d*\.com$")
 
 
 def extension_only_error() -> ExtensionOnlyError:
@@ -38,7 +41,8 @@ def require_not_extension_only(name) -> None:
 
 def _is_built_in_extension_only_host(host) -> bool:
     host = str(host or "").lower().rstrip(".")
-    return any(host == h or host.endswith("." + h) for h in BUILT_IN_EXTENSION_ONLY_HOSTS)
+    return (any(host == h or host.endswith("." + h) for h in BUILT_IN_EXTENSION_ONLY_HOSTS)
+            or bool(_ROTATING_EXTENSION_ONLY_HOST.search(host)))
 
 
 def require_url_not_extension_only(url) -> None:

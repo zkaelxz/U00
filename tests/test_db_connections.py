@@ -15,6 +15,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from jobs import gpu_slots
 
 
+def _live_connections(db_module):
+    # The registry holds weak references, so a connection another test left behind
+    # stays counted until a collection.
+    return sum(1 for refs in db_module._open_connections.values()
+               for ref in refs if ref() is not None)
+
+
 class TestConnectionLeakRecovery:
     """Regression tests for a real bug: a statement raising between
     get_conn() and conn.close() leaked the connection, and under WAL that
@@ -27,11 +34,14 @@ class TestConnectionLeakRecovery:
     caller that opens one directly without going through that pattern."""
 
     def test_healthy_calls_leave_no_open_connections(self, isolated_db):
+        before = _live_connections(isolated_db)
         did = isolated_db.create_drama(title_en="X")
         for _ in range(5):
             isolated_db.list_dramas()
             isolated_db.get_drama(did)
-        assert len(isolated_db._open_connections) == 0
+        # Other tests can leave a connection alive until garbage collection, so
+        # compare with the count before this test's own calls.
+        assert _live_connections(isolated_db) == before
 
     def test_write_succeeds_after_a_failed_write(self, isolated_db):
         did = isolated_db.create_drama(title_en="X")
@@ -62,16 +72,12 @@ class TestConnectionLeakRecovery:
         # can leave a live connection behind (the registry holds weak references,
         # so it lasts until a collection), which an absolute zero would blame on
         # this call.
-        def live():
-            return sum(1 for refs in isolated_db._open_connections.values()
-                       for ref in refs if ref() is not None)
-
-        before = live()
+        before = _live_connections(isolated_db)
         try:
             isolated_db.log_usage(99999, "c", "m", "t", 1, 1, 0.0)
         except Exception:
             pass
-        assert live() == before
+        assert _live_connections(isolated_db) == before
 
 
 class TestGpuLock:
