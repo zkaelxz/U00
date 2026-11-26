@@ -1,4 +1,5 @@
-import { expect, test, type Page, type Route } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Page, Route } from '@playwright/test'
 import { shot } from './shots'
 
 import { expectNoSidewaysScroll, json, mockAppShell } from './mockHelpers'

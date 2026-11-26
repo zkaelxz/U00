@@ -71,3 +71,31 @@ def test_touching_the_real_library_fails_loudly(touch, request):
     # The guard also records the hit so a caller that swallows the error
     # still fails its test; this test expected the hit, so clear it.
     request.config._baihe_real_library_hits.clear()
+
+
+def test_isolated_db_waits_for_job_threads_before_removing_the_library(_template_library):
+    """A job thread a test left running must finish while its library still
+    exists; run after the removal it dies in applog and pytest blames whichever
+    test is tearing down. The fixture's own generator is driven by hand so the
+    order is observed directly instead of waiting for a rare race."""
+    import time
+
+    from jobs import job_launch
+    from tests import conftest
+
+    previous = db.LIBRARY_DIR
+    fixture = conftest.isolated_db._get_wrapped_function()(_template_library)
+    library = next(fixture).LIBRARY_DIR
+    seen = {}
+
+    def slow_job():
+        time.sleep(0.3)
+        seen["library_exists"] = os.path.isdir(library)
+
+    try:
+        assert job_launch.start_job("isolation_guard_slow", slow_job, description="d", line_fields=())
+        with pytest.raises(StopIteration):
+            next(fixture)
+    finally:
+        db.configure_library_dir(previous)
+    assert seen == {"library_exists": True}

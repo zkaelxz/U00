@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import { openBenchTab } from './benchSections'
 import { enableDeveloperMode } from './sourceHelpers'
 

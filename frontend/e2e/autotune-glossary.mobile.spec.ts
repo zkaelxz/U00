@@ -1,4 +1,5 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test } from './fixtures'
+import type { Locator, Page } from '@playwright/test'
 import { shot } from './shots'
 import { suggestFrom } from './suggestTerms'
 import { openFoldFor } from './reviewFolds'
