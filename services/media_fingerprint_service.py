@@ -19,8 +19,6 @@ _CHUNK = 1024 * 1024
 MAX_GROUPS = 200
 
 _SAME_FILE_VISIBLE = "That exact file is already in your Library as “{title}”."
-# A title the caller can't see is not named, so a private title never leaks through a refused upload.
-_SAME_FILE_HIDDEN = "That exact file is already in the Library under another title."
 
 
 def hash_file(path, chunk=_CHUNK) -> str:
@@ -40,13 +38,11 @@ def refuse_duplicate(media_hash, drama_id, principal=None) -> None:
     re-uploading its own file is allowed (it is a replace the caller already confirmed)."""
     if not media_hash:
         return
-    others = [row for row in _all_dramas() if row.get("media_hash") == media_hash and row["id"] != drama_id]
-    if not others:
-        return
-    visible = {row["id"] for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))}
-    shown = next((row for row in others if row["id"] in visible), None)
+    # A title the caller can't see is not a duplicate for them: answering differently would confirm it exists.
+    visible = db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))
+    shown = next((row for row in visible if row.get("media_hash") == media_hash and row["id"] != drama_id), None)
     if shown is None:
-        raise ConflictError(_SAME_FILE_HIDDEN, details={"reason": "duplicate_media"})
+        return
     name = shown.get("title_en") or shown.get("title_zh") or f"title {shown['id']}"
     raise ConflictError(_SAME_FILE_VISIBLE.format(title=name), details={"reason": "duplicate_media",
                                                                       "title_id": shown["id"]})
@@ -113,7 +109,7 @@ def _scan_job(job_id):
         except OSError:
             continue  # a file in use or gone is left for the next scan
         if digest:
-            db.set_media_hash(row["id"], digest)
+            db.set_media_hash_if_unchanged(row["id"], digest, row.get("audio_filename"), row.get("source_video_filename"))
     background_jobs.update_progress(job_id, 1.0, "Done.")
 
 

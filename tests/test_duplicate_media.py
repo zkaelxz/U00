@@ -32,19 +32,22 @@ def test_a_different_file_is_fine(client, isolated_db):
     assert _up(client, second, data=b"two").status_code == 200
 
 
-def test_hash_is_recorded_without_touching_the_title(isolated_db):
-    did = db.create_drama(title_en="X")
-    db.set_media_hash(did, "abc")
-    assert db.get_drama(did)["media_hash"] == "abc"
-
-
-def test_refusal_does_not_name_a_title_the_caller_cannot_see(isolated_db):
+def test_a_hidden_title_is_not_a_duplicate_for_the_caller(isolated_db):
     db.create_drama(title_en="Secret", media_hash="h1", owner_user_id=1, is_private=1)
     member = {"user_id": 2, "is_admin": False, "is_local_owner": False}
-    with pytest.raises(Exception) as caught:
-        media_fingerprint_service.refuse_duplicate("h1", 99, member)
-    assert "Secret" not in str(caught.value)
-    assert "already in the Library" in str(caught.value)
+    media_fingerprint_service.refuse_duplicate("h1", 99, member)  # no answer that confirms the hidden title
+
+
+def test_scan_does_not_overwrite_media_installed_meanwhile(isolated_db):
+    did = db.create_drama(title_en="X", audio_filename="new.mp3", media_hash="fresh")
+    assert not db.set_media_hash_if_unchanged(did, "stale", "old.mp3", None)
+    assert db.get_drama(did)["media_hash"] == "fresh"
+
+
+def test_removing_media_or_the_video_drops_the_hash(isolated_db):
+    did = db.create_drama(title_en="X", audio_filename="a.mp3", source_video_filename="v.mp4", media_hash="h")
+    db.clear_source_video(did, "v.mp4")
+    assert db.get_drama(did)["media_hash"] is None and db.get_drama(did)["audio_filename"] == "a.mp3"
 
 
 def test_groups_by_file_link_and_name(isolated_db):

@@ -90,17 +90,23 @@ def fill_blank_fields(drama_id: int, values: dict) -> list:
     return filled
 
 
-def set_media_hash(drama_id: int, media_hash: str) -> None:
-    """Records a file hash without touching updated_at, which orders the Library's recent shelf."""
+def set_media_hash_if_unchanged(drama_id: int, media_hash: str, audio, video) -> bool:
+    """Records the hash of files read earlier, only while the title still names those files and has no hash, so a
+    scan can't overwrite media installed while it was reading. Leaves updated_at alone: it orders the recent shelf."""
     with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE dramas SET media_hash = ? WHERE id = ?", (media_hash, drama_id))
+        cur = conn.execute("UPDATE dramas SET media_hash = ? WHERE id = ? AND media_hash IS NULL "
+                           "AND audio_filename IS ? AND source_video_filename IS ?",
+                           (media_hash, drama_id, audio, video))
         conn.commit()
+        return cur.rowcount > 0
 
 
 def clear_source_video(drama_id: int, name: str) -> None:
-    """Forgets the source video only while it still names `name`, so a video uploaded meanwhile stays."""
+    """Forgets the source video only while it still names `name`, so a video uploaded meanwhile stays. The hash
+    described that video, so it goes too; the next scan hashes what is left."""
     with contextlib.closing(db.get_conn()) as conn:
-        conn.execute("UPDATE dramas SET source_video_filename = NULL WHERE id = ? AND source_video_filename = ?",
+        conn.execute("UPDATE dramas SET source_video_filename = NULL, media_hash = NULL "
+                     "WHERE id = ? AND source_video_filename = ?",
                      (drama_id, name))
         conn.commit()
 

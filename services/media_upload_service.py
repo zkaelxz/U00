@@ -744,8 +744,10 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         ddir = db.drama_dir(drama_id)
         try:
             media_fingerprint_service.refuse_duplicate(media_hash, drama_id, principal)
-        except BaseException:
-            os.remove(staged)  # a refused duplicate is a copy of a file the Library already holds
+        except ConflictError:
+            # A refused duplicate is a copy of a file the Library already holds.
+            with contextlib.suppress(OSError):
+                os.remove(staged)
             raise
         if ext not in VIDEO_EXTENSIONS:
             refuse_unreadable_audio(staged)
