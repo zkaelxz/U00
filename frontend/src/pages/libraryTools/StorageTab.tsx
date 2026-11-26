@@ -1,5 +1,6 @@
 import { usePcPendingNote, type PcMode } from '../../hooks/usePcOnly'
 import { storageSummary } from '../diskUsage/diskUsageModel'
+import { RawVideosCard } from '../diskUsage/RawVideosCard'
 import { PreviousLibraryCard } from '../diskUsage/PreviousLibrary'
 import { TempCleanup } from '../diskUsage/TempCleanup'
 import { TrashPanel } from '../diskUsage/TrashPanel'
@@ -27,6 +28,7 @@ export function StorageTab({ pc, usage }: { pc: PcMode; usage: DiskUsage }) {
           <UnusedVoiceClips clips={clips} onChanged={changed} onStale={() => rescan(true)} />
         </TabCard>
       )}
+      <TabCard card="raw-videos"><RawVideosCard onChanged={changed} /></TabCard>
       {trash && (
         <TabCard card="trash">
           <TrashPanel trash={trash} onChanged={changed} onStale={() => rescan(true)} />

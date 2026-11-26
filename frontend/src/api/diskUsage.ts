@@ -2,7 +2,7 @@
 // every call, the scan included, goes through pcOnlyFetch.
 import type {
   DiskUsageClearDone, DiskUsageMoveDone, DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashList,
-  DiskUsageTrashPurgeDone, DiskUsageTrashRestoreDone, PreviousLibrary, PreviousLibraryDeleted, TempCleanDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+  DiskUsageTrashPurgeDone, RawVideo, RawVideoList, RawVideoTrashDone, DiskUsageTrashRestoreDone, PreviousLibrary, PreviousLibraryDeleted, TempCleanDone, UnusedVoiceClip, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
 } from '../types/diskUsage'
 import { getJson, postJson, withSignal, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -69,6 +69,18 @@ export const trashUnusedVoiceClips = (clips: Pick<UnusedVoiceClip, 'id' | 'size_
   postJson<UnusedVoiceClipTrashDone>(
     `${BASE}/unused-voice-clips/to-trash`,
     { clips: clips.map((c) => ({ id: c.id, expected_size_bytes: c.size_bytes })), confirm: true },
+    pcOnlyFetch(f),
+  )
+
+/** Old source videos of finished titles (subtitles are kept), with a size and an opaque id each. */
+export const listRawVideos = (minAgeDays: number, f?: Fetch) =>
+  getJson<RawVideoList>(`${BASE}/raw-videos?min_age_days=${minAgeDays}`, pcOnlyFetch(f))
+
+/** Moves these videos into Baihe's Trash folder; each carries the size the person saw. A changed or pinned one comes back in `skipped`. */
+export const trashRawVideos = (videos: Pick<RawVideo, 'id' | 'size_bytes'>[], minAgeDays: number, f?: Fetch) =>
+  postJson<RawVideoTrashDone>(
+    `${BASE}/raw-videos/to-trash`,
+    { videos: videos.map((v) => ({ id: v.id, expected_size_bytes: v.size_bytes })), min_age_days: minAgeDays, confirm: true },
     pcOnlyFetch(f),
   )
 

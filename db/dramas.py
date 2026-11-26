@@ -97,6 +97,14 @@ def set_media_hash(drama_id: int, media_hash: str) -> None:
         conn.commit()
 
 
+def clear_source_video(drama_id: int, name: str) -> None:
+    """Forgets the source video only while it still names `name`, so a video uploaded meanwhile stays."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET source_video_filename = NULL WHERE id = ? AND source_video_filename = ?",
+                     (drama_id, name))
+        conn.commit()
+
+
 def assign_series_if_none(drama_id: int, series_id: int) -> bool:
     """Puts a drama in a series only while it is in none, in one statement,
     so a series chosen meanwhile elsewhere is never replaced. Clears the

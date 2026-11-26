@@ -2181,6 +2181,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/data-usage/raw-videos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Old source videos of finished titles (subtitles kept), with an opaque id each; no paths */
+        get: operations["get_raw_videos_api_data_usage_raw_videos_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/data-usage/raw-videos/to-trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Move listed source videos into Baihe's Trash folder (confirm=true and the size shown for each). One that changed, was pinned or got a job meanwhile is skipped. */
+        post: operations["post_raw_videos_to_trash_api_data_usage_raw_videos_to_trash_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/data-usage/to-trash": {
         parameters: {
             query?: never;
@@ -26635,6 +26669,78 @@ export interface components {
             /** Removed */
             removed: boolean;
         };
+        /** RawVideo */
+        RawVideo: {
+            /**
+             * Id
+             * @description Opaque; only valid until the server restarts.
+             */
+            id: string;
+            /** Modified At */
+            modified_at: string | null;
+            /** Size Bytes */
+            size_bytes: number;
+            /** Title */
+            title: string;
+        };
+        /** RawVideoChoice */
+        RawVideoChoice: {
+            /**
+             * Expected Size Bytes
+             * @description The size the user was shown.
+             */
+            expected_size_bytes: number;
+            /** Id */
+            id: string;
+        };
+        /** RawVideoList */
+        RawVideoList: {
+            /** Busy Reason */
+            busy_reason: string | null;
+            /** Min Age Days */
+            min_age_days: number;
+            /** Total Bytes */
+            total_bytes: number;
+            /** Videos */
+            videos: components["schemas"]["RawVideo"][];
+        };
+        /** RawVideoSkipped */
+        RawVideoSkipped: {
+            /** Id */
+            id: string;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "no_longer_offered" | "changed";
+        };
+        /** RawVideoTrashDone */
+        RawVideoTrashDone: {
+            /**
+             * Moved Bytes
+             * @description Moved into Trash; nothing is freed until it is deleted from there.
+             */
+            moved_bytes: number;
+            /** Moved Count */
+            moved_count: number;
+            /** Skipped */
+            skipped: components["schemas"]["RawVideoSkipped"][];
+        };
+        /** RawVideoTrashRequest */
+        RawVideoTrashRequest: {
+            /**
+             * Confirm
+             * @default false
+             */
+            confirm?: boolean;
+            /**
+             * Min Age Days
+             * @default 30
+             */
+            min_age_days?: number;
+            /** Videos */
+            videos: components["schemas"]["RawVideoChoice"][];
+        };
         /** ReadImageEstimate */
         ReadImageEstimate: {
             /** Cap Applies */
@@ -41157,6 +41263,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviousLibraryDeleted"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_raw_videos_api_data_usage_raw_videos_get: {
+        parameters: {
+            query?: {
+                min_age_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawVideoList"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_raw_videos_to_trash_api_data_usage_raw_videos_to_trash_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RawVideoTrashRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawVideoTrashDone"];
                 };
             };
             /** @description Not Found */

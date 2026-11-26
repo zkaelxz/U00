@@ -496,7 +496,7 @@ from db.dramas import (  # noqa: E402,F401
     get_drama, series_cover_title_id,
     get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
-    search_lines_globally, set_status_if, set_media_hash, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
+    search_lines_globally, set_status_if, set_media_hash, clear_source_video, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
 
 
