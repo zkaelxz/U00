@@ -225,6 +225,23 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
             @Override
             public void onPageStarted(WebView view, String url, Bitmap favicon) {
+                // A site whose phone reader cannot be walked is read through its desktop page; the
+                // switch costs one reload, and leaving the site restores the phone's own agent.
+                String desktop = DesktopSite.rewrite(url);
+                if (desktop != null && (!desktopAgent || !desktop.equals(url))) {
+                    desktopAgent = true;
+                    view.getSettings().setUserAgentString(DesktopSite.AGENT);
+                    view.stopLoading();
+                    view.loadUrl(desktop);
+                    return;
+                }
+                if (desktop == null && desktopAgent) {
+                    desktopAgent = false;
+                    view.getSettings().setUserAgentString(null);
+                    view.stopLoading();
+                    view.loadUrl(url);
+                    return;
+                }
                 address.setText(url);
                 // Leaving the page ends a grab that is still reading it, or Grab would stay
                 // disabled. A grab already uploading finishes on its own.
@@ -1327,43 +1344,90 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
 
-    // The site keeps its comic canvas from being read by script, so the grab asks for what the web
-    // view itself shows on screen. The picture goes only back to the page that asked, by its
-    // grab's secret name, and only while that grab runs.
+    // A site that keeps its comic canvases from being read gets its pages from what the web view
+    // shows on screen: strips are cropped here, joined here, and filed as the page. Nothing leaves
+    // the app except to the running grab, by its secret callback name.
+    private final List<Bitmap> strips = new ArrayList<>();
+    private boolean desktopAgent;
+
     @Override
-    public void onSnap(String id) {
+    public void onSnap(String id, double left, double top, double width, double height, double viewWidth) {
         final String run = runningGrab;
         runOnUiThread(() -> {
             if (web == null || run.isEmpty() || !grabbing || web.getWidth() <= 0 || web.getHeight() <= 0) {
-                answerSnap(run, id, "");
+                answerSnap(run, id, false);
                 return;
             }
             int[] at = new int[2];
             web.getLocationInWindow(at);
-            Bitmap bitmap = Bitmap.createBitmap(web.getWidth(), web.getHeight(), Bitmap.Config.ARGB_8888);
+            Bitmap shot = Bitmap.createBitmap(web.getWidth(), web.getHeight(), Bitmap.Config.ARGB_8888);
             android.graphics.Rect area = new android.graphics.Rect(at[0], at[1], at[0] + web.getWidth(), at[1] + web.getHeight());
             try {
-                android.view.PixelCopy.request(getWindow(), area, bitmap, result -> {
-                    String data = "";
+                android.view.PixelCopy.request(getWindow(), area, shot, result -> {
+                    boolean ok = false;
                     if (result == android.view.PixelCopy.SUCCESS) {
-                        ByteArrayOutputStream out = new ByteArrayOutputStream();
-                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
-                        data = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                        double scale = shot.getWidth() / viewWidth;
+                        int x = Math.max(0, (int) Math.round(left * scale));
+                        int y = Math.max(0, (int) Math.round(top * scale));
+                        int w = Math.min(shot.getWidth() - x, (int) Math.round(width * scale));
+                        int h = Math.min(shot.getHeight() - y, (int) Math.round(height * scale));
+                        if (w > 0 && h > 0) {
+                            synchronized (strips) {
+                                strips.add(Bitmap.createBitmap(shot, x, y, w, h));
+                            }
+                            ok = true;
+                        }
                     }
-                    bitmap.recycle();
-                    answerSnap(run, id, data);
+                    shot.recycle();
+                    answerSnap(run, id, ok);
                 }, new android.os.Handler(android.os.Looper.getMainLooper()));
             } catch (RuntimeException e) {
-                bitmap.recycle();
-                answerSnap(run, id, "");
+                shot.recycle();
+                answerSnap(run, id, false);
             }
         });
     }
 
-    private void answerSnap(String run, String id, String data) {
+    @Override
+    public void onStitch(String id, String key) {
+        final String run = runningGrab;
+        List<Bitmap> taken;
+        synchronized (strips) {
+            taken = new ArrayList<>(strips);
+            strips.clear();
+        }
+        sender.execute(() -> {
+            boolean ok = false;
+            if (!taken.isEmpty() && grabbing && run.equals(runningGrab)) {
+                int width = 0;
+                int height = 0;
+                for (Bitmap strip : taken) {
+                    width = Math.max(width, strip.getWidth());
+                    height += strip.getHeight();
+                }
+                Bitmap page = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
+                android.graphics.Canvas canvas = new android.graphics.Canvas(page);
+                int top = 0;
+                for (Bitmap strip : taken) {
+                    canvas.drawBitmap(strip, 0, top, null);
+                    top += strip.getHeight();
+                }
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                page.compress(Bitmap.CompressFormat.JPEG, 90, out);
+                page.recycle();
+                bridge.image(run, key, "", "image/jpeg", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
+                ok = true;
+            }
+            for (Bitmap strip : taken) strip.recycle();
+            final boolean filed = ok;
+            runOnUiThread(() -> answerSnap(run, id, filed));
+        });
+    }
+
+    private void answerSnap(String run, String id, boolean ok) {
         if (web == null || run.isEmpty() || !run.equals(runningGrab)) return;
         String callback = "window['__baiheSnap" + run + "']";
-        web.evaluateJavascript(callback + "&&" + callback + "('" + id + "','" + data + "')", null);
+        web.evaluateJavascript(callback + "&&" + callback + "('" + id + "'," + ok + ")", null);
     }
 
     @Override
