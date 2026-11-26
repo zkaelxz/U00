@@ -37,6 +37,7 @@ __all__ = [
     "LiveFormDefaults",
     "LiveFormOptions",
     "LiveLanguage",
+    "LiveFollowTerm",
     "LiveFollowOptions",
     "LiveFollowAdd",
     "LiveFollowUpdate",
