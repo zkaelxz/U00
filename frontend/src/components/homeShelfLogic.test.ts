@@ -6,7 +6,7 @@ import { formatLength, kindTag, needsRow, readyCard, readyOrder, runningLine, ti
 
 const ready = (over: Partial<LibraryReadyEntry> = {}): LibraryReadyEntry => ({
   drama_id: 4, title: 'Chion: karaoke', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
-  updated_at: null, read_percent: 0, length_seconds: 7500, page_count: 0, watched_seconds: 0, watched_at: null, ...over,
+  updated_at: null, read_percent: 0, length_seconds: 7500, page_count: 0, watched_seconds: 0, watched_at: null, unsure_count: 0, ...over,
 })
 
 const needs = (over: Partial<LibraryNeedsYouEntry>): LibraryNeedsYouEntry => ({
@@ -14,8 +14,8 @@ const needs = (over: Partial<LibraryNeedsYouEntry>): LibraryNeedsYouEntry => ({
   updated_at: null, kind: 'failed', step: 'translate', reason: null, risk_count: null, series_id: null, hold_kind: null, ...over,
 })
 
-const admin = { canControlQueue: true, canOpenSettings: true, canEditLines: true }
-const member = { canControlQueue: false, canOpenSettings: false, canEditLines: false }
+const admin = { canControlQueue: true, canOpenSettings: true }
+const member = { canControlQueue: false, canOpenSettings: false }
 
 describe('formatLength', () => {
   it('reads hours with padded minutes and never says 0 min', () => {
@@ -69,12 +69,8 @@ describe('needsRow', () => {
     expect(needsRow(hold, admin)).toMatchObject({ text: 'Episode 1 is done.', action: { label: 'See episode 1' } })
     expect(needsRow({ ...hold, hold_kind: 'ceiling' }, admin)?.action?.label).toBe('Open the series')
   })
-  it('offers a check only to someone who can edit lines', () => {
-    const check = needs({ kind: 'check', risk_count: 7 })
-    expect(needsRow(check, admin)).toMatchObject({ text: 'You can watch it now. 7 lines look unsure', action: { label: 'Check 7 lines' } })
-    expect(needsRow(check, { ...admin, canEditLines: false })).toBeNull()
-    expect(needsRow(check, admin)?.action?.href).toContain('watch')
-    expect(needsRow({ ...check, media_type: 'novel', content_mode: 'novel' }, admin)?.action?.href).toContain('review')
+  it('does not list a title for unsure lines alone', () => {
+    expect(needsRow(needs({ kind: 'check', risk_count: 7 }), admin)).toBeNull()
   })
 })
 

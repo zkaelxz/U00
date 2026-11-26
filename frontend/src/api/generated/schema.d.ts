@@ -22722,7 +22722,7 @@ export interface components {
         };
         /**
          * LibraryNeedsYouEntry
-         * @description `kind`: failed (a queued step failed or was interrupted), check (risky lines left; `risk_count`) or
+         * @description `kind`: failed (a queued step failed or was interrupted) or
          *     series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
          *     `hold_kind` says why: review after the first episode, stopped, ceiling or queue).
          */
@@ -22809,6 +22809,11 @@ export interface components {
             read_percent: number;
             /** Title */
             title: string;
+            /**
+             * Unsure Count
+             * @default 0
+             */
+            unsure_count: number;
             /** Updated At */
             updated_at: string | null;
             /** Watched At */

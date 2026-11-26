@@ -77,15 +77,8 @@ def get_home(principal=None) -> dict:
     to_check = [d for d in _newest_first(dramas)
                 if d["id"] not in taken and _lines_done(d) and d.get("status") != "exported"
                 and not _is_comic(d.get("media_type"))][:RISK_TITLES]
-    checked_clean: set = set()
-    for d in to_check:
-        count = review_lines_service.risk_count(d["id"])
-        if count > 0:
-            needs.append({**_row(d), "kind": "check", "step": None, "reason": None, "risk_count": count,
-                          "series_id": None})
-            taken.add(d["id"])
-        else:
-            checked_clean.add(d["id"])
+    # Unsure lines don't block watching or reading, so such a title stays on Ready with a note instead of Needs you.
+    unsure_counts = {d["id"]: review_lines_service.risk_count(d["id"]) for d in to_check}
 
     running = [{**_row(by_id[i["drama_id"]]), "step": i["step"], "status": i["status"],
                 "job_id": i["job_id"], "started_at": i["started_at"]}
@@ -97,18 +90,18 @@ def get_home(principal=None) -> dict:
              if d["id"] not in taken and d["id"] not in busy
              and (d.get("read_percent") or 0.0) < _FINISHED_PERCENT
              and (_pages_done(d) if _is_comic(d.get("media_type"))
-                  else _lines_done(d) and (d.get("status") == "exported" or d["id"] in checked_clean))]
+                  else _lines_done(d) and (d.get("status") == "exported" or d["id"] in unsure_counts))]
     # Started ones first: picking up where you stopped is the likelier reason to open the shelf.
     ready.sort(key=lambda d: (d.get("read_percent") or 0.0) <= 0)
 
     return {"needs_you": needs[:SHELF_LIMIT], "needs_you_count": len(needs),
             "running": running[:SHELF_LIMIT], "running_count": len(running),
-            "ready": [_ready_entry(d, (principal or {}).get("user_id") or 0) for d in ready[:SHELF_LIMIT]],
+            "ready": [_ready_entry(d, (principal or {}).get("user_id") or 0, unsure_counts.get(d["id"], 0)) for d in ready[:SHELF_LIMIT]],
             "ready_count": len(ready),
             "can_control_queue": bool(queue.get("can_control"))}
 
 
-def _ready_entry(d: dict, user_id: int) -> dict:
+def _ready_entry(d: dict, user_id: int, unsure_count: int = 0) -> dict:
     comic = _is_comic(d.get("media_type"))
     length = None if comic else (db.line_reading_stats(d["id"])[1] or None)
     # The account's place, so "Continue at" is the same on every device; the page prefers this browser's when newer.
@@ -116,4 +109,4 @@ def _ready_entry(d: dict, user_id: int) -> dict:
     watched = float(prog.get("audio_position_seconds") or 0.0)
     return {**_row(d), "read_percent": d.get("read_percent") or 0.0,
             "length_seconds": length, "page_count": d.get("page_count") or 0,
-            "watched_seconds": watched, "watched_at": prog.get("last_accessed_at") if watched else None}
+            "unsure_count": unsure_count, "watched_seconds": watched, "watched_at": prog.get("last_accessed_at") if watched else None}

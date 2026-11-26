@@ -5,7 +5,7 @@ import { titleKind } from '../pages/workspace/titleKind'
 import { routeHref } from '../router'
 import type { JobRecord } from '../types/jobs'
 import type { LibraryNeedsYouEntry, LibraryReadyEntry, LibraryRunningEntry } from '../types/library'
-import { readAction, workspaceHref } from './libraryView'
+import { readAction } from './libraryView'
 
 export type ShelfAction = { label: string; href: string }
 
@@ -65,8 +65,6 @@ export interface NeedsViewer {
   canControlQueue: boolean
   /** May open Settings to change a key: at the PC. */
   canOpenSettings: boolean
-  /** Holds lines.edit, so Check is a button they can use. */
-  canEditLines: boolean
 }
 
 /** One Needs you row, or null when the viewer could do nothing with it. */
@@ -83,15 +81,6 @@ export function needsRow(e: LibraryNeedsYouEntry, viewer: NeedsViewer): NeedsRow
   if (e.kind === 'series_hold' && e.series_id !== null && e.series_id !== undefined) {
     const href = routeHref({ name: 'series', id: e.series_id })
     return { text: e.reason ?? 'Its auto-run is waiting for you.', action: { label: e.hold_kind === 'review' ? 'See episode 1' : 'Open the series', href } }
-  }
-  if (e.kind === 'check' && e.drama_id !== null && e.drama_id !== undefined && e.risk_count) {
-    if (!viewer.canEditLines) return null
-    const kind = titleKind(e.media_type, e.content_mode)
-    const unsure = `${pluralLocale(e.risk_count, 'line')} look${e.risk_count === 1 ? 's' : ''} unsure`
-    const text = kind === 'video' || kind === 'audio' ? `You can watch it now. ${unsure}` : unsure
-    // Watch steps through the same lines while it plays, so a title that plays is checked there.
-    const href = kind === 'video' || kind === 'audio' ? routeHref({ name: 'watch', id: e.drama_id }) : workspaceHref(e.drama_id, 'review')
-    return { text, action: { label: `Check ${pluralLocale(e.risk_count, 'line')}`, href } }
   }
   return null
 }

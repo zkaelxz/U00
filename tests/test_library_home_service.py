@@ -24,14 +24,13 @@ def _ids(shelf):
     return [e["drama_id"] for e in shelf]
 
 
-def test_a_title_with_risky_lines_needs_a_check_and_a_clean_one_is_ready(isolated_db, monkeypatch):
+def test_a_title_with_only_unsure_lines_stays_ready_with_a_count_not_in_needs_you(isolated_db, monkeypatch):
     _queue(monkeypatch, [])
     risky = _title("Risky", lines=(("你好", "Hello", "pronoun_check"), ("再见", "Bye", None)))
     clean = _title("Clean")
     out = home.get_home()
-    check = [e for e in out["needs_you"] if e["kind"] == "check"]
-    assert [(e["drama_id"], e["risk_count"]) for e in check] == [(risky, 1)]
-    assert _ids(out["ready"]) == [clean]
+    assert out["needs_you"] == [] and out["needs_you_count"] == 0
+    assert {e["drama_id"]: e["unsure_count"] for e in out["ready"]} == {risky: 1, clean: 0}
 
 
 def test_untranslated_titles_are_on_no_shelf(isolated_db, monkeypatch):
