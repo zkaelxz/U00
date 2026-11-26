@@ -10,6 +10,8 @@ type Bridge = {
   // Added with picture-in-picture: an older app build lacks them.
   setLiveWatching?: (watching: boolean) => void
   popOut?: () => void
+  // Added so the app's top bar can follow Baihe's own theme: an older app build lacks it.
+  setDark?: (dark: boolean) => void
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
 }
@@ -73,6 +75,15 @@ export function checkForUpdates(): void {
 export function setShellBarsHidden(hidden: boolean): void {
   try {
     bridge()?.setBarsHidden?.(hidden)
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+/** Tells the app whether Baihe is showing a dark look, so its native top bar matches the page and not only the phone. */
+export function setShellDark(dark: boolean): void {
+  try {
+    bridge()?.setDark?.(dark)
   } catch {
     // The shell went away with the page.
   }
