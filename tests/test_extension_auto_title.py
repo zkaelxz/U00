@@ -23,7 +23,9 @@ CANDIDATES = ["一人之下 第12话 - 腾讯漫画", "One Punch Man Chapter 12 
 
 
 @pytest.fixture
-def token(isolated_db):
+def token(isolated_db, monkeypatch):
+    # Drama ids restart with each database, so the once-per-title cover memory restarts too.
+    monkeypatch.setattr(titles, "_cover_tried", set())
     return page_server.load_or_create_token()
 
 
@@ -379,7 +381,8 @@ def test_a_new_title_takes_the_pages_author_summary_and_cover(token, monkeypatch
     drama = db.get_drama(h.payload["drama_id"])
     assert (drama["author"], drama["summary"]) == ("Alex Example", "A story about a sample.")
     assert drama["cover_art_filename"] == "cover.png"
-    assert asked == [("https://cdn.example/cover.jpg", PAGE)]
+    # Another host gets only the page's origin, never its path or query.
+    assert asked == [("https://cdn.example/cover.jpg", "https://www.twmanga.com/")]
     assert {"author", "summary"} <= set(h.payload["filled"])
 
 
@@ -429,3 +432,28 @@ def test_fill_off_takes_no_details(token, monkeypatch):
     h = _resolve(token, fill=False, author="Alex Example", cover_url="https://cdn.example/c.jpg")
     _wait_for_cover_threads()
     assert not db.get_drama(h.payload["drama_id"])["author"] and calls == []
+
+
+def test_a_cover_is_tried_once_per_title_and_one_download_runs_at_a_time(token, monkeypatch):
+    from services import quick_read_fetch
+    calls = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: calls.append(a) or (None, "blocked"))
+    first = _resolve(token, cover_url="https://cdn.example/c.jpg").payload
+    _wait_for_cover_threads()
+    _resolve(token, cover_url="https://cdn.example/c.jpg")
+    _wait_for_cover_threads()
+    assert len(calls) == 1
+    assert titles._cover_slot.acquire(blocking=False)
+    try:
+        _resolve(token, url="https://raw.example/b/1", titles=["나 혼자만 레벨업 12화"], cover_url="https://raw.example/c.jpg")
+        _wait_for_cover_threads()
+        assert len(calls) == 1
+    finally:
+        titles._cover_slot.release()
+    assert first["drama_id"] in titles._cover_tried
+
+
+def test_a_picture_on_the_pages_own_host_gets_the_full_page_as_referer():
+    assert titles._cover_referer("https://www.twmanga.com/c.jpg", PAGE) == PAGE
+    assert titles._cover_referer("https://cdn.example/c.jpg", PAGE) == "https://www.twmanga.com/"
+    assert titles._cover_referer("https://cdn.example/c.jpg", "") == ""

@@ -202,9 +202,37 @@ def _fill_details(drama_id: int, page: dict) -> list:
     (or a cover uploaded) is never replaced."""
     filled = db.dramas.fill_blank_fields(drama_id, {"author": page["author"], "summary": page["summary"]})
     if page["cover_url"] and not (db.get_drama(drama_id) or {}).get("cover_art_filename"):
-        threading.Thread(target=_save_cover_from, args=(drama_id, page["cover_url"], page["url"]),
-                         name="extension-cover", daemon=True).start()
+        _start_cover_fetch(drama_id, page["cover_url"], page["url"])
     return filled
+
+
+# One cover download at a time for the whole app, and one try per title while the app runs: every
+# chapter sent re-offers the cover, and a member looping /title must not stack downloads (each
+# can hold 10 MB and a 25-megapixel decode) or retry a host that refused.
+_cover_slot = threading.BoundedSemaphore(1)
+_cover_tried: set = set()
+_cover_lock = threading.Lock()
+
+
+def _start_cover_fetch(drama_id: int, cover_url: str, page_url: str) -> None:
+    with _cover_lock:
+        if drama_id in _cover_tried or not _cover_slot.acquire(blocking=False):
+            return
+        _cover_tried.add(drama_id)
+    try:
+        threading.Thread(target=_save_cover_from, args=(drama_id, cover_url, page_url),
+                         name="extension-cover", daemon=True).start()
+    except RuntimeError:
+        _cover_slot.release()
+
+
+def _cover_referer(cover_url: str, page_url: str) -> str:
+    """The page address for a picture on the page's own host; only its origin for another host,
+    as a browser sends, so a CDN never sees the chapter's path or query."""
+    cover, page = urlsplit(cover_url), urlsplit(page_url)
+    if not page.scheme or not page.hostname:
+        return ""
+    return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
 
 
 def _save_cover_from(drama_id: int, cover_url: str, page_url: str) -> None:
@@ -213,13 +241,15 @@ def _save_cover_from(drama_id: int, cover_url: str, page_url: str) -> None:
     import io
     from services import cover_art_service, quick_read_fetch
     try:
-        data, _reason = quick_read_fetch.fetch_one(cover_url, {"referer": page_url},
+        data, _reason = quick_read_fetch.fetch_one(cover_url, {"referer": _cover_referer(cover_url, page_url)},
                                                    cover_art_service.MAX_COVER_BYTES)
         if data:
             cover_art_service.save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
     except Exception as exc:
         import applog
         applog.get_logger().info("No cover from the page: %s", type(exc).__name__)
+    finally:
+        _cover_slot.release()
 
 
 _NOT_THE_PAGE = ("utm", "fbclid", "gclid", "ref", "source", "token", "sig", "key", "session", "sid")
@@ -469,10 +499,10 @@ _HAN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "兩": 2, "三"
                "六": 6, "七": 7, "八": 8, "九": 9}
 _HAN_UNITS = {"十": 10, "百": 100, "千": 1000}
 _TITLE_NUMBER = re.compile(
-    r"第\s*(?P<han>[\d.]+|[零〇一二两兩三四五六七八九十百千]+)\s*[章话話回集期篇]"
-    r"|(?<![A-Za-z])(?:chapter|chap|ch|episode|ep|eps)\.?\s*#?\s*(?P<word>\d+(?:\.\d+)?)"
-    r"|(?P<suffix>\d+(?:\.\d+)?)\s*[화회話话章]"
-    r"|(?:^|\s)#\s*(?P<hash>\d+(?:\.\d+)?)", re.IGNORECASE)
+    r"第\s*(?P<han>\d{1,6}(?:\.\d{1,3})?|[零〇一二两兩三四五六七八九十百千]{1,8})\s*[章话話回集期篇]"
+    r"|(?<![A-Za-z])(?:chapter|chap|ch|episode|ep|eps)\.?\s*#?\s*(?P<word>\d{1,6}(?:\.\d{1,3})?)"
+    r"|(?<!\d)(?P<suffix>\d{1,6}(?:\.\d{1,3})?)\s*[화회話话章]"
+    r"|(?:^|\s)#\s*(?P<hash>\d{1,6}(?:\.\d{1,3})?)", re.IGNORECASE)
 MAX_PAGE_TITLES = 8
 MAX_CHAPTER_LABEL_CHARS = 120
 # A site name glued on with a bare hyphen ("第12话 重逢-SiteComic"), which the title separators
@@ -507,7 +537,8 @@ def _number_in(text: str, site: set = frozenset()):
     """(number, label) for the first chapter mark in one page title, else None. The label is
     the title from that mark on within its own piece ("第12话 重逢" out of
     "Name 第12话 重逢 - Site"), so the series and site names around it are left out."""
-    for part in _SEPARATORS.split(_line(unicodedata.normalize("NFKC", text))):
+    # Cut after NFKC too: it can lengthen text ("⑳" becomes "20").
+    for part in _SEPARATORS.split(_line(unicodedata.normalize("NFKC", text)[:MAX_CANDIDATE_CHARS])):
         found = _TITLE_NUMBER.search(part)
         if not found:
             continue

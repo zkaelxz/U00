@@ -131,3 +131,11 @@ def test_odd_page_titles_never_fail_the_send(token, fake_pipeline, drama, bad):
                 run_id="run-cccc3333", page_titles=bad)
     assert out["stored"] == 1
     assert len(_groups(drama)) == 1
+
+
+def test_a_long_digit_run_is_not_a_chapter_and_reads_fast():
+    import time
+    started = time.monotonic()
+    ref = titles_ref("https://example.com/viewer?id=1", ["⑳" * 1000, "9" * 1000])
+    assert ref["title"].startswith("Imported ")
+    assert time.monotonic() - started < 1
