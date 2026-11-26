@@ -614,6 +614,45 @@ def _page_region(r: dict) -> dict:
     return row
 
 
+def create_app_report(payload: dict, reporter: str | None = None) -> dict:
+    """A report sent from the phone app's own screens (Grab), which have no web dialog: the
+    reader's note, which screen and page address, the app build, the last crash the phone kept
+    and, when the reader ticked it, a picture of the screen. Same scrubbing and storage as any
+    other report, so admins find it in the same list."""
+    if not isinstance(payload, dict):
+        raise InvalidInputError("The report is not valid.")
+    jpeg = None
+    image = payload.get("image")
+    if image not in (None, ""):
+        if not isinstance(image, str) or not image.startswith(_PAGE_IMAGE_PREFIX):
+            raise InvalidInputError("The screenshot must be a JPEG.")
+        if len(image) - len(_PAGE_IMAGE_PREFIX) > (MAX_PAGE_IMAGE_BYTES * 4) // 3 + 4:
+            raise InvalidInputError("The screenshot is larger than 4 MB.")
+        try:
+            jpeg = base64.b64decode(image[len(_PAGE_IMAGE_PREFIX):], validate=True)
+        except ValueError:
+            raise InvalidInputError("The screenshot could not be read.") from None
+        if not jpeg or len(jpeg) > MAX_PAGE_IMAGE_BYTES or not jpeg.startswith(b"\xff\xd8\xff"):
+            raise InvalidInputError("The screenshot must be a JPEG under 4 MB.")
+    note = _scrub(payload.get("note"), 1000).strip()
+    screen = _scrub(payload.get("screen"), 80).strip()
+    page_url = _scrub(display_url(str(payload.get("page_url") or "")[:2000]), 300)
+    info = _scrub(payload.get("phone"), 300).strip()
+    crash = _scrub(payload.get("crash"), 8000).strip()
+    lines = ["## Phone app\n",
+             f"- Screen: {_cell(screen) or '(unknown)'}",
+             f"- Page address: `{_cell(page_url)}`" if page_url else "- Page address: (none)",
+             f"- Phone: {_cell(info) or '(unknown)'}",
+             f"- Screenshot: {'attached' if jpeg else 'not included'}", ""]
+    if crash:
+        lines += ["### Last crash the phone kept\n", _fence(crash), ""]
+    return create_report(
+        {"what_happened": "Phone app report: " + (note or "(no note)"),
+         "route": page_url, "include_server_log": True},
+        screenshot=jpeg, include_server_in_response=False, reporter=reporter,
+        extra_markdown="\n" + "\n".join(lines))
+
+
 def create_page_report(payload: dict, reporter: str | None = None) -> dict:
     """A Quick read page a reader marked wrong: the redrawn picture, what the PC read and
     translated on it, the address of the original picture and chapter, and the reader's note.

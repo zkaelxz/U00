@@ -11,6 +11,9 @@ final class CrashLog {
     private static final String KEY = "last_crash";
     private static final String CAUGHT_KEY = "last_caught";
     private static final String CAUGHT_SHOWN = "caught_shown";
+    /** Copies kept for problem reports: the shown-once keys above are removed after the first screen. */
+    private static final String KEPT_KEY = "kept_crash";
+    private static final String KEPT_CAUGHT_KEY = "kept_caught";
     /** A trace is a few KB; the cap only guards the preferences file against a runaway cause chain. */
     private static final int MAX_CHARS = 8000;
 
@@ -22,7 +25,8 @@ final class CrashLog {
         Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
             try {
                 // commit(), not apply(): the process is about to die and apply() writes later.
-                prefs(app).edit().putString(KEY, describe(thread.getName(), error)).commit();
+                String trace = describe(thread.getName(), error);
+                prefs(app).edit().putString(KEY, trace).putString(KEPT_KEY, trace).commit();
             } catch (RuntimeException ignored) {
                 // Nothing useful to do while already crashing.
             }
@@ -47,7 +51,8 @@ final class CrashLog {
         try {
             SharedPreferences prefs = prefs(context);
             if (prefs.contains(CAUGHT_KEY) || prefs.getBoolean(CAUGHT_SHOWN, false)) return;
-            prefs.edit().putString(CAUGHT_KEY, what + "\n" + describe(Thread.currentThread().getName(), error)).commit();
+            String note = what + "\n" + describe(Thread.currentThread().getName(), error);
+            prefs.edit().putString(CAUGHT_KEY, note).putString(KEPT_CAUGHT_KEY, note).commit();
         } catch (RuntimeException ignored) {
             // Reporting must never be the thing that fails.
         }
@@ -59,6 +64,15 @@ final class CrashLog {
         String note = prefs.getString(CAUGHT_KEY, null);
         if (note != null) prefs.edit().remove(CAUGHT_KEY).putBoolean(CAUGHT_SHOWN, true).commit();
         return note;
+    }
+
+    /** The last crash and the first survived failure, still kept after the app showed them; "" when none. */
+    static String recent(Context context) {
+        SharedPreferences prefs = prefs(context);
+        String crash = prefs.getString(KEPT_KEY, "");
+        String caught = prefs.getString(KEPT_CAUGHT_KEY, "");
+        if (crash.isEmpty()) return caught;
+        return caught.isEmpty() ? crash : crash + "\n--\n" + caught;
     }
 
     static String describe(String threadName, Throwable error) {

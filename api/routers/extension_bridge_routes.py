@@ -244,7 +244,7 @@ async def post_capture_summary(request: Request):
 
 
 @router.post("/report", dependencies=[require_device_token()],
-             summary="Device token: send a Quick read page that came out wrong to the PC's reports")
+             summary="Device token: send a Quick read page (or, with kind=app, a phone-app screen) that went wrong to the PC's reports")
 async def post_report(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_page_report(

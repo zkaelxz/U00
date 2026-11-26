@@ -494,6 +494,20 @@ class TestPageReport:
         assert r.status_code == 200, r.text
         assert bug_report_service.list_reports()[0]["id"] == r.json()["id"]
 
+    def test_a_phone_app_report_needs_no_picture_and_is_scrubbed(self, isolated_db):
+        from services import bug_report_service
+        _, token = _member("a@example.com")
+        payload = {"kind": "app", "note": "Grab froze on 192.168.1.9", "screen": "Grab",
+                   "page_url": "https://example.com/ch1?token=abc", "phone": "Build 12, Android 34",
+                   "crash": "java.lang.IllegalStateException: boom at 10.0.0.7"}
+        r = _client().post(f"{BASE}/report", headers=_auth(token), json=payload)
+        assert r.status_code == 200, r.text
+        md = bug_report_service.get_report(r.json()["id"])["markdown"]
+        assert "Build 12" in md and "IllegalStateException" in md and "Screenshot: not included" in md
+        assert "192.168.1.9" not in md and "10.0.0.7" not in md and "token=abc" not in md
+        bad = dict(payload, image="data:image/png;base64,AAAA")
+        assert _client().post(f"{BASE}/report", headers=_auth(token), json=bad).status_code == 400
+
     def test_reports_need_library_read_and_are_rate_limited(self, isolated_db, monkeypatch):
         import base64
         from services import extension_bridge_service

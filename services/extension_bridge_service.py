@@ -388,7 +388,10 @@ def record_page_report(payload, principal=None) -> dict:
     reporter = f"user:{user_id}" if user_id is not None else "device"
     try:
         _page_report_limiter.hit(reporter)
-        saved = bug_report_service.create_page_report(payload, reporter=reporter)
+        make = (bug_report_service.create_app_report
+                if isinstance(payload, dict) and payload.get("kind") == "app"
+                else bug_report_service.create_page_report)
+        saved = make(payload, reporter=reporter)
     except InvalidInputError as e:
         raise page_server.EndpointError(400, e.message) from None
     except ConflictError as e:
