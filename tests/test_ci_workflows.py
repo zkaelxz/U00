@@ -103,6 +103,32 @@ def test_a_pr_build_never_reads_the_signing_key_or_publishes():
     assert wf["jobs"]["publish"]["if"].startswith("github.event_name == 'workflow_dispatch'")
 
 
+# --- phone smoke test before a phone build is published or a release promoted ----------
+
+def test_the_apk_is_published_only_after_the_emulator_smoke_test_passes():
+    jobs = _load("android-apk.yml")["jobs"]
+    smoke = jobs["smoke"]
+    assert smoke["name"] == "Phone smoke test"  # Promote Release looks the job up by this name
+    assert smoke["needs"] == "apk"
+    assert "if" not in smoke  # a PR that changes android/ gets it too
+    assert set(jobs["publish"]["needs"]) == {"apk", "smoke"}
+    steps = [str(s) for s in smoke["steps"]]
+    assert any("name': 'baihe-android-release-apk'" in s for s in steps)
+    assert any("android/smoke/run_smoke.py --apk apk/app-release.apk" in s for s in steps)
+    assert not any("secrets." in s for s in steps)
+
+
+def test_promoting_needs_a_passing_phone_smoke_test_at_the_tags_commit():
+    jobs = _load("promote-release.yml")["jobs"]
+    assert "phone-check" in jobs["promote"]["needs"]
+    check = jobs["phone-check"]
+    assert all("uses" not in s for s in check["steps"])  # nothing from the repository runs
+    assert check["permissions"] == {"contents": "read", "actions": "read"}
+    (step,) = check["steps"]
+    for needle in ("android-apk.yml/runs", "baihe-subtitler", "Phone smoke test", "Nothing was promoted"):
+        assert needle in step["run"], needle
+
+
 # --- dependency audit before a release is promoted ----------------------------------
 
 def test_promoting_a_release_waits_for_an_audit_of_the_tags_code():

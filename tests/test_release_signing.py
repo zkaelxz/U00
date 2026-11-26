@@ -438,7 +438,7 @@ def _release_files(folder, seed, tamper=None):
 
 
 def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=SIGNED,
-                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40,
+                 tamper=None, key=None, sign_with=None, tests="success", commit="c" * 40, phone_commit=None,
                  ref=None):
     if os.name == "nt" or not (shutil.which("bash") and shutil.which("openssl")
                                and shutil.which("base64")):
@@ -455,7 +455,7 @@ def _run_promote(tmp_path, tag="v0.2.0", rules="1", state="false true", assets=S
     env = {"PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TAG": tag,
            "GITHUB_REPOSITORY": "o/r", "GH_TOKEN": "t", "GH_LOG": str(log),
            "GH_RULES": rules, "GH_STATE": state, "GH_ASSETS": assets, "GH_COMMIT": commit,
-           "GH_TESTS": tests, "RUNS_FILTER": _promote_step()["env"]["RUNS_FILTER"],
+           "GH_TESTS": tests, "PHONE_CHECKED_COMMIT": phone_commit or commit, "RUNS_FILTER": _promote_step()["env"]["RUNS_FILTER"],
            "GH_KEY": public if key is None else key, "GH_FILES": str(tmp_path / "assets"),
            "TMPDIR": str(tmp_path)}
     if ref is not None:
@@ -529,6 +529,12 @@ def test_promote_reads_the_tag_not_a_branch_and_its_tests_run_on_the_branch(tmp_
     assert "api repos/o/r/git/ref/tags/v0.2.0 --jq" in calls
     assert "git/tags/" not in calls
     assert f"contents/installer/release_public_key.txt?ref={'c' * 40}" in calls
+
+
+def test_promote_refuses_a_tag_that_moved_after_the_phone_check(tmp_path):
+    proc, edits = _run_promote(tmp_path, phone_commit="d" * 40)
+    assert proc.returncode != 0 and "Nothing was promoted" in proc.stdout
+    assert not edits
 
 
 def test_promote_peels_an_annotated_tag_to_its_commit(tmp_path):

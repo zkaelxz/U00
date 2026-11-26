@@ -894,7 +894,7 @@ def _find_calls_missing_creationflags(source):
 
 # Not the running app: installer, build and dev tooling, and Explorer (a GUI
 # program, which opens no console).
-_NO_WINDOW_SCAN_SKIP_PREFIXES = ("installer/", "tools/", "scripts/", "tests/")
+_NO_WINDOW_SCAN_SKIP_PREFIXES = ("installer/", "tools/", "scripts/", "tests/", "android/smoke/")
 _NO_WINDOW_SCAN_SKIP_FILES = {"run_tests.py", "lib/file_manager.py"}
 
 
@@ -941,7 +941,7 @@ class TestSubprocessNoWindow:
 _CAPTURE_SCAN_SKIP = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv",
                       "__pycache__", "scripts", "tools", "library", "voice_engines"}
 # Build-time only: never shipped, run on the developer's machine.
-_CAPTURE_SCAN_SKIP_FILES = {"installer/build_installer.py", "installer/smoke_child.py"}
+_CAPTURE_SCAN_SKIP_FILES = {"installer/build_installer.py", "installer/smoke_child.py", "android/smoke/run_smoke.py"}
 _SUBPROCESS_CALLS = {"run", "Popen", "check_output", "check_call", "call"}
 
 # "path::function" -> why it may capture directly. Only short probes belong

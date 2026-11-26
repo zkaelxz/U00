@@ -66,10 +66,58 @@ jobs:
           fi
           echo "Release check $STAMP is $age days old."
 
+  # The phone app is built and published from the same commit (release/CHECKLIST.md), and build 1160 once
+  # crashed at launch on a phone. The Android APK workflow's smoke job installs the APK on an emulator, and
+  # its publish step waits for it, so a passing run on the tag's commit is the proof the phone app opens.
+  phone-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check the tag's commit has a passing phone smoke test
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]{1,6}\.[0-9]{1,6}(\.[0-9]{1,6})?$'; then
+            echo "::error::$TAG is not a release tag such as v0.1.5. Nothing was promoted."
+            exit 1
+          fi
+          read -r type commit < <(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" \
+            --jq '.object.type + " " + .object.sha') || true
+          if [ "${type:-}" = "tag" ]; then
+            read -r type commit < <(gh api "repos/$GITHUB_REPOSITORY/git/tags/$commit" \
+              --jq '.object.type + " " + .object.sha') || true
+          fi
+          if [ "${type:-}" != "commit" ] || ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::Couldn't read the commit $TAG points at. Nothing was promoted."
+            exit 1
+          fi
+          # Only a run on baihe-subtitler counts: the workflow takes any branch's code on a manual run.
+          runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-apk.yml/runs?head_sha=$commit&event=workflow_dispatch&branch=baihe-subtitler&per_page=100" \
+            --jq '[.workflow_runs[] | select(.head_sha == "'"$commit"'" and .head_branch == "baihe-subtitler" and .event == "workflow_dispatch") | .id] | .[]')"
+          for run in $runs; do
+            result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+              --jq '[.jobs[] | select(.name == "Phone smoke test") | .conclusion] | first // "missing"')"
+            if [ "$result" = "success" ]; then
+              echo "Phone smoke test passed in run $run at $commit."
+              echo "commit=$commit" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          echo "::error::No passing phone smoke test for $TAG's commit $commit. Re-run the Android APK run at that commit if one exists (a new dispatch runs at the branch's newest commit, which is not the tag's), or fix the phone app and tag a new patch version (docs/runbook.md, section 1). Nothing was promoted."
+          exit 1
+
   # Runs nothing from the repository (no checkout): only gh against the
   # release that the tag's own run published.
   promote:
-    needs: [audit, release-check]
+    needs: [audit, release-check, phone-check]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: release-main
@@ -81,6 +129,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          PHONE_CHECKED_COMMIT: ${{ needs.phone-check.outputs.commit }}
           RUNS_FILTER: >-
             [.workflow_runs[] | select(.head_sha == env.COMMIT and .event == "push"
             and .head_branch == "baihe-subtitler" and .path == ".github/workflows/tests.yml")]
@@ -139,6 +188,11 @@ jobs:
           if [ "${type:-}" != "commit" ]; then commit=""; fi
           if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::Couldn't read the commit $TAG points at. Nothing was promoted."
+            exit 1
+          fi
+          # The tag could have moved while this run waited for approval; the phone check must have seen the commit shipped.
+          if [ "$commit" != "$PHONE_CHECKED_COMMIT" ]; then
+            echo "::error::$TAG now points at $commit, not the $PHONE_CHECKED_COMMIT whose phone smoke test passed. Nothing was promoted."
             exit 1
           fi
           conclusion="$(COMMIT="$commit" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$commit&event=push&branch=baihe-subtitler&per_page=100" \
