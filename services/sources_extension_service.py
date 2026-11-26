@@ -23,7 +23,8 @@ HELP_ROUTE = "settings"
 # Sites behind a Cloudflare challenge that a plain fetch can't pass. Baihe does not try to get
 # past it, so a pasted link says to use the extension, which reads the page in the person's
 # own browser. Matched on the host and its subdomains.
-BUILT_IN_EXTENSION_ONLY_HOSTS = ("mangafire.to", "kagane.moe")
+BUILT_IN_EXTENSION_ONLY_HOSTS = ("mangafire.to", "kagane.moe", "syosetu.org", "novelpia.com",
+                                  "novel.naver.com", "novel18.syosetu.com")
 # blacktoon rotates its number (510, 511, ...), so any digits match.
 _ROTATING_EXTENSION_ONLY_HOST = re.compile(r"(^|\.)blacktoon\d*\.com$")
 
