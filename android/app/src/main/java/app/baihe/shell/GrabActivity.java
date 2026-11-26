@@ -290,7 +290,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         handleCommand(intent);
     }
 
-    /** What the history page asks for: go back to a page, read it again, or start the queue. */
+    /** What the history and bookmark pages ask for: go back to a page, read it again, start the queue, or bookmark the open page. */
     static final String EXTRA_COMMAND = "grab_command";
     static final String EXTRA_URL = "grab_url";
 
@@ -301,6 +301,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         intent.removeExtra(EXTRA_COMMAND);
         if ("start".equals(command)) {
             startQueue();
+        } else if ("bookmark".equals(command)) {
+            toggleBookmark();
         } else if (url != null && ("open".equals(command) || "read".equals(command))) {
             if ("read".equals(command)) {
                 if (grabbing || loadingNext || chaptersLeft > 0) {
@@ -531,8 +533,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.item("Grab whole series", this::askWholeSeries);
         menu.section("My lists");
         menu.item("Pick up where I left off", this::pickUp);
-        menu.item(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")", this::showBookmarks);
-        menu.item("Recent pages", this::showRecent);
+        menu.item(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")", () -> startActivity(new Intent(this, GrabBookmarksActivity.class)));
+        menu.item("Recent pages", () -> startActivity(new Intent(this, GrabBookmarksActivity.class)
+                .putExtra(GrabBookmarksActivity.EXTRA_RECENT, true)));
         menu.item(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")", this::showSaved);
         menu.item(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)",
                 () -> startActivity(new Intent(this, GrabHistoryActivity.class)));
@@ -670,7 +673,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 .show();
     }
 
-    private static final String KEY_RECENT = "recent_pages";
+    static final String KEY_RECENT = "recent_pages";
     private static final int MAX_RECENT = 30;
 
     /** Keeps the pages opened here on the phone only, so a page can be found again; nothing is sent anywhere. */
@@ -682,26 +685,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         prefs().edit().putString(KEY_RECENT, GrabBookmarks.serialize(recent)).apply();
     }
 
-    private void showRecent() {
-        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
-        if (recent.isEmpty()) {
-            say("Nothing yet. Pages you open here show up in this list.");
-            return;
-        }
-        String[] names = new String[recent.size()];
-        for (int i = 0; i < names.length; i++) names[i] = recent.get(i).name;
-        new AlertDialog.Builder(this)
-                .setTitle("Recent pages")
-                .setItems(names, (d, which) -> web.loadUrl(recent.get(which).url))
-                .setNeutralButton("Clear", (d, w) -> {
-                    prefs().edit().remove(KEY_RECENT).apply();
-                    say("Recent pages cleared.");
-                })
-                .setNegativeButton("Close", null)
-                .show();
-    }
-
-    private static final String KEY_BOOKMARKS = "bookmarks";
+    static final String KEY_BOOKMARKS = "bookmarks";
 
     private void toggleBookmark() {
         String link = ServerAddress.browsable(web.getUrl());
@@ -714,33 +698,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         marks = had ? GrabBookmarks.without(marks, link) : GrabBookmarks.with(marks, web.getTitle(), link);
         prefs().edit().putString(KEY_BOOKMARKS, GrabBookmarks.serialize(marks)).apply();
         say(had ? "Bookmark removed." : "Bookmarked.", had ? GrabUi.Kind.INFO : GrabUi.Kind.OK);
-    }
-
-    /** Tap opens a bookmark; a long press removes it. */
-    private void showBookmarks() {
-        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
-        if (marks.isEmpty()) {
-            say("No bookmarks yet. More > Bookmark this page saves one.");
-            return;
-        }
-        String[] names = new String[marks.size()];
-        for (int i = 0; i < names.length; i++) {
-            GrabBookmarks.Mark mark = marks.get(i);
-            names[i] = (GrabBookmarks.isSite(mark.url) ? "Site: " : "") + mark.name;
-        }
-        AlertDialog dialog = new AlertDialog.Builder(this)
-                .setTitle("Bookmarks (hold one to remove it)")
-                .setItems(names, (d, which) -> web.loadUrl(marks.get(which).url))
-                .setNegativeButton("Close", null)
-                .create();
-        dialog.getListView().setOnItemLongClickListener((parent, view, which, id) -> {
-            String left = GrabBookmarks.serialize(GrabBookmarks.without(marks, marks.get(which).url));
-            prefs().edit().putString(KEY_BOOKMARKS, left).apply();
-            dialog.dismiss();
-            say("Bookmark removed.");
-            return true;
-        });
-        dialog.show();
     }
 
     /** Has the PC watch this site's series for new chapters; the phone then pings when one arrives. */
