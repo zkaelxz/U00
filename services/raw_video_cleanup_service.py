@@ -9,6 +9,7 @@ restore it, and nothing is moved without confirm=true and the size the person wa
 import hashlib
 import hmac
 import os
+import re
 import secrets
 import sqlite3
 import stat
@@ -22,7 +23,7 @@ from services import disk_usage_hold as hold
 from services import disk_usage_measure as measure
 from services import disk_usage_service as dus
 from services import disk_usage_trash_store as store
-from services import drama_service, keep_original_service, ownership_service
+from services import drama_service, keep_original_service, media_upload_service, ownership_service
 
 DEFAULT_MIN_AGE_DAYS = 30
 MAX_BATCH = 200
@@ -72,6 +73,23 @@ def _index(min_age_days: int):
                      "modified_at": measure._iso(mtime)})
     rows.sort(key=lambda r: -r["size_bytes"])
     return index, rows
+
+
+def reattach_after_restore(parts) -> bool:
+    """A source video put back from Trash into its title's folder goes back on the title, so restoring is a
+    real undo. Only while the title has no video named, still has its audio and the file is a video there."""
+    parts = list(parts or ())
+    if (len(parts) != 4 or parts[1].lower() != "dramas" or not re.fullmatch(r"[0-9]{1,9}", parts[2])
+            or not parts[3].lower().endswith(media_upload_service.VIDEO_EXTENSIONS)):
+        return False
+    drama_id, name = int(parts[2]), parts[3]
+    row = db.get_drama(drama_id)
+    if not row or row.get("source_video_filename") or not row.get("audio_filename"):
+        return False
+    if not plain_file_in(os.path.join(db.DRAMAS_DIR, str(drama_id)), name):
+        return False
+    db.restore_source_video(drama_id, name)
+    return True
 
 
 def _check_age(min_age_days):
