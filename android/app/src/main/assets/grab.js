@@ -206,12 +206,18 @@
   }
   // rel=next is the site's own statement; the link text is the fallback. Java re-checks
   // that the address is on the same site.
+  // Novel pages label the link with the next chapter's name and put "下一章:" before it as plain text.
+  var NEXT_LABEL = /(下一章|下一话|下一話|下一回|下一頁|下一页|次の話|다음\s*화)\s*[:：]\s*$/;
   function nextChapter() {
     var el = document.querySelector('a[rel~="next"][href], link[rel~="next"][href]');
     if (!el) {
       var anchors = document.querySelectorAll("a[href]");
       for (var i = 0; i < anchors.length; i++) {
         if (NEXT_TEXT.test((anchors[i].textContent || "").replace(/\s+/g, " "))) { el = anchors[i]; break; }
+      }
+      for (var j = 0; !el && j < anchors.length; j++) {
+        var before = anchors[j].previousSibling;
+        if (before && before.nodeType === 3 && NEXT_LABEL.test(before.nodeValue)) el = anchors[j];
       }
     }
     return el ? el.href : "";
@@ -293,7 +299,7 @@
     if (!best || bestLen < 400) return "";
     return (best.innerText || best.textContent || "").split("\n")
       .map(function (t) { return t.trim(); })
-      .filter(function (t) { return t.length > 1; }).join("\n");
+      .filter(function (t) { return t.length > 1 && !/^(上一章|下一章|上一页|下一页)\s*[:：]/.test(t); }).join("\n");
   }
   if (items.length < 3) {
     var prose = chapterText();
