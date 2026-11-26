@@ -13,6 +13,9 @@ name: Android APK
 # Settings > App updates > "Get the newest phone app" fetches. The secret is
 # read only by the build job of a manual run; the publish job checks out and
 # runs nothing from the repository.
+# The smoke job installs the built APK on an emulator and opens the screens a broken build has failed on
+# (build 1160 crashed at launch and was already on a phone). The publish job waits for it, and Promote Release
+# refuses a tag whose commit has no passing run of this workflow.
 on:
   workflow_dispatch:
   pull_request:
@@ -123,9 +126,42 @@ jobs:
           path: stage/
           if-no-files-found: error
 
+  # Runs the APK the apk job built, not a second build, so what passes is what would be published. The
+  # repository's scripts run here with a read-only token and no secrets.
+  smoke:
+    name: Phone smoke test
+    needs: apk
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: baihe-android-release-apk
+          path: apk
+
+      # The emulator needs hardware acceleration, which the runner allows through /dev/kvm once its group rule is set.
+      - name: Allow the emulator to use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # A Google APIs image (not Play Store): the smoke test opens Quick read's reader, which is not exported, as root.
+      - uses: reactivecircus/android-emulator-runner@c9c93e6ba9c4194322e114c40970d5983d9a07cc  # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: python3 android/smoke/run_smoke.py --apk apk/app-release.apk
+
   # Write access lives only here; nothing from the repository runs in this job.
   publish:
-    needs: apk
+    needs: [apk, smoke]
     if: github.event_name == 'workflow_dispatch' && needs.apk.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10

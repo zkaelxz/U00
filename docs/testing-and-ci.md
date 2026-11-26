@@ -304,6 +304,10 @@ shortcut icon from `make_shortcut.bat` / `start.bat` without `--ci`, `uninstall_
 and the Inno Setup installer and its uninstaller (`installer/baihe.iss`, which needs ISCC): `windows-installer.yml` builds and
 smoke-tests that on demand, so it is not repeated here. Add a case to the script when one of these scripts gets a new prompt or branch.
 
+## Phone smoke test
+
+The Android APK workflow (`android-apk.yml`) has a "Phone smoke test" job: it installs the APK the build job made on an emulator (Google APIs, API 34) and runs `android/smoke/run_smoke.py` against a mock server (`android/smoke/mock_server.py`) standing in for the PC. It checks that the app launches without a crash, asks for the address and loads the server's page in Studio, switches to Grab, opens a test page there, opens the Quick read reader, and opens the Live route in Studio; any crash in the Android crash log fails it. It runs on a PR that changes `android/` and on every manual run. The publish job waits for it, so a build that fails it never reaches phones, and Promote Release refuses a tag whose commit has no green run of it (`docs/runbook.md`, section 1). It does not sign in, read a real chapter or play a stream: `release/CHECKLIST.md` flow 12 is what a real phone adds. To run it locally, start an emulator with a Google APIs image and run `python android/smoke/run_smoke.py --apk path/to/app-release.apk`.
+
 ## Real-app smoke test
 
 `python -m tools.smoke_test` (the `smoke` job in `tests.yml`) starts the real server (`python -m api`, no mocks) on a throwaway data
