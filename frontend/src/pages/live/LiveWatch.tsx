@@ -21,7 +21,7 @@ import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
 import { isMetered, videoHeldBack } from '../comic/lowData'
 import { TvBar } from './TvBar'
-import type { TvTextSize } from './tvSize'
+import type { TvSplit, TvTextSize } from './tvSize'
 import { useTvMode } from './useTvMode'
 import { ViewingOptions, type TextSize } from './ViewingOptions'
 import { chipLabels, useRunningSessions } from './useRunningSessions'
@@ -57,6 +57,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   const [textSize, setTextSize] = usePersistedState<TextSize>('live.textSize', 'm')
+  const [tvSplit, setTvSplit] = usePersistedState<TvSplit>('live.tvSplit', 'wide')
   const [tvTextSize, setTvTextSize] = usePersistedState<TvTextSize>('live.tvTextSize', 'l')
   const [showOriginal, setShowOriginal] = usePersistedState<boolean>('live.showOriginal', true)
   const [tab, setTab] = useState<'lines' | 'chat'>('lines')
@@ -124,8 +125,8 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
 
   return (
     <div ref={root} className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}
-      data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined}>
-      {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} textSize={tvTextSize} onTextSize={setTvTextSize} onExit={tv.exit} />}
+      data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined} data-tv-split={tv.on ? tvSplit : undefined}>
+      {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} split={tvSplit} onSplit={setTvSplit} textSize={tvTextSize} onTextSize={setTvTextSize} onExit={tv.exit} />}
       {tv.on && !tv.barShown && <button type="button" className="live-tv-menu" aria-label="TV mode menu" onClick={tv.showBar}>Menu</button>}
       {running.length > 1 && !tv.on && (
         <div className="live-chips" role="tablist" aria-label="Running streams">
