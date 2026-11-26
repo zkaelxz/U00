@@ -251,6 +251,17 @@
       ],
       "pace": "Fast off: robots.txt and terms could not be retrieved.",
       "pace_verified": "2026-11-03"
+    },
+    "kakuyomu": {
+      "status": "caveat",
+      "last_verified": "2026-11-26",
+      "reason": "Search, series, chapter list and chapter text read live 2026-11-26 with plain GETs; no chapter imported through the app. Terms (第12条, 第13条) limit use to private use and name no crawler clause: not cleared, not permitted.",
+      "notes": "",
+      "hosts": [
+        "kakuyomu.jp"
+      ],
+      "pace": "Fast off: terms not cleared. robots.txt asks ClaudeBot for Crawl-delay 1; the 2.0 s host_min_interval floor stays.",
+      "pace_verified": "2026-11-26"
     }
   },
   "generic": {
