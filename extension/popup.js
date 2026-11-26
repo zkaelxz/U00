@@ -8,6 +8,10 @@ const els = {
   status: document.getElementById("status"),
   drama: document.getElementById("drama"),
   store: document.getElementById("store"),
+  modeQuick: document.getElementById("modeQuick"),
+  modeSave: document.getElementById("modeSave"),
+  modeHint: document.getElementById("modeHint"),
+  dramaPick: document.getElementById("dramaPick"),
   overlay: document.getElementById("overlay"),
   translate: document.getElementById("translate"),
   translateAll: document.getElementById("translateAll"),
@@ -249,7 +253,8 @@ async function showNovelSection() {
     if (!tab || !tab.id) return;
     await ensureContentScript(tab.id);
     const status = await chrome.tabs.sendMessage(tab.id, { type: "status" });
-    els.novelSection.hidden = !(status && status.ok &&
+    // A saved chapter needs a title, so quick translate leaves it out; the Text tab covers novels.
+    els.novelSection.hidden = !els.store.checked || !(status && status.ok &&
                                 (status.data.textPage || status.data.hasSelection));
   } catch (e) { /* a page the browser keeps extensions out of */ }
 }
@@ -413,6 +418,7 @@ async function load() {
   if (remembered) els.drama.value = String(remembered);
   showDramaTitle();
   els.overlay.checked = settings.overlay !== false;
+  setSaveMode(settings.quickTranslate !== true, { remember: false });
 
   const direction = settings.textDirection || { source: "zh", target: "en" };
   const directionValue = `${direction.source}:${direction.target}`;
@@ -427,6 +433,12 @@ async function load() {
 
 let pageRunInFlight = false;
 
+// Quick translate sends with store=false, so a title picked earlier must not ride along: it
+// would make a no-save read look like it belonged to that title.
+function pickedDrama() {
+  return !els.store.checked || !els.drama.value ? null : Number(els.drama.value);
+}
+
 async function run(all) {
   // Claimed before any await: a second click lands while activeTab() is pending.
   if (pageRunInFlight || captureInFlight) return;
@@ -438,7 +450,7 @@ async function run(all) {
   try {
     const tab = await activeTab();
     if (!tab || !tab.id) return say("No active tab.", true);
-    let dramaId = els.drama.value ? Number(els.drama.value) : null;
+    let dramaId = pickedDrama();
     let autoNote = "";
     if (els.store.checked && !dramaId) {
       const made = await autoTitle(tab, "comic");
@@ -529,7 +541,7 @@ async function runCapture(fromHere) {
 async function startCapture(fromHere) {
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
-  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  let dramaId = pickedDrama();
   let autoNote = "";
   if (els.store.checked && !dramaId) {
     const made = await autoTitle(tab, "comic");
@@ -578,7 +590,7 @@ async function runContinue(kind) {
   if (pageRunInFlight || captureInFlight) return;
   const tab = await activeTab();
   if (!tab || !tab.id) return say("No active tab.", true);
-  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  let dramaId = pickedDrama();
   if (kind === "novel" && dramaId && (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
     return say("Pick a novel title to save the text into.", true);
   }
@@ -680,7 +692,7 @@ let novelSaveInFlight = false;
 
 async function runSaveNovel() {
   if (novelSaveInFlight) return;
-  let dramaId = els.drama.value ? Number(els.drama.value) : null;
+  let dramaId = pickedDrama();
   if (dramaId && (dramaMedia.get(els.drama.value) || "").toLowerCase() !== "novel") {
     return say("Pick a novel title to save the text into.", true);
   }
@@ -780,6 +792,21 @@ els.openLink.addEventListener("click", (event) => {
   chrome.tabs.create({ url: els.openLink.href });
 });
 els.noticeAction.addEventListener("click", () => noticeHandler && noticeHandler());
+
+// The checkbox stays the single source of truth for "save or not" that the senders read; the
+// two buttons only drive it, and the choice is remembered so a reader who only ever quick
+// translates does not flip it on every open.
+function setSaveMode(save, { remember = true } = {}) {
+  els.store.checked = save;
+  els.modeSave.setAttribute("aria-pressed", String(save));
+  els.modeQuick.setAttribute("aria-pressed", String(!save));
+  els.modeHint.hidden = save;
+  els.dramaPick.hidden = !save;
+  showNovelSection();
+  if (remember) chrome.storage.local.set({ quickTranslate: !save }).catch(() => {});
+}
+els.modeQuick.addEventListener("click", () => setSaveMode(false));
+els.modeSave.addEventListener("click", () => setSaveMode(true));
 
 const TAB_KEY = "popupTab";
 const tabButtons = [...document.querySelectorAll('[role="tab"]')];

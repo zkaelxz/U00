@@ -43,7 +43,9 @@ def test_every_adapter_serializes(client):
     r = client.get("/api/sources")
     assert r.status_code == 200
     rows = r.json()
-    assert len(rows) == len(adapters.BUILTIN)
+    unlisted = [n for n, c in registry.adapter_classes().items() if registry.is_unlisted(c)]
+    assert len(rows) == len(adapters.BUILTIN) - len(unlisted)
+    assert not {x["name"] for x in rows} & set(unlisted)
     by = {x["name"]: x for x in rows}
     assert by["missevan"]["import_supported"] is False
     assert by["bilibili"]["import_supported"] is False

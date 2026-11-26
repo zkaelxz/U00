@@ -269,3 +269,27 @@ def test_scheduled_check_skips_quietly(isolated_db):
     from services import sources_registry_service as registry_svc
     flags = {t["title"]: t["extension_only"] for t in registry_svc.list_tracked()}
     assert flags == {"Marked": True, "Other": False}
+
+
+@pytest.mark.parametrize("url", [
+    "https://blacktoon510.com/webtoon/18608.html",
+    "https://blacktoon511.com/webtoon/18608.html",
+    "https://www.blacktoon.com/webtoon/1.html",
+    "https://mangafire.to/title/70px7-example",
+    "https://www.kagane.moe/series/example",
+    "https://syosetu.org/novel/12345/1.html",
+    "https://novelpia.com/novel/1",
+    "https://novel.naver.com/webnovel/list?novelId=1",
+    "https://novel18.syosetu.com/n0000aa/1/",
+    "https://soraraw.com/manga/example-1/ch-1",
+])
+def test_challenge_protected_sites_stop_early_without_a_marker(isolated_db, url):
+    with pytest.raises(ext.ExtensionOnlyError):
+        ext.require_url_not_extension_only(url)
+
+
+def test_lookalike_host_is_not_stopped(isolated_db):
+    ext.require_url_not_extension_only("https://notmangafire.to/title/1")
+    ext.require_url_not_extension_only("https://mangafire.to.example/title/1")
+    ext.require_url_not_extension_only("https://notblacktoon511.com/webtoon/1.html")
+    ext.require_url_not_extension_only("https://blacktoon511.com.example/webtoon/1.html")

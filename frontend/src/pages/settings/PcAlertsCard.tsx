@@ -124,7 +124,7 @@ export function PcAlertsCard() {
               const d = drafts[r.id]
               if (!d) return null
               return (
-                <div key={r.id} className="setting-list" role="group" aria-label={r.label}>
+                <div key={r.id} className="alert-rule" role="group" aria-label={r.label}>
                   <Field label={r.label} help={ruleSummary(r)}>
                     <Toggle checked={d.enabled} disabled={saving} onChange={(next) => edit(r.id, { enabled: next }, true)} />
                   </Field>

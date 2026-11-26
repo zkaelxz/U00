@@ -1389,6 +1389,45 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile String pageAgent = "";
     private List<String> pageTitles = new ArrayList<>();
 
+    // The site keeps its comic canvas from being read by script, so the grab asks for what the web
+    // view itself shows on screen. The picture goes only back to the page that asked, by its
+    // grab's secret name, and only while that grab runs.
+    @Override
+    public void onSnap(String id) {
+        final String run = runningGrab;
+        runOnUiThread(() -> {
+            if (web == null || run.isEmpty() || !grabbing || web.getWidth() <= 0 || web.getHeight() <= 0) {
+                answerSnap(run, id, "");
+                return;
+            }
+            int[] at = new int[2];
+            web.getLocationInWindow(at);
+            Bitmap bitmap = Bitmap.createBitmap(web.getWidth(), web.getHeight(), Bitmap.Config.ARGB_8888);
+            android.graphics.Rect area = new android.graphics.Rect(at[0], at[1], at[0] + web.getWidth(), at[1] + web.getHeight());
+            try {
+                android.view.PixelCopy.request(getWindow(), area, bitmap, result -> {
+                    String data = "";
+                    if (result == android.view.PixelCopy.SUCCESS) {
+                        ByteArrayOutputStream out = new ByteArrayOutputStream();
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out);
+                        data = Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP);
+                    }
+                    bitmap.recycle();
+                    answerSnap(run, id, data);
+                }, new android.os.Handler(android.os.Looper.getMainLooper()));
+            } catch (RuntimeException e) {
+                bitmap.recycle();
+                answerSnap(run, id, "");
+            }
+        });
+    }
+
+    private void answerSnap(String run, String id, String data) {
+        if (web == null || run.isEmpty() || !run.equals(runningGrab)) return;
+        String callback = "window['__baiheSnap" + run + "']";
+        web.evaluateJavascript(callback + "&&" + callback + "('" + id + "','" + data + "')", null);
+    }
+
     @Override
     public void onLanguage(String language) {
         pageLanguage = language;
