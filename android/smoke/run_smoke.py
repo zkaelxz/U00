@@ -112,7 +112,7 @@ def run(apk):
         adb("wait-for-device")
         adb("root", check=False)
         adb("wait-for-device")
-        adb("logcat", "-b", "all", "-c")
+        adb("logcat", "-b", "all", "-c", check=False)
         adb("install", "-r", apk, timeout=180)
         # Granted up front so Android's notification prompt does not sit over the screens being checked.
         shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
@@ -151,8 +151,7 @@ def run(apk):
 
         def live():
             shell("am", "start", "-n", f"{PACKAGE}/.MainActivity", "--es", "route", "'#/live'")  # quoted: the phone's shell reads a bare # as a comment
-            wait_for("Studio to open the Live route", lambda: server.seen("hash=%23%2Flive") or
-                     server.seen("/#/live"), 30)
+            wait_for("Studio to open the Live route", lambda: server.seen("hash=%23%2Flive"), 30)
 
         step("Launch asks for the address", launch)
         step("Studio loads the server's page", sign_address)
@@ -161,6 +160,9 @@ def run(apk):
         step("Back to Studio", back_to_studio)
         step("Quick read screen opens", quick_read)
         step("Live route opens in Studio", live)
+        # The last page's own start-up work (an update check, say) can crash a second after the page shows.
+        time.sleep(5)
+        check_no_crash("Settling after the last step")
     except StepFailed as e:
         print(f"FAILED: {e}", file=sys.stderr)
         print(adb("logcat", "-d", "-t", "300", check=False)[-6000:])

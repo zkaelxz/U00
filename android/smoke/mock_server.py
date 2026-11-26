@@ -19,7 +19,7 @@ CHAPTER_PAGE = b"""<!doctype html><html><head><meta charset="utf-8"><meta name="
 
 
 class MockServer:
-    """Threaded HTTP server on all interfaces (the emulator reaches the host as 10.0.2.2) with a request log."""
+    """Threaded HTTP server on loopback (the emulator's 10.0.2.2 is the host's loopback) with a request log."""
 
     def __init__(self, port):
         self.requests = []
@@ -53,7 +53,7 @@ class MockServer:
             def log_message(self, *args):
                 pass
 
-        self._httpd = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+        self._httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
 
     def start(self):

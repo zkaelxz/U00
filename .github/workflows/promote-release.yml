@@ -72,11 +72,14 @@ jobs:
   phone-check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.check.outputs.commit }}
     permissions:
       contents: read
       actions: read
     steps:
       - name: Check the tag's commit has a passing phone smoke test
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
@@ -98,16 +101,17 @@ jobs:
           fi
           # Only a run on baihe-subtitler counts: the workflow takes any branch's code on a manual run.
           runs="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android-apk.yml/runs?head_sha=$commit&event=workflow_dispatch&branch=baihe-subtitler&per_page=100" \
-            --jq '[.workflow_runs[] | select(.head_sha == "'"$commit"'" and .head_branch == "baihe-subtitler") | .id] | .[]')"
+            --jq '[.workflow_runs[] | select(.head_sha == "'"$commit"'" and .head_branch == "baihe-subtitler" and .event == "workflow_dispatch") | .id] | .[]')"
           for run in $runs; do
             result="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
               --jq '[.jobs[] | select(.name == "Phone smoke test") | .conclusion] | first // "missing"')"
             if [ "$result" = "success" ]; then
               echo "Phone smoke test passed in run $run at $commit."
+              echo "commit=$commit" >> "$GITHUB_OUTPUT"
               exit 0
             fi
           done
-          echo "::error::No passing phone smoke test for $TAG's commit $commit. Run Android APK on baihe-subtitler (docs/runbook.md, section 1) and let it finish green, or fix the phone app and tag a new patch version. Nothing was promoted."
+          echo "::error::No passing phone smoke test for $TAG's commit $commit. Re-run the Android APK run at that commit if one exists (a new dispatch runs at the branch's newest commit, which is not the tag's), or fix the phone app and tag a new patch version (docs/runbook.md, section 1). Nothing was promoted."
           exit 1
 
   # Runs nothing from the repository (no checkout): only gh against the
@@ -125,6 +129,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.tag }}
+          PHONE_CHECKED_COMMIT: ${{ needs.phone-check.outputs.commit }}
           RUNS_FILTER: >-
             [.workflow_runs[] | select(.head_sha == env.COMMIT and .event == "push"
             and .head_branch == "baihe-subtitler" and .path == ".github/workflows/tests.yml")]
@@ -183,6 +188,11 @@ jobs:
           if [ "${type:-}" != "commit" ]; then commit=""; fi
           if ! printf '%s' "$commit" | grep -Eq '^[0-9a-f]{40}$'; then
             echo "::error::Couldn't read the commit $TAG points at. Nothing was promoted."
+            exit 1
+          fi
+          # The tag could have moved while this run waited for approval; the phone check must have seen the commit shipped.
+          if [ "$commit" != "$PHONE_CHECKED_COMMIT" ]; then
+            echo "::error::$TAG now points at $commit, not the $PHONE_CHECKED_COMMIT whose phone smoke test passed. Nothing was promoted."
             exit 1
           fi
           conclusion="$(COMMIT="$commit" gh api "repos/$GITHUB_REPOSITORY/actions/workflows/tests.yml/runs?head_sha=$commit&event=push&branch=baihe-subtitler&per_page=100" \
