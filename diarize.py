@@ -425,7 +425,7 @@ def diarize(audio_path: str, hf_token: str, num_speakers: int | None = None, ret
 
 
 def _try_nemotron(audio_path, num_speakers, options, result_queue, run_info):
-    """The worker result for a Nemotron run, or None to use pyannote. Kae's rule:
+    """The worker result for a Nemotron run, or None to use pyannote. The owner's rule:
     pyannote runs only when Nemotron isn't available on this PC (a package or the
     model is missing), with the reason in run_info. A typed speaker count or range
     doesn't switch to pyannote: Nemotron can't take one, so the result says it was

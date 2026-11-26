@@ -145,7 +145,7 @@ describe('describeSourceError', () => {
 
   it('shows a safe server sentence, else a fallback', () => {
     expect(describeSourceError({ status: 500, message: 'Parse failed.' }, 'Foo').text).toBe('Parse failed.')
-    expect(describeSourceError({ status: 500, message: 'open /home/kae/x failed' }, 'Foo').text).toBe(
+    expect(describeSourceError({ status: 500, message: 'open /home/alex/x failed' }, 'Foo').text).toBe(
       'Foo failed. Details are in the app log.',
     )
     expect(describeSourceError(null, 'Foo').text).toBe('Foo failed. Details are in the app log.')

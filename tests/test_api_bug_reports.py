@@ -22,12 +22,12 @@ from tests.api_helpers import session_headers
 
 KEY = "sk-ant-api03-SECRETSECRETSECRET123456"
 GKEY = "AIzaSyA1234567890abcdefghijklmnop"
-WIN = r"C:\Users\kaewinuser\AppData\Local\Baihe\library\library.db"
+WIN = r"C:\Users\alexwinuser\AppData\Local\Baihe\library\library.db"
 POSIX = "/home/someoneelse/private/library/drama.mp4"
 COOKIE = "baihe_session=Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0Z2FycGx5"
 CSRF = "X-CSRF-Token: abcdefghijklmnopqrstuvwxyz0123456789ABCD"
 DIRTY = f"boom {KEY} {GKEY} at {WIN} and {POSIX} {COOKIE} {CSRF}"
-BAD = (KEY, GKEY, "kaewinuser", "someoneelse", "AppData", "Zm9vYmFyYmF6",
+BAD = (KEY, GKEY, "alexwinuser", "someoneelse", "AppData", "Zm9vYmFyYmF6",
        "abcdefghijklmnopqrstuvwxyz0123456789ABCD")
 REMOTE = "https://baihe.example.com"
 LOCAL = {"X-Baihe-Local": "1"}

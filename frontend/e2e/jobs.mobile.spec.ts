@@ -21,7 +21,7 @@ const long = 'x'.repeat(300)
 
 test('phone: cards with title, status, progress and 44px actions, no sideways scroll', async ({ page }) => {
   const jobs = pageJobs()
-  jobs[3] = { ...jobs[3], description: `Export Kae ${long}`, error: `Provider failed: ${long}` }
+  jobs[3] = { ...jobs[3], description: `Export Alex ${long}`, error: `Provider failed: ${long}` }
   const log = await mockJobsApi(page, jobs, true)
   await page.goto('/#/jobs')
   await expect(page.getByTestId('jobs-table')).toHaveCount(0)
@@ -67,7 +67,7 @@ test('phone: tap through from a job to its stage', async ({ page }) => {
 
 test('phone: a failed job with a long name and error fits', async ({ page }) => {
   const jobs = pageJobs()
-  jobs[3] = { ...jobs[3], description: `Export Kae ${long}`, error: `Provider failed: ${long}` }
+  jobs[3] = { ...jobs[3], description: `Export Alex ${long}`, error: `Provider failed: ${long}` }
   await mockJobsApi(page, jobs, true)
   await page.goto('/#/jobs')
   await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: /^Failed/ }).click()

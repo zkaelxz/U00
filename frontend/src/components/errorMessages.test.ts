@@ -149,7 +149,7 @@ describe('describeError shows the real reason', () => {
   it('422 keeps the generic text when the sentence is FastAPI\'s own or is path- or key-like', () => {
     const generic = 'Some of the values entered are not valid. Check them and try again.'
     expect(describeError(api(422, 'validation_error', 'The request is invalid.', 'POST')).title).toBe(generic)
-    expect(describeError(api(422, 'validation_error', 'Bad /home/kae/x.srt', 'POST')).title).toBe(generic)
+    expect(describeError(api(422, 'validation_error', 'Bad /home/alex/x.srt', 'POST')).title).toBe(generic)
     expect(describeError(api(422, 'validation_error', 'key sk-abcdef123456', 'POST')).title).toBe(generic)
   })
 
@@ -165,12 +165,12 @@ describe('describeError shows the real reason', () => {
     expect(describeError(api(503, 'permission_denied', denied, 'GET')).title).toBe(denied)
     expect(describeError(api(507, 'disk_full', 'The disk is full.', 'POST')).title).toBe('The disk is full.')
     expect(describeError(api(503, 'file_in_use', 'A file is open in another program.', 'POST')).detail).toBeNull()
-    expect(describeError(api(503, 'permission_denied', 'at C:\\Users\\kae\\x', 'POST')).title).toMatch(/^The action failed/)
+    expect(describeError(api(503, 'permission_denied', 'at C:\\Users\\alex\\x', 'POST')).title).toMatch(/^The action failed/)
   })
 
   it('a failed read says it could not load; a failed write keeps the nothing-changed text', () => {
     expect(describeError(api(400, 'application_error', '', 'GET')).title).toMatch(/^Could not load/)
-    expect(describeError(api(500, 'internal_error', 'Traceback /home/kae', 'GET')).title).toMatch(/^Could not load/)
+    expect(describeError(api(500, 'internal_error', 'Traceback /home/alex', 'GET')).title).toMatch(/^Could not load/)
     expect(describeError(api(500, 'internal_error', 'x', 'GET')).detail).toBeNull()
     expect(describeError(api(400, 'application_error', '', 'POST')).title).toMatch(/^The action failed\. Nothing was changed/)
     expect(describeError(api(500, 'internal_error', 'x', 'POST')).title).toMatch(/^Something went wrong inside Baihe/)
@@ -195,7 +195,7 @@ describe('describeError shows the real reason', () => {
   })
 
   it('a failed action whose server text is path- or key-like keeps the generic text and no detail', () => {
-    for (const msg of ['Could not open C:\\Users\\kae\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(301)]) {
+    for (const msg of ['Could not open C:\\Users\\alex\\x.db', 'key sk-abcdef123456 refused', 'x'.repeat(301)]) {
       expect(describeError(api(500, 'application_error', msg, 'POST'))).toEqual({
         title: 'The action failed. Nothing was changed unless stated otherwise.',
         detail: null,

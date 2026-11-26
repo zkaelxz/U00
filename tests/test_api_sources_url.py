@@ -177,10 +177,10 @@ def test_preview_handoff_409(client, env):
 
 def test_preview_error_never_names_the_url(client, env, monkeypatch):
     def boom(*a, **k):
-        raise RuntimeError(f"failed at {PAGE} and C:\\Users\\kae\\x")
+        raise RuntimeError(f"failed at {PAGE} and C:\\Users\\alex\\x")
     monkeypatch.setattr(front_door, "preview", boom)
     r = _preview(client)
-    assert r.status_code == 500 and "novel.example" not in r.text and "kae" not in r.text
+    assert r.status_code == 500 and "novel.example" not in r.text and "alex" not in r.text
     st = background_jobs.get_status("sources_url_preview")
     assert "novel.example" not in (st.get("error") or "")
 

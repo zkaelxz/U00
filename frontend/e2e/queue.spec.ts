@@ -18,7 +18,7 @@ test('add items, with the engine and cost shown for a paid Translate', async ({ 
   await card.getByLabel('Step').selectOption('translate')
   await expect(card.getByTestId('queue-step-help')).toContainText('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
   await card.getByRole('button', { name: 'Add to queue' }).click()
-  await card.getByLabel('Title').selectOption({ label: 'Kae' })
+  await card.getByLabel('Title').selectOption({ label: 'Alex' })
   await card.getByLabel('Step').selectOption('export')
   await card.getByRole('button', { name: 'Add to queue' }).click()
   await expect(items(page)).toHaveCount(2)
@@ -50,18 +50,18 @@ test('reorder with the keyboard keeps focus on the moved item, then remove', asy
   await mockJobsApi(page, [], true)
   await mockQueueApi(page, [
     queueItem(1, { title: 'Signal' }),
-    queueItem(2, { drama_id: 4, title: 'Kae', step: 'export' }),
+    queueItem(2, { drama_id: 4, title: 'Alex', step: 'export' }),
   ])
   await page.goto('/#/jobs')
-  const up = page.getByRole('button', { name: 'Move up Export subtitles Kae' })
+  const up = page.getByRole('button', { name: 'Move up Export subtitles Alex' })
   await up.focus()
   await page.keyboard.press('Enter')
-  await expect(items(page).nth(0)).toContainText('Kae')
+  await expect(items(page).nth(0)).toContainText('Alex')
   // At the top now: Move up is disabled, so focus lands on its Move down.
-  await expect(page.getByRole('button', { name: 'Move down Export subtitles Kae' })).toBeFocused()
+  await expect(page.getByRole('button', { name: 'Move down Export subtitles Alex' })).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(items(page).nth(1)).toContainText('Kae')
-  await expect(page.getByRole('button', { name: 'Move up Export subtitles Kae' })).toBeFocused()
+  await expect(items(page).nth(1)).toContainText('Alex')
+  await expect(page.getByRole('button', { name: 'Move up Export subtitles Alex' })).toBeFocused()
   await page.getByRole('button', { name: 'Remove Transcribe Signal' }).click()
   await page.getByRole('button', { name: 'Confirm remove' }).click()
   await expect(items(page)).toHaveCount(1)
@@ -69,7 +69,7 @@ test('reorder with the keyboard keeps focus on the moved item, then remove', asy
 
 test('start, then pause; the policy toggle and a start time', async ({ page }) => {
   await mockJobsApi(page, [], true)
-  const mock = await mockQueueApi(page, [queueItem(1), queueItem(2, { drama_id: 4, title: 'Kae' })])
+  const mock = await mockQueueApi(page, [queueItem(1), queueItem(2, { drama_id: 4, title: 'Alex' })])
   await page.goto('/#/jobs')
   const card = page.getByRole('region', { name: 'Queue' })
   await card.getByRole('button', { name: 'Start queue now' }).click()
@@ -90,7 +90,7 @@ test('skipped and interrupted items say why and offer Retry; a missed start asks
   await mockJobsApi(page, [], true)
   const mock = await mockQueueApi(page, [
     queueItem(1, { status: 'skipped', step: 'translate', reason: "Skipped: This month's spending cap ($5.00) is already used up." }),
-    queueItem(2, { drama_id: 4, title: 'Kae', status: 'interrupted', reason: 'Interrupted: Baihe stopped while this ran. Press Retry to run it again.' }),
+    queueItem(2, { drama_id: 4, title: 'Alex', status: 'interrupted', reason: 'Interrupted: Baihe stopped while this ran. Press Retry to run it again.' }),
     queueItem(3, { status: 'done', step: 'export' }),
   ], { schedule: { time: '02:00', start_at: Date.now() / 1000 - 3600, missed: true } })
   await page.goto('/#/jobs')
@@ -100,7 +100,7 @@ test('skipped and interrupted items say why and offer Retry; a missed start asks
   await expect(items(page).nth(2).getByRole('link', { name: 'Download subtitles' })).toHaveAttribute('href', '/api/artifacts/dramas/3/subtitle')
   const missed = page.getByTestId('queue-missed')
   await expect(missed).toContainText('Missed: the start at 02:00 passed while Baihe was off. Start now?')
-  await page.getByRole('button', { name: 'Retry Transcribe Kae' }).click()
+  await page.getByRole('button', { name: 'Retry Transcribe Alex' }).click()
   await expect(items(page).nth(1)).toContainText('Waiting')
   await missed.getByRole('button', { name: 'Start now' }).click()
   await expect(page.getByTestId('queue-missed')).toHaveCount(0)

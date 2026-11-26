@@ -13,7 +13,7 @@ const job = (o: Partial<JobRecord>): JobRecord => testJob({
   job_id: 'j', status: 'done', progress: null, message: '', error: null, description: null,
   gpu_touching: false, started_at: NOW - 100, finished_at: NOW - 50, updated_at: NOW - 50, owned_by_me: true, ...o,
 })
-const titles = new Map([[3, 'Signal'], [4, 'Kae']])
+const titles = new Map([[3, 'Signal'], [4, 'Alex']])
 const ids = (jobs: JobRecord[]) => jobs.map((j) => j.job_id)
 const f = (o: Partial<JobFilters>): JobFilters => ({ ...NO_FILTERS, ...o })
 
@@ -21,7 +21,7 @@ const sample = [
   job({ job_id: 'done1', description: 'Translate Signal', kind: 'translate', drama_id: 3 }),
   job({ job_id: 'run1', status: 'running', progress: 0.4, finished_at: null, kind: 'transcribe', drama_id: 3 }),
   job({ job_id: 'err1', status: 'error', kind: 'export', drama_id: 4, owned_by_me: false }),
-  job({ job_id: 'q1', status: 'queued', started_at: null, finished_at: null, description: 'Dub Kae', kind: 'dub', drama_id: 4 }),
+  job({ job_id: 'q1', status: 'queued', started_at: null, finished_at: null, description: 'Dub Alex', kind: 'dub', drama_id: 4 }),
   job({ job_id: 'old1', started_at: NOW - 30 * 86_400, finished_at: NOW - 30 * 86_400 + 5, kind: 'import' }),
   job({ job_id: 'soft', status: 'done', outcome: 'failed', kind: 'other' }),
 ]
@@ -66,7 +66,7 @@ describe('cancelled jobs', () => {
 
 describe('other filters', () => {
   it('searches the description, the title and the id', () => {
-    expect(ids(filterJobs(sample, f({ status: 'all', search: 'kae' }), titles, NOW))).toEqual(['err1', 'q1'])
+    expect(ids(filterJobs(sample, f({ status: 'all', search: 'alex' }), titles, NOW))).toEqual(['err1', 'q1'])
     expect(ids(filterJobs(sample, f({ status: 'all', search: ' RUN1 ' }), titles, NOW))).toEqual(['run1'])
   })
   it('filters by kind group', () => {

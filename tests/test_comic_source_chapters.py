@@ -119,7 +119,7 @@ def test_stored_links_are_cleaned_again_when_read(isolated_db):
 
 
 def test_clean_titles_are_redacted_like_other_fetched_text():
-    out = comic_chapter_links.clean([{"title": "Ch C:\\Users\\kae\\x", "url": "https://reader.example/1"}], "reader.example")
+    out = comic_chapter_links.clean([{"title": "Ch C:\\Users\\alex\\x", "url": "https://reader.example/1"}], "reader.example")
     assert "Users" not in out[0]["title"]
 
 

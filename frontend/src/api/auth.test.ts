@@ -83,7 +83,7 @@ describe('accountWords', () => {
     const name24 = 'A'.repeat(24)
     expect(accountWords(name24)).toBe(name24)
     expect(accountWords('A'.repeat(25))).toBe('Account')
-    expect(accountWords('  Kae  ')).toBe('Kae')
+    expect(accountWords('  Alex  ')).toBe('Alex')
     expect(accountWords('   ')).toBe('Account')
     expect(accountWords('')).toBe('Account')
     expect(accountWords(null)).toBe('Account')
@@ -105,7 +105,7 @@ describe('accountWords', () => {
 
 describe('nameWidth', () => {
   it('is one for Latin letters, two for kanji, kana, Hangul, fullwidth forms and emoji, none for joiners', () => {
-    expect(nameWidth('Kae')).toBe(3)
+    expect(nameWidth('Alex')).toBe(4)
     expect(nameWidth('白'.repeat(12))).toBe(24)
     expect(nameWidth('かな')).toBe(4)
     expect(nameWidth('한글')).toBe(4)

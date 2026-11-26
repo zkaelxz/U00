@@ -277,7 +277,7 @@ def test_message_has_kind_title_outcome_only(env):
         "Finished: Translation - Moonlit Garden"
     assert ns.build_message(f"Chunk & tag (drama {did})", "error") == \
         "Failed: Chunk & tag - Moonlit Garden"
-    assert ns.build_message("Sources series (C:\\Users\\kae\\secret)", "done") == \
+    assert ns.build_message("Sources series (C:\\Users\\alex\\secret)", "done") == \
         "Finished: Sources series"
     assert ns.build_message(None, "error") == "Failed: Background job"
     assert ns.build_message(f"Translation (drama #{did})", "done", with_errors=True).startswith(
@@ -599,13 +599,13 @@ def test_errors_and_failures_are_amber_and_red_with_one_scrubbed_sentence(env, d
     assert amber["title"] == "Finished with errors \u00b7 Export" and amber["color"] == ns.COLOR_WARN
     assert amber["description"] == "2 pages failed."
     ns.notify_job_finished("Export", "error",
-                           reason="Could not write C:\\Users\\kae\\Secret\\out.srt with key "
+                           reason="Could not write C:\\Users\\alex\\Secret\\out.srt with key "
                                   "sk-ant-ABCDEFGHIJKLMNOP. Second sentence.")
     ns.flush()
     red = _card(posts)
     assert red["title"] == "Failed \u00b7 Export" and red["color"] == ns.COLOR_FAIL
     _no_secret(red["description"])
-    assert "kae" not in red["description"] and "Second" not in red["description"]
+    assert "alex" not in red["description"] and "Second" not in red["description"]
 
 
 def test_the_card_links_the_title_only_with_a_remote_address(env, dns, posts, no_timer):
@@ -633,7 +633,7 @@ def test_the_card_links_the_title_only_with_a_remote_address(env, dns, posts, no
 def test_the_card_names_who_ran_it_only_with_several_accounts_and_never_an_email(env, dns, posts,
                                                                                 no_timer):
     _write(env, discord=DISCORD)
-    first = db.auth_create_user("kae@example.com", "Kae")
+    first = db.auth_create_user("alex@example.com", "Alex")
     ns.notify_job_finished("Export", "done", owner_user_id=first)
     ns.flush()
     assert "Run by" not in _fields(_card(posts))

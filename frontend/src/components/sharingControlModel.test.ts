@@ -10,7 +10,7 @@ import { flipSharing, sharingView } from './sharingControlModel'
 
 const me = (over: Partial<AuthMe> = {}): AuthMe => ({
   auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
-  user: { id: 7, email: null, display_name: 'Kae', is_admin: false, is_local_owner: false },
+  user: { id: 7, email: null, display_name: 'Alex', is_admin: false, is_local_owner: false },
   permissions: ['library.read', 'lines.edit'], ...over,
 })
 const ready = (m: AuthMe) => ({ status: 'ready' as const, me: m })

@@ -398,13 +398,13 @@ def test_a_failed_download_says_where_to_update_yt_dlp(client, env, monkeypatch)
 
 def test_download_failure_hides_raw_text(client, env, monkeypatch):
     def boom(self, url, download=True):
-        raise RuntimeError(f"HTTP 403 for {URL} at C:\\Users\\kae\\x")
+        raise RuntimeError(f"HTTP 403 for {URL} at C:\\Users\\alex\\x")
     monkeypatch.setattr(FakeYDL, "extract_info", boom)
     did = _drama()
     st = _run(client, did)
     assert st["status"] == "error"
     assert SECRET not in st["error"] and "video.example" not in st["error"]
-    assert "kae" not in st["error"] and "403" not in st["error"]
+    assert "alex" not in st["error"] and "403" not in st["error"]
     assert SECRET not in (st.get("traceback") or "")
     _no_tmp(did)
 
@@ -851,7 +851,7 @@ def test_a_specific_cause_wins_over_the_sign_in_it_also_mentions(raw, shown):
 
 
 def test_failure_reason_is_empty_for_anything_unrecognised_and_never_echoes_it():
-    assert svc._failure_reason(_caused_by("boom at C:\\Users\\kae\\x with sk-ant-api03-" + "a" * 40)) == ""
+    assert svc._failure_reason(_caused_by("boom at C:\\Users\\alex\\x with sk-ant-api03-" + "a" * 40)) == ""
     assert svc._failure_reason(RuntimeError("")) == ""
 
 
@@ -968,11 +968,11 @@ def test_error_snippet_can_keep_the_end_where_ffmpeg_names_the_failure():
 
 def test_error_snippet_scrubs_links_paths_and_tokens_and_is_capped():
     hostile = ("ERROR: [youtube] abc: unable to open https://rr1.googlevideo.com/v?sig=SECRETSIG&key=xyz "
-               "at C:\\Users\\kae\\AppData\\Local\\Temp\\x.part with sk-ant-api03-" + "a" * 40
+               "at C:\\Users\\alex\\AppData\\Local\\Temp\\x.part with sk-ant-api03-" + "a" * 40
                + " \x1b[31mred\x1b[0m\n" + "long " * 200)
     snippet = svc._error_snippet(hostile)
     assert 0 < len(snippet) <= svc.ERROR_SNIPPET_MAX
-    for leaked in ("googlevideo", "SECRETSIG", "kae", "sk-ant", "\x1b", "\n", "ERROR:"):
+    for leaked in ("googlevideo", "SECRETSIG", "alex", "sk-ant", "\x1b", "\n", "ERROR:"):
         assert leaked not in snippet
     assert svc._error_snippet(None) == "" and svc._error_snippet("  ") == ""
 

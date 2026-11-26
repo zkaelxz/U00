@@ -83,7 +83,7 @@ describe('stronger engine logic', () => {
     expect(tryErrorText(apiError(400, 'This would go over your monthly spending cap.'), 'Claude'))
       .toBe('This would go over your monthly spending cap.')
     // A path-like server message is dropped for a fixed sentence.
-    expect(tryErrorText(apiError(400, 'failed at /home/kae/x'), 'Claude')).toBe('Claude could not translate this line.')
+    expect(tryErrorText(apiError(400, 'failed at /home/alex/x'), 'Claude')).toBe('Claude could not translate this line.')
     expect(tryErrorText(apiError(403, 'no'), 'Claude')).toMatch(/isn't allowed to use paid engines/)
     expect(tryErrorText(apiError(429, 'busy'), 'Claude')).toMatch(/Another AI request is running/)
     expect(tryErrorText(apiError(503, 'No claude key'), 'Claude')).toMatch(/Claude isn't set up/)

@@ -79,6 +79,6 @@ describe('describeError additions', () => {
       title: 'Restoring needs RESTORE.',
       detail: null,
     })
-    expect(describeError(err(422, 'validation_error', 'bad /home/kae/x.zip'), { serverText: true }).title).toMatch(/not valid/)
+    expect(describeError(err(422, 'validation_error', 'bad /home/alex/x.zip'), { serverText: true }).title).toMatch(/not valid/)
   })
 })

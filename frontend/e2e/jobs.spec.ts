@@ -20,7 +20,7 @@ test('running jobs first, with title and stage links, a progress bar and live du
   // Active is the default while anything is active: the running job, then the queued one.
   await expect(rows(page)).toHaveCount(2)
   await expect(rows(page).nth(0)).toContainText('Translate Signal')
-  await expect(rows(page).nth(1)).toContainText('Dub Kae')
+  await expect(rows(page).nth(1)).toContainText('Dub Alex')
   const first = rows(page).first()
   await expect(first.getByRole('link', { name: 'Signal', exact: true })).toHaveAttribute('href', '#/drama/3')
   await expect(first.getByRole('link', { name: 'Translate', exact: true })).toHaveAttribute('href', '#/drama/3/translate')
@@ -71,7 +71,7 @@ test('status chips show counts and filters combine, then are remembered', async 
 
   await chip(page, /^Failed/).click()
   await expect(rows(page)).toHaveCount(1)
-  await expect(rows(page).first()).toContainText('Export Kae')
+  await expect(rows(page).first()).toContainText('Export Alex')
 
   await chip(page, /^All/).click()
   await page.getByLabel('Search jobs').fill('signal')
@@ -175,11 +175,11 @@ test('Cancel stops a running job; a refused cancel shows the server message', as
   await expect.poll(() => log.cancelled).toEqual(['translate_3'])
   // The next read says cancelled, so the job leaves Active.
   await expect(rows(page)).toHaveCount(1)
-  await expect(rows(page).first()).toContainText('Dub Kae')
+  await expect(rows(page).first()).toContainText('Dub Alex')
 
   await page.route('**/api/jobs/dub_4/cancel', (route) =>
     route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Already finishing.' } } }))
-  await rows(page).first().getByRole('button', { name: 'Cancel Dub Kae' }).click()
+  await rows(page).first().getByRole('button', { name: 'Cancel Dub Alex' }).click()
   await expect(page.getByRole('alert')).toBeVisible()
   await expect(rows(page)).toHaveCount(1)
 })
@@ -268,7 +268,7 @@ test('details show the full time and stage timing, fetched once on first open', 
   await expect(details).toBeVisible()
 
   const failed = page.getByTestId('job-row-burned_video_4')
-  await failed.getByRole('button', { name: 'Details for Export Kae' }).click()
+  await failed.getByRole('button', { name: 'Details for Export Alex' }).click()
   await expect(page.getByTestId('job-details-burned_video_4')).toContainText('Disk full')
 })
 
@@ -390,7 +390,7 @@ test('remote admin: Cancel on every job, no Delete, and Who and Mine show', asyn
   await expect(rows(page)).toHaveCount(2)
   await expect(page.getByRole('button', { name: 'Cancel Translate Signal' })).toBeVisible()
   // Owner decision 2026-10-12: an admin may stop a runaway job from away.
-  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel Dub Alex' })).toBeVisible()
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
   await expect(page.getByRole('columnheader', { name: 'Who' })).toBeVisible()
   await expect(page.getByTestId('job-row-dub_4')).toContainText('Someone else')
@@ -413,7 +413,7 @@ test('member: Cancel only on their own jobs, with the rule', async ({ page }) =>
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: me(['library.read', 'jobs.cancel'], { is_admin: false }) }))
   await page.goto('/#/jobs')
   await expect(page.getByRole('button', { name: 'Cancel Translate Signal' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Cancel Dub Alex' })).toHaveCount(0)
   await expect(page.getByTestId('jobs-cancel-note')).toHaveText('Only the person who started a job, the title’s owner or an admin can cancel it.')
 })
 
@@ -435,7 +435,7 @@ test('PC owner gets Cancel on every job', async ({ page }) => {
   await page.route('**/api/meta', (route) => route.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true } }))
   await page.route('**/api/auth/me', (route) => route.fulfill({ json: me(['library.read', 'jobs.cancel', 'admin.library', 'admin.users.read'], { is_local_owner: true }) }))
   await page.goto('/#/jobs')
-  await expect(page.getByRole('button', { name: 'Cancel Dub Kae' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Cancel Dub Alex' })).toBeVisible()
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 

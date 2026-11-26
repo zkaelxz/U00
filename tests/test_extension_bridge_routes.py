@@ -371,11 +371,11 @@ class TestMeteringAndMessages:
         from services import translate_service
 
         def boom(*a, **k):
-            raise RuntimeError("connect to http://10.0.0.5:11434 failed in C:\\Users\\kae")
+            raise RuntimeError("connect to http://10.0.0.5:11434 failed in C:\\Users\\alex")
         monkeypatch.setattr(translate_service, "translate_metered", boom)
         member = page_server.translate_text_block("你好", "zh", "en", member=True)
         owner = page_server.translate_text_block("你好", "zh", "en")
-        assert "10.0.0.5" not in str(member["notes"]) and "kae" not in str(member["notes"])
+        assert "10.0.0.5" not in str(member["notes"]) and "alex" not in str(member["notes"])
         assert "10.0.0.5" in str(owner["notes"])
 
 

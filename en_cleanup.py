@@ -41,7 +41,7 @@ _CJK_LETTER_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯\u0e01-\u0e5b]")
 _TAG_RE = re.compile(r"<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\}")
 # The local part is bounded: an unbounded one is quadratic on "a.a.a.a...".
 _URL_RE = re.compile(r"(?:https?://|www\.)\S+|\b[\w.+-]{1,64}@[\w-]+\.[\w.-]+\b", re.I)
-# "JOHN:" / "- Mary (O.S.):" at the start of a (physical) line.
+# "JOHN:" / "- Anna (O.S.):" at the start of a (physical) line.
 _LABEL_RE = re.compile(r"^([ \t]*(?:[-–—][ \t]*)?[^\W\d_][\w .'()\-]{0,24}?:)(?=[ \t])", re.M)
 
 _FULLWIDTH_PUNCT = {

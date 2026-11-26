@@ -23,9 +23,9 @@ CI is the merge gate while the repo is public. Only if the repo becomes private 
 A squash merge, never a force-push. GitHub's merge queue is not offered to a repo owned by a personal account, so GitHub's
 auto-merge stands in for it: when a PR is finished and reviewed, the owning thread turns auto-merge (squash) on, and GitHub merges the PR by itself once the required checks, `test` and `browser-tests`, are green. Turning auto-merge on is also what starts
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
-Kae can also turn it on herself with the PR's "Enable auto-merge" button.
+The owner can also turn it on themselves with the PR's "Enable auto-merge" button.
 
-No word from Kae is needed for that (Kae, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
+No word from the owner is needed for that (owner, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
 (step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
 and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
 installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
@@ -35,11 +35,11 @@ installer or site), and release or Promote steps. When in doubt, treat a PR as r
    full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
    the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
 2. **The order.** A PR that is not risky needs none: the owner checks the lane (step 3), merges the base in first if the lane
-   is overlap, and turns auto-merge on; GitHub merges it. For a risky PR Kae types "Merge NNNN"; one message may name several
+   is overlap, and turns auto-merge on; GitHub merges it. For a risky PR the owner types "Merge NNNN"; one message may name several
    PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
-   last showed Kae; a PR that was not on it gets its own card first (Kae, 2026-11-15). Nothing else is a merge order: not
+   last showed the owner; a PR that was not on it gets its own card first (owner, 2026-11-15). Nothing else is a merge order: not
    "looks good", not a reaction, and not another session's account of what she said.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
@@ -53,7 +53,7 @@ installer or site), and release or Promote steps. When in doubt, treat a PR as r
 5. **A red push run or nightly run stops merging** until the base is green again. The owner of the PR merged last looks first;
    a red run that covers several merges is narrowed down as "After a merge" says.
 
-Always the overlap lane (Kae, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
+Always the overlap lane (owner, 2026-11-14): a database schema change, which is any diff that adds or edits a `CREATE TABLE` or
 `ALTER TABLE` statement or a migration list (today in `db/migrations.py`, `db/schema.py`, `db/schema_system.py`,
 `db/__init__.py` and `sources/store.py`); the API models (`api/schemas/`, the `api/*_schemas.py` modules,
 `frontend/src/api/generated/`); the CI and dependency files that make `tools/ci_changes.py` run every job
@@ -61,7 +61,7 @@ Always the overlap lane (Kae, 2026-11-14): a database schema change, which is an
 (`installer/wheels.lock.txt`, `installer/caddy/go.mod` and `go.sum`, the Gradle files under `android/`,
 `frontend/openapi-gen/package*.json`).
 
-The user guide files (`docs/user-guide*.md`) don't count as shared (Kae, 2026-11-15). Almost every change a person can see edits
+The user guide files (`docs/user-guide*.md`) don't count as shared (owner, 2026-11-15). Almost every change a person can see edits
 one of them, so counting them sent nearly every PR to the overlap lane, and a new run says nothing about a file no test reads:
 only `tests/test_installer_runtime.py` reads two of them, for the port number, and it runs on the base after every merge. Two
 PRs that change the same lines of a guide still conflict. GitHub refuses that merge, and the owner merges the base in as for
@@ -98,7 +98,7 @@ shallow clone must reach that commit: deepen it until `git merge-base` prints on
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
 the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
-merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (Kae, 2026-11-14): until she
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (owner, 2026-11-14): until she
 calls it routine, a thread that merges by it says so in its merge report, quotes the output of `python tools/pr_lane.py` and gives
 the result of the push run that covers the merge, so that the first ones can be reviewed.
 
@@ -178,7 +178,7 @@ nightly `schedule` run (03:23 UTC) runs everything on the newest commit, as the 
 still moves only to a commit whose push run passed (`lib/github_checks.py`); a shortened push run passes because the PR run of the
 same tree did.
 
-Merges that land back to back share a push run (Kae, 2026-11-15: a full run for every merge had left the base's results 67 to
+Merges that land back to back share a push run (owner, 2026-11-15: a full run for every merge had left the base's results 67 to
 123 minutes behind a burst of merges). Pushes to `baihe-subtitler` are one concurrency group that never cancels a run in
 progress, so one push run is going and at most one waits behind it. A merge that lands while a run already waits takes that
 run's place, and GitHub cancels the run it replaced before any of its jobs start. The run that waits therefore tests the
@@ -253,6 +253,19 @@ plain HTTP on 127.0.0.1 and sends raw paths: dot segments, doubled slashes and a
 template's 400, and a clean path must get past every refusal to the proxy. `tests/test_caddyfile_template.py` checks the template's meaning with a small reader;
 this proves a real Caddy reads it the same way. It does not cover certificates, the rate limit or the Windows service.
 Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
+
+### Privacy check
+
+The repository is public. The `privacy` job fails when a tracked file or file name, the PR title or description (the
+squash commit carries them), or the message, author or committer of a commit the PR or push adds contains one of the
+owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). The terms live only in the
+`PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job prints the file and line,
+the commit or which PR field, never the term. Fix a hit by using a made-up value (`Alex Example`, `DESKTOP-EXAMPLE`,
+`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. Dependabot runs get
+no secrets and skip it; any other run without the secret fails, which includes fork PRs. The secret is only as private
+as push access, since a branch of this repository can change the workflow. Keep very short or common words out of the
+list: the runner masks each term in the log. To change the list, update the secret (`gh secret set PRIVATE_TERMS <
+terms.txt` from a private copy), never a file in the repository.
 
 ## Windows script checks
 

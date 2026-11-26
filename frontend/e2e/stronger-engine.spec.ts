@@ -139,7 +139,7 @@ test('a 403 try: no lines.read gets the plain note, otherwise the paid-engine re
   await page.route('**/api/stronger-engine/dramas/3/lines/*/try', (route: Route) => route.fulfill(forbidden))
   const me = (permissions: string[]) => ({
     auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet',
-    user: { id: 7, email: 'kae@example.com', display_name: 'Kae', is_admin: false, is_local_owner: false },
+    user: { id: 7, email: 'alex@example.com', display_name: 'Alex', is_admin: false, is_local_owner: false },
     permissions,
   })
   const base = ['library.read', 'lines.edit', 'review.use', 'jobs.start', 'jobs.cancel']

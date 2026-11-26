@@ -88,14 +88,14 @@ describe('report bundle', () => {
 
   it('the save-failed link has no planted key, token or Windows user path', () => {
     const key = 'sk-ant-api03-SECRETSECRETSECRET123456'
-    const win = String.raw`C:\Users\kaewinuser\AppData\Local\Baihe\library\library.db`
+    const win = String.raw`C:\Users\alexwinuser\AppData\Local\Baihe\library\library.db`
     const notes = `Crashed with ${key} at ${win}; see https://bob:hunter2@cdn.example.com/a.png?X-Amz-Signature=zz9&token=abc and /home/someoneelse/x.txt Cookie: sid=cookieval`
     const r = sanitizeReport(buildReport({ whatHappened: notes, expected: `also ${win}`, includeServerLog: true },
       { ...snap, console: [{ level: 'error', message: `boom ${key} ${win}`, at: '12:00:06' }] }, meta, env, 'local'))
     const md = sanitizeText(clientMarkdown(r))
     const { url } = githubIssueUrl(r, md)
     const decoded = decodeURIComponent(url)
-    for (const bad of [key, 'SECRETSECRET', 'kaewinuser', 'AppData', 'someoneelse', 'bob', 'hunter2', 'zz9', 'token=abc', 'cookieval']) {
+    for (const bad of [key, 'SECRETSECRET', 'alexwinuser', 'AppData', 'someoneelse', 'bob', 'hunter2', 'zz9', 'token=abc', 'cookieval']) {
       expect(decoded).not.toContain(bad)
       expect(md).not.toContain(bad)
     }

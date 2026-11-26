@@ -150,7 +150,7 @@ describe('changed fields only', () => {
   it('shows the server sentence for a refused folder, never a path', () => {
     expect(serverSentence(new ApiError(422, { code: 'invalid_input', message: "That backup folder doesn't exist. Create it first." })))
       .toBe("That backup folder doesn't exist. Create it first.")
-    const pathy = new ApiError(422, { code: 'invalid_input', message: 'Bad folder /home/kae/secret' })
+    const pathy = new ApiError(422, { code: 'invalid_input', message: 'Bad folder /home/alex/secret' })
     expect(serverSentence(pathy)).toBe('Some of the values entered are not valid. Check them and try again.')
     expect(serverSentence(pathy, FOLDER_RULES)).toBe(FOLDER_RULES)
     expect(FOLDER_RULES).toContain('D:\\Backups')

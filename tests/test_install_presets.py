@@ -60,12 +60,12 @@ def test_service_install_and_upgrade_commands_carry_the_flags(monkeypatch):
 
 
 WIN_LINE = ("ERROR: Could not install packages due to an OSError: [Errno 13] Permission denied: "
-            "'C:\\users\\kae\\appdata\\local\\pip\\cache\\wheels\\ab\\jieba-0.42.1-py3-none-any.whl'")
+            "'C:\\users\\alex\\appdata\\local\\pip\\cache\\wheels\\ab\\jieba-0.42.1-py3-none-any.whl'")
 
 
 @pytest.mark.parametrize("lines,hinted", [
     ([WIN_LINE], True),
-    (["Permission denied: '/home/kae/.cache/pip/wheels/x.whl'"], True),
+    (["Permission denied: '/home/alex/.cache/pip/wheels/x.whl'"], True),
     (["ERROR: No matching distribution found for cv2"], False),
     (["Permission denied: 'C:\\Program Files\\Python312\\Lib\\site-packages\\x'"], False),
 ])
@@ -83,7 +83,7 @@ def test_failed_install_returns_the_hint_even_though_output_is_redacted(monkeypa
     monkeypatch.setattr(packages_svc, "stream_tree", fake)
     out = packages_svc._run_commands([(["pip"], 1)])
     assert out["ok"] is False and out["hint"] == diagnostics.PIP_CACHE_PERMISSION_HINT
-    assert "kae" not in " ".join(out["output_tail"])
+    assert "alex" not in " ".join(out["output_tail"])
 
 
 def test_success_has_no_hint(monkeypatch):

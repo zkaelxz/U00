@@ -42,11 +42,11 @@ describe('assistant page helpers', () => {
     expect(assistantErrorText(new ApiError(409, { code: 'conflict', message: 'Developer Mode is off.' }))).toBe(MODE_OFF_TEXT)
     expect(assistantErrorText(new ApiError(503, { code: 'dependency_unavailable', message: 'sk-abcdefghijk missing' }))).toBe(NO_KEY_TEXT)
     expect(assistantErrorText(new ApiError(422, { code: 'validation_error', message: 'Unknown git ref.' }))).toBe('Unknown git ref.')
-    expect(assistantErrorText(new ApiError(422, { code: 'validation_error', message: 'bad /home/kae/repo/x' }))).toBe(
+    expect(assistantErrorText(new ApiError(422, { code: 'validation_error', message: 'bad /home/alex/repo/x' }))).toBe(
       'Some of the values entered are not valid. Check them and try again.',
     )
     expect(assistantErrorText(new ApiError(0, { code: 'network_error', message: 'x' }))).toBe('Could not reach Baihe. Make sure it is still running on this PC.')
-    expect(assistantErrorText(new ApiError(500, { code: 'internal_error', message: 'C:\\Users\\kae\\key.txt' }))).not.toMatch(/Users/)
+    expect(assistantErrorText(new ApiError(500, { code: 'internal_error', message: 'C:\\Users\\alex\\key.txt' }))).not.toMatch(/Users/)
     expect(isAssistantForbidden(new ApiError(403, { code: 'forbidden', message: '' }))).toBe(true)
     expect(isAssistantForbidden(new ApiError(404, { code: 'not_found', message: '' }))).toBe(false)
     expect(isAssistantForbidden(null)).toBe(false)

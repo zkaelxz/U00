@@ -76,7 +76,7 @@ def _profiles_available(request: Request):
 
 
 @router.post("/pc-profile/unlock", dependencies=[local_only(), Depends(_profiles_available)], response_model=PcProfileStatus,
-             summary="Switch the PC window to Kae with the PIN")
+             summary="Switch the PC window to Owner with the PIN")
 def pc_profile_unlock(body: PcProfilePinRequest):
     return PcProfileStatus(**pc_profile_service.unlock(body.pin))
 

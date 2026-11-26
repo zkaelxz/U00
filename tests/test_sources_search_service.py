@@ -60,7 +60,7 @@ def _make(name, routes=None, search_exc=None, series_exc=None, on_request=None):
         if series_exc:
             raise series_exc
         return SeriesInfo(name, series_id, "Series T", f"{HOST}/series/{series_id}?t={SECRET}",
-                          description=f"see C:\\Users\\kae\\lib and key {SECRET}")
+                          description=f"see C:\\Users\\alex\\lib and key {SECRET}")
 
     def get_chapters(self, series_id):
         return [ChapterInfo(name, series_id, "c1", "第1话", f"{HOST}/c/1?x=1"),
