@@ -278,6 +278,19 @@ public class MainActivity extends Activity {
         if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
         if (web == null) return;
         web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
+        // The window animates between sizes, so the WebView can be left laid out for the small one (page zoomed
+        // in after returning, black picture): ask for the layout and the page's viewport again once it settles.
+        refreshAfterResize();
+        web.postDelayed(this::refreshAfterResize, 350);
+    }
+
+    private void refreshAfterResize() {
+        if (web == null) return;
+        web.requestLayout();
+        web.invalidate();
+        web.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]');"
+                + "if(m){var c=m.content;m.content='';m.content=c;}"
+                + "window.dispatchEvent(new Event('resize'));})()", null);
     }
 
     /** The clipboard can only be read while this window has focus (Android 10+). */
