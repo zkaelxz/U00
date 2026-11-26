@@ -34,8 +34,9 @@ import emotion
 import core as core_module
 import job_timing
 from services import (glossary_inbox_service, language_pack_service, line_provenance_service,
-                      novel_files_service, ownership_service, profile_service, run_settings_service,
-                      settings_service, site_captions_service, timing_settings_service, vdb_names_service)
+                      novel_files_service, novel_genre_service, ownership_service, profile_service,
+                      run_settings_service, settings_service, site_captions_service,
+                      timing_settings_service, vdb_names_service)
 from lib.errors import ConflictError, InvalidInputError
 
 
@@ -734,7 +735,8 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
     # drama): same per-content-mode default the shared
     # translate-finishing helper uses.
     style_preset = last.get("style_preset") or ("novel" if is_novel else "audio_drama")
-    style_note = last.get("style_note", default_style_note)
+    style_note = (last["style_note"] if "style_note" in last
+                  else novel_genre_service.default_style_note(drama, default_style_note))
     locale = default_locale if locale_is_explicit else last.get("locale", default_locale)
     glossary_terms, style_guidelines, _ = build_run_style_context(
         did, drama, lines, style_preset, include_genre_notes=include_genre_notes,
