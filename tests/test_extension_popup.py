@@ -313,3 +313,15 @@ def test_the_clean_and_typeset_switch_is_in_the_always_visible_area_not_on_the_a
     auto = html[html.index('id="panel-auto"'):html.index("</section>", html.index('id="panel-auto"'))]
     assert 'id="typeset"' not in auto
     assert html.index('id="typeset"') < html.index('id="tab-page"')
+
+
+def _picked(store):
+    return js(f"(() => {{ els.store.checked = {json.dumps(store)}; els.drama.value = '5'; return pickedDrama(); }})()")
+
+
+def test_quick_translate_ignores_the_title_picked_earlier():
+    assert _picked(False) is None
+
+
+def test_saving_uses_the_picked_title():
+    assert _picked(True) == 5

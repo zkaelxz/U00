@@ -36,7 +36,7 @@ const TYPESET_STYLE_DEFAULTS = { align: "auto", minFont: 0, stroke: false, erase
 
 async function settings() {
   const stored = await chrome.storage.local.get(
-    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "typesetStyle", "screenshot"]);
+    ["token", "serverUrl", "dramaBySite", "overlay", "textDirection", "autoTitle", "typeset", "typesetStyle", "screenshot", "quickTranslate"]);
   return {
     autoTitle: { ...AUTO_TITLE_DEFAULTS, ...(stored.autoTitle || {}) },
     token: stored.token || "",
@@ -49,6 +49,8 @@ async function settings() {
     // Off by default: a screenshot is only for pages the browser will not let the script read.
     screenshot: stored.screenshot === true,
     textDirection: stored.textDirection || { source: "zh", target: "en" },
+    // Off by default so existing readers keep saving pages into a title.
+    quickTranslate: stored.quickTranslate === true,
   };
 }
 

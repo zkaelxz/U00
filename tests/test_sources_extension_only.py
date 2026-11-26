@@ -277,6 +277,11 @@ def test_scheduled_check_skips_quietly(isolated_db):
     "https://www.blacktoon.com/webtoon/1.html",
     "https://mangafire.to/title/70px7-example",
     "https://www.kagane.moe/series/example",
+    "https://syosetu.org/novel/12345/1.html",
+    "https://novelpia.com/novel/1",
+    "https://novel.naver.com/webnovel/list?novelId=1",
+    "https://novel18.syosetu.com/n0000aa/1/",
+    "https://soraraw.com/manga/example-1/ch-1",
 ])
 def test_challenge_protected_sites_stop_early_without_a_marker(isolated_db, url):
     with pytest.raises(ext.ExtensionOnlyError):
