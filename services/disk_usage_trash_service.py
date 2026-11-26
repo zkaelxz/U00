@@ -145,6 +145,13 @@ def trash_restore(trash_id, confirm=False) -> dict:
             raise ConflictError("Couldn't put it back (it may be in use), so nothing was "
                                 "changed.", details={"reason": "cannot_restore"}) from None
         _drop_entry_shell(entry)
+        if manifest["kind"] == "file":
+            from services import raw_video_cleanup_service
+            # The file is back either way; failing to rename it onto its title must not fail the restore.
+            try:
+                raw_video_cleanup_service.reattach_after_restore(manifest["parts"])
+            except Exception:
+                pass
         return {"name": manifest["parts"][-1], "kind": manifest["kind"],
                 "size_bytes": meas["size"], "file_count": meas["files"]}
 

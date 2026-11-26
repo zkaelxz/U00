@@ -93,3 +93,26 @@ def test_a_missing_audio_file_keeps_the_video_out(c):
     did = _title()
     os.remove(os.path.join(db.drama_dir(did), "audio.flac"))
     assert c.get(BASE).json()["videos"] == []
+
+
+def test_restore_from_trash_puts_the_video_back_on_its_title(c):
+    did = _title()
+    video = c.get(BASE).json()["videos"][0]
+    c.post(BASE + "/to-trash", json={"videos": [{"id": video["id"], "expected_size_bytes": 500}], "confirm": True})
+    assert db.get_drama(did)["source_video_filename"] is None
+    entry = c.get("/api/data-usage/trash").json()["items"][0]
+    done = c.post("/api/data-usage/trash/restore", json={"id": entry["id"], "confirm": True})
+    assert done.status_code == 200, done.text
+    assert db.get_drama(did)["source_video_filename"] == "source.mp4"
+    assert os.path.exists(os.path.join(db.drama_dir(did), "source.mp4"))
+    assert [v["title"] for v in c.get(BASE).json()["videos"]] == ["Show"]  # offered again, as before
+
+
+def test_restore_leaves_a_video_added_meanwhile_alone(c):
+    did = _title()
+    video = c.get(BASE).json()["videos"][0]
+    c.post(BASE + "/to-trash", json={"videos": [{"id": video["id"], "expected_size_bytes": 500}], "confirm": True})
+    db.update_drama(did, source_video_filename="newer.mp4")
+    entry = c.get("/api/data-usage/trash").json()["items"][0]
+    c.post("/api/data-usage/trash/restore", json={"id": entry["id"], "confirm": True})
+    assert db.get_drama(did)["source_video_filename"] == "newer.mp4"
