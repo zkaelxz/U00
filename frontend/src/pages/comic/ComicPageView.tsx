@@ -47,30 +47,24 @@ type Props = {
 export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, boxText, onLineTap, flashBoxes, menu, peekSrc, onProblem, figureRef }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [peeking, setPeeking] = useState(false)
-  const touched = useRef(false)
-  const menuTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const endPress = () => {
-    clearTimeout(menuTimer.current)
-    setPeeking(false)
-  }
+  const [touched, setTouched] = useState(false)
   // A phone has no right-click, so holding on after the peek is still how its page menu opens.
-  const onLongPress = menu
-    ? peekSrc
-      ? () => {
-          setPeeking(true)
-          menuTimer.current = setTimeout(() => {
-            setPeeking(false)
-            setMenuOpen(true)
-          }, MENU_AFTER_PEEK_MS)
-        }
-      : () => setMenuOpen(true)
-    : undefined
+  useEffect(() => {
+    if (!peeking) return undefined
+    const t = setTimeout(() => {
+      setPeeking(false)
+      setMenuOpen(true)
+    }, MENU_AFTER_PEEK_MS)
+    return () => clearTimeout(t)
+  }, [peeking])
+  const onLongPress = menu ? (peekSrc ? () => setPeeking(true) : () => setMenuOpen(true)) : undefined
   const shownSrc = peeking && peekSrc ? peekSrc : src
   const [press] = useState(() => longPress())
-  useEffect(() => () => {
+  useEffect(() => press.cancel, [press])
+  const endPress = () => {
     press.cancel()
-    clearTimeout(menuTimer.current)
-  }, [press])
+    setPeeking(false)
+  }
   const [problem, setProblem] = useState<{ src: string; kind: ImageProblem } | null>(null)
   const shownProblem = problem && problem.src === shownSrc ? problem.kind : null
   const w = page.width && page.width > 0 ? page.width : null
@@ -148,17 +142,17 @@ export function ComicPageView({ page, number, count, src, fit, eager, mounted = 
             onError={onError}
             // Touch only: a mouse has the right-click, and holding its button is how a zoomed page is dragged.
             onPointerDown={onLongPress ? (e) => {
-              touched.current = e.pointerType !== 'mouse'
-              if (touched.current) press.down({ x: e.clientX, y: e.clientY }, e.isPrimary ? 1 : 2, onLongPress)
+              setTouched(e.pointerType !== 'mouse')
+              if (e.pointerType !== 'mouse') press.down({ x: e.clientX, y: e.clientY }, e.isPrimary ? 1 : 2, onLongPress)
             } : undefined}
             onPointerMove={onLongPress ? (e) => press.move({ x: e.clientX, y: e.clientY }) : undefined}
-            onPointerUp={() => { press.cancel(); endPress() }}
-            onPointerCancel={() => { press.cancel(); endPress() }}
-            onPointerLeave={() => { press.cancel(); endPress() }}
+            onPointerUp={endPress}
+            onPointerCancel={endPress}
+            onPointerLeave={endPress}
             onContextMenu={onLongPress ? (e) => {
               e.preventDefault()
               // The browser's own touch long-press also fires this; the hold timers above already handle touch.
-              if (peekSrc && touched.current) return
+              if (peekSrc && touched) return
               press.cancel()
               setMenuOpen(true)
             } : undefined}
