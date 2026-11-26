@@ -129,6 +129,21 @@ def wav_seconds(path: str) -> Optional[float]:
 SHORTFALL_SLACK_SECONDS = 0.5
 
 
+# The first chunk has no earlier audio to overlap, so it closes sooner to put
+# the first subtitles on screen earlier; Whisper hears less context there.
+FIRST_CHUNK_FRACTION = 0.5
+MIN_FIRST_CHUNK_SECONDS = 2.0
+
+
+def first_chunk_lead_in(segment_seconds: float) -> float:
+    """Seconds of silence to put before the audio so the first chunk closes
+    after max(MIN_FIRST_CHUNK_SECONDS, half a segment) of real audio instead of
+    a whole segment. 0.0 when a segment is too short to gain a second."""
+    first = max(MIN_FIRST_CHUNK_SECONDS, segment_seconds * FIRST_CHUNK_FRACTION)
+    lead = segment_seconds - first
+    return lead if lead >= 1.0 else 0.0
+
+
 def jump_seconds(chunk_seconds: float, segment_seconds: float) -> float:
     """How far a chunk moves every later chunk off its index's slot in real
     time. ffmpeg cuts at fixed points on the stream's clock, so after a
