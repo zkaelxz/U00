@@ -255,3 +255,15 @@ def test_a_picture_that_failed_may_be_sent_again_in_the_same_run(pipeline, monke
     assert _run([_b64_image(240)], **run)["failed"]
     monkeypatch.setattr(page_server, "translate_image", real)
     assert [p["key"] for p in _run([_b64_image(240)], **run)["pages"]] == ["p240"]
+
+
+def test_a_page_asked_again_in_the_same_run_is_answered_not_skipped(pipeline):
+    run = {"run_id": "run-repeat-0005"}
+    first = _run([_b64_image(240), _b64_image(200)], **run)
+    assert [p["key"] for p in first["pages"]] == ["p240", "p200"]
+    # The phone lost the connection before p200 arrived and asks for it again.
+    again = _run([_b64_image(200)], **run)
+    assert [p["key"] for p in again["pages"]] == ["p200"] and not again["skipped"]
+    # A copy of it under another key is still a repeat.
+    copy = _run([{**_b64_image(200), "key": "copy"}], **run)
+    assert copy["pages"] == [] and copy["skipped"][0]["key"] == "copy"
