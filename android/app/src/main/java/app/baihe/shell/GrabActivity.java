@@ -1140,6 +1140,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 });
     }
 
+    /** A run to the last chapter can be hundreds of chapters, so the size and cost are shown before it starts. */
+    private void confirmUntilEnd(java.util.function.IntConsumer onChosen) {
+        new AlertDialog.Builder(this)
+                .setTitle("Keep going to the last chapter?")
+                .setMessage("This can run up to " + GrabQueue.UNTIL_END + " chapters, one after another, while this phone "
+                        + "stays on and Grab stays open (roughly 2 to 5 minutes each). It stops by itself when the site has "
+                        + "no next chapter or the next one was grabbed before. With a billed engine every page of every "
+                        + "chapter is billed until your PC's monthly cap stops it. Stop ends it at any time.")
+                .setPositiveButton("Keep going", (d, w) -> onChosen.accept(GrabQueue.UNTIL_END))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     /** A chapter count, or the last chapter of the series, handed to onChosen; the same question wherever chapters are followed. */
     private void askChapterCount(String title, String message, String defaultCount, String confirm,
                                   java.util.function.IntConsumer onChosen) {
@@ -1161,7 +1174,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 .setView(form)
                 .setPositiveButton(confirm, (d, w) -> {
                     if (toEnd.isChecked()) {
-                        onChosen.accept(GrabQueue.UNTIL_END);
+                        confirmUntilEnd(onChosen);
                         return;
                     }
                     int n = 0;
