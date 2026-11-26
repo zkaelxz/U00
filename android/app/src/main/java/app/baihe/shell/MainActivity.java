@@ -20,8 +20,11 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
 
 import java.io.File;
 import java.security.SecureRandom;
@@ -53,6 +56,42 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        String crash = CrashLog.takePending(this);
+        if (crash != null) {
+            showCrash(crash);
+            return;
+        }
+        startUp();
+    }
+
+    /**
+     * After a crash the trace is shown before anything else runs, so a start-up crash that repeats
+     * can still be read, copied and sent instead of the app just closing again.
+     */
+    private void showCrash(String trace) {
+        TextView text = new TextView(this);
+        text.setText("Baihe closed unexpectedly last time. Copy this and send it so it can be fixed:\n\n" + trace);
+        text.setTextIsSelectable(true);
+        text.setPadding(32, 32, 32, 32);
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(text);
+        Button again = new Button(this);
+        again.setText("Open Baihe");
+        again.setOnClickListener(v -> startUp());
+        Button copy = new Button(this);
+        copy.setText("Copy");
+        copy.setOnClickListener(v -> ((android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE))
+                .setPrimaryClip(android.content.ClipData.newPlainText("Baihe crash", trace)));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setFitsSystemWindows(true);
+        root.addView(scroll, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        root.addView(copy);
+        root.addView(again);
+        setContentView(root);
+    }
+
+    private void startUp() {
         web = new WebView(this);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
@@ -157,7 +196,11 @@ public class MainActivity extends Activity {
         }), "BaiheShell");
         setContentView(page());
         open(getIntent());
-        AlertSchedule.ensure(this);
+        try {
+            AlertSchedule.ensure(this);
+        } catch (RuntimeException e) {
+            // Some phones refuse the job; alerts then stay off but the app must still open.
+        }
         if (Build.VERSION.SDK_INT >= 33 && !prefs().getBoolean("alerts_asked", false)) {
             prefs().edit().putBoolean("alerts_asked", true).apply();
             askForAlertPermission();
@@ -231,6 +274,7 @@ public class MainActivity extends Activity {
     public void onPictureInPictureModeChanged(boolean inPip, android.content.res.Configuration config) {
         super.onPictureInPictureModeChanged(inPip, config);
         if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
+        if (web == null) return;
         web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
     }
 
@@ -238,7 +282,7 @@ public class MainActivity extends Activity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (!hasFocus || customView != null || savedAddress() == null) return;
+        if (!hasFocus || web == null || customView != null || savedAddress() == null) return;
         String link = ClipboardOffer.pending(this);
         if (link != null) offerClipboardLink(link);
     }
@@ -266,13 +310,13 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        open(intent);
+        if (web != null) open(intent);
     }
 
     @Override
     public void onBackPressed() {
         if (customView != null) exitCustomView();
-        else if (web.canGoBack()) web.goBack();
+        else if (web != null && web.canGoBack()) web.goBack();
         else super.onBackPressed();
     }
 
@@ -460,6 +504,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        if (web == null) return;
         web.removeCallbacks(poll);
         poll.run();
     }
@@ -467,7 +512,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
-        web.removeCallbacks(poll);
+        if (web != null) web.removeCallbacks(poll);
     }
 
     private File updateFile() {
