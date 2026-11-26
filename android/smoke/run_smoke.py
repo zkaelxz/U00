@@ -30,13 +30,28 @@ def shell(*args, **kw):
     return adb("shell", *args, **kw)
 
 
-def screen_nodes():
+def _dump():
     shell("uiautomator", "dump", "/sdcard/smoke-ui.xml", check=False)
     xml = adb("exec-out", "cat", "/sdcard/smoke-ui.xml", check=False)
     try:
         return list(ET.fromstring(xml).iter("node"))
     except ET.ParseError:
         return []
+
+
+def screen_nodes():
+    nodes = _dump()
+    # A freshly booted emulator on a small runner often makes its own launcher or Google app stall, and Android's
+    # "isn't responding" box then covers the screen. Waiting it out is not the app's fault; the app's own box is
+    # left alone so the test still fails on it.
+    box = next((n for n in nodes if "isn't responding" in (n.get("text") or "")
+                and "Baihe" not in (n.get("text") or "")), None)
+    wait = next((n for n in nodes if n.get("text") == "Wait"), None)
+    if box is not None and wait is not None:
+        tap(wait)
+        time.sleep(2)
+        return _dump()
+    return nodes
 
 
 def find(text=None, desc=None):
@@ -112,6 +127,9 @@ def run(apk):
         adb("wait-for-device")
         adb("root", check=False)
         adb("wait-for-device")
+        # Lets the launcher and Google services finish starting before the app is put in front of them.
+        shell("input", "keyevent", "KEYCODE_HOME", check=False)
+        time.sleep(20)
         adb("logcat", "-b", "all", "-c", check=False)
         adb("install", "-r", apk, timeout=180)
         # Granted up front so Android's notification prompt does not sit over the screens being checked.
@@ -121,7 +139,7 @@ def run(apk):
 
         def launch():
             shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
-            wait_for("the Baihe address question", lambda: find(text="Baihe address"))
+            wait_for("the Baihe address question", lambda: find(text="Baihe address"), 60)
 
         def sign_address():
             field = wait_for("the address box", lambda: next(
