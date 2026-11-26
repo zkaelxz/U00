@@ -148,6 +148,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
         AdHosts.setExtra(prefs().getString(KEY_EXTRA_ADS, ""));
+        // Sign-in on YouTube, Twitch and similar sites sets cookies from a second site, which a WebView drops by default.
+        android.webkit.CookieManager.getInstance().setAcceptThirdPartyCookies(web, true);
         web.setWebChromeClient(new android.webkit.WebChromeClient() {
             @Override
             public boolean onCreateWindow(WebView view, boolean dialog, boolean userGesture, android.os.Message resultMsg) {
@@ -985,6 +987,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     protected void onStop() {
         super.onStop();
+        // Android writes cookies to disk on its own schedule; a login made just before the app is killed would be lost.
+        android.webkit.CookieManager.getInstance().flush();
         AppUpdate.screenStopped(this);
     }
 
