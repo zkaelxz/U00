@@ -73,6 +73,19 @@ final class ShellSettings {
             host.themeChanged(dark);
         }
 
+        /** The build line and the kept crash text as JSON, for Baihe's own "Report a problem" dialog; "{}" if it cannot be built. */
+        @JavascriptInterface
+        public String diagnostics() {
+            try {
+                return new org.json.JSONObject()
+                        .put("phone", ProblemReport.phoneInfo(BuildConfig.VERSION_CODE,
+                                android.os.Build.VERSION.SDK_INT, android.os.Build.MODEL))
+                        .put("crash", CrashLog.recent(context)).toString();
+            } catch (org.json.JSONException | RuntimeException e) {
+                return "{}";
+            }
+        }
+
         @JavascriptInterface
         public void checkForUpdates() {
             host.checkForUpdates();

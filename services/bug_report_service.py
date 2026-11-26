@@ -309,6 +309,8 @@ def _clean_client(c: dict) -> dict:
         "build_id": _scrub(c.get("build_id"), 120),
         "user_agent": _scrub(c.get("user_agent"), 500),
         "page_title": _scrub(c.get("page_title"), 200),
+        "phone_info": _scrub(c.get("phone_info"), 300),
+        "phone_crash": _scrub(c.get("phone_crash"), 8000),
         "viewport": {k: viewport.get(k) for k in ("width", "height", "dpr")
                      if isinstance(viewport.get(k), (int, float))},
         "mode": c.get("mode") if c.get("mode") in ("pc", "lan", "remote", "unknown") else "unknown",
@@ -354,6 +356,10 @@ def build_markdown(report: dict, include_server: bool = True) -> str:
            "- Screenshot: " + ("saved with the report on the PC (attach it by hand)"
                                if report.get("has_screenshot") else "none"),
            ""]
+    if c.get("phone_info") or c.get("phone_crash"):
+        out += ["## Phone app\n", f"- Phone: {_cell(c.get('phone_info')) or '(unknown)'}", ""]
+        if c.get("phone_crash"):
+            out += ["### Last crash the phone kept\n", _fence(c["phone_crash"]), ""]
     if c["route_history"]:
         out.append("## Recent pages\n")
         out += [f"- {_cell(r.get('at'))} `{r.get('route', '')}`" for r in c["route_history"]]
