@@ -14,6 +14,9 @@ final class GrabQueue {
 
     static final int MAX_QUEUED = 500;
     static final int MAX_HISTORY = 50;
+    static final int MAX_CHAPTERS = 20;
+    /** Stored as the chapter count of a run that goes on until the site has no next chapter. */
+    static final int UNTIL_END = 500;
 
     static final class Item {
         final String url;
@@ -53,6 +56,27 @@ final class GrabQueue {
         List<Item> out = new ArrayList<>();
         for (Item item : queue) if (!item.url.equals(url)) out.add(item);
         return out;
+    }
+
+    /** Any count above the pick-a-number cap means the run was asked to go to the last chapter. */
+    static boolean untilEnd(int chapters) {
+        return chapters > MAX_CHAPTERS;
+    }
+
+    static String chaptersLabel(int chapters) {
+        if (untilEnd(chapters)) return "to the last chapter";
+        return chapters + (chapters == 1 ? " chapter" : " chapters");
+    }
+
+    /** The site a queued page is on, so a queue that mixes sites tells its rows apart. */
+    static String siteOf(String url) {
+        try {
+            String host = new URI(url == null ? "" : url).getHost();
+            if (host == null) return "";
+            return host.toLowerCase(java.util.Locale.ROOT).replaceFirst("^www\\.", "");
+        } catch (java.net.URISyntaxException e) {
+            return "";
+        }
     }
 
     /** The page's title, or its host when it has none, short enough for one line of a list. */

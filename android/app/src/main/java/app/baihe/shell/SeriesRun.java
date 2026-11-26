@@ -113,6 +113,14 @@ final class SeriesRun {
         return done.message.startsWith("Sent ");
     }
 
+    /** Whether a finished run already sent this chapter, so a run to the last chapter can stop where an earlier one got to. */
+    static boolean alreadyDone(String url, List<GrabQueue.Done> history) {
+        String k = key(url);
+        if (k.isEmpty()) return false;
+        for (GrabQueue.Done d : history) if (isDone(d) && key(d.url).equals(k)) return true;
+        return false;
+    }
+
     static Plan plan(List<GrabQueue.Item> links, List<GrabQueue.Done> history, List<GrabQueue.Item> queue) {
         Set<String> finished = new HashSet<>();
         for (GrabQueue.Done d : history) if (isDone(d)) finished.add(key(d.url));
