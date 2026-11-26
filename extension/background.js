@@ -279,13 +279,15 @@ function publicPageUrl(url) {
 
 // Finds or creates the title a page belongs to (the app's extension_title_service); the
 // options decide how much it may do. Only a public page's address is sent, as for novels.
-async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks }) {
+async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks, author, summary, coverUrl }) {
   const { autoTitle } = await settings();
   return call("/title", {
     method: "POST",
     body: { url: publicPageUrl(url), titles: titles || [], ...(siteName ? { site_name: siteName } : {}), language: language || "",
             kind: kind === "novel" ? "novel" : "comic",
-            chapter_links: publicPageUrl(url) ? chapterLinks || [] : [], ...autoTitle },
+            chapter_links: publicPageUrl(url) ? chapterLinks || [] : [], ...autoTitle,
+            // Only when the page declared them, so an older app never sees the keys.
+            ...(author ? { author } : {}), ...(summary ? { summary } : {}), ...(coverUrl ? { cover_url: coverUrl } : {}) },
   });
 }
 
@@ -432,7 +434,7 @@ function stopAfterTimeout(merged, later) {
   merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
 }
 
-async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, store, filterPages }, runId, onPage = () => {}) {
+async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, pageTitles, store, filterPages }, runId, onPage = () => {}) {
   if (!images || !images.length) {
     return { ok: false, error: "No page images were found on this page." };
   }
@@ -454,6 +456,8 @@ async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, store
         source_url: sourceUrl || "",
         // Only when the page showed it; a title's own language still wins on the app.
         ...(sourceLanguage ? { source_language: sourceLanguage } : {}),
+        // For the chapter label when the address carries no number; a Quick read saves no chapter.
+        ...(store !== false && pageTitles && pageTitles.length ? { page_titles: pageTitles } : {}),
         store: store !== false,
         filter_pages: filterPages !== false,
         run_id: runId,

@@ -33,6 +33,52 @@ final class GrabBridge {
         default void onStitch(String id, String key) {}
     }
 
+    /** What the page said about its chapter and its work, kept for the PC's chapter label and blank title details. */
+    static final class PageMeta {
+        static final PageMeta NONE = new PageMeta(new ArrayList<>(), "", "", "");
+        private static final java.util.regex.Pattern CHAPTER_NUMBER = java.util.regex.Pattern.compile(
+                "第\\s*[\\d０-９一二三四五六七八九十百千零]+\\s*[章话話回集期]|(?<![A-Za-z])(?:chapter|chap|ch|episode|ep)\\.?\\s*\\d+|\\d+\\s*[화회話话章]",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
+        final List<String> chapterTitles;
+        final String author;
+        final String summary;
+        final String coverUrl;
+
+        PageMeta(List<String> chapterTitles, String author, String summary, String coverUrl) {
+            this.chapterTitles = chapterTitles;
+            this.author = author;
+            this.summary = summary;
+            this.coverUrl = coverUrl;
+        }
+
+        static PageMeta from(JSONObject info) {
+            List<String> titles = new ArrayList<>();
+            JSONArray array = info.optJSONArray("chapter_titles");
+            for (int i = 0; array != null && i < array.length() && i < 8; i++) {
+                String title = array.optString(i, "");
+                if (!title.isEmpty()) titles.add(cap(title, 300));
+            }
+            String cover = info.optString("cover", "");
+            return new PageMeta(titles, cap(info.optString("author", ""), 200), cap(info.optString("summary", ""), 2000),
+                    cover.startsWith("https://") && cover.length() <= 2048 ? cover : "");
+        }
+
+        /**
+         * The first heading or title that names a chapter number, else `fallback`: some readers put
+         * the book's name in the first heading and the chapter's in a later one.
+         */
+        String chapterHeading(String fallback) {
+            for (String title : chapterTitles) {
+                if (CHAPTER_NUMBER.matcher(title).find()) return title;
+            }
+            return fallback;
+        }
+
+        private static String cap(String text, int max) {
+            return text.length() > max ? text.substring(0, max) : text;
+        }
+    }
+
     /** Past these the grab stops collecting and sends what it has. */
     static final int MAX_IMAGES = 300;
     static final int MAX_TEXT_CHARS = 400_000;
@@ -46,6 +92,7 @@ final class GrabBridge {
     private boolean truncated;
     private boolean begun;
     private String novelText;
+    private volatile PageMeta meta = PageMeta.NONE;
 
     GrabBridge(Listener listener) {
         this.listener = listener;
@@ -59,6 +106,12 @@ final class GrabBridge {
         truncated = false;
         begun = false;
         novelText = null;
+        meta = PageMeta.NONE;
+    }
+
+    /** The open grab's page details; NONE until the page has begun. */
+    PageMeta meta() {
+        return meta;
     }
 
     synchronized void cancel() {
@@ -83,6 +136,7 @@ final class GrabBridge {
                 String title = array.optString(i, "");
                 if (!title.isEmpty()) titles.add(title.length() > 300 ? title.substring(0, 300) : title);
             }
+            meta = PageMeta.from(info);
             JSONArray chapters = info.optJSONArray("chapters");
             String sample = info.optString("sample", "");
             listener.onLanguage(NovelText.pageLanguage(info.optString("lang", ""),

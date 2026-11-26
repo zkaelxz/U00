@@ -1344,6 +1344,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String language = pageLanguage;
+        GrabBridge.PageMeta meta = bridge.meta();
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -1396,6 +1397,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
             client.sourceLanguage = language;
+            client.pageMeta = meta;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });
@@ -1413,6 +1415,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
         BaiheClient client = new BaiheClient(server, token);
+        client.pageMeta = bridge.meta();
         // Cancel cuts the request in flight; without this it waited out a translation the PC was still running.
         activeClient = client;
         if (!quickRead) {
@@ -1431,7 +1434,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             say("Saving the chapter");
             JSONObject title = client.resolveTitle(url, titles, chapterLinks, "novel");
             // The page's own heading (last of the candidates) names the chapter; the first is the browser tab title.
-            String heading = titles.isEmpty() ? "" : titles.get(titles.size() - 1);
+            String heading = client.pageMeta.chapterHeading(titles.isEmpty() ? "" : titles.get(titles.size() - 1));
             JSONObject answer = client.saveNovelChapter(title.getLong("drama_id"), url, heading, text);
             String where = title.optString("title", "Baihe");
             boolean added = answer.optBoolean("saved", false);

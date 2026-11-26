@@ -496,4 +496,18 @@ public class GrabLogicTest {
         assertEquals(1, texts.size());
         assertEquals(1, pictureRuns[0]);
     }
+
+    @Test
+    public void novelHeadingPrefersOneThatNamesAChapterNumber() {
+        List<String> titles = new ArrayList<>();
+        titles.add("Book");
+        titles.add("第12章 重逢");
+        titles.add("Book 第12章");
+        assertEquals("第12章 重逢", new GrabBridge.PageMeta(titles, "", "", "").chapterHeading("Book"));
+        List<String> plain = new ArrayList<>();
+        plain.add("Book");
+        plain.add("Night rain");
+        assertEquals("Night rain", new GrabBridge.PageMeta(plain, "", "", "").chapterHeading("Night rain"));
+        assertEquals("fallback", GrabBridge.PageMeta.NONE.chapterHeading("fallback"));
+    }
 }
