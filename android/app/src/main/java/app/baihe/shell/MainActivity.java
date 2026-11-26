@@ -115,6 +115,9 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                // Live's Twitch and YouTube players are iframes on other sites; only a page the user
+                // navigates to should leave Baihe, or the player's own loads would open Grab.
+                if (!request.isForMainFrame()) return false;
                 String url = request.getUrl().toString();
                 String address = savedAddress();
                 if (address != null && AppSignIn.isLoginStart(address, url)) {
