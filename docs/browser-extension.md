@@ -21,7 +21,11 @@ It reaches pages the adapters can't (blob-protected chapters, tile-scrambled rea
    as untranslated.
 3. Copy the **token** shown there.
 4. In Chrome or Edge: `chrome://extensions` → **Developer mode** → **Load
-   unpacked** → choose this project's `extension/` folder.
+   unpacked** → choose the folder that **Open extension folder** opens in
+   Settings → Browser extension (`browser-extension` in Baihe's data folder).
+   Baihe refreshes it at every start, so an app update brings the new files and
+   the extension reloads itself the next time it talks to Baihe. Loading
+   `extension/` from a source checkout still works but is never refreshed.
 5. Open the extension's **options** and paste the token. There is no port
    setting: Baihe always serves the bridge on 8756, and the extension's only
    host permission is `http://127.0.0.1:8756/*`. It'll say *Connected* and

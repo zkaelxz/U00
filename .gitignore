@@ -64,6 +64,7 @@ playwright_browsers/
 # Other app data a checkout keeps beside the code (portable.data_dir()):
 # downloaded models, a queued dependency install, saved comics, voice engine venvs, tool reports
 /model_cache/
+/browser-extension/
 /pending_install/
 /saved_comics/
 /voice_engines/

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
+  getExtensionEngine, getExtensionStatus, openExtensionFolder, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
 } from './extension'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -15,6 +15,15 @@ const localHeader = (init: RequestInit) => new Headers(init.headers).get('X-Baih
 afterEach(() => resetPcModeForTests())
 
 describe('extension api', () => {
+  it('open folder is a PC-only POST with no body', async () => {
+    const { mock, f } = reply(200, { opened: false, folder: 'D:\\data\\browser-extension' })
+    expect(await openExtensionFolder(f)).toEqual({ opened: false, folder: 'D:\\data\\browser-extension' })
+    const [url, init] = mock.mock.calls[0]
+    expect(url).toBe('/api/extension/folder/open')
+    expect(init.method).toBe('POST')
+    expect(localHeader(init)).toBe('1')
+  })
+
   it('status is a PC-only GET', async () => {
     const { mock, f } = reply(200, { enabled: true, running: false })
     expect(await getExtensionStatus(f)).toEqual({ enabled: true, running: false })

@@ -5,6 +5,7 @@ type Schemas = components['schemas']
 
 export type ExtensionStatus = Schemas['ExtensionStatus']
 export type ExtensionEnabledResult = Schemas['ExtensionEnabledResult']
+export type ExtensionFolderOpened = Schemas['ExtensionFolderOpened']
 export type ExtensionToken = Schemas['ExtensionToken']
 
 // engine and model are generated as optional; callers read them as `string | null`.

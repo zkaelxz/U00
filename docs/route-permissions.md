@@ -299,6 +299,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/extension/enabled` | local_only() |
 | `GET /api/extension/engine` | admin.settings |
 | `POST /api/extension/engine` | local_only() |
+| `POST /api/extension/folder/open` | local_only() |
 | `GET /api/extension/status` | local_only() |
 | `POST /api/extension/token` | local_only() |
 | `GET /api/glossary/catalogues` | library.read |
