@@ -139,8 +139,8 @@ public class GrabLogicTest {
 
             public void onText(String text) {}
 
-            public void onSnap(String id, double left, double top, double width, double height, double viewWidth) {
-                asked.add("snap " + id);
+            public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {
+                asked.add("snap " + id + " " + key);
             }
 
             public void onStitch(String id, String key) {
@@ -148,17 +148,36 @@ public class GrabLogicTest {
             }
         });
         bridge.start("secret");
-        bridge.snap("secret", "s1", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "s1", "p1", 0, 0, 400, 800, 412);
         assertTrue(asked.isEmpty());
         bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
-        bridge.snap("wrong", "s2", 0, 0, 400, 800, 412);
-        bridge.snap("secret", "x'); steal();//", 0, 0, 400, 800, 412);
-        bridge.snap("secret", "s3", 0, 0, 400, 800, 0);
-        bridge.snap("secret", "s4", 0, 0, 400, 800, 412);
+        bridge.snap("wrong", "s2", "p1", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "x'); steal();//", "p1", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "s3", "p1", 0, 0, 400, 800, 0);
+        bridge.snap("secret", "s4", "p1", 0, 0, 400, 800, 412);
         bridge.stitch("secret", "s5", "p7");
         bridge.stitch("secret", "s6", "p7'); x(");
         bridge.stitch("wrong", "s7", "p7");
-        assertEquals(java.util.Arrays.asList("snap s4", "stitch s5 p7"), asked);
+        assertEquals(java.util.Arrays.asList("snap s4 p1", "stitch s5 p7"), asked);
+    }
+
+    @Test
+    public void stripsLeftByAFailedPageAreNeverJoinedOntoTheNextOne() {
+        PageStrips<String> strips = new PageStrips<>();
+        strips.add("p1", "a");
+        strips.add("p1", "b");
+        // Page p1 failed before it was joined; p2 starts with its own first strip.
+        strips.add("p2", "c");
+        assertEquals(java.util.Collections.singletonList("c"), strips.take("p2"));
+        assertTrue(strips.take("p2").isEmpty());
+        // A join for a page other than the one held gets nothing, and empties the buffer.
+        strips.add("p3", "d");
+        assertTrue(strips.take("p4").isEmpty());
+        assertTrue(strips.take("p3").isEmpty());
+        // A finished or cancelled grab clears whatever was held.
+        strips.add("p5", "e");
+        strips.clear();
+        assertTrue(strips.take("p5").isEmpty());
     }
 
     @Test
