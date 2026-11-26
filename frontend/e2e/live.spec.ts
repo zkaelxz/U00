@@ -629,11 +629,25 @@ test('watching: stream chips switch sessions, lines scroll in their own box with
   await live.getByRole('radio', { name: 'Large' }).click()
   await expect(live.getByRole('radio', { name: 'Large' })).toHaveAttribute('aria-checked', 'true')
   expect(await translation.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(before)
+  const large = await translation.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))
+  await live.getByRole('radio', { name: 'XL', exact: true }).click()
+  expect(await translation.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThan(large)
   await expect(box.locator('.live-src').first()).toBeVisible()
   await live.getByRole('switch', { name: 'Show original' }).click()
   await expect(box.locator('.live-src').first()).toBeHidden()
   await live.getByRole('switch', { name: 'Show original' }).click()
   await live.getByRole('radio', { name: 'Medium' }).click()
+
+  // TV mode: the session fills the screen with only the lines and a bar with Exit; Esc leaves it and the choice is remembered.
+  await live.getByTestId('live-tv-enter').click()
+  const tv = page.locator('.live-watch[data-tv]')
+  await expect(tv).toBeVisible()
+  expect(await tv.evaluate((el) => getComputedStyle(el).position)).toBe('fixed')
+  await expect(page.getByRole('button', { name: 'Exit TV mode' })).toBeVisible()
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(tv).toHaveCount(0)
+  await expect(live.getByTestId('live-tv-enter')).toBeVisible()
 
   // Chat is a tab beside Lines: hidden until chosen.
   await expect(live.getByTestId('live-chat')).toBeHidden()

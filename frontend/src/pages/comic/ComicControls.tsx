@@ -7,6 +7,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
 import { AaControl } from '../../components/AaControl'
+import { SCROLL_SPEEDS, type ScrollSpeed } from './useAutoScroll'
 import { LOW_DATA_OPTIONS, type LowDataMode } from './lowData'
 import { clampPage, FIT_OPTIONS, MODE_OPTIONS, SPREAD_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs, type SpreadMode } from './comicLogic'
 
@@ -16,12 +17,14 @@ type PrefsProps = {
   canTypeset: boolean
   // Phone: Typeset and Text live here too (desktop has them in the bar).
   phone: boolean
+  // Vertical view only: the page scrolls by itself. Left out where a reader has no auto-scroll.
+  autoScroll?: { speed: ScrollSpeed; onChange: (speed: ScrollSpeed) => void }
   // Per-device low-data choice (absent where the page doesn't offer it).
   lowData?: LowDataMode
   onLowData?: (m: LowDataMode) => void
 }
 
-function ViewForm({ prefs, onChange, canTypeset, phone, lowData, onLowData }: PrefsProps) {
+function ViewForm({ prefs, onChange, canTypeset, phone, autoScroll, lowData, onLowData }: PrefsProps) {
   const set = <K extends keyof ComicPrefs>(k: K, v: ComicPrefs[K]) => onChange({ ...prefs, [k]: v })
   return (
     <div className="reader-prefs-form">
@@ -41,6 +44,13 @@ function ViewForm({ prefs, onChange, canTypeset, phone, lowData, onLowData }: Pr
           {FIT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
         </select>
       </Field>
+      {prefs.mode === 'vertical' && autoScroll && (
+        <Field label="Auto-scroll" help="The page scrolls down by itself. Touching or scrolling the page stops it.">
+          <select value={autoScroll.speed} onChange={(e) => autoScroll.onChange(e.target.value as ScrollSpeed)}>
+            {SCROLL_SPEEDS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+        </Field>
+      )}
       {prefs.mode === 'paged' && (
         <Field label="Double page" help="Show two pages side by side. A page that is already wide, or a tall strip, is shown alone.">
           <select value={prefs.spread} onChange={(e) => set('spread', e.target.value as SpreadMode)}>

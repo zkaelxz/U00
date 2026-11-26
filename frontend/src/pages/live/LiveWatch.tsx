@@ -4,7 +4,7 @@
  * Kept apart from the form in pages/Live.tsx, which hides itself while a
  * session runs.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { feedCues, isActive, lagLine, statusLine, statusTone } from '../../api/live'
 import { buttonClass } from '../../components/uiClasses'
@@ -20,6 +20,8 @@ import { LiveChatSection } from './LiveChat'
 import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
 import { isMetered, videoHeldBack } from '../comic/lowData'
+import { TvBar } from './TvBar'
+import { useTvMode } from './useTvMode'
 import { ViewingOptions, type TextSize } from './ViewingOptions'
 import { chipLabels, useRunningSessions } from './useRunningSessions'
 import type { Session } from './useLiveSession'
@@ -46,7 +48,10 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   // Asking for the picture while it is held back lasts until the page is reloaded, so the saved choice stays as it was.
   const [forced, setForced] = useState(false)
   const held = videoHeldBack(dataSaver, isMetered(), forced)
-  const showVideo = storedShowVideo && !held
+  const root = useRef<HTMLDivElement>(null)
+  const tv = useTvMode(root, !active)
+  // TV mode's own "No video" leaves the saved Show video choice alone, so normal viewing comes back as it was.
+  const showVideo = storedShowVideo && !held && !(tv.on && tv.video === 'off')
   const [captionsOn, setCaptionsOn] = usePersistedState<boolean>('live.captions', true)
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
@@ -86,6 +91,8 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
     : undefined
   const labels = chipLabels(running)
   const pictureShown = videoLive && (!!streamRef || ownPlayer) && showVideo
+  // Whether TV mode has a picture to place: the choice stays offered while it is off, but not when none could ever show.
+  const tvPicture = videoLive && (!!streamRef || ownPlayer) && storedShowVideo && !held
   // The phone app floats the picture (with its captions) when you leave it, so Live keeps playing over other apps.
   useEffect(() => {
     setLiveWatching(pictureShown)
@@ -96,7 +103,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   // Beside the picture when there is one; above the lines otherwise, so the text options never depend on a video.
   const options = (
     <ViewingOptions textSize={textSize} onTextSize={setTextSize} showOriginal={showOriginal} onShowOriginal={setShowOriginal}
-      captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={(v) => (v && held ? setForced(true) : setShowVideo(v))} dataSaver={dataSaver} onDataSaver={setDataSaver} hasPicture={videoLive}
+      captionsOn={captionsOn} onCaptions={setCaptionsOn} showVideo={showVideo} onShowVideo={(v) => (v && held ? setForced(true) : setShowVideo(v))} dataSaver={dataSaver} onDataSaver={setDataSaver} hasPicture={videoLive} onTv={tv.enter}
       onFloat={pictureShown && canPopOut() ? popOut : null}
       delay={delayable ? {
         seconds: delay, auto: delayAuto, manual: videoDelay,
@@ -105,8 +112,11 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   )
 
   return (
-    <div className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}>
-      {running.length > 1 && (
+    <div ref={root} className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}
+      data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined}>
+      {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} onExit={tv.exit} />}
+      {tv.on && !tv.barShown && <button type="button" className="live-tv-menu" aria-label="TV mode menu" onClick={tv.showBar}>Menu</button>}
+      {running.length > 1 && !tv.on && (
         <div className="live-chips" role="tablist" aria-label="Running streams">
           {running.map((s, i) => (
             <button key={s.session_id} type="button" role="tab" aria-selected={s.session_id === session.id}
@@ -116,7 +126,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           ))}
         </div>
       )}
-      {videoLive && (
+      {videoLive && !(tv.on && !pictureShown) && (
         <div className="card live-video" role="group" aria-label="Stream video">
           {!streamRef && !ownPlayer && <p className="muted">This site can't be shown here; the lines still work.</p>}
           {(streamRef || ownPlayer) && showVideo && (
@@ -124,7 +134,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
               ? <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
               : streamRef && <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
           )}
-          {options}
+          {!tv.on && options}
         </div>
       )}
       <div className="live-feed">
@@ -138,29 +148,29 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
             {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
           </ul>
         )}
-        {!videoLive && options}
+        {!videoLive && !tv.on && options}
         {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
-        {hasChat && (
+        {hasChat && !tv.on && (
           <div className="live-tabs" role="tablist" aria-label="Show">
             {(['lines', 'chat'] as const).map((t) => (
               <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)}>{t === 'lines' ? 'Lines' : 'Chat'}</button>
             ))}
           </div>
         )}
-        <div className="live-pane" hidden={hasChat && tab === 'chat'}>
-          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={textSize} showOriginal={showOriginal} />}
+        <div className="live-pane" hidden={hasChat && tab === 'chat' && !tv.on}>
+          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={tv.on ? 'xl' : textSize} showOriginal={showOriginal} />}
           {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
         </div>
         {/* Mounted while hidden: the chat keeps reading, and its messages keep their timing. */}
         {hasChat && (
-          <div className="live-pane" hidden={tab !== 'chat'}>
+          <div className="live-pane" hidden={tab !== 'chat' || tv.on}>
             <LiveChatSection sessionId={session.id} running={active} language={lang} delay={showVideo && (streamRef || ownPlayer) ? pictureDelay : 0} />
           </div>
         )}
-        {total > 0 && <SaveSession cues={session.cues} />}
-        {!active && total > 0 && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
+        {total > 0 && !tv.on && <SaveSession cues={session.cues} />}
+        {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
-      {active && (
+      {active && !tv.on && (
         <div className="live-stopbar">
           <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
             {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}

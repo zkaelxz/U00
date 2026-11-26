@@ -54,7 +54,7 @@ from lib.atomic_write import atomic_write
 from memory_headroom import HeadroomError
 import job_timing
 import page_import_limits
-from services import comic_chapters_service, comic_glossary_service, image_text_service
+from services import comic_chapters_service, comic_fixes_service, comic_glossary_service, image_text_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import paid_job_service, settings_service, translate_service
@@ -487,6 +487,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     character_notes = comic_glossary_service.with_reference(
         character_notes, (drama or {}).get("source_language") or "zh", list(by_key.values()),
         glossary)
+    character_notes = comic_fixes_service.with_fixes(character_notes, drama, list(by_key.values()))
 
     usage_cb = paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")
 

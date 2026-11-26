@@ -147,6 +147,8 @@ export default function TranscribeStage({
   // that already differ from the defaults count as saved too. It only picks which fold opens first.
   const [savedBefore, setSavedBefore] = usePersistedState(`source.optionsSaved.${dramaId}`, false)
   const defaultLanguage = drama.source_language ?? 'zh'
+  // Run-only: the title keeps its saved language until the run has heard which one it is.
+  const [autoLanguage, setAutoLanguage] = useState(false)
   // Settings are not readable from away from the PC, so the run config's copy of the flag backs it up.
   const [settingsGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -359,6 +361,7 @@ export default function TranscribeStage({
     setFieldProblem(null)
     return {
       source_language: language,
+      ...(autoLanguage ? { detect_language: true } : {}),
       ...(language === 'zh' && script ? { chinese_script: script } : {}),
       ...(haveTranscript ? { transcript_text: transcriptText } : {}),
       run_diarize: runDiarize,
@@ -570,6 +573,11 @@ export default function TranscribeStage({
               <option value="th">Thai</option>
             </select>
           </Field>
+          {mode === 'whisper' && (
+            <Field label="Auto (any language)">
+              <input type="checkbox" checked={autoLanguage} onChange={(e) => setAutoLanguage(e.target.checked)} />
+            </Field>
+          )}
           {cf && (
             <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
               <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>

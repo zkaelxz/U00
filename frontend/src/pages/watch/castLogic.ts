@@ -22,3 +22,14 @@ export function castLabel(state: CastStatus['state'] | null): string {
       return ''
   }
 }
+
+export const SHARE_CHOICES = [
+  { days: 1, label: '1 day' },
+  { days: 3, label: '3 days' },
+  { days: 7, label: '7 days' },
+] as const
+
+export function shareNote(days: number): string {
+  const word = days === 1 ? '1 day' : `${days} days`
+  return `Anyone with this link can play this episode for ${word}, or until Baihe restarts. It opens nothing else.`
+}

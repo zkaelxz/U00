@@ -1567,6 +1567,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/cast/dramas/{drama_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** A link to send a person that plays the subtitled copy for a few days */
+        post: operations["post_share_link_api_cast_dramas__drama_id__share_post"];
+        /** End the caller's shared links to this title */
+        delete: operations["delete_share_links_api_cast_dramas__drama_id__share_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/cast/video": {
         parameters: {
             query?: never;
@@ -30719,6 +30737,20 @@ export interface components {
             /** Share By Default */
             share_by_default: boolean;
         };
+        /** ShareEnded */
+        ShareEnded: {
+            /** Ended */
+            ended: number;
+        };
+        /** ShareLinkRequest */
+        ShareLinkRequest: {
+            /**
+             * Days
+             * @default 1
+             * @enum {integer}
+             */
+            days?: 1 | 3 | 7;
+        };
         /** SharedGlossaryCreateRequest */
         SharedGlossaryCreateRequest: {
             /** Name */
@@ -33453,6 +33485,11 @@ export interface components {
         TranscribeRunRequest: {
             /** Chinese Script */
             chinese_script?: string | null;
+            /**
+             * Detect Language
+             * @default false
+             */
+            detect_language?: boolean;
             /** Expected Speakers */
             expected_speakers?: number | null;
             /**
@@ -39300,6 +39337,99 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_share_link_api_cast_dramas__drama_id__share_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CastLink"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    delete_share_links_api_cast_dramas__drama_id__share_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                drama_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareEnded"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

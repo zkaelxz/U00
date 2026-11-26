@@ -1,7 +1,7 @@
 """Redo one text box of a Scanlate page: read it again, translate it again, typeset the page."""
 import db
 from engine_backends import llm_tasks, paid_calls
-from services import comic_glossary_service
+from services import comic_fixes_service, comic_glossary_service
 from services import scanlate_pages_service as pages_svc
 from services import scanlate_render_service as render_svc
 from services import scanlate_run_service as run_svc
@@ -50,6 +50,9 @@ def redo_region(drama_id: int, page_id: int, region_id: int, expected_rev: int,
     glossary, character_notes = run_svc.load_translation_guide(drama)
     character_notes = comic_glossary_service.with_reference(
         character_notes, lang, [{"source_text": source}], glossary)
+    character_notes = comic_fixes_service.with_fixes(
+        character_notes, drama, [{"source_text": source, "translated_text": region.get("translated_text")}],
+        fresh_attempt=True)
     result, _context = scanlate_translate.translate_regions_by_id(
         {str(region_id): source}, engine, drama,
         previous_context=run_svc._predecessor_context(drama_id, page_id),

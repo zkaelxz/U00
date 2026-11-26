@@ -107,6 +107,48 @@ html.shell-pip .live-video > :not(.live-video-frame) { display: none; }
 html.shell-pip .live-video-frame { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
 html.shell-pip body { overflow: hidden; }
 
+/* TV mode: the session fills the screen (fixed, so it also covers the app's own bar and menu where full screen is refused),
+   black with white lines for a room's distance. The picture goes beside or above the lines (data-tv='off' when there is none,
+   so the lines take the whole width); the bar with Exit fades in on touch and a Menu handle brings it back. */
+.live-watch[data-tv] { position: fixed; inset: 0; z-index: 1000; margin: 0; height: auto; min-height: 0; display: grid; gap: var(--space-4); background: black; color: white; color-scheme: dark; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'feed';
+  padding: max(var(--space-4), 3dvh, env(safe-area-inset-top)) max(var(--space-4), 3vw, env(safe-area-inset-right)) max(var(--space-4), 3dvh, env(safe-area-inset-bottom)) max(var(--space-4), 3vw, env(safe-area-inset-left)); }
+.live-watch[data-tv='side'], .live-watch[data-tv='above'] { grid-template-areas: 'video' 'feed'; grid-template-rows: auto minmax(0, 1fr); }
+.live-watch[data-tv] .live-video { grid-area: video; padding: 0; border: 0; background: black; box-shadow: none; }
+.live-watch[data-tv] .live-feed { grid-area: feed; }
+.live-watch[data-tv] .live-feed > :not(.live-pane):not([data-testid='live-status']) { display: none; }
+.live-watch[data-tv] [data-testid='live-status'] { color: rgba(255, 255, 255, 0.7); font-size: var(--text-md); }
+.live-watch[data-tv]:not([data-running]) [data-testid='live-status'] { color: white; font-size: var(--text-2xl); }
+.live-watch[data-tv] .muted { color: rgba(255, 255, 255, 0.7); }
+.live-watch[data-tv] :focus-visible { outline: 4px solid white; outline-offset: 3px; box-shadow: 0 0 0 8px black; }
+.live-watch[data-tv] .live-cues { max-inline-size: 34em; }
+.live-watch[data-tv] .live-cues li { background: transparent; border: 0; padding: var(--space-2) 0 !important; }
+.live-watch[data-tv] .live-ts { display: none; }
+/* The newest translated line is the one to read: it scales with the screen's height, and pending or failed rows stay small and grey. */
+.live-watch[data-tv] .live-lines .live-en { font-size: clamp(var(--text-xl), 5.5dvh, calc(var(--text-2xl) * 5)); line-height: 1.25; color: white; }
+.live-watch[data-tv] .live-lines .live-src { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.75); }
+.live-watch[data-tv] .live-lines .live-en.muted, .live-watch[data-tv] .live-lines .live-en.warn { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.7); }
+/* Older lines recede; a pending row on top does not dim the translation under it. */
+.live-watch[data-tv] .live-cues li:not(:first-child) { opacity: 0.7; }
+.live-watch[data-tv] .live-cues li:first-child:has(.live-en.muted) + li { opacity: 1; }
+.live-watch[data-tv] .live-new-lines { background: white; color: black; }
+@media (orientation: landscape) and (min-aspect-ratio: 4/3) {
+  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'] .live-video { align-self: center; }
+  .live-watch[data-tv='above'] .live-video-frame { width: min(100%, calc(45dvh * 16 / 9)); margin-inline: auto; }
+}
+@media (orientation: portrait), (max-aspect-ratio: 4/3) {
+  .live-watch[data-tv='side'] .live-video-frame, .live-watch[data-tv='above'] .live-video-frame { width: min(100%, calc(40dvh * 16 / 9)); margin-inline: auto; }
+}
+.live-tv-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 1001; display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; padding: var(--space-3) var(--space-4); background: rgba(0, 0, 0, 0.9); color: white; opacity: 0; transform: translateY(-100%); transition: opacity 0.2s, transform 0.2s; }
+.live-tv-bar[data-shown] { opacity: 1; transform: none; }
+.live-tv-bar button { min-height: max(56px, 6dvh); font-size: clamp(var(--text-lg), 3dvh, calc(var(--text-2xl) * 2)); padding-inline: var(--space-4); }
+.live-tv-bar [aria-checked='true'] { outline: 2px solid white; }
+.live-tv-hint { margin: 0; color: rgba(255, 255, 255, 0.8); font-size: var(--text-lg); }
+.live-tv-menu { position: fixed; right: var(--space-4); bottom: var(--space-4); z-index: 1001; min-width: 56px; min-height: 56px; padding: 0 var(--space-4); border: 0; border-radius: var(--radius-sm); background: rgba(255, 255, 255, 0.12); color: white; opacity: 0.45; font-size: var(--text-md); }
+.live-tv-menu:focus-visible { opacity: 1; }
+.live-watch:fullscreen { background: black; }
+@media (prefers-reduced-motion: reduce) { .live-tv-bar { transition: none; } }
+
 /* Viewing options: the lines' text size and whether the original shows under each translation. */
 .live-sizes { display: inline-flex; gap: var(--space-2); }
 .live-sizes button { min-width: 44px; min-height: 44px; }
@@ -114,6 +156,8 @@ html.shell-pip body { overflow: hidden; }
 .live-lines[data-size='s'] .live-src { font-size: var(--text-xs); }
 .live-lines[data-size='l'] .live-en { font-size: var(--text-2xl); }
 .live-lines[data-size='l'] .live-src { font-size: var(--text-md); }
+.live-lines[data-size='xl'] .live-en { font-size: calc(var(--text-2xl) * 1.7); line-height: 1.25; }
+.live-lines[data-size='xl'] .live-src { font-size: var(--text-xl); }
 .live-lines[data-original='off'] .live-src { display: none; }
 
 /* Start card: the link and Paste sit on one row, the language is a row of buttons (44px each), all wrapping on a narrow phone. */

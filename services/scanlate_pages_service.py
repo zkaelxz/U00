@@ -371,7 +371,7 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
     "stale" and the current rev) otherwise, so a job that rewrote the page
     is never overwritten blind. The box must stay inside the page. The edit
     goes on the page's undo list. Returns the page detail."""
-    require_drama(drama_id)
+    drama = require_drama(drama_id)
     page = require_page(drama_id, page_id)
     changes, expected = dict(changes or {}), dict(expected or {})
     if not changes:
@@ -385,7 +385,8 @@ def edit_region(drama_id: int, page_id: int, region_id: int, changes: dict,
         raise NotFoundError("No such text box on this page.")
     _check_inside_page(page, {k: int(changes.get(k, current.get(k) or 0))
                               for k in ("x", "y", "w", "h")})
-    status, rev = db.edit_region(page_id, region_id, changes, expected_rev, expected)
+    status, rev = db.edit_region(page_id, region_id, changes, expected_rev, expected,
+                                 fix_series_id=drama.get("series_id"))
     _raise_for_write(status, rev)
     return get_page_detail(drama_id, page_id)
 
