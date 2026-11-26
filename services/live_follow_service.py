@@ -320,16 +320,30 @@ def _options(row, strict=False) -> dict:
         return dict(_OPTION_DEFAULTS)
 
 
+NICKNAME_MAX = 60
+
+
+def clean_nickname(text) -> str:
+    """The account's own label: one line of printable text, so it is safe in a notice and a list row."""
+    if not isinstance(text, str):
+        raise InvalidInputError("The name must be text.")
+    one_line = " ".join("".join(c if c.isprintable() else " " for c in text).split())
+    if len(one_line) > NICKNAME_MAX:
+        raise InvalidInputError(f"Use at most {NICKNAME_MAX} characters for the name.")
+    return one_line
+
+
 # --- views -------------------------------------------------------------------
 
 def view(row, principal=None) -> dict:
     """What a client may see: no URL, path or raw error text."""
     if not valid_url(row):
         row = {**row, "last_state": "error", "last_status": INVALID_STATUS, "stream_title": "",
-               "starts_at": None, "channel_name": ""}
+               "starts_at": None, "channel_name": "", "nickname": ""}
     return {"id": row["id"],
             "channel": _label(row["channel_url"]) if valid_url(row) else "invalid",
             "channel_name": row.get("channel_name") or "",
+            "nickname": row.get("nickname") or "",
             "mode": row["mode"] if row["mode"] in MODES else "notify",
             "auto_check": bool(row.get("auto_check")),
             "options": _options(row), "poll_minutes": int(row["poll_minutes"]),
@@ -399,7 +413,7 @@ def add_follow(channel, mode="notify", options=None, auto_check=False, principal
     return view(follow_store.get(follow_id), principal)
 
 
-def update_follow(follow_id, mode=None, options=None, auto_check=None, principal=None) -> dict:
+def update_follow(follow_id, mode=None, options=None, auto_check=None, nickname=None, principal=None) -> dict:
     """Turning the automatic check off also turns an automatic start back
     into Notify me, which can't work without it. An automatic start's
     options are the PC owner's to change; its own owner acting away from the
@@ -423,6 +437,8 @@ def update_follow(follow_id, mode=None, options=None, auto_check=None, principal
             fields["pc_owner"] = 1
     if options is not None:
         fields["options"] = _dump(clean_options(options, principal))
+    if nickname is not None:
+        fields["nickname"] = clean_nickname(nickname)
     follow_store.update(row["id"], **fields)
     if checking:
         _poller().start_if_needed()
