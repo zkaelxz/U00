@@ -36,11 +36,12 @@ from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
                          DramaSeriesUpdate, NextEpisode, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleLinkLookup, TitleLinkMatches, TitleSettingSources,
-                         DramaSourceLink, TitleRestructureApplyRequest, TitleRestructureInfo,
+                         DramaSourceLink, DuplicateGroups, JobStarted, TitleRestructureApplyRequest, TitleRestructureInfo,
                          TitleRestructurePreview, TitleRestructureRequest, TitleRestructureResult,
                          error_responses)
 from lib.capped_request import read_capped_form
 from services import extension_bridge_service, extension_title_service, page_server
+from services import media_fingerprint_service
 from services import (series_defaults_service, cover_art_service, drama_service, link_details_service, source_link_service,
                       next_episode_service, title_copy_service, title_restructure_service)
 from lib.errors import ForbiddenError, InvalidInputError
@@ -93,6 +94,19 @@ def _with_english_title(request: Request, result: dict) -> dict:
 def post_same_titles(payload: SameTitleQuery, request: Request):
     return SameTitleList(items=drama_service.find_same_titles(
         **payload.model_dump(), principal=request.state.principal))
+
+
+@router.get("/duplicates", dependencies=[require_permission("library.read")], response_model=DuplicateGroups,
+            summary="Titles that look like one title added twice (same file, link or name)")
+def get_duplicate_titles(request: Request):
+    return media_fingerprint_service.duplicate_groups(principal=request.state.principal)
+
+
+@router.post("/duplicates/scan", dependencies=[require_permission("admin.library")], response_model=JobStarted,
+             summary="Hash the files of titles added before duplicates were checked, in the background",
+             responses=error_responses(409))
+def post_duplicate_scan():
+    return media_fingerprint_service.start_scan()
 
 
 @router.post("/by-links", dependencies=[require_permission("library.read")], response_model=TitleLinkMatches,

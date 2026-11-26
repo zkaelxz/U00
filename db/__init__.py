@@ -341,6 +341,7 @@ def init_db():
         _migrate_drama_columns(conn)
         _add_topic_chapters_column(conn)
         _add_glossary_inbox_column(conn)
+        _add_media_hash_column(conn)
         _migrate_series_and_character_columns(conn)
         _migrate_scanlate_columns(conn)
         _migrate_bulk_job_columns(conn)
@@ -386,7 +387,7 @@ from db.schema_system import (  # noqa: E402,F401
 
 from db.migrations import (  # noqa: E402,F401
     _grant_library_create_to_members, _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
-    _add_topic_chapters_column, _add_glossary_inbox_column, _migrate_chapter_marks_per_account, _migrate_profiles_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
+    _add_topic_chapters_column, _add_glossary_inbox_column, _add_media_hash_column, _migrate_chapter_marks_per_account, _migrate_profiles_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
     _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
     _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
@@ -495,7 +496,7 @@ from db.dramas import (  # noqa: E402,F401
     get_drama, series_cover_title_id,
     get_library_stats, line_progress_by_drama, list_dramas, list_dramas_by_series, list_dramas_by_series_ids,
     list_dramas_recently_active,
-    search_lines_globally, set_status_if, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
+    search_lines_globally, set_status_if, set_media_hash_if_unchanged, clear_media_hash, clear_source_video, update_drama, ORGANIZATIONAL_TAGS, MERGED_TAG,
     has_custom_tag, set_custom_tag)
 
 

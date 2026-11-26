@@ -17,7 +17,8 @@ __all__ = ["DiskUsageTitleSizes", "PreviousLibrary", "PreviousLibraryDeleteReque
            "DiskUsageTrashRestoreDone", "DiskUsageTrashPurgeRequest", "DiskUsageTrashPurgeDone",
            "DiskUsageTrashEmptyRequest", "DiskUsageTrashEmptyDone", "UnusedVoiceClip", "UnusedVoiceClipTitle",
            "UnusedVoiceClipList", "UnusedVoiceClipChoice", "UnusedVoiceClipTrashRequest", "UnusedVoiceClipSkipped",
-           "UnusedVoiceClipTrashDone"]
+           "UnusedVoiceClipTrashDone", "RawVideo", "RawVideoList", "RawVideoChoice", "RawVideoTrashRequest",
+           "RawVideoSkipped", "RawVideoTrashDone"]
 
 
 class DiskUsageTitleSizes(BaseModel):
@@ -272,3 +273,41 @@ class UnusedVoiceClipTrashDone(BaseModel):
     moved_bytes: int = Field(description="Moved into Trash; nothing is freed until it is "
                                          "deleted from there.")
     skipped: List[UnusedVoiceClipSkipped]
+
+
+class RawVideo(BaseModel):
+    id: str = Field(description="Opaque; only valid until the server restarts.")
+    title: str
+    size_bytes: int
+    modified_at: Optional[str] = None
+
+
+class RawVideoList(BaseModel):
+    videos: List[RawVideo]
+    total_bytes: int
+    min_age_days: int
+    busy_reason: Optional[str] = None
+
+
+class RawVideoChoice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: StrictStr = Field(min_length=1, max_length=64)
+    expected_size_bytes: StrictInt = Field(ge=0, description="The size the user was shown.")
+
+
+class RawVideoTrashRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    videos: List[RawVideoChoice] = Field(min_length=1, max_length=200)
+    min_age_days: StrictInt = Field(default=30, ge=0, le=3650)
+    confirm: StrictBool = False
+
+
+class RawVideoSkipped(BaseModel):
+    id: str
+    reason: Literal["no_longer_offered", "changed"]
+
+
+class RawVideoTrashDone(BaseModel):
+    moved_count: int
+    moved_bytes: int = Field(description="Moved into Trash; nothing is freed until it is deleted from there.")
+    skipped: List[RawVideoSkipped]

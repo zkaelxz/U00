@@ -39,6 +39,9 @@ export async function mockLibrarySharing(page: Page, me: MeBody): Promise<Sharin
   await page.route('**/api/series', (route) => route.fulfill({
     json: { items: SERIES.map(({ id, name, is_private, owned_by_me, glossary_term_count, dramas }) => ({ id, name, is_private, owned_by_me, glossary_term_count, title_count: dramas.length })) },
   }))
+  // Library tools opens on Organize, whose duplicate card reads these on mount.
+  await page.route('**/api/dramas/duplicates', (route) => route.fulfill({ json: { groups: [], unhashed: 0 } }))
+  await page.route('**/api/jobs/duplicate_scan', (route) => route.fulfill({ status: 404, json: { error: { code: 'not_found', message: 'No such job.' } } }))
   await page.route('**/api/sharing/**', (route) => {
     const r = route.request()
     const m = new URL(r.url()).pathname.match(/^\/api\/sharing\/(dramas|series)\/(\d+)\/private$/)

@@ -36,6 +36,7 @@ export const CARDS = {
   'auto-copies': { tab: 'backup', title: 'Saved automatic copies' },
   cleanup: { tab: 'storage', title: 'Cleanup' },
   'unused-clips': { tab: 'storage', title: 'Unused voice clips' },
+  'raw-videos': { tab: 'storage', title: 'Old source videos' },
   trash: { tab: 'storage', title: 'Trash' },
   temp: { tab: 'storage', title: 'Temp files' },
   'previous-library': { tab: 'storage', title: 'Previous library' },
