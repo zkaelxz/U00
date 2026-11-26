@@ -61,6 +61,32 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
   }
 }
 
+// api/schemas/transcribe.py LiveFollowTerm and LiveFollowOptions.terms.
+export const MAX_FOLLOW_TERMS = 50
+
+/** A channel's word list as the box shows it: one "original = translation" per line. */
+export function termsToText(terms: LiveFollowOptions['terms']): string {
+  return (terms ?? []).map((t) => `${t.original} = ${t.translation}`).join('\n')
+}
+
+/** The box's lines as a word list, or why it can't be saved. Blank lines are skipped; the server checks again. */
+export function parseTerms(text: string): { terms: NonNullable<LiveFollowOptions['terms']>; error: string | null } {
+  const terms: NonNullable<LiveFollowOptions['terms']> = []
+  for (const [i, raw] of text.split('\n').entries()) {
+    const line = raw.trim()
+    if (!line) continue
+    const cut = line.search(/[=＝]/)
+    const original = cut < 0 ? '' : line.slice(0, cut).trim()
+    const translation = cut < 0 ? '' : line.slice(cut + 1).trim()
+    if (!original || !translation) return { terms, error: `Line ${i + 1}: write it as original = translation.` }
+    if (original.length > 30) return { terms, error: `Line ${i + 1}: the original can be up to 30 characters.` }
+    if (translation.length > 40) return { terms, error: `Line ${i + 1}: the translation can be up to 40 characters.` }
+    terms.push({ original, translation })
+  }
+  if (terms.length > MAX_FOLLOW_TERMS) return { terms, error: `Up to ${MAX_FOLLOW_TERMS} words per channel.` }
+  return { terms, error: null }
+}
+
 /**
  * The channel's own page, for opening it in a browser (in the phone app, Grab). The follow carries only
  * a short label ("@name", "channel/UC...", "twitch/name"), so the address is rebuilt from it; null for

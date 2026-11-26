@@ -182,8 +182,8 @@ public class GrabLogicTest {
 
     @Test
     public void bilibiliMangaOpensAsItsDesktopPage() {
-        assertEquals("https://manga.bilibili.com/mc38822/1952411?from=x",
-                DesktopSite.rewrite("https://manga.bilibili.com/m/mc38822/1952411?from=x"));
+        assertEquals("https://manga.bilibili.com/mc1234/567890?from=x",
+                DesktopSite.rewrite("https://manga.bilibili.com/m/mc1234/567890?from=x"));
         assertEquals("https://manga.bilibili.com/mc1/2", DesktopSite.rewrite("https://manga.bilibili.com/mc1/2"));
         assertEquals("https://manga.bilibili.com/detail/mc5", DesktopSite.rewrite("https://manga.bilibili.com/detail/mc5"));
         assertEquals(null, DesktopSite.rewrite("https://example.com/m/mc1/2"));
@@ -495,6 +495,39 @@ public class GrabLogicTest {
         bridge.done("m");
         assertEquals(1, texts.size());
         assertEquals(1, pictureRuns[0]);
+    }
+
+    @Test
+    public void aRunCanAskForTheLastChapterInsteadOfANumber() {
+        assertFalse(GrabQueue.untilEnd(GrabQueue.MAX_CHAPTERS));
+        assertTrue(GrabQueue.untilEnd(GrabQueue.UNTIL_END));
+        // Counting down from the sentinel still reads as "to the end" for hundreds of chapters.
+        assertTrue(GrabQueue.untilEnd(GrabQueue.UNTIL_END - 100));
+        assertEquals("to the last chapter", GrabQueue.chaptersLabel(GrabQueue.UNTIL_END));
+        assertEquals("1 chapter", GrabQueue.chaptersLabel(1));
+        assertEquals("5 chapters", GrabQueue.chaptersLabel(5));
+    }
+
+    @Test
+    public void aQueuedRunToTheEndSurvivesBeingSavedAndReloaded() {
+        List<GrabQueue.Item> queue = new ArrayList<>();
+        queue.add(new GrabQueue.Item("https://a.example.com/c/1", GrabQueue.UNTIL_END, "A"));
+        queue.add(new GrabQueue.Item("https://www.b.example.org/c/9", 2, "B"));
+        List<GrabQueue.Item> back = GrabQueue.parseQueue(GrabQueue.queueJson(queue));
+        assertEquals(GrabQueue.UNTIL_END, back.get(0).chapters);
+        assertEquals("b.example.org", GrabQueue.siteOf(back.get(1).url));
+        assertEquals("a.example.com", GrabQueue.siteOf(back.get(0).url));
+    }
+
+    @Test
+    public void aRunToTheEndStopsAtAChapterAnEarlierRunSent() {
+        List<GrabQueue.Done> history = new ArrayList<>();
+        history.add(new GrabQueue.Done(1, "Ch 5", "Sent 12 pages", "https://a.example.com/c/5/", false));
+        history.add(new GrabQueue.Done(2, "Ch 6", "Cancelled.", "https://a.example.com/c/6", false));
+        assertTrue(SeriesRun.alreadyDone("https://www.a.example.com/c/5?x=1", history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/6", history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/7", history));
+        assertFalse(SeriesRun.alreadyDone("", history));
     }
 
     @Test

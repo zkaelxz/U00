@@ -1,8 +1,8 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { PcMode } from '../../api/pcOnly'
-import { announceDeveloperMode, loadDeveloperMode, type DeveloperModeDeps } from './developerMode'
+import { announceDeveloperMode, loadDeveloperMode, loadDeveloperModeShared, type DeveloperModeDeps } from './developerMode'
 
 function deps(mode: PcMode, settings: () => Promise<{ developer_mode: boolean }>): DeveloperModeDeps & { getSettings: ReturnType<typeof vi.fn> } {
   return { waitForPcMode: () => Promise.resolve(), pcMode: () => mode, getSettings: vi.fn(settings) }
@@ -51,5 +51,30 @@ describe('announceDeveloperMode', () => {
     vi.unstubAllGlobals()
     expect(seen).toHaveBeenCalledTimes(1)
     expect((seen.mock.calls[0][0] as CustomEvent).detail).toEqual({ on: true })
+  })
+})
+
+describe('loadDeveloperModeShared', () => {
+  beforeEach(() => void vi.stubGlobal('window', new EventTarget()))
+  afterEach(() => void vi.unstubAllGlobals())
+
+  it('asks the server once for many callers, and again after an announce', async () => {
+    const d = deps('local', async () => ({ developer_mode: true }))
+    const answers = await Promise.all(Array.from({ length: 12 }, () => loadDeveloperModeShared(d)))
+    expect(answers.every((a) => a === true)).toBe(true)
+    expect(d.getSettings).toHaveBeenCalledTimes(1)
+    await loadDeveloperModeShared(d)
+    expect(d.getSettings).toHaveBeenCalledTimes(1)
+    announceDeveloperMode(false)
+    await loadDeveloperModeShared(d)
+    expect(d.getSettings).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not keep a failed load', async () => {
+    announceDeveloperMode(false)
+    const failing = deps('local', () => Promise.reject(new Error('boom')))
+    expect(await loadDeveloperModeShared(failing)).toBe(false)
+    const ok = deps('local', async () => ({ developer_mode: true }))
+    expect(await loadDeveloperModeShared(ok)).toBe(true)
   })
 })

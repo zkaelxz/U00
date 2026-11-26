@@ -321,7 +321,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if ("start".equals(command)) {
             startQueue();
         } else if ("bookmark".equals(command)) {
-            toggleBookmark();
+            // The Bookmarks screen's button only adds: there, Remove is on each card.
+            String open = ServerAddress.browsable(web.getUrl());
+            if (open != null && GrabBookmarks.has(GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, "")), open)) {
+                say("This page is already bookmarked.");
+            } else {
+                toggleBookmark();
+            }
         } else if (url != null && ("open".equals(command) || "read".equals(command))) {
             if ("read".equals(command)) {
                 if (grabbing || loadingNext || chaptersLeft > 0) {
@@ -374,7 +380,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String link = ShareLink.firstLink(intent.getStringExtra(Intent.EXTRA_TEXT));
             String url = link == null ? null : ServerAddress.browsable(link);
             if (url == null) say("No web link found in what was shared.");
-            else web.loadUrl(url);
+            else askOpenOrQueue(url);
         }
     }
 
@@ -845,29 +851,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             say(OPEN_FIRST);
             return;
         }
-        EditText count = new EditText(this);
-        count.setInputType(InputType.TYPE_CLASS_NUMBER);
-        count.setText("1");
-        new AlertDialog.Builder(this)
-                .setTitle("Add to the queue")
-                .setMessage("This chapter and the ones after it, saved to your library. How many chapters in all (up to "
-                        + MAX_CHAPTERS + ")?")
-                .setView(count)
-                .setPositiveButton("Add", (d, w) -> {
-                    int n = 0;
-                    try {
-                        n = Integer.parseInt(count.getText().toString().trim());
-                    } catch (NumberFormatException ignored) {
-                        // Falls through to the range message below.
-                    }
-                    if (n < 1 || n > MAX_CHAPTERS) {
-                        say("Enter a number from 1 to " + MAX_CHAPTERS + ".");
-                        return;
-                    }
-                    addToQueue(url, n);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+        askChapterCount("Add to the queue", "This chapter and the ones after it, saved to your library. "
+                + "How many chapters in all (up to " + MAX_CHAPTERS + ")?", "1", "Add", n -> addToQueue(url, n));
     }
 
     /** Reads the chapter list on the open series page and, after a warning, queues every chapter not yet done. */
@@ -916,8 +901,27 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         else say("Added " + added + " chapters to the queue (" + GrabStore.queue(prefs()).size() + " waiting).");
     }
 
+    /** A link from another app can wait for its turn, whatever site it is on, instead of replacing the page being grabbed. */
+    private void askOpenOrQueue(String url) {
+        if (!grabbing && !loadingNext && chaptersLeft == 0) {
+            web.loadUrl(url);
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("A grab is running")
+                .setMessage("Add " + GrabQueue.siteOf(url) + " to the queue, or open it now (that cuts the grab short)?")
+                .setPositiveButton("Add to queue", (d, w) -> addToQueue(url, 1, GrabQueue.nameFor(null, url)))
+                .setNegativeButton("Open now", (d, w) -> web.loadUrl(url))
+                .setNeutralButton("Cancel", null)
+                .show();
+    }
+
     private void addToQueue(String url, int chapters) {
-        GrabQueue.Item item = new GrabQueue.Item(url, chapters, GrabQueue.nameFor(web.getTitle(), url));
+        addToQueue(url, chapters, GrabQueue.nameFor(web.getTitle(), url));
+    }
+
+    private void addToQueue(String url, int chapters, String name) {
+        GrabQueue.Item item = new GrabQueue.Item(url, chapters, name);
         boolean idle = !grabbing && !loadingNext && chaptersLeft == 0;
         if (!GrabStore.add(prefs(), item)) {
             say(GrabStore.queue(prefs()).size() >= GrabQueue.MAX_QUEUED
@@ -927,7 +931,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (idle) {
             startQueue();
         } else {
-            say("Added to the queue (" + GrabStore.queue(prefs()).size() + " waiting).");
+            // finishGrab only takes a waiting page while the queue is running, so adding during a grab starts it.
+            queueRunning = true;
+            say("Added to the queue (" + GrabStore.queue(prefs()).size() + " waiting). It runs when this grab is done.");
         }
     }
 
@@ -947,7 +953,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void showChapterState() {
-        if (chaptersLeft > 0 && !followingParts) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
+        if (chaptersLeft > 0 && !followingParts) chapters.setLabel(
+                GrabQueue.untilEnd(chaptersLeft) ? "Stop (to the end)" : "Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
             chapters.setLabel("Save chapters", palette.muted, R.drawable.ic_chapters);
             chapters.resetTint();
@@ -1132,14 +1139,51 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             say("Wait for the current grab to finish.");
             return;
         }
+        askChapterCount("Grab this chapter and the next ones", "How many chapters in all (up to " + MAX_CHAPTERS + ")?",
+                "3", "Start", n -> {
+                    chaptersLeft = n;
+                    showChapterState();
+                    startGrab();
+                });
+    }
+
+    /** A run to the last chapter can be hundreds of chapters, so the size and cost are shown before it starts. */
+    private void confirmUntilEnd(java.util.function.IntConsumer onChosen) {
+        new AlertDialog.Builder(this)
+                .setTitle("Keep going to the last chapter?")
+                .setMessage("This can run up to " + GrabQueue.UNTIL_END + " chapters, one after another, while this phone "
+                        + "stays on and Grab stays open (roughly 2 to 5 minutes each). It stops by itself when the site has "
+                        + "no next chapter or the next one was grabbed before. With a billed engine every page of every "
+                        + "chapter is billed until your PC's monthly cap stops it. Stop ends it at any time.")
+                .setPositiveButton("Keep going", (d, w) -> onChosen.accept(GrabQueue.UNTIL_END))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /** A chapter count, or the last chapter of the series, handed to onChosen; the same question wherever chapters are followed. */
+    private void askChapterCount(String title, String message, String defaultCount, String confirm,
+                                  java.util.function.IntConsumer onChosen) {
+        LinearLayout form = new LinearLayout(this);
+        form.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        form.setPadding(pad, 0, pad, 0);
         EditText count = new EditText(this);
         count.setInputType(InputType.TYPE_CLASS_NUMBER);
-        count.setText("3");
+        count.setText(defaultCount);
+        android.widget.CheckBox toEnd = new android.widget.CheckBox(this);
+        toEnd.setText("Keep going until the last chapter");
+        toEnd.setOnCheckedChangeListener((box, on) -> count.setEnabled(!on));
+        form.addView(count);
+        form.addView(toEnd);
         new AlertDialog.Builder(this)
-                .setTitle("Grab this chapter and the next ones")
-                .setMessage("How many chapters in all (up to " + MAX_CHAPTERS + ")?")
-                .setView(count)
-                .setPositiveButton("Start", (d, w) -> {
+                .setTitle(title)
+                .setMessage(message)
+                .setView(form)
+                .setPositiveButton(confirm, (d, w) -> {
+                    if (toEnd.isChecked()) {
+                        confirmUntilEnd(onChosen);
+                        return;
+                    }
                     int n = 0;
                     try {
                         n = Integer.parseInt(count.getText().toString().trim());
@@ -1150,9 +1194,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         say("Enter a number from 1 to " + MAX_CHAPTERS + ".");
                         return;
                     }
-                    chaptersLeft = n;
-                    showChapterState();
-                    startGrab();
+                    onChosen.accept(n);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
@@ -1170,10 +1212,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         strips.clear();
         String next = null;
         if (chaptersLeft > 0) {
+            boolean toEnd = GrabQueue.untilEnd(chaptersLeft);
             chaptersLeft--;
             if (sent && chaptersLeft > 0) {
                 next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
-                if (next == null) message = message + ". No next chapter link was found.";
+                if (next == null) {
+                    message = message + (toEnd ? ". That was the last chapter." : ". No next chapter link was found.");
+                } else if (toEnd && SeriesRun.alreadyDone(next, GrabStore.history(prefs()))) {
+                    // An earlier run already sent everything from here on; going further would only repeat it.
+                    next = null;
+                    message = message + ". The next chapter was grabbed before, so it stopped here.";
+                }
             }
             if (next == null) chaptersLeft = 0;
         }
@@ -1215,7 +1264,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile boolean queueRunning;
     private volatile String runName = "";
     private static final long QUEUE_PAGE_LOAD_MS = 2 * 60 * 1000;
-    private static final int MAX_CHAPTERS = 20;
+    private static final int MAX_CHAPTERS = GrabQueue.MAX_CHAPTERS;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 2;
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
