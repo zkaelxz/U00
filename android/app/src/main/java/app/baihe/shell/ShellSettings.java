@@ -34,6 +34,9 @@ final class ShellSettings {
 
         /** Shrinks the app to a small floating window now. */
         void popOut();
+
+        /** Looks for a newer app build now and says what it found. */
+        void checkForUpdates();
     }
 
     /** What Baihe's own pages can call as `BaiheShell`; only Baihe's address ever loads in the WebView. */
@@ -57,6 +60,11 @@ final class ShellSettings {
         public void setLiveWatching(boolean watching) {
             liveWatching = watching;
             host.liveWatching(watching);
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates() {
+            host.checkForUpdates();
         }
 
         @JavascriptInterface

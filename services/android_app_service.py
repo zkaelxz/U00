@@ -4,6 +4,7 @@ import json
 import os
 import re
 import threading
+import time
 import zipfile
 
 import portable
@@ -118,3 +119,34 @@ def fetch_latest() -> dict:
         return {"version_code": code, "changed": True}
     finally:
         _fetch_lock.release()
+
+
+# A manual dispatch of the APK workflow publishes to GitHub only; the server holds nothing until
+# it fetches, so a phone asking in the meantime saw no newer build and never prompted.
+_REFRESH_EVERY_S = 600
+_FORCED_REFRESH_EVERY_S = 20
+_last_refresh = 0.0
+
+
+def refresh_from_github(force: bool = False) -> None:
+    """Fetches the published build when it has been a while since the last try; never raises.
+    A forced refresh (the person pressed Check for updates) waits only long enough to keep a
+    stream of presses from hammering GitHub."""
+    global _last_refresh
+    now = time.monotonic()
+    gap = _FORCED_REFRESH_EVERY_S if force else _REFRESH_EVERY_S
+    if now - _last_refresh < gap:
+        return
+    _last_refresh = now
+    if force:
+        _fetch_quietly()
+    else:
+        # The phone's own check must not wait on GitHub; the next check sees the result.
+        threading.Thread(target=_fetch_quietly, daemon=True).start()
+
+
+def _fetch_quietly() -> None:
+    try:
+        fetch_latest()
+    except Exception:  # noqa: BLE001 - a GitHub or network failure must not break the phone's check
+        pass
