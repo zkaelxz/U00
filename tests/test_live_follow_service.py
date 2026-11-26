@@ -440,3 +440,49 @@ def test_an_old_sources_db_gains_the_nickname_column(follows):
         assert cols.count("nickname") == 1
     assert live_follow_store.get(fid)["nickname"] == ""
     assert svc.update_follow(fid, nickname="Host", principal=ALICE)["nickname"] == "Host"
+
+
+def test_a_channels_word_list_is_cleaned_saved_and_used_by_its_live_start(follows, monkeypatch):
+    from services import live_service
+    seen = {}
+    monkeypatch.setattr(live_service, "start_session",
+                        lambda url, **kw: seen.update(url=url, **kw) or {"session_id": "live_x"})
+    v = svc.add_follow("@name", principal=ALICE, options={"terms": [
+        {"original": " 云朵 ", "translation": "Yunduo"}, {"original": "云朵", "translation": "Other"}]})
+    assert v["options"]["terms"] == [{"original": "云朵", "translation": "Yunduo"}]
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert seen["own_terms"] == [{"original": "云朵", "translation": "Yunduo"}]
+    # Editing other options keeps the list only when it is sent back; an omitted list is the empty default.
+    assert svc.update_follow(v["id"], options={"max_minutes": 5}, principal=ALICE)["options"]["terms"] == []
+
+
+@pytest.mark.parametrize("terms", [
+    "云朵", [{"original": "a"}], [{"original": "a", "translation": ""}],
+    [{"original": "a" * 31, "translation": "b"}], [{"original": "a", "translation": "b" * 41}],
+    [{"original": f"w{i}", "translation": "x"} for i in range(51)],
+    [{"original": "a", "translation": "b", "extra": 1}], [{"original": 1, "translation": "b"}]])
+def test_a_bad_word_list_is_refused(follows, terms):
+    with pytest.raises(InvalidInputError):
+        svc.add_follow("@name", principal=ALICE, options={"terms": terms})
+
+
+def test_a_full_word_list_of_cjk_words_fits_the_options_cap(follows):
+    terms = [{"original": f"{i:02d}" + "高" * 28, "translation": "t" * 40} for i in range(50)]
+    v = svc.add_follow("@name", principal=ALICE, options={"terms": terms})
+    assert len(v["options"]["terms"]) == 50
+
+
+def test_a_follow_with_a_captions_choice_and_a_word_list_keeps_and_applies_both(follows, monkeypatch):
+    from services import live_service
+    seen = {}
+    monkeypatch.setattr(live_service, "start_session",
+                        lambda url, **kw: seen.update(url=url, **kw) or {"session_id": "live_x"})
+    words = [{"original": "云朵", "translation": "Yunduo"}]
+    v = svc.add_follow("@name", principal=ALICE, options={"captions": "balanced", "terms": words})
+    # Saving one setting alone must not drop the other: the panel sends both back.
+    svc.update_follow(v["id"], options={"captions": "balanced", "terms": words, "max_minutes": 7}, principal=ALICE)
+    stored = svc.list_follows(ALICE)["items"][0]["options"]
+    assert stored["captions"] == "balanced" and stored["terms"] == words
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert seen["own_terms"] == words
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (8, 3)

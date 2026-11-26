@@ -37,6 +37,7 @@ __all__ = [
     "LiveFormDefaults",
     "LiveFormOptions",
     "LiveLanguage",
+    "LiveFollowTerm",
     "LiveFollowOptions",
     "LiveFollowAdd",
     "LiveFollowUpdate",
@@ -502,6 +503,13 @@ class LiveSessionStopped(BaseModel):
     finishing: bool = False
 
 
+class LiveFollowTerm(BaseModel):
+    """One word in a followed channel's own list: how it reads in the stream, and what it becomes."""
+    model_config = ConfigDict(extra="forbid")
+    original: str = Field(max_length=30)
+    translation: str = Field(max_length=40)
+
+
 class LiveFollowOptions(BaseModel):
     """The Live options saved with a followed channel, used by its "Start
     Live" and (PC owner only) its automatic start. Checked like a Live start."""
@@ -515,6 +523,8 @@ class LiveFollowOptions(BaseModel):
     use_gpu: StrictBool = False
     glossary_drama_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
     series_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
+    terms: list[LiveFollowTerm] = Field(default_factory=list, max_length=50,
+                                        description="This channel's own word list, used on top of any glossary.")
     captions: Optional[Literal["fast", "balanced"]] = Field(
         None, description="None = fast, the language's default chunk length.")
 
