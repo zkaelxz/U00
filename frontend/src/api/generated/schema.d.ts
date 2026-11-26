@@ -4590,6 +4590,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/extension/folder/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** PC only: open the folder the browser loads the extension from */
+        post: operations["post_open_folder_api_extension_folder_open_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/extension/status": {
         parameters: {
             query?: never;
@@ -20667,6 +20684,13 @@ export interface components {
             model: string | null;
             /** Ready */
             ready: boolean;
+        };
+        /** ExtensionFolderOpened */
+        ExtensionFolderOpened: {
+            /** Folder */
+            folder: string | null;
+            /** Opened */
+            opened: boolean;
         };
         /**
          * ExtensionStatus
@@ -47503,6 +47527,35 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_open_folder_api_extension_folder_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExtensionFolderOpened"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
                 headers: {
                     [name: string]: unknown;
                 };

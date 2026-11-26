@@ -125,7 +125,7 @@ export function phoneAppLine(r: AndroidAppFetchResult): string {
 export const UPDATES_TITLE = 'Updates'
 
 export const EXTENSION_UPDATE_NOTE =
-  "A browser never updates an extension loaded from a folder. After Baihe updates, the extension's popup says when its copy is older: download it again, unzip it over the old folder and press Reload on the browser's extensions page."
+  "A browser never updates an extension loaded from a folder, so Baihe keeps one folder current (Open extension folder) and an extension loaded from it reloads itself after an app update. A copy loaded from anywhere else, or on another computer, says in its popup when it is older: download it again, unzip it over the old folder and press Reload on the browser's extensions page."
 
 /** null = the count isn't known (it is an extra; the link beside it still works). */
 export function packagesLine(outdated: number | null): string {
