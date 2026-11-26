@@ -263,11 +263,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         bar.setGravity(android.view.Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(palette.surface);
         bar.setPadding(gap, gap, gap, gap);
-        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Grab", false);
+        grab = new GrabUi.BarButton(this, palette, R.drawable.ic_grab, "Save", false);
         grab.setOnClickListener(v -> startGrab());
-        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Chapters", false);
+        chapters = new GrabUi.BarButton(this, palette, R.drawable.ic_chapters, "Save chapters", false);
         chapters.setOnClickListener(v -> toggleChapters());
-        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Quick read", true);
+        quick = new GrabUi.BarButton(this, palette, R.drawable.ic_quick, "Read now", true);
         quick.setOnClickListener(v -> {
             if (QuickReadSession.isDetached()) openReader();
             else if ((grabbing && runId != null) || (followingParts && chaptersLeft > 0)) cancelGrab();
@@ -433,7 +433,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     sendShared(uris, title, cut, server, token, false);
                 })
                 // A screenshot of a page to read now: translated and shown, nothing saved, no title needed.
-                .setNeutralButton("Quick read", (d, w) -> sendShared(uris, "", cut, server, token, true))
+                .setNeutralButton("Read now", (d, w) -> sendShared(uris, "", cut, server, token, true))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -521,7 +521,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         GrabMenu menu = new GrabMenu(this, palette).section("This page");
         menu.item(translateOn ? "Show original page" : "Translate this page", () -> setTranslate(!translateOn));
         if (QuickReadSession.isDetached()) menu.item("Stop translating", this::cancelGrab);
-        else if (QuickReadSession.hasPages()) menu.item("Open Quick read (" + QuickReadSession.snapshot().size() + " pages)", this::openReader);
+        else if (QuickReadSession.hasPages()) menu.item("Open reader (" + QuickReadSession.snapshot().size() + " pages)", this::openReader);
         menu.item(here != null && GrabBookmarks.has(marks, here) ? "Remove bookmark" : "Bookmark this page", this::toggleBookmark);
         menu.item("Add to queue", this::askAddToQueue);
         menu.item("Pictures from my gallery", this::pickGallery);
@@ -749,7 +749,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void setTranslate(boolean on) {
         translateOn = on;
         web.evaluateJavascript(on ? PageTranslate.ON : PageTranslate.OFF, null);
-        if (on) say("Translating this page to English. Grab and Quick read use the original page.");
+        if (on) say("Translating this page to English. Save and Read now use the original page.");
     }
 
     /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
@@ -758,7 +758,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             quick.setDanger(running);
             if (running) quick.setLabel("Cancel", palette.onAccent, R.drawable.ic_stop);
             else {
-                quick.setLabel("Quick read", palette.onAccent, R.drawable.ic_quick);
+                quick.setLabel("Read now", palette.onAccent, R.drawable.ic_quick);
                 quick.setBusy(false);
             }
         });
@@ -946,7 +946,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void showChapterState() {
         if (chaptersLeft > 0 && !followingParts) chapters.setLabel("Stop (" + chaptersLeft + " left)", palette.bad, R.drawable.ic_stop);
         else {
-            chapters.setLabel("Chapters", palette.muted, R.drawable.ic_chapters);
+            chapters.setLabel("Save chapters", palette.muted, R.drawable.ic_chapters);
             chapters.resetTint();
         }
     }
