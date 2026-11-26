@@ -7,3 +7,5 @@ export interface CastLink {
   path: string
   expires_in: number
 }
+
+export type ShareDays = 1 | 3 | 7
