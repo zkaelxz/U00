@@ -2,6 +2,7 @@
 api/routers/android_app_routes.py -- the update the Android shell offers itself.
 
     GET /api/app/android        library.read   which build number the server holds
+                                           (?refresh=true first fetches GitHub's newest)
     GET /api/app/android/apk    library.read   that build's APK
     POST /api/system/android-app/fetch  local_only  fetch the newest build GitHub holds
 
@@ -24,7 +25,9 @@ router = APIRouter(tags=["app"])
 
 @router.get("/api/app/android", dependencies=[require_permission("library.read")],
             response_model=AndroidAppVersion, summary="The Android app build this server offers")
-def version():
+def version(refresh: bool = False):
+    # Offline or unconfigured servers just keep answering with the build they hold.
+    svc.refresh_from_github(force=refresh)
     return no_store_json(AndroidAppVersion(version_code=svc.latest_version_code()))
 
 

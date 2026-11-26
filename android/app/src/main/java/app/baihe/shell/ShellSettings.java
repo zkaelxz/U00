@@ -37,6 +37,12 @@ final class ShellSettings {
 
         /** Baihe is showing a dark (true) or light (false) look, whatever the phone's own setting. */
         void themeChanged(boolean dark);
+
+        /** Looks for a newer app build now and says what it found. */
+        void checkForUpdates();
+
+        /** Hides (true) or shows the Studio | Grab strip, for a reader that wants the whole screen. */
+        void setBarsHidden(boolean hidden);
     }
 
     /** What Baihe's own pages can call as `BaiheShell`; only Baihe's address ever loads in the WebView. */
@@ -65,6 +71,16 @@ final class ShellSettings {
         @JavascriptInterface
         public void setDark(boolean dark) {
             host.themeChanged(dark);
+        }
+
+        @JavascriptInterface
+        public void checkForUpdates() {
+            host.checkForUpdates();
+        }
+
+        @JavascriptInterface
+        public void setBarsHidden(boolean hidden) {
+            host.setBarsHidden(hidden);
         }
 
         @JavascriptInterface

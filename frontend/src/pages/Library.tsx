@@ -41,6 +41,7 @@ import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
+import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
@@ -394,6 +395,8 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
+  // GET /api/diagnostics/resources needs admin.diagnostics; members see no GPU line.
+  const canSeeGpu = useHolds('admin.diagnostics')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
@@ -513,11 +516,16 @@ export default function LibraryPage() {
             : !stats.error && <p className="page-meta stats-placeholder" aria-hidden="true" />}
         </>
       )}
-      headExtra={stats.data && usageSpent(stats.data.usage) && (
-        <details className="stats-usage">
-          <summary>{usageSpent(stats.data.usage)}</summary>
-          <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
-        </details>
+      headExtra={(
+        <>
+          {stats.data && usageSpent(stats.data.usage) && (
+            <details className="stats-usage">
+              <summary>{usageSpent(stats.data.usage)}</summary>
+              <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
+            </details>
+          )}
+          {canSeeGpu && <GpuLine />}
+        </>
       )}
       actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
         <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>

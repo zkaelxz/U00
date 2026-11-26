@@ -983,6 +983,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-title { overflow-wrap: break-word; margin: 0; font-family: var(--font-heading); font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
+.gpu-line { display: flex; align-items: center; gap: var(--space-2); }
 .stats-usage > p { margin-top: var(--space-1); }
 @media (max-width: 640px) {
   /* min-content counts whole words here (the title uses break-word, not the page-wide anywhere), so the actions wrap under the title before it breaks inside a word. */

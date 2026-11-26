@@ -21,6 +21,7 @@ import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
 import { isMetered, videoHeldBack } from '../comic/lowData'
 import { TvBar } from './TvBar'
+import type { TvSplit, TvTextSize } from './tvSize'
 import { useTvMode } from './useTvMode'
 import { ViewingOptions, type TextSize } from './ViewingOptions'
 import { chipLabels, useRunningSessions } from './useRunningSessions'
@@ -56,6 +57,8 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const [videoDelay, setVideoDelay] = usePersistedState<number>('live.videoDelay', DEFAULT_DELAY)
   const [delayAuto, setDelayAuto] = usePersistedState<boolean>('live.videoDelayAuto', true)
   const [textSize, setTextSize] = usePersistedState<TextSize>('live.textSize', 'm')
+  const [tvSplit, setTvSplit] = usePersistedState<TvSplit>('live.tvSplit', 'wide')
+  const [tvTextSize, setTvTextSize] = usePersistedState<TvTextSize>('live.tvTextSize', 'l')
   const [showOriginal, setShowOriginal] = usePersistedState<boolean>('live.showOriginal', true)
   const [tab, setTab] = useState<'lines' | 'chat'>('lines')
 
@@ -111,10 +114,19 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
       } : null} />
   )
 
+  // Under the picture when there is one, else above the lines: a bar pinned to the bottom covered the last lines.
+  const stopBar = active && !tv.on && (
+    <div className="live-stopbar">
+      <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
+      {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
+    </button>
+    </div>
+  )
+
   return (
     <div ref={root} className={videoLive ? 'live-watch has-video' : 'live-watch'} data-running={active || undefined}
-      data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined}>
-      {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} onExit={tv.exit} />}
+      data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined} data-tv-split={tv.on ? tvSplit : undefined}>
+      {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} split={tvSplit} onSplit={setTvSplit} textSize={tvTextSize} onTextSize={setTvTextSize} onExit={tv.exit} />}
       {tv.on && !tv.barShown && <button type="button" className="live-tv-menu" aria-label="TV mode menu" onClick={tv.showBar}>Menu</button>}
       {running.length > 1 && !tv.on && (
         <div className="live-chips" role="tablist" aria-label="Running streams">
@@ -134,9 +146,11 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
               ? <DelayedPlayer sessionId={session.id} ready={session.status?.player_ready === true} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
               : streamRef && <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
           )}
+          {stopBar}
           {!tv.on && options}
         </div>
       )}
+      {!(videoLive && !(tv.on && !pictureShown)) && stopBar}
       <div className="live-feed">
         {/* Only the status line is announced: the lines below change every chunk. */}
         <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status">
@@ -158,7 +172,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           </div>
         )}
         <div className="live-pane" hidden={hasChat && tab === 'chat' && !tv.on}>
-          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={tv.on ? 'xl' : textSize} showOriginal={showOriginal} />}
+          {feed.length > 0 && <LinesPane cues={feed} total={total} lang={lang} waiting={active} size={tv.on ? 'xl' : textSize} tvSize={tv.on ? tvTextSize : undefined} showOriginal={showOriginal} />}
           {total > feed.length && <p className="muted">Showing the newest {feed.length} of {total} lines.</p>}
         </div>
         {/* Mounted while hidden: the chat keeps reading, and its messages keep their timing. */}
@@ -170,13 +184,6 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
         {total > 0 && !tv.on && <SaveSession cues={session.cues} />}
         {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
-      {active && !tv.on && (
-        <div className="live-stopbar">
-          <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
-            {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
-          </button>
-        </div>
-      )}
     </div>
   )
 }
