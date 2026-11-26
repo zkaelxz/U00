@@ -1,7 +1,7 @@
 /* Followed channels that are live right now, first on the Live page: one tap starts captions with the channel's saved options. */
 import { useState } from 'react'
 
-import { announceLiveStarted, describeFollowError, startFromFollow } from '../../api/liveFollows'
+import { announceLiveStarted, describeFollowError, followName, followOriginalName, startFromFollow } from '../../api/liveFollows'
 import { Badge } from '../../components/Badge'
 import { buttonClass } from '../../components/uiClasses'
 import type { LiveFollow } from '../../types/live'
@@ -31,11 +31,13 @@ export function LiveNowCards({ items, picked }: { items: LiveFollow[]; picked: n
     <div className="live-now" data-testid="live-now">
       <ul className="live-now-list" aria-label="Live now">
         {live.map((f) => {
-          const name = f.channel_name || f.channel
+          const name = followName(f)
+          const original = followOriginalName(f)
           return (
             <li key={f.id} className="live-now-card" data-testid="live-now-card" data-picked={f.id === picked || undefined}>
               <div className="live-follow-head">
                 <span className="live-follow-name">{name}</span>
+                {original && <small className="muted live-follow-original">{original}</small>}
                 <Badge tone="accent">Live</Badge>
               </div>
               <button type="button" className={buttonClass('primary')} disabled={busy !== null}

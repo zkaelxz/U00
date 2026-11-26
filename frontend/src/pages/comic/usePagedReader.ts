@@ -1,10 +1,11 @@
 // What the comic reader and the saved-manga reader do the same way once they know the current page:
 // tap thirds, zoom, keys, the chrome toggle, image problems, the page figures and the preload window.
-import { useCallback, useMemo, useRef, useState, type RefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 
 import type { ImageProblem } from '../../api/comic'
 import { usePreloadImages } from '../../hooks/usePreloadImages'
 import { useShortcut } from '../../hooks/useShortcut'
+import { setShellBarsHidden } from '../../phoneShell'
 import type { ComicPageInfo } from '../../types/comic'
 import { keyAction, preloadWindow, spreadIndex, spreadStep, tapAction, ZOOM, type ComicAction, type ComicPrefs } from './comicLogic'
 import { useZoom } from './useZoom'
@@ -25,6 +26,17 @@ export function usePagedReader({ stageRef, pages, prefs, current, count, go, src
   const paged = prefs.mode === 'paged'
   const rtl = paged && prefs.rtl
   const [chrome, setChrome] = useState(true)
+  // The reader's own bars are hidden by a class on the reader; the app's header and the phone app's
+  // Studio | Grab strip sit outside it, so they follow the same switch and always come back on leaving.
+  useEffect(() => {
+    if (chrome) return undefined
+    document.documentElement.classList.add('reader-immersive')
+    setShellBarsHidden(true)
+    return () => {
+      document.documentElement.classList.remove('reader-immersive')
+      setShellBarsHidden(false)
+    }
+  }, [chrome])
   const [forbidden, setForbidden] = useState(false)
   const figures = useRef(new Map<number, HTMLElement>())
   const figureRef = (n: number) => (el: HTMLElement | null) => {

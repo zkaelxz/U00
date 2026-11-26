@@ -216,3 +216,19 @@ test('phone: a long vertical chapter keeps only the pages around the reader load
   await expect(page.getByTestId('comic-page').nth(0).locator('img')).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
+
+test('phone: holding a translated page shows its original until release', async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhwa', rendered: [0, 1, 2, 3, 4, 5, 6, 7] })
+  await page.goto('/#/comic/7')
+  const img = page.getByTestId('comic-page').first().locator('img')
+  await expect(img).toHaveAttribute('src', /variant=rendered/)
+  const box = (await img.boundingBox())!
+  const at = { x: box.x + box.width / 2, y: box.y + 80 }
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [at] })
+  await expect(img).toHaveAttribute('src', /variant=original/)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+  await expect(img).toHaveAttribute('src', /variant=rendered/)
+  await cdp.detach()
+  expect(s.images.some((i) => i.endsWith(':original'))).toBe(true)
+})

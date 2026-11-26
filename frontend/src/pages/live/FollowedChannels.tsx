@@ -19,6 +19,8 @@ import {
   channelPageUrl,
   checkedText,
   describeFollowError,
+  followName,
+  followOriginalName,
   followStatusText,
   MAX_CHANNEL_INPUT,
   MAX_CHANNELS_PER_ADD,
@@ -201,15 +203,16 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
                 onMode={(m) => change(f, 'mode', { mode: m })}
                 editing={editing === f.id}
                 onEdit={() => setEditing(editing === f.id ? null : f.id)}
+                onNickname={(nickname) => change(f, 'nickname', { nickname }, nickname ? `Saved the name ${nickname}.` : 'Removed the name.')}
                 settings={editing === f.id && (
-                  <FollowSettings name={f.channel_name || f.channel} saved={f.options} fromForm={liveOptions}
+                  <FollowSettings name={followName(f)} saved={f.options} fromForm={liveOptions}
                     opts={formOptions} engines={engines} gpuReason={gpuReason} busy={!!busy} saving={busy === `options:${f.id}`}
                     onCancel={() => setEditing(null)}
                     onSave={(options) => void run(`options:${f.id}`, async () => {
                       await updateFollow(f.id, { options })
                       setEditing(null)
                       await load()
-                      setNote(`Saved the settings for ${f.channel_name || f.channel}.`)
+                      setNote(`Saved the settings for ${followName(f)}.`)
                     })} />
                 )}
                 onCheck={() => void run(`check:${f.id}`, async () => { await checkFollow(f.id); await load() })}
@@ -235,13 +238,29 @@ type RowProps = {
   onMode: (m: LiveFollowMode) => void
   editing: boolean
   onEdit: () => void
+  onNickname: (nickname: string) => void
   settings: ReactNode
   onCheck: () => void
   onRemove: () => void
 }
 
-function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly, onMode, editing, onEdit, settings, onCheck, onRemove }: RowProps) {
-  const name = f.channel_name || f.channel
+/** A name of the account's own for a channel, for when the site's name is only characters it cannot read. */
+function NicknameEditor({ f, disabled, onSave }: { f: LiveFollow; disabled: boolean; onSave: (nickname: string) => void }) {
+  const [text, setText] = useState(f.nickname)
+  const unchanged = text.trim() === f.nickname
+  return (
+    <form className="live-follow-nickname" onSubmit={(e) => { e.preventDefault(); if (!unchanged) onSave(text.trim()) }}>
+      <Field label="Your name for it" help="Shown first in your Live list and alerts, including Discord or ntfy if the PC sends them. Leave it empty to show the channel's own name.">
+        <input type="text" value={text} maxLength={60} placeholder={f.channel_name || f.channel} disabled={disabled} onChange={(e) => setText(e.target.value)} />
+      </Field>
+      <button type="submit" className={buttonClass('secondary', 'sm')} disabled={disabled || unchanged}>Save name</button>
+    </form>
+  )
+}
+
+function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly, onMode, editing, onEdit, onNickname, settings, onCheck, onRemove }: RowProps) {
+  const name = followName(f)
+  const original = followOriginalName(f)
   const waiting = busy ? 'Wait for the current request to finish.' : null
   const label = (action: string, idle: string, working: string) => (busy === `${action}:${f.id}` ? working : idle)
   const editable = f.mine || canAuto
@@ -258,6 +277,7 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
       <button type="button" className="live-follow-toggle" aria-expanded={open} aria-controls={bodyId}
         aria-label={`${name}: ${open ? 'hide' : 'show'} details`} onClick={onToggle}>
         <span className="live-follow-name">{name}</span>
+        {original && <small className="muted live-follow-original">{original}</small>}
         {f.state && <Badge tone={STATE_TONE[f.state] ?? 'neutral'}>{STATE_LABEL[f.state] ?? 'Not live'}</Badge>}
         <span className="live-follow-chevron" aria-hidden="true">{open ? '▾' : '▸'}</span>
       </button>
@@ -266,6 +286,7 @@ function FollowRow({ f, busy, canAuto, open, picked, rowRef, onToggle, onHourly,
       </p>
       <div id={bodyId} hidden={!open} className="live-follow-body">
         {name !== f.channel && <p className="muted live-follow-label">{f.channel}</p>}
+        {editable && <NicknameEditor key={f.nickname} f={f} disabled={!!busy} onSave={onNickname} />}
         <p className="muted live-follow-settings">Start Live uses: {optionsSummary(f.options)}</p>
         <div className="live-follow-controls">
           {editable && (

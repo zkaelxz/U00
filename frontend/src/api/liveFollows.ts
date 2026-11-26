@@ -164,3 +164,13 @@ export function announceLiveStarted(sessionId: string): void {
     // No window (tests without a DOM): nothing is listening anyway.
   }
 }
+
+/** What a channel is called on screen: the account's own name for it, else the site's name, else its handle. */
+export function followName(f: Pick<LiveFollow, 'nickname' | 'channel_name' | 'channel'>): string {
+  return f.nickname || f.channel_name || f.channel
+}
+
+/** The site's own name for a channel that has a nickname, shown small beside it; null when the name is shown as it is. */
+export function followOriginalName(f: Pick<LiveFollow, 'nickname' | 'channel_name' | 'channel'>): string | null {
+  return f.nickname ? f.channel_name || f.channel : null
+}

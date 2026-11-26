@@ -5,6 +5,7 @@ import {
   getThemePref,
   loadTheme,
   parseTheme,
+  reportShellTheme,
   resetThemeState,
   resolveTheme,
   saveTheme,
@@ -130,5 +131,20 @@ describe('shared theme state', () => {
     vi.stubGlobal('window', { localStorage: s })
     resetThemeState()
     expect(getThemePref()).toBe('dark')
+  })
+})
+
+describe('reportShellTheme', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('tells the phone app dark for dark and OLED, light for the rest, and follows the phone only for "system"', () => {
+    const setDark = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => false, set: () => {}, setDark } })
+    vi.stubGlobal('matchMedia', () => ({ matches: true }))
+    reportShellTheme('light')
+    reportShellTheme('oled')
+    reportShellTheme('sepia')
+    reportShellTheme('system')
+    expect(setDark.mock.calls.map((c) => c[0])).toEqual([false, true, false, true])
   })
 })
