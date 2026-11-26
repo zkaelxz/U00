@@ -32,6 +32,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
 ## Rules that bite
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
 - Match LLM results to lines by explicit id, never by list position.
+- No real names, nicknames, PC names or personal emails in code, tests, sample data, docs or commits: the repo is public. Use made-up ones (`Alex Example`, `DESKTOP-EXAMPLE`); the `privacy` CI job enforces it (`docs/testing-and-ci.md`, "Privacy check").
 - No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
   through `engine_backends.shared.redact_secrets`.
 - Every outbound HTTP call has `timeout=`; use `lib.http.get`/`post` for fetches the app makes itself.

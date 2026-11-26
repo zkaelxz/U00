@@ -199,6 +199,55 @@ jobs:
       - name: Check requirements, constraints and installer lock agree
         run: python scripts/check_constraints.py
 
+  # Fails when a tracked file, or a commit this PR adds (message, author or
+  # committer), contains one of the owner's private terms: real names, family
+  # nicknames, PC names, personal emails. The repository is public, so the terms
+  # live only in the PRIVATE_TERMS secret (one per line) and nothing here prints
+  # them: a hit names the file and line, or the commit, only. A hash list was
+  # rejected because short names are trivially guessed from their hashes. Runs
+  # no code from the PR. Dependabot runs get no secrets and change no prose, so
+  # they skip; any other run without the secret fails rather than passing blind.
+  privacy:
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: No private names, nicknames, PC names or personal emails
+        env:
+          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+          ACTOR: ${{ github.actor }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PRIVATE_TERMS" ]; then
+            if [ "$ACTOR" = "dependabot[bot]" ]; then echo "Dependabot run: no secrets, skipped."; exit 0; fi
+            echo "::error::The PRIVATE_TERMS repository secret is missing, so the privacy check cannot run (docs/testing-and-ci.md, \"Privacy check\")."
+            exit 1
+          fi
+          terms="$RUNNER_TEMP/terms"
+          printf '%s\n' "$PRIVATE_TERMS" | tr -d '\r' | sed '/^[[:space:]]*$/d' > "$terms"
+          found=0
+          if hits="$(git grep -I -n -i -w -F -f "$terms" -- . | cut -d: -f1,2)"; then
+            printf '%s\n' "$hits" | sed 's/^/::error::Private term in /'
+            found=1
+          fi
+          if [ -n "$BASE_SHA" ]; then
+            for c in $(git rev-list "$BASE_SHA..$HEAD_SHA"); do
+              if git log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | grep -q -i -w -F -f "$terms"; then
+                echo "::error::Private term in the message, author or committer of commit $c"
+                found=1
+              fi
+            done
+          fi
+          rm -f "$terms"
+          exit "$found"
+
   # The mocked suite in four shards that run at the same time. pytest-split
   # assigns whole tests to shards from the recorded durations in
   # .test_durations (refresh steps: docs/testing-and-ci.md), so the shards
@@ -379,7 +428,7 @@ jobs:
   # same rule: skipped is fine (the change touched no Windows script or
   # frontend), failed or cancelled is not, so a red browser shard blocks merge.
   test:
-    needs: [changes, guards, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy, browser-gate]
+    needs: [changes, guards, privacy, frontend, test-shard, optional-tests, windows-scripts, e2e, smoke, caddy, browser-gate]
     # Skipped with its needs on a draft: a draft cannot be merged, and marking
     # it ready starts a full run.
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
@@ -390,6 +439,7 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           GUARDS: ${{ needs.guards.result }}
+          PRIVACY: ${{ needs.privacy.result }}
           FRONTEND: ${{ needs.frontend.result }}
           SHARDS: ${{ needs.test-shard.result }}
           OPTIONAL: ${{ needs.optional-tests.result }}
@@ -399,9 +449,10 @@ jobs:
           CADDY: ${{ needs.caddy.result }}
           BROWSER_GATE: ${{ needs.browser-gate.result }}
         run: |
-          echo "changes=$CHANGES guards=$GUARDS frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY browser-gate=$BROWSER_GATE"
+          echo "changes=$CHANGES guards=$GUARDS privacy=$PRIVACY frontend=$FRONTEND test-shard=$SHARDS optional-tests=$OPTIONAL windows-scripts=$WINDOWS_SCRIPTS e2e=$E2E smoke=$SMOKE caddy=$CADDY browser-gate=$BROWSER_GATE"
           [ "$CHANGES" = success ] || exit 1
           [ "$GUARDS" = success ] || [ "$GUARDS" = skipped ] || exit 1
+          [ "$PRIVACY" = success ] || [ "$PRIVACY" = skipped ] || exit 1
           [ "$FRONTEND" = success ] || [ "$FRONTEND" = skipped ] || exit 1
           [ "$SHARDS" = success ] || [ "$SHARDS" = skipped ] || exit 1
           [ "$OPTIONAL" = success ] || [ "$OPTIONAL" = skipped ] || exit 1
