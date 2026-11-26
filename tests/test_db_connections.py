@@ -58,11 +58,20 @@ class TestConnectionLeakRecovery:
         # -- log_usage's own get_conn()/close() pair had no try/finally.
         # Now the failure is caught by its own with-block on the way out,
         # so nothing is ever tracked as open in the first place.
+        # Counted against what was already open: other tests in the same worker
+        # can leave a live connection behind (the registry holds weak references,
+        # so it lasts until a collection), which an absolute zero would blame on
+        # this call.
+        def live():
+            return sum(1 for refs in isolated_db._open_connections.values()
+                       for ref in refs if ref() is not None)
+
+        before = live()
         try:
             isolated_db.log_usage(99999, "c", "m", "t", 1, 1, 0.0)
         except Exception:
             pass
-        assert len(isolated_db._open_connections) == 0
+        assert live() == before
 
 
 class TestGpuLock:
