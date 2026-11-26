@@ -69,11 +69,36 @@ final class BaiheClient {
     /** A refused or failed call; the message is the server's own text or a short fixed one. */
     static final class BridgeException extends Exception {
         final int status;
+        /** The connection broke or stalled; asking again may work, unlike a refusal. */
+        final boolean dropped;
 
         BridgeException(int status, String message) {
+            this(status, message, false);
+        }
+
+        BridgeException(int status, String message, boolean dropped) {
             super(message);
             this.status = status;
+            this.dropped = dropped;
         }
+    }
+
+    private static final int STREAM_RETRIES = 2;
+    private static final long RETRY_WAIT_MS = 3_000;
+
+    /**
+     * A proxy in front of the PC answers 502/503/504 when the PC is slow or restarting, and a phone
+     * that left the app can come back to a connection Android cut; neither says the pages are bad.
+     */
+    static boolean worthRetrying(BridgeException e) {
+        return e.dropped || e.status == 502 || e.status == 503 || e.status == 504;
+    }
+
+    /** `batch` without the pictures whose pages already arrived, so a retry asks only for the rest. */
+    static List<PageImage> notDelivered(List<PageImage> batch, java.util.Set<String> delivered) {
+        List<PageImage> rest = new java.util.ArrayList<>(batch.size());
+        for (PageImage image : batch) if (!delivered.contains(image.key)) rest.add(image);
+        return rest;
     }
 
     private final String origin;
@@ -209,6 +234,30 @@ final class BaiheClient {
      * has no streamed route, so it comes back whole and is handed to `onPage` the same way.
      */
     JSONObject streamPages(String pageUrl, List<PageImage> batch, PageListener onPage) throws BridgeException {
+        java.util.Set<String> delivered = new java.util.HashSet<>();
+        PageListener tracking = page -> {
+            delivered.add(page.optString("key", ""));
+            onPage.onPage(page);
+        };
+        List<PageImage> todo = batch;
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return streamOnce(pageUrl, todo, tracking);
+            } catch (BridgeException e) {
+                todo = notDelivered(batch, delivered);
+                if (attempt >= STREAM_RETRIES || aborted || todo.isEmpty() || !worthRetrying(e)) throw e;
+                try {
+                    Thread.sleep(RETRY_WAIT_MS * (attempt + 1));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+                if (aborted) throw e;
+            }
+        }
+    }
+
+    private JSONObject streamOnce(String pageUrl, List<PageImage> batch, PageListener onPage) throws BridgeException {
         try {
             // A lone picture the PC is asked to download goes the streamed route, which takes fetch_url.
             if (batch.size() == 1 && !batch.get(0).fetchFirst) {
@@ -262,14 +311,14 @@ final class BaiheClient {
                     else if (item.has("error")) throw new BridgeException(item.optInt("status", 0), item.optString("error"));
                 }
             }
-            if (done == null) throw new BridgeException(status, "Baihe stopped before it finished the pages.");
+            if (done == null) throw new BridgeException(status, "Baihe stopped before it finished the pages.", true);
             return done;
         } catch (BridgeException e) {
             throw e;
         } catch (JSONException e) {
             throw new BridgeException(0, "Baihe sent an answer this app could not read.");
         } catch (IOException e) {
-            throw new BridgeException(0, aborted ? "Cancelled." : "Could not reach Baihe.");
+            throw new BridgeException(0, aborted ? "Cancelled." : "Could not reach Baihe.", !aborted);
         } finally {
             if (conn != null) {
                 synchronized (open) { open.remove(conn); }

@@ -28,6 +28,10 @@ public class QuickReadActivity extends Activity {
     private final java.util.List<File> files = new java.util.ArrayList<>();
     private LruCache<Integer, Bitmap> cache;
     private PageAdapter adapter;
+    // The footer is read from the grab's state, which its thread changes at any moment; ListView throws
+    // if the count moves without notifyDataSetChanged, so the adapter reads this UI-thread copy instead.
+    private boolean footerRunning;
+    private String footerSummary = "";
     private ListView list;
     private View tint;
     // Pages the reader flipped to the original art; the cache holds one picture per position, so a flip drops it.
@@ -87,6 +91,7 @@ public class QuickReadActivity extends Activity {
                 return;
             }
             files.addAll(SavedChapters.pagesOf(savedDir));
+            syncFooter();
         } else {
             QuickReadSession.attach();
             refresh();
@@ -501,11 +506,17 @@ public class QuickReadActivity extends Activity {
         }
     }
 
+    private void syncFooter() {
+        footerRunning = !QuickReadSession.isComplete();
+        footerSummary = QuickReadSession.summary();
+    }
+
     /** Only bare names the grab itself wrote inside the cache folder are opened, never a path an intent chose. */
     private void refresh() {
         File dir = quickReadDir(this);
         files.clear();
         for (String name : QuickReadSession.snapshot()) files.add(new File(dir, new File(name).getName()));
+        syncFooter();
         adapter.notifyDataSetChanged();
         // A reader already waiting at the end does not scroll again, so the offer is checked here too.
         QuickReadSession.reached(list.getLastVisiblePosition());
@@ -574,7 +585,7 @@ public class QuickReadActivity extends Activity {
     private final class PageAdapter extends BaseAdapter {
         @Override public int getCount() { return files.size() + (footerShown() ? 1 : 0); }
         private boolean footerShown() {
-            return !QuickReadSession.isComplete() || !QuickReadSession.summary().isEmpty();
+            return footerRunning || !footerSummary.isEmpty();
         }
         @Override public Object getItem(int position) { return position < files.size() ? files.get(position) : null; }
         @Override public long getItemId(int position) { return position; }
@@ -588,8 +599,8 @@ public class QuickReadActivity extends Activity {
                 int pad = (int) (24 * getResources().getDisplayMetrics().density);
                 row.setPadding(pad, pad, pad, pad);
                 android.widget.TextView more = new android.widget.TextView(QuickReadActivity.this);
-                boolean running = !QuickReadSession.isComplete();
-                more.setText(running ? "Redrawing more pages (" + files.size() + " so far)..." : QuickReadSession.summary());
+                boolean running = footerRunning;
+                more.setText(running ? "Redrawing more pages (" + files.size() + " so far)..." : footerSummary);
                 more.setTextSize(16);
                 row.addView(more);
                 if (!running) {
