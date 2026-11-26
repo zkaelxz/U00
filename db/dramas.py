@@ -101,6 +101,12 @@ def set_media_hash_if_unchanged(drama_id: int, media_hash: str, audio, video) ->
         return cur.rowcount > 0
 
 
+def clear_media_hash(drama_id: int) -> None:
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET media_hash = NULL WHERE id = ?", (drama_id,))
+        conn.commit()
+
+
 def clear_source_video(drama_id: int, name: str) -> None:
     """Forgets the source video only while it still names `name`, so a video uploaded meanwhile stays. The hash
     described that video, so it goes too; the next scan hashes what is left."""

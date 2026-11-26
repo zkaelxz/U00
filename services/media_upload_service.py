@@ -462,8 +462,6 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     for field in _MEDIA_FIELDS:
         if field not in new_files:
             fields.setdefault(field, None)
-    # A hash describes the file the title was made from; any other install forgets it until the next scan.
-    fields.setdefault("media_hash", None)
     # hardsub_ocr needs a video (source_service refuses to set it without
     # one), and every transcribe run of such a title fails once it is gone.
     if old.get("transcript_mode") == "hardsub_ocr" and "source_video_filename" not in new_files:
@@ -495,6 +493,9 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
             with contextlib.suppress(OSError):
                 os.rename(dst, src)
         raise
+    if fields.get("media_hash") is None:
+        # A hash describes the file the title was made from; an install without one forgets it until the next scan.
+        db.clear_media_hash(drama_id)
     named = {fields[f] for f in _MEDIA_FIELDS}
     refetchable = _downloaded_from(ddir, origin_link) if discard_replaced and origin_link else {}
     for name in {old.get(f) for f in _MEDIA_FIELDS} - named:
