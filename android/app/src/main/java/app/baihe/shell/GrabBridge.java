@@ -26,13 +26,19 @@ final class GrabBridge {
         /** The language the page's own text and lang attribute point to ("zh", "ja", "ko" or ""). */
         default void onLanguage(String language) {}
 
-        /** The page asks for a picture of what the web view shows; the answer goes back by id. */
-        default void onSnap(String id) {}
+        /** The page asks for a strip of what the web view shows: its place in page pixels. */
+        default void onSnap(String id, double left, double top, double width, double height, double viewWidth) {}
+
+        /** The page has asked for the strips taken so far to be joined and filed under this key. */
+        default void onStitch(String id, String key) {}
     }
 
     /** What the page said about its chapter and its work, kept for the PC's chapter label and blank title details. */
     static final class PageMeta {
         static final PageMeta NONE = new PageMeta(new ArrayList<>(), "", "", "");
+        private static final java.util.regex.Pattern CHAPTER_NUMBER = java.util.regex.Pattern.compile(
+                "第\\s*[\\d０-９一二三四五六七八九十百千零]+\\s*[章话話回集期]|(?<![A-Za-z])(?:chapter|chap|ch|episode|ep)\\.?\\s*\\d+|\\d+\\s*[화회話话章]",
+                java.util.regex.Pattern.CASE_INSENSITIVE);
         final List<String> chapterTitles;
         final String author;
         final String summary;
@@ -55,6 +61,17 @@ final class GrabBridge {
             String cover = info.optString("cover", "");
             return new PageMeta(titles, cap(info.optString("author", ""), 200), cap(info.optString("summary", ""), 2000),
                     cover.startsWith("https://") && cover.length() <= 2048 ? cover : "");
+        }
+
+        /**
+         * The first heading or title that names a chapter number, else `fallback`: some readers put
+         * the book's name in the first heading and the chapter's in a later one.
+         */
+        String chapterHeading(String fallback) {
+            for (String title : chapterTitles) {
+                if (CHAPTER_NUMBER.matcher(title).find()) return title;
+            }
+            return fallback;
         }
 
         private static String cap(String text, int max) {
@@ -184,12 +201,23 @@ final class GrabBridge {
 
     /** Only while this grab runs, and only a short id the page itself made up. */
     @JavascriptInterface
-    public void snap(String given, String id) {
+    public void snap(String given, String id, double left, double top, double width, double height, double viewWidth) {
         synchronized (this) {
             if (!accepts(given) || !begun) return;
         }
         if (id == null || !id.matches("s[0-9]{1,6}")) return;
-        listener.onSnap(id);
+        if (!(viewWidth >= 1 && viewWidth <= 10000 && width >= 1 && width <= 10000
+                && height >= 1 && height <= 20000 && left > -10000 && left < 10000 && top > -10000 && top < 20000)) return;
+        listener.onSnap(id, left, top, width, height, viewWidth);
+    }
+
+    @JavascriptInterface
+    public void stitch(String given, String id, String key) {
+        synchronized (this) {
+            if (!accepts(given) || !begun) return;
+        }
+        if (id == null || !id.matches("s[0-9]{1,6}") || key == null || !key.matches("p[0-9]{1,5}")) return;
+        listener.onStitch(id, key);
     }
 
     @JavascriptInterface

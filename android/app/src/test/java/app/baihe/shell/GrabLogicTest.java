@@ -130,7 +130,7 @@ public class GrabLogicTest {
     }
 
     @Test
-    public void bridgeAnswersSnapshotRequestsOnlyForTheRunningGrabAndShortIds() {
+    public void bridgeAnswersSnapshotRequestsOnlyForTheRunningGrabAndSaneValues() {
         final List<String> asked = new ArrayList<>();
         GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
             public void onBegin(List<String> titles, int count, JSONArray chapters, String next) {}
@@ -139,19 +139,37 @@ public class GrabLogicTest {
 
             public void onText(String text) {}
 
-            public void onSnap(String id) {
-                asked.add(id);
+            public void onSnap(String id, double left, double top, double width, double height, double viewWidth) {
+                asked.add("snap " + id);
+            }
+
+            public void onStitch(String id, String key) {
+                asked.add("stitch " + id + " " + key);
             }
         });
         bridge.start("secret");
-        bridge.snap("secret", "s1");
+        bridge.snap("secret", "s1", 0, 0, 400, 800, 412);
         assertTrue(asked.isEmpty());
         bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
-        bridge.snap("wrong", "s2");
-        bridge.snap("secret", "x'); steal();//");
-        bridge.snap("secret", "s3");
-        assertEquals(1, asked.size());
-        assertEquals("s3", asked.get(0));
+        bridge.snap("wrong", "s2", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "x'); steal();//", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "s3", 0, 0, 400, 800, 0);
+        bridge.snap("secret", "s4", 0, 0, 400, 800, 412);
+        bridge.stitch("secret", "s5", "p7");
+        bridge.stitch("secret", "s6", "p7'); x(");
+        bridge.stitch("wrong", "s7", "p7");
+        assertEquals(java.util.Arrays.asList("snap s4", "stitch s5 p7"), asked);
+    }
+
+    @Test
+    public void bilibiliMangaOpensAsItsDesktopPage() {
+        assertEquals("https://manga.bilibili.com/mc38822/1952411?from=x",
+                DesktopSite.rewrite("https://manga.bilibili.com/m/mc38822/1952411?from=x"));
+        assertEquals("https://manga.bilibili.com/mc1/2", DesktopSite.rewrite("https://manga.bilibili.com/mc1/2"));
+        assertEquals("https://manga.bilibili.com/detail/mc5", DesktopSite.rewrite("https://manga.bilibili.com/detail/mc5"));
+        assertEquals(null, DesktopSite.rewrite("https://example.com/m/mc1/2"));
+        assertEquals(null, DesktopSite.rewrite("https://manga.bilibili.com.evil.example/m/mc1/2"));
+        assertEquals(null, DesktopSite.rewrite(null));
     }
 
     @Test
@@ -458,5 +476,19 @@ public class GrabLogicTest {
         bridge.done("m");
         assertEquals(1, texts.size());
         assertEquals(1, pictureRuns[0]);
+    }
+
+    @Test
+    public void novelHeadingPrefersOneThatNamesAChapterNumber() {
+        List<String> titles = new ArrayList<>();
+        titles.add("Book");
+        titles.add("第12章 重逢");
+        titles.add("Book 第12章");
+        assertEquals("第12章 重逢", new GrabBridge.PageMeta(titles, "", "", "").chapterHeading("Book"));
+        List<String> plain = new ArrayList<>();
+        plain.add("Book");
+        plain.add("Night rain");
+        assertEquals("Night rain", new GrabBridge.PageMeta(plain, "", "", "").chapterHeading("Night rain"));
+        assertEquals("fallback", GrabBridge.PageMeta.NONE.chapterHeading("fallback"));
     }
 }
