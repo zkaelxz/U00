@@ -153,9 +153,13 @@ def upload_claim(drama_id: int, busy_message: str):
 _hashes_in_flight: dict = {}
 
 
-def _claim_hash(media_hash, drama_id) -> None:
+def _claim_hash(media_hash, drama_id, principal=None) -> None:
     with claims_lock:
         holder = _hashes_in_flight.get(media_hash)
+        # Naming a title the caller can't see would confirm it exists, as refuse_duplicate avoids;
+        # such an upload goes ahead unclaimed and is checked against stored hashes like before.
+        if holder is not None and holder != drama_id and not ownership_service.can_see_drama(principal, holder):
+            return
         if holder is not None and holder != drama_id:
             raise ConflictError("That exact file is being uploaded into another title right now. "
                                 "Wait for that upload to finish.",
@@ -769,7 +773,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
         ddir = db.drama_dir(drama_id)
         try:
-            _claim_hash(media_hash, drama_id)
+            _claim_hash(media_hash, drama_id, principal)
             try:
                 media_fingerprint_service.refuse_duplicate(media_hash, drama_id, principal)
             except ConflictError:

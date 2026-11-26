@@ -1199,3 +1199,18 @@ def test_same_file_into_two_titles_at_once_is_refused_for_the_second(client, iso
     # Once the first upload has finished, the held hash is gone and the stored one refuses instead.
     assert media_upload_service._hashes_in_flight == {}
     assert _up(client, second).status_code == 409
+
+
+def test_in_flight_claim_does_not_name_a_title_the_caller_cannot_see(isolated_db, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    holder, other = db.create_drama(title_en="A"), db.create_drama(title_en="B")
+    media_upload_service._claim_hash("h", holder)
+    try:
+        monkeypatch.setattr(media_upload_service.ownership_service, "can_see_drama", lambda p, d: False)
+        media_upload_service._claim_hash("h", other, principal=object())  # goes ahead, names nothing
+        monkeypatch.setattr(media_upload_service.ownership_service, "can_see_drama", lambda p, d: True)
+        with pytest.raises(ConflictError):
+            media_upload_service._claim_hash("h", other, principal=object())
+    finally:
+        media_upload_service._release_hash("h", holder)

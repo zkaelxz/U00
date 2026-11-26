@@ -28,6 +28,8 @@ export interface TitleProgressInput extends StepInput {
   /** Once the one-button flow has started it keeps its button, so its progress text stays. */
   flowOn: boolean
   onFlowProgress: () => void
+  /** The first line count failed to load, so none will arrive and no button place is held for it. */
+  countFailed?: boolean
 }
 
 const stepHrefs = (id: number): Record<StepKey, string> => {
@@ -161,7 +163,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const mainIsRun = progress.flowOn || (current?.key === 'transcribe' && !!progress.audioReady && progress.lineCount !== null)
   const showMain = !!current && !mainLinksHere(openStep, current.key, mainIsRun)
   // Until the line count arrives no step is current, so the main button is missing and would push the page down when it appears. A step's own page shows that button itself, so only a page with no open step holds a place.
-  const mainPending = !current && openStep === null && progress.lineCount === null && !progress.flowOn
+  const mainPending = !current && openStep === null && progress.lineCount === null && !progress.countFailed && !progress.flowOn
 
   return (
     <>

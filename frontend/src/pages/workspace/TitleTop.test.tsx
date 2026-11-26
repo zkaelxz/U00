@@ -207,6 +207,11 @@ describe('while the line count loads', () => {
     }
   })
 
+  it('holds no place when the count failed to load, since no button will arrive', () => {
+    browser(false)
+    expect(render({ ...loading, countFailed: true })).not.toContain('title-main-pending')
+  })
+
   it('draws no placeholder once the flow has taken over the button', () => {
     browser(false)
     expect(render({ ...loading, flowOn: true })).not.toContain('title-main-pending')
