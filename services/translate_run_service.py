@@ -181,7 +181,7 @@ def get_translate_config(drama_id: int) -> dict:
                                                    plain_stream=plain),
         "default_locale": settings_service.get("default_locale"),
         "default_style_note": novel_genre_service.default_style_note(
-            drama, settings_service.get("default_style_note") or ""),
+            drama, str(settings_service.get("default_style_note") or "")),
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
