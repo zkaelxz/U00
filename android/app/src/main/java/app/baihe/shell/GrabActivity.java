@@ -532,6 +532,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.getMenu().add("Send video to Baihe");
         menu.getMenu().add("Start Live here");
         menu.getMenu().add("Add to queue");
+        menu.getMenu().add("Grab whole series");
         int waiting = GrabStore.queue(prefs()).size();
         menu.getMenu().add(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)");
         if (QuickReadSession.isDetached()) menu.getMenu().add("Stop translating");
@@ -557,6 +558,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             else if ("Send video to Baihe".equals(title)) sendVideo();
             else if ("Start Live here".equals(title)) askStartLive();
             else if ("Add to queue".equals(title)) askAddToQueue();
+            else if ("Grab whole series".equals(title)) askWholeSeries();
             else if (title.startsWith("Queue and history")) startActivity(new Intent(this, GrabHistoryActivity.class));
             else openBaihe();
             return true;
@@ -965,6 +967,52 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
+    }
+
+    /** Reads the chapter list on the open series page and, after a warning, queues every chapter not yet done. */
+    private void askWholeSeries() {
+        String url = web.getUrl();
+        if (url == null || ServerAddress.browsable(url) == null) {
+            say(OPEN_FIRST);
+            return;
+        }
+        web.evaluateJavascript(SeriesRun.LINKS_JS, raw -> {
+            // evaluateJavascript hands back the script's string as a JSON string literal.
+            String json = "[]";
+            try {
+                json = new org.json.JSONTokener(raw == null ? "\"[]\"" : raw).nextValue().toString();
+            } catch (org.json.JSONException ignored) {
+                // Nothing readable lists no chapters.
+            }
+            List<GrabQueue.Item> links = SeriesRun.parseLinks(json, url);
+            if (links.size() < SeriesRun.MIN_LIST) {
+                say("Open the series page, the one that lists its chapters, first.");
+                return;
+            }
+            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.history(prefs()), GrabStore.queue(prefs()));
+            int room = GrabQueue.MAX_QUEUED - GrabStore.queue(prefs()).size();
+            if (plan.fresh.isEmpty() || room <= 0) {
+                say(plan.fresh.isEmpty() ? "Every chapter listed here is already done or waiting." : "The queue is full.");
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("Grab the whole series?")
+                    .setMessage(SeriesRun.warning(plan, room))
+                    .setPositiveButton("Add " + Math.min(plan.fresh.size(), room) + " chapters", (d, w) -> addSeries(plan, room))
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
+    }
+
+    private void addSeries(SeriesRun.Plan plan, int room) {
+        boolean idle = !grabbing && !loadingNext && chaptersLeft == 0;
+        int added = 0;
+        for (GrabQueue.Item item : plan.fresh) {
+            if (added >= room || !GrabStore.add(prefs(), item)) break;
+            added++;
+        }
+        if (idle && added > 0) startQueue();
+        else say("Added " + added + " chapters to the queue (" + GrabStore.queue(prefs()).size() + " waiting).");
     }
 
     private void addToQueue(String url, int chapters) {

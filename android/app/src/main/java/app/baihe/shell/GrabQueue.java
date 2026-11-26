@@ -12,7 +12,7 @@ import java.util.List;
 final class GrabQueue {
     private GrabQueue() {}
 
-    static final int MAX_QUEUED = 50;
+    static final int MAX_QUEUED = 500;
     static final int MAX_HISTORY = 50;
 
     static final class Item {
