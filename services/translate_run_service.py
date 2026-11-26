@@ -48,8 +48,8 @@ from engine_backends import fallback as engine_fallback
 import translation_guide
 from engine_backends.engine_registry import legacy_ids
 from services import (auth_service, bulk_submit_service, engine_routing_service,
-                      novel_files_service, ownership_service, paid_job_service, profile_service,
-                      run_settings_service, settings_service, translate_service,
+                      novel_files_service, novel_genre_service, ownership_service, paid_job_service,
+                      profile_service, run_settings_service, settings_service, translate_service,
                       translate_run_options, workspace_job_service)
 from services.translate_run_options import ollama_reachable  # also read as translate_run_service.ollama_reachable
 from lib.errors import (
@@ -180,7 +180,8 @@ def get_translate_config(drama_id: int) -> dict:
         "defaults": get_translate_config_defaults(is_novel, engine_name, start_model if plain else None,
                                                    plain_stream=plain),
         "default_locale": settings_service.get("default_locale"),
-        "default_style_note": settings_service.get("default_style_note"),
+        "default_style_note": novel_genre_service.default_style_note(
+            drama, settings_service.get("default_style_note") or ""),
         "project_instructions": drama.get("project_instructions"),
         "series_instructions": drama.get("series_instructions"),
         "has_novel_reference": has_novel,
