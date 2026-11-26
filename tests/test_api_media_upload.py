@@ -1171,3 +1171,31 @@ def test_audio_check_is_skipped_without_ffprobe(client, isolated_db, monkeypatch
     did = db.create_drama(title_en="D")
     assert _up(client, did).status_code == 200
     assert db.get_drama(did)["audio_filename"] == "source.mp3"
+
+
+def test_same_file_into_two_titles_at_once_is_refused_for_the_second(client, isolated_db, monkeypatch):
+    import db
+    first, second = db.create_drama(title_en="A"), db.create_drama(title_en="B")
+    in_install, go = threading.Event(), threading.Event()
+    real_install = media_upload_service.install_media
+
+    def slow_install(*a, **kw):
+        in_install.set()
+        assert go.wait(5)
+        return real_install(*a, **kw)
+
+    monkeypatch.setattr(media_upload_service, "install_media", slow_install)
+    results = {}
+    t = threading.Thread(target=lambda: results.update(first=_up(client, first)))
+    t.start()
+    assert in_install.wait(5)
+    r = _up(client, second)
+    go.set()
+    t.join(5)
+    assert results["first"].status_code == 200
+    assert r.status_code == 409
+    assert "being uploaded into another title" in r.text
+    assert os.listdir(db.drama_dir(second)) == []
+    # Once the first upload has finished, the held hash is gone and the stored one refuses instead.
+    assert media_upload_service._hashes_in_flight == {}
+    assert _up(client, second).status_code == 409

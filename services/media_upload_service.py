@@ -146,6 +146,29 @@ def upload_claim(drama_id: int, busy_message: str):
             claimed.discard(drama_id)
 
 
+# The duplicate check reads media_hash from the database, which install_media only
+# writes after the file is in place (for a video, after extraction). Two titles
+# receiving the same file at once would both pass the check, so the hash is held here
+# until it is recorded or the upload fails.
+_hashes_in_flight: dict = {}
+
+
+def _claim_hash(media_hash, drama_id) -> None:
+    with claims_lock:
+        holder = _hashes_in_flight.get(media_hash)
+        if holder is not None and holder != drama_id:
+            raise ConflictError("That exact file is being uploaded into another title right now. "
+                                "Wait for that upload to finish.",
+                                details={"reason": "duplicate_media_in_progress"})
+        _hashes_in_flight[media_hash] = drama_id
+
+
+def _release_hash(media_hash, drama_id) -> None:
+    with claims_lock:
+        if _hashes_in_flight.get(media_hash) == drama_id:
+            del _hashes_in_flight[media_hash]
+
+
 @contextlib.contextmanager
 def folder_write(drama_id: int):
     """The upload claim for any other upload into the title's folder (novel
@@ -737,6 +760,8 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if drama_id in claimed:
             raise ConflictError("Another upload is in progress for this title.")
         claimed.add(drama_id)
+    media_hash = None
+    hash_handed_to_job = False
     try:
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
@@ -744,7 +769,12 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
         ddir = db.drama_dir(drama_id)
         try:
-            media_fingerprint_service.refuse_duplicate(media_hash, drama_id, principal)
+            _claim_hash(media_hash, drama_id)
+            try:
+                media_fingerprint_service.refuse_duplicate(media_hash, drama_id, principal)
+            except ConflictError:
+                _release_hash(media_hash, drama_id)
+                raise
         except ConflictError:
             # A refused duplicate is a copy of a file the Library already holds.
             with contextlib.suppress(OSError):
@@ -779,14 +809,24 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if not started:  # unreachable while the claim and running-job check hold
             _keep_failed_upload(ddir, staged, ext)
             raise ConflictError(_BUSY)
+        hash_handed_to_job = True  # the extract job releases it once the hash is recorded
         # The job picks the video's name when it puts it in place.
         return {"name": None, "size": size, "kind": "video", "job_id": job_id}
     finally:
+        if media_hash is not None and not hash_handed_to_job:
+            _release_hash(media_hash, drama_id)
         with claims_lock:
             claimed.discard(drama_id)
 
 
 def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None, media_hash=None):
+    try:
+        _extract_audio(job_id, drama_id, ext, staged, transcribe_options, media_hash)
+    finally:
+        _release_hash(media_hash, drama_id)
+
+
+def _extract_audio(job_id, drama_id, ext, staged, transcribe_options, media_hash):
     ddir = db.drama_dir(drama_id)
     part_path = os.path.join(ddir, ".audio.extract.flac")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
@@ -813,6 +853,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None, m
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".flac")},
                       transcribe_new_audio=transcribe_options is None, media_hash=media_hash)
+        _release_hash(media_hash, drama_id)  # recorded now; a transcribe run below can take long
     except BaseException as exc:
         if os.path.exists(part_path):
             os.remove(part_path)
