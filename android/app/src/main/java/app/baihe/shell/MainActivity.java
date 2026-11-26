@@ -276,6 +276,8 @@ public class MainActivity extends Activity {
 
     private void setLiveWatching(boolean watching) {
         liveWatching = watching;
+        // A player that has just appeared can leave the page wider than the screen until the next layout pass.
+        if (watching && web != null) web.postDelayed(this::refreshAfterResize, 600);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         // From Android 12 the system floats the app by itself on the home gesture; older ones use onUserLeaveHint.
         try {
@@ -315,6 +317,23 @@ public class MainActivity extends Activity {
         if (strip != null) strip.setVisibility(inPip ? View.GONE : View.VISIBLE);
         if (web == null) return;
         web.evaluateJavascript("document.documentElement.classList.toggle('shell-pip'," + inPip + ")", null);
+        // The window animates between sizes, so the WebView can be left laid out for the small one (page zoomed
+        // in after returning, black picture): ask for the layout and the page's viewport again once it settles.
+        refreshAfterResize();
+        web.postDelayed(this::refreshAfterResize, 350);
+    }
+
+    private void refreshAfterResize() {
+        if (web == null) return;
+        web.requestLayout();
+        web.invalidate();
+        // The viewport is only re-applied when the page really is zoomed or wider than the screen, so a
+        // normal return to the app never moves the person's scroll position.
+        web.evaluateJavascript("(function(){var v=window.visualViewport,"
+                + "bad=(v&&Math.abs(v.scale-1)>0.01)||document.documentElement.scrollWidth>window.innerWidth+1;"
+                + "if(!bad)return;var m=document.querySelector('meta[name=viewport]');"
+                + "if(m){var c=m.content;m.content='';m.content=c;}"
+                + "window.dispatchEvent(new Event('resize'));})()", null);
     }
 
     /** The clipboard can only be read while this window has focus (Android 10+). */
@@ -569,6 +588,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web == null) return;
+        // Coming back to the front is what cleared a stale layout by hand; do it without the person having to.
+        refreshAfterResize();
         web.removeCallbacks(poll);
         poll.run();
     }

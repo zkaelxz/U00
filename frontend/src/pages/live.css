@@ -59,7 +59,7 @@
 
 /* Watching: a phone stacks the picture over a lines box that takes the rest of the screen, Stop under the picture.
    A PC puts the picture on the left and a 400px lines column on the right. */
-.live-watch { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); }
+.live-watch { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); overflow-x: clip; }
 .live-watch[data-running] { display: flex; flex-direction: column; height: calc(100dvh - var(--bar-h, 0px) - var(--live-chrome, 8rem)); min-height: 24rem; }
 .live-watch .live-feed { min-height: 0; }
 .live-watch[data-running] .live-feed { flex: 1; display: flex; flex-direction: column; }
