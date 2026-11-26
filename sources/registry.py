@@ -20,6 +20,12 @@ REMOVED_SOURCES = frozenset({"mangaz", "toonkor", "ranobes", "manhuaku"})
 SOURCE_REMOVED = "This source was removed."
 
 
+# An adapter with `unlisted = True` answers a pasted link like any other but is left
+# out of every list the person sees (Sources, search, the status board).
+def is_unlisted(cls) -> bool:
+    return bool(getattr(cls, "unlisted", False))
+
+
 def register(cls):
     """Class decorator: makes an adapter available to the app."""
     if not cls.name:
