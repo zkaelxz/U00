@@ -11,7 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import {
-  getExtensionEngine, getExtensionStatus, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
+  getExtensionEngine, getExtensionStatus, openExtensionFolder, revealExtensionToken, setExtensionEnabled, setExtensionEngine,
 } from '../../api/extension'
 import { Card } from '../../components/Card'
 import { copyText } from '../../components/clipboard'
@@ -65,6 +65,15 @@ function ExtensionControls() {
     }
   }, [])
 
+  const openFolder = () => {
+    setError(null)
+    setNote(null)
+    openExtensionFolder().then(
+      (r) => r.opened || setNote(`Load this folder in your browser: ${r.folder}`),
+      (e: unknown) => setError(e),
+    )
+  }
+
   const toggle = (enabled: boolean) => {
     if (!status) return
     const previous = status
@@ -107,10 +116,15 @@ function ExtensionControls() {
         <ErrorBanner error={error} onDismiss={() => setError(null)} describe={SERVER} />
         <p className="settings-note">{HELP}</p>
         <p>
-          <a className={buttonClass()} href="/api/extension/download" download="baihe-extension.zip">
-            Download extension (.zip)
-          </a>{' '}
-          <span className="muted">Unzip it, then load the folder in Edge or Chrome (Extensions, Developer mode, Load unpacked).</span>
+          <button type="button" className={buttonClass()} onClick={openFolder}>Open extension folder</button>{' '}
+          <span className="muted">
+            Load this folder once in Edge or Chrome (Extensions, Developer mode, Load unpacked). Baihe keeps it current, and
+            the extension reloads itself after an app update.
+          </span>
+        </p>
+        <p>
+          <a href="/api/extension/download" download="baihe-extension.zip">Download extension (.zip)</a>{' '}
+          <span className="muted">For another computer, which has to be updated by hand.</span>
         </p>
         {!status
           ? !error && <p className="muted">Loading…</p>

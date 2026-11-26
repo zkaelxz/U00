@@ -37,7 +37,9 @@ import db
 from services import page_server
 from engine_backends import engine_registry
 from services import settings_service, translate_service
-from lib.errors import InvalidInputError, NotFoundError
+from lib import file_manager
+from lib.errors import InvalidInputError, NotFoundError, UnsupportedOperationError
+import portable
 from sources import store as src_store
 
 ENGINE_SETTING = "extension_translation_engine"
@@ -52,6 +54,78 @@ _EXTENSION_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__
 _NOT_SHIPPED = {"verify_end_to_end.py"}
 
 
+def _shipped_files() -> list[tuple[str, str]]:
+    """(absolute path, path relative to the extension folder) of every file a browser loads."""
+    found = []
+    for root, dirs, files in os.walk(_EXTENSION_DIR):
+        dirs[:] = sorted(d for d in dirs if d != "__pycache__")
+        for name in sorted(files):
+            if name in _NOT_SHIPPED or name.endswith(".pyc"):
+                continue
+            full = os.path.join(root, name)
+            found.append((full, os.path.relpath(full, _EXTENSION_DIR)))
+    return found
+
+
+def synced_folder() -> str:
+    """The one folder the browser loads the extension from. It sits in the data folder, not
+    the program folder, so its path survives app updates and moving the install."""
+    return os.path.join(portable.data_dir(), "browser-extension")
+
+
+def sync_extension_folder() -> bool:
+    """Makes `synced_folder()` match the extension this app ships; True if anything changed.
+    The browser never updates an extension loaded from a folder, but the extension reloads
+    itself when the app reports a newer version (background.js), so keeping this folder
+    current at every start is what turns an app update into an extension update. Files are
+    swapped in one at a time with manifest.json last, so a reload never sees a new manifest
+    beside old scripts."""
+    if not os.path.isfile(os.path.join(_EXTENSION_DIR, "manifest.json")):
+        return False
+    target = synced_folder()
+    wanted = _shipped_files()
+    changed = False
+    for full, rel in sorted(wanted, key=lambda pair: pair[1] == "manifest.json"):
+        dest = os.path.join(target, rel)
+        with open(full, "rb") as f:
+            data = f.read()
+        try:
+            with open(dest, "rb") as f:
+                if f.read() == data:
+                    continue
+        except OSError:
+            pass
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        tmp = dest + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(data)
+        os.replace(tmp, dest)
+        changed = True
+    keep = {os.path.normcase(os.path.join(target, rel)) for _, rel in wanted}
+    for root, _dirs, files in os.walk(target):
+        for name in files:
+            leftover = os.path.join(root, name)
+            if os.path.normcase(leftover) not in keep:
+                os.remove(leftover)
+                changed = True
+    return changed
+
+
+def open_synced_folder() -> dict:
+    """Opens the synced extension folder in the PC's file manager. With no desktop (the
+    background service), the folder rides in the answer for the PC owner to copy; the
+    route is local_only, so the path never leaves the PC."""
+    sync_extension_folder()
+    folder = synced_folder()
+    try:
+        file_manager.open_folder(folder)
+    except file_manager.NoDesktopError:
+        return {"opened": False, "folder": folder}
+    except OSError:
+        raise UnsupportedOperationError("This PC has no file manager the app can open.") from None
+    return {"opened": True}
+
+
 def extension_zip() -> bytes:
     """The browser extension as a zip, so it can be unpacked on a computer that
     cannot open this PC's app folder (the folder is hard to find in a service install)."""
@@ -59,13 +133,8 @@ def extension_zip() -> bytes:
         raise NotFoundError("The extension files were not found in this install.")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for root, dirs, files in os.walk(_EXTENSION_DIR):
-            dirs[:] = sorted(d for d in dirs if d != "__pycache__")
-            for name in sorted(files):
-                if name in _NOT_SHIPPED or name.endswith(".pyc"):
-                    continue
-                full = os.path.join(root, name)
-                zf.write(full, os.path.join("baihe-extension", os.path.relpath(full, _EXTENSION_DIR)))
+        for full, rel in _shipped_files():
+            zf.write(full, os.path.join("baihe-extension", rel))
     return buf.getvalue()
 
 

@@ -337,6 +337,7 @@ def start_background_services(features_off=frozenset()) -> dict:
             state["chapter_scheduler"] = True
     except Exception as exc:
         log_warning("chapter-check scheduler did not start: %s", exc)
+    _sync_extension_folder(features_off)
     try:
         from sources import store as src_store
         if "extension" not in features_off and bool(src_store.get_setting("page_server_enabled")):
@@ -354,6 +355,15 @@ def start_background_services(features_off=frozenset()) -> dict:
         log_warning("browser-extension endpoint did not start: %s", exc)
     _started = state
     return dict(state)
+
+
+def _sync_extension_folder(features_off):
+    try:
+        if "extension" not in features_off:
+            from services import extension_service
+            extension_service.sync_extension_folder()
+    except Exception as exc:
+        log_warning("browser-extension folder was not updated: %s", redact_secrets(str(exc)))
 
 
 def log_warning(fmt, *args):
