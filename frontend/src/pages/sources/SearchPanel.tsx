@@ -11,7 +11,7 @@ import { useReadiness } from '../../hooks/useReadiness'
 import { browserTierNeed } from '../readiness/needs'
 import { NeedsInstall } from '../readiness/NeedsInstall'
 import type { OpenSeries, SearchResult, SourceSummary } from '../../types/sources'
-import { RESULTS_PAGE, browserHeldSources, describeSourceError, excludedAfterBulkPick, groupSourcesByLanguageAndKind, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
+import { RESULTS_PAGE, browserHeldSources, describeSourceError, excludedAfterBulkPick, groupSourcesByKindAndLanguage, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, searchableSources, selectedSources } from './sourcesFormat'
 import type { SourceErrorCopy } from './sourcesFormat'
 import { openerKey } from './sourcesFormat'
 import type { SourcesJob } from './useSourcesJob'
@@ -142,14 +142,14 @@ export function SearchPanel({ sources, remote, job, resultsHidden, onOpen, onUse
                 None
               </button>
             </p>
-            {groupSourcesByLanguageAndKind(searchable).map((lang) => (
-              <div key={lang.language} className="sources-search-lang">
-                <h2>{lang.label}</h2>
-                {lang.kinds.map((kind) => (
-                  <div key={kind.kind} className="sources-search-kind">
-                    <p className="muted">{kind.label}</p>
+            {groupSourcesByKindAndLanguage(searchable).map((kind) => (
+              <div key={kind.kind} className="sources-search-lang">
+                <h2>{kind.label}</h2>
+                {kind.languages.map((lang) => (
+                  <div key={lang.language} className="sources-search-kind">
+                    <p className="muted">{lang.label}</p>
                     <div className="setting-list toggle-grid sources-search-in">
-                      {kind.sources.map((s) => (
+                      {lang.sources.map((s) => (
                         <Field key={s.name} label={s.display_name}>
                           <Toggle checked={selected.includes(s.name)} onChange={(on) => toggleSource(s.name, on)} />
                         </Field>
