@@ -160,6 +160,8 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const mainInPanel = mainInStepsPanel(openStep, current?.key ?? null, home, progress.riskCount ?? null)
   const mainIsRun = progress.flowOn || (current?.key === 'transcribe' && !!progress.audioReady && progress.lineCount !== null)
   const showMain = !!current && !mainLinksHere(openStep, current.key, mainIsRun)
+  // Until the line count arrives no step is current, so the main button is missing and would push the page down when it appears. A step's own page shows that button itself, so only a page with no open step holds a place.
+  const mainPending = !current && openStep === null && progress.lineCount === null && !progress.flowOn
 
   return (
     <>
@@ -217,6 +219,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
             <div className="steps-fold-controls">{switchView}</div>
           </div>
           {showMain && !mainInPanel && <TitleMainRow>{main}</TitleMainRow>}
+          {mainPending && !mainInPanel && <TitleMainRow pending />}
         </>
       ) : (
         <>
@@ -226,12 +229,13 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
           </div>
           <StepRow id={id} input={progress} openStep={openStep} />
           {showMain && !mainElsewhere && <TitleMainRow>{main}</TitleMainRow>}
+          {mainPending && !mainElsewhere && <TitleMainRow pending />}
         </>
       )}
     </>
   )
 }
 
-function TitleMainRow({ children }: { children: ReactNode }) {
-  return <div className="title-main-row">{children}</div>
+function TitleMainRow({ children, pending = false }: { children?: ReactNode; pending?: boolean }) {
+  return <div className={pending ? 'title-main-row is-pending' : 'title-main-row'} aria-hidden={pending || undefined} data-testid={pending ? 'title-main-pending' : undefined}>{children}</div>
 }

@@ -195,3 +195,20 @@ describe('the phone\'s header', () => {
     expect(steps).not.toContain('>Search<')
   })
 })
+
+describe('while the line count loads', () => {
+  const loading: TitleProgressInput = { ...base, audioReady: null, lineCount: null, translatedCount: 0, riskCount: null }
+
+  it('holds the main button\'s place so the page does not jump when it arrives', () => {
+    for (const phone of [false, true]) {
+      browser(phone)
+      expect(render(loading)).toContain('data-testid="title-main-pending"')
+      expect(render(AT.translate)).not.toContain('title-main-pending')
+    }
+  })
+
+  it('draws no placeholder once the flow has taken over the button', () => {
+    browser(false)
+    expect(render({ ...loading, flowOn: true })).not.toContain('title-main-pending')
+  })
+})
