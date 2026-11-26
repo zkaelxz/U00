@@ -65,7 +65,7 @@ import { MisheardNote } from './MisheardNote'
 import { SpeechCoverage } from './SpeechCoverage'
 import { mediaFileInputId, needsReplaceConfirm, replaceBoxId } from './stageBlockers'
 import { withoutUntouchedBackend } from './transcribeBackendField'
-import { measuredRunSeconds, transcribeEstimate } from './transcribeEstimate'
+import { longRunWarning, measuredRunSeconds, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
 import { promptFields } from './transcribePrompt'
 import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
@@ -150,6 +150,8 @@ export default function TranscribeStage({
   // Settings are not readable from away from the PC, so the run config's copy of the flag backs it up.
   const [settingsGpu, setUseGpu] = useState<boolean | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
+  // Set once the person has seen the long-run warning: the next Transcribe click goes through.
+  const [longAsk, setLongAsk] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   // A refused option, shown on its own field instead of a generic banner.
   const [fieldProblem, setFieldProblem] = useState<RunFieldProblem | null>(null)
@@ -387,6 +389,18 @@ export default function TranscribeStage({
           realignLong: cf.realign_long_segments,
         })
       : null
+    const longWarning = whisperRun && !uploadFile && !cf.use_groq
+      ? longRunWarning(whisperEstimateSeconds({
+          audioSeconds: duration, whisperSize: cf.whisper_size, useGpu, fastMode: cf.whisper_fast_mode, measuredSpeed: speed,
+          measuredRuns: config.measured_speed_runs, measuredStages: speed ? config.measured_stage_seconds : undefined,
+          separateVocals: cf.separate_vocals_first, realignLong: cf.realign_long_segments,
+        }))
+      : null
+    if (longWarning && !longAsk) {
+      setLongAsk(longWarning)
+      return
+    }
+    setLongAsk(null)
     const start = () => {
       if (!uploadFile) return startTranscribe(dramaId, req)
       setSent(null)
@@ -668,6 +682,13 @@ export default function TranscribeStage({
           >
             Transcribe
           </button>
+          {longAsk && !busy && (
+            <span role="alert" className="translate-warning" data-testid="transcribe-long-run">
+              {longAsk}{' '}
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={transcribe}>Start anyway</button>
+              <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setLongAsk(null)}>Not now</button>
+            </span>
+          )}
           {starting && uploadFile && <UploadProgress sent={sent} />}
           {estimate && !busy && <span className="muted" role="note" data-testid="transcribe-estimate">{estimate}</span>}
           {cf?.separate_vocals_first && whisperRun && !busy && (

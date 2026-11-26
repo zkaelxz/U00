@@ -28,6 +28,7 @@ import {
 } from '../types/jobs'
 import { formatJobDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, jobDetail, jobStatusLabel, jobTitledName, plainJobText } from './diagnosticsFormat'
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
+import { ActivityLog } from './jobs/ActivityLog'
 import { JobQueue } from './jobs/JobQueue'
 import { RunSettings } from './jobs/RunSettings'
 import {
@@ -284,6 +285,7 @@ export default function JobsPage() {
         </>
       )}
       {noJobsYet && <JobQueue titles={titles} />}
+      <ActivityLog />
     </PageShell>
   )
 }

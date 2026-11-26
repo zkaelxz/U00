@@ -117,6 +117,14 @@ export function roughRange(lowSeconds: number, highSeconds: number): string {
   return a === b ? `about ${a} h` : `about ${a}-${b} h`
 }
 
+// A run expected to take this long (its upper estimate) asks for a second click before it starts.
+export const LONG_RUN_SECONDS = 2 * 3600
+
+export function longRunWarning(est: { low_s: number; high_s: number } | null): string | null {
+  if (!est || est.high_s < LONG_RUN_SECONDS) return null
+  return `This run is expected to take ${roughRange(est.low_s, est.high_s)}, and the PC works on it that whole time. Start it anyway?`
+}
+
 interface TranscribeEstimateInput extends WhisperEstimateInput {
   useGroq: boolean
   detectSpeakers: boolean

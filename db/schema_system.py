@@ -8,6 +8,25 @@ import json
 import db
 
 
+def _create_activity_table(conn):
+    conn.executescript("""
+        -- (db/activity.py): one row per finished job, kept for the
+        -- activity log and the daily GPU chart after job_records is cleared.
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_id TEXT NOT NULL,
+            label TEXT NOT NULL DEFAULT '',
+            owner_user_id INTEGER,
+            outcome TEXT NOT NULL,
+            started_at REAL NOT NULL,
+            ended_at REAL NOT NULL,
+            seconds REAL NOT NULL,
+            gpu INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_activity_log_ended ON activity_log(ended_at);
+    """)
+
+
 def _create_job_tables(conn):
     conn.executescript("""
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, measuredRunSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
+import { longRunWarning, diarizeEstimate, etaStage, formatLeft, isNoPercentStage, liveEtaSeconds, measuredRunSeconds, roughDuration, roughRange, transcribeEstimate, whisperEstimateSeconds } from './transcribeEstimate'
 
 const base = { audioSeconds: 3600, whisperSize: 'large-v3', useGpu: false, useGroq: false, detectSpeakers: false }
 
@@ -176,5 +176,13 @@ describe('stage detection', () => {
     expect(etaStage('Transcribing (step 1 of 2)... 12%')).toBe('1')
     expect(etaStage('Re-transcribing with Qwen3-ASR (step 2 of 2)... 10%')).toBe('2')
     expect(etaStage('Transcribing... 12%')).toBe('0')
+  })
+})
+
+describe('longRunWarning', () => {
+  it('is quiet for a run under two hours and warns above it', () => {
+    expect(longRunWarning(null)).toBeNull()
+    expect(longRunWarning({ low_s: 1800, high_s: 7199 })).toBeNull()
+    expect(longRunWarning({ low_s: 7200, high_s: 14400 })).toContain('about 2-4 h')
   })
 })

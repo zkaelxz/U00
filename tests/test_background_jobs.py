@@ -813,11 +813,11 @@ class TestCancelCheckStateIsPerRun:
         old_finishing, old_go, old_forgot = threading.Event(), threading.Event(), threading.Event()
         real_timing_finish, real_forget = job_runner._timing_finish, job_runner._forget_cancel_check
 
-        def timing_finish(job_id, token, thread_job=True):
+        def timing_finish(job_id, token, thread_job=True, **kw):
             if not old_finishing.is_set():
                 old_finishing.set()
                 old_go.wait(5)
-            real_timing_finish(job_id, token, thread_job)
+            real_timing_finish(job_id, token, thread_job, **kw)
 
         def forget(job_id, *args):
             real_forget(job_id, *args)

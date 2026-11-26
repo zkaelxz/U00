@@ -344,6 +344,10 @@ class TestLoadQwen3Asr:
             qwen3_native.installed_transformers_version = saved[1]
         import asr_backend
         asr_backend._asr_model_cache.clear()
+        # A reload imports whichever forced_align.LANGUAGE_NAMES exists at that moment, and a later test
+        # asserts asr_backend and forced_align share one object.
+        import forced_align
+        asr_backend.LANGUAGE_NAMES = forced_align.LANGUAGE_NAMES
 
     def test_loads_and_caches_per_model_size_and_device(self):
         calls = []
