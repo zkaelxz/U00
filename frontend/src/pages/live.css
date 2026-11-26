@@ -138,7 +138,9 @@ html.shell-pip body { overflow: hidden; }
 .live-watch[data-tv] .live-cues li:first-child:has(.live-en.muted) + li { opacity: 1; }
 .live-watch[data-tv] .live-new-lines { background: white; color: black; }
 @media (orientation: landscape) and (min-aspect-ratio: 4/3) {
-  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'][data-tv-split='even'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .live-watch[data-tv='side'][data-tv-split='narrow'] { grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); }
   .live-watch[data-tv='side'] .live-video { align-self: center; }
   .live-watch[data-tv='above'] .live-video-frame { width: min(100%, calc(45dvh * 16 / 9)); margin-inline: auto; }
 }

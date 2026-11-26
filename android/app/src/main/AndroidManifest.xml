@@ -68,6 +68,10 @@
             android:label="Quick read"
             android:exported="false" />
         <activity
+            android:name=".GrabBookmarksActivity"
+            android:label="Bookmarks"
+            android:exported="false" />
+        <activity
             android:name=".GrabHistoryActivity"
             android:label="Queue and history"
             android:exported="false" />

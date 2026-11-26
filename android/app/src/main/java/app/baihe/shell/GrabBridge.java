@@ -26,8 +26,11 @@ final class GrabBridge {
         /** The language the page's own text and lang attribute point to ("zh", "ja", "ko" or ""). */
         default void onLanguage(String language) {}
 
-        /** The page asks for a picture of what the web view shows; the answer goes back by id. */
-        default void onSnap(String id) {}
+        /** The page asks for a strip of what the web view shows: its place in page pixels. */
+        default void onSnap(String id, double left, double top, double width, double height, double viewWidth) {}
+
+        /** The page has asked for the strips taken so far to be joined and filed under this key. */
+        default void onStitch(String id, String key) {}
     }
 
     /** Past these the grab stops collecting and sends what it has. */
@@ -144,12 +147,23 @@ final class GrabBridge {
 
     /** Only while this grab runs, and only a short id the page itself made up. */
     @JavascriptInterface
-    public void snap(String given, String id) {
+    public void snap(String given, String id, double left, double top, double width, double height, double viewWidth) {
         synchronized (this) {
             if (!accepts(given) || !begun) return;
         }
         if (id == null || !id.matches("s[0-9]{1,6}")) return;
-        listener.onSnap(id);
+        if (!(viewWidth >= 1 && viewWidth <= 10000 && width >= 1 && width <= 10000
+                && height >= 1 && height <= 20000 && left > -10000 && left < 10000 && top > -10000 && top < 20000)) return;
+        listener.onSnap(id, left, top, width, height, viewWidth);
+    }
+
+    @JavascriptInterface
+    public void stitch(String given, String id, String key) {
+        synchronized (this) {
+            if (!accepts(given) || !begun) return;
+        }
+        if (id == null || !id.matches("s[0-9]{1,6}") || key == null || !key.matches("p[0-9]{1,5}")) return;
+        listener.onStitch(id, key);
     }
 
     @JavascriptInterface
