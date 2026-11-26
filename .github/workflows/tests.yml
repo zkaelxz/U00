@@ -253,7 +253,8 @@ jobs:
           range=""
           if [ "$EVENT" = pull_request ]; then
             has_term "$PR_TITLE" && { echo "::error::Private term in the PR title."; found=1; }
-            has_term "$PR_BODY" && { echo "::error::Private term in the PR description."; found=1; }
+            # The project tool writes a "Requested by" credit line that a thread cannot leave out.
+            has_term "$(grep -v '^_Requested by \*\*' <<<"$PR_BODY" || true)" && { echo "::error::Private term in the PR description."; found=1; }
             range="HEAD^1..HEAD^2"
           elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "${PUSH_BEFORE//0/}" != "" ]; then
             range="$PUSH_BEFORE..$PUSH_AFTER"
