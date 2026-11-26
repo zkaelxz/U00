@@ -22,7 +22,9 @@ export function useTvMode(root: RefObject<HTMLElement | null>, pinned = false) {
   const wasFullscreen = useRef(false)
   // The full-screen request resolves later; by then Exit may already have been pressed.
   const onRef = useRef(on)
-  onRef.current = on
+  useEffect(() => {
+    onRef.current = on
+  }, [on])
   const exiting = useRef(false)
   const [touched, setTouched] = useState(false)
   const barRef = useRef(true)
@@ -143,7 +145,9 @@ export function useTvMode(root: RefObject<HTMLElement | null>, pinned = false) {
 
   const shown = barShown || pinned || !touched
 
-  barRef.current = shown
+  useEffect(() => {
+    barRef.current = shown
+  }, [shown])
 
   return { on, enter, exit, video, setVideo, barShown: shown, showBar: () => setBarShown(true) }
 }
