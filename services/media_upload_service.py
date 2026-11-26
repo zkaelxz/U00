@@ -64,7 +64,7 @@ import storage
 from lib.safe_paths import plain_file_in
 import video_export
 from lib import settings_schema
-from services import cover_art_service, drama_service, ownership_service, settings_service, site_captions_service
+from services import cover_art_service, drama_service, media_fingerprint_service, ownership_service, settings_service, site_captions_service
 from lib.errors import ConflictError, InvalidInputError
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".m4a", ".flac", ".ogg")
@@ -462,6 +462,8 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     for field in _MEDIA_FIELDS:
         if field not in new_files:
             fields.setdefault(field, None)
+    # A hash describes the file the title was made from; any other install forgets it until the next scan.
+    fields.setdefault("media_hash", None)
     # hardsub_ocr needs a video (source_service refuses to set it without
     # one), and every transcribe run of such a title fails once it is gone.
     if old.get("transcript_mode") == "hardsub_ocr" and "source_video_filename" not in new_files:
@@ -648,7 +650,7 @@ def recover_all_stale_uploads() -> int:
 
 def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False):
     """Streams the body to a hidden file in the drama folder; returns
-    (ext, size, staged path). Nothing is put in place here."""
+    (ext, size, staged path, sha256 hex). Nothing is put in place here."""
     ext = _safe_extension(client_filename)
     drama = ownership_service.require_drama(drama_id)
     if (drama.get("content_mode") or "audio_drama") not in UPLOAD_CONTENT_MODES:
@@ -660,12 +662,14 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
     _check_disk_room(ddir, fileobj)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
     size = 0
+    hasher = media_fingerprint_service.new_hasher()
     try:
         with os.fdopen(fd, "wb") as out:
             while True:
                 chunk = fileobj.read(_CHUNK)
                 if not chunk:
                     break
+                hasher.update(chunk)
                 size += len(chunk)
                 if size > limit:
                     raise InvalidInputError(too_large_message(limit))
@@ -681,7 +685,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-    return ext, size, staged
+    return ext, size, staged, hasher.hexdigest()
 
 
 # The end of ffmpeg's stderr names the failure; its start is the banner and stream list.
@@ -715,7 +719,7 @@ def _log_media_failure(drama_id, exc) -> None:
 
 
 def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
-                 confirm_replace_audio=False) -> dict:
+                 confirm_replace_audio=False, principal=None) -> dict:
     """Only one upload per drama at a time, and none while a drama job runs.
     Replacing existing audio/video needs confirm_replace_audio (422
     details.reason "confirm_replace_audio"). Saves the upload. An audio
@@ -736,14 +740,19 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
         recover_stale_uploads(drama_id)
-        ext, size, staged = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
+        ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
         ddir = db.drama_dir(drama_id)
+        try:
+            media_fingerprint_service.refuse_duplicate(media_hash, drama_id, principal)
+        except BaseException:
+            os.remove(staged)  # a refused duplicate is a copy of a file the Library already holds
+            raise
         if ext not in VIDEO_EXTENSIONS:
             refuse_unreadable_audio(staged)
             try:
                 name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
-                                    transcribe_new_audio=transcribe_options is None)[
-                    "audio_filename"]
+                                    transcribe_new_audio=transcribe_options is None,
+                                    media_hash=media_hash)["audio_filename"]
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
                 if isinstance(exc, (OSError, sqlite3.Error)):
@@ -759,7 +768,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         job_id = f"{EXTRACT_JOB_PREFIX}{drama_id}"
         try:
             started = job_launch.start_job(
-                job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options,
+                job_id, _extract_audio_job, job_id, drama_id, ext, staged, transcribe_options, media_hash,
                 description=f"Audio extraction (title #{drama_id})", line_fields=())
         except BaseException:
             _keep_failed_upload(ddir, staged, ext)
@@ -774,7 +783,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
             claimed.discard(drama_id)
 
 
-def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
+def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None, media_hash=None):
     ddir = db.drama_dir(drama_id)
     part_path = os.path.join(ddir, ".audio.extract.flac")
     background_jobs.update_progress(job_id, 0.05, "Extracting audio from the video...")
@@ -800,7 +809,7 @@ def _extract_audio_job(job_id, drama_id, ext, staged, transcribe_options=None):
                          if transcribe_options is not None else None)
         install_media(drama_id, {"source_video_filename": (staged, "source", ext),
                                  "audio_filename": (part_path, "audio", ".flac")},
-                      transcribe_new_audio=transcribe_options is None)
+                      transcribe_new_audio=transcribe_options is None, media_hash=media_hash)
     except BaseException as exc:
         if os.path.exists(part_path):
             os.remove(part_path)

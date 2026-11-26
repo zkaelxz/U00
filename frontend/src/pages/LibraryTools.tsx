@@ -50,6 +50,7 @@ import { BackupTab } from './libraryTools/BackupTab'
 import { StorageTab } from './libraryTools/StorageTab'
 import { VoicesTab } from './libraryTools/VoicesTab'
 import { TabCard } from './libraryTools/TabCard'
+import { DuplicatesCard } from './libraryTools/DuplicatesCard'
 import { LinkCheckCard } from './libraryTools/LinkCheckCard'
 import { TypesetComicsCard } from './libraryTools/TypesetComicsCard'
 import { ProfileTools } from './libraryTools/ProfileTools'
@@ -561,6 +562,10 @@ export default function LibraryToolsPage() {
             <TypesetComicsCard />
           </div>
         )}
+        <div className="tools-export">
+          <h2 className="tools-group-title">Find duplicate titles</h2>
+          <DuplicatesCard canScan={pc === 'local'} />
+        </div>
         {pc !== 'remote' && (
           <div className="tools-export">
             <h2 className="tools-group-title">Check old titles from links</h2>

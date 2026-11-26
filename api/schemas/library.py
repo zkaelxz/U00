@@ -18,6 +18,8 @@ __all__ = [
     "CaptureNoteList",
     "SameTitle",
     "SameTitleList",
+    "DuplicateGroup",
+    "DuplicateGroups",
     "SameTitleQuery",
     "TitleLinkLookup",
     "TitleLinkMatches",
@@ -209,6 +211,21 @@ class SameTitle(BaseModel):
 
 class SameTitleList(BaseModel):
     items: List[SameTitle]
+
+
+class DuplicateItem(BaseModel):
+    id: int
+    title: str
+
+
+class DuplicateGroup(BaseModel):
+    same: Literal["file", "link", "name"]
+    items: List[DuplicateItem]
+
+
+class DuplicateGroups(BaseModel):
+    groups: List[DuplicateGroup]
+    unhashed: int
 
 
 class TitleLinkLookup(BaseModel):

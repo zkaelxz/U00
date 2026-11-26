@@ -3613,6 +3613,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Titles that look like one title added twice (same file, link or name) */
+        get: operations["get_duplicate_titles_api_dramas_duplicates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/dramas/duplicates/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Hash the files of titles added before duplicates were checked, in the background */
+        post: operations["post_duplicate_scan_api_dramas_duplicates_scan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/same": {
         parameters: {
             query?: never;
@@ -20262,6 +20296,30 @@ export interface components {
              */
             keep_original?: boolean;
         };
+        /** DuplicateGroup */
+        DuplicateGroup: {
+            /** Items */
+            items: components["schemas"]["DuplicateItem"][];
+            /**
+             * Same
+             * @enum {string}
+             */
+            same: "file" | "link" | "name";
+        };
+        /** DuplicateGroups */
+        DuplicateGroups: {
+            /** Groups */
+            groups: components["schemas"]["DuplicateGroup"][];
+            /** Unhashed */
+            unhashed: number;
+        };
+        /** DuplicateItem */
+        DuplicateItem: {
+            /** Id */
+            id: number;
+            /** Title */
+            title: string;
+        };
         /** EffectiveGlossaryTerm */
         EffectiveGlossaryTerm: {
             /** Aliases */
@@ -22086,6 +22144,13 @@ export interface components {
             job_id: string;
             /** Runs */
             runs: components["schemas"]["JobStageRun"][];
+        };
+        /** JobStarted */
+        JobStarted: {
+            /** Job Id */
+            job_id: string;
+            /** Started */
+            started: boolean;
         };
         /** JobsClearFinishedResult */
         JobsClearFinishedResult: {
@@ -44861,6 +44926,55 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_duplicate_titles_api_dramas_duplicates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DuplicateGroups"];
+                };
+            };
+        };
+    };
+    post_duplicate_scan_api_dramas_duplicates_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStarted"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

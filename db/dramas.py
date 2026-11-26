@@ -90,6 +90,13 @@ def fill_blank_fields(drama_id: int, values: dict) -> list:
     return filled
 
 
+def set_media_hash(drama_id: int, media_hash: str) -> None:
+    """Records a file hash without touching updated_at, which orders the Library's recent shelf."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("UPDATE dramas SET media_hash = ? WHERE id = ?", (media_hash, drama_id))
+        conn.commit()
+
+
 def assign_series_if_none(drama_id: int, series_id: int) -> bool:
     """Puts a drama in a series only while it is in none, in one statement,
     so a series chosen meanwhile elsewhere is never replaced. Clears the
