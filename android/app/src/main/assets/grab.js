@@ -206,12 +206,18 @@
   }
   // rel=next is the site's own statement; the link text is the fallback. Java re-checks
   // that the address is on the same site.
+  // Novel pages label the link with the next chapter's name and put "下一章:" before it as plain text.
+  var NEXT_LABEL = /(下一章|下一话|下一話|下一回|下一頁|下一页|次の話|다음\s*화)\s*[:：]\s*$/;
   function nextChapter() {
     var el = document.querySelector('a[rel~="next"][href], link[rel~="next"][href]');
     if (!el) {
       var anchors = document.querySelectorAll("a[href]");
       for (var i = 0; i < anchors.length; i++) {
         if (NEXT_TEXT.test((anchors[i].textContent || "").replace(/\s+/g, " "))) { el = anchors[i]; break; }
+      }
+      for (var j = 0; !el && j < anchors.length; j++) {
+        var before = anchors[j].previousSibling;
+        if (before && before.nodeType === 3 && NEXT_LABEL.test(before.nodeValue)) el = anchors[j];
       }
     }
     return el ? el.href : "";
@@ -275,8 +281,26 @@
   // The page's own words say what language its comic is in; the PC has no other way to know
   // for a Quick read, and a guess sends Japanese and Korean pages to the Chinese reader.
   var sample = titles.join("\n") + "\n" + ((document.body && document.body.innerText) || "").slice(0, 4000);
+  // Where the chapter's number is most likely written: a reader's headings name the chapter, the
+  // tab and social titles add the series and site. The PC reads the number from the first that has one.
+  var chapterTitles = [first("h1"), first("h2"), first("h3"), first('meta[property="og:title"]', "content"), document.title]
+    .map(function (t) { return (t || "").replace(/\s+/g, " ").trim().slice(0, 300); })
+    .filter(function (t, i, all) { return t && all.indexOf(t) === i; });
+  // What the page declares about the work, for the PC to fill a new title's blank author, summary
+  // and cover. Novel sites often use og:novel:*; the cover is only an https address the PC checks.
+  function meta(selectors) {
+    for (var m = 0; m < selectors.length; m++) {
+      var value = first(selectors[m], "content").replace(/\s+/g, " ").trim();
+      if (value) return value;
+    }
+    return "";
+  }
+  var cover = meta(['meta[property="og:novel:cover"]', 'meta[property="og:image"]', 'meta[name="twitter:image"]']);
   Baihe.begin(nonce, JSON.stringify({ titles: titles, count: items.length, chapters: chapterLinks(), next: nextChapter(),
-    lang: document.documentElement.lang || "", sample: sample }));
+    lang: document.documentElement.lang || "", sample: sample, chapter_titles: chapterTitles,
+    author: meta(['meta[property="og:novel:author"]', 'meta[property="book:author"]', 'meta[name="author"]']).slice(0, 200),
+    summary: meta(['meta[property="og:novel:description"]', 'meta[property="og:description"]', 'meta[name="description"]']).slice(0, 2000),
+    cover: /^https:\/\//.test(cover) && cover.length <= 2048 ? cover : "" }));
   // A novel chapter has no comic pictures: its prose is the container with the most text of its own
   // (text nodes and paragraphs directly inside it), so menus and comment lists around it are not taken.
   function chapterText() {
@@ -293,7 +317,7 @@
     if (!best || bestLen < 400) return "";
     return (best.innerText || best.textContent || "").split("\n")
       .map(function (t) { return t.trim(); })
-      .filter(function (t) { return t.length > 1; }).join("\n");
+      .filter(function (t) { return t.length > 1 && !/^(上一章|下一章|上一页|下一页)\s*[:：]/.test(t); }).join("\n");
   }
   if (items.length < 3) {
     var prose = chapterText();
@@ -397,7 +421,7 @@
         var y = r.top + done;
         if (y < 0 || y >= window.innerHeight) return false;
         var rows = Math.min(height - done, window.innerHeight - y);
-        var ok = await ask(function (id) { Baihe.snap(nonce, id, r.left, y, r.width, rows, window.innerWidth); });
+        var ok = await ask(function (id) { Baihe.snap(nonce, id, key, r.left, y, r.width, rows, window.innerWidth); });
         if (!ok) return false;
         strips++;
         done += rows;

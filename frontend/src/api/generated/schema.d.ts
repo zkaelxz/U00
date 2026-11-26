@@ -23705,6 +23705,8 @@ export interface components {
              * @enum {string}
              */
             mode: "notify" | "auto";
+            /** Nickname */
+            nickname: string;
             options: components["schemas"]["LiveFollowOptions"];
             /** Poll Minutes */
             poll_minutes: number;
@@ -23768,6 +23770,11 @@ export interface components {
          */
         LiveFollowOptions: {
             /**
+             * Captions
+             * @description None = fast, the language's default chunk length.
+             */
+            captions?: ("fast" | "balanced") | null;
+            /**
              * Engine
              * @description None = Ollama on this PC, as a Live start.
              */
@@ -23816,6 +23823,8 @@ export interface components {
             auto_check?: boolean | null;
             /** Mode */
             mode?: ("notify" | "auto") | null;
+            /** Nickname */
+            nickname?: string | null;
             options?: components["schemas"]["LiveFollowOptions"] | null;
         };
         /** LiveFormDefaults */

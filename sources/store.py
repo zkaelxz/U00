@@ -237,6 +237,7 @@ CREATE TABLE IF NOT EXISTS followed_channels (
     pc_owner INTEGER NOT NULL DEFAULT 0,
     channel_url TEXT NOT NULL,
     channel_name TEXT NOT NULL DEFAULT '',
+    nickname TEXT NOT NULL DEFAULT '',
     mode TEXT NOT NULL DEFAULT 'notify',
     auto_check INTEGER NOT NULL DEFAULT 0,
     options TEXT NOT NULL DEFAULT '{}',
@@ -445,7 +446,8 @@ _ADDED_COLUMNS = (("tracked_series", "linked_by_user_id", "INTEGER"),
                   ("tracked_series", "save_cbz", "INTEGER NOT NULL DEFAULT 0"),
                   ("tracked_series", "save_pending", "TEXT NOT NULL DEFAULT '[]'"),
                   ("import_retry", "text_offset", "INTEGER"),
-                  ("tracked_series", "save_cbz_by_user_id", "INTEGER"))
+                  ("tracked_series", "save_cbz_by_user_id", "INTEGER"),
+                  ("followed_channels", "nickname", "TEXT NOT NULL DEFAULT ''"))
 
 
 def _add_missing_columns(conn) -> None:

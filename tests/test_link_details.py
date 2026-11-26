@@ -118,7 +118,7 @@ def test_link_fields_are_shape_checked_and_carry_no_description_or_url():
     fields = ytdlp_child.link_fields(INFO)
     assert fields == {"status": "not_live", "title": "配信 #12", "channel": "Some Channel",
                       "release_timestamp": None, "upload_date": "20260301", "duration": 3600.0,
-                      "has_thumbnail": True, "is_playlist": False}
+                      "episode_number": None, "has_thumbnail": True, "is_playlist": False}
     assert ytdlp_child._valid_event({"link": fields})
     odd = ytdlp_child.link_fields({"upload_date": "2026-03-01", "duration": float("inf"),
                                    "title": "x" * 5000, "release_timestamp": True})
@@ -440,6 +440,29 @@ def test_fill_after_download_fills_blanks_only(env):
     d = db.get_drama(did)
     assert (d["author"], d["release_date"]) == ("Typed", "2026-03-01")
     assert svc.fill_after_download(did, None) == []
+
+
+def test_fill_after_download_takes_the_sites_episode_number_when_blank(env):
+    numbered = ytdlp_child.link_fields({**INFO, "episode_number": 7})
+    assert numbered["episode_number"] == 7 and ytdlp_child._valid_event({"link": numbered})
+    fresh = db.create_drama(title_en="Episode")
+    assert "episode_number" in svc.fill_after_download(fresh, numbered)
+    assert db.get_drama(fresh)["episode_number"] == 7
+    typed = db.create_drama(title_en="Typed", episode_number=3)
+    svc.fill_after_download(typed, numbered)
+    assert db.get_drama(typed)["episode_number"] == 3
+
+
+@pytest.mark.parametrize("raw", [0, -1, True, "7", 7.5, 10**9])
+def test_an_odd_episode_number_is_dropped(raw):
+    assert ytdlp_child.link_fields({**INFO, "episode_number": raw})["episode_number"] is None
+
+
+def test_a_link_event_from_an_older_child_without_an_episode_number_still_counts():
+    link = ytdlp_child.link_fields(INFO)
+    link.pop("episode_number")
+    assert ytdlp_child._valid_event({"link": link})
+    assert not ytdlp_child._valid_event({"link": {**link, "episode_number": "7"}})
 
 
 # --- New title from a link -------------------------------------------------

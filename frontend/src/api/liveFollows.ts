@@ -16,6 +16,7 @@ import type {
   LiveSessionStarted,
 } from '../types/live'
 import { ApiError, getJson, postJson, type Fetch } from './client'
+import { BALANCED_CAPTIONS } from './live'
 import { describeError } from '../components/errorMessages'
 
 const BASE = '/api/live/follows'
@@ -55,6 +56,8 @@ export function followOptions(b: LiveSessionStart): LiveFollowOptions {
     use_gpu: b.use_gpu,
     glossary_drama_id: b.glossary_drama_id ?? null,
     series_id: b.series_id ?? null,
+    captions: b.segment_seconds === BALANCED_CAPTIONS.segment_seconds && b.overlap_seconds === BALANCED_CAPTIONS.overlap_seconds
+      ? 'balanced' : null,
   }
 }
 
@@ -71,7 +74,7 @@ export function channelPageUrl(label: string): string | null {
 
 /** One line naming a follow's saved Live options. */
 export function optionsSummary(o: LiveFollowOptions): string {
-  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'} · ${o.max_minutes === null ? 'no time limit' : `stop after ${o.max_minutes} min`}`
+  return `${o.source_language} · ${o.engine || 'Ollama'}${o.model ? ` ${o.model}` : ''} · Whisper ${o.whisper_size} · ${o.use_gpu ? 'GPU' : 'CPU'}${o.captions === 'balanced' ? ' · balanced captions' : ''} · ${o.max_minutes === null ? 'no time limit' : `stop after ${o.max_minutes} min`}`
 }
 
 /** Why Follow can't be pressed with this text yet, or null. The server checks again. */
@@ -160,4 +163,14 @@ export function announceLiveStarted(sessionId: string): void {
   } catch {
     // No window (tests without a DOM): nothing is listening anyway.
   }
+}
+
+/** What a channel is called on screen: the account's own name for it, else the site's name, else its handle. */
+export function followName(f: Pick<LiveFollow, 'nickname' | 'channel_name' | 'channel'>): string {
+  return f.nickname || f.channel_name || f.channel
+}
+
+/** The site's own name for a channel that has a nickname, shown small beside it; null when the name is shown as it is. */
+export function followOriginalName(f: Pick<LiveFollow, 'nickname' | 'channel_name' | 'channel'>): string | null {
+  return f.nickname ? f.channel_name || f.channel : null
 }

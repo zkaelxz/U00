@@ -445,7 +445,7 @@ test.describe(() => {
       await page.reload()
       const bar = page.getByRole('toolbar', { name: 'Line actions' })
       const menu = page.getByRole('navigation', { name: 'Quick' })
-      await expect(menu.getByRole('link')).toHaveText(['Library', 'Find & Add', 'Jobs'])
+      await expect(menu.getByRole('link')).toHaveText(['Library', 'Find & Add', 'Live'])
       await expect(menu.getByRole('button', { name: 'More' })).toBeVisible()
       const m = (await menu.boundingBox())!
       const b = (await bar.getByRole('button', { name: 'Looks right, next' }).boundingBox())!

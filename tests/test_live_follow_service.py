@@ -293,6 +293,8 @@ def test_start_from_follow_is_a_normal_live_start(follows, monkeypatch):
     assert seen["url"] == "https://www.youtube.com/@name/live"
     assert seen["principal"] is ALICE and seen["use_saved_cookies"] is False
     assert seen["engine"] == "fake" and seen["max_minutes"] == 5
+    # No chunk choice is saved with a follow, so the language's fast default is used.
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (6, 1.5)
     live_follow_store.update(v["id"], last_state="live", last_stream_id="abcdefghijk")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
@@ -308,7 +310,7 @@ def test_the_followed_channels_table_has_its_columns(follows):
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(followed_channels)")}
     assert {"id", "owner_user_id", "channel_url", "channel_name", "mode", "options",
             "poll_minutes", "last_checked_at", "last_status", "last_stream_id",
-            "created_at"} <= cols
+            "created_at", "nickname"} <= cols
     with pytest.raises(ValueError):
         live_follow_store.update(1, channel_url="https://evil.example/")
 
@@ -373,3 +375,68 @@ def test_a_twitch_follow_starts_live_on_the_channel_page(follows, monkeypatch):
     live_follow_store.update(v["id"], last_state="live", last_stream_id="123456789")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.twitch.tv/somename"
+
+
+def test_every_saved_follow_setting_persists_and_reaches_the_started_session(follows, monkeypatch):
+    from services import live_service
+    seen = {}
+    monkeypatch.setattr(live_service, "start_session",
+                        lambda url, **kw: seen.update(url=url, **kw) or {"session_id": "live_x"})
+    v = svc.add_follow("@name", principal=ALICE)
+    assert v["options"]["captions"] is None
+    changed = {"source_language": "ja", "whisper_size": "tiny", "engine": "fake", "model": "m1",
+               "max_minutes": 9, "use_gpu": True, "captions": "balanced"}
+    svc.update_follow(v["id"], options=changed, principal=ALICE)
+    # Read back through a fresh listing, as a reload or another device would.
+    stored = svc.list_follows(ALICE)["items"][0]["options"]
+    assert {k: stored[k] for k in changed} == changed
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert (seen["source_language"], seen["whisper_size"], seen["engine"], seen["model"],
+            seen["max_minutes"], seen["use_gpu"]) == ("ja", "tiny", "fake", "m1", 9, True)
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (8, 3)
+    svc.update_follow(v["id"], options={**changed, "source_language": "zh", "whisper_size": "small",
+                                        "captions": None}, principal=ALICE)
+    assert svc.list_follows(ALICE)["items"][0]["options"]["captions"] is None
+    svc.start_from_follow(v["id"], principal=ALICE)
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (6, 1.5)
+
+
+def test_captions_must_be_fast_or_balanced(follows):
+    v = svc.add_follow("@name", principal=ALICE)
+    for bad in ("slow", 8, True):
+        with pytest.raises(InvalidInputError):
+            svc.update_follow(v["id"], options={"captions": bad}, principal=ALICE)
+
+def test_a_nickname_is_the_accounts_own_and_shown_in_its_view(follows):
+    a = svc.add_follow("@SomeStreamer", principal=ALICE)
+    assert a["nickname"] == ""
+    named = svc.update_follow(a["id"], nickname="  Late\nnight   host ", principal=ALICE)
+    assert named["nickname"] == "Late night host"
+    # Another account's follow of the same channel keeps its own (empty) name.
+    b = svc.add_follow("@SomeStreamer", principal=BOB)
+    assert b["nickname"] == ""
+    with pytest.raises(NotFoundError):
+        svc.update_follow(a["id"], nickname="x", principal=BOB)
+    assert svc.update_follow(a["id"], nickname="", principal=ALICE)["nickname"] == ""
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(a["id"], nickname="n" * 61, principal=ALICE)
+
+
+def test_an_old_sources_db_gains_the_nickname_column(follows):
+    import sqlite3
+    from sources import store
+    store.connect().close()
+    fid = svc.add_follow("@name", principal=ALICE)["id"]
+    conn = sqlite3.connect(store.db_path())
+    try:
+        conn.execute("ALTER TABLE followed_channels DROP COLUMN nickname")
+        conn.commit()
+    finally:
+        conn.close()
+    store._initialised.clear()   # the next process start: migrations run again
+    for _ in range(2):
+        with store.connect() as conn:
+            cols = [r["name"] for r in conn.execute("PRAGMA table_info(followed_channels)")]
+        assert cols.count("nickname") == 1
+    assert live_follow_store.get(fid)["nickname"] == ""
+    assert svc.update_follow(fid, nickname="Host", principal=ALICE)["nickname"] == "Host"

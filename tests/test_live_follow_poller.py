@@ -330,6 +330,7 @@ def test_auto_start_starts_once_and_never_restarts_the_same_stream(env, starts):
     row = _check(fid)
     assert len(starts) == 1
     call = starts[0]
+    assert (call["segment_seconds"], call["overlap_seconds"]) == (6, 1.5)
     assert call["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
     assert call["max_minutes"] == 7 and call["engine"] == "fake" and call["principal"] is None
     assert call["whisper_size"] == "tiny" and call["use_saved_cookies"] is True
@@ -717,3 +718,11 @@ def test_gpu_full_is_false_with_a_free_slot_and_room_true_when_taken_or_held(mon
     monkeypatch.setattr(gpu_slots, "holder_count", lambda *a, **k: 0)
     monkeypatch.setattr(gpu_guard, "hold_reason", lambda: "hot")
     assert poller._gpu_full() is True        # the guard holds jobs
+
+
+def test_auto_start_uses_the_follows_captions_choice(env, starts):
+    fid = _follow(OWNER, "@owner_ch", mode="auto", auto_check=True,
+                  options={"engine": "fake", "whisper_size": "tiny", "captions": "balanced"})
+    env["answers"][fid] = live()
+    _check(fid)
+    assert (starts[0]["segment_seconds"], starts[0]["overlap_seconds"]) == (8, 3)

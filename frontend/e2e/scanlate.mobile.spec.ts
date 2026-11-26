@@ -11,9 +11,9 @@ test('phone: the Translate panel opens in a sheet, fits the width, 44 px targets
   await open.click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
   await expect(panel).toBeVisible()
-  const start = panel.getByRole('button', { name: 'Translate all pages' })
+  const start = panel.getByRole('button', { name: 'Translate the rest' })
   expect((await start.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-  const redo = panel.getByRole('button', { name: 'Redo pages' })
+  const redo = panel.getByRole('button', { name: 'Start fresh' })
   expect((await redo.boundingBox())!.height).toBeGreaterThanOrEqual(44)
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
@@ -38,7 +38,7 @@ test('phone: closing the sheet while a job runs still reloads the pages when it 
 
   await page.getByRole('button', { name: 'Translate', exact: true }).click()
   const panel = page.getByRole('region', { name: 'Translate pages' })
-  await panel.getByRole('button', { name: 'Translate all pages' }).click()
+  await panel.getByRole('button', { name: 'Translate the rest' }).click()
   await expect.poll(() => s.runs.length).toBe(1)
   await page.getByRole('dialog', { name: 'Translate pages' }).getByRole('button', { name: 'Close' }).click()
   await expect(panel).toHaveCount(0)

@@ -23,7 +23,9 @@ CANDIDATES = ["一人之下 第12话 - 腾讯漫画", "One Punch Man Chapter 12 
 
 
 @pytest.fixture
-def token(isolated_db):
+def token(isolated_db, monkeypatch):
+    # Drama ids restart with each database, so the once-per-title cover memory restarts too.
+    monkeypatch.setattr(titles, "_cover_tried", set())
     return page_server.load_or_create_token()
 
 
@@ -356,3 +358,102 @@ def test_a_chapter_mark_inside_brackets_does_not_cut_the_name(raw, expected):
 ])
 def test_a_volume_mark_is_not_part_of_the_name(raw, expected):
     assert titles._clean_candidate(raw, {"site", "ridi", "리디"}) == expected
+
+
+def _wait_for_cover_threads():
+    for thread in threading.enumerate():
+        if thread.name == "extension-cover":
+            thread.join(10)
+
+
+def test_a_new_title_takes_the_pages_author_summary_and_cover(token, monkeypatch):
+    from services import quick_read_fetch
+    from tests.test_page_server import _png_bytes
+    asked = []
+
+    def fake_fetch(url, options, max_bytes):
+        asked.append((url, options["referer"]))
+        return _png_bytes(), ""
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", fake_fetch)
+    h = _resolve(token, author="  Alex   Example ", summary="A story about a sample.",
+                 cover_url="https://cdn.example/cover.jpg")
+    _wait_for_cover_threads()
+    drama = db.get_drama(h.payload["drama_id"])
+    assert (drama["author"], drama["summary"]) == ("Alex Example", "A story about a sample.")
+    assert drama["cover_art_filename"] == "cover.png"
+    # Another host gets only the page's origin, never its path or query.
+    assert asked == [("https://cdn.example/cover.jpg", "https://www.twmanga.com/")]
+    assert {"author", "summary"} <= set(h.payload["filled"])
+
+
+def test_a_matched_title_keeps_its_typed_author_and_its_cover(token, monkeypatch):
+    from services import quick_read_fetch
+    calls = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: calls.append(a) or (None, "missing"))
+    first = _resolve(token).payload
+    db.update_drama(first["drama_id"], author="Typed", cover_art_filename="cover.png")
+    again = _resolve(token, author="Other", summary="Filled later.", cover_url="https://cdn.example/c.jpg").payload
+    _wait_for_cover_threads()
+    drama = db.get_drama(first["drama_id"])
+    assert again["drama_id"] == first["drama_id"]
+    assert (drama["author"], drama["summary"]) == ("Typed", "Filled later.")
+    assert calls == []
+
+
+@pytest.mark.parametrize("extra", [
+    {"author": 5, "summary": ["x"], "cover_url": 7},
+    {"cover_url": "http://cdn.example/c.jpg"},
+    {"cover_url": "javascript:alert(1)"},
+    {"cover_url": "https://cdn.example/" + "x" * 3000},
+])
+def test_odd_details_are_ignored_and_no_cover_is_fetched(token, monkeypatch, extra):
+    from services import quick_read_fetch
+    calls = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: calls.append(a) or (None, "missing"))
+    h = _resolve(token, **extra)
+    _wait_for_cover_threads()
+    assert h.status == 200 and calls == []
+    assert not db.get_drama(h.payload["drama_id"])["author"]
+
+
+def test_a_cover_that_is_not_a_picture_leaves_the_title_without_one(token, monkeypatch):
+    from services import quick_read_fetch
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: (b"<html>not a picture</html>", ""))
+    h = _resolve(token, cover_url="https://cdn.example/cover.jpg")
+    _wait_for_cover_threads()
+    assert h.status == 200
+    assert not db.get_drama(h.payload["drama_id"])["cover_art_filename"]
+
+
+def test_fill_off_takes_no_details(token, monkeypatch):
+    from services import quick_read_fetch
+    calls = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: calls.append(a) or (None, "missing"))
+    h = _resolve(token, fill=False, author="Alex Example", cover_url="https://cdn.example/c.jpg")
+    _wait_for_cover_threads()
+    assert not db.get_drama(h.payload["drama_id"])["author"] and calls == []
+
+
+def test_a_cover_is_tried_once_per_title_and_one_download_runs_at_a_time(token, monkeypatch):
+    from services import quick_read_fetch
+    calls = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda *a: calls.append(a) or (None, "blocked"))
+    first = _resolve(token, cover_url="https://cdn.example/c.jpg").payload
+    _wait_for_cover_threads()
+    _resolve(token, cover_url="https://cdn.example/c.jpg")
+    _wait_for_cover_threads()
+    assert len(calls) == 1
+    assert titles._cover_slot.acquire(blocking=False)
+    try:
+        _resolve(token, url="https://raw.example/b/1", titles=["나 혼자만 레벨업 12화"], cover_url="https://raw.example/c.jpg")
+        _wait_for_cover_threads()
+        assert len(calls) == 1
+    finally:
+        titles._cover_slot.release()
+    assert first["drama_id"] in titles._cover_tried
+
+
+def test_a_picture_on_the_pages_own_host_gets_the_full_page_as_referer():
+    assert titles._cover_referer("https://www.twmanga.com/c.jpg", PAGE) == PAGE
+    assert titles._cover_referer("https://cdn.example/c.jpg", PAGE) == "https://www.twmanga.com/"
+    assert titles._cover_referer("https://cdn.example/c.jpg", "") == ""

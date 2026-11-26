@@ -331,6 +331,11 @@ Edge) reach Baihe through the household address, in three parts:
    `jobs.start`, so taking either away from a member
    stops the extension writing for them too (403); `/health` and `/cancel` need only
    `extension.send`.
+   `/title` may also fill a blank cover from the page's declared picture (`cover_url`, https,
+   downloaded by the PC through `lib.http` with every hop checked as public, one download at a
+   time and one try per title per run, re-encoded by `cover_art_service`). That is the one
+   image a member's token can put on a title without `media.upload`, and only on a title they
+   can edit that has no cover: like the pages it sends, it is governed by `lines.edit`.
    The early session gate lets these paths through so the bearer token is
    checked by the route. `tests/test_extension_bridge_routes.py`.
 3. **Extension (built).** The options page has a **Baihe address** next to the

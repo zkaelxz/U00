@@ -56,10 +56,10 @@ describe('PhoneBar', () => {
   // Add needs library.create; the bar leaves out what the person may not use.
   const owner: NavContext = { ...ctx, session: { ...session, me: { ...session.me, permissions: [...session.me.permissions, 'library.create'] } } as SessionState }
 
-  it('has Library, Find & Add, Jobs in that order and a More button that controls the drawer', () => {
+  it('has Library, Find & Add, Live in that order and a More button that controls the drawer', () => {
     const html = bar(0)
     const labels = [...html.matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1].replace('&amp;', '&'))
-    expect(labels).toEqual(['Library', 'Find & Add', 'Jobs', 'More'])
+    expect(labels).toEqual(['Library', 'Find & Add', 'Live', 'More'])
     expect(html).toContain('aria-label="More"')
     expect(html).toContain('aria-controls="nav-drawer"')
     expect(bar(0, library, true)).toContain('aria-expanded="true"')
@@ -67,14 +67,14 @@ describe('PhoneBar', () => {
 
   it('leaves out an item the person hid', () => {
     const labels = [...bar(0, library, false, { ...ctx, hidden: ['make-subtitles'] }).matchAll(/<span>([^<]+)<\/span>/g)].map((m) => m[1])
-    expect(labels).toEqual(['Library', 'Jobs', 'More'])
+    expect(labels).toEqual(['Library', 'Live', 'More'])
   })
 
-  it('marks only the current page and shows the Jobs badge while jobs run', () => {
-    const html = bar(2, { name: 'jobs' })
+  it('marks only the current page and shows the running-jobs count on More', () => {
+    const html = bar(2, { name: 'live' })
     expect(html.match(/aria-current="page"/g)).toHaveLength(1)
-    expect(html).toContain('data-testid="phone-bar-jobs-count"')
-    expect(bar(0, { name: 'jobs' })).not.toContain('phone-bar-jobs-count')
+    expect(html).toMatch(/<span>More<\/span><span class="phone-bar-badge" data-testid="phone-bar-jobs-count">/)
+    expect(bar(0, { name: 'live' })).not.toContain('phone-bar-jobs-count')
   })
 })
 

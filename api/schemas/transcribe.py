@@ -515,6 +515,8 @@ class LiveFollowOptions(BaseModel):
     use_gpu: StrictBool = False
     glossary_drama_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
     series_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
+    captions: Optional[Literal["fast", "balanced"]] = Field(
+        None, description="None = fast, the language's default chunk length.")
 
 
 class LiveFollowAdd(BaseModel):
@@ -534,6 +536,7 @@ class LiveFollowUpdate(BaseModel):
     mode: Optional[Literal["notify", "auto"]] = None
     auto_check: Optional[StrictBool] = None
     options: Optional[LiveFollowOptions] = None
+    nickname: Optional[str] = Field(default=None, max_length=60)   # "" clears it
 
 
 class LiveFollow(BaseModel):
@@ -541,6 +544,7 @@ class LiveFollow(BaseModel):
     id: int
     channel: str
     channel_name: str
+    nickname: str   # the account's own label for the channel; "" when none
     mode: Literal["notify", "auto"]
     auto_check: bool   # checked automatically every hour (off: manual checks only)
     options: LiveFollowOptions

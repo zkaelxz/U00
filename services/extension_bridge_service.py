@@ -153,7 +153,7 @@ def run_text(payload, principal=None) -> dict:
     return result
 
 
-def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:
+def _record_chapter(drama_id, results: list, source_url: str, run_id, titles=()) -> None:
     """Files the pages this capture newly saved under their chapter, so the reader's chapter list
     shows them instead of "Chapter unknown". Never raises: a label is a convenience and must
     not fail the import."""
@@ -163,7 +163,8 @@ def _record_chapter(drama_id, results: list, source_url: str, run_id) -> None:
     try:
         page_ids = [r["page_id"] for r in results
                     if r.get("stored") and r.get("page_id") and not r.get("already_stored")]
-        ref = extension_title_service.capture_chapter_ref(source_url, run_id) if page_ids else None
+        ref = (extension_title_service.capture_chapter_ref(
+            source_url, run_id, extension_title_service.page_titles(titles)) if page_ids else None)
         if ref is None:
             return
         pages = [db.get_page(pid, int(drama_id)) for pid in page_ids]
@@ -388,7 +389,10 @@ def record_page_report(payload, principal=None) -> dict:
     reporter = f"user:{user_id}" if user_id is not None else "device"
     try:
         _page_report_limiter.hit(reporter)
-        saved = bug_report_service.create_page_report(payload, reporter=reporter)
+        make = (bug_report_service.create_app_report
+                if isinstance(payload, dict) and payload.get("kind") == "app"
+                else bug_report_service.create_page_report)
+        saved = make(payload, reporter=reporter)
     except InvalidInputError as e:
         raise page_server.EndpointError(400, e.message) from None
     except ConflictError as e:
@@ -772,7 +776,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         elif not stopped:
             stopped = "cancelled by the extension"
     if store:
-        _record_chapter(drama_id, results, source_url, job["run_id"])
+        _record_chapter(drama_id, results, source_url, job["run_id"], payload.get("page_titles"))
     return {"pages": results, "skipped": skipped, "failed": failed,
             "received": len(images),
             **({"unfetched": unfetched} if unfetched else {}),

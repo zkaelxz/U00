@@ -16,6 +16,8 @@ the stored display name only, never the page address or a filesystem path.
 
 import re
 import threading
+import unicodedata
+from collections.abc import Set
 from urllib.parse import parse_qsl, urlsplit
 
 import comic_chapter_links
@@ -33,6 +35,9 @@ from engine_backends.shared import redact_secrets
 MAX_NAME_CHARS = drama_service.MAX_NAME_LEN
 MAX_CANDIDATES = 12
 MAX_CANDIDATE_CHARS = 1000
+MAX_AUTHOR_CHARS = 200
+MAX_SUMMARY_CHARS = 2000
+MAX_COVER_URL_CHARS = 2048
 
 # Same principal as the other bridge saves: the PC's own token is the local owner's access.
 _BRIDGE_PRINCIPAL = extension_novel_service._BRIDGE_PRINCIPAL
@@ -172,7 +177,80 @@ def _read(payload: dict) -> dict:
         raise InvalidInputError("kind must be comic or novel.")
     return {"url": url, "titles": raw, "site_name": site_name, "kind": kind, "language": payload.get("language"),
             "create": _flag(payload, "create"), "fill": _flag(payload, "fill"),
-            "series": _flag(payload, "series"), "chapter_links": payload.get("chapter_links")}
+            "series": _flag(payload, "series"), "chapter_links": payload.get("chapter_links"),
+            "author": _short_text(payload.get("author"), MAX_AUTHOR_CHARS),
+            "summary": _short_text(payload.get("summary"), MAX_SUMMARY_CHARS),
+            "cover_url": _cover_url(payload.get("cover_url"))}
+
+
+def _short_text(value, cap: int) -> str:
+    """One line of what a page's meta tags say; anything not text reads as nothing, since these
+    only fill blanks and must never refuse the import."""
+    if not isinstance(value, str):
+        return ""
+    return redact_secrets(_line(value[:cap * 2]))[:cap]
+
+
+def _cover_url(value) -> str:
+    if not isinstance(value, str) or len(value) > MAX_COVER_URL_CHARS or not value.startswith("https://"):
+        return ""
+    return value
+
+
+def _fill_details(drama_id: int, page: dict) -> list:
+    """Blank author and summary from what the page's meta tags declare, and a cover fetched in
+    the background when the title has none. The first chapter sent sets them; anything typed
+    (or a cover uploaded) is never replaced."""
+    filled = db.dramas.fill_blank_fields(drama_id, {"author": page["author"], "summary": page["summary"]})
+    if page["cover_url"] and not (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+        _start_cover_fetch(drama_id, page["cover_url"], page["url"])
+    return filled
+
+
+# One cover download at a time for the whole app, and one try per title while the app runs: every
+# chapter sent re-offers the cover, and a member looping /title must not stack downloads (each
+# can hold 10 MB and a 25-megapixel decode) or retry a host that refused.
+_cover_slot = threading.BoundedSemaphore(1)
+_cover_tried: set = set()
+_cover_lock = threading.Lock()
+
+
+def _start_cover_fetch(drama_id: int, cover_url: str, page_url: str) -> None:
+    with _cover_lock:
+        if drama_id in _cover_tried or not _cover_slot.acquire(blocking=False):
+            return
+        _cover_tried.add(drama_id)
+    try:
+        threading.Thread(target=_save_cover_from, args=(drama_id, cover_url, page_url),
+                         name="extension-cover", daemon=True).start()
+    except RuntimeError:
+        _cover_slot.release()
+
+
+def _cover_referer(cover_url: str, page_url: str) -> str:
+    """The page address for a picture on the page's own host; only its origin for another host,
+    as a browser sends, so a CDN never sees the chapter's path or query."""
+    cover, page = urlsplit(cover_url), urlsplit(page_url)
+    if not page.scheme or not page.hostname:
+        return ""
+    return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
+
+
+def _save_cover_from(drama_id: int, cover_url: str, page_url: str) -> None:
+    """Never raises: a missing picture must not fail anything. lib.http checks every hop is a
+    public address, and save_cover re-encodes the bytes, so only a clean image is kept."""
+    import io
+    from services import cover_art_service, quick_read_fetch
+    try:
+        data, _reason = quick_read_fetch.fetch_one(cover_url, {"referer": _cover_referer(cover_url, page_url)},
+                                                   cover_art_service.MAX_COVER_BYTES)
+        if data:
+            cover_art_service.save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
+    except Exception as exc:
+        import applog
+        applog.get_logger().info("No cover from the page: %s", type(exc).__name__)
+    finally:
+        _cover_slot.release()
 
 
 _NOT_THE_PAGE = ("utm", "fbclid", "gclid", "ref", "source", "token", "sig", "key", "session", "sid")
@@ -293,6 +371,7 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: b
                 filled = db.dramas.fill_blank_fields(drama_id, {"title_zh": original, "title_en": english})
                 if clean_url and drama_service.set_source_url_once(drama_id, page["url"]):
                     filled.append("source_url")
+                filled += _fill_details(drama_id, page)
             if page["series"] and series_name and drama_id not in _series_pending:
                 _join_series(drama_id, _series_display_name(original, english, drama_id))
             _remember_links(drama_id, page, host)
@@ -311,6 +390,8 @@ def resolve_title(payload: dict, principal=_BRIDGE_PRINCIPAL, translate_title: b
         _remember_links(drama_id, page, host)
         filled_names = ([f for f in ("title_zh", "title_en") if created.get(f)]
                         + (["source_url"] if clean_url else []))
+        if page["fill"]:
+            filled_names += _fill_details(drama_id, page)
         translate = bool(page["fill"] and original and not english and translate_title)
         wants_series = bool(page["series"] and series_name)
         if translate and wants_series:
@@ -413,11 +494,81 @@ _CHAPTER_QUERY_KEYS = ("no", "episode_no", "episode", "chapter", "chapter_no", "
 _CHAPTER_PATH = re.compile(r"(?:^|/)(?:chapter|chap|episode|ep|ch)[-_/]?(\d+(?:\.\d+)?)(?:/|$)", re.IGNORECASE)
 
 
-def capture_chapter_ref(source_url: str, run_id: str | None):
+# A chapter's own number in a page title or heading. Volume marks (卷, 권, vol) are left out: a
+# volume number is shared by every chapter in it.
+_HAN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "兩": 2, "三": 3, "四": 4, "五": 5,
+               "六": 6, "七": 7, "八": 8, "九": 9}
+_HAN_UNITS = {"十": 10, "百": 100, "千": 1000}
+_TITLE_NUMBER = re.compile(
+    r"第\s*(?P<han>\d{1,6}(?:\.\d{1,3})?|[零〇一二两兩三四五六七八九十百千]{1,8})\s*[章话話回集期篇]"
+    r"|(?<![A-Za-z])(?:chapter|chap|ch|episode|ep|eps)\.?\s*#?\s*(?P<word>\d{1,6}(?:\.\d{1,3})?)"
+    r"|(?<!\d)(?P<suffix>\d{1,6}(?:\.\d{1,3})?)\s*[화회話话章]"
+    r"|(?:^|\s)#\s*(?P<hash>\d{1,6}(?:\.\d{1,3})?)", re.IGNORECASE)
+MAX_PAGE_TITLES = 8
+MAX_CHAPTER_LABEL_CHARS = 120
+# A site name glued on with a bare hyphen ("第12话 重逢-SiteComic"), which the title separators
+# leave alone because a hyphen with no spaces is usually part of a name.
+_SITE_TAIL = re.compile(r"[-_]([^-_]{1,24})$")
+_SITE_WORD = re.compile(r"(?:漫画|漫畫|小说|小說|网|網|comics?|manga|manhwa|webtoons?|toon|novels?)$", re.IGNORECASE)
+
+
+def _han_number(text: str):
+    """一 to 九千九百九十九 as digits, or None for anything else."""
+    total, digit = 0, None
+    for ch in text:
+        if ch in _HAN_DIGITS:
+            digit = _HAN_DIGITS[ch]
+        elif ch in _HAN_UNITS:
+            total += (1 if digit is None else digit) * _HAN_UNITS[ch]
+            digit = None
+        else:
+            return None
+    total += digit or 0
+    return str(total) if total else None
+
+
+def _without_site_tail(label: str, site: Set[str]) -> str:
+    tail = _SITE_TAIL.search(label)
+    if tail and (term_key(tail.group(1)).replace(" ", "") in site or _SITE_WORD.search(tail.group(1).strip())):
+        return label[:tail.start()].strip()
+    return label
+
+
+def _number_in(text: str, site: Set[str] = frozenset()):
+    """(number, label) for the first chapter mark in one page title, else None. The label is
+    the title from that mark on within its own piece ("第12话 重逢" out of
+    "Name 第12话 重逢 - Site"), so the series and site names around it are left out."""
+    # Cut after NFKC too: it can lengthen text ("⑳" becomes "20").
+    for part in _SEPARATORS.split(_line(unicodedata.normalize("NFKC", text)[:MAX_CANDIDATE_CHARS])):
+        found = _TITLE_NUMBER.search(part)
+        if not found:
+            continue
+        raw = next(v for v in found.groupdict().values() if v)
+        number = raw if raw[0].isdigit() else _han_number(raw)
+        if number is None:
+            continue
+        number = re.sub(r"\.0+$", "", number.lstrip("0") or "0")
+        label = _without_site_tail(part[found.start():].strip(" #[]【】()（）"), site)
+        return number, label[:MAX_CHAPTER_LABEL_CHARS]
+    return None
+
+
+def page_titles(raw) -> list:
+    """The page's title, social title and headings a capture sent with its pages, kept to a few
+    short strings; anything else reads as none, since a label must never fail the import."""
+    if not isinstance(raw, list):
+        return []
+    return [t[:MAX_CANDIDATE_CHARS] for t in raw[:MAX_PAGE_TITLES] if isinstance(t, str) and t.strip()]
+
+
+def capture_chapter_ref(source_url: str, run_id: str | None, titles=()):
     """The chapter label for pages a capture just saved, or None when nothing names one.
-    The number comes from the page address when it carries one. Otherwise the whole capture
-    (every batch of one run shares `run_id`) is one chapter stamped with its import time, so
-    imported chapters stay in the order they were captured and never fall into "unknown"."""
+    The number comes from the page address when it carries one, else from the first of the
+    page's `titles` (its title and headings) that names a chapter: many sites keep the chapter
+    number only in the title, and a series id in the address must not stand in for it. With no
+    number anywhere the whole capture (every batch of one run shares `run_id`) is one chapter
+    stamped with its import time, so imported chapters stay in the order they were captured and
+    never fall into "unknown"."""
     parts = urlsplit(str(source_url or ""))
     host = (parts.hostname or "")[:40]
     number = next((v for k, v in parse_qsl(parts.query) if k.lower() in _CHAPTER_QUERY_KEYS
@@ -425,8 +576,13 @@ def capture_chapter_ref(source_url: str, run_id: str | None):
     if number is None:
         found = _CHAPTER_PATH.search(parts.path)
         number = found.group(1) if found else None
+    site = _site_words(host.removeprefix("www."))
+    named = next((hit for hit in (_number_in(t, site) for t in titles or ()) if hit), None)
+    if number is None and named:
+        number = named[0]
     if number is not None:
-        return comic_chapters.chapter_ref(chapter_id=number, title=f"Chapter {number}",
+        label = named[1] if named and named[0] == number and len(named[1]) > len(named[0]) else ""
+        return comic_chapters.chapter_ref(chapter_id=number, title=label or f"Chapter {number}",
                                           source=host, url=source_url)
     if not run_id:
         return None

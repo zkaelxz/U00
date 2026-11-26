@@ -41,6 +41,8 @@ final class BaiheClient {
     volatile boolean redo;
     /** Quick read only: the page's language when its text showed it ("" lets the PC decide). */
     volatile String sourceLanguage = "";
+    /** What the page said about its chapter (for the saved pages' chapter label) and its work. */
+    volatile GrabBridge.PageMeta pageMeta = GrabBridge.PageMeta.NONE;
 
     private volatile boolean aborted;
     private final java.util.Set<HttpURLConnection> open = new java.util.HashSet<>();
@@ -143,12 +145,21 @@ final class BaiheClient {
 
     /** The title for this page (drama_id and title), found or made by the server's Auto title logic. */
     JSONObject resolveTitle(String pageUrl, List<String> titles, JSONArray chapters) throws BridgeException {
+        return resolveTitle(pageUrl, titles, chapters, "comic");
+    }
+
+    /** `kind` is "novel" for a text chapter, so it is never filed under a comic of the same name. */
+    JSONObject resolveTitle(String pageUrl, List<String> titles, JSONArray chapters, String kind) throws BridgeException {
         try {
             JSONObject body = new JSONObject();
             body.put("url", ServerAddress.publicSourceUrl(pageUrl));
             body.put("titles", new JSONArray(titles));
-            body.put("kind", "comic");
+            body.put("kind", kind);
             body.put("chapter_links", chapters == null ? new JSONArray() : chapters);
+            GrabBridge.PageMeta meta = pageMeta;
+            if (!meta.author.isEmpty()) body.put("author", meta.author);
+            if (!meta.summary.isEmpty()) body.put("summary", meta.summary);
+            if (!meta.coverUrl.isEmpty()) body.put("cover_url", meta.coverUrl);
             JSONObject answer = call("POST", "/title", body);
             if (answer.optLong("drama_id", 0) <= 0) throw new BridgeException(0, "Baihe did not return a title.");
             return answer;
@@ -185,6 +196,16 @@ final class BaiheClient {
                 throw new BridgeException(0, why.isEmpty() ? "Baihe returned no translation." : why);
             }
             return translated;
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Saves a novel chapter's raw text into a novel title; a repeat of the same chapter adds nothing. */
+    JSONObject saveNovelChapter(long dramaId, String pageUrl, String heading, String text) throws BridgeException {
+        try {
+            return call("POST", "/novel", new JSONObject().put("drama_id", dramaId).put("heading", heading)
+                    .put("text", text).put("url", ServerAddress.publicSourceUrl(pageUrl)));
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
@@ -411,8 +432,11 @@ final class BaiheClient {
             body.put("fetch_referer", pageUrl);
             if (fetchUserAgent != null) body.put("fetch_user_agent", fetchUserAgent);
         }
-        if (store) body.put("drama_id", dramaId);
-        else {
+        if (store) {
+            body.put("drama_id", dramaId);
+            List<String> titles = pageMeta.chapterTitles;
+            if (!titles.isEmpty()) body.put("page_titles", new JSONArray(titles));
+        } else {
             body.put("typeset", true);
             if (sourceLanguage != null && !sourceLanguage.isEmpty()) body.put("source_language", sourceLanguage);
             if (typesetMaxWidth > 0) body.put("typeset_max_width", typesetMaxWidth);

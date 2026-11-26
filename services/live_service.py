@@ -71,6 +71,23 @@ OVERLAP_RANGE = (0, 8)
 # Breeze (Chinese) hears 10 s chunks too slowly: on a V100, 6 s + 1.5 s cut lag from about 13.5 s to 9 s,
 # while 4 s + 1 s repeated lines. Japanese stays on the shared default, which Fast captions shortens.
 LANGUAGE_CHUNK_DEFAULTS = {"zh": {"segment_seconds": 6, "overlap_seconds": 1.5}}
+
+
+# The "balanced" captions choice of a followed channel or a member's Live start: longer chunks, so
+# Whisper hears more context, at the cost of about 2 s more lag than the language's fast default.
+BALANCED_CHUNK = {"segment_seconds": 8, "overlap_seconds": 3}
+CAPTION_CHOICES = ("fast", "balanced")
+
+
+def language_chunk(language: str, captions=None) -> dict:
+    """segment_seconds / overlap_seconds a start with no chunk figures of its own (a followed
+    channel's Start Live or auto-start) passes. Unset and "fast" are the language's fast default
+    (else start_session's own); "balanced" is BALANCED_CHUNK."""
+    if captions == "balanced":
+        return dict(BALANCED_CHUNK)
+    return dict(LANGUAGE_CHUNK_DEFAULTS.get(language, {}))
+
+
 MAX_MINUTES_RANGE = (1, 240)
 WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60

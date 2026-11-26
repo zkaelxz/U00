@@ -12,10 +12,11 @@ import { suppressInstallPrompt } from './installPrompt'
 import { installCapture } from './report/capture'
 import { applyDisplay, loadDisplay } from './display'
 import { shareRedirect } from './shareTarget'
-import { applyTheme, loadTheme } from './theme'
+import { applyTheme, loadTheme, watchShellTheme } from './theme'
 
 // The saved theme (index.html already set it before paint; this covers dev/HMR).
 applyTheme(loadTheme())
+watchShellTheme()
 applyDisplay(loadDisplay())
 
 // The app is a hash router; the installed app's share entry opens /share, so move to the hash route before the first render.

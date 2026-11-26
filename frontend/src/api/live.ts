@@ -183,10 +183,12 @@ export const formDefaults = (opts: LiveFormOptions, language?: string): LiveForm
 })
 
 /** What a browser's remembered options keep when the settings are chosen for the viewer (a member, or another
- * device): the language and glossary, which say what is being watched; engine, model and captions follow the
- * server's defaults for that language. */
+ * device): the language and glossary, which say what is being watched, and a Balanced captions pick; engine,
+ * model and chunk lengths follow the server's defaults for that language. */
 export const chosenForYou = (prefs: Partial<StoredLiveOptions>): Partial<StoredLiveOptions> => {
   const kept: Partial<StoredLiveOptions> = {}
+  // Balanced is the one caption choice a viewer may make: Fast is what everyone gets without it.
+  if (prefs.caption_preset === 'balanced') kept.caption_preset = 'balanced'
   if (prefs.source_language !== undefined) kept.source_language = prefs.source_language
   if (prefs.glossary_drama_id !== undefined) kept.glossary_drama_id = prefs.glossary_drama_id
   if (prefs.series_id !== undefined) kept.series_id = prefs.series_id
