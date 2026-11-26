@@ -239,6 +239,8 @@ public class MainActivity extends Activity {
 
     private void setLiveWatching(boolean watching) {
         liveWatching = watching;
+        // A player that has just appeared can leave the page wider than the screen until the next layout pass.
+        if (watching && web != null) web.postDelayed(this::refreshAfterResize, 600);
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return;
         // From Android 12 the system floats the app by itself on the home gesture; older ones use onUserLeaveHint.
         try {
@@ -520,6 +522,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         if (web == null) return;
+        // Coming back to the front is what cleared a stale layout by hand; do it without the person having to.
+        refreshAfterResize();
         web.removeCallbacks(poll);
         poll.run();
     }
