@@ -2,7 +2,8 @@
  * Bottom tab bar for screens narrower than 600px, outside title workspaces and readers (those keep the header's
  * Menu button, since their bottom edge belongs to their own actions), except the Simple check page, which asks for it
  * and keeps its own bar just above it (nav/phoneBarRequest.ts). Three destinations that the registry
- * and the person's permissions allow, and More, which opens the drawer with everything else.
+ * and the person's permissions allow, and More, which opens the drawer with everything else, Jobs included;
+ * More carries the running-jobs count so it stays in view.
  */
 import { activeCount, badgeText } from '../components/jobsMenuState'
 import { useJobs } from '../hooks/useJobs'
@@ -14,7 +15,7 @@ import { navIconPath } from './navIcons'
 import { Icon } from './navLinks'
 import './phoneBar.css'
 
-const BAR_LABELS = ['Library', 'Find & Add', 'Jobs']
+const BAR_LABELS = ['Library', 'Find & Add', 'Live']
 const MORE_ICON = 'M5 12h.01M12 12h.01M19 12h.01'
 
 export function PhoneBar({ route, context, moreOpen, onMore, words = false }: { route: Route; context: NavContext; moreOpen: boolean; onMore: () => void; words?: boolean }) {
@@ -31,14 +32,12 @@ export function PhoneBar({ route, context, moreOpen, onMore, words = false }: { 
         <a key={item.label} href={routeHref(item.target)} aria-current={active.includes(route.name) ? 'page' : undefined}>
           <Icon d={navIconPath(item.label)} />
           <span>{item.label}</span>
-          {item.badge === 'running-jobs' && running > 0 && (
-            <span className="phone-bar-badge" data-testid="phone-bar-jobs-count">{badgeText(running)}</span>
-          )}
         </a>
       ))}
       <button type="button" aria-label="More" aria-expanded={moreOpen} aria-controls={NAV_DRAWER_ID} onClick={onMore}>
         <Icon d={MORE_ICON} />
         <span>More</span>
+        {running > 0 && <span className="phone-bar-badge" data-testid="phone-bar-jobs-count">{badgeText(running)}</span>}
       </button>
     </nav>
   )
