@@ -868,9 +868,10 @@ class _LiveRun(ChunkCaptioner):
                     raise RuntimeError("source_url is set before capture starts")
                 lead_in = live_audio.first_chunk_lead_in(self.segment_seconds, self.source_language)
                 # Only passed when used, so a capture without a lead-in keeps its old call.
+                capture_args: dict[str, Any] = {"lead_in_seconds": lead_in} if lead_in else {}
                 self.proc = start_segment_capture(
                     self.source_url, self.out_dir, self.segment_seconds, proxy=self.proxy,
-                    **({"lead_in_seconds": lead_in} if lead_in else {}))
+                    **capture_args)
                 # The lead-in puts every chunk's audio that much later in the file's clock.
                 self.state["jump"] -= lead_in
                 self.capture_started = _timeline_clock()
