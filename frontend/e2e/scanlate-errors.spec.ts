@@ -21,7 +21,7 @@ test('a refused start shows the server\'s reason, starts no job and leaves Trans
   await page.route(/\/api\/scanlate\/dramas\/7\/run$/, (route) =>
     json(route, { error: { code: 'conflict', message: 'Another job is running for this title.' } }, 409))
   const panel = await openPanel(page)
-  const run = panel.getByRole('button', { name: 'Translate all pages' })
+  const run = panel.getByRole('button', { name: 'Translate the rest' })
   await run.click()
   await expect(panel.getByRole('alert')).toContainText('Another job is running for this title.')
   await expect(panel.getByTestId('job-panel')).toHaveCount(0)
@@ -38,7 +38,7 @@ test('a run that fails shows why, keeps the original pages and lets you start ag
     started_at: 1, finished_at: 2, updated_at: 2, result: null, outcome: null,
   }))
   const panel = await openPanel(page)
-  const run = panel.getByRole('button', { name: 'Translate all pages' })
+  const run = panel.getByRole('button', { name: 'Translate the rest' })
   await run.click()
   await expect(panel.getByTestId('job-status')).toHaveText('Failed')
   await expect(panel.getByTestId('job-panel')).toContainText('CUDA out of memory on page 1.')
@@ -54,8 +54,8 @@ test('a failed settings read is shown and every run button stays off', async ({ 
     json(route, { error: { code: 'internal', message: 'Boom.' } }, 500))
   const panel = await openPanel(page)
   await expect(panel.getByRole('alert')).toContainText('Could not load this. Try again.')
-  await expect(panel.getByRole('button', { name: 'Translate all pages' })).toBeDisabled()
-  await expect(panel.getByRole('button', { name: 'Redo pages' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Translate the rest' })).toBeDisabled()
+  await expect(panel.getByRole('button', { name: 'Start fresh' })).toBeDisabled()
   expect(s.runs).toEqual([])
   expect(s.unmocked).toEqual([])
 })
