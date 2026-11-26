@@ -373,3 +373,18 @@ def test_a_twitch_follow_starts_live_on_the_channel_page(follows, monkeypatch):
     live_follow_store.update(v["id"], last_state="live", last_stream_id="123456789")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.twitch.tv/somename"
+
+
+def test_a_nickname_is_the_accounts_own_and_shown_in_its_view(follows):
+    a = svc.add_follow("@SomeStreamer", principal=ALICE)
+    assert a["nickname"] == ""
+    named = svc.update_follow(a["id"], nickname="  Late\nnight   host ", principal=ALICE)
+    assert named["nickname"] == "Late night host"
+    # Another account's follow of the same channel keeps its own (empty) name.
+    b = svc.add_follow("@SomeStreamer", principal=BOB)
+    assert b["nickname"] == ""
+    with pytest.raises(NotFoundError):
+        svc.update_follow(a["id"], nickname="x", principal=BOB)
+    assert svc.update_follow(a["id"], nickname="", principal=ALICE)["nickname"] == ""
+    with pytest.raises(InvalidInputError):
+        svc.update_follow(a["id"], nickname="n" * 61, principal=ALICE)

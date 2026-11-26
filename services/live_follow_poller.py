@@ -517,7 +517,7 @@ def _auto_start(row, stream_id):
 
 
 def _notify(row, kind, c, note, now) -> None:
-    name = row.get("channel_name") or follows._label(row["channel_url"])
+    name = row.get("nickname") or row.get("channel_name") or follows._label(row["channel_url"])
     push = bool(row.get("pc_owner"))
     if kind == "live":
         started = note == _STARTED
