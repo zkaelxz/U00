@@ -305,7 +305,11 @@ public class MainActivity extends Activity {
         if (web == null) return;
         web.requestLayout();
         web.invalidate();
-        web.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]');"
+        // The viewport is only re-applied when the page really is zoomed or wider than the screen, so a
+        // normal return to the app never moves the person's scroll position.
+        web.evaluateJavascript("(function(){var v=window.visualViewport,"
+                + "bad=(v&&Math.abs(v.scale-1)>0.01)||document.documentElement.scrollWidth>window.innerWidth+1;"
+                + "if(!bad)return;var m=document.querySelector('meta[name=viewport]');"
                 + "if(m){var c=m.content;m.content='';m.content=c;}"
                 + "window.dispatchEvent(new Event('resize'));})()", null);
     }
