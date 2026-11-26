@@ -817,6 +817,11 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .setting-list .field-label-row { font-size: var(--text-md); color: var(--text); }
 .setting-list .field-label-row label { font-weight: var(--weight-medium); cursor: pointer; }
 .setting-list .field-control { flex: 0 0 auto; }
+/* One bordered list for all PC alerts; each rule is a row group whose limits line sits under its switch row with the same inset. */
+.alert-rule > .field-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); min-height: 52px; }
+.alert-rule + .alert-rule { border-top: 1px solid var(--border); }
+.alert-limits { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: 0 var(--space-4) var(--space-3); color: var(--muted); font-size: var(--text-sm); }
+.alert-limits > input[type='number'] { width: var(--field-w-xs); }
 .customize-menu { list-style: none; padding: 0; }
 .customize-menu-row { display: flex; align-items: center; gap: var(--space-3); min-height: 52px; padding: var(--space-2) var(--space-4); }
 .customize-menu-row + .customize-menu-row { border-top: 1px solid var(--border); }
@@ -942,6 +947,8 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 @media (pointer: coarse), (max-width: 640px) {
   button.toggle::after { inset: -11px -8px; }
   .setting-list > .field-item, .setting-list > .muted { padding-inline: var(--space-3); }
+  .alert-rule > .field-item { padding-inline: var(--space-3); }
+  .alert-limits { padding-inline: var(--space-3); }
   .btn { min-height: 44px; }
   /* Dense buttons look 32px but keep a 44px hit area: the ::after reaches 6px beyond the border box above and below (the Toggle trick; the inset is one more because it is measured from the padding box).
      Rows holding several of them keep a gap of at least --space-3 so the areas never overlap. */
