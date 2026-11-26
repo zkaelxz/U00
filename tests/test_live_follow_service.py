@@ -293,6 +293,8 @@ def test_start_from_follow_is_a_normal_live_start(follows, monkeypatch):
     assert seen["url"] == "https://www.youtube.com/@name/live"
     assert seen["principal"] is ALICE and seen["use_saved_cookies"] is False
     assert seen["engine"] == "fake" and seen["max_minutes"] == 5
+    # No chunk choice is saved with a follow, so the language's fast default is used.
+    assert (seen["segment_seconds"], seen["overlap_seconds"]) == (6, 1.5)
     live_follow_store.update(v["id"], last_state="live", last_stream_id="abcdefghijk")
     svc.start_from_follow(v["id"], principal=ALICE)
     assert seen["url"] == "https://www.youtube.com/watch?v=abcdefghijk"

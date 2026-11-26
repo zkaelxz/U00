@@ -330,6 +330,7 @@ def test_auto_start_starts_once_and_never_restarts_the_same_stream(env, starts):
     row = _check(fid)
     assert len(starts) == 1
     call = starts[0]
+    assert (call["segment_seconds"], call["overlap_seconds"]) == (6, 1.5)
     assert call["url"] == "https://www.youtube.com/watch?v=abcdefghijk"
     assert call["max_minutes"] == 7 and call["engine"] == "fake" and call["principal"] is None
     assert call["whisper_size"] == "tiny" and call["use_saved_cookies"] is True
