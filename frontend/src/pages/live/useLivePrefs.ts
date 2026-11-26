@@ -6,6 +6,14 @@ import type { LiveFormOptions } from '../../types/live'
 import { usePersistedState } from '../../hooks/usePersistedState'
 import { whisperExclusionReason } from '../workspace/sourceForm'
 
+/** Chunk figures saved while 10 s / 3 s was every language's default. Kept, they hide the shorter Chinese
+ * default for good, so a browser still holding exactly that pair is let follow the defaults again. */
+export function withoutStaleChunkPrefs(prefs: Partial<StoredLiveOptions>): Partial<StoredLiveOptions> {
+  if (prefs.segment_seconds !== 10 || prefs.overlap_seconds !== 3) return prefs
+  const { segment_seconds: _s, overlap_seconds: _o, ...rest } = prefs
+  return rest
+}
+
 export function useLivePrefs(opts: LiveFormOptions) {
   // Only the options this browser changed, so the rest follow the server's defaults.
   const [prefs, setPrefs] = usePersistedState<Partial<StoredLiveOptions>>('live.options', {})
@@ -21,6 +29,14 @@ export function useLivePrefs(opts: LiveFormOptions) {
       setPrefs(rest)
     }
   }, [checked, setChecked, prefs, setPrefs])
+
+  const [chunkChecked, setChunkChecked] = usePersistedState<boolean>('live.chunkPrefChecked', false)
+  useEffect(() => {
+    if (chunkChecked) return
+    setChunkChecked(true)
+    const kept = withoutStaleChunkPrefs(prefs)
+    if (kept !== prefs) setPrefs(kept)
+  }, [chunkChecked, setChunkChecked, prefs, setPrefs])
 
   const setOpt = <K extends keyof LiveOptions>(k: K, v: LiveOptions[K]) => setPrefs({ ...prefs, [k]: v })
   // A model this browser picked stays across languages unless Start would refuse it; otherwise
