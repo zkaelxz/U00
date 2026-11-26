@@ -55,6 +55,9 @@ test('the job card shows elapsed, then "about N min left", and only elapsed in a
   await mockTranscribeCard(page, { durationSeconds: 3600 }, job)
   await page.goto('/#/drama/1/source?tab=transcribe')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
+  // An hour of audio on CPU can read as a long run: then the first click asks, and the run starts on "Start anyway".
+  const startAnyway = page.getByRole('button', { name: 'Start anyway' })
+  await startAnyway.waitFor({ state: 'visible', timeout: 2000 }).then(() => startAnyway.click(), () => undefined)
 
   const elapsed = page.getByTestId('job-elapsed')
   await expect(elapsed).toContainText('elapsed')

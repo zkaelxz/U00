@@ -111,12 +111,15 @@ def _write(rel, data):
 
 
 def _library_state():
-    """Every row of every table (except the backup job's own job mirror
-    and timing rows) and every file outside backups/ and logs/, hashed."""
+    """Every row of every table (except the backup job's own job mirror and
+    timing rows, and the activity log, which every ending job writes to and
+    prunes old rows from) and every file outside backups/ and logs/, hashed."""
     conn = sqlite3.connect(db.DB_PATH)
     try:
         rows = {}
         for t in _tables(conn):
+            if t == "activity_log":
+                continue
             if t in ("job_records", "job_stage_timings"):
                 rows[t] = sorted(repr(r) for r in conn.execute(
                     f"SELECT * FROM {t} WHERE job_id != ?", (las.USER_BACKUP_JOB_ID,)))

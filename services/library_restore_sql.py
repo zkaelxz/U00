@@ -205,7 +205,7 @@ def has_accounts(db_path: str) -> bool:
 # a new account: it would inherit that person's private titles and history.
 _ACCOUNT_ID_COLUMNS = (("dramas", "owner_user_id"), ("dramas", "created_by_user_id"),
                        ("series", "owner_user_id"),
-                       ("job_records", "owner_user_id"), ("translate_history", "user_id"),
+                       ("job_records", "owner_user_id"), ("activity_log", "owner_user_id"), ("translate_history", "user_id"),
                        ("speaker_merge_undos", "user_id"), ("audit_log", "user_id"),
                        ("chapter_marks", "user_id"), ("watch_bookmarks", "user_id"), ("profiles", "user_id"))
 
