@@ -106,8 +106,10 @@ def check_no_crash(step):
     crash = crash_report()
     if crash:
         raise StepFailed(f"{step}: the app crashed.\n{crash[-3000:]}")
-    if any((n.get("text") or "").startswith("Baihe hit a problem") for n in screen_nodes()):
-        raise StepFailed(f"{step}: the app showed its own crash screen.")
+    shown = next(((n.get("text") or "") for n in screen_nodes()
+                  if (n.get("text") or "").startswith("Baihe hit a problem")), None)
+    if shown is not None:
+        raise StepFailed(f"{step}: the app showed its own crash screen.\n{shown[:3000]}")
     if not app_is_alive():
         raise StepFailed(f"{step}: the app process is gone.")
 
