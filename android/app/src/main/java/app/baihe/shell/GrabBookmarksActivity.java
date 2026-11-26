@@ -13,8 +13,14 @@ import android.widget.TextView;
 
 import java.util.List;
 
-/** Grab's bookmarks as a screen of their own, styled like the queue and history page: tap a card to open it, Remove to drop it. */
+/**
+ * Grab's bookmarks, or its recent pages when EXTRA_RECENT is set, as a screen of their own styled like
+ * the queue and history page: tap a card to open it, Remove to drop it.
+ */
 public class GrabBookmarksActivity extends Activity {
+    static final String EXTRA_RECENT = "recent";
+
+    private boolean recent;
     private GrabUi.Palette palette;
     private LinearLayout list;
 
@@ -22,6 +28,7 @@ public class GrabBookmarksActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         palette = GrabUi.Palette.of(this);
+        recent = getIntent().getBooleanExtra(EXTRA_RECENT, false);
         getWindow().setStatusBarColor(palette.surface);
         getWindow().setNavigationBarColor(palette.surface);
         ScrollView scroll = new ScrollView(this);
@@ -57,17 +64,31 @@ public class GrabBookmarksActivity extends Activity {
         return getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
     }
 
+    private String key() {
+        return recent ? GrabActivity.KEY_RECENT : GrabActivity.KEY_BOOKMARKS;
+    }
+
     private void refresh() {
         list.removeAllViews();
-        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(GrabActivity.KEY_BOOKMARKS, ""));
-        list.addView(text("Bookmarks", 22, true, palette.text, 4));
+        List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(key(), ""));
+        list.addView(text(recent ? "Recent pages" : "Bookmarks", 22, true, palette.text, 4));
         LinearLayout top = row();
         top.addView(button("Back", palette.muted, v -> finish()));
-        top.addView(button("Bookmark the open page", palette.accent, v -> command("bookmark", "")));
+        if (recent) {
+            if (!marks.isEmpty()) {
+                top.addView(button("Clear", palette.bad, v -> {
+                    prefs().edit().remove(key()).apply();
+                    refresh();
+                }));
+            }
+        } else {
+            top.addView(button("Bookmark the open page", palette.accent, v -> command("bookmark", "")));
+        }
         list.addView(top);
 
         if (marks.isEmpty()) {
-            list.addView(text("Nothing saved yet. Open a page in Grab and press Bookmark the open page.", 14, false, palette.muted, 16));
+            list.addView(text(recent ? "Nothing yet. Pages you open in Grab show up here."
+                    : "Nothing saved yet. Open a page in Grab and press Bookmark the open page.", 14, false, palette.muted, 16));
             return;
         }
         for (GrabBookmarks.Mark mark : marks) {

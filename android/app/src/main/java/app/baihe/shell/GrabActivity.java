@@ -534,7 +534,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.section("My lists");
         menu.item("Pick up where I left off", this::pickUp);
         menu.item(marks.isEmpty() ? "Bookmarks" : "Bookmarks (" + marks.size() + ")", () -> startActivity(new Intent(this, GrabBookmarksActivity.class)));
-        menu.item("Recent pages", this::showRecent);
+        menu.item("Recent pages", () -> startActivity(new Intent(this, GrabBookmarksActivity.class)
+                .putExtra(GrabBookmarksActivity.EXTRA_RECENT, true)));
         menu.item(savedCount == 0 ? "Saved chapters" : "Saved chapters (" + savedCount + ")", this::showSaved);
         menu.item(waiting == 0 ? "Queue and history" : "Queue and history (" + waiting + " waiting)",
                 () -> startActivity(new Intent(this, GrabHistoryActivity.class)));
@@ -672,7 +673,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 .show();
     }
 
-    private static final String KEY_RECENT = "recent_pages";
+    static final String KEY_RECENT = "recent_pages";
     private static final int MAX_RECENT = 30;
 
     /** Keeps the pages opened here on the phone only, so a page can be found again; nothing is sent anywhere. */
@@ -682,25 +683,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
         recent = GrabBookmarks.with(recent, title, link, MAX_RECENT);
         prefs().edit().putString(KEY_RECENT, GrabBookmarks.serialize(recent)).apply();
-    }
-
-    private void showRecent() {
-        List<GrabBookmarks.Mark> recent = GrabBookmarks.parse(prefs().getString(KEY_RECENT, ""));
-        if (recent.isEmpty()) {
-            say("Nothing yet. Pages you open here show up in this list.");
-            return;
-        }
-        String[] names = new String[recent.size()];
-        for (int i = 0; i < names.length; i++) names[i] = recent.get(i).name;
-        new AlertDialog.Builder(this)
-                .setTitle("Recent pages")
-                .setItems(names, (d, which) -> web.loadUrl(recent.get(which).url))
-                .setNeutralButton("Clear", (d, w) -> {
-                    prefs().edit().remove(KEY_RECENT).apply();
-                    say("Recent pages cleared.");
-                })
-                .setNegativeButton("Close", null)
-                .show();
     }
 
     static final String KEY_BOOKMARKS = "bookmarks";
