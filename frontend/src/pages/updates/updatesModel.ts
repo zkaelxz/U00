@@ -1,5 +1,6 @@
 // What the Updates page lists: new chapters and followed channels that are live or scheduled, newest first.
 // No React here, so the ordering and wording are unit-tested in updatesModel.test.ts.
+import { followName } from '../../api/liveFollows'
 import type { LiveFollow } from '../../types/live'
 import type { OpenSeries, SourceNotification, TrackedSeries } from '../../types/sources'
 
@@ -54,7 +55,7 @@ export function buildUpdates(
       kind: 'live',
       key: `live:${f.id}`,
       at: f.last_checked_at ?? f.created_at,
-      title: f.channel_name || f.channel,
+      title: followName(f),
       state: f.state,
       detail: liveDetail(f),
       startsAt: f.starts_at ?? null,

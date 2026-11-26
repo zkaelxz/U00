@@ -8,7 +8,7 @@ const note = (id: number, series: string, at: number, extra: Partial<SourceNotif
   id, source: 'mh', series_id: series, chapter_id: `c${id}`, title: null, created_at: at, dismissed: false, ...extra,
 })
 const follow = (id: number, extra: Partial<LiveFollow> = {}): LiveFollow => ({
-  id, channel: '@a', channel_name: 'Anvil', mode: 'notify', auto_check: false, poll_minutes: 60,
+  id, channel: '@a', channel_name: 'Anvil', nickname: '', mode: 'notify', auto_check: false, poll_minutes: 60,
   last_checked_at: 100, state: 'live', last_status: '', starts_at: null, live_now: true, stream_title: 'Late chat',
   checking: false, mine: true, created_at: 1, options: {} as LiveFollow['options'], ...extra,
 })
