@@ -511,4 +511,5 @@ def start_from_follow(follow_id, principal=None, use_saved_cookies=False) -> dic
         whisper_size=opts["whisper_size"], engine=opts["engine"], model=opts["model"],
         max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"],
         use_saved_cookies=use_saved_cookies, glossary_drama_id=opts["glossary_drama_id"],
-        series_id=opts["series_id"], principal=principal)
+        series_id=opts["series_id"], principal=principal,
+        **live_service.language_chunk(opts["source_language"]))
