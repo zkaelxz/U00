@@ -495,7 +495,7 @@ def _auto_start(row, stream_id):
             max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"], use_saved_cookies=True,
             glossary_drama_id=opts["glossary_drama_id"],
             series_id=opts["series_id"], principal=None,
-            **live_service.language_chunk(opts["source_language"]))
+            **live_service.language_chunk(opts["source_language"], opts["captions"]))
     except ConflictError:
         return "not started: two Live sessions are already running"
     except MissingKeyError:

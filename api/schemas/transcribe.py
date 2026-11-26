@@ -515,6 +515,8 @@ class LiveFollowOptions(BaseModel):
     use_gpu: StrictBool = False
     glossary_drama_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
     series_id: Optional[StrictInt] = Field(None, ge=1, le=2**62)
+    captions: Optional[Literal["fast", "balanced"]] = Field(
+        None, description="None = fast, the language's default chunk length.")
 
 
 class LiveFollowAdd(BaseModel):
