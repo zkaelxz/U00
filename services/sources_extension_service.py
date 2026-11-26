@@ -19,6 +19,10 @@ EXTENSION_ONLY_MESSAGE = ("This site only works through the browser extension. O
 SKIPPED_STATUS = "extension only: skipped"
 # The app page holding the extension's help (Settings > Browser extension).
 HELP_ROUTE = "settings"
+# Sites behind a Cloudflare challenge that a plain fetch can't pass. Baihe does not try to get
+# past it, so a pasted link says to use the extension, which reads the page in the person's
+# own browser. Matched on the host and its subdomains.
+BUILT_IN_EXTENSION_ONLY_HOSTS = ("blacktoon510.com", "mangafire.to", "kagane.moe")
 
 
 def extension_only_error() -> ExtensionOnlyError:
@@ -32,12 +36,19 @@ def require_not_extension_only(name) -> None:
         raise extension_only_error()
 
 
+def _is_built_in_extension_only_host(host) -> bool:
+    host = str(host or "").lower().rstrip(".")
+    return any(host == h or host.endswith("." + h) for h in BUILT_IN_EXTENSION_ONLY_HOSTS)
+
+
 def require_url_not_extension_only(url) -> None:
     """The same stop for a pasted link whose address belongs to a marked source."""
     try:
         has_host = bool(urlsplit(str(url or "")).hostname)
     except ValueError:
         has_host = False
+    if has_host and _is_built_in_extension_only_host(urlsplit(str(url)).hostname):
+        raise extension_only_error()
     cls = registry.adapter_class_for_url(url) if has_host else None
     if cls is not None:
         require_not_extension_only(cls.name)
