@@ -9,6 +9,8 @@ import java.io.StringWriter;
 /** Keeps the last crash's stack trace on the phone so the next launch can show it; the app has no other crash record. */
 final class CrashLog {
     private static final String KEY = "last_crash";
+    private static final String CAUGHT_KEY = "last_caught";
+    private static final String CAUGHT_SHOWN = "caught_shown";
     /** A trace is a few KB; the cap only guards the preferences file against a runaway cause chain. */
     private static final int MAX_CHARS = 8000;
 
@@ -34,6 +36,29 @@ final class CrashLog {
         String trace = prefs.getString(KEY, null);
         if (trace != null) prefs.edit().remove(KEY).commit();
         return trace;
+    }
+
+    /**
+     * A failure the app survived on purpose (so it does not close) but that someone needs to learn
+     * the reason for. Kept once: the first reason is the useful one and later ones repeat it.
+     */
+    static void noteCaught(Context context, String what, Throwable error) {
+        android.util.Log.w("Baihe", what, error);
+        try {
+            SharedPreferences prefs = prefs(context);
+            if (prefs.contains(CAUGHT_KEY) || prefs.getBoolean(CAUGHT_SHOWN, false)) return;
+            prefs.edit().putString(CAUGHT_KEY, what + "\n" + describe(Thread.currentThread().getName(), error)).commit();
+        } catch (RuntimeException ignored) {
+            // Reporting must never be the thing that fails.
+        }
+    }
+
+    /** The saved survived-failure note, shown once ever; null when there is none. */
+    static String takeCaught(Context context) {
+        SharedPreferences prefs = prefs(context);
+        String note = prefs.getString(CAUGHT_KEY, null);
+        if (note != null) prefs.edit().remove(CAUGHT_KEY).putBoolean(CAUGHT_SHOWN, true).commit();
+        return note;
     }
 
     static String describe(String threadName, Throwable error) {
