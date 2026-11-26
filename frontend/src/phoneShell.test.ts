@@ -36,3 +36,17 @@ describe('phone shell switches', () => {
     expect(pop).toHaveBeenCalled()
   })
 })
+
+describe('check for updates', () => {
+  it('calls the app when it has the button and is quiet in a browser', async () => {
+    const check = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), checkForUpdates: check } })
+    const m = await import('./phoneShell')
+    expect(m.canCheckForUpdates()).toBe(true)
+    m.checkForUpdates()
+    expect(check).toHaveBeenCalledTimes(1)
+    vi.stubGlobal('window', {})
+    expect(m.canCheckForUpdates()).toBe(false)
+    expect(() => m.checkForUpdates()).not.toThrow()
+  })
+})

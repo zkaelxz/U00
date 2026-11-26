@@ -178,3 +178,22 @@ def test_fetch_route_is_pc_only_and_returns_numbers_only(http, folder):
     assert got.status_code == 200 and got.json() == {"version_code": 1042, "changed": True}
     away = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
     assert away.post("/api/system/android-app/fetch", json={}).status_code in (401, 403)
+
+
+# --- the phone's check asks GitHub when the server holds nothing newer ----------
+
+def test_pressing_check_fetches_the_published_build_before_answering(http, folder, isolated_db, monkeypatch):
+    monkeypatch.setattr(svc, "_last_refresh", 0.0)
+    _serve(http, code=b"1167")
+    client = loopback_client(create_app(ApiSettings()))
+    assert client.get(VERSION, params={"refresh": "true"}).json() == {"version_code": 1167}
+
+
+def test_forced_checks_are_spaced_and_a_github_failure_still_answers(http, folder, isolated_db, monkeypatch):
+    _publish(folder, "7")
+    monkeypatch.setattr(svc, "_last_refresh", 0.0)
+    client = loopback_client(create_app(ApiSettings()))
+    # Nothing is served, so the fetch fails; the phone still gets the build the server holds.
+    assert client.get(VERSION, params={"refresh": "true"}).json() == {"version_code": 7}
+    _serve(http, code=b"1167")
+    assert client.get(VERSION, params={"refresh": "true"}).json() == {"version_code": 7}

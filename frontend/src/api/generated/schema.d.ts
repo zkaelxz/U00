@@ -35889,7 +35889,9 @@ export interface operations {
     };
     version_api_app_android_get: {
         parameters: {
-            query?: never;
+            query?: {
+                refresh?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
