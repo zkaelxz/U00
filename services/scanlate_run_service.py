@@ -44,7 +44,7 @@ import db
 import translation_guide as tguide
 from engine_backends import engine_registry
 from engine_backends import shared as engine_shared
-from engine_backends import llm_tasks, paid_calls
+from engine_backends import llm_tasks, paid_calls, translate_pipeline
 from engine_backends import local as engine_local
 from engine_backends.run_limits import TranslateRunStopped
 from engine_backends.vision import VISION_ENGINES
@@ -281,6 +281,17 @@ def _predecessor_tail(drama_id: int, page_id: int) -> str:
 def _translation_context(drama_id: int, page_id: int) -> str:
     return " ".join(part for part in (_predecessor_context(drama_id, page_id),
                                        _predecessor_tail(drama_id, page_id)) if part)
+
+
+def _side_by_side_context(summary: str, previous_regions: list) -> str:
+    """The context of a page translated while the page before it still is: the newest
+    summary this run has, and the previous page's last lines as read, with no English yet."""
+    lines = [(b.get("source_text") or "").strip() for b in previous_regions
+             if not b.get("skip") and b.get("kind") != "sfx" and (b.get("source_text") or "").strip()]
+    tail = ("Last lines of the previous page (source only; it is being translated at the same "
+            "time, so its English isn't ready); the first lines of this page may continue the "
+            "same sentence: " + " | ".join(lines[-_TAIL_REGIONS:])) if lines else ""
+    return " ".join(part for part in (summary, tail) if part)
 
 
 _STAMP_LOOKBACK_PAGES = 4
@@ -678,11 +689,15 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     return existing, expected_ids, expected_rev, bubbles, detect_notes
 
 
-def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> None:
+def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list,
+                              unsaved: dict | None = None) -> None:
     """Skips a region that repeats, in place, a region of the few pages before
     this one: a site's stamp, which the per-page check misses when OCR drops
     the address. Runs when the page is processed, not when it is detected: the
-    read-ahead detects the next page before this one's regions are saved."""
+    read-ahead detects the next page before this one's regions are saved.
+    `unsaved` is {page id: regions as read} for earlier pages still being
+    translated beside this one, whose stored regions are not yet the new ones."""
+    unsaved = unsaved or {}
     from scanlate import scanlate_watermark
     page = db.get_page(page_id) or {}
     width, height = int(page.get("width") or 0), int(page.get("height") or 0)
@@ -694,7 +709,8 @@ def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list) -> Non
             earlier.append(p["id"])
     # The nearest few pages: a stamp is on every page, and loading all would
     # cost a query per page of a long chapter.
-    earlier_regions = [db.load_bubbles(pid) for pid in earlier[-_STAMP_LOOKBACK_PAGES:]]
+    earlier_regions = [unsaved[pid] if pid in unsaved else db.load_bubbles(pid)
+                       for pid in earlier[-_STAMP_LOOKBACK_PAGES:]]
     scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
     scanlate_watermark.flag_edge_fragments(bubbles, width, height)
     scanlate_watermark.flag_page_numbers(bubbles, width, height)
@@ -716,7 +732,8 @@ def _rerender(drama_id: int, page_id: int, jid: str) -> None:
 
 
 def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_id: int,
-                             engine, engine_name: str, guide: tuple, jid: str) -> None:
+                             engine, engine_name: str, guide: tuple, jid: str,
+                             typeset=None) -> None:
     """A caption the page break cut between `previous_id` and `page_id` (both
     translated and typeset earlier in this run) is translated as one line and
     its English split between them (scanlate.join_caption_across_pages). Each
@@ -742,18 +759,32 @@ def _join_page_break_caption(drama_id: int, drama: dict, previous_id: int, page_
                                            expected={"translated_text": before[b["id"]]},
                                            page_id=pid) for b in changed):
             return
-        _rerender(drama_id, pid, jid)
+        (typeset or (lambda fn: fn()))(lambda pid=pid: _rerender(drama_id, pid, jid))
 
 
 def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, engine_name: str,
                   detect_kwargs: dict, guide: tuple, jid: str, detected=None,
                   previous_id: int | None = None, chapter_brief: str = "",
-                  keep_text: bool = False) -> str:
+                  keep_text: bool = False, typeset=None) -> str:
     """One page. Returns "skipped", "stale", "kept" (a redo that failed; the
     old regions stay), "done" or "translated". `detected` is the page's
     _detect_stage result when the run already started it (a Future), else it
     runs here. `previous_id` is the page just before it in the run, when this
     run translated that page: a caption cut between the two is then joined."""
+    translated = _translate_stage(drama_id, drama, page_id, mode, engine, engine_name,
+                                  detect_kwargs, guide, jid, detected, chapter_brief, keep_text)
+    return _save_stage(drama_id, drama, page_id, engine, engine_name, guide, jid, translated,
+                       previous_id, typeset)
+
+
+def _translate_stage(drama_id: int, drama: dict, page_id: int, mode: str, engine,
+                     engine_name: str, detect_kwargs: dict, guide: tuple, jid: str, detected=None,
+                     chapter_brief: str = "", keep_text: bool = False, side_by_side=None):
+    """Detection's result for one page, translated in memory: nothing is stored, so
+    pages can do this side by side. Returns _detect_stage's final outcome string or
+    the dict _save_stage stores. `side_by_side` is (summary, {page id: regions as
+    read}) for a page whose predecessor is still being translated: the page's
+    context is then built from those instead of the stored predecessor's English."""
     started = time.monotonic()
     result = (detected.result() if detected is not None
               else _detect_stage(drama_id, drama, page_id, mode, detect_kwargs, jid, keep_text))
@@ -761,7 +792,8 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     if isinstance(result, str):
         return result
     existing, expected_ids, expected_rev, bubbles, detect_notes = result
-    _flag_repeated_site_marks(drama_id, page_id, bubbles)
+    summary, unsaved = side_by_side or ("", {})
+    _flag_repeated_site_marks(drama_id, page_id, bubbles, unsaved)
     reused = keep_text and not detect_notes and bool(existing)
     notes = ([("info", "Detector: skipped, the text already read was reused.")] if reused
              else [_detector_note(detect_kwargs["detect_backend"], detect_notes)])
@@ -771,24 +803,44 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
     ai_started = time.monotonic()
     english_before = [b.get("translated_text") for b in bubbles]
     if bubbles and not _ocr_lost_text(existing, detect_notes):
+        previous = _predecessor_page(drama_id, page_id) if unsaved else None
+        context = (_side_by_side_context(summary, unsaved[previous["id"]])
+                   if previous is not None and previous["id"] in unsaved
+                   else _translation_context(drama_id, page_id))
         translated_ok, new_context = _translate(
-            bubbles, engine, engine_name, drama, guide[0],
-            _translation_context(drama_id, page_id), drama_id, notes, guide[1], chapter_brief,
+            bubbles, engine, engine_name, drama, guide[0], context, drama_id, notes, guide[1],
+            chapter_brief,
             page_image=_page_image(drama_id, page_id, engine_name, getattr(engine, "model", None)))
     if translated_ok:
         # Only the English this call just wrote: a region kept from an earlier run, or typed by
         # hand, is the person's text and is not rewritten.
         _condense_signs(drama_id, page_id, _translated_since(bubbles, english_before), engine,
                         engine_name, drama, notes)
-    ai_seconds = time.monotonic() - ai_started
+    return {"existing": existing, "expected_ids": expected_ids, "expected_rev": expected_rev,
+            "bubbles": bubbles, "notes": notes, "translated_ok": translated_ok,
+            "new_context": new_context, "detect_wait": detect_wait,
+            "ai_seconds": time.monotonic() - ai_started}
+
+
+def _save_stage(drama_id: int, drama: dict, page_id: int, engine, engine_name: str,
+                guide: tuple, jid: str, translated, previous_id: int | None = None,
+                typeset=None) -> str:
+    """Stores a page _translate_stage translated and typesets it. Runs page by page
+    in the run's order. `typeset(fn)` runs fn, a page's typesetting, now or queues it
+    in order; by default it runs here."""
+    typeset = typeset or (lambda fn: fn())
+    if isinstance(translated, str):
+        return translated
+    existing, bubbles, notes = translated["existing"], translated["bubbles"], translated["notes"]
+    translated_ok, new_context = translated["translated_ok"], translated["new_context"]
     if existing and _redo_would_lose_work(existing, bubbles, translated_ok, notes):
         notes.append(("warning", "Redo did not produce a complete result for this page (no "
                                  "regions, OCR or translation incomplete), so its existing "
                                  "regions were kept unchanged. Try Redo this page again."))
         db.update_page(page_id, run_notes=pages_svc.notes_to_json(notes))
         return "kept"
-    new_ids = db.replace_bubbles_if_unchanged(page_id, expected_ids, bubbles,
-                                              expected_rev=expected_rev)
+    new_ids = db.replace_bubbles_if_unchanged(page_id, translated["expected_ids"], bubbles,
+                                              expected_rev=translated["expected_rev"])
     if new_ids is None:
         db.update_page(page_id, run_notes=pages_svc.notes_to_json(
             [("warning", "This page was edited while the job ran, so the new results were "
@@ -796,30 +848,175 @@ def _process_page(drama_id: int, drama: dict, page_id: int, mode: str, engine, e
         return "stale"
     # The old typeset image shows the replaced text: if the render below fails,
     # the reader and the export must fall back to the original, not to it.
-    render_started = time.monotonic()
     fields = {"run_notes": pages_svc.notes_to_json(notes), "rendered_filename": None}
     if new_context is not None:
         fields["context_summary"] = new_context
     db.update_page(page_id, **fields)
-    render_notes = []
-    try:
-        render_svc.render_page(drama_id, page_id, render_notes,
-                               lambda: render_svc.check_cancel(jid))
-    except background_jobs.JobCancelled:
-        raise                                    # a cancel is not a render failure
-    except Exception as exc:
-        render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
-                             f"{engine_shared.redact_secrets(str(exc))}"))
-    # Says which step makes a slow run slow. Detection runs ahead, so its figure is the wait for it.
-    render_notes.append(("info", f"Time: detect and OCR wait {detect_wait:.1f}s, AI call "
-                                 f"{ai_seconds:.1f}s, typeset {time.monotonic() - render_started:.1f}s."))
-    render_svc.append_notes(page_id, render_notes)
-    # After this page is typeset, so a refusal or timeout in the extra call
-    # cannot leave the page's new text without its image.
+
+    def render():
+        render_started = time.monotonic()
+        render_notes = []
+        try:
+            render_svc.render_page(drama_id, page_id, render_notes,
+                                   lambda: render_svc.check_cancel(jid))
+        except background_jobs.JobCancelled:
+            raise                                    # a cancel is not a render failure
+        except Exception as exc:
+            render_notes.append(("error", f"Render failed: {type(exc).__name__}: "
+                                 f"{engine_shared.redact_secrets(str(exc))}"))
+        # Says which step makes a slow run slow. Detection runs ahead, so its figure is the
+        # wait for it.
+        render_notes.append(("info", f"Time: detect and OCR wait {translated['detect_wait']:.1f}s, "
+                                     f"AI call {translated['ai_seconds']:.1f}s, typeset "
+                                     f"{time.monotonic() - render_started:.1f}s."))
+        render_svc.append_notes(page_id, render_notes)
+    typeset(render)
+    # After this page's typesetting is started (a queued one is still finished when the run
+    # ends early), so a refusal or timeout in the extra call cannot leave the page's new text
+    # without its image.
     if previous_id is not None and new_context is not None:
         _join_page_break_caption(drama_id, drama, previous_id, page_id, engine, engine_name,
-                                 guide, jid)
+                                 guide, jid, typeset)
     return "translated" if new_context is not None else "done"
+
+
+# Each page beyond the first of a group loses the English of the page before it, so the
+# group is kept small; the hosted model's wait, most of a page's time, still overlaps.
+PAGES_SIDE_BY_SIDE = 3
+
+
+def _pages_side_by_side(engine, brief: str) -> int:
+    """How many pages of a run are translated at once. One, so each page carries the English
+    of the page before it, unless the chapter brief gives every page the story and the engine
+    takes independent requests side by side (translate_pipeline.can_run_in_parallel)."""
+    if brief and translate_pipeline.can_run_in_parallel(engine):
+        return PAGES_SIDE_BY_SIDE
+    return 1
+
+
+def _read_regions(future, page_id: int) -> list:
+    """The regions a page's detection read, or its stored ones when it read nothing new."""
+    try:
+        result = future.result()
+    except Exception:
+        result = None
+    return result[3] if isinstance(result, tuple) else db.load_bubbles(page_id)
+
+
+def _count_page(counts: dict, jid: str, page_id: int, run_page):
+    """Runs one page and counts its outcome, which it returns; "failed" after a note on the
+    page, None when the run stops before this page. Raises what ends the whole run."""
+    try:
+        outcome = run_page()
+    except TranslationCancelled:
+        raise background_jobs.JobCancelled(jid)
+    except TranslateRunStopped:
+        return None
+    except (background_jobs.JobCancelled, HeadroomError):
+        raise
+    except Exception as exc:
+        outcome = "failed"
+        try:
+            db.update_page(page_id, run_notes=pages_svc.notes_to_json(
+                [("error", _failure_note(exc))]))
+        except Exception as note_exc:
+            from applog import get_logger
+            get_logger().warning("Could not save the error note for page %s: %s", page_id,
+                                 engine_shared.redact_secrets(str(note_exc)))
+        # The abandoned request may still be running; every later page
+        # would be refused, so the run ends with this error.
+        if isinstance(exc, LLMTaskTimeout):
+            counts[outcome] += 1
+            raise
+    counts[outcome] += 1
+    return outcome
+
+
+class _Typesetter:
+    """Runs a page's typesetting now, or with `background` queues it on one thread in the
+    order given. Leaving waits for the queue, so every page whose text was stored is typeset
+    even when the run ends early, and a cancel seen while typesetting ends the run."""
+
+    def __init__(self, background: bool):
+        self._pool = (ThreadPoolExecutor(max_workers=1, thread_name_prefix="scanlate-typeset")
+                      if background else None)
+        self._queued = []
+
+    def __call__(self, fn) -> None:
+        if self._pool is None:
+            fn()
+        else:
+            self._queued.append(self._pool.submit(contextvars.copy_context().run, fn))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *_):
+        if self._pool is not None:
+            self._pool.shutdown(wait=True)
+        if exc_type is None:
+            for done in self._queued:
+                if isinstance(done.exception(), background_jobs.JobCancelled):
+                    raise done.exception()
+
+
+class _SideBySide:
+    """The pages of a run translated `width` at a time. Translating stores nothing, so pages
+    can do it at once; storing (save) stays one page at a time in the run's order. A page
+    started while the page before it is still being translated is told that page's text as
+    read, and the newest summary a stored page gave, instead of the English it doesn't have."""
+
+    def __init__(self, width: int, page_ids: list, detected: dict, translate):
+        self.width = width
+        self._page_ids = page_ids
+        self._detected = detected          # page id -> its detection Future (every page read)
+        self._translate = translate        # (page id, detection Future, side_by_side) -> result
+        self._pool = (ThreadPoolExecutor(max_workers=width, thread_name_prefix="scanlate-page")
+                      if width > 1 else None)
+        self._started = {}                 # page id -> its translation Future, not yet stored
+        self._summary = ""
+        self._timing_job = job_timing.current_job()
+
+    def start_through(self, end: int) -> None:
+        """Starts every page before index `end` that has not started."""
+        if self._pool is None:
+            return
+        for m in range(min(end, len(self._page_ids))):
+            pid = self._page_ids[m]
+            if pid not in self._started and pid in self._detected:
+                self._start(self._pool, pid, [p for p in self._page_ids[:m] if p in self._started])
+
+    def _start(self, pool, pid: int, unsaved_before: list) -> None:
+        detected = {p: self._detected[p] for p in unsaved_before + [pid]}
+        summary, timing_job = self._summary, self._timing_job
+
+        def run():
+            job_timing.set_current_job(timing_job)
+            unsaved = {p: _read_regions(detected[p], p) for p in unsaved_before}
+            return self._translate(pid, detected[pid], (summary, unsaved))
+        self._started[pid] = pool.submit(contextvars.copy_context().run, run)
+
+    def save(self, pid: int, save):
+        """save(translated) for a started page, once its translation is back."""
+        future = self._started[pid]
+        try:
+            translated = future.result()
+        finally:
+            del self._started[pid]
+            self._detected.pop(pid, None)
+        outcome = save(translated)
+        if isinstance(translated, dict) and translated["new_context"]:
+            self._summary = translated["new_context"]
+        return outcome
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        # Pages translated ahead of a stop are dropped unstored; one still asking waits
+        # here so no call of this job outlives its limits.
+        if self._pool is not None:
+            self._pool.shutdown(wait=True, cancel_futures=True)
 
 
 def _failure_note(exc: Exception) -> str:
@@ -962,40 +1159,39 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
         # The bar continues from where the read-through left it instead of dropping back to 0%.
         base = _READ_SHARE if read_first else 0.0
         job_timing.mark_stage(jid, "Translate and typeset pages")
-        for n, pid in enumerate(page_ids, start=1):
-            render_svc.check_cancel(jid)
-            if n < total and page_ids[n] not in ahead:
-                ahead[page_ids[n]] = start_detect(page_ids[n], ahead.get(pid))
-            background_jobs.update_progress(jid, base + (1 - base) * (n - 1) / total,
-                                            f"Page {n} of {total}")
-            previous_id, saved_before = saved_before, None
-            try:
-                outcome = _process_page(drama_id, drama, pid, mode, engine, engine_name,
-                                        detect_kwargs, guide, jid,
-                                        detected=ahead.pop(pid, None), previous_id=previous_id,
-                                        chapter_brief=brief, keep_text=keep_text)
-                counts[outcome] += 1
+        width = _pages_side_by_side(engine, brief)
+        # With every page read first, nothing else wants the pipeline lock, so a page is
+        # typeset while the next one is translated instead of between the two.
+        with _Typesetter(background=bool(read_first)) as typeset, \
+                _SideBySide(width, page_ids, ahead, lambda pid, detected, side_by_side:
+                            _translate_stage(drama_id, drama, pid, mode, engine, engine_name,
+                                             detect_kwargs, guide, jid, detected, brief,
+                                             keep_text, side_by_side=side_by_side)) as side:
+            for n, pid in enumerate(page_ids, start=1):
+                render_svc.check_cancel(jid)
+                if side.width > 1:
+                    side.start_through(n - 1 + side.width)
+                elif n < total and page_ids[n] not in ahead:
+                    ahead[page_ids[n]] = start_detect(page_ids[n], ahead.get(pid))
+                background_jobs.update_progress(jid, base + (1 - base) * (n - 1) / total,
+                                                f"Page {n} of {total}")
+                previous_id, saved_before = saved_before, None
+
+                def run_page(pid=pid, previous_id=previous_id):
+                    if side.width > 1:
+                        return side.save(pid, lambda translated: _save_stage(
+                            drama_id, drama, pid, engine, engine_name, guide, jid, translated,
+                            previous_id, typeset))
+                    return _process_page(drama_id, drama, pid, mode, engine, engine_name,
+                                         detect_kwargs, guide, jid,
+                                         detected=ahead.pop(pid, None), previous_id=previous_id,
+                                         chapter_brief=brief, keep_text=keep_text,
+                                         typeset=typeset)
+                outcome = _count_page(counts, jid, pid, run_page)
+                if outcome is None:
+                    break  # the pages still to do stay as they are
                 if outcome == "translated":
                     saved_before = pid
-            except TranslationCancelled:
-                raise background_jobs.JobCancelled(jid)
-            except TranslateRunStopped:
-                break  # the pages still to do stay as they are
-            except (background_jobs.JobCancelled, HeadroomError):
-                raise
-            except Exception as exc:
-                counts["failed"] += 1
-                try:
-                    db.update_page(pid, run_notes=pages_svc.notes_to_json(
-                        [("error", _failure_note(exc))]))
-                except Exception as note_exc:
-                    from applog import get_logger
-                    get_logger().warning("Could not save the error note for page %s: %s", pid,
-                                         engine_shared.redact_secrets(str(note_exc)))
-                # The abandoned request may still be running; every later page
-                # would be refused, so the run ends with this error.
-                if isinstance(exc, LLMTaskTimeout):
-                    raise
     # Problems lead so a long "6 translated" tail cannot hide them.
     parts = []
     if counts["failed"]:

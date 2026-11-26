@@ -433,6 +433,91 @@ def test_a_single_page_run_reads_no_brief(harness, monkeypatch):
     assert not any("comic chapter" in p for p in prompts)
 
 
+class _HostedLLM(_LLM):
+    """Named as a hosted engine, so a run with a chapter brief translates pages side by side."""
+    name = "claude"
+
+
+def _three_pages(monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pages = [_page(did, i) for i in range(3)]
+    _detect_by_page(monkeypatch, {pid: [_region(text)] for pid, text in zip(pages, ("你好", "世界", "破裂"))})
+    patch_setting(monkeypatch, "scanlate_page_image", False)
+    return did, pages
+
+
+def _page_prompt(prompts, text):
+    return next(p for p in prompts if "comic chapter" not in p and f'"text": "{text}"' in p)
+
+
+def test_a_hosted_engine_translates_three_pages_at_once(harness, monkeypatch):
+    import threading
+    from engine_backends import llm_tasks
+    did, pages = _three_pages(monkeypatch)
+    prompts = _llm_calls(monkeypatch)
+    answer = llm_tasks.call_llm_json
+    # Only three requests in flight together get past the barrier; one at a time would time out.
+    together = threading.Barrier(3, timeout=5)
+
+    def meets_the_others(engine, prompt, *a, **k):
+        if "comic chapter" not in prompt:
+            together.wait()
+        return answer(engine, prompt, *a, **k)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", meets_the_others)
+    run_svc._run_job("j", did, "all", pages, "llm", _HostedLLM(), "auto")
+    assert [_texts(pid) for pid in pages] == [{"你好": "EN 你好"}, {"世界": "EN 世界"},
+                                               {"破裂": "EN 破裂"}]
+    assert [pid for pid, _ in harness] == pages       # typeset in page order
+
+
+def test_a_page_beside_its_predecessor_gets_that_pages_text_not_its_old_english(harness, monkeypatch):
+    did, pages = _three_pages(monkeypatch)
+    db.save_bubbles(pages[0], [_region("你好", translated_text="Old hello")])
+    db.update_page(pages[0], context_summary="An old summary.")
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", pages, "llm", _HostedLLM(), "auto")
+    second = _page_prompt(prompts, "世界")
+    assert "source only" in second and "你好" in second
+    assert "Old hello" not in second and "An old summary." not in second
+
+
+def test_an_engine_on_this_pc_still_carries_the_previous_pages_english(harness, monkeypatch):
+    did, pages = _three_pages(monkeypatch)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", pages, "llm", _LLM(), "auto")
+    assert "你好 => EN 你好" in _page_prompt(prompts, "世界")
+
+
+def test_a_page_translated_ahead_of_a_stop_is_not_stored(harness, monkeypatch):
+    from engine_backends import llm_tasks
+    from engine_backends.run_limits import TranslateRunStopped
+    did, pages = _three_pages(monkeypatch)
+    _llm_calls(monkeypatch)
+    answer = llm_tasks.call_llm_json
+
+    def stops_on_the_second(engine, prompt, *a, **k):
+        if '"text": "世界"' in prompt:
+            raise TranslateRunStopped("spending cap reached")
+        return answer(engine, prompt, *a, **k)
+    monkeypatch.setattr(llm_tasks, "call_llm_json", stops_on_the_second)
+    run_svc._run_job("j", did, "all", pages, "llm", _HostedLLM(), "auto")
+    assert _texts(pages[0]) == {"你好": "EN 你好"}
+    assert db.load_bubbles(pages[1]) == [] and db.load_bubbles(pages[2]) == []
+
+
+def test_a_stamp_is_found_on_a_page_translated_beside_the_one_before(harness, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    p1, p2 = _page(did, 0), _page(did, 1)
+    stamp = dict(x=10, y=PAGE_H - 12, h=12)
+    _detect_by_page(monkeypatch, {
+        p1: [_region("你好"), _region("水印站", **stamp)],
+        p2: [_region("世界"), _region("水印站", **stamp)]})
+    patch_setting(monkeypatch, "scanlate_page_image", False)
+    prompts = _llm_calls(monkeypatch)
+    run_svc._run_job("j", did, "all", [p1, p2], "llm", _HostedLLM(), "auto")
+    assert "水印站" not in _page_prompt(prompts, "世界").split("Regions on this page")[1]
+
+
 def test_a_redo_that_keeps_the_text_does_not_detect_or_read_again(harness, monkeypatch):
     did, p1, p2, detected = _two_pages(monkeypatch)
     db.save_bubbles(p1, [_region("你好", translated_text="Old hello", skip=False)])
