@@ -57,8 +57,8 @@
 .live-chat-paid { font-weight: 600; }
 .live-save { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); }
 
-/* Watching: a phone stacks the picture over a lines box that takes the rest of the screen, Stop pinned under it.
-   A PC puts the picture on the left and a 400px lines column on the right, Stop in the bar above them. */
+/* Watching: a phone stacks the picture over a lines box that takes the rest of the screen, Stop under the picture.
+   A PC puts the picture on the left and a 400px lines column on the right. */
 .live-watch { display: grid; gap: var(--space-3); min-width: 0; margin-top: var(--space-3); overflow-x: clip; }
 .live-watch[data-running] { display: flex; flex-direction: column; height: calc(100dvh - var(--bar-h, 0px) - var(--live-chrome, 8rem)); min-height: 24rem; }
 .live-watch .live-feed { min-height: 0; }
@@ -67,7 +67,7 @@
 .live-pane { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 .live-pane[hidden] { display: none; }
 .live-lines { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
-.live-cues-box { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.live-cues-box { overflow-y: auto; min-height: 0; }
 .live-new-lines { position: absolute; top: var(--space-2); left: 50%; transform: translateX(-50%); min-height: 44px; padding: 0 var(--space-4); border-radius: 999px; background: var(--text); color: var(--bg); border: 0; font-weight: var(--weight-bold); box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.25)); }
 .live-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .live-chips button { min-height: 44px; padding: 0 var(--space-3); border-radius: 999px; display: inline-flex; align-items: center; gap: var(--space-2); }
@@ -76,15 +76,17 @@
 .live-tabs { display: flex; width: fit-content; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--radius-md, 12px); overflow: hidden; }
 .live-tabs button { min-height: 44px; padding: 0 var(--space-4); border: 0; border-radius: 0; }
 .live-tabs button[aria-selected='true'] { background: var(--accent); color: var(--on-accent, #fff); font-weight: var(--weight-bold); }
-.live-stopbar { position: sticky; bottom: 0; padding: var(--space-2) 0; background: var(--bg); }
+.live-stopbar { padding: var(--space-2) 0; }
 .live-stopbar button { width: 100%; min-height: 48px; }
 @media (min-width: 900px) {
   .live-watch[data-running] { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'bar bar' 'video feed'; }
-  .live-watch[data-running] .live-chips, .live-watch[data-running] .live-stopbar { grid-area: bar; align-self: center; }
-  .live-watch[data-running] .live-stopbar { justify-self: end; position: static; padding: 0; background: none; }
+  .live-watch[data-running] .live-chips, .live-watch[data-running] > .live-stopbar { grid-area: bar; align-self: center; }
+  .live-watch[data-running] > .live-stopbar { justify-self: end; padding: 0; }
   .live-watch[data-running] .live-stopbar button { width: auto; min-width: 8rem; }
   .live-watch[data-running] .live-video { grid-area: video; align-self: start; }
   .live-watch[data-running] .live-feed { grid-area: feed; }
+  /* Side column on a wide screen: the page does not scroll there. On a phone the box must hand a drag to the page, or touching a line cannot scroll it. */
+  .live-cues-box { overscroll-behavior: contain; }
 }
 
 /* Live now: followed channels on the air come first, one tap from captions. */
@@ -124,15 +126,21 @@ html.shell-pip body { overflow: hidden; }
 .live-watch[data-tv] .live-cues li { background: transparent; border: 0; padding: var(--space-2) 0 !important; }
 .live-watch[data-tv] .live-ts { display: none; }
 /* The newest translated line is the one to read: it scales with the screen's height, and pending or failed rows stay small and grey. */
-.live-watch[data-tv] .live-lines .live-en { font-size: clamp(var(--text-xl), 5.5dvh, calc(var(--text-2xl) * 5)); line-height: 1.25; color: white; }
-.live-watch[data-tv] .live-lines .live-src { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.75); }
+.live-watch[data-tv] .live-lines { --tv-scale: 1; }
+.live-watch[data-tv] .live-lines[data-tv-size='s'] { --tv-scale: 0.55; }
+.live-watch[data-tv] .live-lines[data-tv-size='m'] { --tv-scale: 0.75; }
+.live-watch[data-tv] .live-lines[data-tv-size='xl'] { --tv-scale: 1.3; }
+.live-watch[data-tv] .live-lines .live-en { font-size: calc(clamp(var(--text-xl), 5.5dvh, calc(var(--text-2xl) * 5)) * var(--tv-scale)); line-height: 1.25; color: white; }
+.live-watch[data-tv] .live-lines .live-src { font-size: calc(clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)) * var(--tv-scale)); color: rgba(255, 255, 255, 0.75); }
 .live-watch[data-tv] .live-lines .live-en.muted, .live-watch[data-tv] .live-lines .live-en.warn { font-size: clamp(var(--text-md), 2.6dvh, calc(var(--text-2xl) * 2)); color: rgba(255, 255, 255, 0.7); }
 /* Older lines recede; a pending row on top does not dim the translation under it. */
 .live-watch[data-tv] .live-cues li:not(:first-child) { opacity: 0.7; }
 .live-watch[data-tv] .live-cues li:first-child:has(.live-en.muted) + li { opacity: 1; }
 .live-watch[data-tv] .live-new-lines { background: white; color: black; }
 @media (orientation: landscape) and (min-aspect-ratio: 4/3) {
-  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'][data-tv-split='even'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .live-watch[data-tv='side'][data-tv-split='narrow'] { grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); }
   .live-watch[data-tv='side'] .live-video { align-self: center; }
   .live-watch[data-tv='above'] .live-video-frame { width: min(100%, calc(45dvh * 16 / 9)); margin-inline: auto; }
 }
@@ -167,3 +175,8 @@ html.shell-pip body { overflow: hidden; }
 .live-link-row button { min-height: 44px; }
 .live-langs { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .live-langs button { min-height: 44px; flex: 1 1 6rem; }
+.live-follow-original { overflow-wrap: anywhere; }
+.live-follow-nickname { display: grid; gap: var(--space-2); justify-items: start; }
+
+.live-check-all { margin-bottom: var(--space-3); display: grid; gap: var(--space-2); }
+.live-check-all button { min-height: 44px; }

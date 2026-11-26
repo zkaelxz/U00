@@ -35,6 +35,7 @@ export interface FollowRow {
   id: number
   channel: string
   channel_name: string
+  nickname: string
   mode: 'notify' | 'auto'
   auto_check: boolean
   options: Record<string, unknown>
@@ -54,7 +55,7 @@ const FOLLOW_OPTIONS = { source_language: 'zh', whisper_size: 'small', engine: n
 
 /** A followed channel as GET /api/live/follows lists it. */
 export const followRow = (id: number, over: Partial<FollowRow> = {}): FollowRow => ({
-  id, channel: `@channel${id}`, channel_name: `Channel ${id}`, mode: 'notify', auto_check: false, options: { ...FOLLOW_OPTIONS },
+  id, channel: `@channel${id}`, channel_name: `Channel ${id}`, nickname: '', mode: 'notify', auto_check: false, options: { ...FOLLOW_OPTIONS },
   poll_minutes: 60, last_checked_at: null, state: '', last_status: '', starts_at: null, live_now: false,
   stream_title: '', checking: false, mine: true, created_at: 1_800_000_000, ...over,
 })

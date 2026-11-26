@@ -10,6 +10,8 @@ type Bridge = {
   // Added with picture-in-picture: an older app build lacks them.
   setLiveWatching?: (watching: boolean) => void
   popOut?: () => void
+  checkForUpdates?: () => void
+  setBarsHidden?: (hidden: boolean) => void
 }
 
 const bridge = (): Bridge | null => {
@@ -51,6 +53,26 @@ export const canPopOut = (): boolean => typeof bridge()?.popOut === 'function'
 export function popOut(): void {
   try {
     bridge()?.popOut?.()
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+/** True in an app build that has a Check for updates button's backing call. */
+export const canCheckForUpdates = (): boolean => typeof bridge()?.checkForUpdates === 'function'
+
+export function checkForUpdates(): void {
+  try {
+    bridge()?.checkForUpdates?.()
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+/** Hides or shows the app's own Studio | Grab strip for a full-screen reader. Quiet where the app cannot. */
+export function setShellBarsHidden(hidden: boolean): void {
+  try {
+    bridge()?.setBarsHidden?.(hidden)
   } catch {
     // The shell went away with the page.
   }

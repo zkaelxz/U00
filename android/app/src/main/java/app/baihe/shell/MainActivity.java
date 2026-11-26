@@ -115,6 +115,9 @@ public class MainActivity extends Activity {
 
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                // Live's Twitch and YouTube players are iframes on other sites; only a page the user
+                // navigates to should leave Baihe, or the player's own loads would open Grab.
+                if (!request.isForMainFrame()) return false;
                 String url = request.getUrl().toString();
                 String address = savedAddress();
                 if (address != null && AppSignIn.isLoginStart(address, url)) {
@@ -193,6 +196,18 @@ public class MainActivity extends Activity {
             @Override
             public void popOut() {
                 runOnUiThread(() -> enterPip());
+            }
+
+            @Override
+            public void checkForUpdates() {
+                runOnUiThread(() -> checkForUpdateNow());
+            }
+
+            @Override
+            public void setBarsHidden(boolean hidden) {
+                runOnUiThread(() -> {
+                    if (strip != null) strip.setVisibility(hidden ? View.GONE : View.VISIBLE);
+                });
             }
         }), "BaiheShell");
         setContentView(page());
@@ -478,6 +493,31 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> offerUpdate(address, cookie));
             }
         }).start();
+    }
+
+    /** The Check for updates button: asks right away, and answers either way instead of staying silent. */
+    private void checkForUpdateNow() {
+        String address = savedAddress();
+        if (address == null) return;
+        String cookie = CookieManager.getInstance().getCookie(address);
+        toast("Checking for updates…");
+        new Thread(() -> {
+            long offered = AppUpdate.check(address, cookie, true);
+            if (offered == AppUpdate.CHECK_FAILED) {
+                runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
+            } else if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) {
+                runOnUiThread(() -> toast("This app is up to date."));
+            } else if (AppUpdate.pending != null) {
+                runOnUiThread(() -> toast("An update is downloaded and installs when you leave the app."));
+            } else {
+                // Always asks here, even where updates could go in silently: the person pressed the button.
+                runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie); });
+            }
+        }).start();
+    }
+
+    private void toast(String text) {
+        android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_LONG).show();
     }
 
     // getLongVersionCode needs API 28 and this app supports 26; versionCode is an int below 2^31 here.
