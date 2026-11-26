@@ -52,10 +52,12 @@ def wait_for(what, check, seconds=30):
     end = time.time() + seconds
     while time.time() < end:
         found = check()
-        if found:
+        # An XML node with no children is falsy, so a leaf found on screen must be told apart from None by identity.
+        if found is not None and found is not False and found != "":
             return found
         time.sleep(1)
-    raise StepFailed(f"Timed out after {seconds}s waiting for {what}.")
+    shown = " | ".join(filter(None, ((n.get("text") or n.get("content-desc")) for n in screen_nodes())))
+    raise StepFailed(f"Timed out after {seconds}s waiting for {what}. On screen: {shown[:600]}")
 
 
 def tap(node):
