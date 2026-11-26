@@ -1598,6 +1598,7 @@ begin
   NoteKeptFolder('saved_comics', 'comics you saved', Left);
   NoteKeptFolder('baihe_trash', 'items you moved to Trash (kept unless you delete the library)', Left);
   NoteKeptFolder('android', 'the Android app update file', Left);
+  NoteKeptFolder('browser-extension', 'the browser extension folder', Left);
   NoteKeptFolder('pending_install', 'a queued Diagnostics install', Left);
   if HasRestoreCopies() then
   begin
