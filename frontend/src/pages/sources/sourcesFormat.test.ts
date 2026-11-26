@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { SourcesSettings, SourceSummary } from '../../types/sources'
-import { browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, groupSourcesByLanguageAndKind, searchableSources, selectedSources, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
+import { browserHeldSources, excludedAfterBulkPick, ago, describeSourceError, paceHelp, errorCategoryLabel, healthLine, healthTooltip, healthText, healthTone, looksLikeUrl, FAST_NOTE, paceOptionLabel, PACE_LABELS, pageSummary, pausedFor, sourceProgressPercent, resultsHeader, searchDisabledReason, searchInSummary, searchSourcesParam, groupSourcesByKindAndLanguage, searchableSources, selectedSources, sortSourcesByKindAndLanguage, accessMethodLabel, isoDay, sourceStatusLabel, tierLines } from './sourcesFormat'
 import { groupChapters, limitGroups, seriesSafeHref, seriesView, type SeriesJobLike, seriesLinks, seriesMeta } from './sourcesSeries'
 import { cacheLabel, draftFrom, fieldProblem, CHECK_FIELD, pacingErrors, pacingSummary, profileLine, settingsChanges, settingsSummary } from './sourcesSettings'
 
@@ -422,25 +422,34 @@ describe('excludedAfterBulkPick', () => {
   })
 })
 
-describe('groupSourcesByLanguageAndKind', () => {
+describe('groupSourcesByKindAndLanguage', () => {
   const src = (name: string, languages: string[], content_types: string[]) =>
     ({ name, display_name: name, languages, content_types }) as SourceSummary
+  const list = [
+    src('en-novel', ['en'], ['novel']),
+    src('zh-novel', ['zh'], ['novel']),
+    src('ko-comic', ['ko'], ['manhwa']),
+    src('zh-audio', ['zh'], ['audio_drama']),
+    src('zh-comic', ['zh'], ['manhua']),
+    src('ja-comic', ['ja'], ['manga']),
+    src('fr-comic', ['fr'], ['manga']),
+  ]
 
-  it('orders languages, then comics, novels and media, from the metadata', () => {
-    const groups = groupSourcesByLanguageAndKind([
-      src('en-novel', ['en'], ['novel']),
-      src('zh-novel', ['zh'], ['novel']),
-      src('ko-comic', ['ko'], ['manhwa']),
-      src('zh-audio', ['zh'], ['audio_drama']),
-      src('zh-comic', ['zh'], ['manhua']),
-      src('ja-comic', ['ja'], ['manga']),
-      src('fr-comic', ['fr'], ['manga']),
+  it('orders comics, novels and media, then languages inside each, from the metadata', () => {
+    const groups = groupSourcesByKindAndLanguage(list)
+    expect(groups.map((g) => g.label)).toEqual(['Comics', 'Novels', 'Audio and video'])
+    expect(groups[0].languages.map((l) => [l.label, l.sources.map((s) => s.name)])).toEqual([
+      ['Chinese', ['zh-comic']],
+      ['Japanese', ['ja-comic']],
+      ['Korean', ['ko-comic']],
+      ['FR', ['fr-comic']],
     ])
-    expect(groups.map((g) => g.label)).toEqual(['Chinese', 'Japanese', 'Korean', 'English', 'FR'])
-    expect(groups[0].kinds.map((k) => [k.label, k.sources.map((s) => s.name)])).toEqual([
-      ['Comics', ['zh-comic']],
-      ['Novels', ['zh-novel']],
-      ['Audio and video', ['zh-audio']],
+    expect(groups[1].languages.map((l) => l.label)).toEqual(['Chinese', 'English'])
+  })
+
+  it('sorts a flat list the same way', () => {
+    expect(sortSourcesByKindAndLanguage(list).map((s) => s.name)).toEqual([
+      'zh-comic', 'ja-comic', 'ko-comic', 'fr-comic', 'zh-novel', 'en-novel', 'zh-audio',
     ])
   })
 })

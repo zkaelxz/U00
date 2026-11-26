@@ -11,7 +11,7 @@ import { ManageCard } from './ManageCard'
 import { PaceSelect } from './PaceSelect'
 import { SiteLink } from './SiteLink'
 import { SourceDetail } from './SourceDetail'
-import { FAST_NOTE, healthText, healthTone } from './sourcesFormat'
+import { FAST_NOTE, healthText, healthTone, sortSourcesByKindAndLanguage } from './sourcesFormat'
 import { settingsSummary } from './sourcesSettings'
 
 type Props = {
@@ -123,7 +123,7 @@ export function SitesTab({ phone, sources, settings, onSource, onHealth }: Props
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
       {phone ? (
         <ul className="source-cards">
-          {sources.map((s) => (
+          {sortSourcesByKindAndLanguage(sources).map((s) => (
             <li key={s.name}>
               <div className="source-card-line">
                 <span>{nameCell(s)}</span>
@@ -153,7 +153,7 @@ export function SitesTab({ phone, sources, settings, onSource, onHealth }: Props
               </tr>
             </thead>
             <tbody>
-              {sources.map((s) => (
+              {sortSourcesByKindAndLanguage(sources).map((s) => (
                 <Fragment key={s.name}>
                   <tr>
                     <td>{nameCell(s)}</td>

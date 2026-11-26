@@ -37,8 +37,8 @@ const KIND_ORDER = ['comics', 'novels', 'media'] as const
 const KIND_LABELS = { comics: 'Comics', novels: 'Novels', media: 'Audio and video' }
 const COMIC_TYPES = ['manga', 'manhua', 'manhwa']
 
-export type SourceKindGroup = { kind: string; label: string; sources: SourceSummary[] }
-export type SourceLanguageGroup = { language: string; label: string; kinds: SourceKindGroup[] }
+export type SourceLanguageGroup = { language: string; label: string; sources: SourceSummary[] }
+export type SourceKindGroup = { kind: string; label: string; languages: SourceLanguageGroup[] }
 
 export function kindOf(s: SourceSummary): (typeof KIND_ORDER)[number] {
   const type = s.content_types[0]
@@ -46,33 +46,43 @@ export function kindOf(s: SourceSummary): (typeof KIND_ORDER)[number] {
   return type === 'novel' ? 'novels' : 'media'
 }
 
+// A language outside the known order sorts last, by code.
+const languageRank = (code: string) => {
+  const i = LANGUAGE_ORDER.indexOf(code)
+  return i < 0 ? LANGUAGE_ORDER.length : i
+}
+
+/** Kind first (comics, novels, audio and video), then language, then the list order. */
+export function sortSourcesByKindAndLanguage<T extends SourceSummary>(sources: T[]): T[] {
+  const rank = (s: SourceSummary) => KIND_ORDER.indexOf(kindOf(s))
+  return [...sources].sort(
+    (a, b) =>
+      rank(a) - rank(b) ||
+      languageRank(a.languages[0] ?? '') - languageRank(b.languages[0] ?? '') ||
+      (a.languages[0] ?? '').localeCompare(b.languages[0] ?? ''),
+  )
+}
+
 /**
- * Sources grouped by language, then by kind, from each source's own metadata so
+ * Sources grouped by kind, then by language, from each source's own metadata so
  * a new adapter lands in the right place with no list to update. A source takes
- * its first listed language and type; a language outside the known order sorts
- * last under its upper-cased code. Order inside a group stays the list order.
+ * its first listed language and type. Order inside a group stays the list order.
  */
-export function groupSourcesByLanguageAndKind(sources: SourceSummary[]): SourceLanguageGroup[] {
-  const rank = (code: string) => {
-    const i = LANGUAGE_ORDER.indexOf(code)
-    return i < 0 ? LANGUAGE_ORDER.length : i
-  }
-  const byLanguage = new Map<string, SourceSummary[]>()
-  for (const s of sources) {
-    const code = s.languages[0] ?? ''
-    byLanguage.set(code, [...(byLanguage.get(code) ?? []), s])
-  }
-  return [...byLanguage.keys()]
-    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
-    .map((code) => ({
-      language: code,
-      label: LANGUAGE_LABELS[code] ?? code.toUpperCase(),
-      kinds: KIND_ORDER.map((kind) => ({
-        kind,
-        label: KIND_LABELS[kind],
-        sources: byLanguage.get(code)!.filter((s) => kindOf(s) === kind),
-      })).filter((g) => g.sources.length > 0),
-    }))
+export function groupSourcesByKindAndLanguage(sources: SourceSummary[]): SourceKindGroup[] {
+  const sorted = sortSourcesByKindAndLanguage(sources)
+  return KIND_ORDER.map((kind) => {
+    const ofKind = sorted.filter((s) => kindOf(s) === kind)
+    const codes = [...new Set(ofKind.map((s) => s.languages[0] ?? ''))]
+    return {
+      kind,
+      label: KIND_LABELS[kind],
+      languages: codes.map((code) => ({
+        language: code,
+        label: LANGUAGE_LABELS[code] ?? code.toUpperCase(),
+        sources: ofKind.filter((s) => (s.languages[0] ?? '') === code),
+      })),
+    }
+  }).filter((g) => g.languages.length > 0)
 }
 
 /** Enabled searchable sources held back until the browser is available. */
