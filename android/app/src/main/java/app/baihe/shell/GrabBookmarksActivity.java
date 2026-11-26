@@ -108,8 +108,8 @@ public class GrabBookmarksActivity extends Activity {
             actions.addView(button("Open", palette.accent, v -> command("open", mark.url)));
             actions.addView(button("Remove", palette.bad, v -> {
                 String left = GrabBookmarks.serialize(GrabBookmarks.without(
-                        GrabBookmarks.parse(prefs().getString(GrabActivity.KEY_BOOKMARKS, "")), mark.url));
-                prefs().edit().putString(GrabActivity.KEY_BOOKMARKS, left).apply();
+                        GrabBookmarks.parse(prefs().getString(key(), "")), mark.url));
+                prefs().edit().putString(key(), left).apply();
                 refresh();
             }));
             card.addView(actions);
