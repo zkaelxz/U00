@@ -339,7 +339,7 @@ def view(row, principal=None) -> dict:
     """What a client may see: no URL, path or raw error text."""
     if not valid_url(row):
         row = {**row, "last_state": "error", "last_status": INVALID_STATUS, "stream_title": "",
-               "starts_at": None, "channel_name": ""}
+               "starts_at": None, "channel_name": "", "nickname": ""}
     return {"id": row["id"],
             "channel": _label(row["channel_url"]) if valid_url(row) else "invalid",
             "channel_name": row.get("channel_name") or "",
