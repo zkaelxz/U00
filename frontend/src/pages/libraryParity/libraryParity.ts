@@ -1,5 +1,6 @@
 import { humanize } from '../../components/labels'
 import { countDramas, workspaceHref } from '../../components/libraryView'
+import type { ResourceReadings } from '../../types/diagnostics'
 import type { LibraryDashboard, LibraryUsage } from '../../types/library'
 
 // Parity L01/L04: the share of logged input tokens served from a provider's
@@ -35,6 +36,20 @@ export function libraryHeadline(s: Pick<LibraryDashboard, 'total_dramas' | 'tota
 export function usageSpent(u: LibraryUsage | undefined): string | null {
   if (!u || (!u.call_count && !u.estimated_cost_usd)) return null
   return `$${(u.estimated_cost_usd ?? 0).toFixed(2)} spent`
+}
+
+// "GPU memory 62% · 71 °C" from the resource monitor's last readings, or null when this PC has no
+// readable GPU or nothing has been sampled yet (the monitor may be off).
+export function gpuLine(r: ResourceReadings | undefined): string | null {
+  if (!r || r.sampled_seconds_ago == null) return null
+  const value = (name: string) => r.metrics.find((m) => m.name === name)?.value ?? null
+  const memory = value('gpu_memory')
+  const temp = value('gpu_temp')
+  const parts = [
+    memory == null ? null : `GPU memory ${Math.round(memory)}%`,
+    temp == null ? null : `${Math.round(temp)} °C`,
+  ].filter((p): p is string => p != null)
+  return parts.length ? parts.join(' · ') : null
 }
 
 // Parity L01: "Transcribed 2 · Translated 1", in the API's order.

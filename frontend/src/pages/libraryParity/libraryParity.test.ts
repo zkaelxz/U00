@@ -1,9 +1,10 @@
+import type { ResourceReadings } from '../../types/diagnostics'
 import { describe, expect, it } from 'vitest'
 
 import { parseRoute } from '../../router'
 import {
   autofillHref, cacheHitShare, compactCount, costLabel, costMeta, countsLine, libraryHeadline, sharedLine, sharedSeries, usageLine, usageSpent,
-  wantsAutofill, withoutAutofill,
+  gpuLine, wantsAutofill, withoutAutofill,
 } from './libraryParity'
 
 const usage = { input_tokens: 812000, output_tokens: 301000, cache_read_tokens: 243600, estimated_cost_usd: 3.47, call_count: 318 }
@@ -91,5 +92,22 @@ describe('create then auto-fill (parity P03)', () => {
     expect(withoutAutofill('#/drama/7/source?autofill=1')).toBe('#/drama/7/source')
     expect(withoutAutofill('#/drama/7/source?x=2&autofill=1')).toBe('#/drama/7/source?x=2')
     expect(withoutAutofill('#/drama/7/source')).toBe('#/drama/7/source')
+  })
+})
+
+describe('GPU line', () => {
+  const metric = (name: string, value: number | null) => ({
+    name, label: name, unit: '', low: false, enabled: true, limit: null, minutes: 5, value, alerting: false, past_seconds: null,
+  }) as ResourceReadings['metrics'][number]
+  const readings = (metrics: ResourceReadings['metrics'], sampled: number | null = 4): ResourceReadings =>
+    ({ sampled_seconds_ago: sampled, sample_seconds: 30, metrics })
+
+  it('shows memory share and temperature', () => {
+    expect(gpuLine(readings([metric('gpu_memory', 62.4), metric('gpu_temp', 71.2)]))).toBe('GPU memory 62% · 71 °C')
+  })
+  it('is null with no GPU reading, no sample yet, or no payload', () => {
+    expect(gpuLine(readings([metric('gpu_memory', null), metric('gpu_temp', null)]))).toBeNull()
+    expect(gpuLine(readings([metric('gpu_memory', 50)], null))).toBeNull()
+    expect(gpuLine(undefined)).toBeNull()
   })
 })
