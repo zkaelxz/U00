@@ -127,13 +127,13 @@ describe('channelPageUrl', () => {
 
 describe('a channel word list', () => {
   it('round-trips through the box text', () => {
-    const { terms, error } = parseTerms('高市 = Takaichi\n\n阿洛＝RLuo')
+    const { terms, error } = parseTerms('云朵 = Yunduo\n\n阿洛＝RLuo')
     expect(error).toBeNull()
-    expect(terms).toEqual([{ original: '高市', translation: 'Takaichi' }, { original: '阿洛', translation: 'RLuo' }])
-    expect(termsToText(terms)).toBe('高市 = Takaichi\n阿洛 = RLuo')
+    expect(terms).toEqual([{ original: '云朵', translation: 'Yunduo' }, { original: '阿洛', translation: 'RLuo' }])
+    expect(termsToText(terms)).toBe('云朵 = Yunduo\n阿洛 = RLuo')
   })
   it('names the line that cannot be saved', () => {
-    expect(parseTerms('高市').error).toMatch(/Line 1/)
+    expect(parseTerms('云朵').error).toMatch(/Line 1/)
     expect(parseTerms('a = b\n= c').error).toMatch(/Line 2/)
     expect(parseTerms(`${'x'.repeat(31)} = y`).error).toMatch(/30/)
   })

@@ -383,16 +383,16 @@ def test_a_channels_word_list_is_cleaned_saved_and_used_by_its_live_start(follow
     monkeypatch.setattr(live_service, "start_session",
                         lambda url, **kw: seen.update(url=url, **kw) or {"session_id": "live_x"})
     v = svc.add_follow("@name", principal=ALICE, options={"terms": [
-        {"original": " 高市 ", "translation": "Takaichi"}, {"original": "高市", "translation": "Other"}]})
-    assert v["options"]["terms"] == [{"original": "高市", "translation": "Takaichi"}]
+        {"original": " 云朵 ", "translation": "Yunduo"}, {"original": "云朵", "translation": "Other"}]})
+    assert v["options"]["terms"] == [{"original": "云朵", "translation": "Yunduo"}]
     svc.start_from_follow(v["id"], principal=ALICE)
-    assert seen["own_terms"] == [{"original": "高市", "translation": "Takaichi"}]
+    assert seen["own_terms"] == [{"original": "云朵", "translation": "Yunduo"}]
     # Editing other options keeps the list only when it is sent back; an omitted list is the empty default.
     assert svc.update_follow(v["id"], options={"max_minutes": 5}, principal=ALICE)["options"]["terms"] == []
 
 
 @pytest.mark.parametrize("terms", [
-    "高市", [{"original": "a"}], [{"original": "a", "translation": ""}],
+    "云朵", [{"original": "a"}], [{"original": "a", "translation": ""}],
     [{"original": "a" * 31, "translation": "b"}], [{"original": "a", "translation": "b" * 41}],
     [{"original": f"w{i}", "translation": "x"} for i in range(51)],
     [{"original": "a", "translation": "b", "extra": 1}], [{"original": 1, "translation": "b"}]])

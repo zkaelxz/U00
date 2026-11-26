@@ -985,11 +985,11 @@ def test_twitch_never_gets_a_delayed_player(live):
 
 def test_a_channels_own_words_lead_and_replace_a_glossary_entry_for_the_same_text(live, monkeypatch):
     monkeypatch.setattr(live_service.db, "list_run_glossary_terms", lambda title: [
-        {"term_original": "高市", "term_translation": "Takachi"},
+        {"term_original": "云朵", "term_translation": "Yundo"},
         {"term_original": "阿洛", "term_translation": "RLuo"}])
-    own = [{"original": "高市", "translation": "Takaichi"}]
+    own = [{"original": "云朵", "translation": "Yunduo"}]
     hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1}, own_terms=own)
-    assert hints(["高市和阿洛"]) == [("高市", "Takaichi", ""), ("阿洛", "RLuo", "")]
+    assert hints(["云朵和阿洛"]) == [("云朵", "Yunduo", ""), ("阿洛", "RLuo", "")]
     # Without any glossary the list alone still hints, and primes Whisper.
     alone = live_service._hint_function(None, None, "zh", own_terms=own)
-    assert alone(["高市"]) == [("高市", "Takaichi", "")] and alone.names == "高市。"
+    assert alone(["云朵"]) == [("云朵", "Yunduo", "")] and alone.names == "云朵。"

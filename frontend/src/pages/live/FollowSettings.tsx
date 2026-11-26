@@ -105,7 +105,7 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
       </label>
       {gpuReason && <p className="muted">{gpuReason}</p>}
       <Field label="Words for this channel" help={`Names and terms this channel's Live always translates the same way, one per line as original = translation (up to ${MAX_FOLLOW_TERMS}). Used on top of any glossary above, and the PC's captions listen for them too.`}>
-        <textarea rows={4} value={termsText} disabled={busy} placeholder="高市 = Takaichi" onChange={(e) => setTermsText(e.target.value)} />
+        <textarea rows={4} value={termsText} disabled={busy} placeholder="云朵 = Yunduo" onChange={(e) => setTermsText(e.target.value)} />
       </Field>
       {parsedTerms.error && <p className="muted" role="alert">{parsedTerms.error}</p>}
       <div className="actions">
