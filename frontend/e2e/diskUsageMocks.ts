@@ -104,6 +104,9 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
       state.previous = 0
       return route.fulfill({ json: { deleted: 1, freed_bytes: freed } })
     }
+    if (url.pathname === '/api/data-usage/raw-videos' && req.method() === 'GET') {
+      return route.fulfill({ json: { videos: [], total_bytes: 0, min_age_days: 30, busy_reason: state.busy } })
+    }
     if (url.pathname === '/api/data-usage/unused-voice-clips' && req.method() === 'GET') {
       const titles = mock.clips.filter((t) => t.clips.length).map((t) => ({
         title: t.title, size_bytes: t.clips.reduce((s, c) => s + c.size, 0),

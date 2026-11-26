@@ -26,11 +26,12 @@ from api.schemas import (
     DiskUsageClearDone, DiskUsageClearRequest, DiskUsageMoveDone, DiskUsageMoveRequest,
     DiskUsageScan, DiskUsageTrashEmptyDone, DiskUsageTrashEmptyRequest, DiskUsageTrashList,
     DiskUsageTrashPurgeDone, DiskUsageTrashPurgeRequest, DiskUsageTrashRestoreDone,
-    DiskUsageTrashRestoreRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
+    DiskUsageTrashRestoreRequest, RawVideoList, RawVideoTrashDone, RawVideoTrashRequest, TempCleanRequest, UnusedVoiceClipList, UnusedVoiceClipTrashDone,
     UnusedVoiceClipTrashRequest)
 from api.schemas import (PreviousLibrary, PreviousLibraryDeleted,
                          PreviousLibraryDeleteRequest, TempCleanResult, error_responses)
 from services import disk_usage_clips_service as clips_svc
+from services import raw_video_cleanup_service as raw_svc
 from services import disk_usage_service as svc
 from services import disk_usage_trash_service as trash_svc
 from services import previous_library_service
@@ -146,3 +147,18 @@ async def get_previous_library():
 async def post_previous_library_delete(body: PreviousLibraryDeleteRequest):
     return await run_in_threadpool(previous_library_service.delete, body.confirm_text,
                                    body.expected_size_bytes)
+
+
+@router.get("/raw-videos", dependencies=[local_only()], response_model=RawVideoList, responses=_ERR,
+            summary="Old source videos of finished titles (subtitles kept), with an opaque id each; no paths")
+async def get_raw_videos(min_age_days: int = Query(raw_svc.DEFAULT_MIN_AGE_DAYS, ge=0, le=3650)):
+    return await run_in_threadpool(raw_svc.list_raw_videos, min_age_days)
+
+
+@router.post("/raw-videos/to-trash", dependencies=[local_only()], response_model=RawVideoTrashDone, responses=_ERR,
+             summary="Move listed source videos into Baihe's Trash folder (confirm=true and the size shown for "
+                     "each). One that changed, was pinned or got a job meanwhile is skipped.")
+async def post_raw_videos_to_trash(body: RawVideoTrashRequest):
+    return await run_in_threadpool(
+        raw_svc.trash_raw_videos, [{"id": v.id, "expected_size_bytes": v.expected_size_bytes} for v in body.videos],
+        min_age_days=body.min_age_days, confirm=body.confirm)
