@@ -182,8 +182,8 @@ public class GrabLogicTest {
 
     @Test
     public void bilibiliMangaOpensAsItsDesktopPage() {
-        assertEquals("https://manga.bilibili.com/mc38822/1952411?from=x",
-                DesktopSite.rewrite("https://manga.bilibili.com/m/mc38822/1952411?from=x"));
+        assertEquals("https://manga.bilibili.com/mc1234/567890?from=x",
+                DesktopSite.rewrite("https://manga.bilibili.com/m/mc1234/567890?from=x"));
         assertEquals("https://manga.bilibili.com/mc1/2", DesktopSite.rewrite("https://manga.bilibili.com/mc1/2"));
         assertEquals("https://manga.bilibili.com/detail/mc5", DesktopSite.rewrite("https://manga.bilibili.com/detail/mc5"));
         assertEquals(null, DesktopSite.rewrite("https://example.com/m/mc1/2"));
