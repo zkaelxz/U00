@@ -35906,6 +35906,15 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AndroidAppVersion"];
                 };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
             };
         };
     };
