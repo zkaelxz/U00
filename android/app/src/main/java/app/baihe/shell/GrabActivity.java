@@ -1435,6 +1435,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         List<String> titles = pageTitles;
         JSONArray chapterLinks = pageChapters;
         String language = pageLanguage;
+        GrabBridge.PageMeta meta = bridge.meta();
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         uploading = true;
@@ -1487,6 +1488,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             client.stats = new UploadStats();
             client.fetchUserAgent = agent;
             client.sourceLanguage = language;
+            client.pageMeta = meta;
             if (readOnly) read(client, url, ready, bad, cut);
             else upload(client, url, titles, chapterLinks, ready, bad, cut);
         });

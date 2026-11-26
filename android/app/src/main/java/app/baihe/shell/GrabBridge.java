@@ -30,6 +30,38 @@ final class GrabBridge {
         default void onSnap(String id) {}
     }
 
+    /** What the page said about its chapter and its work, kept for the PC's chapter label and blank title details. */
+    static final class PageMeta {
+        static final PageMeta NONE = new PageMeta(new ArrayList<>(), "", "", "");
+        final List<String> chapterTitles;
+        final String author;
+        final String summary;
+        final String coverUrl;
+
+        PageMeta(List<String> chapterTitles, String author, String summary, String coverUrl) {
+            this.chapterTitles = chapterTitles;
+            this.author = author;
+            this.summary = summary;
+            this.coverUrl = coverUrl;
+        }
+
+        static PageMeta from(JSONObject info) {
+            List<String> titles = new ArrayList<>();
+            JSONArray array = info.optJSONArray("chapter_titles");
+            for (int i = 0; array != null && i < array.length() && i < 8; i++) {
+                String title = array.optString(i, "");
+                if (!title.isEmpty()) titles.add(cap(title, 300));
+            }
+            String cover = info.optString("cover", "");
+            return new PageMeta(titles, cap(info.optString("author", ""), 200), cap(info.optString("summary", ""), 2000),
+                    cover.startsWith("https://") && cover.length() <= 2048 ? cover : "");
+        }
+
+        private static String cap(String text, int max) {
+            return text.length() > max ? text.substring(0, max) : text;
+        }
+    }
+
     /** Past these the grab stops collecting and sends what it has. */
     static final int MAX_IMAGES = 300;
     static final int MAX_TEXT_CHARS = 400_000;
@@ -43,6 +75,7 @@ final class GrabBridge {
     private boolean truncated;
     private boolean begun;
     private String novelText;
+    private volatile PageMeta meta = PageMeta.NONE;
 
     GrabBridge(Listener listener) {
         this.listener = listener;
@@ -56,6 +89,12 @@ final class GrabBridge {
         truncated = false;
         begun = false;
         novelText = null;
+        meta = PageMeta.NONE;
+    }
+
+    /** The open grab's page details; NONE until the page has begun. */
+    PageMeta meta() {
+        return meta;
     }
 
     synchronized void cancel() {
@@ -80,6 +119,7 @@ final class GrabBridge {
                 String title = array.optString(i, "");
                 if (!title.isEmpty()) titles.add(title.length() > 300 ? title.substring(0, 300) : title);
             }
+            meta = PageMeta.from(info);
             JSONArray chapters = info.optJSONArray("chapters");
             String sample = info.optString("sample", "");
             listener.onLanguage(NovelText.pageLanguage(info.optString("lang", ""),

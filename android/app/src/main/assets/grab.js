@@ -275,8 +275,26 @@
   // The page's own words say what language its comic is in; the PC has no other way to know
   // for a Quick read, and a guess sends Japanese and Korean pages to the Chinese reader.
   var sample = titles.join("\n") + "\n" + ((document.body && document.body.innerText) || "").slice(0, 4000);
+  // Where the chapter's number is most likely written: a reader's headings name the chapter, the
+  // tab and social titles add the series and site. The PC reads the number from the first that has one.
+  var chapterTitles = [first("h1"), first("h2"), first("h3"), first('meta[property="og:title"]', "content"), document.title]
+    .map(function (t) { return (t || "").replace(/\s+/g, " ").trim().slice(0, 300); })
+    .filter(function (t, i, all) { return t && all.indexOf(t) === i; });
+  // What the page declares about the work, for the PC to fill a new title's blank author, summary
+  // and cover. Novel sites often use og:novel:*; the cover is only an https address the PC checks.
+  function meta(selectors) {
+    for (var m = 0; m < selectors.length; m++) {
+      var value = first(selectors[m], "content").replace(/\s+/g, " ").trim();
+      if (value) return value;
+    }
+    return "";
+  }
+  var cover = meta(['meta[property="og:novel:cover"]', 'meta[property="og:image"]', 'meta[name="twitter:image"]']);
   Baihe.begin(nonce, JSON.stringify({ titles: titles, count: items.length, chapters: chapterLinks(), next: nextChapter(),
-    lang: document.documentElement.lang || "", sample: sample }));
+    lang: document.documentElement.lang || "", sample: sample, chapter_titles: chapterTitles,
+    author: meta(['meta[property="og:novel:author"]', 'meta[property="book:author"]', 'meta[name="author"]']).slice(0, 200),
+    summary: meta(['meta[property="og:novel:description"]', 'meta[property="og:description"]', 'meta[name="description"]']).slice(0, 2000),
+    cover: /^https:\/\//.test(cover) && cover.length <= 2048 ? cover : "" }));
   // A novel chapter has no comic pictures: its prose is the container with the most text of its own
   // (text nodes and paragraphs directly inside it), so menus and comment lists around it are not taken.
   function chapterText() {

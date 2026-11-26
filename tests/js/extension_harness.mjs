@@ -543,7 +543,7 @@ async function background(scenario) {
 // A novel reader: paragraphs under one container, an optional selection, no page images
 // unless given. Returns the content script's API and what it asked the worker to send.
 function loadNovelPage({ paragraphs = [], selection = "", images = [], heading = "第三章 夜雨", og = "",
-  tabTitle = null, lang = "", links = [], relNext = [], passwords = [], notices = [] }) {
+  tabTitle = null, lang = "", links = [], relNext = [], passwords = [], notices = [], h2 = "", metas = {} }) {
   const sent = [];
   const box = { tagName: "DIV", parentElement: null };
   const ps = paragraphs.map((text, i) => ({
@@ -567,7 +567,9 @@ function loadNovelPage({ paragraphs = [], selection = "", images = [], heading =
       return [];
     },
     querySelector: (sel) => (sel === "h1" ? (heading ? h1 : null)
-      : sel === 'meta[property="og:title"]' && og ? { content: og } : null),
+      : sel === "h2" ? (h2 ? { textContent: h2 } : null)
+      : sel === 'meta[property="og:title"]' && og ? { content: og }
+      : metas[sel] ? { content: metas[sel] } : null),
     createElement: () => ({ style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {} }),
     getElementById: () => null, addEventListener() {},
   };
@@ -684,6 +686,51 @@ async function novel(scenario) {
         dupes: facts({ og: "同名", heading: "同名", tabTitle: "同名" }),
         many: facts({ heading: "h".repeat(5000), tabTitle: "t" }),
       };
+    }
+    case "page_meta": {
+      const page = (opts) => loadNovelPage({ paragraphs: [], ...opts }).api;
+      const declared = page({ metas: { 'meta[property="og:novel:author"]': "  Alex   Example ",
+                                       'meta[name="author"]': "Site Team",
+                                       'meta[property="og:description"]': "A story.",
+                                       'meta[property="og:image"]': "https://cdn.example/cover.jpg" } });
+      return {
+        declared: declared.pageFacts(),
+        plainCover: page({ metas: { 'meta[property="og:image"]': "http://cdn.example/cover.jpg" } }).pageFacts(),
+        chapterTitles: page({ heading: "书名", h2: "第12话 重逢", og: "书名 第12话", tabTitle: "书名 第12话 - 站" }).chapterTitles(),
+        bookFirstHeading: page({ heading: "书名", h2: "第12章 重逢", tabTitle: "书名" }).chapterHeading(),
+        plainHeading: page({ heading: "夜雨", tabTitle: "夜雨_书名_小说网" }).chapterHeading(),
+      };
+    }
+    case "worker_page_titles": {
+      const run = async (store) => {
+        const bodies = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          fetchImpl: async (target, options) => {
+            const path = new URL(target).pathname;
+            if (path === "/page" || path === "/pages") bodies.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ pages: [], max_images_per_request: 12 }), { status: 200 });
+          },
+        });
+        await h.ask({ type: "send", images: [{ key: "k", data: "AAAA", content_type: "image/png", url: "u" }],
+                      dramaId: 1, store, sourceUrl: "https://s/c", pageTitles: ["第3话"], filterPages: false });
+        return bodies[0];
+      };
+      const titled = async (extra) => {
+        const calls = [];
+        const h = loadBackground({
+          granted: () => true, stored: { token: "t" },
+          fetchImpl: async (target, options) => {
+            calls.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ drama_id: 9, created: true }), { status: 200 });
+          },
+        });
+        await h.ask({ type: "resolveTitle", url: "https://s/c/1", titles: ["名"], language: "zh", kind: "comic", ...extra });
+        return calls[0];
+      };
+      return { saved: await run(true), quick: await run(false),
+               meta: await titled({ author: "Alex Example", summary: "A story.", coverUrl: "https://cdn.example/c.jpg" }),
+               bare: await titled({ author: "", summary: "", coverUrl: "" }) };
     }
     case "worker_title": {
       const ask = async (message, stored = {}) => {

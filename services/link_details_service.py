@@ -316,12 +316,15 @@ def _series_for(drama_id: int, name: str):
 
 
 def fill_after_download(drama_id: int, link: dict) -> list:
-    """Blank author and release date from a downloaded video's own metadata
-    (the title already follows the download's own rule)."""
+    """Blank author, release date and episode number from a downloaded video's own metadata
+    (the title already follows the download's own rule). The episode number is the one a site
+    gives its episodes (yt-dlp's episode_number), so a series' episodes sort in their own order."""
     if not isinstance(link, dict):
         return []
+    episode = link.get("episode_number")
     return db.dramas.fill_blank_fields(drama_id, {"author": _tidy(link.get("channel")),
-                                           "release_date": release_date_of(link)})
+                                           "release_date": release_date_of(link),
+                                           "episode_number": episode if isinstance(episode, int) else None})
 
 
 def title_for_new(url, at_pc: bool) -> tuple:
