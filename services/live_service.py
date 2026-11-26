@@ -566,7 +566,7 @@ def _reap():
             _remove_dir(sid)
 
 
-def _title_term_hints(principal, drama_id, source_language):
+def _title_term_hints(principal, drama_id, source_language, own_terms=()):
     """A hint function for a chosen title, read-only: a lookup of the
     title's glossary and enabled pack entries that occur in the texts it is
     given. Raises NotFoundError for a title the caller cannot see, like every
@@ -575,10 +575,10 @@ def _title_term_hints(principal, drama_id, source_language):
     drama = db.get_drama(int(drama_id))
     if drama is None:
         raise NotFoundError("Title not found.")
-    return _hint_function(drama.get("series_id"), drama, source_language, glossary_title=drama)
+    return _hint_function(drama.get("series_id"), drama, source_language, glossary_title=drama, own_terms=own_terms)
 
 
-def _series_term_hints(principal, series_id, source_language):
+def _series_term_hints(principal, series_id, source_language, own_terms=()):
     """Like _title_term_hints for a chosen series: its glossary, and the packs
     of its newest visible title that has its own pack choice (a language
     default alone is not a choice, so with none there are no packs). Raises
@@ -589,16 +589,19 @@ def _series_term_hints(principal, series_id, source_language):
     pack_title = next((d for d in titles
                        if language_pack_service.has_title_choice(d["id"])
                        and ownership_service.can_see_drama(principal, d["id"])), None)
-    return _hint_function(int(series_id), pack_title, source_language)
+    return _hint_function(int(series_id), pack_title, source_language, own_terms=own_terms)
 
 
-def _hint_function(series_id, pack_title, source_language, glossary_title=None):
+def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=()):
     """`pack_title`: the title whose packs apply, or None for glossary only.
-    `glossary_title`: set when the hints are for one title, so its own terms count too."""
+    `glossary_title`: set when the hints are for one title, so its own terms count too.
+    `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text."""
     terms = (db.list_run_glossary_terms(glossary_title) if glossary_title
              else db.list_effective_glossary_terms(series_id) if series_id else [])
-    glossary = [t for t in terms
-                if t.get("term_original") and t.get("term_translation")]
+    own = [{"term_original": t["original"], "term_translation": t["translation"], "notes": ""} for t in own_terms]
+    taken = {t["term_original"] for t in own}
+    glossary = own + [t for t in terms
+                      if t.get("term_original") and t.get("term_translation") and t["term_original"] not in taken]
     # A pack is written for its own source language; a stream in another one
     # would match nothing meaningful.
     packs_apply = pack_title is not None and (pack_title.get("source_language") or "zh") == source_language
@@ -628,7 +631,7 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                   max_minutes: Optional[float] = DEFAULT_MAX_MINUTES, use_gpu: bool = False,
                   use_saved_cookies: bool = False,
                   reply_without_thinking: bool = True, glossary_drama_id: Optional[int] = None,
-                  series_id: Optional[int] = None, delayed_player: bool = False,
+                  series_id: Optional[int] = None, own_terms=(), delayed_player: bool = False,
                   player_height: int = live_player.DEFAULT_HEIGHT, read_chat: bool = False,
                   spend_limit_usd: float = live_spend_service.DEFAULT_SESSION_LIMIT_USD,
                   principal=None) -> dict:
@@ -637,6 +640,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
     translation may use (read-only); NotFoundError when the caller cannot see it.
     series_id: instead, a series: its glossary, and the packs of its
     newest title with a pack choice. Not both.
+    own_terms: [{"original", "translation"}] a followed channel keeps; used with or without
+    a glossary, and ahead of its entries.
     spend_limit_usd: what a paid engine may cost this session when no monthly
     cap is set (live_spend_service.SessionBudget).
     use_saved_cookies: pass yt-dlp the saved Settings cookies (browser or
@@ -680,9 +685,11 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         raise DependencyUnavailableError(missing)
     term_hints = None
     if glossary_drama_id is not None:
-        term_hints = _title_term_hints(principal, glossary_drama_id, source_language)
+        term_hints = _title_term_hints(principal, glossary_drama_id, source_language, own_terms)
     elif series_id is not None:
-        term_hints = _series_term_hints(principal, series_id, source_language)
+        term_hints = _series_term_hints(principal, series_id, source_language, own_terms)
+    elif own_terms:
+        term_hints = _hint_function(None, None, source_language, own_terms=own_terms)
     _reap()
     joined = _join_running(url, principal)
     if joined:

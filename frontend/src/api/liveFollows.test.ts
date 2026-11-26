@@ -12,6 +12,8 @@ import {
   channelPageUrl,
   checkedText,
   describeFollowError,
+  parseTerms,
+  termsToText,
   followOptions,
   followStatusText,
   optionsSummary,
@@ -120,5 +122,19 @@ describe('channelPageUrl', () => {
 
   it('keeps a hostile label inside the page address', () => {
     expect(channelPageUrl('@a b?x=1#y')).toBe('https://www.youtube.com/@a%20b%3Fx%3D1%23y')
+  })
+})
+
+describe('a channel word list', () => {
+  it('round-trips through the box text', () => {
+    const { terms, error } = parseTerms('高市 = Takaichi\n\n阿洛＝RLuo')
+    expect(error).toBeNull()
+    expect(terms).toEqual([{ original: '高市', translation: 'Takaichi' }, { original: '阿洛', translation: 'RLuo' }])
+    expect(termsToText(terms)).toBe('高市 = Takaichi\n阿洛 = RLuo')
+  })
+  it('names the line that cannot be saved', () => {
+    expect(parseTerms('高市').error).toMatch(/Line 1/)
+    expect(parseTerms('a = b\n= c').error).toMatch(/Line 2/)
+    expect(parseTerms(`${'x'.repeat(31)} = y`).error).toMatch(/30/)
   })
 })

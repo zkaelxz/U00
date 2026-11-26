@@ -2,6 +2,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { languageWhisperDefault } from '../../api/live'
+import { MAX_FOLLOW_TERMS, parseTerms, termsToText } from '../../api/liveFollows'
 import { engineShortName } from '../../api/translate'
 import { Field } from '../../components/Field'
 import { ModelSelect } from '../../components/ModelSelect'
@@ -35,6 +36,8 @@ const minutesLimit = (n: number | null | undefined, [lo, hi]: readonly number[])
 
 export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason, busy, saving, onSave, onCancel }: Props) {
   const [draft, setDraft] = useState<LiveFollowOptions>(saved)
+  const [termsText, setTermsText] = useState(() => termsToText(saved.terms))
+  const parsedTerms = parseTerms(termsText)
   const set = <K extends keyof LiveFollowOptions>(k: K, v: LiveFollowOptions[K]) => setDraft((d) => ({ ...d, [k]: v }))
   const language = draft.source_language ?? opts.defaults.source_language
   // A saved or copied model this language can't use (Start would refuse it) gives way to the language's default.
@@ -54,6 +57,7 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
+    if (parsedTerms.error) return
     onSave({
       ...draft,
       source_language: language,
@@ -62,6 +66,7 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
       model: draft.model || null,
       use_gpu: !!draft.use_gpu && !gpuReason,
       max_minutes: minutesLimit(draft.max_minutes, opts.max_minutes_range),
+      terms: parsedTerms.terms,
     })
   }
 
@@ -99,9 +104,13 @@ export function FollowSettings({ name, saved, fromForm, opts, engines, gpuReason
         Use GPU for Whisper
       </label>
       {gpuReason && <p className="muted">{gpuReason}</p>}
+      <Field label="Words for this channel" help={`Names and terms this channel's Live always translates the same way, one per line as original = translation (up to ${MAX_FOLLOW_TERMS}). Used on top of any glossary above, and the PC's captions listen for them too.`}>
+        <textarea rows={4} value={termsText} disabled={busy} placeholder="高市 = Takaichi" onChange={(e) => setTermsText(e.target.value)} />
+      </Field>
+      {parsedTerms.error && <p className="muted" role="alert">{parsedTerms.error}</p>}
       <div className="actions">
-        <button type="submit" className={buttonClass('primary', 'sm')} disabled={busy}>{saving ? 'Saving…' : 'Save settings'}</button>
-        <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={() => setDraft(fromForm)}
+        <button type="submit" className={buttonClass('primary', 'sm')} disabled={busy || !!parsedTerms.error}>{saving ? 'Saving…' : 'Save settings'}</button>
+        <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={() => setDraft({ ...fromForm, terms: draft.terms })}
           title="Fill these in from the Live form above. Nothing is saved until Save settings.">
           Copy from the Live form
         </button>

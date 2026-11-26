@@ -62,7 +62,11 @@ TWITCH_BASE = "https://www.twitch.tv/"
 MAX_INPUT_LEN = 300
 MAX_NAME_LEN = 100
 MAX_STATUS_LEN = 120
-MAX_OPTIONS_BYTES = 1000
+# Room for a word list of MAX_TERMS entries written in CJK (3 bytes a character) beside the other options.
+MAX_OPTIONS_BYTES = 12000
+MAX_TERMS = 50
+TERM_ORIGINAL_MAX = 30
+TERM_TRANSLATION_MAX = 40
 # A manual "Check now" this soon after the last check is refused, so the
 # button can't be used to hammer YouTube.
 MANUAL_CHECK_GAP_SECONDS = 60
@@ -88,7 +92,7 @@ INVALID_STATUS = "This channel's address is not valid any more. Remove it and fo
 _OPTION_DEFAULTS = {"source_language": "zh", "whisper_size": "small", "engine": None,
                     "model": None, "max_minutes": live_service.DEFAULT_MAX_MINUTES,
                     "use_gpu": False, "glossary_drama_id": None,
-                    "series_id": None}
+                    "series_id": None, "terms": []}
 
 
 def is_pc_owner(principal) -> bool:
@@ -288,6 +292,7 @@ def clean_options(options, principal=None) -> dict:
                                                    *live_service.MAX_MINUTES_RANGE))
     if not isinstance(out["use_gpu"], bool):
         raise InvalidInputError("use_gpu must be true or false.")
+    out["terms"] = clean_terms(out["terms"])
     title = out["glossary_drama_id"]
     if title is not None:
         if isinstance(title, bool) or not isinstance(title, int):
@@ -300,6 +305,33 @@ def clean_options(options, principal=None) -> dict:
         if isinstance(series, bool) or not isinstance(series, int):
             raise InvalidInputError("series_id must be a series id.")
         ownership_service.require_visible(principal, "series", series)
+    return out
+
+
+def clean_terms(terms) -> list:
+    """A channel's word list: source text with the English it always gets. One line each, a source
+    text listed once (the first wins), so what Live sends the translator is bounded and unambiguous."""
+    if not isinstance(terms, list):
+        raise InvalidInputError("terms must be a list.")
+    out, seen = [], set()
+    for t in terms:
+        if not isinstance(t, dict) or set(t) != {"original", "translation"}:
+            raise InvalidInputError("Each word needs an original and a translation.")
+        pair = []
+        for key, limit in (("original", TERM_ORIGINAL_MAX), ("translation", TERM_TRANSLATION_MAX)):
+            if not isinstance(t[key], str):
+                raise InvalidInputError("A word and its translation must be text.")
+            text = " ".join("".join(c if c.isprintable() else " " for c in t[key]).split())
+            if len(text) > limit:
+                raise InvalidInputError(f"Keep each {key} to {limit} characters or fewer.")
+            pair.append(text)
+        if not pair[0] or not pair[1]:
+            raise InvalidInputError("A word needs both an original and a translation.")
+        if pair[0] not in seen:
+            seen.add(pair[0])
+            out.append({"original": pair[0], "translation": pair[1]})
+    if len(out) > MAX_TERMS:
+        raise InvalidInputError(f"A channel's word list holds up to {MAX_TERMS} words.")
     return out
 
 
@@ -511,5 +543,5 @@ def start_from_follow(follow_id, principal=None, use_saved_cookies=False) -> dic
         whisper_size=opts["whisper_size"], engine=opts["engine"], model=opts["model"],
         max_minutes=opts["max_minutes"], use_gpu=opts["use_gpu"],
         use_saved_cookies=use_saved_cookies, glossary_drama_id=opts["glossary_drama_id"],
-        series_id=opts["series_id"], principal=principal,
+        series_id=opts["series_id"], own_terms=opts["terms"], principal=principal,
         **live_service.language_chunk(opts["source_language"]))

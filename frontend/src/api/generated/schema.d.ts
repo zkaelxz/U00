@@ -23790,6 +23790,11 @@ export interface components {
              */
             source_language?: string;
             /**
+             * Terms
+             * @description This channel's own word list, used on top of any glossary.
+             */
+            terms?: components["schemas"]["LiveFollowTerm"][];
+            /**
              * Use Gpu
              * @default false
              */
@@ -23806,6 +23811,16 @@ export interface components {
             id: number;
             /** Removed */
             removed: boolean;
+        };
+        /**
+         * LiveFollowTerm
+         * @description One word in a followed channel's own list: how it reads in the stream, and what it becomes.
+         */
+        LiveFollowTerm: {
+            /** Original */
+            original: string;
+            /** Translation */
+            translation: string;
         };
         /**
          * LiveFollowUpdate
