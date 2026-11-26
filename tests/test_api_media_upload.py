@@ -1171,3 +1171,46 @@ def test_audio_check_is_skipped_without_ffprobe(client, isolated_db, monkeypatch
     did = db.create_drama(title_en="D")
     assert _up(client, did).status_code == 200
     assert db.get_drama(did)["audio_filename"] == "source.mp3"
+
+
+def test_same_file_into_two_titles_at_once_is_refused_for_the_second(client, isolated_db, monkeypatch):
+    import db
+    first, second = db.create_drama(title_en="A"), db.create_drama(title_en="B")
+    in_install, go = threading.Event(), threading.Event()
+    real_install = media_upload_service.install_media
+
+    def slow_install(*a, **kw):
+        in_install.set()
+        assert go.wait(5)
+        return real_install(*a, **kw)
+
+    monkeypatch.setattr(media_upload_service, "install_media", slow_install)
+    results = {}
+    t = threading.Thread(target=lambda: results.update(first=_up(client, first)))
+    t.start()
+    assert in_install.wait(5)
+    r = _up(client, second)
+    go.set()
+    t.join(5)
+    assert results["first"].status_code == 200
+    assert r.status_code == 409
+    assert "being uploaded into another title" in r.text
+    assert os.listdir(db.drama_dir(second)) == []
+    # Once the first upload has finished, the held hash is gone and the stored one refuses instead.
+    assert media_upload_service._hashes_in_flight == {}
+    assert _up(client, second).status_code == 409
+
+
+def test_in_flight_claim_does_not_name_a_title_the_caller_cannot_see(isolated_db, monkeypatch):
+    import db
+    from lib.errors import ConflictError
+    holder, other = db.create_drama(title_en="A"), db.create_drama(title_en="B")
+    media_upload_service._claim_hash("h", holder)
+    try:
+        monkeypatch.setattr(media_upload_service.ownership_service, "can_see_drama", lambda p, d: False)
+        media_upload_service._claim_hash("h", other, principal=object())  # goes ahead, names nothing
+        monkeypatch.setattr(media_upload_service.ownership_service, "can_see_drama", lambda p, d: True)
+        with pytest.raises(ConflictError):
+            media_upload_service._claim_hash("h", other, principal=object())
+    finally:
+        media_upload_service._release_hash("h", holder)
