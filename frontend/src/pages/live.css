@@ -67,7 +67,7 @@
 .live-pane { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 .live-pane[hidden] { display: none; }
 .live-lines { position: relative; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
-.live-cues-box { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+.live-cues-box { overflow-y: auto; min-height: 0; }
 .live-new-lines { position: absolute; top: var(--space-2); left: 50%; transform: translateX(-50%); min-height: 44px; padding: 0 var(--space-4); border-radius: 999px; background: var(--text); color: var(--bg); border: 0; font-weight: var(--weight-bold); box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.25)); }
 .live-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .live-chips button { min-height: 44px; padding: 0 var(--space-3); border-radius: 999px; display: inline-flex; align-items: center; gap: var(--space-2); }
@@ -85,6 +85,8 @@
   .live-watch[data-running] .live-stopbar button { width: auto; min-width: 8rem; }
   .live-watch[data-running] .live-video { grid-area: video; align-self: start; }
   .live-watch[data-running] .live-feed { grid-area: feed; }
+  /* Side column on a wide screen: the page does not scroll there. On a phone the box must hand a drag to the page, or touching a line cannot scroll it. */
+  .live-cues-box { overscroll-behavior: contain; }
 }
 
 /* Live now: followed channels on the air come first, one tap from captions. */
@@ -136,7 +138,9 @@ html.shell-pip body { overflow: hidden; }
 .live-watch[data-tv] .live-cues li:first-child:has(.live-en.muted) + li { opacity: 1; }
 .live-watch[data-tv] .live-new-lines { background: white; color: black; }
 @media (orientation: landscape) and (min-aspect-ratio: 4/3) {
-  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'] { grid-template-columns: minmax(0, 7fr) minmax(0, 3fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: 'video feed'; }
+  .live-watch[data-tv='side'][data-tv-split='even'] { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .live-watch[data-tv='side'][data-tv-split='narrow'] { grid-template-columns: minmax(0, 3fr) minmax(0, 7fr); }
   .live-watch[data-tv='side'] .live-video { align-self: center; }
   .live-watch[data-tv='above'] .live-video-frame { width: min(100%, calc(45dvh * 16 / 9)); margin-inline: auto; }
 }

@@ -4,7 +4,7 @@ import { useEffect, useRef, type KeyboardEvent } from 'react'
 import { buttonClass } from '../../components/uiClasses'
 import type { TvVideo } from './useTvMode'
 import type { TvTextSize } from './tvSize'
-import { TV_SIZES } from './tvSize'
+import { TV_SIZES, TV_SPLITS, type TvSplit } from './tvSize'
 
 const PLACES: { value: TvVideo; label: string }[] = [
   { value: 'side', label: 'Beside' },
@@ -20,12 +20,14 @@ type Props = {
   onVideo: (v: TvVideo) => void
   showOriginal: boolean
   onShowOriginal: (v: boolean) => void
+  split: TvSplit
+  onSplit: (s: TvSplit) => void
   textSize: TvTextSize
   onTextSize: (s: TvTextSize) => void
   onExit: () => void
 }
 
-export function TvBar({ shown, hasPicture, video, onVideo, showOriginal, onShowOriginal, textSize, onTextSize, onExit }: Props) {
+export function TvBar({ shown, hasPicture, video, onVideo, showOriginal, onShowOriginal, split, onSplit, textSize, onTextSize, onExit }: Props) {
   const bar = useRef<HTMLDivElement>(null)
   // A remote's arrow keys need a focused control to start from.
   useEffect(() => {
@@ -49,6 +51,16 @@ export function TvBar({ shown, hasPicture, video, onVideo, showOriginal, onShowO
             <button key={p.value} type="button" role="radio" aria-checked={video === p.value}
               className={buttonClass(video === p.value ? 'primary' : 'secondary')} onClick={() => onVideo(p.value)}>
               {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {hasPicture && video === 'side' && (
+        <div className="live-sizes" role="radiogroup" aria-label="Picture width">
+          {TV_SPLITS.map((s) => (
+            <button key={s.value} type="button" role="radio" aria-checked={split === s.value}
+              className={buttonClass(split === s.value ? 'primary' : 'secondary')} onClick={() => onSplit(s.value)}>
+              {s.label}
             </button>
           ))}
         </div>
