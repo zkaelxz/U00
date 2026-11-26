@@ -48,6 +48,7 @@ import { NovelChaptersPanel } from './NovelChaptersPanel'
 import { SubtitleImport } from './SubtitleImport'
 import { isSubtitleFileName } from './subtitleImportModel'
 import { NovelFlow } from './NovelFlow'
+import { ComicPagesPanel } from './ComicPagesPanel'
 import { NovelPanel } from './NovelPanel'
 import { novelSections, stableNovelSections } from './novelFile'
 import { useNovelPresence } from './novelFileEvents'
@@ -352,7 +353,8 @@ export default function SourceStage() {
     <div key="novel" className="source-group">
       {kind === 'novel' && <NovelFlow busy={busy} onJobStarted={setJobId} />}
       {kind === 'novel' && <NovelChaptersPanel />}
-      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind !== 'audio'} optional={sections === 'optional'} />
+      {kind === 'comic' && <ComicPagesPanel dramaId={dramaId} reloadKey={reloads} />}
+      <NovelPanel busy={busy} onOcrStarted={setJobId} reloadKey={reloads} kind={kind} primary={kind === 'novel'} optional={sections === 'optional'} />
     </div>
   )
   const hasTranscribe = mediaTabsFor(kindOfTitle).some((t) => t.id === 'transcribe')

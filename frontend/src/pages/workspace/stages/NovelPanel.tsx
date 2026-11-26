@@ -120,6 +120,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   const summary = busy || status?.ocr_running ? `${base} · OCR running` : base
 
   const comic = kind === 'comic'
+  // A comic's pages are translated in Scanlate; this is only the older text-only route, so it never says "novel".
+  const heading = comic ? 'Text only, from page images' : optional ? 'Attach novel text (optional)' : 'Novel text'
 
   const ocrSection = (
     <Section storageKey="source.novel.ocr" defaultOpen={comic} title="Chapter images (OCR)" summary={images.length ? `${images.length} images · ${ocrLabel(ocrBackend)}` : ocrLabel(ocrBackend)}>
@@ -166,10 +168,10 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
   )
 
   return (
-    <section className="panel" aria-label={optional ? 'Attach novel text (optional)' : 'Novel text'}>
-      <Section storageKey="source.novel" defaultOpen={primary} title={optional ? 'Attach novel text (optional)' : 'Novel text'} summary={optional && !status?.has_novel_text ? undefined : summary}>
+    <section className="panel" aria-label={heading}>
+      <Section storageKey="source.novel" defaultOpen={primary} title={heading} summary={optional && !status?.has_novel_text ? undefined : summary}>
         {/* A novel title has no Transcribe tab, so the raw-novel advice only shows once chapters are saved. */}
-        {!optional && (kind !== 'novel' || hasRaw) && (
+        {!comic && !optional && (kind !== 'novel' || hasRaw) && (
           <>
             <h2 className="source-subhead subhead">Raw source novel (original language, used as reference)</h2>
             <p className="muted" data-testid="raw-status">
@@ -183,8 +185,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
         {comic && ocrSection}
         <p className="muted" data-testid="novel-status">
           {status?.has_novel_text
-            ? `Attached: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
-            : 'No novel text attached.'}
+            ? `${comic ? 'Read' : 'Attached'}: ${status.char_count.toLocaleString()} characters, ${status.chapters} chapters.`
+            : comic ? 'No text read from images yet.' : 'No novel text attached.'}
         </p>
         {kind === 'novel' && hasRaw && !status?.has_novel_text && (
           <div className="source-needed" data-testid="scraped-not-attached" role="note">
@@ -199,12 +201,14 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
             <a href={routeHref({ name: 'drama', id: dramaId, stage: 'translate', tab: 'glossary' })}>Build glossary in Translate →</a>
           </p>
         )}
-        <Field label="Mode" help="Replace overwrites any attached novel text; Append adds to it.">
+        <Field label="Mode" help={comic ? 'Replace overwrites the text read before; Append adds to it.' : 'Replace overwrites any attached novel text; Append adds to it.'}>
           <select value={mode} onChange={(e) => setMode(e.target.value as NovelMode)}>
             <option value="replace">Replace existing</option>
             <option value="append">Append</option>
           </select>
         </Field>
+        {!comic && (
+          <>
         <Field label="Paste text" help="Paste the novel text, then attach it to this title.">
           <textarea rows={4} value={text} onChange={(e) => setText(e.target.value)} />
         </Field>
@@ -256,6 +260,8 @@ export function NovelPanel({ busy = false, onOcrStarted, reloadKey = 0, kind = '
             refetchDrama()
           }}
         />
+          </>
+        )}
         {!comic && ocrSection}
         {optional && <NovelFilePanel kind="raw" busy={busy} />}
         {notice && <p role="status">{notice}</p>}
