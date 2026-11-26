@@ -10,6 +10,7 @@ from api.schemas.common import ConfirmRequest, TranslateEngine
 
 __all__ = [
     "ExtensionStatus",
+    "ExtensionFolderOpened",
     "ExtensionEnabledRequest",
     "ExtensionEnabledResult",
     "ExtensionTokenRequest",
@@ -48,6 +49,12 @@ class ExtensionStatus(BaseModel):
     """No port and no token, ever."""
     enabled: bool
     running: bool
+
+
+class ExtensionFolderOpened(BaseModel):
+    opened: bool
+    # Set only when opened is false because the server has no desktop; the route is local_only.
+    folder: Optional[str] = None
 
 
 class ExtensionEnabledRequest(BaseModel):

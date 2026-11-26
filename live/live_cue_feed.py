@@ -26,8 +26,10 @@ def pending_cues(segments, offset: float, first_id: int) -> list:
     for seg in segments:
         text = (seg.get("text") or "").strip()
         if text:
-            cues.append({"id": first_id + len(cues), "start": offset + seg["start"],
-                         "end": offset + seg["end"], "text": text, "translated": "",
+            # Whisper dates a first word a hair inside the lead-in silence, which the
+            # timeline shift would turn into a negative time.
+            cues.append({"id": first_id + len(cues), "start": max(0.0, offset + seg["start"]),
+                         "end": max(0.0, offset + seg["end"]), "text": text, "translated": "",
                          "translation": PENDING})
     return cues
 

@@ -3,7 +3,7 @@
 // remote); reading the engine is admin.settings, so it is a plain GET.
 // The token is handed to the caller only; nothing here stores or logs it.
 import type {
-  ExtensionEnabledResult, ExtensionEngineSettings, ExtensionStatus, ExtensionToken,
+  ExtensionEnabledResult, ExtensionEngineSettings, ExtensionFolderOpened, ExtensionStatus, ExtensionToken,
 } from '../types/extension'
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
@@ -23,3 +23,6 @@ export const getExtensionEngine = (f?: Fetch) => getJson<ExtensionEngineSettings
 /** engine null = no translation (original text only). */
 export const setExtensionEngine = (engine: string | null, model: string | null, f?: Fetch) =>
   postJson<ExtensionEngineSettings>(`${BASE}/engine`, { engine, model }, pcOnlyFetch(f))
+
+export const openExtensionFolder = (f?: Fetch) =>
+  postJson<ExtensionFolderOpened>(`${BASE}/folder/open`, {}, pcOnlyFetch(f))

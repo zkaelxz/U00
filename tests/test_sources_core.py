@@ -1443,6 +1443,7 @@ _LAYOUT_CHANGED_MESSAGES = {
     "syosetu": "Syosetu's page layout has changed",
     "twmanga": "twmanga's page layout has changed",
     "weloma": "Weloma's page layout has changed",
+    "wfwf": "wfwf's page layout has changed",
     "xbanxia": "xbanxia's page layout has changed",
     "zerosumonline": "zerosumonline's API response has changed",
 }

@@ -74,7 +74,7 @@ class TestPageSideFallback:
         assert out["noTab"]["ok"] is False
         assert out["blocked"]["ok"] is False and "click the extension icon" in out["blocked"]["error"]
 
-    def test_a_screenshot_stands_in_only_when_the_switch_is_on_and_the_page_fits_the_window(self):
+    def test_a_screenshot_stands_in_only_when_the_switch_is_on_and_the_reader_can_show_the_page(self):
         out = _run("content", "canvas_screenshot")
         # Baihe's own boxes and chip are hidden for exactly the length of the picture.
         assert out["on"]["ok"] is True and len(out["on"]["sent"]) == 1
@@ -83,11 +83,20 @@ class TestPageSideFallback:
         assert out["on"]["marks"] == ["set data-baihe-shot", "remove data-baihe-shot"]
         # Off: no picture, no page sent, and the page is not scrolled for nothing.
         assert out["off"]["shots"] == [] and out["off"]["sent"] == []
-        # Too tall for the window: refused with the reason, nothing sent.
-        assert out["tall"]["shots"] == [] and out["tall"]["sent"] == []
-        assert "zoom the browser out" in out["tall"]["error"]
+        # Taller than the window and a reader that will not scroll: refused, nothing sent.
+        assert out["tall"]["sent"] == []
+        assert "would not scroll" in out["tall"]["error"]
         assert "would not take a picture" in out["refused"]["error"] and out["refused"]["sent"] == []
         assert out["refused"]["marks"][-1] == "remove data-baihe-shot"
+
+    def test_page_mode_takes_the_page_showing_not_the_first_one_mounted(self):
+        out = _run("content", "page_mode_takes_the_page_in_view")
+        assert out["fetched"] == [out["fetched"][0]] and "2" in out["fetched"][0], out
+
+    def test_a_page_taller_than_the_window_is_pictured_in_strips(self):
+        out = _run("content", "canvas_screenshot_tall_page_is_stitched")
+        assert out["ok"] is True, out
+        assert out["shots"] == 2 and out["sent"] == 1
 
     def test_a_tainted_canvas_uses_a_data_attribute_url(self):
         out = _run("content", "canvas_tainted_url_from_data_attribute")

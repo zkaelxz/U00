@@ -130,6 +130,31 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void bridgeAnswersSnapshotRequestsOnlyForTheRunningGrabAndShortIds() {
+        final List<String> asked = new ArrayList<>();
+        GrabBridge bridge = new GrabBridge(new GrabBridge.Listener() {
+            public void onBegin(List<String> titles, int count, JSONArray chapters, String next) {}
+
+            public void onDone(List<PageImage> images, int unreadable, boolean truncated) {}
+
+            public void onText(String text) {}
+
+            public void onSnap(String id) {
+                asked.add(id);
+            }
+        });
+        bridge.start("secret");
+        bridge.snap("secret", "s1");
+        assertTrue(asked.isEmpty());
+        bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
+        bridge.snap("wrong", "s2");
+        bridge.snap("secret", "x'); steal();//");
+        bridge.snap("secret", "s3");
+        assertEquals(1, asked.size());
+        assertEquals("s3", asked.get(0));
+    }
+
+    @Test
     public void hostShownIsTheOneTheTokenWillGoTo() {
         assertEquals("baihe.example.com:8443", ServerAddress.hostOf("https://baihe.example.com:8443"));
         assertEquals("baihe.example.com", ServerAddress.hostOf(ServerAddress.normalizeServer("https://baihe.example.com/x")));

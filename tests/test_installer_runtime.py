@@ -78,6 +78,21 @@ class TestLaunch:
         assert launcher.launch() == 0
         assert started == [] and opened == [f"http://127.0.0.1:{launcher.DEFAULT_PORT}/"]
 
+    def test_a_busy_server_that_answers_slowly_still_just_opens_a_window(self, data_dir, monkeypatch):
+        opened = []
+        waits = []
+
+        def health(port, timeout=1.0):
+            waits.append(timeout)
+            return timeout >= launcher.BUSY_HEALTH_SECONDS
+
+        monkeypatch.setattr(launcher, "health_ok", health)
+        monkeypatch.setattr(launcher, "port_open", lambda port: True)
+        monkeypatch.setattr(launcher, "start_server", lambda *a: pytest.fail("started a server"))
+        monkeypatch.setattr(launcher, "open_window", opened.append)
+        assert launcher.launch() == 0
+        assert opened == [f"http://127.0.0.1:{launcher.DEFAULT_PORT}/"]
+
     def test_refuses_an_install_without_its_marker(self, monkeypatch, tmp_path):
         # No app\INSTALLED and no BAIHE_DATA_DIR: the library would land in
         # the program folder, so nothing is started.

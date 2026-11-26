@@ -24,7 +24,10 @@ router = APIRouter(prefix="/api", tags=["system"])
 
 
 @router.get("/health", dependencies=[public_route()], response_model=HealthResponse, summary="Liveness check")
-def health():
+async def health():
+    # async so a probe is answered on the event loop even when every worker
+    # thread is busy with a long request; the launcher reads a slow answer as
+    # "something else owns the port".
     return HealthResponse(status="ok")
 
 

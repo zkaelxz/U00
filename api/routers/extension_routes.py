@@ -18,7 +18,7 @@ from fastapi import APIRouter, Request, Response
 from api.auth import local_only, require_permission
 from api.no_store import mark_no_store
 from api.schemas import (ExtensionEnabledRequest, ExtensionEnabledResult,
-                         ExtensionEngineRequest, ExtensionEngineSettings,
+                         ExtensionEngineRequest, ExtensionEngineSettings, ExtensionFolderOpened,
                          ExtensionStatus, ExtensionToken, ExtensionTokenRequest, error_responses)
 from services import extension_service as svc
 
@@ -37,6 +37,13 @@ def get_status():
 def get_download():
     return Response(svc.extension_zip(), media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="baihe-extension.zip"'})
+
+
+@router.post("/folder/open", dependencies=[local_only()], response_model=ExtensionFolderOpened,
+             responses=error_responses(400),
+             summary="PC only: open the folder the browser loads the extension from")
+def post_open_folder():
+    return svc.open_synced_folder()
 
 
 @router.post("/enabled", dependencies=[local_only()], response_model=ExtensionEnabledResult,
