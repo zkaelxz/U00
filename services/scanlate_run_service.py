@@ -1140,10 +1140,22 @@ def _run_job(*args, **kwargs):
         ocr.release_models(keep_text_reader=True)
 
 
+def _name_title_in_english(drama_id: int) -> None:
+    """Fills a blank English title once the run starts: the capture's one try at it at creation
+    fails quietly (no key, cap used up), and nothing retried, so the reader kept showing the
+    original name. A failure here never stops the run."""
+    try:
+        from services import extension_title_service
+        extension_title_service.name_in_english(drama_id)
+    except Exception:
+        pass
+
+
 def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
                    detect_backend: str, art_captions: bool = False, keep_text: bool = False):
     from scanlate import scanlate_detect
     scanlate_detect.forget_ml_failure()
+    _name_title_in_english(drama_id)
     drama = db.get_drama(drama_id) or {}
     lang = drama.get("source_language") or "zh"
     guide = load_translation_guide(drama)
