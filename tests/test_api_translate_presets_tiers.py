@@ -293,4 +293,4 @@ def test_config_style_presets_carry_guidance(client, isolated_db):
     did = db.create_drama(title_zh="D")
     presets = client.get(f"/api/translate-run/dramas/{did}/config").json()["style_presets"]
     assert {p["key"]: p["guidance"] for p in presets} == {
-        k: v["guidance"] for k, v in translation_guide.STYLE_PRESETS.items()}
+        k: v["guidance"] for k, v in translation_guide.PICKER_STYLE_PRESETS.items()}

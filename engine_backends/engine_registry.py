@@ -24,11 +24,11 @@ from .openai_compat import DeepSeekEngine, OpenAIEngine
 # -- the export section then lists lines with a factual-detail
 # mismatch before anything is downloaded.
 WORKFLOW_TIERS = {
-    "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
+    "draft": {"label": "Draft – fast and cheap", "translation_engine": "deepseek",
               "engine_model": None, "reflect": False, "auto_qc": False},
-    "standard": {"label": "Standard -- balanced", "translation_engine": "claude",
+    "standard": {"label": "Standard – balanced", "translation_engine": "claude",
                  "engine_model": "claude-sonnet-5-5", "reflect": False, "auto_qc": False},
-    "release": {"label": "Release -- best quality, checked before export",
+    "release": {"label": "Release – best quality, checked before export",
                 "translation_engine": "claude", "engine_model": "claude-opus-5-5",
                 "reflect": False, "auto_qc": True},
 }

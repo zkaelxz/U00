@@ -665,3 +665,9 @@ def test_confirmed_aliases_reach_both_prompt_builders():
 
 def test_terms_without_aliases_add_nothing_to_the_prompt():
     assert "also written" not in tg.build_glossary_block(SAMPLE_GLOSSARY)
+
+
+def test_manhua_is_not_offered_but_old_saved_values_still_parse():
+    assert "manhua" not in tg.PICKER_STYLE_PRESETS
+    assert "manhua" in tg.STYLE_PRESETS
+    assert "OUTPUT MEDIUM: Manhua" in tg.build_style_guidelines("manhua")
