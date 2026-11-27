@@ -47,6 +47,7 @@ from scanlate.scanlate_translate import translate_page_bubbles
 from scanlate.scanlate_watermark import flag_site_marks
 
 
+# About twice the usual GPU engine load (9 s on the V100), so a slow load still finishes.
 _GPU_WARM_WAIT_SECONDS = 25
 
 

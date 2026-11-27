@@ -257,7 +257,12 @@ def _generate(generator, tensor, torch):
             gpu = _lama_on_gpu(generator, tensor.shape[-2] * tensor.shape[-1], torch)
             if gpu is not None:
                 device_use.note("eraser (LaMa)", "GPU")
-                return gpu(tensor.to("cuda"))[0].cpu()
+                out = gpu(tensor.to("cuda"))[0].cpu()
+                if tensor.shape[-2] * tensor.shape[-1] > 1_000_000:
+                    # A big region leaves gigabytes in torch's cache, which the text reader and
+                    # the detector would otherwise be refused for until the idle release.
+                    torch.cuda.empty_cache()
+                return out
         except Exception as exc:
             # A GPU that filled up meanwhile costs only this region; any other fault (a
             # broken driver, a failed copy) would repeat on every region, so the CPU is kept.

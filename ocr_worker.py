@@ -95,7 +95,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
-    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk()) and _gpu_ready(key):
+    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
             _gpu_off(reply[1])
@@ -122,7 +122,7 @@ def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
     """Starts the GPU engine's load now, so a first read does not fall back to the CPU while it
     loads, and waits up to `wait` seconds for it. True once it is ready; False when the GPU
     is not allowed (the reads stay on the CPU) or is still loading."""
-    if not (_gpu_allowed(key) and _gpu_weights_on_disk()):
+    if not (_gpu_allowed(key) and _gpu_weights_on_disk(key)):
         return False
     deadline = time.monotonic() + wait
     while True:
@@ -173,11 +173,13 @@ def _gpu_retry_later() -> None:
     _gpu_checked_at = time.monotonic()
 
 
-def _gpu_weights_on_disk() -> bool:
+def _gpu_weights_on_disk(key: str = "medium") -> bool:
     import os
     import ocr
-    return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in (
-        ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL, ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT))
+    specs = [ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL]
+    specs += ([ocr.RAPIDOCR_KOREAN_MODEL] if key == "ko"
+              else [ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT])
+    return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in specs)
 
 
 def _gpu_ready(key: str) -> bool:
@@ -263,7 +265,7 @@ def _gpu_allowed(key: str) -> bool:
         return _gpu_skipped("turned off in Settings or held by the GPU guard")
     # Its load or reads already passed the check below (a job's own process keeps its
     # engine in this process instead, where the check would count its own memory).
-    if _gpu.alive() or ((inline or multiprocessing.current_process().daemon)
+    if (_gpu.alive() and _gpu.key == key) or ((inline or multiprocessing.current_process().daemon)
                         and f"{key}:gpu" in _inline_engines()):
         return True
     now = time.monotonic()
