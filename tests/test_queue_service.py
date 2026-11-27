@@ -657,6 +657,85 @@ def test_a_member_at_the_running_cap_never_holds_up_the_queue(jobs, gpu):
     assert q.get_queue(None)["state"] == "running"
 
 
+def _member(email="m@example.com"):
+    member = auth_service.add_user(email)
+    auth_service.grant_permission(member["id"], "jobs.start")
+    return {"user_id": member["id"], "is_admin": False, "permissions": ["jobs.start"]}
+
+
+def test_a_nearly_full_drive_keeps_a_members_items_waiting_instead_of_skipping_them(jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    free = {"gb": 5}
+    monkeypatch.setattr(user_caps.shutil, "disk_usage",
+                        lambda _p: usage(100 << 30, 0, free["gb"] << 30))
+    principal = _member()
+    a = _drama("A", owner_user_id=principal["user_id"], is_private=1)
+    b = _drama("B", owner_user_id=principal["user_id"], is_private=1)
+    owners = _drama("Owner's")
+    q.add_item(principal, a, "transcribe", False, at_pc=True)
+    q.add_item(principal, b, "transcribe", False, at_pc=True)
+    q.add_item(None, owners, "transcribe", True, at_pc=True)
+    q.start(None)
+
+    q.tick()
+    q.tick()
+    first, second, third = _items()
+    assert first["status"] == second["status"] == "waiting"
+    assert "almost out of disk space" in first["reason"] and "almost out of disk space" in second["reason"]
+    assert third["status"] == "running"      # the owner's jobs are never held back
+
+    jobs.finish(f"transcribe_{owners}")
+    free["gb"] = 50
+    q.tick()
+    assert _items()[0]["status"] == "running" and _items()[0]["reason"] is None
+
+
+def test_a_member_past_their_daily_limit_waits_for_tomorrow_without_retrying_every_tick(jobs):
+    from jobs import user_caps
+    principal = _member()
+    uid = principal["user_id"]
+    user_caps.set_jobs_per_day(uid, 1)
+    user_caps.count_daily_start(uid)
+    a = _drama("A", owner_user_id=uid, is_private=1)
+    b = _drama("B", owner_user_id=uid, is_private=1)
+    q.add_item(principal, a, "transcribe", False, at_pc=True)
+    q.add_item(principal, b, "transcribe", False, at_pc=True)
+    q.start(None)
+
+    t0 = q._clock()
+    q.tick(now=t0)
+    tries = len(jobs.concurrent)
+    assert tries >= 1 and jobs.started == []
+    assert all(i["status"] == "waiting" and "job limit" in i["reason"] and "tomorrow" in i["reason"]
+               for i in _items())
+    q.tick(now=t0 + 60)
+    q.tick(now=t0 + 120)
+    assert len(jobs.concurrent) == tries     # resting: no start is tried
+    assert q.get_queue(None)["state"] == "running"
+
+    user_caps.set_jobs_per_day(uid, None)      # the PC owner lifts the limit
+    q.tick(now=t0 + q.DAILY_LIMIT_RETRY_SECONDS + 1)
+    assert _items()[0]["status"] == "running" and jobs.started == [f"transcribe_{a}"]
+
+
+def test_members_together_cannot_lock_the_owner_out_of_the_queue(jobs):
+    members = [_member(f"m{n}@example.com") for n in range(3)]
+    titles = [_drama(f"M{n}", owner_user_id=m["user_id"], is_private=1) for n, m in enumerate(members)]
+    share = q.MAX_MEMBER_ITEMS // 2
+    for member, did in zip(members[:2], titles[:2]):
+        for _ in range(share):
+            q.add_item(member, did, "export", False, at_pc=True)
+    with pytest.raises(ConflictError) as err:
+        q.add_item(members[2], titles[2], "export", False, at_pc=True)
+    assert f"at most {q.MAX_MEMBER_ITEMS} items in the queue together" in err.value.message
+    owners = _drama("Owner's")
+    for _ in range(q.MAX_ITEMS - q.MAX_MEMBER_ITEMS):
+        q.add_item(None, owners, "export", True, at_pc=True)
+    assert len(_items()) == q.MAX_ITEMS
+
+
 def test_a_deferred_item_alone_keeps_the_queue_running(jobs):
     principal = _member_running_two_jobs(jobs)
     theirs = _drama("Theirs", owner_user_id=principal["user_id"], is_private=1)

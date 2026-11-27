@@ -29,6 +29,16 @@ JOBS_PER_DAY_KEY = "member_jobs_per_day.{}"
 JOBS_TODAY_KEY = "member_jobs_today.{}"
 
 
+class DailyLimitError(RateLimitedError):
+    """The member has started their daily number of jobs. A type of its own so the job queue can
+    tell it from the running cap, which clears when a job ends, while this one lasts until tomorrow."""
+
+
+class DiskLowError(ConflictError):
+    """The library drive is nearly full. A type of its own so the job queue holds items while
+    space is short instead of skipping them: it is a passing state, not something wrong with the item."""
+
+
 def jobs_per_day(user_id) -> int | None:
     """The member's daily job limit, or None when they have none."""
     value = db.get_app_setting(JOBS_PER_DAY_KEY.format(user_id))
@@ -45,23 +55,38 @@ def jobs_today(user_id, today: str | None = None) -> int:
     return row.get("n", 0) if row.get("day") == (today or time.strftime("%Y-%m-%d")) else 0
 
 
-def count_daily_start(owner_user_id, today: str | None = None) -> None:
-    """Counts one job started by this member today, or raises RateLimitedError (429) when they are
+def count_daily_start(owner_user_id, today: str | None = None) -> str | None:
+    """Counts one job started by this member today, or raises DailyLimitError (429) when they are
     at their daily limit. The check and the count are one database transaction, so two starts at
-    once can't both take the last one. Nobody without a limit (and never the PC owner) is counted."""
+    once can't both take the last one. Nobody without a limit (and never the PC owner) is counted.
+    Returns the day the start was counted on (for refund_daily_start), None when nothing was."""
     limit = None if owner_user_id is None else jobs_per_day(owner_user_id)
     if limit is None:
-        return
+        return None
     day = today or time.strftime("%Y-%m-%d")
 
     def take_one(row):
         n = row.get("n", 0) if isinstance(row, dict) and row.get("day") == day else 0
         if n >= limit:
-            raise RateLimitedError(
+            raise DailyLimitError(
                 f"You've reached your limit of {limit} {'job' if limit == 1 else 'jobs'} for today. "
                 "It starts again tomorrow, or the PC owner can raise it.")
         return {"day": day, "n": n + 1}
     db.update_app_setting(JOBS_TODAY_KEY.format(owner_user_id), take_one, default={})
+    return day
+
+
+def refund_daily_start(owner_user_id, day: str | None) -> None:
+    """Gives back a start counted on `day` whose job never ran (its thread or process could not
+    start). A count from an earlier day is already gone, so only that same day's count is lowered."""
+    if owner_user_id is None or day is None:
+        return
+
+    def give_back(row):
+        if isinstance(row, dict) and row.get("day") == day and row.get("n", 0) > 0:
+            return {"day": day, "n": row["n"] - 1}
+        return row
+    db.update_app_setting(JOBS_TODAY_KEY.format(owner_user_id), give_back, default={})
 
 
 # Matches the default of the "free disk space" PC alert. A member's download, import or dub can
@@ -71,7 +96,7 @@ MEMBER_MIN_FREE_GB = 10
 
 
 def refuse_if_disk_low(owner_user_id) -> None:
-    """Raises ConflictError (409) when a member would start a job while the library drive has
+    """Raises DiskLowError (409) when a member would start a job while the library drive has
     less than MEMBER_MIN_FREE_GB free. An unreadable drive is not a reason to refuse."""
     if owner_user_id is None:
         return
@@ -80,7 +105,7 @@ def refuse_if_disk_low(owner_user_id) -> None:
     except OSError:
         return
     if free_gb < MEMBER_MIN_FREE_GB:
-        raise ConflictError("This PC is almost out of disk space, so new jobs can't start right now. "
+        raise DiskLowError("This PC is almost out of disk space, so new jobs can't start right now. "
                             "Try again later, or ask the PC owner to free some space.")
 
 

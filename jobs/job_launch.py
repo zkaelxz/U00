@@ -194,22 +194,32 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id, priority=Fal
     lock, or job_id is already running or queued), else the status the run
     starts in. "running" for a GPU job means its slot is already claimed
     (_gpu_slot_available_locked), so the caller must start it. Raises like
-    the start functions (clean stop, per-user caps)."""
+    the start functions (clean stop, per-user caps). Also returns the day the
+    start was counted against the member's daily limit, which the caller keeps
+    on the run as "daily_day" so a start that fails gives it back (_fail_start)."""
     _refuse_if_stopping_locked(job_id)
     _refuse_if_restructuring_locked(job_id)
     if _exclusive_label is not None:
-        return None
+        return None, None
     existing = _jobs.get(job_id)
     if existing and existing["status"] in ("running", "queued"):
-        return None
+        return None, None
     queued = gpu_touching and get_gpu_limit_enabled() and (
         user_caps.wait_for_cap(_jobs, owner_user_id) or (_gpu_queue_waiting_locked() and not priority)
         or not _gpu_slot_available_locked(job_id, description))
     user_caps.refuse_if_disk_low(owner_user_id)
     user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=bool(queued))
     # Last, so a start refused above never uses up one of the member's jobs for the day.
-    user_caps.count_daily_start(owner_user_id)
-    return "queued" if queued else "running"
+    counted_day = user_caps.count_daily_start(owner_user_id)
+    return ("queued" if queued else "running"), counted_day
+
+
+def _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day):
+    """Caller holds _lock. Gives back what _admit_locked took for a start that
+    failed before any run existed for _fail_start to settle: the GPU slot and
+    the member's start for the day."""
+    _release_gpu_slot(job_id, gpu_touching)
+    user_caps.refund_daily_start(owner_user_id, counted_day)
 
 
 def _new_run_locked(job_id: str, mirror: bool = True) -> dict:
@@ -267,11 +277,11 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
-        status = _admit_locked(job_id, gpu_touching, description, owner_user_id, priority)
+        status, counted_day = _admit_locked(job_id, gpu_touching, description, owner_user_id, priority)
         if status is None:
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
-                                   run_settings, line_fields=line_fields)
+                                   run_settings, line_fields=line_fields, daily_day=counted_day)
         _new_run_locked(job_id)
         if status == "queued":
             queued = {"job_id": job_id, "target": target, "args": args,
@@ -389,13 +399,13 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
     with _lock:
-        status = _admit_locked(job_id, gpu_touching, description, owner_user_id)
+        status, counted_day = _admit_locked(job_id, gpu_touching, description, owner_user_id)
         if status is None:
             return False
         if status == "queued":
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
                                        run_settings, result=initial_result, process=None,
-                                       line_fields=line_fields)
+                                       line_fields=line_fields, daily_day=counted_day)
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
@@ -410,10 +420,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                                        start_method=start_method,
                                                        run_settings=run_settings,
                                                        initial_result=initial_result,
-                                                       line_fields=line_fields)
+                                                       line_fields=line_fields, daily_day=counted_day)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
-            _release_gpu_slot(job_id, gpu_touching)
+            _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day)
             raise
         run = _new_run_locked(job_id, mirror=False)
     try:
