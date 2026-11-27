@@ -12,6 +12,7 @@ import contextlib
 import contextvars
 import copy
 import hashlib
+import itertools
 import json
 import os
 import queue
@@ -382,6 +383,67 @@ def mark_cancelled(run_id: str) -> None:
         _cancelled_runs[run_id] = now
 
 
+# Longer than the phone takes to come back for a dropped batch (its stream retries after 3 s and
+# 6 s, then the batch is asked again after 5, 20 and 45 s), so only a phone that is really gone
+# (app swiped away, Wi-Fi lost) has its unstarted pages dropped.
+STREAM_GONE_GRACE_SECONDS = 90
+_streams: dict[str, dict] = {}
+_streams_lock = threading.Lock()
+# One count for every run, so a countdown left from a forgotten state never matches a new one.
+_stream_events = itertools.count(1)
+
+
+def stream_run_id(payload) -> str:
+    """The run a streamed Quick read belongs to; "" for a saved send, which goes on as it always has."""
+    return "" if bool(payload.get("store", True)) else _run_id(payload)
+
+
+def stream_opened(run_id: str) -> None:
+    with _streams_lock:
+        state = _streams.setdefault(run_id, {"open": 0, "lost": False})
+        state["open"] += 1
+        state["lost"] = False
+        state["heard"] = next(_stream_events)   # a drop still counting down for this run no longer applies
+
+
+def stream_closed(run_id: str, lost: bool) -> None:
+    """`lost`: the answer ended before its last line (the caller went away, or the heartbeat limit).
+    Once no stream of the run is open and one was lost, the run is dropped unless the phone is
+    heard from again within the grace."""
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is None:
+            return
+        state["open"] = max(state["open"] - 1, 0)
+        state["lost"] = state["lost"] or lost
+        if state["open"]:
+            return
+        if not state["lost"]:
+            del _streams[run_id]
+            return
+        heard = state["heard"]
+    timer = threading.Timer(STREAM_GONE_GRACE_SECONDS, _drop_if_unheard, args=(run_id, heard))
+    timer.daemon = True
+    timer.start()
+
+
+def _heard_from(run_id: str) -> None:
+    """A request of the run that is not streamed (a lone page) also shows the phone is back."""
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is not None and not state["open"]:
+            del _streams[run_id]
+
+
+def _drop_if_unheard(run_id: str, heard: int) -> None:
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is None or state["open"] or state["heard"] != heard:
+            return
+        del _streams[run_id]
+    quick_read_runs.drop_unheard(run_id, mark_cancelled)
+
+
 MAX_SUMMARY_CHARS = 2000
 _URL_IN_SUMMARY = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 
@@ -661,6 +723,48 @@ def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> Non
         result["typeset_image"] = picture
 
 
+# Quick read pages being read now, by cache key. A phone whose stream dropped asks again for the
+# pages it did not get, and the ones still being read would otherwise be read (and paid for) twice.
+_in_flight: dict[str, threading.Event] = {}
+_in_flight_lock = threading.Lock()
+_SHARE_CHECK_SECONDS = 1.0
+
+
+def _claim_or_share(key: str, job: dict, turn) -> tuple[threading.Event | None, dict | None]:
+    """(claim, None): this request reads the page and must `_release_claim` it. (None, answer): a
+    request that was already reading it answered. (None, None): this run was stopped meanwhile."""
+    stepped_aside = False
+    while True:
+        with _in_flight_lock:
+            working = _in_flight.get(key)
+            if working is None:
+                claim = _in_flight[key] = threading.Event()
+        if working is None:
+            # The other request may have remembered its answer between our cache look and the claim.
+            hit = _cached_quick_read(key)
+            if hit is not None:
+                _release_claim(key, claim)
+            return (None, hit) if hit is not None else (claim, None)
+        if not stepped_aside:
+            # A waiting page holds no turn, so two requests waiting on each other's pages cannot stall.
+            turn.step_aside()
+            stepped_aside = True
+        while not working.wait(_SHARE_CHECK_SECONDS):
+            if _run_cancelled(job["run_id"]):
+                return None, None
+        hit = _cached_quick_read(key) or _disk_cached(key)
+        if hit is not None:
+            return None, hit
+        # The other request failed or got only part of the page, which is never remembered: read it here.
+
+
+def _release_claim(key: str, claim: threading.Event) -> None:
+    with _in_flight_lock:
+        if _in_flight.get(key) is claim:
+            del _in_flight[key]
+    claim.set()
+
+
 def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
@@ -675,10 +779,23 @@ def _translate_one(image: dict, job: dict, turn):
         cache_key = _quick_read_key(image, job)
         # A redo reads the page again; the new answer then replaces the remembered one.
         cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
+    claim = None
+    if cached is None and cache_key is not None and not job.get("redo"):
+        claim, cached = _claim_or_share(cache_key, job, turn)
+        if claim is None and cached is None:
+            return "stopped", None
     if cached is not None:
         _log_page_time(cached, job, started)
         return "page", {**cached, "key": image["key"], "url": image["url"],
                         **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
+    try:
+        return _translate_fresh(image, job, turn, cache_key, started)
+    finally:
+        if claim is not None and cache_key is not None:
+            _release_claim(cache_key, claim)
+
+
+def _translate_fresh(image: dict, job: dict, turn, cache_key: str | None, started: float):
     try:
         if page_capture_checks.looks_blank(image["content"]):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
@@ -850,6 +967,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         decoded = quick_read_stitch.stitch(decoded, page_server.MAX_IMAGE_BYTES)
     job["single"] = len(decoded) == 1
     if not store:
+        _heard_from(job["run_id"])
         quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled,
                               device=(principal or {}).get("device_token_id"))
     # One bad page must not discard the rest of a chapter: each failure

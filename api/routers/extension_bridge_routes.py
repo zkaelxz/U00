@@ -101,13 +101,37 @@ _HEARTBEAT_SECONDS = 15
 _HEARTBEAT_LIMIT_SECONDS = 20 * 60
 
 
-async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
+class _WatchedStream(StreamingResponse):
+    """Calls `on_close()` however the answer ends, including when the caller goes away before
+    the body was first read."""
+
+    def __init__(self, *args, on_close, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._on_close = on_close
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._on_close()
+
+
+async def _streamed(work, heartbeat: bool = False, run_id: str = "") -> StreamingResponse:
     """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
     The answer starts only with the first line, so a refusal raised before it (a bad batch, the
     spending cap, no such title) is re-raised here and becomes the usual error answer. With
     `heartbeat`, the answer starts after `_HEARTBEAT_SECONDS` at the latest and a refusal after
-    that comes as an error line instead."""
+    that comes as an error line instead. With `run_id`, a Quick read run is told when its answer
+    is lost before the end (extension_bridge_service.stream_closed)."""
     loop = asyncio.get_running_loop()
+    ended = False
+
+    def closed(lost: bool):
+        if run_id:
+            extension_bridge_service.stream_closed(run_id, lost)
+
+    if run_id:
+        extension_bridge_service.stream_opened(run_id)
     lines: asyncio.Queue = asyncio.Queue()
 
     def put(item):
@@ -133,11 +157,17 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
             return None
 
     asyncio.ensure_future(run_in_threadpool(run))
-    first = await next_item()
+    try:
+        first = await next_item()
+    except BaseException:
+        closed(lost=True)
+        raise
     if first is not None and first[0] == "error":
+        closed(lost=False)
         raise first[1]
 
     async def body():
+        nonlocal ended
         item = first
         quiet_since = loop.time()
         while True:
@@ -146,6 +176,7 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
                     return
                 yield b'{"waiting": true}\n'
             elif item[0] == "end":
+                ended = True
                 return
             elif item[0] == "line":
                 quiet_since = loop.time()
@@ -159,8 +190,8 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
                 yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
             item = await next_item()
 
-    return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
-                             headers=_NO_STORE)
+    return _WatchedStream(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
+                          headers=_NO_STORE, on_close=lambda: closed(lost=not ended))
 
 
 def _text(payload: dict, principal) -> dict:
@@ -198,7 +229,8 @@ async def _handle(request: Request, work, uses_engine: bool = False, needs=(), s
         payload = await _json_body(request)
         if streamed is not None and payload.get("stream") is True:
             return await _streamed(lambda write: streamed(payload, write),
-                                   heartbeat=payload.get("heartbeat") is True)
+                                   heartbeat=payload.get("heartbeat") is True,
+                                   run_id=extension_bridge_service.stream_run_id(payload))
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)

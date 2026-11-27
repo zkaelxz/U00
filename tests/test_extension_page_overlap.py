@@ -262,3 +262,74 @@ def test_a_saved_send_and_a_page_with_a_warning_are_never_answered_from_memory(p
     _send(1)
     # One read for the saved page (the second send reuses the library's copy), two for Quick read.
     assert pipeline["reads"] == 3
+
+
+def _wait_until(check, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not check() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return check()
+
+
+def _send_in_background(answers, name, **extra):
+    thread = threading.Thread(target=lambda: answers.__setitem__(name, _send(1, **extra)), daemon=True)
+    thread.start()
+    return thread
+
+
+def test_a_page_still_being_read_is_shared_with_a_repeat_ask_not_read_again(pipeline):
+    """A phone whose stream dropped asks again for the pages it did not get; one still being read
+    for the first ask answers both."""
+    release = threading.Event()
+    pipeline["on_read"] = lambda n: n == 0 and release.wait(5)
+    pipeline["second_read"].set()   # one page here: its translation must not wait for a second read
+    answers = {}
+    first = _send_in_background(answers, "first", run_id="run-aaaaaaaa")
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    again = _send_in_background(answers, "again", run_id="run-aaaaaaaa")
+    time.sleep(0.3)   # the repeat would have started its own read by now
+    release.set()
+    first.join(5)
+    again.join(5)
+    assert pipeline["reads"] == 1
+    assert [p["regions"][0]["translated_text"] for p in answers["again"]["pages"]] == ["EN p0"]
+    assert answers["again"]["pages"][0]["cached"] is True and "cached" not in answers["first"]["pages"][0]
+    assert bridge._in_flight == {}
+
+
+def test_a_repeat_ask_waiting_on_a_page_stops_when_its_run_is_dropped(pipeline):
+    release = threading.Event()
+    pipeline["on_read"] = lambda n: n == 0 and release.wait(5)
+    pipeline["second_read"].set()   # one page here: its translation must not wait for a second read
+    answers = {}
+    first = _send_in_background(answers, "first")
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    again = _send_in_background(answers, "again", run_id="run-bbbbbbbb")
+    time.sleep(0.1)
+    bridge.cancel_run({"run_id": "run-bbbbbbbb"})
+    again.join(5)
+    assert answers["again"]["pages"] == [] and answers["again"]["stopped"]
+    release.set()
+    first.join(5)
+    assert len(answers["first"]["pages"]) == 1 and pipeline["reads"] == 1
+
+
+def test_a_run_nobody_listens_to_finishes_its_page_in_progress_and_drops_the_rest(pipeline, monkeypatch):
+    run_id = "run-cccccccc"
+    monkeypatch.setattr(bridge, "STREAM_GONE_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(bridge, "_streams", {})
+
+    def phone_goes_away(n):
+        if n == 0:
+            bridge.stream_closed(run_id, lost=True)
+            assert _wait_until(lambda: bridge._run_cancelled(run_id))
+
+    pipeline["on_read"] = phone_goes_away
+    pipeline["second_read"].set()
+    bridge.stream_opened(run_id)
+    answer = _send(3, run_id=run_id)
+    assert pipeline["reads"] == 1
+    assert [p["key"] for p in answer["pages"]] == ["k0"]
+    assert "stopped listening" in answer["stopped"]
+    # The page that was in progress is remembered, so asking for it again costs nothing.
+    assert _send(1)["pages"][0]["cached"] is True and pipeline["reads"] == 1

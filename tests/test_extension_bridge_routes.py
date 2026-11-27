@@ -794,6 +794,54 @@ class TestStreamedAnswersHeartbeat:
         assert lines and set(lines) == {b'{"waiting": true}\n'}
 
 
+class TestStreamedAnswerLost:
+    """The run hears whether its answer reached the end or the caller went away first."""
+
+    @staticmethod
+    def _serve(monkeypatch, work, caller_leaves):
+        import asyncio
+        from api.routers import extension_bridge_routes as routes
+        heard = []
+        monkeypatch.setattr(extension_bridge_service, "stream_opened", lambda run_id: heard.append(("open", run_id)))
+        monkeypatch.setattr(extension_bridge_service, "stream_closed",
+                            lambda run_id, lost: heard.append(("closed", run_id, lost)))
+
+        async def go():
+            first_line = asyncio.Event()
+
+            async def receive():
+                if caller_leaves:
+                    await first_line.wait()
+                    return {"type": "http.disconnect"}
+                await asyncio.Event().wait()
+
+            async def send(message):
+                if message.get("body"):
+                    first_line.set()
+
+            response = await routes._streamed(work, run_id="run-aaaaaaaa")
+            await response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send)
+        asyncio.run(go())
+        return heard
+
+    def test_a_caller_that_goes_away_mid_answer_is_a_lost_stream(self, monkeypatch):
+        import time
+
+        def work(write):
+            write({"page": {"key": "p0"}})
+            time.sleep(0.3)
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, True) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", True)]
+
+    def test_an_answer_that_reaches_its_last_line_is_not_lost(self, monkeypatch):
+        def work(write):
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, False) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", False)]
+
+
 class TestQuickReadRunRoutes:
     """The phone lists and drops its Quick read runs through the bridge."""
 
