@@ -23,7 +23,7 @@ export function failedWithLogHint(what: string): string {
 }
 
 const DEPENDENCY_ADMIN = 'A tool or package this needs is not installed or not reachable. See Diagnostics.'
-const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not reachable. ${ASK_PC_OWNER_INSTALL}`
+const DEPENDENCY_MEMBER = 'A tool or package this needs is not installed or not reachable. Ask the PC owner to check it.'
 
 export function couldNotReachBaihe(): string {
   if (getPcMode() === 'remote' || !canOpenDiagnostics()) {

@@ -247,7 +247,7 @@ describe('error text by who is reading', () => {
   it('a member is told to ask the person who runs Baihe, with no Diagnostics pointer or env var', () => {
     resetSessionForTests(me([]))
     const { title, detail } = describeError(missing)
-    expect(title).toContain(ASK_PC_OWNER_INSTALL)
+    expect(title).toContain('Ask the PC owner to check it.')
     expect(title).not.toMatch(/Diagnostics/)
     expect(detail).toBeNull()
     expect(describeError(new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'missing_package' } }, 'POST')).title).toContain(ASK_PC_OWNER_INSTALL)
