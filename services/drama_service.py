@@ -410,8 +410,9 @@ def _link_key(url) -> str:
     return source_link_service.split_source_url(url)[0].rstrip("/").casefold()
 
 
-# Query keys that change per share, not per video: two shares of one video must still match.
-_TRACKING_QUERY_KEYS = frozenset({"si", "feature", "t", "start", "pp", "fbclid", "gclid", "share_source", "spm_id_from"})
+# The only query keys that say which video or part a link is; any other (a token, a share tag) is left out
+# so it can neither split one title in two nor leak into the comparison.
+_IDENTIFYING_QUERY_KEYS = frozenset({"v", "id", "p"})
 
 
 def _link_identity(row_or_url, full="") -> str:
@@ -432,8 +433,7 @@ def _link_identity(row_or_url, full="") -> str:
     if parts.scheme.lower() not in ("http", "https") or not host:
         return ""
     path = parts.path.split(";", 1)[0].rstrip("/")
-    query = sorted((k, v) for k, v in parse_qsl(parts.query) if k.casefold() not in _TRACKING_QUERY_KEYS
-                   and not k.casefold().startswith("utm_"))
+    query = sorted((k, v) for k, v in parse_qsl(parts.query) if k in _IDENTIFYING_QUERY_KEYS)
     if not path and not query:
         return ""
     return host + path + ("?" + "&".join(f"{k}={v}" for k, v in query) if query else "")
