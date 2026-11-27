@@ -19,6 +19,7 @@ bridge's own limit, since the proxy's small default body cap is lifted for
 """
 
 import asyncio
+import contextlib
 import json
 
 from fastapi import APIRouter, Request
@@ -108,7 +109,9 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
     lines: asyncio.Queue = asyncio.Queue()
 
     def put(item):
-        loop.call_soon_threadsafe(lines.put_nowait, item)
+        # A stream that ended at the heartbeat limit may be gone before the worker finishes.
+        with contextlib.suppress(RuntimeError):
+            loop.call_soon_threadsafe(lines.put_nowait, item)
 
     def run():
         try:
