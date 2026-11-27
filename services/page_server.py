@@ -160,10 +160,16 @@ class EndpointError(Exception):
     header value, so a token can't be reflected back into a response.
     """
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, code: str = ""):
         super().__init__(message)
         self.status = status
         self.message = message
+        # A fixed word a client can act on where the status alone is ambiguous; older
+        # clients read only `error`, so it rides beside it.
+        self.code = code
+
+    def answer(self) -> dict:
+        return {"error": self.message, **({"code": self.code} if self.code else {})}
 
 
 # -- the token ---------------------------------------------------------
@@ -918,7 +924,7 @@ class _Handler(BaseHTTPRequestHandler):
         except EndpointError as e:
             if not state["started"]:
                 raise
-            write({"error": e.message, "status": e.status})
+            write({**e.answer(), "status": e.status})
         except Exception:
             if not state["started"]:
                 raise
@@ -932,7 +938,7 @@ class _Handler(BaseHTTPRequestHandler):
         # would be parsed starting mid-body. Closing is both simpler and
         # safer than reading megabytes we've already decided to refuse.
         self.close_connection = True
-        self._send_json(error.status, {"error": error.message})
+        self._send_json(error.status, error.answer())
 
     # -- routes --------------------------------------------------------
     def do_GET(self):
