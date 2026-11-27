@@ -43,6 +43,8 @@ def _silero_spans(audio, sr, threshold, min_silence_ms, min_speech_ms):
         from faster_whisper.vad import VadOptions, get_speech_timestamps
     except ImportError as exc:
         raise VadNotInstalledError(str(exc)) from exc
+    import vad_model
+    vad_model.prepare()
     # Padding is applied by speech_spans so it also works with an injected vad_fn.
     options = VadOptions(threshold=threshold, min_silence_duration_ms=min_silence_ms,
                          min_speech_duration_ms=min_speech_ms, speech_pad_ms=0)
