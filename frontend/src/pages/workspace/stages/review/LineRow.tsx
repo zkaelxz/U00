@@ -9,6 +9,7 @@ import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { HelpTip } from '../../../../components/HelpTip'
 import { humanize } from '../../../../components/labels'
+import { chineseLang } from '../../../../hanScript'
 import { languageLabel } from '../../../../labels'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
@@ -117,6 +118,8 @@ interface Props {
   prose?: boolean
   // The drama's source_language: what a line with no lang of its own is spoken in.
   sourceLanguage: string | null
+  /** The title's text lang (useTitleTextLang), for a line whose own characters don't show its Chinese script. */
+  titleLang?: string
   active: boolean
   selected: boolean
   isPhone: boolean
@@ -520,7 +523,7 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, titleLang = 'zh', active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
@@ -531,7 +534,7 @@ function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, sel
   // (active only, to keep the roving Tab order). A queue card's Why already says what these would.
   const badgeHelp = active && !isPhone
   const badgeReasons = [isShaky(line) && !(queue && !line.flag) && SHAKY_HELP, isSourceChanged(line) && !queue && SOURCE_CHANGED_HELP].filter((r): r is string => !!r)
-  const textLang = sourceTextLang(line.lang, sourceLanguage)
+  const textLang = chineseLang(sourceTextLang(line.lang, sourceLanguage), line.zh, titleLang)
   const reason = queue ? queueReason(line) : null
   // Outside the queue only a flag is written out: a low Whisper score there has its Shaky badge.
   const flagReason = line.flag && !queue ? queueReason(line) : null

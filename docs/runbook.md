@@ -37,6 +37,13 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 3. Don't update installed copies through the app (they still trust the old key). On each PC, download the new installer from the Releases page, check `Get-FileHash` against its `.sha256` and its `.sig` (`python tools/release_signing.py verify ... --public-key <file with the new public line>`), then run it by hand. That installs the new key.
 4. Delete or mark untrusted any release published after the leak that you didn't build yourself.
 
+## 1b. Phone app signing key
+The Android APK workflow's `sign` job is the only job that reads `ANDROID_DEBUG_KEYSTORE_BASE64`, and only on a manual run of `baihe-subtitler`. The key is safe from other branches only once it lives in an environment they can't use:
+1. Repository Settings -> Environments -> `android-publish` (GitHub creates it on the first manual run, or create it first) -> Deployment branches: "Selected branches", add `baihe-subtitler`.
+2. Environment secrets -> Add secret: name `ANDROID_DEBUG_KEYSTORE_BASE64`, value the base64 of your `debug.keystore` (the same key every phone's app was signed with).
+3. Delete the repository secret of the same name. Until then, a branch that edits a workflow can still read it, and the `sign` job keeps using it, so publishing never stops in between.
+4. Run Android APK once from `baihe-subtitler` and check the `android-app` pre-release got the new build.
+
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
 - Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (about 17 minutes)

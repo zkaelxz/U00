@@ -75,7 +75,9 @@ Check these first; they are the usual causes.
 - **Your provider shares one public address between customers (carrier-grade NAT).** Port forwarding can never work then. If the router's WAN address differs from what a "what is my IP" site shows (or is in 100.64.0.0 to 100.127.255.255), ask the provider for a public address.
 - **The name doesn't point at your current public address.** Check the DNS record against your public IP; the dynamic DNS updater may not be running.
 - **Something else uses port 443 on the PC.** `enable-remote` refuses with a message if Caddy can't take it.
-- **UDP is not needed.** Caddy also listens on UDP 443 for HTTP/3; browsers fall back to TCP, which is the only rule you add.
+- **UDP is not needed.** The template serves HTTP/1.1 and HTTP/2 over TCP only (HTTP/3 is off), so TCP 443 is the only rule you add.
+- **Works on mobile data but not on home Wi-Fi.** The router doesn't loop a LAN device's request for your public address back inside (NAT loopback or hairpinning). Turn it on in the router if it has the option; split DNS is ruled out (see the setup's step 1).
+- **A Block rule for Caddy.** If Windows asked whether to allow Caddy and the prompt was cancelled, it left an inbound Block rule for `caddy.exe`, and a Block rule wins over the Allow rule. In an administrator PowerShell, `Get-NetFirewallRule -Direction Inbound -Action Block | Where-Object { ($_ | Get-NetFirewallApplicationFilter).Program -like '*caddy.exe' }` lists them; remove them with `Remove-NetFirewallRule`.
 
 ## Rollback
 
@@ -139,7 +141,7 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 ### Going live (only after the LAN checklist passes)
 
 1. **Windows firewall rule**, in an administrator PowerShell, for Caddy only:
-   `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 443 -Action Allow`
+   `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 443 -Action Allow -Profile Private,Domain`
    Add no rule for `python.exe` or for 8600, 8610 or 8756. This opens 443 only: Caddy's http-to-https redirect on port 80 then doesn't work (see the ports table).
 2. **Router port forward:** TCP 443 to the PC's LAN address (reserve that address for the PC in the router's DHCP settings). Never forward 8600 (or your `BAIHE_API_PORT`), 8601, the household port or 8756. Only Caddy's 443 is forwarded.
 3. **Certificate:** stop the LAN-test Caddy and run the template itself (`caddy run --config deploy\caddy\Caddyfile.template --adapter caddyfile`). Caddy gets the certificate for `BAIHE_DOMAIN` through the forward above (the TLS-based challenge over 443, expected but untested here, or a DNS challenge) and renews it by itself. There is no separate, earlier forward for the first issuance.

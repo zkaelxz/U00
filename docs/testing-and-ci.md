@@ -254,7 +254,7 @@ Locally, with a built Caddy: `python tools/caddy_check.py --caddy PATH`.
 
 The repository is public. The `privacy` job fails when a tracked file or file name, the PR title or description (the
 squash commit carries them), or the message, author or committer of a commit the PR or push adds contains one of the
-owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). The terms live only in the
+owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). Tests calls it from `.github/workflows/privacy.yml`, which also runs by itself on every push to a `claude/` branch, since such a branch is public as soon as it is pushed, PR or not. The terms live only in the
 `PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job prints the file and line,
 the commit or which PR field, never the term. Fix a hit by using a made-up value (`Alex Example`, `DESKTOP-EXAMPLE`,
 `C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. Dependabot runs get
@@ -302,7 +302,7 @@ smoke-tests that on demand, so it is not repeated here. Add a case to the script
 
 ## Phone smoke test
 
-The Android APK workflow (`android-apk.yml`) has a "Phone smoke test" job: it installs the APK the build job made on an emulator (Google APIs, API 34) and runs `android/smoke/run_smoke.py` against a mock server (`android/smoke/mock_server.py`) standing in for the PC. It checks that the app launches without a crash, asks for the address and loads the server's page in Studio, switches to Grab, opens a test page there, opens the Quick read reader, and opens the Live route in Studio; any crash in the Android crash log fails it. It runs on a PR that changes `android/` and on every manual run. The publish job waits for it, so a build that fails it never reaches phones, and Promote Release refuses a tag whose commit has no green run of it (`docs/runbook.md`, section 1). It does not sign in, read a real chapter or play a stream: `release/CHECKLIST.md` flow 12 is what a real phone adds. To run it locally, start an emulator with a Google APIs image and run `python android/smoke/run_smoke.py --apk path/to/app-release.apk`.
+The Android APK workflow (`android-apk.yml`) has a "Phone smoke test" job: it installs the APK the build job made on an emulator (Google APIs, API 34) and runs `android/smoke/run_smoke.py` against a mock server (`android/smoke/mock_server.py`) standing in for the PC. It checks that the app launches without a crash, asks for the address and loads the server's page in Studio, switches to Grab, opens a test page there, opens the Quick read reader, and opens the Live route in Studio; any crash in the Android crash log fails it. It runs on a PR that changes `android/` and on every manual run. The sign job waits for it, then re-signs that same APK with the phone update key (`ANDROID_DEBUG_KEYSTORE_BASE64`; no other job reads it, and it belongs in the `android-publish` environment limited to `baihe-subtitler`, `docs/runbook.md` section 1b), so a build that fails it never reaches phones, and Promote Release refuses a tag whose commit has no green run of it (`docs/runbook.md`, section 1). It does not sign in, read a real chapter or play a stream: `release/CHECKLIST.md` flow 12 is what a real phone adds. To run it locally, start an emulator with a Google APIs image and run `python android/smoke/run_smoke.py --apk path/to/app-release.apk`.
 
 ## Real-app smoke test
 
