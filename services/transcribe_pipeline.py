@@ -678,7 +678,7 @@ class _PipelineRun:
         o, tuning = self.o, self.tuning
         # Each sentence cut from a segment is scored from its own words against the segment's.
         tagged = [{**seg, _SEGMENT_WORD_PROB: segment_splitting.mean_word_probability(seg.get("words"))}
-                  for seg in self.segments]
+                  for seg in self.segments or ()]
         pieces = [s for s in long_line_split.split_long_segments(
             tagged, min_pause=o.min_pause_sec,
             max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
