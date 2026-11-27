@@ -19,7 +19,7 @@ from jobs.gpu_queue import (_enqueue_locked, _gpu_queue_waiting_locked,
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
                              _start_job_thread)
 from jobs.job_settings import get_gpu_limit_enabled
-from jobs.job_table import _jobs, _lock, _mirror_locked
+from jobs.job_table import _jobs, _lock, _mirror_locked, _warn
 from lib import model_offline
 from lib.errors import ConflictError
 
@@ -219,7 +219,10 @@ def _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day):
     failed before any run existed for _fail_start to settle: the GPU slot and
     the member's start for the day."""
     _release_gpu_slot(job_id, gpu_touching)
-    user_caps.refund_daily_start(owner_user_id, counted_day)
+    try:
+        user_caps.refund_daily_start(owner_user_id, counted_day)
+    except Exception as exc:     # the caller re-raises the start's own error, which must not be hidden
+        _warn(f"job {job_id}: could not give back its daily start", exc)
 
 
 def _new_run_locked(job_id: str, mirror: bool = True) -> dict:

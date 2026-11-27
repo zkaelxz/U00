@@ -679,16 +679,19 @@ def test_a_nearly_full_drive_keeps_a_members_items_waiting_instead_of_skipping_t
     q.add_item(None, owners, "transcribe", True, at_pc=True)
     q.start(None)
 
-    q.tick()
-    q.tick()
+    t0 = q._clock()
+    q.tick(now=t0)
     first, second, third = _items()
     assert first["status"] == second["status"] == "waiting"
     assert "almost out of disk space" in first["reason"] and "almost out of disk space" in second["reason"]
     assert third["status"] == "running"      # the owner's jobs are never held back
 
     jobs.finish(f"transcribe_{owners}")
+    tries = len(jobs.concurrent)
+    q.tick(now=t0 + 10)       # every member's items rest a while rather than being retried each tick
+    assert len(jobs.concurrent) == tries and _items()[0]["status"] == "waiting"
     free["gb"] = 50
-    q.tick()
+    q.tick(now=t0 + q.DISK_LOW_RETRY_SECONDS + 1)
     assert _items()[0]["status"] == "running" and _items()[0]["reason"] is None
 
 
@@ -714,6 +717,11 @@ def test_a_member_past_their_daily_limit_waits_for_tomorrow_without_retrying_eve
     q.tick(now=t0 + 120)
     assert len(jobs.concurrent) == tries     # resting: no start is tried
     assert q.get_queue(None)["state"] == "running"
+
+    q.cancel_item(principal, _items()[1]["id"])
+    q.retry_item(principal, _items()[1]["id"], at_pc=True)
+    with q._lock:
+        assert [i["not_before"] for i in q._load()["items"]][1] is None    # Retry tries it at once
 
     user_caps.set_jobs_per_day(uid, None)      # the PC owner lifts the limit
     q.tick(now=t0 + q.DAILY_LIMIT_RETRY_SECONDS + 1)

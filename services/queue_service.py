@@ -94,6 +94,9 @@ _WAITING_FOR_TOMORROW = ("Waiting: today's job limit for the account that added 
 # How long an account's items rest after its daily limit refused one: the limit lasts until
 # midnight, so trying every tick would only repeat the refusal, but the owner may raise it sooner.
 DAILY_LIMIT_RETRY_SECONDS = 15 * 60
+# The same for every member's items while the drive is nearly full: each refused try rewrites the
+# queue document, and space comes back in minutes, not in one 5 s tick.
+DISK_LOW_RETRY_SECONDS = 60
 # Marks the document as this process's. A document without it came from an
 # earlier run or a restored backup, and is settled before anything reads it,
 # so neither can resume work on its own.
@@ -991,7 +994,8 @@ def _start_next(now: float, deferred=frozenset()) -> None:
     holds back, goes back to waiting with a reason and the next one is tried,
     so one member's own jobs never hold up the line; the next tick tries it
     again. An adder past their daily job limit has all their waiting items
-    rest for DAILY_LIMIT_RETRY_SECONDS."""
+    rest for DAILY_LIMIT_RETRY_SECONDS, and a nearly full drive rests every
+    member's waiting items for DISK_LOW_RETRY_SECONDS."""
     from jobs import job_launch
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         return     # a restore or cleanup holds the library: wait rather than skip everything
@@ -1019,16 +1023,20 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         claimed = dict(item)
         _save(doc)
     status, reason, job_id = RUNNING, "", None
-    wait_reason, rest_account = _WAITING_FOR_CAP, False
+    # (whose waiting items share the refusal, for how many seconds), or None
+    wait_reason, rest = _WAITING_FOR_CAP, None
     try:
         with user_caps.refuse_at_cap():
             job_id = _start_item(claimed)
         if job_id is None:
             status = DONE
     except user_caps.DailyLimitError:
-        status, wait_reason, rest_account = WAITING, _WAITING_FOR_TOMORROW, True
+        status, wait_reason = WAITING, _WAITING_FOR_TOMORROW
+        rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
     except user_caps.DiskLowError:
         status, wait_reason = WAITING, _WAITING_FOR_DISK
+        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
+        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:
@@ -1047,11 +1055,11 @@ def _start_next(now: float, deferred=frozenset()) -> None:
                 item["job_id"] = job_id
             elif status == WAITING:
                 item.update(status=WAITING, reason=wait_reason, started_at=None)
-                if rest_account:
-                    # Every waiting item of that account would be refused the same way today.
+                if rest is not None:
+                    shares, seconds = rest
                     for other in doc["items"]:
-                        if other["status"] == WAITING and other["user_id"] == item["user_id"]:
-                            other.update(reason=wait_reason, not_before=now + DAILY_LIMIT_RETRY_SECONDS)
+                        if other["status"] == WAITING and shares(other):
+                            other.update(reason=wait_reason, not_before=now + seconds)
             elif status == INTERRUPTED:
                 _finish(item, status, _INTERRUPTED, _clock())
             else:

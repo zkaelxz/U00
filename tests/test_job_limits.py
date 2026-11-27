@@ -322,6 +322,24 @@ class TestPerUserJobCaps:
             job_launch.start_process_job("speakers_fail", _boom)
         assert user_caps.jobs_today(7) == 0
 
+    def test_a_queued_gpu_job_that_fails_to_start_when_promoted_gives_back_the_days_count(self, monkeypatch):
+        user_caps.set_jobs_per_day(7, 2)
+        self._as(monkeypatch, None)
+        owner_gate = self._gate()
+        assert job_launch.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
+        self._as(monkeypatch, 7)
+        assert job_launch.start_job("gpu_member", lambda: None, gpu_touching=True) is True
+        assert bg.get_status("gpu_member")["status"] == "queued"
+        assert user_caps.jobs_today(7) == 1
+
+        def no_thread(*_a, **_k):
+            raise RuntimeError("can't start new thread")
+        monkeypatch.setattr(job_runner, "_spawn", no_thread)
+        owner_gate.set()
+        _wait("owner_gpu")
+        assert _wait_for(lambda: user_caps.jobs_today(7) == 0)
+        assert bg.get_status("gpu_member")["status"] == "error"
+
     def test_a_refund_lowers_only_the_count_of_the_day_it_was_taken(self):
         user_caps.set_jobs_per_day(7, 3)
         assert user_caps.count_daily_start(7, today="2026-11-24") == "2026-11-24"
