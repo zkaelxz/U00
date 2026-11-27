@@ -136,38 +136,34 @@ def glossary_term_forms(term: dict) -> list:
     return [term.get("term_original", "")] + aliases
 
 
-def script_folded(text: str) -> str:
-    """text in Simplified characters, so a term typed in one Chinese script is found in
-    lines written in the other. Unchanged when OpenCC is missing, or when converting would
-    change the length: callers read match positions in the original text."""
+@functools.lru_cache(maxsize=4096)
+def _script_spellings(form: str) -> tuple:
+    """form as written, in Simplified and in Traditional characters. The term is converted,
+    never the line: folding a line merges characters (後 and 后 both become 后), so a term
+    such as 天后 would match inside an ordinary 三天後. One character stays exact: alone,
+    it is too ambiguous to convert. Without OpenCC, form only."""
+    if len(form) < 2:
+        return (form,)
     try:
         import segment
-        folded = segment.opencc_t2s().convert(text)
+        converted = (segment.opencc_t2s().convert(form), segment.opencc_s2t().convert(form))
     except ImportError:
-        return text
-    return folded if len(folded) == len(text) else text
+        return (form,)
+    return tuple(dict.fromkeys((form, *converted)))
 
 
-@functools.lru_cache(maxsize=4096)
-def _folded_form(form: str) -> str:
-    return script_folded(form)
-
-
-def folded_forms(term: dict) -> list:
-    """The term's forms as script_folded would write them. One character stays
-    exact: alone, it folds into too many other words (乾, 幹 and 干 all become 干)."""
-    return [_folded_form(f) for f in glossary_term_forms(term) if len(f) >= 2]
-
-
-def term_in_text(text: str, term: dict, cross_script: bool = True, folded_text: str | None = None) -> bool:
-    """Whether text holds the term or one of its aliases. folded_text is
-    script_folded(text), passed in when many terms are checked against one text."""
-    if any(f and f in text for f in glossary_term_forms(term)):
-        return True
+def source_spellings(term: dict, cross_script: bool = True) -> list:
+    """The texts a glossary entry is looked for as in a source line: its forms
+    (glossary_term_forms), each also in the other Chinese script unless cross_script is off."""
+    forms = [f for f in glossary_term_forms(term) if f]
     if not cross_script:
-        return False
-    folded = script_folded(text) if folded_text is None else folded_text
-    return any(f in folded for f in folded_forms(term))
+        return forms
+    return list(dict.fromkeys(s for f in forms for s in _script_spellings(f)))
+
+
+def term_in_text(text: str, term: dict, cross_script: bool = True) -> bool:
+    """Whether text holds the term or one of its aliases, in either Chinese script."""
+    return any(s in text for s in source_spellings(term, cross_script))
 
 
 def matching_glossary_terms(zh: str, glossary_terms, cross_script: bool = True) -> list:
@@ -176,10 +172,7 @@ def matching_glossary_terms(zh: str, glossary_terms, cross_script: bool = True) 
     line_tools.explain_translation already used, factored out so the
     "what happened here?" view can show the same real, non-fabricated
     match set instead of re-deriving it differently."""
-    if not glossary_terms:
-        return []
-    folded = script_folded(zh) if cross_script else zh
-    return [t for t in glossary_terms if term_in_text(zh, t, cross_script, folded)]
+    return [t for t in (glossary_terms or []) if term_in_text(zh, t, cross_script)]
 
 
 def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:

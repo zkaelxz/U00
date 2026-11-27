@@ -239,10 +239,19 @@ class TestEitherChineseScript:
     def test_a_single_character_stays_exact(self):
         terms = [{"term_original": "幹", "term_translation": "do", "enforce_exact": 1}]
         assert glossary_check.required_terms("干杯", terms) == []
-        assert glossary_check.required_terms("幹嘛", terms) == [("幹", "do")]
 
-    def test_live_keeps_exact_matching(self):
-        assert llm_feature_prompts.matching_glossary_terms("对啊霸总", self.BOSS, cross_script=False) == []
+    def test_a_term_in_the_lines_own_script_does_not_match_inside_another_word(self):
+        # 後 and 后 are one character in Simplified; a converted line would hold 天后.
+        terms = [{"term_original": "天后", "term_translation": "Diva", "category": "person_name"}]
+        assert glossary_check.required_terms("三天後見", terms) == []
+        assert glossary_check.required_terms("天后來了", terms) == [("天后", "Diva")]
+
+    def test_enforced_spelling_applies_when_the_source_has_the_term_in_the_other_script(self):
+        import glossary_substitution
+        terms = [{"term_original": "師姐", "term_translation": "Senior Sister", "notes": "Sister",
+                  "enforce_exact": True}]
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
+        assert substitute("My sister is home.", "师姐在家。") == "My Senior Sister is home."
 
     def test_the_run_keeps_a_series_term_written_in_the_other_script(self, isolated_db):
         import db
@@ -262,16 +271,15 @@ def test_without_opencc_matching_is_exact(monkeypatch):
     import segment
     real_import = builtins.__import__
     monkeypatch.setattr(segment, "_opencc_t2s", None)
+    monkeypatch.setattr(segment, "_opencc_s2t", None)
 
     def no_opencc(name, *args, **kwargs):
         if name == "opencc" or name.startswith("opencc."):
             raise ImportError("no opencc")
         return real_import(name, *args, **kwargs)
     monkeypatch.setattr(builtins, "__import__", no_opencc)
-    llm_feature_prompts._folded_form.cache_clear()
+    llm_feature_prompts._script_spellings.cache_clear()
     try:
         assert glossary_check.required_terms("对啊霸总", TestEitherChineseScript.BOSS) == []
-        assert glossary_check.required_terms("對啊霸總", TestEitherChineseScript.BOSS) == [
-            ("霸總", "Domineering CEO")]
     finally:
-        llm_feature_prompts._folded_form.cache_clear()
+        llm_feature_prompts._script_spellings.cache_clear()

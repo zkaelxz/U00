@@ -8,7 +8,7 @@ request. What is still wrong afterwards is flagged for Review."""
 
 import re
 
-from .llm_feature_prompts import folded_forms, glossary_term_forms, script_folded
+from .llm_feature_prompts import glossary_term_forms, source_spellings
 from .llm_tasks import matching_glossary_terms
 from .translation_guard import line_problems, unusable_reply
 
@@ -48,11 +48,8 @@ def required_terms(zh: str, terms) -> list:
     matched = matching_glossary_terms(zh, [t for t in (terms or [])
                                            if (t.get("term_translation") or "").strip()
                                            and not _is_ambiguous_source(t)])
-    folded = script_folded(zh)
-    spans_of = {id(t): {(m.start(), m.end())
-                        for text, forms in ((zh, glossary_term_forms(t)), (folded, folded_forms(t)))
-                        for f in forms if f for m in re.finditer(re.escape(f), text)}
-                for t in matched}
+    spans_of = {id(t): [(m.start(), m.end()) for f in source_spellings(t)
+                        for m in re.finditer(re.escape(f), zh)] for t in matched}
     longest_first = sorted(matched, key=lambda t: -max(len(f) for f in glossary_term_forms(t)))
     covered, kept = [], set()
     for t in longest_first:

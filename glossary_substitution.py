@@ -2,7 +2,7 @@
 
 import difflib
 import re
-from engine_backends.llm_feature_prompts import script_folded, term_in_text
+from engine_backends.llm_feature_prompts import term_in_text
 
 
 # Kana, CJK ideographs and Hangul count as letters to Python's \w, but CJK
@@ -99,9 +99,8 @@ def build_hard_term_substituter(glossary_terms):
     def substitute(text: str, source: str | None = None) -> str:
         if not text:
             return text
-        folded = script_folded(source) if source is not None else None
         active = tuple(i for i, t in enumerate(enforced)
-                       if source is None or term_in_text(source, t, folded_text=folded))
+                       if source is None or term_in_text(source, t))
         return matcher(frozenset(active))(text) if active else text
 
     return substitute
