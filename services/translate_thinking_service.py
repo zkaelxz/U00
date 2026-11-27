@@ -32,17 +32,6 @@ def get_title_choice(drama_id: int) -> bool:
     return thinking_switch.title_thinking({"id": drama_id})
 
 
-def save_title_choice(drama_id: int, thinking) -> None:
-    """Remembers an explicit choice (None = not asked, nothing changes).
-    Never raises: a run must not fail because its preference could not be written."""
-    if thinking is None or not db.get_drama(drama_id):
-        return
-    try:
-        translate_run_service.save_style_toggles(drama_id, thinking=thinking)
-    except Exception:
-        log.warning("Could not save the thinking choice for drama %s", drama_id, exc_info=True)
-
-
 def may_remember(holds_paid: bool, thinking) -> bool:
     """Whether a run's choice may become the title's. The title's choice also
     drives later paid calls (fix-flagged, stronger-engine retry, bulk), so
