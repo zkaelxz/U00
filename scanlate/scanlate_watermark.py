@@ -18,6 +18,7 @@ _DOMAIN = re.compile(
 # which no list of domains covers. Two runs of four letters or more joined by a dot with no space
 # is an address, not dialogue (a sentence break has a space after its dot, and OCR that drops it
 # leaves a capital after the dot, so the right-hand run must be lowercase).
+_CJK_ANY = re.compile(r"[\u3040-\u30ff\u4e00-\u9fff\uac00-\ud7af]")
 _LATIN_ADDRESS = re.compile(r"[A-Za-z]{4,}\.[a-z]{4,}")
 
 # An address stamped under a Korean or CJK site name has no Latin label before
@@ -136,7 +137,7 @@ def looks_like_site_mark(text: str) -> bool:
     text = text or ""
     if _DOMAIN.search(text) or _CJK_DOMAIN.search(text) or _PROMO.search(_STRIP.sub("", text)):
         return True
-    if _LATIN_ADDRESS.search(text):
+    if _LATIN_ADDRESS.search(text) and (not any(c.isspace() for c in text.strip()) or _CJK_ANY.search(text)):
         return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
@@ -252,7 +253,7 @@ def flag_already_english(regions: list, source_language: str) -> int:
     for r in regions:
         # A bubble's English is dialogue the person may have kept or un-skipped on purpose; only
         # lettering outside a balloon (logo, credit, caption, sign) is the artist's own English.
-        if r.get("skip") or r.get("kind", "bubble") == "bubble":
+        if r.get("skip") or (r.get("kind") or "bubble") == "bubble":
             continue
         # OCR reads an English sign in fullwidth letters on CJK pages ("ＡＤＶＥＮＴ…").
         letters = [c for c in unicodedata.normalize("NFKC", r.get("source_text") or "") if c.isalpha()]

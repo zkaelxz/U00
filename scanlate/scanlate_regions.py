@@ -54,7 +54,7 @@ def _reads_as_japanese_sentence(text: str) -> bool:
 _HANGUL = re.compile(r"[가-힣]")
 # A Korean sentence or clause ends on a verb or connective ("어쩐지", "왜냐하면", "울고있지?"); a
 # sound effect ends on the sound ("쿵", "두근두근", "크아아악").
-_KOREAN_CLAUSE_END = re.compile(r"[면지요다까야네봐죠어고][\s.…?!~,]*$")
+_KOREAN_CLAUSE_END = re.compile(r"[면지요다까네봐죠][\s.…?!~,]*$")
 
 
 def _reads_as_korean_sentence(text: str) -> bool:
@@ -63,10 +63,11 @@ def _reads_as_korean_sentence(text: str) -> bool:
     syllables = len(_HANGUL.findall(text))
     if not syllables:
         return False
-    words = text.split()
-    if len(set(words)) >= 2:
+    if len(set(_HANGUL.findall(text))) < 3:
+        return False
+    if len(set(text.split())) >= 2 and syllables >= 6:
         return True
-    return syllables >= 3 and bool(_KOREAN_CLAUSE_END.search(text.strip()))
+    return bool(_KOREAN_CLAUSE_END.search(text.strip()))
 
 
 _KATAKANA_EFFECT = re.compile(r"^[゠-ヿー・…！？!?\s]*([゠-ヿ])\1{2,}[゠-ヿー・…！？!?\s]*$")

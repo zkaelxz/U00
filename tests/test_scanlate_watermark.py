@@ -255,3 +255,12 @@ def test_the_stamps_korean_wordings_without_its_first_word_are_marks(text):
 @pytest.mark.parametrize("text", ["이 웹툰 재밌어", "빠른 말이야", "공급이 부족해"])
 def test_ordinary_korean_near_the_stamp_words_is_not_a_mark(text):
     assert not wm.looks_like_site_mark(text)
+
+
+def test_glued_dialogue_with_other_words_is_not_an_address():
+    assert not wm.looks_like_site_mark("Wait.maybe later")
+
+
+def test_a_region_with_no_kind_is_treated_as_a_bubble_by_the_english_skip():
+    regions = [dict(_r("SECRET GARDEN"), kind=None)]
+    assert wm.flag_already_english(regions, "ko") == 0

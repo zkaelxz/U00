@@ -983,3 +983,10 @@ def test_centred_caption_box_is_left_alone():
     page = _caption_page(stamp=False)
     box = {"x": 0, "y": 20, "w": 460, "h": 160}
     assert scanlate_regions.trim_to_lettering(page, box) == box
+
+
+class TestKoreanEffectsStayEffects:
+    @pytest.mark.parametrize("text", ["와다다다", "우다다다", "쿵 쾅", "우르릉 쾅", "쿠구구"])
+    def test_repeated_syllable_and_two_word_effects_stay(self, text):
+        region = {"kind": "sfx", "source_text": text}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
