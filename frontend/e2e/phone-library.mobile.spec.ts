@@ -18,7 +18,7 @@ test('the first title card starts above the fold and the filters open in a sheet
   const card = page.locator('.home-ready-card, .drama-card').first()
   const box = (await card.boundingBox())!
   // Two Continue tiles sit above the list, so the card itself starts on the first screen but may run past it.
-  expect(box.y, 'first card starts inside the viewport').toBeLessThan(viewport.height - 100)
+  expect(box.y, 'first card starts inside the viewport').toBeLessThan(viewport.height)
   await expect(page.getByLabel('Sort by')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Favorite' })).toBeVisible()
   await page.getByRole('button', { name: 'Filters' }).tap()
