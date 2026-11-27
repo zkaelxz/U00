@@ -69,6 +69,10 @@ class _Helper:
 _cpu = _Helper("cpu")
 _gpu = _Helper("gpu")
 _gpu_off_reason = None
+_gpu_off_at = 0.0
+# A GPU fault turns the GPU reader off, but for this long only: one fault (a card that was
+# briefly full) otherwise left every later read on the CPU until the app restarted.
+GPU_OFF_SECONDS = 300
 _gpu_checked_at = None
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
@@ -131,10 +135,12 @@ def _params(key: str) -> dict:
 
 
 def _gpu_off(reason: str) -> None:
-    global _gpu_off_reason
+    global _gpu_off_reason, _gpu_off_at
     if _gpu_off_reason is None:
-        _log(f"Text reader: using the CPU for the rest of this run: {reason}", warning=True)
+        _log(f"Text reader: using the CPU for the next {GPU_OFF_SECONDS // 60} minutes: {reason}",
+             warning=True)
     _gpu_off_reason = reason
+    _gpu_off_at = time.monotonic()
 
 
 def _gpu_retry_later() -> None:
@@ -199,12 +205,15 @@ def _gpu_skipped(reason: str) -> bool:
     global _last_gpu_skip
     if reason != _last_gpu_skip:
         _last_gpu_skip = reason
-        _log(f"Text reader: not using the GPU: {reason}")
+        _log(f"Text reader: not using the GPU: {reason}", warning=True)
     return False
 
 
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at
+    global _gpu_checked_at, _gpu_off_reason
+    if _gpu_off_reason is not None and time.monotonic() - _gpu_off_at >= GPU_OFF_SECONDS:
+        _gpu_off_reason = None
+        _log("Text reader: trying the GPU again")
     if key not in GPU_KEYS or _gpu_off_reason is not None:
         return False
     try:
@@ -230,12 +239,15 @@ def _gpu_allowed(key: str) -> bool:
         import vram
         free = vram.free_vram_mb()
         if free is None:
-            return _gpu_skipped("no readable NVIDIA card")
+            return _gpu_skipped("the free GPU memory could not be read (no NVIDIA card, or "
+                                "nvidia-smi did not answer)")
         # Also honours Settings > Keep free memory for the GPU.
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
     except Exception as exc:
         return _gpu_skipped(f"not enough free GPU memory ({type(exc).__name__}: {exc})")
     _gpu_checked_at = None
+    global _last_gpu_skip
+    _last_gpu_skip = None
     return True
 
 

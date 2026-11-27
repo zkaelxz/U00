@@ -155,6 +155,22 @@ class TestGpuAllowed:
         self.free = 16000
         assert ocr_worker._gpu_allowed("medium") and self.readings == 2
 
+    def test_a_fault_turns_the_gpu_off_for_a_while_not_for_the_rest_of_the_process(self):
+        ocr_worker._gpu_off("CUDA error")
+        assert not ocr_worker._gpu_allowed("medium")
+        ocr_worker._gpu_off_at -= ocr_worker.GPU_OFF_SECONDS + 1
+        assert ocr_worker._gpu_allowed("medium")
+
+    def test_why_the_cpu_is_used_is_logged_once_per_reason(self, monkeypatch):
+        lines = []
+        monkeypatch.setattr(ocr_worker, "_log", lambda text, warning=False: lines.append(text))
+        monkeypatch.setattr(ocr_worker, "_last_gpu_skip", None)
+        self.free = None
+        for _ in range(3):
+            ocr_worker._gpu_allowed("medium")
+            ocr_worker._gpu_checked_at = None
+        assert len(lines) == 1 and "could not be read" in lines[0]
+
 
 class _FakeProcess:
     def __init__(self):
