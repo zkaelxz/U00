@@ -34,12 +34,15 @@ type Props = {
   onStop: () => void
   onClear: () => void
   onSwitch: (id: string) => void
+  /** Player-and-lines-only view: the status, options and save controls are folded away while the session runs. */
+  focus: boolean
+  onFocus: (v: boolean) => void
   /** The form's language and chunk length, for a session whose status has not arrived yet. */
   language: string
   segmentSeconds: number
 }
 
-export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch, language, segmentSeconds }: Props) {
+export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch, focus, onFocus, language, segmentSeconds }: Props) {
   const pc = usePcOnly()
   const status = session.status?.status ?? 'queued'
   const active = isActive(status)
@@ -115,11 +118,18 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   )
 
   // Under the picture when there is one, else above the lines: a bar pinned to the bottom covered the last lines.
+  // Focus only applies while the session runs; a stopped session shows everything again (Save, Clear lines).
+  // A warning (reconnecting, lines left untranslated) keeps the status, lag and notes on screen; routine ones fold away.
+  const calm = !session.status || (statusTone(session.status) === 'muted' && !/untranslated/.test(lag ?? ''))
+  const focused = focus && active && !tv.on && calm
   const stopBar = active && !tv.on && (
     <div className="live-stopbar">
       <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
-      {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
-    </button>
+        {stopping === 'finishing' ? 'Stop now' : stopping ? 'Stopping…' : joined ? 'Leave' : status === 'queued' ? 'Cancel' : 'Stop'}
+      </button>
+      <button type="button" className={buttonClass('secondary')} data-testid="live-focus-toggle" onClick={() => onFocus(!focus)}>
+        {focus ? 'Show controls' : 'Hide controls'}
+      </button>
     </div>
   )
 
@@ -128,7 +138,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
       data-tv={tv.on ? (tvPicture ? tv.video : 'off') : undefined} data-tv-bar={tv.on && tv.barShown ? '' : undefined} data-tv-split={tv.on ? tvSplit : undefined}>
       {tv.on && <TvBar shown={tv.barShown} hasPicture={tvPicture} video={tv.video} onVideo={tv.setVideo} showOriginal={showOriginal} onShowOriginal={setShowOriginal} split={tvSplit} onSplit={setTvSplit} textSize={tvTextSize} onTextSize={setTvTextSize} onExit={tv.exit} />}
       {tv.on && !tv.barShown && <button type="button" className="live-tv-menu" aria-label="TV mode menu" onClick={tv.showBar}>Menu</button>}
-      {running.length > 1 && !tv.on && (
+      {running.length > 1 && !tv.on && !focused && (
         <div className="live-chips" role="tablist" aria-label="Running streams">
           {running.map((s, i) => (
             <button key={s.session_id} type="button" role="tab" aria-selected={s.session_id === session.id}
@@ -147,22 +157,22 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
               : streamRef && <StreamEmbed stream={streamRef} delay={delay} onPictureDelay={setPictureDelay} captions={captions} />
           )}
           {stopBar}
-          {!tv.on && options}
+          {!tv.on && !focused && options}
         </div>
       )}
       {!(videoLive && !(tv.on && !pictureShown)) && stopBar}
       <div className="live-feed">
         {/* Only the status line is announced: the lines below change every chunk. */}
-        <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status">
+        <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status" hidden={focused}>
           {session.status ? statusLine(session.status, total) : 'Connecting…'}
         </p>
-        {lag && <p className="muted" data-testid="live-lag">{lag}</p>}
-        {!!session.status?.notes?.length && (
+        {lag && !focused && <p className="muted" data-testid="live-lag">{lag}</p>}
+        {!focused && !!session.status?.notes?.length && (
           <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">
             {session.status.notes.map((n, i) => <li key={`${i}-${n}`}>{n}</li>)}
           </ul>
         )}
-        {!videoLive && !tv.on && options}
+        {!videoLive && !tv.on && !focused && options}
         {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
         {hasChat && !tv.on && (
           <div className="live-tabs" role="tablist" aria-label="Show">
@@ -181,7 +191,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
             <LiveChatSection sessionId={session.id} running={active} language={lang} delay={showVideo && (streamRef || ownPlayer) ? pictureDelay : 0} />
           </div>
         )}
-        {total > 0 && !tv.on && <SaveSession cues={session.cues} />}
+        {total > 0 && !tv.on && !focused && <SaveSession cues={session.cues} />}
         {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
     </div>

@@ -6,7 +6,7 @@ from lib.errors import InvalidInputError
 KEY = "account_prefs.{}"
 # One allowed value list per preference. A new preference is added here and nowhere else, so a
 # client can never store a key or value the app doesn't understand.
-CHOICES = {"theme": ("system", "light", "dark", "sepia", "oled")}
+CHOICES = {"theme": ("system", "light", "dark", "sepia", "oled"), "live_focus": (True, False)}
 
 
 def get(user_id: int) -> dict:

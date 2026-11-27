@@ -52,7 +52,7 @@ final class AlertPoller {
                 .putLong(MARK_AT, Double.doubleToLongBits(AlertFeed.newestAt(items))).apply();
     }
 
-    private static void ensureChannel(Context context) {
+    static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         manager.createNotificationChannel(new NotificationChannel(CHANNEL, "Baihe alerts",
