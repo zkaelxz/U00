@@ -9,6 +9,8 @@ A Developer Mode row reads as its default while Developer Mode is off, so turnin
 it off puts the app back to its normal behaviour instead of leaving a hidden
 override in force.
 """
+from typing import Any
+
 import asr_backend
 import sensitivity_preset
 import sentence_groups
@@ -44,7 +46,7 @@ def values() -> dict:
 _PAIRED_KEYS = frozenset(k for pair in settings_schema.ORDERED_PAIRS for k in pair[:2])
 
 
-def value(key: str):
+def value(key: str) -> Any:
     # A plain row (not Developer Mode, not half of an ordered pair) is just its
     # stored value, so skip reading every other row; the rest need the full pass.
     if key in KEYS and key not in _PAIRED_KEYS and not settings_schema.BY_KEY[key].dev_only:
