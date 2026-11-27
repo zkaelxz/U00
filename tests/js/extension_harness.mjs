@@ -985,6 +985,44 @@ function popupExpression(expression) {
   return JSON.parse(sandbox.__out);
 }
 
+// Two presses of "Subtitle this video" while the first is on its way, then the result line and link.
+async function popupVideo() {
+  const noop = () => {};
+  const byId = new Map();
+  const el = (id) => {
+    if (!byId.has(id)) byId.set(id, { id, addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
+      options: [], value: "", checked: true, textContent: "", hidden: true, disabled: false, href: "" });
+    return byId.get(id);
+  };
+  const sent = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const sandbox = {
+    document: { getElementById: el, querySelectorAll: () => [] },
+    chrome: { runtime: { onMessage: { addListener: noop }, sendMessage: async (message) => {
+                if (message.type !== "sendVideo") return { ok: false, error: "x" };
+                sent.push(message);
+                await gate;
+                return { ok: true, data: { drama_id: 12 } };
+              } },
+              storage: { local: { get: async () => ({}), set: async () => {} } },
+              tabs: { query: async () => [{ id: 3, url: "https://video.example.com/watch?v=abc" }] } },
+    localStorage: { getItem: () => null, setItem: noop },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}\n;this.__run = runSendVideo;`, sandbox);
+  const first = sandbox.__run();
+  const second = sandbox.__run();
+  await new Promise((r) => setTimeout(r, 0));
+  const disabledWhileSending = el("sendVideo").disabled && el("startLive").disabled;
+  release();
+  await Promise.all([first, second]);
+  return { sends: sent.length, url: sent[0] && sent[0].url, disabledWhileSending,
+           enabledAfter: !el("sendVideo").disabled && !el("startLive").disabled,
+           status: el("status").textContent, link: el("openInBaihe").href, linkShown: !el("openInBaihe").hidden };
+}
+
 async function contentExpression(expression) {
   const noop = () => {};
   const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
@@ -1095,6 +1133,7 @@ const [kind, scenario] = process.argv.slice(2);
 const handlers = {
   content, background, popup, novel,
   popup_expression: async (e) => popupExpression(e),
+  popup_video: async () => popupVideo(),
   content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
   reload_after_update: reloadAfterUpdate,

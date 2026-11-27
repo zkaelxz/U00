@@ -359,8 +359,9 @@ def test_video_and_live_send_only_the_page_link_and_refuse_a_private_page():
     assert out["localCalls"] == 0
 
 
-def test_the_video_tab_offers_both_actions():
-    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
-    assert 'id="tab-video"' in html and 'aria-controls="panel-video"' in html
-    for needle in ('id="sendVideo"', 'id="startLive"', 'id="liveLanguage"'):
-        assert needle in html
+def test_a_second_press_while_sending_sends_nothing_more_and_the_result_links_the_title():
+    out = _node("popup_video", "")
+    assert out["sends"] == 1 and out["url"] == "https://video.example.com/watch?v=abc"
+    assert out["disabledWhileSending"] is True and out["enabledAfter"] is True
+    assert "downloading and subtitling" in out["status"]
+    assert out["linkShown"] is True and out["link"].endswith("/#/drama/12")

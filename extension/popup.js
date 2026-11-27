@@ -684,23 +684,38 @@ async function runText() {
   }
 }
 
+// A second press while the first is on its way would queue a second title and a second paid run.
+let videoInFlight = false;
+
 async function runVideo(type, extra, busy, done) {
-  const tab = await activeTab();
-  if (!tab || !tab.url) return say("No active tab.", true);
-  say(busy);
-  const result = await chrome.runtime.sendMessage({ type, url: tab.url, ...extra });
-  if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
-  say(done.text);
-  els.openLink.href = `${APP_URL}/${done.route(result.data || {})}`;
-  els.openLink.hidden = false;
+  if (videoInFlight) return;
+  videoInFlight = true;
+  els.sendVideo.disabled = els.startLive.disabled = true;
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.url) return say("No active tab.", true);
+    say(busy);
+    const result = await chrome.runtime.sendMessage({ type, url: tab.url, ...extra });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    const data = result.data || {};
+    say(typeof done.text === "function" ? done.text(data) : done.text);
+    els.openLink.href = `${APP_URL}/${done.route(data)}`;
+    els.openLink.hidden = false;
+  } catch (e) {
+    say(`Couldn't reach the extension's background (${e.message}).`, true);
+  } finally {
+    videoInFlight = false;
+    els.sendVideo.disabled = els.startLive.disabled = false;
+  }
 }
 
 const runSendVideo = () => runVideo("sendVideo", {}, "Sending the video link to Baihe…", {
   text: "Sent. Baihe is downloading and subtitling it; follow it in Baihe's Jobs.",
-  route: (data) => (data.drama_id ? `#/drama/${data.drama_id}` : "#/jobs"),
+  route: (data) => `#/drama/${data.drama_id}`,
 });
 const runStartLive = () => runVideo("startLive", { sourceLanguage: els.liveLanguage.value }, "Starting Live…", {
-  text: "Live started on the PC. Watch it in Baihe's Live page.",
+  text: (data) => (data.joined ? "Live was already running on this stream; you've joined it in Baihe's Live page."
+                                : "Live started on the PC. Watch it in Baihe's Live page."),
   route: () => "#/live",
 });
 
