@@ -88,6 +88,16 @@ class TestFindArtCaptions:
         found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
         assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
 
+    def test_the_paddle_stamp_search_can_be_left_out(self, monkeypatch):
+        def never(*a, **k):
+            raise AssertionError("paddle must not run")
+        monkeypatch.setattr(ocr, "paddle_lines", never)
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
+            ("保留的字", 0.9, (10, 10, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(),
+                                      backend="rapidocr", find_stamps=False)
+        assert [c["source_text"] for c in found] == ["保留的字"]
+
     def test_without_paddle_installed_the_rapidocr_lines_are_still_used(self, monkeypatch):
         def missing(*a, **k):
             raise ImportError("paddleocr")

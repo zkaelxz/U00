@@ -115,13 +115,16 @@ def _is_caption_text(text: str) -> bool:
     return not all(c.isascii() for c in significant)
 
 
-def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str | None) -> list:
+def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str | None,
+                       find_stamps: bool = True) -> list:
     """The OCR lines of `read_lines`, plus the site-stamp lines PaddleOCR finds
     when RapidOCR is the reader. RapidOCR's detector misses a site's faint
     overlay stamp on art that Paddle's finds; Paddle is not needed otherwise, so
-    a missing install leaves the RapidOCR lines alone."""
+    a missing install leaves the RapidOCR lines alone. `find_stamps=False` skips
+    Paddle: its whole-page read runs on the CPU in the app's own process (about
+    20 s a page, the GPU idle), which a Quick read cannot afford on every page."""
     lines = list(read_lines(page, lang, scale))
-    if backend != "rapidocr":
+    if backend != "rapidocr" or not find_stamps:
         return lines
     import ocr
     from memory_headroom import HeadroomError
@@ -140,7 +143,7 @@ def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str |
 
 
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None,
-                      backend: str | None = None) -> list:
+                      backend: str | None = None, find_stamps: bool = True) -> list:
     """Caption boxes on the artwork that no existing region covers, as
     {"x","y","w","h","source_text"} in full-page pixels. Lines are read with
     RapidOCR when that is the page OCR backend, else with PaddleOCR."""
@@ -151,7 +154,8 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []
     read_lines = ocr.rapidocr_lines if backend == "rapidocr" else ocr.paddle_lines
-    for text, conf, (x, y, bw, bh) in _lines_with_stamps(read_lines, page, lang, scale, backend):
+    for text, conf, (x, y, bw, bh) in _lines_with_stamps(read_lines, page, lang, scale, backend,
+                                                         find_stamps):
         # A site's overlay stamp is small by design, which is why small marks are
         # ignored; but it has to be found to be skipped and painted out.
         small = bh < _MIN_LINE_HEIGHT and not looks_like_site_mark(text)

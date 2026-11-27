@@ -242,9 +242,9 @@ def _ocr_scored(image_path: str, box: dict, source_language: str, **kwargs) -> s
 
 def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: str = "auto",
                         hf_token: str | None = None, ocr_backend: str | None = None,
-                        tesseract_cmd: str | None = None,
-                        prefer_paddle_vl_manga: bool = False, page_id: int | None = None,
-                        art_captions: bool = False, art_captions_max_regions: int | None = None):
+                        tesseract_cmd: str | None = None, prefer_paddle_vl_manga: bool = False,
+                        page_id: int | None = None, art_captions: bool = False,
+                        art_captions_max_regions: int | None = None, art_caption_stamps: bool = True):
     """Detect -> structure (analyze_page_regions) -> OCR -> font-style
     sample for one page. Shared by the single-page Detect button and the
     run service's per-page loop, so both do exactly the same thing per page.
@@ -258,7 +258,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     art_captions: also find lettering drawn straight onto the artwork (see
     scanlate_art_text), which the bubble detector never sees, and return it as
     regions of kind "caption" after the bubbles; a page with more bubbles than
-    `art_captions_max_regions` skips that extra pass (about 0.7 s of CPU a page).
+    `art_captions_max_regions` skips it; `art_caption_stamps=False` skips its Paddle stamp search.
 
     The page is decoded once (decode_page()) and that array shared by every
     step, instead of each step and each bubble reading the file again."""
@@ -283,7 +283,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
         # A page of lettering on the art alone is not "no bubbles found".
         if art_captions:
             captions = _art_caption_regions(image_path, source_language, [], page, notes,
-                                               ocr_backend)
+                                               ocr_backend, art_caption_stamps)
         if not captions:
             _note_no_bubbles(image_path, page, notes)
             return [], notes
@@ -332,7 +332,7 @@ def detect_and_ocr_page(image_path: str, source_language: str, detect_backend: s
     if art_captions and _within_caption_limit(_balloons_with_lines(bubbles), art_captions_max_regions):
         if captions is None:
             captions = _art_caption_regions(image_path, source_language, bubbles, page, notes,
-                                            ocr_backend)
+                                            ocr_backend, art_caption_stamps)
         bubbles = with_captions(bubbles, captions)
     if ocr_failed:
         # Fixed text: the exception may carry a model path, and the caller
@@ -540,7 +540,8 @@ def caption_line_backend(source_language: str, ocr_backend: str):
 
 
 def _art_caption_regions(image_path: str, source_language: str, bubbles: list, page,
-                         notes: list, ocr_backend: str | None = None) -> list:
+                         notes: list, ocr_backend: str | None = None,
+                         find_stamps: bool = True) -> list:
     """Regions (kind "caption") for lettering on the artwork that no bubble
     covers, with the OCR detector's own text. Appended after the bubbles in
     reading order. A failure leaves the page with its bubbles and a note."""
@@ -551,7 +552,8 @@ def _art_caption_regions(image_path: str, source_language: str, bubbles: list, p
                                                     backend=caption_line_backend(
                                                         source_language,
                                                         ocr_backend or auto_ocr_backend(source_language))
-                                                    or "paddle")
+                                                    or "paddle",
+                                                    find_stamps=find_stamps)
     except HeadroomError:
         raise
     except Exception as exc:

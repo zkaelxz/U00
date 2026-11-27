@@ -672,6 +672,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     ocr_backend=ocr_backend,
                     art_captions=_reads_art_captions(lang, ocr_backend),
                     art_captions_max_regions=_ART_CAPTION_MAX_REGIONS,
+                    art_caption_stamps=False,
                     tesseract_cmd=config.get("tesseract_cmd") or None,
                     prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")), page_id=(page or {}).get("id"))
                 read_seconds = time.monotonic() - read_started

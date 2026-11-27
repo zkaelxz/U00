@@ -475,6 +475,11 @@ class TestTranslatingAPage:
         assert page["regions"][0]["source_text"] == "原文"
         assert any("translation failed" in note[1] for note in page["notes"])
 
+    def test_a_page_read_leaves_out_the_slow_stamp_search(self, token, fake_pipeline):
+        _post(token, {"images": [{"data": _b64(_png_bytes()),
+                                  "content_type": "image/png"}], "store": False})
+        assert fake_pipeline["detect"][0]["kwargs"]["art_caption_stamps"] is False
+
     def test_an_unstored_page_leaves_no_temp_file_behind(self, token, fake_pipeline,
                                                         isolated_db):
         seen = {}
