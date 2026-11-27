@@ -866,7 +866,7 @@ _RULE_MAX_THICKNESS_PX = 6
 _RULE_MIN_LENGTH_PX = 40
 _RULE_LETTERING_GAP_PX = 8
 _RULE_LETTERING_MIN_AREA_PX = 30
-_RULE_LETTERING_MIN_SPAN_PX = 8
+_RULE_LETTERING_MIN_SPAN_PX = 12
 _RULE_SPREAD = 100
 
 
@@ -877,23 +877,19 @@ def _channel_spread(bgr):
     return bgr.max(axis=2) - bgr.min(axis=2)
 
 
-def _beside_coloured_lettering(stats, i, thin: set) -> bool:
-    """True when a glyph-sized coloured mark sits within a few pixels of component `i` with
-    the line at its middle: glow lettering whose dash is as coloured as its letters. A credit
-    rule has plain dark text beside it, and its ornaments do not sit on its line."""
+def _beside_coloured_lettering(stats, i, glyphs) -> bool:
+    """True when a coloured glyph (`glyphs`, rows of x, y, w, h) sits within a few pixels of
+    horizontal rule `i` on its line: glow lettering whose dash is as coloured
+    as its letters. A credit rule has plain dark text beside it; a small end cap on it is
+    smaller than a glyph."""
     import cv2
     x, y, w, h = (int(v) for v in stats[i, :4])
+    if h > w:
+        return False
     middle = y + h / 2
     gap = _RULE_LETTERING_GAP_PX
-    for j in range(1, len(stats)):
-        if j == i or j in thin:
-            continue
-        jx, jy, jw, jh = (int(v) for v in stats[j, :4])
-        if min(jw, jh) < _RULE_LETTERING_MIN_SPAN_PX or stats[j, cv2.CC_STAT_AREA] < _RULE_LETTERING_MIN_AREA_PX:
-            continue
-        if jx < x + w + gap and x - gap < jx + jw and jy + 0.25 * jh <= middle <= jy + 0.75 * jh:
-            return True
-    return False
+    return bool(np.any((glyphs[:, 0] < x + w + gap) & (x - gap < glyphs[:, 0] + glyphs[:, 2])
+                       & (glyphs[:, 1] - gap <= middle) & (middle <= glyphs[:, 1] + glyphs[:, 3] + gap)))
 
 
 def drop_colour_rules(mask, roi) -> None:
@@ -909,8 +905,11 @@ def drop_colour_rules(mask, roi) -> None:
     thin = {i for i in range(1, count)
             if min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) <= _RULE_MAX_THICKNESS_PX
             and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _RULE_MIN_LENGTH_PX}
+    glyphs = np.array([stats[j, :4] for j in range(1, count) if j not in thin
+                       and min(stats[j, cv2.CC_STAT_WIDTH], stats[j, cv2.CC_STAT_HEIGHT]) >= _RULE_LETTERING_MIN_SPAN_PX
+                       and stats[j, cv2.CC_STAT_AREA] >= _RULE_LETTERING_MIN_AREA_PX], dtype=float).reshape(-1, 4)
     for i in thin:
-        if not _beside_coloured_lettering(stats, i, thin):
+        if not _beside_coloured_lettering(stats, i, glyphs):
             rules[labels == i] = 1
     if rules.any():
         mask[cv2.dilate(rules, np.ones((5, 5), np.uint8)) > 0] = 0
