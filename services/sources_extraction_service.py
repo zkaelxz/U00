@@ -381,17 +381,25 @@ def drop_review(drama_id: int):
 def write_pages(drama_id: int, items: Iterable[tuple[Any, bytes | Callable[[], bytes]]], job_id: str | None = None, chapter: dict | None = None) -> tuple:
     """Prepares and writes the pages one image at a time, in order, under
     the page rules (EXIF orientation applied, webtoon strips cut into
-    pages): (pages added, [skipped candidates]). Each image's bytes are
-    dropped as soon as its pages are written, so no more than one image's
-    prepared pages are held at once. An image over a cap, or damaged, is
-    skipped with its reason set, never failing the rest. `items`:
+    pages): (pages added, [skipped candidates], images already there). Each
+    image's bytes are dropped as soon as its pages are written, so no more
+    than one image's prepared pages are held at once. An image over a cap, or
+    damaged, is skipped with its reason set, never failing the rest. `items`:
     (candidate, bytes or a callable returning them). With `job_id`, a
     cancel is honoured between images (pages already written stay).
-    `chapter` (comic_chapters.chapter_ref) labels every page written."""
-    added, skipped = 0, []
+    `chapter` (comic_chapters.chapter_ref) labels every page written; an
+    image that chapter already holds from an earlier or cancelled import is
+    passed over, so importing it again only fills in what is missing."""
+    added, skipped, present = 0, [], 0
+    done = comic_chapters.imported_sources(drama_id, chapter)
     for c, content in items:
         if job_id and background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
+        key = comic_chapters.source_key(chapter, c.order, c.url)
+        if key and key in done:
+            present += 1
+            c.content = b""
+            continue
         try:
             pages = limits.prepare_page(content() if callable(content) else content)
         except limits.ImageRejected as e:
@@ -405,9 +413,10 @@ def write_pages(drama_id: int, items: Iterable[tuple[Any, bytes | Callable[[], b
         finally:
             c.content = b""          # the download is no longer needed
             content = None
-        added += pipeline.add_page_images(drama_id, pages, chapter=chapter)
+        label = {**chapter, "source": key} if key and chapter else chapter
+        added += pipeline.add_page_images(drama_id, pages, chapter=label)
         del pages
-    return added, skipped
+    return added, skipped, present
 
 
 # ----- corrections ---------------------------------------------------------
@@ -468,11 +477,12 @@ def _review_import_job(job_id: str, drama_id: int, kind: str, snapshot, rv: _Rev
         else:
             from services import sources_import_service as imp
             label = _first_heading(rv, rv.data) or adaptive.title_from_url(rv.url)
-            n, skipped = write_pages(
+            n, skipped, present = write_pages(
                 drama_id, ((rv.candidates[i], (lambda i=i: _read(rv, i))) for i in snapshot),
                 job_id, chapter=comic_chapters.chapter_ref(None, label, "", rv.url))
             result = {"kind": "review_import", "content_type": "comic", "pages_added": n,
-                      "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped)}
+                      "skipped": imp.skipped_view(skipped), "skipped_count": len(skipped),
+                      "already_present": present}
         if kind == "novel" or result["pages_added"]:
             drama_service.set_source_url_once(drama_id, rv.url)
         background_jobs.set_result(job_id, result)

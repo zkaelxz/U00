@@ -689,11 +689,12 @@ def skipped_view(candidates) -> list:
             for c in list(candidates)[:MAX_SKIPPED_LISTED]]
 
 
-def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=False) -> dict:
+def _comic_result(needs_review: bool, pages_added: int, rejected, review_open=False,
+                  already_present: int = 0) -> dict:
     rejected = list(rejected)
     return {"kind": "comic_import", "needs_review": needs_review, "pages_added": pages_added,
             "skipped": skipped_view(rejected), "skipped_count": len(rejected),
-            "review_open": bool(review_open)}
+            "review_open": bool(review_open), "already_present": already_present}
 
 
 def _adapter_chapter(url: str, job_id: str = "", local: bool = True):
@@ -734,10 +735,10 @@ def _import_with_adapter(job_id: str, found, url: str, drama_id: int) -> bool:
               (lambda r=r: adapter.download_page(r)[0])) for r in refs]
     extraction.drop_review(drama_id)
     ref = comic_chapters.chapter_ref(None, chapter.title or "", "", url)
-    n, skipped = extraction.write_pages(drama_id, items, job_id, chapter=ref)
+    n, skipped, present = extraction.write_pages(drama_id, items, job_id, chapter=ref)
     if n:
         drama_service.set_source_url_once(drama_id, url)
-    background_jobs.set_result(job_id, _comic_result(False, n, skipped))
+    background_jobs.set_result(job_id, _comic_result(False, n, skipped, already_present=present))
     return True
 
 
@@ -780,11 +781,12 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
     extraction.drop_review(drama_id)
     chapter = comic_chapters.chapter_ref(
         None, adaptive.page_label(report.data, getattr(res.ladder, "html", ""), url), "", url)
-    n, skipped = extraction.write_pages(drama_id, ((c, c.content) for c in res.images), job_id,
-                                        chapter=chapter)
+    n, skipped, present = extraction.write_pages(drama_id, ((c, c.content) for c in res.images),
+                                                 job_id, chapter=chapter)
     if n:
         drama_service.set_source_url_once(drama_id, url)
-    background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected)))
+    background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected),
+                                                     already_present=present))
 
 
 def start_comic_url_import(url, drama_id, local: bool = True, principal=None,
