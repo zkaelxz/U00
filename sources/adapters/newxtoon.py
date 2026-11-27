@@ -27,7 +27,7 @@ import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, soup as _soup
+from ..base import SourceAdapter, layout_changed_class, soup as _soup, https_only
 from ..domains import SiteDomains
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
@@ -44,11 +44,6 @@ _CHAPTER_PATH = re.compile(r"^/comics/([0-9]{1,12})/chapters/([0-9]{1,12})/?$")
 LayoutChanged = layout_changed_class("NewXToon")
 
 _SITE_SUFFIX = re.compile(r"\s*[—–-]\s*뉴엑스툰\s*$")
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 def _is_ad(url: str) -> bool:
@@ -114,7 +109,7 @@ class NewXToonSource(SourceAdapter):
             cover = urljoin(self.base_url + "/", str(img["src"])) if img and img.get("src") else ""
             out.append(SearchResult(self.name, m.group(1), title,
                                     f"{self.base_url}/comics/{m.group(1)}",
-                                    "" if _is_ad(cover) else _https(cover)))
+                                    "" if _is_ad(cover) else https_only(cover)))
         return out
 
     def _series_id(self, value) -> str:
@@ -137,7 +132,7 @@ class NewXToonSource(SourceAdapter):
         cover = soup.find("meta", attrs={"property": "og:image"})
         desc = soup.find("meta", attrs={"property": "og:description"}) \
             or soup.find("meta", attrs={"name": "description"})
-        cover_url = _https(cover.get("content")) if cover else ""
+        cover_url = https_only(cover.get("content")) if cover else ""
         return SeriesInfo(self.name, sid, title, f"{self.base_url}/comics/{sid}",
                           "" if _is_ad(cover_url) else cover_url,
                           description=_clean(desc.get("content")) if desc else "",
@@ -202,7 +197,7 @@ class NewXToonSource(SourceAdapter):
         html = self._page(f"/comics/{sid}/chapters/{cid}", f"Loading chapter {chapter.title}")
         urls = []
         for img in _soup(html).find_all("img", class_="reader-page"):
-            url = _https(img.get("data-src") or img.get("src"))
+            url = https_only(img.get("data-src") or img.get("src"))
             if url and not _is_ad(url) and url not in urls:
                 urls.append(url)
         if not urls:

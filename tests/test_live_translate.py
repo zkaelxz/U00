@@ -726,6 +726,24 @@ class TestDedupOverlap:
         # after-the-boundary half.
         assert out == [_seg(1.0, 4.0, "跨界的一句"), _seg(4.0, 6.0, "新内容")]
 
+    def test_the_outcome_says_whether_the_exact_match_or_the_time_rule_joined_the_chunks(self):
+        seen = []
+        lt.dedup_overlap([_seg(0.5, 4.0, "我们明天去北京吧")], 2.0, "我们明天去", on_outcome=seen.append)
+        lt.dedup_overlap([_seg(0.0, 1.5, "别的话")], 2.0, "完全不同", on_outcome=seen.append)
+        assert seen == ["matched", "fallback"]
+
+    def test_nothing_to_compare_reports_no_outcome(self):
+        seen = []
+        lt.dedup_overlap([_seg(0.5, 1.5, "嗯")], 2.0, "", on_outcome=seen.append)
+        lt.dedup_overlap([_seg(0.5, 1.5, "你好")], 0.0, "你好", on_outcome=seen.append)
+        assert seen == []
+
+    def test_silent_overlap_reports_no_outcome(self):
+        # Nothing was heard in the overlap, so the exact match had nothing to fail on.
+        seen = []
+        lt.dedup_overlap([_seg(3.0, 4.0, "你好")], 2.0, "我们明天去", on_outcome=seen.append)
+        assert seen == []
+
     def test_segments_starting_after_the_overlap_are_never_matched(self):
         # "好的" said AFTER the boundary is new speech even though the
         # previous chunk's tail also ended with "好的".
@@ -909,7 +927,7 @@ class TestOverlapDedupAgainstRealAudio:
     def test_without_dedup_the_same_audio_would_repeat_the_phrase(self, monkeypatch, tmp_path):
         # Proves the test above can actually see a duplicate: the padded
         # transcription genuinely re-hears "我们明天去".
-        monkeypatch.setattr(lt, "dedup_overlap", lambda segs, overlap, tail, covered=None: list(segs))
+        monkeypatch.setattr(lt, "dedup_overlap", lambda segs, *_a, **_k: list(segs))
         monkeypatch.setattr(live_caption, "hold_back_overlap", lambda cues, *a: (cues, None))
         cues, _, _ = self._run(monkeypatch, tmp_path, "test_overlap_nodedup", self.CHUNKS)
         assert "".join(c["text"] for c in cues).count("我们明天去") == 2

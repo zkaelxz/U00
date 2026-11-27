@@ -426,12 +426,15 @@ export function statusTone(s: Partial<Pick<LiveSessionStatus, 'status' | 'stop_r
   return s.stop_reason || (s.status === 'running' && (s.reconnect_attempt ?? 0) > 0) ? 'warn' : 'muted'
 }
 
-/** The caption lag and the lines left untranslated, or null before a chunk is measured. */
-export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured'>>): string | null {
+/** The caption lag, the lines left untranslated and the chunk joins that fell back to the time rule, or null before a chunk is measured. */
+export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured' | 'overlap_matched' | 'overlap_fallback'>>): string | null {
   if (!s.chunks_measured) return null
-  const lag = `Captions about ${Math.round(s.lag_seconds ?? 0)} s behind the stream.`
+  let line = `Captions about ${Math.round(s.lag_seconds ?? 0)} s behind the stream.`
   const skipped = s.translations_skipped ?? 0
-  return skipped ? `${lag} ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.` : lag
+  if (skipped) line += ` ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.`
+  const fallback = s.overlap_fallback ?? 0
+  if (fallback) line += ` ${fallback} of ${fallback + (s.overlap_matched ?? 0)} chunk joins used the rougher rule.`
+  return line
 }
 
 /** One line for the Advanced summary: the values Start would send (a cleared field reads as its default, overlap capped at half the chunk). */

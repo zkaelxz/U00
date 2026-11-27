@@ -403,7 +403,8 @@ class TestLagFigures:
         assert _wait(third)
         last = third()[-1]
         assert set(last) == {"lag_seconds", "processing_seconds", "translations_skipped",
-                             "translate_queue", "chunks_measured", "reconnect_attempt"}
+                             "translate_queue", "chunks_measured", "reconnect_attempt",
+                             "overlap_matched", "overlap_fallback"}
         assert all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in last.values())
         # The lag of the newest chunk is at least its own audio (10 s).
         assert last["lag_seconds"] >= 10.0
@@ -415,6 +416,15 @@ class TestLagFigures:
             stats.chunk_done(10.0, total)
         assert stats.figures()["processing_seconds"] == 3.0   # 100 s fell out of the window
         assert stats.figures()["lag_seconds"] == 15.0
+
+
+class TestOverlapJoinCounts:
+    def test_the_stats_count_matched_and_fallback_joins_separately(self):
+        stats = live_pipeline.LagStats(lambda numbers: None)
+        for outcome in ("matched", "matched", "fallback"):
+            stats.overlap_joined(outcome)
+        figures = stats.figures()
+        assert (figures["overlap_matched"], figures["overlap_fallback"]) == (2, 1)
 
 
 class TestOneRequestPerChunk:

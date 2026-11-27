@@ -212,7 +212,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/remote-setup` | local_only() |
 | `POST /api/diagnostics/remote-setup/sign-in` | local_only() |
 | `POST /api/diagnostics/reset-library` | local_only() |
-| `GET /api/diagnostics/resources` | admin.diagnostics |
+| `GET /api/diagnostics/resources` | admin.diagnostics.read |
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |
 | `GET /api/diagnostics/upgrade-check` | admin.diagnostics |
@@ -240,6 +240,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/discover/translate-query` | library.read |
 | `POST /api/dramas` | library.create |
 | `POST /api/dramas/by-links` | library.read |
+| `POST /api/dramas/covers/backfill` | admin.library |
 | `GET /api/dramas/duplicates` | library.read |
 | `POST /api/dramas/duplicates/scan` | admin.library |
 | `POST /api/dramas/same` | library.create |

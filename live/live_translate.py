@@ -258,7 +258,7 @@ _MAX_LEADING_SKIP = 2
 
 
 def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
-                  covered_seconds: float | None = None) -> list:
+                  covered_seconds: float | None = None, on_outcome=None) -> list:
     """
     Drops the re-transcribed overlap region from a padded chunk's
     segments (timestamps still relative to the padded audio, so the
@@ -289,6 +289,10 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
     for, when it held back its last lines (live_caption.hold_back_overlap);
     the fallback then drops only segments ending inside that part, so the
     held-back speech heard again here is kept. None means all of it.
+
+    on_outcome("matched" or "fallback"): called once when a previous tail was
+    compared with this chunk's start, so a session can count how often the exact
+    match failed. Not called when either side had no words to compare.
     """
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
@@ -316,6 +320,10 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
         if cut is not None:
             break
 
+    # An empty head (silent or dropped overlap audio) gave the exact match nothing to
+    # compare, so it is not a failure of the match.
+    if on_outcome and head_tokens:
+        on_outcome("fallback" if cut is None else "matched")
     if cut is None:
         covered = overlap_seconds if covered_seconds is None else min(covered_seconds, overlap_seconds)
         return [seg for seg in segments if seg["end"] > covered]
@@ -558,7 +566,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
                    overlap_tail_text: str = "", on_stage=None, is_cancelled=None,
                    translator=None, first_id: int = 0, on_cues=None, guard=None,
                    audio_shift: float = 0.0, on_transcribed=None, translate: bool = True,
-                   overlap_covered_seconds: float | None = None):
+                   overlap_covered_seconds: float | None = None, on_overlap=None):
     """
     Transcribes one chunk and translates each resulting line, shifting
     timestamps by this chunk's position in the stream so cues from
@@ -615,7 +623,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
-    segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds)
+    segments = dedup_overlap(segments, overlap_seconds, overlap_tail_text, overlap_covered_seconds, on_overlap)
     segments = drop_name_list_echo(segments, name_prompt)
     segments = join_trailing_fragments(split_long_caption_lines(drop_repeated_lines(drop_stock_phrases(segments))))
     offset = chunk_index * segment_seconds - overlap_seconds + audio_shift
@@ -1142,6 +1150,7 @@ class _LiveRun(ChunkCaptioner):
             name_prompt=getattr(self.term_hints, "names", ""), translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
             audio_shift=window.trimmed_seconds + shift, overlap_covered_seconds=covered,
+            on_overlap=self.stats.overlap_joined,
             guard=lambda call: self.runner.run(call, self.limit, f"chunk {idx}"),
             on_transcribed=whisper_done,
             on_stage=lambda step: self.stage.chunk(step, idx),

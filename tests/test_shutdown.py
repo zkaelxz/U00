@@ -505,6 +505,7 @@ class TestProcessGuard:
 
 def _fake_uvicorn(monkeypatch, run):
     import uvicorn
+    from api import steady_listener
     seen = {}
 
     class FakeServer:
@@ -517,6 +518,7 @@ def _fake_uvicorn(monkeypatch, run):
             seen["ran"] = True
             run()
     monkeypatch.setattr(uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(steady_listener, "SteadyServer", FakeServer)
     monkeypatch.setenv("BAIHE_API_HOST", "127.0.0.1")
     monkeypatch.delenv("BAIHE_API_ENV", raising=False)
     return seen

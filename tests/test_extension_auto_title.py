@@ -10,7 +10,7 @@ import threading
 import pytest
 
 import db
-from services import page_server
+from services import cover_art_service, page_server
 from services import extension_title_service as titles
 from services import ownership_service
 
@@ -454,6 +454,6 @@ def test_a_cover_is_tried_once_per_title_and_one_download_runs_at_a_time(token, 
 
 
 def test_a_picture_on_the_pages_own_host_gets_the_full_page_as_referer():
-    assert titles._cover_referer("https://www.twmanga.com/c.jpg", PAGE) == PAGE
-    assert titles._cover_referer("https://cdn.example/c.jpg", PAGE) == "https://www.twmanga.com/"
-    assert titles._cover_referer("https://cdn.example/c.jpg", "") == ""
+    assert cover_art_service.cover_referer("https://www.twmanga.com/c.jpg", PAGE) == PAGE
+    assert cover_art_service.cover_referer("https://cdn.example/c.jpg", PAGE) == "https://www.twmanga.com/"
+    assert cover_art_service.cover_referer("https://cdn.example/c.jpg", "") == ""

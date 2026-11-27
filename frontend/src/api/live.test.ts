@@ -327,6 +327,13 @@ describe('lagLine', () => {
     expect(lagLine({ ...base, chunks_measured: 3, lag_seconds: 9, translations_skipped: 5 }))
       .toBe('Captions about 9 s behind the stream. 5 lines shown untranslated to keep up.')
   })
+
+  it('counts the chunk joins that used the rougher rule, and stays quiet when none did', () => {
+    expect(lagLine({ ...base, chunks_measured: 4, lag_seconds: 20, overlap_matched: 9, overlap_fallback: 0 }))
+      .toBe('Captions about 20 s behind the stream.')
+    expect(lagLine({ ...base, chunks_measured: 4, lag_seconds: 20, overlap_matched: 9, overlap_fallback: 3 }))
+      .toBe('Captions about 20 s behind the stream. 3 of 12 chunk joins used the rougher rule.')
+  })
 })
 
 describe('server form options', () => {

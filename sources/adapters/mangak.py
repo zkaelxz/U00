@@ -29,7 +29,7 @@ import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class
+from ..base import SourceAdapter, layout_changed_class, https_only
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -70,11 +70,6 @@ def page_props(html: str) -> dict:
     if not isinstance(props, dict):
         raise LayoutChanged("readable page data in __NEXT_DATA__")
     return props
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 @register
@@ -118,7 +113,7 @@ class MangaKSource(SourceAdapter):
             if not _SAFE_SLUG.fullmatch(slug) or not item.get("name"):
                 continue
             out.append(SearchResult(self.name, slug, item["name"], f"{BASE_URL}/{slug}",
-                                    _https(item.get("cover")),
+                                    https_only(item.get("cover")),
                                     extra={"status": str(item.get("status") or "").lower(),
                                            "adult": bool(item.get("isAdult")),
                                            "chapters": (item.get("stats") or {}).get("chaptersCount")}))
@@ -130,7 +125,7 @@ class MangaKSource(SourceAdapter):
         status = str(manga.get("status") or "").lower()
         return SeriesInfo(
             self.name, series_id, manga.get("name") or series_id, f"{BASE_URL}/{series_id}",
-            _https(manga.get("cover")),
+            https_only(manga.get("cover")),
             authors=[a["name"] for a in manga.get("authors") or [] if a.get("name")],
             description=manga.get("summary") or "",
             genres=[g["name"] for g in manga.get("genres") or [] if g.get("name")],
@@ -170,7 +165,7 @@ class MangaKSource(SourceAdapter):
             raise LayoutChanged("this chapter's details")
         urls = [p.get("url") for p in info.get("pages") or [] if isinstance(p, dict)] \
             or list(info.get("images") or [])
-        urls = [u for u in map(_https, urls) if u]
+        urls = [u for u in map(https_only, urls) if u]
         if not urls:
             raise LayoutChanged("any page images in this chapter")
         return [PageRef(self.name, chapter.chapter_id, i, u, headers={"Referer": REFERER})

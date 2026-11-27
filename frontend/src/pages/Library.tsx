@@ -396,8 +396,8 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // GET /api/diagnostics/resources needs admin.diagnostics; members see no GPU line.
-  const canSeeGpu = useHolds('admin.diagnostics')
+  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
+  const canSeeGpu = useHolds('admin.diagnostics.read')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')

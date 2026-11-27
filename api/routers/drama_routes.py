@@ -41,7 +41,7 @@ from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          error_responses)
 from lib.capped_request import read_capped_form
 from services import extension_bridge_service, extension_title_service, page_server
-from services import media_fingerprint_service
+from services import cover_backfill_service, media_fingerprint_service
 from services import (series_defaults_service, cover_art_service, drama_service, link_details_service, source_link_service,
                       next_episode_service, title_copy_service, title_restructure_service)
 from lib.errors import ForbiddenError, InvalidInputError
@@ -107,6 +107,12 @@ def get_duplicate_titles(request: Request):
              responses=error_responses(409))
 def post_duplicate_scan():
     return media_fingerprint_service.start_scan()
+
+
+@router.post("/covers/backfill", dependencies=[require_permission("admin.library")], response_model=JobStarted,
+             summary="Make covers, in the background, for titles that have none (a video frame or comic page one)")
+def post_cover_backfill():
+    return cover_backfill_service.start_backfill()
 
 
 @router.post("/by-links", dependencies=[require_permission("library.read")], response_model=TitleLinkMatches,
