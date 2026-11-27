@@ -990,3 +990,57 @@ class TestKoreanEffectsStayEffects:
     def test_repeated_syllable_and_two_word_effects_stay(self, text):
         region = {"kind": "sfx", "source_text": text}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
+
+
+def _dark_balloon_page(cv2):
+    """A flat dark balloon with pale paper round it and two blocks of white glyphs."""
+    page = np.full((1000, 1000), 235, np.uint8)
+    cv2.rectangle(page, (30, 40), (370, 360), 105, -1)
+    for top in (110, 270):
+        for left in range(60, 330, 30):
+            cv2.rectangle(page, (left, top), (left + 20, top + 30), 255, -1)
+            cv2.rectangle(page, (left + 5, top + 8), (left + 15, top + 22), 105, -1)
+    return page
+
+
+def test_dark_balloon_is_one_region_not_split_into_blocks(cv2):
+    page = _dark_balloon_page(cv2)
+    box = {"x": 20, "y": 30, "w": 360, "h": 340}
+    assert scanlate_regions.split_separate_lettering(page, box) == [box]
+
+
+def test_flat_dark_balloon_with_white_lettering_is_read_as_a_balloon(cv2):
+    page = _dark_balloon_page(cv2)
+    assert scanlate_balloons.is_flat_dark_balloon(page[30:370, 20:380])
+    rng = np.random.default_rng(1)
+    art = rng.integers(0, 120, (340, 360), dtype=np.uint8)
+    art[100:130, 100:300] = 255
+    assert not scanlate_balloons.is_flat_dark_balloon(art)
+    assert not scanlate_balloons.is_flat_dark_balloon(np.full((340, 360), 235, np.uint8))
+
+
+def test_toned_balloon_with_black_lettering_is_not_a_dark_balloon(cv2):
+    toned = np.full((340, 360), 112, np.uint8)
+    toned[100:130, 60:300] = 10
+    assert not scanlate_balloons.is_flat_dark_balloon(toned)
+
+
+def test_white_lettering_on_a_black_panel_is_not_classed_as_a_balloon(cv2):
+    page = np.full((1000, 1000), 15, np.uint8)
+    for left in range(60, 330, 30):
+        cv2.rectangle(page, (left, 110), (left + 20, 140), 255, -1)
+        cv2.rectangle(page, (left, 200), (left + 20, 230), 255, -1)
+    kinds = scanlate_balloons.classify_text_regions("", [{"x": 20, "y": 30, "w": 360, "h": 340}], image=cv2.cvtColor(page, cv2.COLOR_GRAY2BGR))
+    assert kinds[0]["kind"] != "bubble"
+
+
+def test_text_is_white_on_a_flat_dark_balloon_and_black_on_a_toned_one(cv2):
+    from PIL import Image
+    from scanlate.scanlate_ink import _text_fill
+    box = {"x": 20, "y": 30, "w": 360, "h": 340}
+    dark = Image.fromarray(_dark_balloon_page(cv2)).convert("RGB")
+    assert _text_fill(dark, box) == (255, 255, 255)
+    toned = np.full((1000, 1000), 235, np.uint8)
+    toned[30:370, 20:380] = 112
+    toned[100:130, 60:300] = 10
+    assert _text_fill(Image.fromarray(toned).convert("RGB"), box) == (0, 0, 0)

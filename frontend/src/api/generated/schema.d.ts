@@ -6212,7 +6212,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The Library's shelves: what needs you, what is running, what is ready */
+        /** The Library's Running line: titles with a step running or waiting */
         get: operations["get_home_api_library_home_get"];
         put?: never;
         post?: never;
@@ -22879,14 +22879,6 @@ export interface components {
         LibraryHome: {
             /** Can Control Queue */
             can_control_queue: boolean;
-            /** Needs You */
-            needs_you: components["schemas"]["LibraryNeedsYouEntry"][];
-            /** Needs You Count */
-            needs_you_count: number;
-            /** Ready */
-            ready: components["schemas"]["LibraryReadyEntry"][];
-            /** Ready Count */
-            ready_count: number;
             /** Running */
             running: components["schemas"]["LibraryRunningEntry"][];
             /** Running Count */
@@ -22896,38 +22888,6 @@ export interface components {
         LibraryJobStarted: {
             /** Job Id */
             job_id: string;
-        };
-        /**
-         * LibraryNeedsYouEntry
-         * @description `kind`: failed (a queued step failed or was interrupted) or
-         *     series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
-         *     `hold_kind` says why: review after the first episode, stopped, ceiling or queue).
-         */
-        LibraryNeedsYouEntry: {
-            /** Content Mode */
-            content_mode: string | null;
-            /** Drama Id */
-            drama_id: number | null;
-            /** Has Cover Art */
-            has_cover_art: boolean;
-            /** Hold Kind */
-            hold_kind: string | null;
-            /** Kind */
-            kind: string;
-            /** Media Type */
-            media_type: string | null;
-            /** Reason */
-            reason: string | null;
-            /** Risk Count */
-            risk_count: number | null;
-            /** Series Id */
-            series_id: number | null;
-            /** Step */
-            step: string | null;
-            /** Title */
-            title: string;
-            /** Updated At */
-            updated_at: string | null;
         };
         /** LibraryPreset */
         LibraryPreset: {
@@ -22961,45 +22921,6 @@ export interface components {
         LibraryPresetsResponse: {
             /** Items */
             items: components["schemas"]["LibraryPreset"][];
-        };
-        /**
-         * LibraryReadyEntry
-         * @description `length_seconds`: where the last line ends (null for a comic, or a title with no timed lines).
-         */
-        LibraryReadyEntry: {
-            /** Content Mode */
-            content_mode: string | null;
-            /** Drama Id */
-            drama_id: number;
-            /** Has Cover Art */
-            has_cover_art: boolean;
-            /** Length Seconds */
-            length_seconds: number | null;
-            /** Media Type */
-            media_type: string | null;
-            /**
-             * Page Count
-             * @default 0
-             */
-            page_count: number;
-            /** Read Percent */
-            read_percent: number;
-            /** Title */
-            title: string;
-            /**
-             * Unsure Count
-             * @default 0
-             */
-            unsure_count: number;
-            /** Updated At */
-            updated_at: string | null;
-            /** Watched At */
-            watched_at: string | null;
-            /**
-             * Watched Seconds
-             * @default 0
-             */
-            watched_seconds: number;
         };
         /** LibraryRecentResponse */
         LibraryRecentResponse: {

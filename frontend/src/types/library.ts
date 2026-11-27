@@ -149,6 +149,4 @@ export type LibraryPresetsResponse = Items<LibraryPreset>
 export type LibraryVoiceBankResponse = Items<LibraryVoice>
 
 export type LibraryHome = Schemas['LibraryHome']
-export type LibraryNeedsYouEntry = Schemas['LibraryNeedsYouEntry']
 export type LibraryRunningEntry = Schemas['LibraryRunningEntry']
-export type LibraryReadyEntry = Schemas['LibraryReadyEntry']

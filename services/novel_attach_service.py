@@ -84,7 +84,7 @@ def _read_novel(drama_id: int) -> str:
         return f.read()
 
 
-def _write_novel(drama_id: int, text: str, mode: str) -> int:
+def _write_novel(drama_id: int, text: str, mode: str, settled_phone_count: bool = False) -> int:
     """Atomic write; returns the stored character count."""
     if mode == "append":
         old = _read_novel(drama_id).rstrip()
@@ -93,6 +93,12 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         raise InvalidInputError(
             f"The combined novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     final = _novel_path(drama_id, create=True)
+    if not settled_phone_count:
+        # Any other write may have put phone-saved chapters in the text by hand, so the count can't be
+        # trusted. Before the write: a stop in between then under-counts, which only makes the phone's next ask refuse.
+        from sources import pipeline
+        with pipeline._page_lock(drama_id):
+            novel_text.clear_phone_added(os.path.dirname(final))
     fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=os.path.dirname(final))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -642,6 +648,16 @@ def _saved_chapters(drama_id: int) -> list:
             for c in known["chapters"]]
 
 
+def _settle_phone_added(drama_id: int, folder: str, seen: int) -> None:
+    from sources import pipeline
+    with pipeline._page_lock(drama_id):
+        left = novel_text.read_phone_added(folder) - seen
+        if left > 0:
+            novel_text.write_phone_added(folder, left)
+        else:
+            novel_text.clear_phone_added(folder)
+
+
 def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None) -> dict:
     """Appends the saved chapters that are not yet in the translation text to it, leaving what is
     there alone. The translation text must be exactly the first K saved chapters (joined as the text
@@ -652,8 +668,10 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
     ownership_service.require_drama(drama_id)
     with media_upload_service.folder_write(drama_id):
         _check_idle(drama_id)
+        folder = db.drama_dir(drama_id)
         with pipeline._page_lock(drama_id):
             chapters = _saved_chapters(drama_id)
+            phone_seen = novel_text.read_phone_added(folder)
         current = _read_novel(drama_id).strip()
         if not current:
             raise ConflictError("This title has no translation text yet; use Copy saved raw chapters first.")
@@ -668,9 +686,9 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
                 f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
                 "the new chapters can't be told apart. Add them in the Source stage.")
         tail = "\n\n".join(chapters[covered:]).strip()
-        folder = db.drama_dir(drama_id)
         waiting = novel_text.read_pending_lines(folder)
         if not tail:
+            _settle_phone_added(drama_id, folder, phone_seen)
             return {"char_count": len(current), "added_chars": 0, "pending_chars": waiting.chars if waiting else 0}
         raw = _read_novel(drama_id)
         before = len(raw)
@@ -683,7 +701,10 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
             # starting a new marker would leave them without lines for good.
             raise ConflictError("The translation text changed after the last chapters were added without lines, "
                                 "so more can't be added yet. Run chunk & tag again from the Source stage.")
-        count = _write_novel(drama_id, tail, "append")
+        # Before the write, like a replace: only the chapters read above are settled, so one the phone saves
+        # meanwhile stays counted.
+        _settle_phone_added(drama_id, folder, phone_seen)
+        count = _write_novel(drama_id, tail, "append", settled_phone_count=True)
         # Recorded after the text is saved, so a stop in between only leaves text without a marker
         # (which the Source stage's chunk & tag still covers); the added text is never lost track of.
         pending = (waiting.chars if waiting else 0) + len(tail) + 2

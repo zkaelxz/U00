@@ -311,6 +311,62 @@ def test_report_metrics_for_merged_missed_and_timing(title, engine, tmp_path):
     assert str(tmp_path) not in report
 
 
+def _ref_lines(*texts):
+    return [{"start": 2.0 + 4 * i, "end": 4.0 + 4 * i, "text": t} for i, t in enumerate(texts)]
+
+
+def test_a_merged_line_is_scored_against_both_reference_lines_it_spans():
+    reference = _ref_lines("こんにちは", "元気ですか", "またね")
+    merged = [seg(2.0, 8.0, "こんにちは元気ですか"), seg(10.0, 12.0, "またね")]
+    split = [seg(2.0, 4.0, "こんにちは"), seg(6.0, 8.0, "元気ですか"), seg(10.0, 12.0, "またね")]
+    groups = bench.paired_groups(reference, merged, split)
+    assert groups == [[0, 1], [2]]
+    assert bench.group_errors(merged, reference, groups, "ja") == [(0, 10), (0, 3)]
+    assert bench.group_errors(split, reference, groups, "ja") == [(0, 10), (0, 3)]
+
+
+def test_an_extra_line_costs_its_characters_in_the_nearest_group():
+    reference = _ref_lines("こんにちは", "元気ですか")
+    extra = [seg(2.0, 4.0, "こんにちは"), seg(6.0, 8.0, "元気ですか"), seg(30.0, 31.0, "ああ")]
+    groups = bench.paired_groups(reference, extra)
+    assert bench.group_errors(extra, reference, groups, "ja") == [(0, 5), (2, 5)]
+
+
+def test_paired_difference_sees_a_small_change_and_calls_a_tie_noise():
+    base = [(1, 20)] * 200
+    better = [(0, 20)] * 200
+    assert bench.paired_difference(base[:19], better[:19]) is None
+    change, low, high = bench.paired_difference(base, better)
+    assert change == pytest.approx(-0.05) and high < 0
+    same = bench.paired_difference(base, list(base))
+    assert same == (0.0, 0.0, 0.0)
+    mixed = [(0, 20) if i % 2 else (2, 20) for i in range(200)]
+    change, low, high = bench.paired_difference(base, mixed)
+    assert change == 0.0 and low < 0 < high
+
+
+def test_report_has_a_paired_section_against_the_baseline(title, engine, tmp_path):
+    rc, out = run_two(title, tmp_path, engine)
+    report = out.read_text(encoding="utf-8")
+    assert rc == 0 and "## Paired against the baseline" in report
+    # The fixture has 3 reference lines: too few groups to judge, and the report says so.
+    row = next(r for r in report.splitlines() if r.startswith("| n/a | whisper:small"))
+    assert "too few line groups (2, need 20)" in row
+
+
+def test_slightly_shifted_timings_do_not_chain_all_lines_into_one_group():
+    reference = [{"start": 2.0 * i, "end": 2.0 * i + 2.0, "text": "あ"} for i in range(300)]
+    shifted = [seg(2.0 * i + 0.05, 2.0 * i + 2.05, "あ") for i in range(300)]
+    assert len(bench.paired_groups(reference, shifted)) == 300
+
+
+def test_a_looping_line_costs_its_length_without_scoring_all_of_it():
+    reference = _ref_lines("こんにちは")
+    looping = [seg(2.0, 4.0, "こんにちは" + "ああ" * 5000)]
+    groups = bench.paired_groups(reference, looping)
+    assert bench.group_errors(looping, reference, groups, "ja") == [(10000, 5)]
+
+
 def test_without_a_reference_the_titles_lines_are_the_baseline(title, engine, tmp_path):
     rc, out = run_two(title, tmp_path, engine)
     report = out.read_text(encoding="utf-8")

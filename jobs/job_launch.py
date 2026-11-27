@@ -29,6 +29,11 @@ def _acting_user_id():
     return acting.acting_user_id()
 
 
+def _acting_device():
+    from lib import acting
+    return acting.acting_device()
+
+
 def _with_member_key(target):
     """`target` as a job runs it, carrying the key of whoever starts it: the
     member of this request, or the key the starting job itself carries. A
@@ -274,6 +279,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
+    origin_device = _acting_device()
     target = _with_member_key(target)
     if model_offline.active():
         target = model_offline.for_thread(target)
@@ -284,7 +290,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if status is None:
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
-                                   run_settings, line_fields=line_fields, daily_day=counted_day)
+                                   run_settings, line_fields=line_fields, daily_day=counted_day,
+                                   origin_device=origin_device)
         _new_run_locked(job_id)
         if status == "queued":
             queued = {"job_id": job_id, "target": target, "args": args,
@@ -397,7 +404,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     starter, applies the per-user caps and refuses during a clean stop like start_job().
     """
     line_fields = db.check_line_fields(line_fields)
-    owner_user_id = _acting_user_id()
+    owner_user_id, origin_device = _acting_user_id(), _acting_device()
     target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
@@ -408,7 +415,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if status == "queued":
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
                                        run_settings, result=initial_result, process=None,
-                                       line_fields=line_fields, daily_day=counted_day)
+                                       line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
@@ -423,7 +430,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                                        start_method=start_method,
                                                        run_settings=run_settings,
                                                        initial_result=initial_result,
-                                                       line_fields=line_fields, daily_day=counted_day)
+                                                       line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
             _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day)

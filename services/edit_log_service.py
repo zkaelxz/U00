@@ -2,6 +2,7 @@
 source) per engine, model, prompt version, flag and mark."""
 
 import contextlib
+import json
 import logging
 from collections import Counter
 
@@ -108,3 +109,70 @@ def corrections_report() -> dict:
                       "flag_rates": _flag_rates(source, flagged_now),
                       "machine_fixes_by_path": _counts(
                           [r for r in source_all if r.get("path") != PERSON], "path")}}
+
+
+_BOX_FIELDS = ("x", "y", "w", "h")
+
+
+def _drama_languages(conn) -> dict:
+    return {r[0]: (r[1] or _NONE) for r in conn.execute("SELECT id, source_language FROM dramas")}
+
+
+def _comic_edit_counts(conn, languages: dict) -> dict:
+    """Per source language: comic regions whose source text changed in the editor, and pages where
+    a box was moved, drawn or removed. Read from each page's editor undo list, which keeps only a
+    page's last 50 edits and is cut by other region writes. A Redo re-read is written the same way
+    as a person's fix, so the text count includes those."""
+    text_fixes, box_pages = Counter(), Counter()
+    for drama_id, raw in conn.execute(
+            "SELECT drama_id, edit_history FROM pages WHERE edit_history IS NOT NULL"):
+        try:
+            history = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(history, list):
+            continue
+        language = languages.get(drama_id, _NONE)
+        boxed = False
+        for entry in history:
+            if not isinstance(entry, dict):
+                continue
+            after = entry.get("after")
+            if not isinstance(after, dict):
+                after = {}
+            # Entries saved before ops were recorded are edits (db/comic_pages reads them the same way).
+            op = entry.get("op", "edit")
+            if op == "edit" and "source_text" in after:
+                text_fixes[language] += 1
+            if op in ("create", "delete") or any(k in after for k in _BOX_FIELDS):
+                boxed = True
+        box_pages[language] += boxed
+    return {"source_text_fixes": dict(text_fixes.most_common()),
+            "pages_with_box_edits": {k: v for k, v in box_pages.most_common() if v}}
+
+
+def training_data_counts() -> dict:
+    """Read-only counts, per source language, of the corrections a model could learn from: English
+    fixes, a person's source-text fixes with the audio seconds of the lines they fixed, and comic
+    edits. They decide whether there is enough data to train on before anyone builds a trainer."""
+    english = db.list_edit_samples(limit=-1)
+    source = [r for r in db.list_source_edits(limit=-1) if r.get("path") == PERSON]
+    with contextlib.closing(db.get_conn()) as conn:
+        languages = _drama_languages(conn)
+        line_ids = sorted({r["line_id"] for r in source if r.get("line_id") is not None})
+        spans = {}
+        for i in range(0, len(line_ids), 500):
+            chunk = line_ids[i:i + 500]
+            spans.update({r[0]: (r[1], max(0.0, (r[3] or 0) - (r[2] or 0))) for r in conn.execute(
+                "SELECT id, drama_id, start, end FROM lines WHERE id IN (%s)" % ",".join("?" * len(chunk)),
+                chunk)})
+        comic = _comic_edit_counts(conn, languages)
+    seconds = Counter()
+    for drama_id, length in spans.values():
+        seconds[languages.get(drama_id, _NONE)] += length
+    return {"english_fixes": _counts([{"lang": languages.get(r.get("drama_id"), _NONE)}
+                                      for r in english], "lang"),
+            "source_fixes": _counts([{"lang": languages.get(r.get("drama_id"), _NONE)}
+                                     for r in source], "lang"),
+            "fixed_audio_hours": {k: round(v / 3600, 2) for k, v in seconds.most_common()},
+            **comic}

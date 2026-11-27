@@ -33,7 +33,7 @@ def pipeline(isolated_db, monkeypatch):
     state = {"reads": 0, "log": [], "contexts": {}, "second_read": threading.Event(),
              "overlapped": None, "fail_read": None, "on_read": None, "in_translation": 0,
              "most_translating": 0, "translating": {"p0": threading.Event(), "p1": threading.Event()},
-             "first_two_meet": False}
+             "first_two_meet": False, "previous_lines": {}, "hold_p0": None}
     lock = threading.Lock()
 
     def detect_and_ocr_page(image_path, source_language, **kwargs):
@@ -63,9 +63,12 @@ def pipeline(isolated_db, monkeypatch):
             state["translating"][theirs].wait(5)
         if text == "p0":
             state["overlapped"] = state["second_read"].wait(5)
+            if state["hold_p0"] is not None:
+                state["hold_p0"].wait(5)
         with lock:
             state["log"].append(("translate", text))
             state["contexts"][text] = previous_context
+            state["previous_lines"][text] = kwargs.get("previous_lines")
             state["in_translation"] -= 1
         for b in bubbles:
             b["translated_text"] = "EN " + b["source_text"]
@@ -73,14 +76,16 @@ def pipeline(isolated_db, monkeypatch):
 
     # A page held up before its read (here: in the blank check) must still be read first.
     first = bridge._decode_images(_images(1))[0]["content"]
-    real_blank = bridge.page_capture_checks.looks_blank
+    real_flat = bridge.page_capture_checks.flat_colour
 
-    def looks_blank(content):
+    def flat_colour(content):
         if content == first and state["hold_first"]:
+            state["held"] = True   # so a run that skips this per-page check fails the tests below
             time.sleep(0.3)
-        return real_blank(content)
+        return real_flat(content)
     state["hold_first"] = False
-    monkeypatch.setattr(bridge.page_capture_checks, "looks_blank", looks_blank)
+    state["held"] = False
+    monkeypatch.setattr(bridge.page_capture_checks, "flat_colour", flat_colour)
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect_and_ocr_page)
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_page_bubbles)
     bridge._cancelled_runs.clear()
@@ -110,6 +115,7 @@ def test_saved_pages_still_read_and_translate_in_page_order_with_the_page_before
     assert translations == ["p0", "p1", "p2", "p3"]
     assert pipeline["contexts"] == {"p0": "", "p1": "after p0", "p2": "after p1", "p3": "after p2"}
     assert pipeline["most_translating"] == 1
+    assert pipeline["held"]
 
 
 def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipeline):
@@ -123,6 +129,7 @@ def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipelin
     # first, so the second cannot have the first page's summary.
     assert pipeline["most_translating"] >= 2
     assert pipeline["contexts"]["p1"] != "after p0"
+    assert pipeline["held"]
 
 
 def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
@@ -134,6 +141,7 @@ def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
     assert [p["key"] for p in answer["pages"]] == ["k0", "k1", "k2"]
     assert [p["id"] for p in db.list_pages(drama)] == ids
     assert [b["source_text"] for i in ids for b in db.load_bubbles(i)] == ["p0", "p1", "p2"]
+    assert pipeline["held"]
 
 
 def test_a_failure_every_page_would_repeat_stops_before_the_next_page_is_read(pipeline):
@@ -262,3 +270,118 @@ def test_a_saved_send_and_a_page_with_a_warning_are_never_answered_from_memory(p
     _send(1)
     # One read for the saved page (the second send reuses the library's copy), two for Quick read.
     assert pipeline["reads"] == 3
+
+
+def _wait_until(check, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not check() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return check()
+
+
+def _send_in_background(answers, name, **extra):
+    thread = threading.Thread(target=lambda: answers.__setitem__(name, _send(1, **extra)), daemon=True)
+    thread.start()
+    return thread
+
+
+def test_a_page_still_being_read_is_shared_with_a_repeat_ask_not_read_again(pipeline):
+    """A phone whose stream dropped asks again for the pages it did not get; one still being read
+    for the first ask answers both."""
+    release = threading.Event()
+    pipeline["on_read"] = lambda n: n == 0 and release.wait(5)
+    pipeline["second_read"].set()   # one page here: its translation must not wait for a second read
+    answers = {}
+    first = _send_in_background(answers, "first", run_id="run-aaaaaaaa")
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    again = _send_in_background(answers, "again", run_id="run-aaaaaaaa")
+    time.sleep(0.3)   # the repeat would have started its own read by now
+    release.set()
+    first.join(5)
+    again.join(5)
+    assert pipeline["reads"] == 1
+    assert [p["regions"][0]["translated_text"] for p in answers["again"]["pages"]] == ["EN p0"]
+    assert answers["again"]["pages"][0]["cached"] is True and "cached" not in answers["first"]["pages"][0]
+    assert bridge._in_flight == {}
+
+
+def test_a_repeat_ask_waiting_on_a_page_stops_when_its_run_is_dropped(pipeline):
+    release = threading.Event()
+    pipeline["on_read"] = lambda n: n == 0 and release.wait(5)
+    pipeline["second_read"].set()   # one page here: its translation must not wait for a second read
+    answers = {}
+    first = _send_in_background(answers, "first")
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    again = _send_in_background(answers, "again", run_id="run-bbbbbbbb")
+    time.sleep(0.1)
+    bridge.cancel_run({"run_id": "run-bbbbbbbb"})
+    again.join(5)
+    assert answers["again"]["pages"] == [] and answers["again"]["stopped"]
+    release.set()
+    first.join(5)
+    assert len(answers["first"]["pages"]) == 1 and pipeline["reads"] == 1
+
+
+def test_a_run_nobody_listens_to_finishes_its_page_in_progress_and_drops_the_rest(pipeline, monkeypatch):
+    run_id = "run-cccccccc"
+    monkeypatch.setattr(bridge, "STREAM_GONE_GRACE_SECONDS", 0.05)
+    monkeypatch.setattr(bridge, "_streams", {})
+
+    def phone_goes_away(n):
+        if n == 0:
+            bridge.stream_closed(run_id, stream, lost=True)
+            assert _wait_until(lambda: bridge._run_cancelled(run_id))
+
+    pipeline["on_read"] = phone_goes_away
+    pipeline["second_read"].set()
+    stream = bridge.stream_opened(run_id)
+    answer = _send(3, run_id=run_id)
+    assert pipeline["reads"] == 1
+    assert [p["key"] for p in answer["pages"]] == ["k0"]
+    assert "stopped listening" in answer["stopped"]
+    # The page that was in progress is remembered, so asking for it again costs nothing.
+    assert _send(1)["pages"][0]["cached"] is True and pipeline["reads"] == 1
+
+
+def _send_pages_in_background(answers, name, images, **extra):
+    payload = {"images": images, "store": False, "filter_pages": False, "source_url": CHAPTER, **extra}
+    thread = threading.Thread(target=lambda: answers.__setitem__(name, bridge.run_images(payload, images)),
+                              daemon=True)
+    thread.start()
+    return thread
+
+
+def test_a_shared_page_keeps_reading_order_and_gives_the_next_page_its_lines(pipeline):
+    release = pipeline["hold_p0"] = threading.Event()   # the first page stays in translation
+    pipeline["second_read"].set()
+    images = _images(2)
+    answers = {}
+    first = _send_pages_in_background(answers, "first", images[:1])
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    again = _send_pages_in_background(answers, "again", images)
+    # The second page reads while the first waits for the other request's answer.
+    assert _wait_until(lambda: pipeline["reads"] == 2)
+    assert not release.is_set()
+    release.set()
+    first.join(5)
+    again.join(5)
+    assert pipeline["reads"] == 2
+    assert [p["key"] for p in answers["again"]["pages"]] == ["k0", "k1"]
+    assert pipeline["previous_lines"]["p1"] == [{"source": "p0", "english": "EN p0"}]
+
+
+def test_a_page_waiting_on_another_request_stops_when_its_own_request_halts(pipeline):
+    release = pipeline["hold_p0"] = threading.Event()
+    pipeline["second_read"].set()
+    images = _images(2)
+    answers = {}
+    first = _send_pages_in_background(answers, "first", images[:1])
+    assert _wait_until(lambda: pipeline["reads"] == 1)
+    pipeline["fail_read"] = 1   # the second page's read fails in a way every page would repeat
+    again = _send_pages_in_background(answers, "again", images)
+    again.join(4)
+    assert not again.is_alive() and not release.is_set()
+    assert answers["again"]["pages"] == [] and "not enough free memory" in answers["again"]["stopped"]
+    release.set()
+    first.join(5)
+    assert len(answers["first"]["pages"]) == 1

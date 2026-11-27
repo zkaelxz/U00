@@ -22,6 +22,9 @@ const els = {
   retryMissed: document.getElementById("retryMissed"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  sendVideo: document.getElementById("sendVideo"),
+  startLive: document.getElementById("startLive"),
+  liveLanguage: document.getElementById("liveLanguage"),
   novelSection: document.getElementById("novelSection"),
   saveNovel: document.getElementById("saveNovel"),
   continueNovel: document.getElementById("continueNovel"),
@@ -681,6 +684,41 @@ async function runText() {
   }
 }
 
+// A second press while the first is on its way would queue a second title and a second paid run.
+let videoInFlight = false;
+
+async function runVideo(type, extra, busy, done) {
+  if (videoInFlight) return;
+  videoInFlight = true;
+  els.sendVideo.disabled = els.startLive.disabled = true;
+  try {
+    const tab = await activeTab();
+    if (!tab || !tab.url) return say("No active tab.", true);
+    say(busy);
+    const result = await chrome.runtime.sendMessage({ type, url: tab.url, ...extra });
+    if (!result || !result.ok) return say((result && result.error) || "That didn't work.", true);
+    const data = result.data || {};
+    say(typeof done.text === "function" ? done.text(data) : done.text);
+    els.openLink.href = `${APP_URL}/${done.route(data)}`;
+    els.openLink.hidden = false;
+  } catch (e) {
+    say(`Couldn't reach the extension's background (${e.message}).`, true);
+  } finally {
+    videoInFlight = false;
+    els.sendVideo.disabled = els.startLive.disabled = false;
+  }
+}
+
+const runSendVideo = () => runVideo("sendVideo", {}, "Sending the video link to Baihe…", {
+  text: "Sent. Baihe is downloading and subtitling it; follow it in Baihe's Jobs.",
+  route: (data) => `#/drama/${data.drama_id}`,
+});
+const runStartLive = () => runVideo("startLive", { sourceLanguage: els.liveLanguage.value }, "Starting Live…", {
+  text: (data) => (data.joined ? "Live was already running on this stream; you've joined it in Baihe's Live page."
+                                : "Live started on the PC. Watch it in Baihe's Live page."),
+  route: () => "#/live",
+});
+
 // One line for the save's outcome: whether a chapter was added, and from what.
 function describeNovelSave(data) {
   const title = dramaTitles.get(String(data.drama_id)) || "the title";
@@ -769,6 +807,8 @@ els.retryMissed.addEventListener("click", async () => {
   }
 });
 els.translateText.addEventListener("click", runText);
+els.sendVideo.addEventListener("click", runSendVideo);
+els.startLive.addEventListener("click", runStartLive);
 els.saveNovel.addEventListener("click", runSaveNovel);
 els.continueNovel.addEventListener("click", () => runContinue("novel"));
 els.continueComic.addEventListener("click", () => runContinue("comic"));

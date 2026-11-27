@@ -84,11 +84,15 @@ def test_clear_history_is_pc_only(isolated_db):
     assert len(db.list_reading_history()) == 1
 
 
-def test_home_shelves_name_a_ready_title_and_no_file_names(client):
+def test_home_running_line_names_a_running_title_and_no_file_names(client, monkeypatch):
     from core import Line
-    did = db.create_drama(title_en="Ready one", media_type="streamer_vod", cover_art_filename="cover.png")
+    from services import queue_service
+    did = db.create_drama(title_en="Running one", media_type="streamer_vod", cover_art_filename="cover.png")
     db.save_lines(did, [Line(idx=0, start=0, end=1, zh="你好", en="Hello")])
+    item = {"id": 1, "drama_id": did, "step": "translate", "status": "running", "job_id": None, "reason": None,
+            "started_at": None}
+    monkeypatch.setattr(queue_service, "get_queue", lambda principal: {"items": [item], "can_control": True})
     body = client.get("/api/library/home").json()
-    assert [(r["drama_id"], r["title"], r["has_cover_art"]) for r in body["ready"]] == [(did, "Ready one", True)]
-    assert body["needs_you"] == [] and body["running"] == [] and body["ready_count"] == 1
+    assert [(r["drama_id"], r["title"], r["has_cover_art"]) for r in body["running"]] == [(did, "Running one", True)]
+    assert body["running_count"] == 1 and "ready" not in body and "needs_you" not in body
     assert "cover.png" not in str(body)

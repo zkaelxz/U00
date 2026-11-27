@@ -97,6 +97,7 @@
       <button type="button" role="tab" id="tab-page" aria-controls="panel-page" aria-selected="true">Page</button>
       <button type="button" role="tab" id="tab-chapter" aria-controls="panel-chapter" aria-selected="false" tabindex="-1">Chapter</button>
       <button type="button" role="tab" id="tab-text" aria-controls="panel-text" aria-selected="false" tabindex="-1">Text</button>
+      <button type="button" role="tab" id="tab-video" aria-controls="panel-video" aria-selected="false" tabindex="-1">Video</button>
       <button type="button" role="tab" id="tab-auto" aria-controls="panel-auto" aria-selected="false" tabindex="-1">Auto</button>
     </div>
 
@@ -140,6 +141,20 @@
         </select>
       </div>
       <button id="translateText" class="primary" type="button">Translate text</button>
+    </section>
+
+    <section id="panel-video" class="pane" role="tabpanel" aria-labelledby="tab-video" hidden>
+      <div class="row"><h2>This video or stream</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: Video" aria-describedby="help-video" aria-expanded="false">i</button><span id="help-video" role="tooltip" class="help-text" hidden>Sends only this page's link to Baihe on the PC, which downloads and subtitles the video, or starts Live captions on a stream. Your logins in this browser are not sent, so a video that needs one won't download.</span></span></div>
+      <button id="sendVideo" class="primary" type="button">Subtitle this video</button>
+      <div>
+        <label for="liveLanguage">Spoken language</label>
+        <select id="liveLanguage">
+          <option value="zh">Chinese</option>
+          <option value="ja">Japanese</option>
+          <option value="ko">Korean</option>
+        </select>
+      </div>
+      <button id="startLive" type="button">Start Live captions</button>
     </section>
 
     <section id="panel-auto" class="pane" role="tabpanel" aria-labelledby="tab-auto" hidden>

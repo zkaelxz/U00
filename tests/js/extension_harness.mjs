@@ -405,6 +405,20 @@ async function background(scenario) {
     return { ...r, fetchCalls: h.fetchCalls.length, options: h.fetchCalls[0] && h.fetchCalls[0].options };
   };
   switch (scenario) {
+    case "video_and_live_send_only_the_link": {
+      const sent = [];
+      const reply = (body) => async (url, options) => {
+        sent.push({ path: new URL(url).pathname, body: JSON.parse(options.body), credentials: options.credentials });
+        return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      };
+      const video = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ drama_id: 9 }) });
+      const v = await video.ask({ type: "sendVideo", url: "https://video.example.com/watch?v=abc#t=30" });
+      const live = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ session_id: "s1" }) });
+      const l = await live.ask({ type: "startLive", url: "https://live.example.com/room/7", sourceLanguage: "ja" });
+      const local = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({}) });
+      const p = await local.ask({ type: "sendVideo", url: "http://192.168.1.20/video.mp4" });
+      return { video: v, live: l, local: p, sent, localCalls: local.fetchCalls.length };
+    }
     case "base64_matches_btoa": {
       const { base64Of } = loadBackground({ granted: () => true }).sandbox;
       const out = {};
@@ -971,6 +985,44 @@ function popupExpression(expression) {
   return JSON.parse(sandbox.__out);
 }
 
+// Two presses of "Subtitle this video" while the first is on its way, then the result line and link.
+async function popupVideo() {
+  const noop = () => {};
+  const byId = new Map();
+  const el = (id) => {
+    if (!byId.has(id)) byId.set(id, { id, addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
+      options: [], value: "", checked: true, textContent: "", hidden: true, disabled: false, href: "" });
+    return byId.get(id);
+  };
+  const sent = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const sandbox = {
+    document: { getElementById: el, querySelectorAll: () => [] },
+    chrome: { runtime: { onMessage: { addListener: noop }, sendMessage: async (message) => {
+                if (message.type !== "sendVideo") return { ok: false, error: "x" };
+                sent.push(message);
+                await gate;
+                return { ok: true, data: { drama_id: 12 } };
+              } },
+              storage: { local: { get: async () => ({}), set: async () => {} } },
+              tabs: { query: async () => [{ id: 3, url: "https://video.example.com/watch?v=abc" }] } },
+    localStorage: { getItem: () => null, setItem: noop },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}\n;this.__run = runSendVideo;`, sandbox);
+  const first = sandbox.__run();
+  const second = sandbox.__run();
+  await new Promise((r) => setTimeout(r, 0));
+  const disabledWhileSending = el("sendVideo").disabled && el("startLive").disabled;
+  release();
+  await Promise.all([first, second]);
+  return { sends: sent.length, url: sent[0] && sent[0].url, disabledWhileSending,
+           enabledAfter: !el("sendVideo").disabled && !el("startLive").disabled,
+           status: el("status").textContent, link: el("openInBaihe").href, linkShown: !el("openInBaihe").hidden };
+}
+
 async function contentExpression(expression) {
   const noop = () => {};
   const el = () => ({ addEventListener: noop, appendChild: noop, style: {}, classList: { add: noop, remove: noop } });
@@ -1081,6 +1133,7 @@ const [kind, scenario] = process.argv.slice(2);
 const handlers = {
   content, background, popup, novel,
   popup_expression: async (e) => popupExpression(e),
+  popup_video: async () => popupVideo(),
   content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
   reload_after_update: reloadAfterUpdate,

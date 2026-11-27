@@ -95,4 +95,45 @@ final class QuickRead {
         if (firstError != null && !firstError.isEmpty()) out.append(". ").append(firstError);
         return out.toString();
     }
+
+    private static final int FAILED_PAGES_NAMED = 10;
+
+    /** `why` followed by each failed page (by number) and the PC's reason for it. */
+    static String withFailedPages(String why, java.util.SortedMap<Integer, String> failed) {
+        if (failed.isEmpty()) return why;
+        StringBuilder out = new StringBuilder(why == null ? "" : why);
+        if (out.length() > 0) out.append(". ");
+        out.append(failed.size() == 1 ? "Page not opened: " : "Pages not opened: ");
+        int named = 0;
+        for (java.util.Map.Entry<Integer, String> entry : failed.entrySet()) {
+            if (named == FAILED_PAGES_NAMED) {
+                out.append("; and ").append(failed.size() - named).append(" more");
+                break;
+            }
+            if (named++ > 0) out.append("; ");
+            out.append(entry.getKey()).append(" (").append(entry.getValue().isEmpty() ? "no reason given" : entry.getValue()).append(")");
+        }
+        return out.toString();
+    }
+
+    /**
+     * Untranslated regions plus warning notes of a page; fewer is a better read. It reads the
+     * regions rather than `untranslated_lines` so a PC answer and the reader's saved sidecar
+     * (PageReport.meta) count alike. -1 when the page holds no regions to judge by.
+     */
+    static int gaps(JSONObject page) {
+        JSONArray regions = page.optJSONArray("regions");
+        if (regions == null) return -1;
+        int count = 0;
+        for (int i = 0; i < regions.length(); i++) {
+            JSONObject region = regions.optJSONObject(i);
+            if (region != null && region.optBoolean("untranslated", false)) count++;
+        }
+        JSONArray notes = page.optJSONArray("notes");
+        for (int i = 0; notes != null && i < notes.length(); i++) {
+            JSONArray note = notes.optJSONArray(i);
+            if (note != null && "warning".equals(note.optString(0))) count++;
+        }
+        return count;
+    }
 }

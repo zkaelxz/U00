@@ -14,7 +14,9 @@ import re
 import numpy as np
 
 from scanlate import scanlate_tuning
-from scanlate.scanlate_balloons import TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions
+from scanlate.scanlate_balloons import (
+    TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, is_flat_dark_balloon,
+)
 from scanlate.scanlate_detect import inset_box_for_ocr
 from scanlate.scanlate_page_decode import page_gray
 from scanlate.scanlate_panels import detect_panels
@@ -188,7 +190,9 @@ def _letter_ink(gray, box: dict):
     roi = gray[y:min(h, y + inner["h"]), x:min(w, x + inner["w"])]
     if not roi.size:
         return None
-    ink = ((roi < 128) if roi.mean() >= 128 else (roi > 128)).astype(np.uint8)
+    # A dark balloon with a pale margin averages a little above 128.
+    light_ink = roi.mean() < 128 or is_flat_dark_balloon(roi)
+    ink = ((roi > 128) if light_ink else (roi < 128)).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
     rh, rw = ink.shape
     keep = [i for i in range(1, n)
@@ -229,7 +233,9 @@ def split_separate_lettering(gray, box: dict) -> list:
     # The probe is CJK because vertical lettering is only ever CJK.
     if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
         return [box]
-    if float(np.median(roi)) < 100:
+    if float(np.median(roi)) < 100 or is_flat_dark_balloon(roi):
+        # A dark balloon with a pale margin round it has a median a little above 100.
+        #
         # Light lettering on dark art (a glowing caption) is one caption, not
         # frames drawn side by side. The dark gaps between its letters were
         # taken for glyphs, and the pieces each covered only part of it, so

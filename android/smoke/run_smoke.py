@@ -114,9 +114,47 @@ def check_no_crash(step):
         raise StepFailed(f"{step}: the app process is gone.")
 
 
+# A Google APIs emulator sometimes loses Google Play services mid-run, and Android then kills every app
+# using its font provider, which the WebView does: the app leaves the screen without crashing. That is the
+# emulator's doing, so a walk it ends is started once more.
+PLAY_SERVICES_KILL = re.compile(r"am_kill.*" + re.escape(PACKAGE) + r".*in dying proc com\.google\.android\.gms")
+WALKS = 2
+
+
+def killed_with_play_services():
+    return bool(PLAY_SERVICES_KILL.search(adb("logcat", "-b", "events", "-d", check=False)))
+
+
 def run(apk):
     server = MockServer(PORT)
     server.start()
+    try:
+        adb("wait-for-device")
+        adb("root", check=False)
+        adb("wait-for-device")
+        # Lets the launcher and Google services finish starting before the app is put in front of them.
+        shell("input", "keyevent", "KEYCODE_HOME", check=False)
+        time.sleep(20)
+        adb("install", "-r", apk, timeout=180)
+        for walk in range(1, WALKS + 1):
+            try:
+                steps = walk_screens(server)
+            except StepFailed as e:
+                if walk < WALKS and not crash_report() and killed_with_play_services():
+                    print(f"Android closed the app with Google Play services ({e}); starting the walk again.", flush=True)
+                    time.sleep(15)   # lets Play services start again first
+                    continue
+                print(f"FAILED: {e}", file=sys.stderr)
+                print(adb("logcat", "-d", "-t", "300", check=False)[-6000:])
+                return 1
+            print(f"Phone smoke test passed: {len(steps)} steps.")
+            return 0
+    finally:
+        server.stop()
+    return 1
+
+
+def walk_screens(server):
     steps = []
 
     def step(name, body):
@@ -125,81 +163,68 @@ def run(apk):
         check_no_crash(name)
         steps.append(name)
 
-    try:
-        adb("wait-for-device")
-        adb("root", check=False)
-        adb("wait-for-device")
-        # Lets the launcher and Google services finish starting before the app is put in front of them.
-        shell("input", "keyevent", "KEYCODE_HOME", check=False)
-        time.sleep(20)
-        adb("logcat", "-b", "all", "-c", check=False)
-        adb("install", "-r", apk, timeout=180)
-        # Granted up front so Android's notification prompt does not sit over the screens being checked.
-        shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
-        shell("pm", "clear", PACKAGE, check=False)
-        shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
+    shell("input", "keyevent", "KEYCODE_HOME", check=False)
+    adb("logcat", "-b", "all", "-c", check=False)
+    # Granted up front so Android's notification prompt does not sit over the screens being checked.
+    shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
+    shell("pm", "clear", PACKAGE, check=False)
+    server.forget()   # after the clear, so a page still open from a lost walk can't answer this one's checks
+    shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
 
-        def launch():
-            shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
-            wait_for("the Baihe address question", lambda: find(text="Baihe address"), 60)
+    def launch():
+        shell("am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+        wait_for("the Baihe address question", lambda: find(text="Baihe address"), 60)
 
-        def sign_address():
-            field = wait_for("the address box", lambda: next(
-                (n for n in screen_nodes() if n.get("class") == "android.widget.EditText"), None))
-            tap(field)
-            shell("input", "text", ADDRESS)
-            tap(wait_for("the OK button", lambda: find(text="OK")))
-            wait_for("Studio to ask the server for its page", lambda: server.seen("/", "BaiheAndroid/", exact=True) and
-                     server.seen("/__seen"), 45)
+    def sign_address():
+        field = wait_for("the address box", lambda: next(
+            (n for n in screen_nodes() if n.get("class") == "android.widget.EditText"), None))
+        tap(field)
+        shell("input", "text", ADDRESS)
+        tap(wait_for("the OK button", lambda: find(text="OK")))
+        wait_for("Studio to ask the server for its page", lambda: server.seen("/", "BaiheAndroid/", exact=True) and
+                 server.seen("/__seen"), 45)
 
-        def to_grab():
-            tap(wait_for("the Grab tab", lambda: find(desc="Open Grab")))
-            wait_for("the Grab screen", lambda: "GrabActivity" in resumed_activity())
+    def to_grab():
+        tap(wait_for("the Grab tab", lambda: find(desc="Open Grab")))
+        wait_for("the Grab screen", lambda: "GrabActivity" in resumed_activity())
 
-        def grab_page():
-            shell("am", "start", "-n", f"{PACKAGE}/.GrabActivity",
-                  "--es", "grab_command", "open", "--es", "grab_url", f"{ADDRESS}/chapter")
-            wait_for("Grab to load the test page", lambda: server.seen("/chapter"), 30)
+    def grab_page():
+        shell("am", "start", "-n", f"{PACKAGE}/.GrabActivity",
+              "--es", "grab_command", "open", "--es", "grab_url", f"{ADDRESS}/chapter")
+        wait_for("Grab to load the test page", lambda: server.seen("/chapter"), 30)
 
-        def back_to_studio():
-            # Studio can already be in front when Grab's start-up races the test page (its tab then reads
-            # "current screen", not "Open Studio"), and a tap can miss while the page is still drawing, so
-            # keep trying until Studio is the resumed screen instead of waiting for one tab to appear.
-            def reach_studio():
-                if "MainActivity" in resumed_activity():
-                    return True
-                tab = find(desc="Open Studio")
-                if tab is not None:
-                    tap(tab)
-                return None
-            wait_for("the Studio screen", reach_studio, 60)
+    def back_to_studio():
+        # Studio can already be in front when Grab's start-up races the test page (its tab then reads
+        # "current screen", not "Open Studio"), and a tap can miss while the page is still drawing, so
+        # keep trying until Studio is the resumed screen instead of waiting for one tab to appear.
+        def reach_studio():
+            if "MainActivity" in resumed_activity():
+                return True
+            tab = find(desc="Open Studio")
+            if tab is not None:
+                tap(tab)
+            return None
+        wait_for("the Studio screen", reach_studio, 60)
 
-        def quick_read():
-            shell("am", "start", "-n", f"{PACKAGE}/.QuickReadActivity")
-            wait_for("the Quick read screen", lambda: "QuickReadActivity" in resumed_activity())
+    def quick_read():
+        shell("am", "start", "-n", f"{PACKAGE}/.QuickReadActivity")
+        wait_for("the Quick read screen", lambda: "QuickReadActivity" in resumed_activity())
 
-        def live():
-            shell("am", "start", "-n", f"{PACKAGE}/.MainActivity", "--es", "route", "'#/live'")  # quoted: the phone's shell reads a bare # as a comment
-            wait_for("Studio to open the Live route", lambda: server.seen("hash=%23%2Flive"), 30)
+    def live():
+        shell("am", "start", "-n", f"{PACKAGE}/.MainActivity", "--es", "route", "'#/live'")  # quoted: the phone's shell reads a bare # as a comment
+        wait_for("Studio to open the Live route", lambda: server.seen("hash=%23%2Flive"), 30)
 
-        step("Launch asks for the address", launch)
-        step("Studio loads the server's page", sign_address)
-        step("Grab tab opens", to_grab)
-        step("Grab opens a test page", grab_page)
-        step("Back to Studio", back_to_studio)
-        step("Quick read screen opens", quick_read)
-        step("Live route opens in Studio", live)
-        # The last page's own start-up work (an update check, say) can crash a second after the page shows.
-        time.sleep(5)
-        check_no_crash("Settling after the last step")
-    except StepFailed as e:
-        print(f"FAILED: {e}", file=sys.stderr)
-        print(adb("logcat", "-d", "-t", "300", check=False)[-6000:])
-        return 1
-    finally:
-        server.stop()
-    print(f"Phone smoke test passed: {len(steps)} steps.")
-    return 0
+    step("Launch asks for the address", launch)
+    step("Studio loads the server's page", sign_address)
+    step("Grab tab opens", to_grab)
+    step("Grab opens a test page", grab_page)
+    step("Back to Studio", back_to_studio)
+    step("Quick read screen opens", quick_read)
+    step("Live route opens in Studio", live)
+    # The last page's own start-up work (an update check, say) can crash a second after the page shows.
+    time.sleep(5)
+    check_no_crash("Settling after the last step")
+    return steps
 
 
 if __name__ == "__main__":

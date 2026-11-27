@@ -278,6 +278,13 @@ def append_novel_chapter_once(drama_id: int, text: str, heading: str, url: str =
                for old in (False, True)):
             return False
         save_novel_text(drama_id, text, append=True, heading=heading, url=url, source=source)
+        import novel_text
+        folder = db.drama_dir(drama_id)
+        try:
+            novel_text.write_phone_added(folder, novel_text.read_phone_added(folder) + 1)
+        except OSError:
+            # Only a cap on the phone's later ask; the saved chapter must not be reported as failed.
+            _warn("Could not update the count of chapters saved from the phone")
         return True
 
 
