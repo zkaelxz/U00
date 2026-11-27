@@ -134,8 +134,7 @@ class TestGpuAllowed:
 
     def test_a_card_with_room_is_used(self):
         assert ocr_worker._gpu_allowed("medium")
-        assert ocr_worker._gpu_allowed("ko")
-        assert not ocr_worker._gpu_allowed("small"), "the small pair has no PyTorch weights"
+        assert not ocr_worker._gpu_allowed("ko"), "only the medium pair has PyTorch weights"
 
     def test_settings_the_gpu_guard_or_no_card_keep_the_cpu(self):
         self.settings["use_gpu"] = False
@@ -407,7 +406,7 @@ def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
 
 
 def test_warming_does_not_start_the_gpu_load_without_its_weights(helpers):
-    helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda key="medium": False)
+    helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: False)
     helpers.scripts.append(_FakeConn([("ok", ("cpu",), None, None)]))
     assert ocr_worker.read("medium", "/fake/a.png", allow_download=False).txts == ("cpu",)
     assert len(helpers.starts) == 1 and not ocr_worker._gpu.alive()
@@ -461,7 +460,7 @@ def test_a_jobs_own_process_keeps_using_its_loaded_gpu_engine(monkeypatch):
 
 def test_start_gpu_load_waits_for_the_engine_only_when_the_gpu_is_allowed(monkeypatch):
     import ocr_worker
-    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda key="medium": True)
+    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: True)
     monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: False)
     assert ocr_worker.start_gpu_load("medium", wait=1) is False
     answers = iter([False, False, True])

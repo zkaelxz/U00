@@ -35,9 +35,10 @@ def _log(text: str, warning: bool = False) -> None:
     except Exception:
         pass
 
-# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean has only its
-# ONNX recognizer, so its GPU engine finds the lines with the PyTorch detector and reads them on the CPU.
-GPU_KEYS = frozenset({"medium", "ko"})
+# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean stays on the
+# CPU: its ONNX recognizer has no PyTorch weights, and swapping in the PyTorch detector changed
+# which lines were found (watermarks, stray fragments).
+GPU_KEYS = frozenset({"medium"})
 # The helper held 2.25 GB on the V100 while reading Chinese pages (two models, CUDA's own
 # share, a page's working memory); a little over that so it only goes on a card with room.
 GPU_NEED_MB = 2500
@@ -96,7 +97,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
-    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready_or_nearly(key):
+    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk()) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
             _gpu_off(reply[1])
@@ -123,7 +124,7 @@ def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
     """Starts the GPU engine's load now, so a first read does not fall back to the CPU while it
     loads, and waits up to `wait` seconds for it. True once it is ready; False when the GPU
     is not allowed (the reads stay on the CPU) or is still loading."""
-    if not (_gpu_allowed(key) and _gpu_weights_on_disk(key)):
+    if not (_gpu_allowed(key) and _gpu_weights_on_disk()):
         return False
     deadline = time.monotonic() + wait
     while True:
@@ -174,13 +175,11 @@ def _gpu_retry_later() -> None:
     _gpu_checked_at = time.monotonic()
 
 
-def _gpu_weights_on_disk(key: str = "medium") -> bool:
+def _gpu_weights_on_disk() -> bool:
     import os
     import ocr
-    specs = [ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL]
-    specs += ([ocr.RAPIDOCR_KOREAN_MODEL] if key == "ko"
-              else [ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT])
-    return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in specs)
+    return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in (
+        ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL, ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT))
 
 
 def _gpu_ready_or_nearly(key: str) -> bool:
