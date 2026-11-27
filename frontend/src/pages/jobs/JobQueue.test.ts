@@ -7,11 +7,11 @@ import { QueueRow } from './JobQueue'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 7, drama_id: 3, title: 'Signal', step: 'transcribe', status: 'waiting', reason: null, job_id: null,
-  engine: null, paid: false, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: null, paid: false, changed_settings: [], held: false, tonight: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const noop = () => undefined
 const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStaticMarkup(
-  createElement(QueueRow, { item: item(p), first, last, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop }),
+  createElement(QueueRow, { item: item(p), first, last, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop, onTonight: noop }),
 )
 
 describe('QueueRow', () => {
@@ -61,10 +61,29 @@ describe('QueueRow', () => {
 describe('Remove on a queued item', () => {
   it('asks first: the first step is "Remove…", not an immediate remove', () => {
     const html = renderToStaticMarkup(
-      createElement(QueueRow, { item: item({ status: 'waiting' }), first: true, last: true, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop }),
+      createElement(QueueRow, { item: item({ status: 'waiting' }), first: true, last: true, busy: false, monthlyCap: 5, onMove: noop, onRemove: noop, onRetry: noop, onHold: noop, onResume: noop, onCancel: noop, onTonight: noop }),
     )
     expect(html).toContain('Remove…')
     expect(html).not.toContain('Confirm remove')
+  })
+})
+
+describe('Tonight on a queued item', () => {
+  it('offers Run tonight on a waiting item, and Run now with a Tonight badge once it waits for the night', () => {
+    const plain = row({ status: 'waiting' })
+    expect(plain).toContain('Run tonight Transcribe Signal')
+    expect(plain).not.toContain('Tonight</span>')
+    const night = row({ status: 'waiting', tonight: true, reason: 'Waits for tonight, 1:00-7:00.' })
+    expect(night).toContain('Run now Transcribe Signal')
+    expect(night).toContain('Tonight</span>')
+    expect(night).toContain('Waits for tonight, 1:00-7:00.')
+  })
+  it('offers neither on a running or finished item', () => {
+    for (const status of ['running', 'done'] as const) {
+      const html = row({ status, tonight: true })
+      expect(html).not.toContain('Run now')
+      expect(html).not.toContain('Run tonight')
+    }
   })
 })
 

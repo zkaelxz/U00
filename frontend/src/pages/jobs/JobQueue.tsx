@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { hasStatus } from '../../api/client'
 import {
   addQueueAllSteps, addQueueItem, cancelQueueItem, clearFinishedQueueItems, holdQueueItem, resumeQueueItem, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
-  getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
+  getQueueStepSettings, setQueueItemTonight, setQueueNight, setQueuePolicy, setQueueSchedule, startQueue,
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
 import { Badge } from '../../components/Badge'
@@ -58,6 +58,9 @@ export function JobQueue({ titles }: Props) {
   const [edits, setEdits] = useState<QueueSettingEdits>({})
   const [fields, setFields] = useState<QueueSettingField[]>([])
   const [time, setTime] = useState('')
+  const [tonight, setTonight] = useState(false)
+  // The night window being edited; null shows the saved one.
+  const [night, setNight] = useState<{ start: string; end: string } | null>(null)
   const [showAll, setShowAll] = useState(false)
   const refocus = useRef<string | null>(null)
   const [folded, setFolded] = usePersistedState<boolean>('jobs.queueFolded.v1', false)
@@ -148,8 +151,8 @@ export function JobQueue({ titles }: Props) {
     const id = Number(dramaId)
     if (!id) return
     const request = step === 'all'
-      ? () => addQueueAllSteps(id)
-      : () => addQueueItem(id, step, changedEdits(fields, edits))
+      ? () => addQueueAllSteps(id, tonight)
+      : () => addQueueItem(id, step, changedEdits(fields, edits), tonight)
     void act(request).then(() => setEdits({}))
   }
   const move = (item: QueueItem, dir: 'up' | 'down') => {
@@ -177,6 +180,7 @@ export function JobQueue({ titles }: Props) {
             <p className="muted">Stop the queue when an item fails: off, a failed item is marked and the next one starts. Skipped and cancelled items never stop the queue.</p>
           </>
         )}
+        <p className="muted">Tonight: the item waits for the night hours and starts once no one has used this PC's keyboard or mouse for 10 minutes. Run now puts it back in line.</p>
       </Section>
       <ErrorBanner error={loadError} />
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -214,6 +218,7 @@ export function JobQueue({ titles }: Props) {
               onHold={() => void act(() => holdQueueItem(item.id))}
               onResume={() => void act(() => resumeQueueItem(item.id))}
               onCancel={() => void act(() => cancelQueueItem(item.id))}
+              onTonight={(on) => void act(() => setQueueItemTonight(item.id, on))}
             />
           ))}
         </ol>
@@ -240,6 +245,9 @@ export function JobQueue({ titles }: Props) {
           <select className="w-md" value={step} onChange={(e) => { setStep(e.target.value as AddStep); setEdits({}) }}>
             {(Object.keys(ADD_STEP_LABELS) as AddStep[]).map((s) => <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>)}
           </select>
+        </Field>
+        <Field label="Tonight">
+          <Toggle checked={tonight} onChange={setTonight} />
         </Field>
         <button type="button" className={buttonClass('secondary')} disabled={busy || !dramaId || full} onClick={add}>
           Add to queue
@@ -296,7 +304,29 @@ export function JobQueue({ titles }: Props) {
               </button>
             )}
           </div>
+          <div className="queue-row" role="group" aria-label="Night hours">
+            <Field label="Night from">
+              <input type="time" value={night?.start ?? queue.night.start} onChange={(e) => setNight({ start: e.target.value, end: night?.end ?? queue.night.end })} />
+            </Field>
+            <Field label="to">
+              <input type="time" value={night?.end ?? queue.night.end} onChange={(e) => setNight({ start: night?.start ?? queue.night.start, end: e.target.value })} />
+            </Field>
+            {night && (
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                disabled={busy || !HHMM.test(night.start) || !HHMM.test(night.end) || night.start === night.end}
+                onClick={() => void act(() => setQueueNight({ ...night, self_check: queue.night.self_check })).then(() => setNight(null))}
+              >
+                Save night hours
+              </button>
+            )}
+          </div>
           <div className="setting-list">
+            <Field label="Nightly self-check" help="Once a night, when nothing runs: a short test of transcription, comic reading and the translation key. You get an alert only when the same part fails two nights in a row.">
+              <Toggle checked={queue.night.self_check} disabled={busy}
+                onChange={(on) => void act(() => setQueueNight({ start: queue.night.start, end: queue.night.end, self_check: on }))} />
+            </Field>
             <Field label="Stop the queue when an item fails">
               <Toggle checked={queue.stop_on_failure} disabled={busy} onChange={(on) => void act(() => setQueuePolicy({ stop_on_failure: on }))} />
             </Field>
@@ -464,16 +494,19 @@ type RowProps = {
   onHold: () => void
   onResume: () => void
   onCancel: () => void
+  onTonight: (on: boolean) => void
 }
 
-export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry, onHold, onResume, onCancel }: RowProps) {
+export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry, onHold, onResume, onCancel, onTonight }: RowProps) {
   const name = itemName(item)
+  const waiting = item.status === 'waiting'
   return (
     <li className="queue-item" data-testid={`queue-item-${item.id}`}>
       <div className="queue-item-head">
         <a href={routeHref({ name: 'drama', id: item.drama_id, stage: null })}>{item.title}</a>
         <span>{STEP_LABELS[item.step]}</span>
         <Badge tone={item.held ? 'warn' : statusTone(item.status)}>{item.held ? 'Paused' : queueStatusLabel(item.status)}</Badge>
+        {item.tonight && waiting && <Badge tone="info">Tonight</Badge>}
       </div>
       {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{withoutExceptionNames(item.reason)}</p>}
       {item.changed_settings.length > 0 && (
@@ -505,6 +538,17 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
             ) : (
               <button type="button" className={buttonClass('secondary')} aria-label={`Pause ${name}`} disabled={busy} onClick={onHold}>
                 Pause
+              </button>
+            )
+          )}
+          {waiting && (
+            item.tonight ? (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Run now ${name}`} disabled={busy} onClick={() => onTonight(false)}>
+                Run now
+              </button>
+            ) : (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Run tonight ${name}`} disabled={busy} onClick={() => onTonight(true)}>
+                Run tonight
               </button>
             )
           )}

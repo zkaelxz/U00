@@ -549,6 +549,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
 | `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
+| `POST /api/queue/items/{item_id}/tonight` | jobs.start |
+| `POST /api/queue/night` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/pause` | jobs.start |

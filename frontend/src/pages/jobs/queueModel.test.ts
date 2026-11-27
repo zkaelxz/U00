@@ -8,10 +8,10 @@ import {
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], held: false, tonight: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
-  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, night: { start: '01:00', end: '07:00', self_check: true }, notice: null, max_items: 200,
   can_control: true, monthly_cap_usd: 0, items: [], ...p,
 })
 
