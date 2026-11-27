@@ -14,7 +14,7 @@ A session that writes code never reviews its own change.
 4. Test while iterating with the area's test file; before pushing run the command `python tools/check_change.py` prints for your diff. CI runs the full suite; don't.
 5. When a coordinator session is running the work, check in with it before opening or merging a PR, before moving, renaming or deleting files or folders, and before any change on a PC, and tell it about anything that could affect another session's work. `python tools/pr_lane.py` (quoted in the merge report) does not replace the check-in.
 6. Every PR gets an independent review (below). Fix what it finds, have it re-reviewed, then re-run the area's tests and the guard set.
-7. Once the review passes, turn auto-merge on without waiting for the owner; GitHub merges when the checks are green. A risky PR still waits for "Merge NNNN". Merging follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow". Keep code comments and PR text minimal and to the point.
+7. Once the review passes, turn auto-merge on without waiting for the owner; GitHub merges when the checks are green. A risky PR (database schema or data, sign-in or auth including remote access, ownership) also needs an independent security review (`security-reviewer`) and is held only if that review finds problems. Merging follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow". Keep code comments and PR text minimal and to the point.
 8. No comment, review or reply is posted on a GitHub PR or issue without the owner's OK; send the exact text to the coordinator first.
 9. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits.
 
