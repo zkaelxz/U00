@@ -1,5 +1,4 @@
 import { expect, test } from './fixtures'
-import { pickStyle } from './pickStyle'
 import type { Page } from '@playwright/test'
 
 import { ME } from './authMocks'
