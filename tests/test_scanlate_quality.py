@@ -616,3 +616,18 @@ class TestDarkStripErase:
     def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
         assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
         assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None
+
+
+def test_mid_tone_balloon_with_white_lettering_is_not_read_as_paper_or_art():
+    import numpy as np
+    from scanlate import scanlate_inpaint
+    box = {"x": 0, "y": 0, "w": 100, "h": 100, "kind": "sign"}
+    balloon = np.full((100, 100), 105, np.uint8)
+    balloon[30:60, 20:80] = 255
+    assert scanlate_inpaint._has_light_lettering_on_midtone(balloon)
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(balloon, box)
+    assert (scanlate_inpaint._lettering_mask(balloon) > 0).mean() < 0.5
+    assert not scanlate_inpaint._has_light_lettering_on_midtone(np.full((100, 100), 105, np.uint8))
+    bright_corners = balloon.copy()
+    bright_corners[:, :20] = 255
+    assert not scanlate_inpaint._has_light_lettering_on_midtone(bright_corners)
