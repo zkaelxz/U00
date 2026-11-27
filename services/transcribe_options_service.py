@@ -687,7 +687,6 @@ _ADVICE_RULES = (
      and c["language"] in ("", "ja"),
      "Whisper ja-1.5B is meant for anime and games.", lambda c: None),
 )
-ADVICE_RULE_IDS = tuple(rule[0] for rule in _ADVICE_RULES)
 
 
 def asr_advice(language: str, media_type: str, backend: str, model: str, switches: dict,
