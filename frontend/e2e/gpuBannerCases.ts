@@ -83,8 +83,6 @@ export function registerGpuBannerCases(prefix: string) {
   test(`${prefix}Diagnostics GPU card: Turn on GPU saves the setting`, async ({ page }) => {
     const { saved } = await open(page, { useGpu: false, to: '/#/diagnostics?card=packages' })
     await openSection(page, /^Packages/)
-    // A healthy PyTorch leaves the fold closed.
-    await page.locator('summary', { hasText: /^GPU PyTorch/ }).click()
     const card = page.getByTestId('gpu-torch')
     await expect(card).toBeVisible()
     const banner = card.getByTestId('gpu-banner')

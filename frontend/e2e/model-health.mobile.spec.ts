@@ -15,11 +15,6 @@ test.beforeEach(async ({ page }) => {
 
 const SHOTS = process.env.MODEL_HEALTH_SHOTS_DIR
 
-// The card is a fold that opens itself only on a problem; these specs need it open.
-test.beforeEach(async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('baihe.section.diagnostics.modelHealth', '1'))
-})
-
 test('phone: the card fits, targets are 44px, and a switch asks twice', async ({ page }) => {
   const unmocked = await guardWrites(page)
   // The Compare in Benchmark Lab links show only with Developer Mode on, and they are targets to measure too.

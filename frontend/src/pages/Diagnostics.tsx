@@ -3,12 +3,12 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { getDiagnostics, getModelCache, getSetupChecks } from '../api/diagnostics'
 import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
-import { Badge } from '../components/Badge'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { RemoteHealthLine } from '../components/RemoteHealthBanner'
+import { FlatPaneContext } from '../components/flatPane'
+import { SidePane } from '../components/SidePane'
 import { Tabs } from '../components/Tabs'
-import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useHolds } from '../hooks/useHolds'
 import { useJobs } from '../hooks/useJobs'
@@ -37,18 +37,19 @@ import { RealModelCheck } from './diagnostics/RealModelCheck'
 import { SetupSection } from './diagnostics/SetupSection'
 import { headerBadges, setupRows, type AdminBusy } from './diagnostics/diagnosticsAdmin'
 import {
-  CARD_TAB, DIAGNOSTICS_TABS, TAB_FOLD_KEYS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
+  CARD_TAB, DIAGNOSTICS_TABS, cardAnchorId, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab,
 } from './diagnostics/diagnosticsTabs'
 import './diagnostics/diagnostics.css'
 import { isActive, pollWhenSettled, shouldRefreshGpu, splitDependencies } from './diagnosticsFormat'
 import { useInterval } from '../hooks/useInterval'
 
 const POLL_MS = 3000
+const SHOWING = { showing: true }
+const HIDDEN = { showing: false }
 
 // The gate sits outside the page so a member's browser never fires the
 // diagnostics calls the server would refuse.
 export default function DiagnosticsPage() {
-  useState(() => seedPageTabFolds('diagnostics', TAB_FOLD_KEYS))
   if (!useHolds('admin.diagnostics')) {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
@@ -79,6 +80,7 @@ function DiagnosticsContent() {
   const [cacheError, setCacheError] = useState<unknown>(null)
   // One install, upgrade or reset at a time; every admin button waits for it.
   const [adminBusy, setAdminBusy] = useState<AdminBusy>(null)
+  // Set by Packages and Reset library while their pane is on screen (useDetailsOpen reads the pane).
   const [packagesOpen, setPackagesOpen] = useState(false)
   const [dangerOpen, setDangerOpen] = useState(false)
   const [queuedInstalls, setQueuedInstalls] = useState(0)
@@ -121,7 +123,7 @@ function DiagnosticsContent() {
     // After the tab's panel is no longer hidden.
     const frame = requestAnimationFrame(() => {
       scroll()
-      document.getElementById(cardAnchorId(target.card))?.querySelector('summary')?.focus({ preventScroll: true })
+      document.getElementById(cardAnchorId(target.card))?.querySelector<HTMLElement>('.section-title')?.focus({ preventScroll: true })
     })
     // Cards above the target (Ports, Log) finish loading after the jump and push it down the page, so keep
     // it in place until the person scrolls or a couple of seconds pass.
@@ -167,7 +169,7 @@ function DiagnosticsContent() {
   const active = jobs !== null && jobs.some((j) => isActive(j.status))
   const running = jobs?.filter((j) => isActive(j.status)).length ?? 0
   // While the stream is down: poll while a job runs, and while Packages or
-  // the Reset library card is open (their buttons wait for running jobs).
+  // Reset library is on screen (their buttons wait for running jobs).
   const watch = polling && (active || packagesOpen || dangerOpen)
   useInterval(() => void refreshJobs(), watch ? POLL_MS : null)
   // Memory in use changes while a GPU job runs; the overview is re-read only then, and not in a hidden tab.
@@ -189,10 +191,14 @@ function DiagnosticsContent() {
   const badges = headerBadges(setupProblems, deps?.installed.length ?? null,
     overview ? Object.keys(overview.dependencies).length : null, jobs ? running : null, adminBusy)
 
-  const attention: Record<DiagnosticsTab, number> = { setup: setupProblems ?? 0, packages: queuedInstalls, models: modelProblems, system: 0 }
+  const attention: Partial<Record<DiagnosticsTab, number>> = { setup: setupProblems ?? 0, packages: queuedInstalls, 'model-status': modelProblems }
+  // Away from the main PC the PC-only panes would be empty; a link to one lands on Setup.
+  const shownTabs = DIAGNOSTICS_TABS.filter((t) => !(t.pcOnly && pc === 'remote'))
+  const shownTab = shownTabs.some((t) => t.id === tab) ? tab : 'setup'
+  // Panes stay mounted (hidden) so a running install or a half-typed confirm survives switching.
   const panel = (id: DiagnosticsTab, children: ReactNode) => (
-    <div key={id} id={tabPanelId('diagnostics', id)} role="tabpanel" aria-labelledby={tabButtonId('diagnostics', id)} className="diag-panel" hidden={tab !== id}>
-      {children}
+    <div key={id} id={tabPanelId('diagnostics', id)} role="tabpanel" aria-labelledby={tabButtonId('diagnostics', id)} className="diag-panel" hidden={shownTab !== id}>
+      <FlatPaneContext.Provider value={shownTab === id ? SHOWING : HIDDEN}>{children}</FlatPaneContext.Provider>
     </div>
   )
   // An anchor for deep links; a card that renders nothing (no browser problem to fix) leaves no gap.
@@ -205,27 +211,47 @@ function DiagnosticsContent() {
       label="Diagnostics"
       className="diag-page"
       meta={(
-        <p className="page-meta pill-row" data-testid="diagnostics-summary">
-          {badges.length ? badges.map((b) => <Badge key={b.key} tone={b.tone}>{b.text}</Badge>) : 'Loading…'}
+        <p className="page-meta muted" data-testid="diagnostics-summary">
+          {badges.length ? badges.map((b, i) => (
+            <span key={b.key}>{i > 0 && ' · '}<span className={b.tone === 'warn' ? 'diag-meta-warn' : undefined}>{b.text}</span></span>
+          )) : 'Loading…'}
         </p>
       )}
       headExtra={<><AppVersionLine /><RemoteHealthLine /></>}
-      tabs={(
+    >
+      <SidePane nav={(
         <Tabs
+          side
           label="Diagnostics"
           idPrefix="diagnostics"
-          tabs={DIAGNOSTICS_TABS.map((t) => ({ ...t, attention: attention[t.id] }))}
-          active={tab}
+          tabs={shownTabs.map((t) => ({ ...t, attention: attention[t.id] }))}
+          active={shownTab}
           onSelect={selectTab}
         />
-      )}
-    >
+      )}>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <ErrorBanner error={jobsError} />
       <ErrorBanner error={cacheError} />
 
       {panel('setup', (
         <>
+        {/* Each install shows only while its tool is missing, so what needs fixing comes first. */}
+        {card('browser', (
+          <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('browser')}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+        ))}
+        {card('ffmpeg', (
+          <FfmpegInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('ffmpeg')}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+        ))}
+        {card('cuda-runtime', (
+          <CudaRuntimeInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('cuda-runtime')}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+        ))}
+        {card('deno', (
+          <DenoInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('deno')}
+            onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
+        ))}
         {card('recommended', <RecommendedInstalls setup={setup} openSignal={signal('recommended')} />)}
         {card('setup', setup ? (
           <SetupSection
@@ -246,22 +272,6 @@ function DiagnosticsContent() {
 
       {panel('packages', (
         <>
-          {card('browser', (
-            <BrowserInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('browser')}
-              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
-          ))}
-          {card('ffmpeg', (
-            <FfmpegInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('ffmpeg')}
-              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
-          ))}
-          {card('cuda-runtime', (
-            <CudaRuntimeInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('cuda-runtime')}
-              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
-          ))}
-          {card('deno', (
-            <DenoInstall pc={pc} jobsActive={active} busy={adminBusy} openSignal={signal('deno')}
-              onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
-          ))}
           {card('omnivoice', (
             <VoiceEngineInstall engine="omnivoice" pc={pc} jobsActive={active} busy={adminBusy}
               openSignal={signal('omnivoice')} onStarted={() => void refreshJobs()} onFinished={refreshSetup} />
@@ -289,20 +299,17 @@ function DiagnosticsContent() {
               pickPackage={route.name === 'diagnostics' ? route.pkg : undefined}
             />
           ))}
-          {card('speaker', <PyannoteSection openSignal={signal('speaker')} />)}
         </>
       ))}
 
+      {panel('speaker', card('speaker', <PyannoteSection openSignal={signal('speaker')} />))}
+      {panel('model-status', card('model-status', <ModelHealthCard pc={pc} onProblems={setModelProblems} openSignal={signal('model-status')} />))}
       {panel('models', (
         <>
-          {card('model-status', <ModelHealthCard pc={pc} onProblems={setModelProblems} openSignal={signal('model-status')} />)}
           {card('models', (
             <ModelsList engines={overview?.model_engine_versions ?? []} cache={cache} pc={pc}
               onChanged={refreshCache} onGoTo={goTo} openSignal={signal('models')} />
           ))}
-          {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
-          {card('process-memory', <ProcessMemoryCard openSignal={signal('process-memory')} />)}
-          {card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />)}
           {developerMode && (
             <p className="muted diag-lab-link">
               Compare engines and prompts on your own test sets.{' '}
@@ -311,18 +318,25 @@ function DiagnosticsContent() {
           )}
         </>
       ))}
-
+      {panel('loaded', (
+        <>
+          {card('loaded-models', <LoadedModelsCard openSignal={signal('loaded-models')} />)}
+          {card('process-memory', <ProcessMemoryCard openSignal={signal('process-memory')} />)}
+        </>
+      ))}
+      {panel('test-models', card('test-models', <RealModelCheck pc={pc} jobsActive={active} openSignal={signal('test-models')} />))}
       {panel('system', (
         <>
           {card('resources', <ResourcesSection openSignal={signal('resources')} />)}
           {card('ports', <PortsSection pc={pc} openSignal={signal('ports')} />)}
-          {card('log', <LogSection openSignal={signal('log')} />)}
-          {card('reset', (
-            <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset}
-              onOpenChange={setDangerOpen} openSignal={signal('reset')} />
-          ))}
         </>
       ))}
+      {panel('log', card('log', <LogSection openSignal={signal('log')} />))}
+      {panel('reset', card('reset', (
+        <DangerZone pc={pc} jobsActive={active} busy={adminBusy} onBusy={setAdminBusy} onReset={afterReset}
+          onOpenChange={setDangerOpen} openSignal={signal('reset')} />
+      )))}
+      </SidePane>
     </PageShell>
   )
 }

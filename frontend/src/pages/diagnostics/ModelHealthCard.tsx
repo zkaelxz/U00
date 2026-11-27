@@ -236,6 +236,7 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
               count={others.length}
               storageKey="diagnostics.modelHealthOthers"
               summary={othersSummary(others)}
+              keepFold
             >
               <ul className="model-list compact" aria-label="Other configured models">
                 {others.map((item) => (
