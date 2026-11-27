@@ -285,10 +285,11 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
               <form className="character-rename" onSubmit={(e) => { e.preventDefault(); rename() }}>
                 <input aria-label={`New name for ${label}`} value={renaming} autoFocus
                   onChange={(e) => setRenaming(e.target.value)} />
-                <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
+                <button type="submit" disabled={busy || renameProblemText !== null} aria-describedby={renameProblemText ? `rename-reason-${label}` : undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
                 <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <DisabledReason id={`rename-reason-${label}`}>{renameProblemText}</DisabledReason>
               </form>
             )}
             {mergeInto === null ? (

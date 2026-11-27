@@ -15,6 +15,7 @@ import {
 } from '../../../api/voiceClone'
 import { voiceBankAudioUrl } from '../../../api/voiceBankAudio'
 import { ClipPlayButton } from '../../../components/ClipPlayButton'
+import { DisabledReason } from '../../../components/DisabledReason'
 import { ConfirmButton } from '../../../components/ConfirmButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
@@ -247,7 +248,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
           <button
             type="button"
             disabled={!entry.has_ref_audio || !bankName.trim() || busy}
-            title={bankHint ?? (bankName.trim() ? undefined : 'Type a name first.')}
+            aria-describedby={bankName.trim() ? undefined : `bank-name-reason-${label}`}
             onClick={() =>
               run(saveToVoiceBank(dramaId, label, bankName), (e) => {
                 setBankName('')
@@ -259,6 +260,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
             Save to voice bank
           </button>
         </div>
+        {entry.has_ref_audio && <DisabledReason id={`bank-name-reason-${label}`}>{!bankName.trim() && 'Type a name first.'}</DisabledReason>}
         {bankHint && <p className="muted">{bankHint}</p>}
         {bank.length > 0 && (
           <div className="voice-row">
