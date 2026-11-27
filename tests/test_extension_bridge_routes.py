@@ -874,3 +874,115 @@ class TestRepeatMeetsCacheAnsweredCopy:
         kept, _ = extension_bridge_service._drop_repeats_in_run([first], "run-meet")
         kept2, repeats = extension_bridge_service._drop_repeats_in_run([again], "run-meet")
         assert kept and not kept2 and [p["key"] for p in repeats] == ["b"]
+
+
+class TestTitleProgress:
+    def test_a_token_sees_only_its_own_titles_run(self, isolated_db):
+        from services import page_run_service
+        mine, token = _member("a@example.com")
+        other, _ = _member("b@example.com")
+        own = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=mine["id"])
+        theirs = db.create_drama(title_en="Other", media_type="manhua", owner_user_id=other["id"])
+        page_run_service.start_after_import(
+            dict(user_id=mine["id"], is_admin=False, permissions=auth_service.effective_permissions(mine["id"])),
+            own, "gemini", None, at_pc=False)
+        r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": own})
+        assert r.status_code == 200
+        assert r.json()["state"] in ("waiting", "running") and r.json()["kind"] == "comic"
+        assert set(r.json()) == {"state", "step", "kind"}
+        assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_a_title_with_no_run_or_no_translate_run_is_idle(self, isolated_db):
+        u, token = _member("a@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        video = db.create_drama(title_en="Clip", media_type="drama", owner_user_id=u["id"])
+        for did in (comic, video):
+            r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": did})
+            assert r.status_code == 200 and r.json()["state"] == "idle"
+
+    def test_it_needs_a_token_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-progress", json={"drama_id": 1}).status_code == 401
+        _, token = _member("a@example.com")
+        for bad in ({}, {"drama_id": "1"}, {"drama_id": True}, {"drama_id": 0}):
+            assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json=bad).status_code == 400
+
+
+class TestTitleTranslate:
+    def _phone(self, email, perms=("jobs.start", "lines.edit")):
+        u, _ = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_queues_a_novel_run_without_an_import_step(self, isolated_db, monkeypatch):
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] in ("waiting", "running")
+        steps = [i["step"] for i in page_run_service._title_items({"user_id": u["id"], "is_admin": False,
+                                                                   "permissions": []}, did)]
+        assert "follow" not in steps and "run_translate" in steps
+
+    def test_refuses_a_comic_and_someone_elses_title(self, isolated_db):
+        u, token = self._phone("a@example.com")
+        other, _ = _member("b@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        theirs = db.create_drama(title_en="Theirs", media_type="novel", owner_user_id=other["id"])
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": comic}).status_code == 422
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_needs_a_token_jobs_start_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-translate", json={"drama_id": 1}).status_code == 401
+        u, token = self._phone("a@example.com", perms=("lines.edit",))
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": 1}).status_code == 403
+        _, ok = self._phone("c@example.com")
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(ok), json={}).status_code == 400
+
+    def test_a_paid_engine_with_no_cap_is_refused_out_loud_and_lines_already_made_is_a_conflict(
+            self, isolated_db, monkeypatch):
+        from lib.errors import UnsupportedOperationError
+        from services import paid_job_service
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+
+        def no_cap(*a, **k):
+            raise UnsupportedOperationError("Set a monthly spending limit first.")
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", no_cap)
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 422 and "spending limit" in r.text
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 200
+        again = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert again.status_code == 200 and again.json()["state"] in ("waiting", "running")
+
+    def test_two_starts_at_once_queue_one_chain(self, isolated_db, monkeypatch):
+        import threading
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, _ = self._phone("a@example.com")
+        principal = dict(user_id=u["id"], is_admin=False,
+                         permissions=auth_service.effective_permissions(u["id"]))
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        outcomes = []
+
+        def start():
+            try:
+                page_run_service.start_after_import(principal, did, "gemini", {}, at_pc=False, follow_import=False)
+                outcomes.append("ok")
+            except Exception as e:
+                outcomes.append(type(e).__name__)
+        threads = [threading.Thread(target=start) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        chains = {i["chain"] for i in page_run_service._title_items(principal, did)}
+        assert len(chains) == 1, outcomes
