@@ -162,8 +162,17 @@ def run(apk):
             wait_for("Grab to load the test page", lambda: server.seen("/chapter"), 30)
 
         def back_to_studio():
-            tap(wait_for("the Studio tab", lambda: find(desc="Open Studio")))
-            wait_for("the Studio screen", lambda: "MainActivity" in resumed_activity())
+            # Studio can already be in front when Grab's start-up races the test page (its tab then reads
+            # "current screen", not "Open Studio"), and a tap can miss while the page is still drawing, so
+            # keep trying until Studio is the resumed screen instead of waiting for one tab to appear.
+            def reach_studio():
+                if "MainActivity" in resumed_activity():
+                    return True
+                tab = find(desc="Open Studio")
+                if tab is not None:
+                    tap(tab)
+                return None
+            wait_for("the Studio screen", reach_studio, 60)
 
         def quick_read():
             shell("am", "start", "-n", f"{PACKAGE}/.QuickReadActivity")
