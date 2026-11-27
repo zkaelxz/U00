@@ -184,6 +184,29 @@
     lastHeight = box.scrollHeight;
   }
   collect();
+  // A reader that is still fetching its pages looks stuck: the walk above ends with a handful of
+  // pictures while it says it is loading, or says it holds more pages than were found. Wait for it,
+  // bounded, so a slow connection does not cost half the chapter.
+  var LOADING_TEXT = /载入中|加载中|載入中|読み込み中|로딩 중|loading/i;
+  function pageTotalHint() {
+    var text = (document.body && document.body.innerText) || "";
+    var counter = text.match(/\b(\d{1,3})\s*\/\s*(\d{1,3})\b/);
+    var total = text.match(/\b(\d{1,3})\s*P\b/);
+    return Math.max(counter ? Number(counter[2]) : 0, total ? Number(total[1]) : 0);
+  }
+  function readerLoading() {
+    return LOADING_TEXT.test((document.body && document.body.innerText) || "");
+  }
+  var settleUntil = Date.now() + 45 * 1000;
+  var quiet = 0;
+  while (Date.now() < settleUntil && (readerLoading() || (items.length < pageTotalHint() && quiet < 6))) {
+    box = scrollBox();
+    try { box.scrollTo({ top: box.scrollHeight, behavior: "instant" }); } catch (e) { box.scrollTop = box.scrollHeight; }
+    await new Promise(function (r) { setTimeout(r, 700); });
+    var known = items.length;
+    collect();
+    quiet = items.length > known ? 0 : quiet + 1;
+  }
   box.scrollTop = 0;
   var CHAPTER_TEXT = /第\s*[\d０-９一二三四五六七八九十百零]+\s*[章话話回集卷期]|(?:chapter|chap|ch|episode|ep|vol)\.?\s*[\d.]+|[\d.]+\s*[화話话章]|^\s*#?\d+\s*$/i;
   var NEXT_TEXT = /^\s*(下一章|下一话|下一話|下一回|下章|下一頁|下一页|次の話|次へ|次話|다음\s*화|다음화|next\s*(chapter|ch\.?|episode)?|next\s*›|›|»)\s*$/i;
@@ -371,15 +394,16 @@
   // answers by calling the function below, which only this grab's secret name reaches.
   var snapWaiters = {};
   var snapCount = 0;
-  window["__baiheSnap" + nonce] = function (id, ok) {
+  // The answer is 1 when the strip was kept, 2 when it looked like a page not drawn yet, else 0.
+  window["__baiheSnap" + nonce] = function (id, code) {
     var waiter = snapWaiters[id];
-    if (waiter) { delete snapWaiters[id]; waiter(!!ok); }
+    if (waiter) { delete snapWaiters[id]; waiter(Number(code) || 0); }
   };
   function ask(send) {
     return new Promise(function (resolve) {
       var id = "s" + (++snapCount);
-      var timer = setTimeout(function () { delete snapWaiters[id]; resolve(false); }, 20000);
-      snapWaiters[id] = function (ok) { clearTimeout(timer); resolve(ok); };
+      var timer = setTimeout(function () { delete snapWaiters[id]; resolve(0); }, 20000);
+      snapWaiters[id] = function (code) { clearTimeout(timer); resolve(code); };
       send(id);
     });
   }
@@ -403,9 +427,27 @@
     hidden.forEach(function (h) { if (h[1]) h[0].style.visibility = h[1]; else h[0].style.removeProperty("visibility"); });
     hidden = [];
   }
+  // A reader draws a page after its picture arrives and marks it loading until then; on a slow
+  // connection a picture taken sooner would be blank.
+  // Waiting for slow pictures shares one budget across the chapter, so a bad connection costs
+  // a bounded amount of time in total and the grab ends inside the app's time limit.
+  var drawBudget = 240000;
+  function stillDrawing(el) {
+    for (var n = el, d = 0; n && d < 5; n = n.parentElement, d++) {
+      if (/(^|[\s_-])loaded($|[\s_-])/.test(String(n.className || ""))) return false;
+      if (n.querySelector && n.querySelector('[class*="loading"]')) return true;
+    }
+    return false;
+  }
   // A canvas taller than the screen is scrolled a screen at a time. False when the page cannot be
   // shown whole.
   async function screenshotOf(el, box, key) {
+    // The page is brought on screen first: a reader only fetches the pages it is near.
+    el.scrollIntoView({ block: "center" });
+    for (var waited = 0; waited < 20000 && drawBudget > 0 && stillDrawing(el); waited += 500) {
+      await new Promise(function (resolve) { setTimeout(resolve, 500); });
+      drawBudget -= 500;
+    }
     var first = el.getBoundingClientRect();
     if (first.width > window.innerWidth + 2) return false;
     var height = first.height, done = 0, startTop = box.scrollTop, strips = 0;
@@ -421,8 +463,16 @@
         var y = r.top + done;
         if (y < 0 || y >= window.innerHeight) return false;
         var rows = Math.min(height - done, window.innerHeight - y);
-        var ok = await ask(function (id) { Baihe.snap(nonce, id, key, r.left, y, r.width, rows, window.innerWidth); });
-        if (!ok) return false;
+        // A page that looks undrawn is asked for again, up to about eight seconds, then taken as it is.
+        var code = 2;
+        for (var attempt = 0; code === 2; attempt++) {
+          code = await ask(function (id) { Baihe.snap(nonce, id, key, r.left, y, r.width, rows, window.innerWidth, attempt >= 6 || drawBudget <= 0); });
+          if (code === 2) {
+            await new Promise(function (resolve) { setTimeout(resolve, 1300); });
+            drawBudget -= 1300;
+          }
+        }
+        if (code !== 1) return false;
         strips++;
         done += rows;
       }
@@ -432,7 +482,7 @@
       showOverlays();
     }
     if (strips === 0 || done < height - 1) return false;
-    return ask(function (id) { Baihe.stitch(nonce, id, key); });
+    return (await ask(function (id) { Baihe.stitch(nonce, id, key); })) === 1;
   }
 
   // Pictures are read four at a time, but handed over in page order.
