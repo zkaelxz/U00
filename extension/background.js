@@ -277,6 +277,28 @@ function publicPageUrl(url) {
   }
 }
 
+// Only the link goes, as from the phone's Grab: this browser's logins stay here, so a video
+// that needs one will not download on the PC. The fragment is page state, not part of the video.
+function videoLink(url) {
+  const page = publicPageUrl(url);
+  if (!page) return "";
+  const parsed = new URL(page);
+  parsed.hash = "";
+  return parsed.href;
+}
+
+async function sendVideo({ url }) {
+  const link = videoLink(url);
+  if (!link) return { ok: false, error: "Open a video page on a public website first." };
+  return call("/video", { method: "POST", body: { url: link } });
+}
+
+async function startLive({ url, sourceLanguage }) {
+  const link = videoLink(url);
+  if (!link) return { ok: false, error: "Open a live stream page on a public website first." };
+  return call("/live", { method: "POST", body: { url: link, source_language: sourceLanguage || "zh" } });
+}
+
 // Finds or creates the title a page belongs to (the app's extension_title_service); the
 // options decide how much it may do. Only a public page's address is sent, as for novels.
 async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks, author, summary, coverUrl }) {
@@ -834,6 +856,12 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "saveNovelText":
           respond(await saveNovelText(message));
+          break;
+        case "sendVideo":
+          respond(await sendVideo(message));
+          break;
+        case "startLive":
+          respond(await startLive(message));
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));

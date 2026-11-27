@@ -345,3 +345,26 @@ def test_a_saved_answer_serves_both_modes():
 def test_saving_after_a_quick_translate_makes_the_answer_a_saved_one():
     out = _answers("b.rememberAnswer('h', [1], false); b.rememberAnswer('h', [1], true); return !!b.answerFor('h', true);")
     assert out is True
+
+
+def test_video_and_live_send_only_the_page_link_and_refuse_a_private_page():
+    out = _node("background", "video_and_live_send_only_the_link")
+    assert out["video"] == {"ok": True, "data": {"drama_id": 9}}
+    assert out["live"]["ok"] is True
+    video, live = out["sent"][:2]
+    # The fragment is page state; the browser's cookies never ride along.
+    assert video == {"path": "/video", "body": {"url": "https://video.example.com/watch?v=abc"}, "credentials": "omit"}
+    assert live["path"] == "/live" and live["body"] == {"url": "https://live.example.com/room/7", "source_language": "ja"}
+    assert out["local"]["ok"] is False and "public website" in out["local"]["error"]
+    assert out["localCalls"] == 0
+
+
+def test_a_second_press_while_sending_sends_nothing_more_and_the_result_links_the_title():
+    out = _node("popup_video", "")
+    assert out["sends"] == 1 and out["url"] == "https://video.example.com/watch?v=abc"
+    assert out["disabledWhileSending"] is True and out["enabledAfter"] is True
+    assert "downloading and subtitling" in out["status"]
+    assert out["linkShown"] is True and out["link"].endswith("/#/drama/12")
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    for element_id in ("tab-video", "panel-video", "sendVideo", "startLive", "liveLanguage", "openInBaihe"):
+        assert f'id="{element_id}"' in html
