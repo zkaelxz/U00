@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { coverUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
+import { nameLang } from '../hanScript'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
@@ -39,7 +40,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
             <DramaTile d={d} />
             <div className="drama-card-main">
-              <a className="drama-card-title" href={workspaceHref(d.id)} title={title}>{title}</a>
+              <a className="drama-card-title" href={workspaceHref(d.id)} title={title} lang={nameLang(title, d)}>{title}</a>
               <CardText d={d} />
               <div className="drama-card-foot">
                 <ButtonLink variant="ghost" size="sm" href={read.href} aria-label={`${read.label} ${title}`} className="drama-card-read">
@@ -67,7 +68,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
 export function DramaTile({ d }: { d: DramaSummary }) {
   const [broken, setBroken] = useState(false)
   return (
-    <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">
+    <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true" lang={d.title_zh ? nameLang(d.title_zh, d) : undefined}>
       {d.has_cover_art && !broken
         ? <img src={coverUrl(d.id)} alt="" loading="lazy" onError={() => setBroken(true)} />
         : tileText(d)}
@@ -80,7 +81,7 @@ function CardText({ d }: { d: DramaSummary }) {
   const progress = cardProgress(d)
   return (
     <>
-      {d.title_en && d.title_zh && <p className="drama-card-orig">{d.title_zh}</p>}
+      {d.title_en && d.title_zh && <p className="drama-card-orig" lang={nameLang(d.title_zh, d)}>{d.title_zh}</p>}
       {d.media_type && <p className="drama-card-type">{mediaTypeLabel(d.media_type)}</p>}
       {d.release_date && <p className="drama-card-type" data-testid="card-release-date">{d.release_date}</p>}
       <div className="pill-row">
@@ -117,7 +118,7 @@ function SelectCards({ items, checked, onToggle }: {
               <input type="checkbox" checked={on} onChange={() => onToggle(d.id)} aria-label={`Select ${title}`} />
             </label>
             <div className="drama-card-main">
-              <span className="drama-card-title">{title}</span>
+              <span className="drama-card-title" lang={nameLang(title, d)}>{title}</span>
               <CardText d={d} />
             </div>
           </li>
