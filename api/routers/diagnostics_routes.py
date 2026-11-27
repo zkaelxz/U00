@@ -43,7 +43,7 @@ def get_gpu():
     return diagnostics_service.get_gpu_reading()
 
 
-@router.get("/resources", dependencies=[require_permission("admin.diagnostics")],
+@router.get("/resources", dependencies=[require_permission("admin.diagnostics.read")],
             response_model=ResourceReadings,
             summary="The resource monitor's last readings (GPU, RAM, CPU, disk) and each alert rule's standing")
 def get_resources():

@@ -188,7 +188,8 @@ or `series` go when the parent goes.
 ### `sources.db` (separate file)
 
 `<library>/sources.db` belongs to the source-adapter system and has its own
-module, `sources/store.py`: settings, health and capabilities, tracked series,
+module, `sources/store.py`: settings, health and capabilities, tracked series
+(and who tracks each, `tracked_series_followers`),
 known and imported chapters, retry state, poll validators, notifications,
 `cache_index`, `extraction_cache`, domain proposals. It is kept separate so
 nothing there can interfere with `db.save_lines()` or a library backup.
@@ -333,7 +334,7 @@ What they skip or keep:
   pass to the PC owner (`owner_user_id` NULL, `pc_owner` 0, automatic checks
   off, mode `notify`); every account id the restored rows name (titles,
   series, job records, translate history, speaker-merge undos, and in a
-  restored `sources.db` tracked-series links and extension-only marks) becomes
+  restored `sources.db` tracked-series links, followers and extension-only marks) becomes
   the live account with the same email, or NULL (the PC owner) when there is
   none, its Google sign-in differs, or the backup's account row has no integer
   id or text email (`library_restore_sql.owner_map`; private

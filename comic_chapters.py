@@ -11,16 +11,20 @@ media drops the file; those pages then read as "Chapter unknown", which is
 also what every title imported before this file existed shows.
 
     {"version": 1,
-     "chapters": [{"key", "id", "title", "url", "files": [filename, ...]}],
+     "chapters": [{"key", "id", "title", "url", "files": [filename, ...],
+                   "sources": {source_key: filename}}],
      "hidden": [filename, ...]}
 
 `url` is optional (the chapter's page on its source, display-safe); entries
-written before it existed read as having none.
+written before it existed read as having none. `sources` (optional) maps each
+source picture already imported into the chapter to the first page written
+from it, so importing the chapter again adds only the pictures still missing.
 
 Reading never raises: a missing, truncated or hand-edited file reads as "no
 chapter data". Pages are the authority for what exists; entries naming a page
 that is gone are ignored.
 """
+import hashlib
 import json
 import os
 import re
@@ -42,6 +46,7 @@ _REPLACE_ATTEMPTS = 5
 _REPLACE_DELAY = 0.05
 MAX_TITLE = 200
 MAX_URL = 2000
+SOURCE_KEY_LEN = 16
 UNKNOWN_ID = "unknown"
 CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
 _WIN_PATH = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/][^\s\"'<>]*|\\\\[^\s\"'<>]+")
@@ -81,13 +86,42 @@ def _url(value) -> str:
 def chapter_ref(chapter_id=None, title=None, source=None, url=None):
     """The label a page writer passes for the chapter it is adding, or None
     when it has neither an id nor a title (the pages then stay unlabelled).
-    `url` is the chapter's page on its source; kept only in display-safe form."""
+    `url` is the chapter's page on its source; kept only in display-safe form.
+    `scope` is a hash of the full link, never stored: chapters told apart only
+    by query or fragment share a display link, and often a title-based key."""
     cid, name = _text(chapter_id, 100), _title(title)
     if not cid and not name:
         return None
     src = _text(source, 40)
     return {"key": f"{src}:{cid}" if cid else f"title:{name}",
-            "id": cid, "title": name, "url": _url(url)}
+            "id": cid, "title": name, "url": _url(url), "scope": _digest(url) if url else ""}
+
+
+def _digest(text) -> str:
+    return hashlib.sha256(str(text).encode("utf-8")).hexdigest()[:SOURCE_KEY_LEN]
+
+
+def source_key(ref, order, url):
+    """Names one source picture of the chapter `ref` from the chapter's full
+    link, the picture's position and its full address, so a picture of one
+    chapter can never match another's. A link with a rotating token matches
+    nothing and the picture is added again: a duplicate, never a lost page.
+    None without a chapter link or picture address."""
+    if not ref or not ref.get("scope") or not url:
+        return None
+    return _digest(f"{ref['scope']}|{order}|{url}")
+
+
+def imported_sources(drama_id: int, ref) -> set:
+    """The source keys of chapter `ref` whose page is still in it. A page a
+    rolled-back import dropped is no longer listed, so its picture counts as missing."""
+    if not ref:
+        return set()
+    entry = next((c for c in load(drama_id)["chapters"] if c["key"] == ref["key"]), None)
+    if entry is None:
+        return set()
+    files = set(entry["files"])
+    return {k for k, f in entry.get("sources", {}).items() if f in files}
 
 
 def _path(drama_id: int) -> str:
@@ -115,9 +149,15 @@ def _read(drama_id: int):
     for c in listed if isinstance(listed, list) else []:
         if not isinstance(c, dict) or not isinstance(c.get("files"), list):
             continue
-        chapters.append({"key": _text(c.get("key"), 160), "id": _text(c.get("id"), 100),
-                         "title": _text(c.get("title")), "url": _url(c.get("url")),
-                         "files": [f for f in c["files"] if isinstance(f, str)]})
+        entry = {"key": _text(c.get("key"), 160), "id": _text(c.get("id"), 100),
+                 "title": _text(c.get("title")), "url": _url(c.get("url")),
+                 "files": [f for f in c["files"] if isinstance(f, str)]}
+        sources = c.get("sources")
+        if isinstance(sources, dict):
+            entry["sources"] = {k: f for k, f in sources.items()
+                                if isinstance(k, str) and len(k) == SOURCE_KEY_LEN
+                                and isinstance(f, str)}
+        chapters.append(entry)
     hidden = raw.get("hidden")
     return {"version": 1, "chapters": chapters,
             "hidden": [f for f in hidden if isinstance(f, str)] if isinstance(hidden, list) else []}, True
@@ -172,7 +212,8 @@ def _save(drama_id: int, manifest: dict) -> None:
 
 def record_pages(drama_id: int, ref: dict, filenames) -> None:
     """Appends `filenames` (in page order) to the chapter `ref`, creating it
-    on first sight. Called by the page writer after the rows exist."""
+    on first sight. Called by the page writer after the rows exist. A
+    `ref["source"]` (source_key) records the source picture they came from."""
     if not ref or not filenames:
         return
     with _lock(drama_id):
@@ -184,7 +225,17 @@ def record_pages(drama_id: int, ref: dict, filenames) -> None:
         if ref.get("url") and not entry.get("url"):
             entry["url"] = ref["url"]
         entry["files"].extend(f for f in filenames if f not in entry["files"])
+        if ref.get("source"):
+            entry.setdefault("sources", {})[ref["source"]] = filenames[0]
         _save(drama_id, manifest)
+
+
+def _drop_files(chapter: dict, gone) -> None:
+    """Takes `gone` out of the chapter, its source record included: page names
+    are reused, and a record left on a reused name would pass over a new picture."""
+    chapter["files"] = [f for f in chapter["files"] if f not in gone]
+    if "sources" in chapter:
+        chapter["sources"] = {k: f for k, f in chapter["sources"].items() if f not in gone}
 
 
 def start_chapter(drama_id: int, filenames, title: str) -> None:
@@ -196,7 +247,7 @@ def start_chapter(drama_id: int, filenames, title: str) -> None:
     with _lock(drama_id):
         manifest = _load_for_write(drama_id)
         for c in manifest["chapters"]:
-            c["files"] = [f for f in c["files"] if f not in moved]
+            _drop_files(c, moved)
         manifest["chapters"] = [c for c in manifest["chapters"] if c["files"]]
         manifest["chapters"].append({"key": f"split:{uuid.uuid4().hex[:8]}", "id": "",
                                      "title": _title(title), "url": "", "files": list(filenames)})
@@ -210,7 +261,7 @@ def forget_pages(drama_id: int, filenames) -> None:
     with _lock(drama_id):
         manifest = _load_for_write(drama_id)
         for c in manifest["chapters"]:
-            c["files"] = [f for f in c["files"] if f not in gone]
+            _drop_files(c, gone)
         manifest["chapters"] = [c for c in manifest["chapters"] if c["files"]]
         manifest["hidden"] = [f for f in manifest["hidden"] if f not in gone]
         _save(drama_id, manifest)
@@ -269,7 +320,7 @@ def move_labels(source_id: int, target_id: int, renames: dict, keep_both: bool) 
                                                        if f in renames})
         _save(target_id, dst)
         for c in src["chapters"]:
-            c["files"] = [f for f in c["files"] if f not in renames]
+            _drop_files(c, renames)
         src["chapters"] = [c for c in src["chapters"] if c["files"]]
         src["hidden"] = [f for f in src["hidden"] if f not in renames]
         _save(source_id, src)

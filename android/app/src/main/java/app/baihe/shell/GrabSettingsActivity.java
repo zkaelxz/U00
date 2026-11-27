@@ -39,18 +39,6 @@ public class GrabSettingsActivity extends Activity {
         build();
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-        AppUpdate.screenStarted();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        AppUpdate.screenStopped(this);
-    }
-
     private SharedPreferences prefs() {
         return getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
     }
@@ -150,9 +138,10 @@ public class GrabSettingsActivity extends Activity {
         TextView[] rows = new TextView[options.length];
         for (int i = 0; i < options.length; i++) {
             int index = i;
-            rows[i] = optionRow(mark(options[i], i == selected));
+            rows[i] = optionRow(options[i]);
+            mark(rows[i], true, i == selected);
             rows[i].setOnClickListener(v -> {
-                for (int j = 0; j < rows.length; j++) rows[j].setText(mark(options[j], j == index));
+                for (int j = 0; j < rows.length; j++) mark(rows[j], true, j == index);
                 change.on(index);
             });
             group.addView(rows[i]);
@@ -160,8 +149,13 @@ public class GrabSettingsActivity extends Activity {
         return group;
     }
 
-    private static String mark(String label, boolean on) {
-        return (on ? "●  " : "○  ") + label;
+    /** Puts a themed radio or check mark before the row's text. */
+    private void mark(TextView row, boolean radio, boolean on) {
+        int size = GrabUi.dp(this, 22);
+        GrabMark mark = new GrabMark(radio, on, palette);
+        mark.setBounds(0, 0, size, size);
+        row.setCompoundDrawablesRelative(mark, null, null, null);
+        row.setCompoundDrawablePadding(GrabUi.dp(this, 12));
     }
 
     private TextView optionRow(String shown) {
@@ -173,17 +167,14 @@ public class GrabSettingsActivity extends Activity {
 
     private TextView toggle(String label, boolean on, BoolChange change) {
         boolean[] state = {on};
-        TextView row = optionRow(box(label, on));
+        TextView row = optionRow(label);
+        mark(row, false, on);
         row.setOnClickListener(v -> {
             state[0] = !state[0];
-            row.setText(box(label, state[0]));
+            mark(row, false, state[0]);
             change.on(state[0]);
         });
         return row;
-    }
-
-    private static String box(String label, boolean on) {
-        return (on ? "☑  " : "☐  ") + label;
     }
 
     private EditText field(String hint, String value, boolean secret) {

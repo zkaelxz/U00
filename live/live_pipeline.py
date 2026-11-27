@@ -230,7 +230,8 @@ class LagStats:
     """Numbers only (no path, URL or text), for the session status. lag_seconds:
     how long after the first word of the newest captioned chunk was spoken its
     lines were translated (its audio plus its processing). processing_seconds:
-    the rolling median of wait + Whisper + translate-queue wait + translate."""
+    the rolling median of wait + Whisper + translate-queue wait + translate.
+    overlap_matched / overlap_fallback: chunk joins by exact text match / by the time rule."""
 
     def __init__(self, publish):
         self._publish = publish or (lambda numbers: None)
@@ -240,6 +241,8 @@ class LagStats:
         self._measured = 0
         self.skipped = 0
         self.queue = 0
+        self.overlap_matched = 0
+        self.overlap_fallback = 0
         # Which reconnect try is under way; 0 while the stream is connected.
         self.reconnect_attempt = 0
 
@@ -249,6 +252,7 @@ class LagStats:
                     "processing_seconds": round(statistics.median(self._totals), 1) if self._totals else 0.0,
                     "translations_skipped": int(self.skipped), "translate_queue": int(self.queue),
                     "chunks_measured": int(self._measured),
+                    "overlap_matched": int(self.overlap_matched), "overlap_fallback": int(self.overlap_fallback),
                     "reconnect_attempt": int(self.reconnect_attempt)}
 
     def chunk_done(self, audio_seconds: float, total: float) -> None:
@@ -257,6 +261,15 @@ class LagStats:
             self._lag = float(audio_seconds) + float(total)
             self._measured += 1
         self.send()
+
+    def overlap_joined(self, outcome: str) -> None:
+        """Counts how a chunk's start was joined to the previous chunk's lines: the exact
+        text match, or the rougher time rule when the two hearings of the overlap disagreed."""
+        with self._lock:
+            if outcome == "fallback":
+                self.overlap_fallback += 1
+            else:
+                self.overlap_matched += 1
 
     def send(self) -> None:
         self._publish(self.figures())

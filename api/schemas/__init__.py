@@ -88,3 +88,4 @@ from api.schemas.jellyfin import *  # noqa: F401,F403
 from api.schemas.metadata_research import *  # noqa: F401,F403
 from api.schemas.model_reeval import *  # noqa: F401,F403
 from api.schemas.assistant import *  # noqa: F401,F403
+from api.schemas.scanlate import *  # noqa: F401,F403

@@ -30,6 +30,7 @@ import db
 from core import Line
 from api import auth as api_auth
 from api import remote_uploads
+from api import steady_listener
 from api.api_config import (ApiSettings, check_bind_safety, check_household_bind_safety,
                             household_settings, load_settings)
 from api.server import create_app
@@ -419,7 +420,8 @@ class TestNoAdminPermissionsOnHousehold:
         views = [(m, p) for methods, p, perm in self._admin_routes(app)
                  if perm in auth_service.ADMIN_VIEW_PERMISSIONS for m in methods]
         assert sorted(views) == [("GET", "/api/admin/audit"), ("GET", "/api/admin/users"),
-                                 ("GET", "/api/admin/users/{user_id}/devices")]
+                                 ("GET", "/api/admin/users/{user_id}/devices"),
+                                 ("GET", "/api/diagnostics/resources")]
         s = _admin_session()
         db.auth_insert_audit(None, "login.denied", "not_allowlisted email stranger@gmail.com")
         h = _household_client(app)
@@ -430,6 +432,20 @@ class TestNoAdminPermissionsOnHousehold:
         assert [u["email"] for u in users] == ["owner@example.com"]
         r = h.get("/api/admin/audit", headers=_h(s))
         assert "stranger@gmail.com" not in r.text and "s***@gmail.com" in r.text
+
+    def test_resource_readings_served_to_an_admin_anywhere_and_never_to_a_member(self, isolated_db):
+        """The Library's GPU line reads them; the monitor is process-wide, so
+        an admin away from the PC sees the same readings."""
+        s = _admin_session()
+        member = auth_service.add_user("kid@example.com")
+        m = auth_service.create_session(member["id"], "pytest", "127.0.0.1")
+        pc = _client(create_app(ApiSettings(auth_mode="on", serve_frontend=False)),
+                     "http://127.0.0.1:8600")
+        for c in (_household_client(), pc):
+            assert c.get("/api/diagnostics/resources", headers=_h(s)).status_code == 200
+            assert c.get("/api/diagnostics/resources", headers=_h(m)).status_code == 403
+        assert _admin_client().get("/api/diagnostics/resources").status_code == 200
+        assert "admin.diagnostics.read" not in auth_service.MEMBER_PERMISSIONS
 
     def test_me_lists_household_admin_view_and_member_admin_permissions_only(self, isolated_db):
         s = _admin_session()
@@ -1340,6 +1356,7 @@ class TestRunServers:
             def run(self):
                 pass
         monkeypatch.setattr(uvicorn, "Server", Single)
+        monkeypatch.setattr(steady_listener, "SteadyServer", Single)
         monkeypatch.setattr(main_mod, "_run_servers", lambda servers: ran.append(servers))
         main_mod._serve()
         return single, ran, cleaned, shutdown_service

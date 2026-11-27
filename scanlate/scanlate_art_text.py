@@ -256,6 +256,10 @@ def _paint_out_over_dark_art(page, box: dict) -> bool:
     return True
 
 
+# Untouched art kept round a caption's mask when the model repaints it.
+_CAPTION_CONTEXT_PX = 32
+
+
 def paint_out_captions(page, boxes: list, backend: str = "auto"):
     """Erases each caption's lettering from `page` (a BGR array, changed in
     place) with the LaMa-manga model. Returns True when the model painted every
@@ -274,11 +278,18 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
             continue
         if _paint_out_over_dark_art(page, box):
             continue
-        y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+        # The model repaints from the pixels the mask leaves clear; a crop cut tight round big
+        # lettering has few, and it filled the area with a flat pale patch. The margin of
+        # untouched art gives it the picture to continue, and only the masked pixels are taken
+        # back, so the area round the lettering keeps its own texture.
+        h, w = mask.shape
+        y0, y1 = max(0, ys.min() - _CAPTION_CONTEXT_PX), min(h, ys.max() + 1 + _CAPTION_CONTEXT_PX)
+        x0, x1 = max(0, xs.min() - _CAPTION_CONTEXT_PX), min(w, xs.max() + 1 + _CAPTION_CONTEXT_PX)
         roi, roi_mask = page[y0:y1, x0:x1], mask[y0:y1, x0:x1]
         if model_usable:
             try:
-                page[y0:y1, x0:x1] = _run_ml_inpaint(roi, roi_mask, allow_download=False)
+                painted = _run_ml_inpaint(roi, roi_mask, allow_download=False)
+                roi[roi_mask > 0] = painted[roi_mask > 0]
                 continue
             except ValueError:
                 pass            # too large for the model: OpenCV for this caption only

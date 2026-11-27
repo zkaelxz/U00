@@ -49,18 +49,6 @@ public class GrabHistoryActivity extends Activity {
         refresh();
     }
 
-    @Override
-    protected void onStart() {
-        super.onStart();
-        AppUpdate.screenStarted();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        AppUpdate.screenStopped(this);
-    }
-
     private SharedPreferences prefs() {
         return getSharedPreferences(GrabActivity.PREFS, MODE_PRIVATE);
     }

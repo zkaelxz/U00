@@ -52,6 +52,7 @@ public class MainActivity extends Activity {
     /** While the app stays open, a build the PC fetches later is still noticed. */
     private static final long UPDATE_POLL_MS = 5 * 60_000;
     private long updateCheckedAt;
+    private long declinedVersion;
     private boolean updateOffered;
     private View customView;
     /** The Studio | Grab strip, hidden while the app is a small floating window. */
@@ -618,20 +619,16 @@ public class MainActivity extends Activity {
         // Reopening the app resumes the same process and WebView, so no page load fires again;
         // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
         long now = System.currentTimeMillis();
-        if (updateOffered || AppUpdate.pending != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
+        if (updateOffered || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
         updateCheckedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
-            long offered = AppUpdate.check(address, cookie);
+            // The PC only looks at GitHub when asked, so an unforced ask would hear the old build first.
+            long offered = AppUpdate.check(address, cookie, true);
             // A failed ask (no network, a restarting PC) is tried again at the next chance, not a minute later.
             if (offered == AppUpdate.CHECK_FAILED) updateCheckedAt = 0;
-            if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) return;
-            if (AppUpdate.canUpdateSilently(getApplicationContext())) {
-                File apk = updateFile();
-                if (AppUpdate.download(address, cookie, apk)) AppUpdate.pending = apk;
-            } else {
-                runOnUiThread(() -> offerUpdate(address, cookie));
-            }
+            if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered) || offered == declinedVersion) return;
+            runOnUiThread(() -> offerUpdate(address, cookie, offered));
         }).start();
     }
 
@@ -647,11 +644,8 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
             } else if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) {
                 runOnUiThread(() -> toast("This app is up to date."));
-            } else if (AppUpdate.pending != null) {
-                runOnUiThread(() -> toast("An update is downloaded and installs when you leave the app."));
             } else {
-                // Always asks here, even where updates could go in silently: the person pressed the button.
-                runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie); });
+                runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie, offered); });
             }
         }).start();
     }
@@ -672,7 +666,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void offerUpdate(String address, String cookie) {
+    private void offerUpdate(String address, String cookie, long offered) {
         if (isFinishing() || isDestroyed()) return;
         updateOffered = true;
         new AlertDialog.Builder(this)
@@ -683,7 +677,8 @@ public class MainActivity extends Activity {
                     else runOnUiThread(() -> android.widget.Toast.makeText(this,
                             "Could not download the update. Try again in a minute.", android.widget.Toast.LENGTH_LONG).show());
                 }).start())
-                .setNegativeButton(android.R.string.cancel, null)
+                // Asking again at every return to the app would nag; the Check for updates button still offers it.
+                .setNegativeButton(android.R.string.cancel, (d, w) -> declinedVersion = offered)
                 .setOnDismissListener(d -> updateOffered = false)
                 .show();
     }
@@ -723,14 +718,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        AppUpdate.screenStarted();
+        // An update notice posted while the app was away has served its purpose once the app is in front.
+        InstallResult.clear(this);
         AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        AppUpdate.screenStopped(this);
         AlertSchedule.leftApp(this);
     }
 

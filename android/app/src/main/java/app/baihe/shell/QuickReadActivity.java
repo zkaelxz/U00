@@ -525,15 +525,8 @@ public class QuickReadActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        AppUpdate.screenStarted();
         // Pages added while the screen was off are shown at once, not at the next one.
         if (!savedMode && list != null) refresh();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        AppUpdate.screenStopped(this);
     }
 
     @Override

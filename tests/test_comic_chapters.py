@@ -221,6 +221,40 @@ def test_rolled_back_pages_leave_no_label(drama, isolated_db):
     assert [(g["title"], g["page_count"]) for g in groups] == [("One", 1), ("Two", 1)]
 
 
+def _write(drama, chapter_url, n, title="Reader"):
+    from services import sources_extraction_service as svc
+    from sources.generic_import import ImageCandidate
+    sep = "&" if "?" in chapter_url else "?"
+    items = [(ImageCandidate(f"{chapter_url}{sep}p={i}", i), _png(i)) for i in range(n)]
+    return svc.write_pages(drama, items, chapter=comic_chapters.chapter_ref(None, title, "", chapter_url))
+
+
+@pytest.mark.parametrize("five, six", [
+    ("https://r.example/read.php?ch=5", "https://r.example/read.php?ch=6"),
+    ("https://r.example/#/chapter/5", "https://r.example/#/chapter/6"),
+])
+def test_chapters_told_apart_only_by_query_or_fragment_never_match(drama, five, six):
+    assert _write(drama, five, 2)[0] == 2
+    assert _write(drama, six, 2)[0] == 2
+    assert _write(drama, five, 2)[0] == 0
+
+
+def test_a_moved_page_name_reused_by_another_chapter_is_not_taken_as_present(drama, isolated_db):
+    import contextlib
+    _write(drama, "https://r.example/read.php?ch=5", 3)
+    gone = isolated_db.list_pages(drama)[2]
+    with contextlib.closing(isolated_db.get_conn()) as conn:
+        conn.execute("DELETE FROM pages WHERE id = ?", (gone["id"],))
+        conn.commit()
+    os.remove(os.path.join(isolated_db.drama_dir(drama), gone["filename"]))
+    other = isolated_db.create_drama(title_en="D", media_type="manhwa")
+    comic_chapters.move_labels(drama, other, {gone["filename"]: gone["filename"]}, False)
+    _write(drama, "https://r.example/read.php?ch=6", 1)     # reuses the freed page name
+    assert isolated_db.list_pages(drama)[2]["filename"] == gone["filename"]
+    added, _skipped, present = _write(drama, "https://r.example/read.php?ch=5", 3)
+    assert (added, present) == (1, 2)
+
+
 def test_chapter_ref_normalises():
     assert comic_chapters.chapter_ref() is None
     ref = comic_chapters.chapter_ref(None, "  Ch\x00 3 ")

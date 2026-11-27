@@ -51,6 +51,25 @@ def _reads_as_japanese_sentence(text: str) -> bool:
     return bool(re.search(r"[぀-ゟ]", text) and re.search(r"[一-鿿]", text))
 
 
+_HANGUL = re.compile(r"[가-힣]")
+# A Korean sentence or clause ends on a verb or connective ("어쩐지", "왜냐하면", "울고있지?"); a
+# sound effect ends on the sound ("쿵", "두근두근", "크아아악").
+_KOREAN_CLAUSE_END = re.compile(r"[면지요다까네봐죠][\s.…?!~,]*$")
+
+
+def _reads_as_korean_sentence(text: str) -> bool:
+    """Korean words said aloud rather than a sound effect: several different words, or a clause
+    ending. The detector took glowing narration on dark art for an effect, so it was left raw."""
+    syllables = len(_HANGUL.findall(text))
+    if not syllables:
+        return False
+    if len(set(_HANGUL.findall(text))) < 3:
+        return False
+    if len(set(text.split())) >= 2 and syllables >= 6:
+        return True
+    return bool(_KOREAN_CLAUSE_END.search(text.strip()))
+
+
 _KATAKANA_EFFECT = re.compile(r"^[゠-ヿー・…！？!?\s]*([゠-ヿ])\1{2,}[゠-ヿー・…！？!?\s]*$")
 
 
@@ -84,7 +103,7 @@ def reclassify_wordy_sfx(regions: list) -> int:
         chars = len("".join(text.split()))
         lines = len([ln for ln in text.splitlines() if ln.strip()])
         if (chars > scanlate_tuning.SFX_MAX_CHARS or lines > scanlate_tuning.SFX_MAX_LINES
-                or _reads_as_japanese_sentence(text)):
+                or _reads_as_japanese_sentence(text) or _reads_as_korean_sentence(text)):
             region["kind"] = "sign"
             changed += 1
     return changed

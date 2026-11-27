@@ -306,6 +306,8 @@ def test_tracked_series_links_and_extension_marks_follow_the_email_match(isolate
     assert extension_marker.get("site")["marked_by_user_id"] == live_mei
     saved_for = {r["series_id"]: r["save_cbz_by_user_id"] for r in src_store.list_tracked_series()}
     assert saved_for == {"s1": live_mei, "s2": None}
+    # Who tracks each series follows the same match; an unmatched account's goes to the PC.
+    assert src_store.followers() == {("site", "s1"): {live_mei}, ("site", "s2"): {0}}
     assert saves.series_saved_by(live_mei) == {("Site", "Mei's")}
     assert saves.series_saved_by(stranger) == set()
 
@@ -644,3 +646,32 @@ def test_a_restored_titles_bookmarks_keep_the_pc_remap_matched_accounts_and_drop
             {"user_id": 8, "note": "stranger"}, {"user_id": None, "note": "null"}]
     kept = drs._account_rows(rows, {7: 70})
     assert [(r["user_id"], r["note"]) for r in kept] == [(0, "pc"), (70, "matched")]
+
+
+def test_series_in_a_backup_older_than_followers_go_to_their_linker_after_the_match(isolated_db):
+    import io
+    import zipfile
+    gone = auth_service.add_user("gone@example.com")["id"]
+    mei = auth_service.add_user("mei@example.com")["id"]
+    src_store.track_series("site", "s1", "Mei's series", linked_by_user_id=mei)
+    data = _backup_bytes()
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        raw = zf.read("sources.db")
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.write(fd, raw)
+    os.close(fd)
+    try:
+        conn = sqlite3.connect(path)
+        conn.execute("DROP TABLE tracked_series_followers")
+        conn.commit()
+        conn.close()
+        with open(path, "rb") as f:
+            old = f.read()
+    finally:
+        os.remove(path)
+    _fresh_pc()
+    live_mei = auth_service.add_user("mei@example.com")["id"]
+    auth_service.add_user("stranger@example.com")
+    assert live_mei == gone
+    _restore(_rewrite(data, replace={"sources.db": old}))
+    assert src_store.followers() == {("site", "s1"): {live_mei}}
