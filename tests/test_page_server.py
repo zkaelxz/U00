@@ -496,6 +496,22 @@ class TestTranslatingAPage:
         assert seconds == 0.0 and fake_pipeline["translate"] == []
         assert bubbles[0]["skip"] is True and page_server._lines_without_english(bubbles) == []
 
+    def test_a_page_reports_where_its_time_went_inside_each_step(self, token, fake_pipeline, monkeypatch):
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
+                                            "content_type": "image/png"}], "store": False})
+        seconds = handler.payload["pages"][0]["seconds"]
+        for key in ("read", "translate", "read_wait", "translate_wait", "extras", "reread"):
+            assert isinstance(seconds[key], float), key
+        assert seconds["reread_changed"] == 0
+        assert seconds["extras"] <= seconds["translate"]
+
+    def test_the_page_time_log_line_names_the_split(self):
+        from services import extension_bridge_service
+        text = extension_bridge_service._split_text({"read": 1.0, "read_wait": 0.5, "typeset_wait": 0.2})
+        assert text == "; split: read_wait 0.5, typeset_wait 0.2"
+        assert extension_bridge_service._split_text({"read": 1.0}) == ""
+
     def test_an_unstored_page_leaves_no_temp_file_behind(self, token, fake_pipeline,
                                                         isolated_db):
         seen = {}

@@ -712,7 +712,18 @@ def _log_page_time(result: dict, job: dict, started: float) -> None:
                       seconds.get("read", "-"), seconds.get("translate", "-"),
                       seconds.get("typeset", "-"), len(result.get("regions") or []),
                       (f"; waited {seconds['waited']}s for the models" if seconds.get("waited") else "")
+                      + _split_text(seconds)
                       + (f"; devices: {devices}" if devices else ""))
+
+
+_SPLIT_KEYS = ("read_wait", "translate_wait", "extras", "reread", "reread_changed", "retry", "typeset_wait")
+
+
+def _split_text(seconds: dict) -> str:
+    """Where a page's time went inside each step, so stages can be ranked before speeding one up.
+    The step totals above include these parts; the waits are time queued behind other pages."""
+    parts = [f"{key} {seconds[key]}" for key in _SPLIT_KEYS if key in seconds]
+    return f"; split: {', '.join(parts)}" if parts else ""
 
 
 def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> None:
