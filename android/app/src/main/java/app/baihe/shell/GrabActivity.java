@@ -86,7 +86,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             requestPermissions(new String[] {"android.permission.POST_NOTIFICATIONS"}, 1);
         }
 
-        palette = GrabUi.Palette.of(this);
+        palette = GrabUi.Palette.saved(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(palette.bg);

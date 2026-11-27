@@ -12,6 +12,8 @@ type Bridge = {
   popOut?: () => void
   // Added so the app's top bar can follow Baihe's own theme: an older app build lacks it.
   setDark?: (dark: boolean) => void
+  // Added so the sepia look reaches the app's top bar too; an older build only has setDark.
+  setLook?: (look: string) => void
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
@@ -81,10 +83,12 @@ export function setShellBarsHidden(hidden: boolean): void {
   }
 }
 
-/** Tells the app whether Baihe is showing a dark look, so its native top bar matches the page and not only the phone. */
-export function setShellDark(dark: boolean): void {
+/** Tells the app which look Baihe is showing, so its native top bar matches the page and not only the phone. */
+export function setShellLook(look: 'light' | 'dark' | 'sepia' | 'oled'): void {
   try {
-    bridge()?.setDark?.(dark)
+    const b = bridge()
+    if (b?.setLook) b.setLook(look)
+    else b?.setDark?.(look === 'dark' || look === 'oled')
   } catch {
     // The shell went away with the page.
   }

@@ -26,7 +26,26 @@ final class GrabUi {
         final boolean dark;
 
         Palette(boolean dark) {
+            this(dark, false);
+        }
+
+        /** Sepia is a light look with Baihe's paper colours (frontend index.css), so the native bars match the page. */
+        Palette(boolean dark, boolean sepia) {
             this.dark = dark;
+            if (sepia && !dark) {
+                bg = 0xFFEFE4CB;
+                surface = 0xFFEBE0C6;
+                field = 0xFFF6EED8;
+                fieldEdge = 0xFF8C7D5C;
+                border = 0xFFCDBF9D;
+                text = 0xFF3B3220;
+                muted = 0xFF5F5238;
+                accent = 0xFF8A4A1F;
+                onAccent = 0xFFFFFFFF;
+                bad = 0xFF9C1F18;
+                ok = 0xFF175C2D;
+                return;
+            }
             bg = dark ? 0xFF0D1220 : 0xFFF3F6FC;
             surface = dark ? 0xFF161B2E : 0xFFFFFFFF;
             field = dark ? 0xFF111729 : 0xFFFFFFFF;
@@ -38,6 +57,13 @@ final class GrabUi {
             onAccent = dark ? 0xFF08111F : 0xFFFFFFFF;
             bad = dark ? 0xFFEF7B73 : 0xFFB3261E;
             ok = dark ? 0xFF5FC08C : 0xFF1A6E44;
+        }
+
+        /** The look Baihe's page last reported, else the phone's own setting; shared so every screen's bar agrees. */
+        static Palette saved(Context context) {
+            android.content.SharedPreferences p = context.getSharedPreferences("baihe", Context.MODE_PRIVATE);
+            if (!p.contains("page_dark")) return of(context);
+            return new Palette(p.getBoolean("page_dark", false), p.getBoolean("page_sepia", false));
         }
 
         static Palette of(Context context) {
