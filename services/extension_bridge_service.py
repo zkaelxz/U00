@@ -24,7 +24,7 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_runs
+from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_keep, quick_read_runs
 from lib import device_use
 from lib.errors import ServiceError
 
@@ -664,6 +664,9 @@ def _translate_one(image: dict, job: dict, turn):
         _typeset_stored_page(result, job["drama_id"], member=job["member"])
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
+    if not job["store"] and quick_read_keep.enabled():
+        quick_read_keep.save(cache_key or image["key"], image["content"], image["content_type"],
+                             quick_read_keep.take(), result)
     _remember_quick_read(cache_key, result)
     _remember_on_disk(cache_key, _quick_read_url_key(image, job), result)
     _log_page_time(result, job, started)

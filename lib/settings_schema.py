@@ -524,6 +524,9 @@ SETTINGS = (
     # --- Developer Mode (maintenance assistant)
     Setting("developer_mode", "assistant.developer_mode", "bool", False,
             label="Developer Mode", **_ASSISTANT),
+    _own("quick_read_keep_pages", "bool", False, label="Keep Quick read pages for debugging",
+         help="Keeps the original picture and what the reader found (before and after translation) for each Quick read page, the last 300 pages for 3 days, so a page that came out wrong can be reproduced exactly. Off by default; copies are only on this PC and are not part of any backup.",
+         **_ASSISTANT),
     _own("assistant.roles_enabled", "bool", False, label="Separate reviewer", **_ASSISTANT),
     _own("assistant.engine", "text", None, max_len=100, label="Assistant engine", **_ASSISTANT),
     _own("assistant.model", "text", None, max_len=100, label="Assistant model", **_ASSISTANT),

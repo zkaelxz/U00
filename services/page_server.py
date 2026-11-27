@@ -454,8 +454,10 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     does not wait for the title's previous page (page_turns.translate_in_chain)."""
     import db
     from scanlate import scanlate_translate
-    from services import quick_read_cache
+    from services import quick_read_cache, quick_read_keep
     engine = _build_engine(config)
+    if quick_read_keep.enabled():
+        quick_read_keep.note_read(bubbles)
     turn.keep(bubbles)
     language = _page_source_language(drama, language, source_url)
     if not (in_order or drama or quick_read_cache.source_language(source_url)):
