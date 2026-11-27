@@ -140,7 +140,7 @@ def run(apk):
             try:
                 steps = walk_screens(server)
             except StepFailed as e:
-                if walk < WALKS and killed_with_play_services():
+                if walk < WALKS and not crash_report() and killed_with_play_services():
                     print(f"Android closed the app with Google Play services ({e}); starting the walk again.", flush=True)
                     time.sleep(15)   # lets Play services start again first
                     continue
@@ -163,12 +163,12 @@ def walk_screens(server):
         check_no_crash(name)
         steps.append(name)
 
-    server.forget()
     shell("input", "keyevent", "KEYCODE_HOME", check=False)
     adb("logcat", "-b", "all", "-c", check=False)
     # Granted up front so Android's notification prompt does not sit over the screens being checked.
     shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
     shell("pm", "clear", PACKAGE, check=False)
+    server.forget()   # after the clear, so a page still open from a lost walk can't answer this one's checks
     shell("pm", "grant", PACKAGE, "android.permission.POST_NOTIFICATIONS", check=False)
 
     def launch():
