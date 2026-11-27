@@ -323,11 +323,15 @@ def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
         while len(_runs_seen) > _MAX_REMEMBERED_RUNS:
             _runs_seen.popitem(last=False)
         for image in decoded:
-            # A picture answered from the cache has no bytes here; it was accepted when first read.
+            # A picture answered from the cache has no bytes here; the address it was fetched from stands
+            # in for them, so a chapter that lists one picture twice does not show it twice on a re-read.
             if image["content"] is None:
-                kept.append(image)
-                continue
-            digest = hashlib.sha256(image["content"]).hexdigest()
+                if not image.get("fetch_url"):
+                    kept.append(image)
+                    continue
+                digest = "url:" + str(image["fetch_url"])
+            else:
+                digest = hashlib.sha256(image["content"]).hexdigest()
             if digest not in taken:
                 taken[digest] = image["key"]
                 image["run_claim"] = digest
@@ -623,6 +627,22 @@ def _log_page_time(result: dict, job: dict, started: float) -> None:
                       f"; devices: {devices}" if devices else "")
 
 
+def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> None:
+    """A Quick read page with nothing to redraw (no text, a cover, a failed redraw) goes back as the
+    original picture. A phone that had the PC download its pictures holds no bytes of its own, so
+    without this such a page was silently missing from the reader. It is set before the page is
+    cached, so a cached answer carries it too."""
+    if job["store"] or not job["typeset"] or result.get("typeset_image") or not image.get("content"):
+        return
+    try:
+        import io
+        picture = page_capture_checks.jpeg_data_url(io.BytesIO(image["content"]), job["typeset_max_width"])
+    except Exception:
+        return   # not a picture Pillow can open; the phone then keeps its own copy if it has one
+    if picture:
+        result["typeset_image"] = picture
+
+
 def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
@@ -667,6 +687,7 @@ def _translate_one(image: dict, job: dict, turn):
         _typeset_stored_page(result, job["drama_id"], member=job["member"])
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
+    _show_original_when_not_redrawn(result, image, job)
     if not job["store"] and quick_read_keep.enabled():
         quick_read_keep.save(cache_key or image["key"], image["content"], image["content_type"],
                              quick_read_keep.take(), result)

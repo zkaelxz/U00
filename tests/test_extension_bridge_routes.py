@@ -819,3 +819,49 @@ class TestQuickReadRunRoutes:
         assert dropped.json() == {"dropped_runs": 1, "dropped_pages": 4}
         assert extension_bridge_service._run_cancelled("run-aaaaaaaa")
         assert not extension_bridge_service._run_cancelled("run-bbbbbbbb")
+
+
+class TestPageWithoutRedrawKeepsItsPicture:
+    def _png_bytes(self):
+        import io
+        Image = pytest.importorskip("PIL.Image")
+        buffer = io.BytesIO()
+        Image.new("RGB", (40, 60), (200, 200, 200)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def _job(self, **kw):
+        return {"store": False, "typeset": True, "typeset_max_width": 30, **kw}
+
+    def test_a_page_with_nothing_to_redraw_comes_back_as_the_original(self):
+        result = {"regions": []}
+        extension_bridge_service._show_original_when_not_redrawn(
+            result, {"content": self._png_bytes()}, self._job())
+        assert result["typeset_image"].startswith("data:image/jpeg;base64,")
+
+    def test_a_redrawn_page_and_a_saved_page_are_left_alone(self):
+        redrawn = {"typeset_image": "data:image/jpeg;base64,AAAA"}
+        extension_bridge_service._show_original_when_not_redrawn(redrawn, {"content": self._png_bytes()}, self._job())
+        assert redrawn["typeset_image"] == "data:image/jpeg;base64,AAAA"
+        saved = {}
+        extension_bridge_service._show_original_when_not_redrawn(saved, {"content": self._png_bytes()}, self._job(store=True))
+        assert "typeset_image" not in saved
+
+    def test_a_picture_pillow_cannot_open_is_ignored(self):
+        result = {}
+        extension_bridge_service._show_original_when_not_redrawn(result, {"content": b"not a picture"}, self._job())
+        assert "typeset_image" not in result
+
+
+class TestCacheAnsweredRepeatsInARun:
+    def test_one_address_listed_twice_is_shown_once_even_with_no_bytes(self):
+        pages = [{"key": "a", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "b", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "c", "content": None, "fetch_url": "https://img.example/2.jpg"}]
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(pages, "run-urlrepeat")
+        assert [p["key"] for p in kept] == ["a", "c"]
+        assert [p["key"] for p in repeats] == ["b"]
+
+    def test_a_page_with_no_bytes_and_no_address_is_kept(self):
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(
+            [{"key": "a", "content": None}, {"key": "b", "content": None}], "run-nourl")
+        assert len(kept) == 2 and not repeats

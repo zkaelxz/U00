@@ -1696,7 +1696,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
                                     byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
-                                    if (original == null) return;
+                                    if (original == null) {
+                                        // Nothing to show for this page: say so, never leave the hole silent.
+                                        if (firstError[0].isEmpty()) firstError[0] = "A page came back without a picture.";
+                                        return;
+                                    }
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
                                 byte[] originalArt = redrawn ? QuickRead.original(batches.get(index), page.optString("key", "")) : null;
@@ -1709,7 +1713,36 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                 if (index != frontier[0] && !QuickReadSession.isDetached()) say(readyLine.get());
                             }
                         };
-                        JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
+                        // A batch that lost the PC for longer than the stream's own retries is asked again,
+                        // for the pages not yet delivered only, so nothing is dropped or shown twice.
+                        java.util.Set<String> got = new java.util.HashSet<>();
+                        BaiheClient.PageListener counted = page -> {
+                            got.add(page.optString("key", ""));
+                            onPage.onPage(page);
+                        };
+                        List<PageImage> todo = batches.get(index);
+                        JSONObject done;
+                        int attempt = 0;
+                        while (true) {
+                            try {
+                                done = sendBatch(client, url, todo, counted, pcFetch);
+                                break;
+                            } catch (BaiheClient.BridgeException e) {
+                                boolean stopped = cancelRequested || refused[0] || QuickReadSession.isAbandoned();
+                                if (attempt >= BATCH_RETRY_WAITS_MS.length || stopped || !BaiheClient.worthRetrying(e)) throw e;
+                                todo = BaiheClient.notDelivered(batches.get(index), got);
+                                if (todo.isEmpty()) {
+                                    done = new JSONObject();
+                                    break;
+                                }
+                                try {
+                                    Thread.sleep(BATCH_RETRY_WAITS_MS[attempt++]);
+                                } catch (InterruptedException interrupted) {
+                                    Thread.currentThread().interrupt();
+                                    throw e;
+                                }
+                            }
+                        }
                         synchronized (lock) {
                             JSONArray failed = done.optJSONArray("failed");
                             // Dropped on the PC (from Jobs, or by a newer read): say so instead of a bare page count.
@@ -1819,6 +1852,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     // Tells one read-ahead page load from a later one when its timeout fires. Main thread only.
     private int aheadLoads;
+    /** Waits before asking again for a batch the PC could not be reached for. */
+    private static final long[] BATCH_RETRY_WAITS_MS = {5_000, 20_000, 45_000};
 
     /**
      * One request of a Quick read. The PC is asked to download the pictures first; any it could
