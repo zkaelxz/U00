@@ -86,7 +86,7 @@ test('member: Text is disabled with a reason and no Settings link', async ({ pag
   await page.route('**/api/translate/history*', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/#/translate')
   await expect(page.getByRole('button', { name: 'Translate', exact: true })).toBeDisabled()
-  await expect(page.getByText("Text translation isn't allowed for this account. Ask the PC owner.")).toBeVisible()
+  await expect(page.getByText("Text translation isn't allowed for this account. Ask the PC owner to allow it.")).toBeVisible()
 })
 
 test('remote: Settings says the PC-only settings can only be changed on the main PC', async ({ page }) => {

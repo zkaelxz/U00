@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { addSeriesPerson, updateSeriesPerson } from '../../../api/seriesPeople'
 import { deleteSeriesCharacter, listSeriesCharacters } from '../../../api/stageDeletes'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { DisabledReason } from '../../../components/DisabledReason'
 import { Field } from '../../../components/Field'
 import { Section } from '../../../components/Section'
 import { describeError } from '../../../components/errorMessages'
@@ -112,9 +113,10 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
       <PersonFields form={form} set={set} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" className="primary" disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>
+        <button type="button" className="primary" disabled={!dirty || busy} aria-describedby={dirty ? undefined : 'cast-save-reason'} onClick={save}>
           {busy ? 'Saving…' : 'Save'}
         </button>
+        <DisabledReason id="cast-save-reason">{!dirty && 'No changes to save.'}</DisabledReason>
         <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -153,9 +155,10 @@ function AddPerson({ seriesId, onAdded }: { seriesId: number; onAdded: (p: Serie
       <PersonFields form={form} set={set} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" disabled={busy || !form.character_name.trim()} title={form.character_name.trim() ? undefined : 'Type a name first.'} onClick={add}>
+        <button type="button" disabled={busy || !form.character_name.trim()} aria-describedby={form.character_name.trim() ? undefined : 'cast-add-reason'} onClick={add}>
           {busy ? 'Adding…' : 'Add person'}
         </button>
+        <DisabledReason id="cast-add-reason">{!form.character_name.trim() && 'Type a name first.'}</DisabledReason>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </fieldset>

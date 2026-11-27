@@ -373,8 +373,9 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
         <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
-        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Discard draft</button>
+        <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Clear and close</button>
       </div>
+      <p className="muted">Closing keeps what you typed.</p>
     </form>
   )
 }

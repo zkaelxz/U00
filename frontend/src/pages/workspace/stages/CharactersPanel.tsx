@@ -6,6 +6,7 @@ import { voiceBankAudioUrl } from '../../../api/voiceBankAudio'
 import { candidateAudioUrl, extractCandidates, listCandidates } from '../../../api/voiceClone'
 import { ClipPlayButton } from '../../../components/ClipPlayButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { DisabledReason } from '../../../components/DisabledReason'
 import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
@@ -241,7 +242,8 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
         {sample && <SampleCell label={label} sample={sample} />}
         <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
         <td role="cell" className="card-action">
-          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} aria-describedby={dirty ? undefined : `save-reason-${label}`} onClick={save}>Save</button>
+          <DisabledReason id={`save-reason-${label}`}>{!dirty && 'No changes to save.'}</DisabledReason>
           {problem && <p className="error" role="alert">{problem}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </td>
@@ -379,9 +381,10 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                       {bankId && (
                         <ClipPlayButton key={bankId} src={voiceBankAudioUrl(Number(bankId))} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
                       )}
-                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
+                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} aria-describedby={bankId ? undefined : `apply-voice-reason-${label}`} onClick={apply}>
                         Apply
                       </button>
+                      <DisabledReason id={`apply-voice-reason-${label}`}>{!bankId && 'Choose a voice first.'}</DisabledReason>
                     </div>
                   </Field>
                 </div>

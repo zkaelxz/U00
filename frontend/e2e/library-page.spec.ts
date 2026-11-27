@@ -85,7 +85,7 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
-  await sheet.getByRole('button', { name: 'Discard draft' }).click()
+  await sheet.getByRole('button', { name: 'Clear and close' }).click()
   await expect(sheet).toBeHidden()
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('')
