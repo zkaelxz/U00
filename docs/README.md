@@ -1,6 +1,6 @@
 # Documentation index
 
-A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local-model coding agents such as OpenCode); the module map is `python tools/repo_map.py` (built from each module's docstring). The numbered roadmap is not kept in this repo.
+A map of `docs/`. Repo rules are in the root `CLAUDE.md`; the module map is `python tools/repo_map.py` (built from each module's docstring). The numbered roadmap is not kept in this repo.
 
 ## Start here
 
@@ -12,7 +12,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## How the code fits together
 
-- **`architecture-overview.md`**: one page on the layers, where a request goes, where jobs and data live, and the three rules to know first.
+- **`architecture-overview.md`**: one page on the layers, where a request goes, where jobs and data live, the three rules to know first, the area table ("Where to look"), fragile seams, the splitting checklist and recipe cards.
 - **`api-and-services.md`**: request flow, errors, route declarations, ownership, schemas, an adding-an-endpoint checklist.
 - **`database.md`**: the `db` package and `sources.db`, migrations and their guard test, a table map, rules learned from bugs, backups, what sits on disk beside the database.
 - **`background-jobs.md`**: the `jobs/` modules, thread and process jobs, the GPU guard, cancel, holds, the Jobs API, an add-a-job checklist.
@@ -39,9 +39,9 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 - **`content-sources.md`**: every source and what was checked. **`known-working-sources.md`**: the status board (data in `source-status.json`, built by `scripts/source_status.py`).
 - **`sources-credential-audit.md`**: how adapters handle credentials and cookies. **`browser-extension.md`**: the browser extension and its bridge.
 
-## Working with a small or local model
+## Troubleshooting
 
-- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`lead-troubleshooting.md`** (checks for troubleshooting sessions).
+- **`lead-troubleshooting.md`**: checks for troubleshooting sessions.
 
 ## Plans, research and history
 

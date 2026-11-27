@@ -13,7 +13,7 @@ You bring one existing PR branch up to date with `baihe-subtitler`. The requesti
 3. Regenerate lockfiles and generated files with the repo's tooling (`npm install`/`npm ci` for `frontend/package-lock.json`, and so on), never by hand-merging them.
 4. Prove the base is in: `git merge-base --is-ancestor origin/baihe-subtitler HEAD` must exit 0.
 
-**Check what the merge can break (CLAUDE.md and AGENTS.md rules):**
+**Check what the merge can break (CLAUDE.md rules):**
 - The merge did not push a module past the 64 KB soft limit (`SOFT_MODULE_BYTES` in `tests/test_static_analysis.py`, which only warns). Report one that did; don't split it here.
 - Every route still declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`, and `docs/route-permissions.md` has its row.
 - A new top-level module, `services/*.py` or `api/routers/*.py` file starts with a one-line docstring, and the expected-files guard passes.
