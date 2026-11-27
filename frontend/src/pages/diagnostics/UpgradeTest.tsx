@@ -34,7 +34,7 @@ export function UpgradeTestResult({ state, name, target, error }: {
         </>
       )}
       {details.length > 0 && (
-        <Section key={`${name}-${target}-${mine?.result?.verdict}`} title="Test details" defaultOpen={mine?.result?.verdict !== 'safe'}>
+        <Section key={`${name}-${target}-${mine?.result?.verdict}`} title="Test details" defaultOpen={mine?.result?.verdict !== 'safe'} keepFold>
           {details.map((d) => (
             <div key={d.title} className="diag-stack">
               <h2 className="subhead">{d.title}</h2>

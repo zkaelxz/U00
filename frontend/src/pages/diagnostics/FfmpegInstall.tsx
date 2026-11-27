@@ -12,7 +12,7 @@ import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
 /**
- * Packages and installs card: "Install ffmpeg" when none is found (PC only, two-step). The server
+ * Setup card: "Install ffmpeg" when none is found (PC only, two-step). The server
  * runs the download as a job; this polls its status, offers Cancel while it runs, then shows the result.
  */
 export function FfmpegInstall({ pc, jobsActive, busy, onStarted, onFinished, openSignal }: {

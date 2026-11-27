@@ -10,7 +10,7 @@ import { jobProgressLine, jobRunning } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
 /**
- * Packages and installs: "CUDA runtime for GPU Whisper" (Recommended), shown only
+ * Setup: "CUDA runtime for GPU Whisper" (Recommended), shown only
  * when an NVIDIA GPU is present and Whisper's CUDA libraries are found nowhere.
  * PC only; the install is the same server job as a package install.
  */

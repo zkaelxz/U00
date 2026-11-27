@@ -571,6 +571,14 @@ details.section > summary::-webkit-details-marker { display: none; }
 details.section > summary::before { content: '\25B8'; flex: none; width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
 details.section[open] > summary::before { content: '\25BE'; }
 .section-title { font-weight: 600; font-size: inherit; margin: 0; }
+/* A pane's sections drawn flat: a heading and its body, one after another; a nested one is a smaller sub-heading. */
+div.section-flat { margin: 0 0 var(--space-5); min-width: 0; }
+.section-flat-head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+div.section-flat > .section-flat-head .section-title { font-size: var(--text-lg); }
+div.section-flat div.section-flat { margin-bottom: var(--space-3); }
+div.section-flat div.section-flat > .section-flat-head .section-title { font-size: inherit; }
+.section-flat .section-title:focus { outline: none; }
+.section-flat .section-title:focus-visible { box-shadow: 0 0 0 4px var(--focus); border-radius: var(--radius-sm); }
 /* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
    Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
    of switches at its edges. */
