@@ -55,3 +55,18 @@ def test_a_line_without_a_score_ends_a_run(isolated_db):
     did = isolated_db.create_drama(title_en="A")
     isolated_db.save_lines(did, [_line(0, "你好", 0.9), _line(1, "再见", 0.3, conf=None), _line(2, "谢谢", 0.6)])
     assert svc.run_once() == 0
+
+
+def test_a_title_that_cannot_be_read_is_skipped_and_the_pass_finishes_once(isolated_db):
+    import contextlib
+    import sqlite3
+    bad = isolated_db.create_drama(title_en="A")
+    good = isolated_db.create_drama(title_en="B")
+    isolated_db.save_lines(bad, [_line(0, "你好", 0.9), _line(1, "再见", 0.3)])
+    isolated_db.save_lines(good, [_line(0, "你好", 0.9), _line(1, "再见", 0.3)])
+    with contextlib.closing(sqlite3.connect(isolated_db.DB_PATH)) as conn:
+        conn.execute("UPDATE lines SET start = 'x' WHERE drama_id = ? AND idx = 0", (bad,))
+        conn.commit()
+    assert svc.run_once() == 2
+    assert _scores(isolated_db, bad) == [0.5, 0.5] and _scores(isolated_db, good) == [0.75, 0.25]
+    assert svc.run_once() == 0

@@ -653,10 +653,11 @@ def drama_ids_with_lines() -> list:
 
 
 def set_line_confidences(scores: dict) -> None:
-    """Sets `confidence` on the lines named by id, touching nothing else."""
+    """Sets `confidence` on lines named by id, as {id: (new, expected current)}; a line whose
+    score changed since it was read (a re-run of its transcription) is left alone."""
     with contextlib.closing(db.get_conn()) as conn:
-        conn.executemany("UPDATE lines SET confidence = ? WHERE id = ?",
-                         [(conf, line_id) for line_id, conf in scores.items()])
+        conn.executemany("UPDATE lines SET confidence = ? WHERE id = ? AND confidence IS ?",
+                         [(new, line_id, old) for line_id, (new, old) in scores.items()])
         conn.commit()
 
 
