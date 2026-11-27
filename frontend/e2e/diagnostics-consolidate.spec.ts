@@ -1,56 +1,40 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openSection } from './diagnosticsInstallsMocks'
-import { diagTab, openDiagTab } from './diagnosticsTabsNav'
+import { diagSection, diagSectionHead, diagTab, openDiagTab } from './diagnosticsTabsNav'
 import { status } from './modelHealthMocks'
 
 import { REV_OTHER, REV_WHISPER, cacheMock, guardWrites, mockDiagnostics } from './diagnosticsConsolidateMocks'
 
-// Diagnostics (desktop): Setup and Model status are open folds on their tabs; GPU PyTorch inside
-// Packages opens only on a problem. Speaker detection is its own fold on the Packages and installs tab
-// and the one model list is the Models card.
+// Diagnostics (desktop): each pane shows its sections in full. GPU PyTorch sits in Packages with a one-line state,
+// Speaker detection has its own pane and the one model list is Models on disk.
 
-const fold = (page: Page, title: RegExp) => page.locator('details.section', { has: page.locator('> summary', { hasText: title }) }).first()
+const fold = (page: Page, title: RegExp) => diagSection(page, title)
 
-test('Setup and Model status start open on their tabs; GPU PyTorch is folded when all is well, with a one-line summary', async ({ page }) => {
+test('Setup and Model status show in full on their panes; GPU PyTorch has a one-line state in Packages', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics')
-  await expect(fold(page, /^Setup/)).toHaveJSProperty('open', true)
-  await openDiagTab(page, 'Models')
-  await expect(fold(page, /^Model status/)).toHaveJSProperty('open', true)
+  await expect(fold(page, /^Setup/)).toBeVisible()
+  // No card is a fold; only long lists inside one (Installed packages, the other configured models) still fold.
+  await expect(page.locator('.diag-panel > .diag-card > details.section')).toHaveCount(0)
+  await openDiagTab(page, 'Model status')
+  await expect(fold(page, /^Model status/)).toBeVisible()
   await openDiagTab(page, 'Packages and installs')
-  const gpu = fold(page, /^GPU PyTorch/)
-  await expect(gpu).toHaveJSProperty('open', false)
-  await expect(gpu.locator('> summary')).toContainText('PyTorch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
+  await expect(page.getByTestId('gpu-torch')).toBeVisible()
+  await expect(diagSectionHead(page, /^GPU PyTorch/)).toContainText('PyTorch 2.11.0+cu128 · CUDA build · RTX 3080 Ti')
   expect(unmocked).toEqual([])
 })
 
-test('a problem opens GPU PyTorch by itself; folding a card is remembered per card', async ({ page }) => {
+test('a problem shows in the summary line and on GPU PyTorch', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page, { ffmpegFound: false, gpuState: 'cpu_on_gpu' })
   await page.goto('/#/diagnostics')
-  await expect(fold(page, /^Setup/)).toHaveJSProperty('open', true)
+  await expect(fold(page, /^Setup/)).toBeVisible()
   await expect(page.getByTestId('diagnostics-summary')).toContainText('1 setup problem')
   await openDiagTab(page, 'Packages and installs')
-  await expect(fold(page, /^GPU PyTorch/)).toHaveJSProperty('open', true)
-
-  // Folding Setup is saved as closed, so a reload keeps it closed.
-  await openDiagTab(page, 'Setup')
-  await fold(page, /^Setup/).locator('> summary').click()
-  await expect(fold(page, /^Setup/)).toHaveJSProperty('open', false)
-  await page.waitForFunction(() => localStorage.getItem('baihe.section.diagnostics.setup') === '0')
-  await page.reload()
-  await expect(fold(page, /^Setup/)).toHaveJSProperty('open', false)
-
-  // Folding Model status is saved the same way.
-  await openDiagTab(page, 'Models')
-  await fold(page, /^Model status/).locator('> summary').click()
-  await page.waitForFunction(() => localStorage.getItem('baihe.section.diagnostics.modelHealth') === '0')
-  await page.reload()
-  await expect(fold(page, /^Model status/)).toHaveJSProperty('open', false)
+  await expect(page.getByTestId('gpu-torch')).toBeVisible()
 })
 
-test('Models holds one model list with sizes and Delete; speaker detection is a Packages card', async ({ page }) => {
+test('Models on disk holds one model list with sizes and Delete; speaker detection has its own pane', async ({ page }) => {
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
   let cache = cacheMock()
@@ -62,19 +46,15 @@ test('Models holds one model list with sizes and Delete; speaker detection is a 
     return r.fulfill({ json: { deleted: true, name: REV_WHISPER } })
   })
   await page.goto('/#/diagnostics')
-  await openDiagTab(page, 'Packages and installs')
+  await openDiagTab(page, 'Speaker detection')
   const speaker = fold(page, /^Speaker detection/)
-  await expect(speaker).toHaveJSProperty('open', false)
-  await expect(speaker.locator('> summary')).toContainText('Ready')
-  await openSection(page, /^Speaker detection/)
+  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('Ready')
   await expect(speaker.getByRole('group', { name: 'Speaker detection' })).toContainText('Pyannote: installed')
   await expect(page.locator('summary', { hasText: /^Model cache/ })).toHaveCount(0)
 
-  await openDiagTab(page, 'Models')
-  const models = fold(page, /^Models/)
-  await expect(models).toHaveJSProperty('open', false) // only Model status, the first card, starts open
-  await openSection(page, /^Models/)
-  await expect(models).toHaveJSProperty('open', true)
+  await openDiagTab(page, 'Models on disk')
+  const models = fold(page, /^Models$/)
+  await expect(models).toBeVisible()
   // Each engine row carries its own downloads; an installed engine with none says so.
   const whisper = models.getByRole('list', { name: 'Whisper (faster-whisper) downloads' })
   await expect(whisper).toContainText('Systran/faster-whisper-large-v3 (model) · 3.1 GB')
@@ -113,9 +93,8 @@ test('each model download names its model and its own state; pyannote gets its o
   }))
   await page.route('**/api/jobs/**', (r) => r.fulfill({ status: 404, json: { detail: 'No such job.' } }))
   await page.goto('/#/diagnostics')
-  await openDiagTab(page, 'Models')
-  await openSection(page, /^Models/)
-  const models = fold(page, /^Models/)
+  await openDiagTab(page, 'Models on disk')
+  const models = fold(page, /^Models$/)
   const list = models.getByRole('list', { name: 'Whisper (faster-whisper) models' })
   await expect(list.locator('> li')).toHaveCount(4)
   await expect(list.locator('li', { hasText: 'Whisper large-v3 (about 3 GB)' })).toContainText('downloaded')
@@ -137,9 +116,7 @@ test('Packages has no Missing packages fold; a task lists what it still needs', 
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics?card=packages')
-  await openSection(page, /^Packages/)
-  await expect(page.locator('summary', { hasText: /^Missing packages/ })).toHaveCount(0)
-  await page.getByTestId('install-tasks').locator('details.section > summary').first().click()
+  await expect(page.locator('.section-title', { hasText: /^Missing packages/ })).toHaveCount(0)
   const ocr = page.getByTestId('task-details-hardsub_ocr')
   await ocr.locator('summary').click()
   await expect(ocr).toContainText('paddleocr')
@@ -153,7 +130,7 @@ test('a not-installed engine on Models says what it is for and links to Packages
   const unmocked = await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics?card=models')
-  const models = fold(page, /^Models/)
+  const models = fold(page, /^Models$/)
   const engines = models.getByRole('list', { name: 'Model engines', exact: true })
   await expect(engines).toHaveCount(1)
   for (const name of ['Whisper (faster-whisper)', 'Qwen3-ASR', 'SenseVoice (FunASR)', 'pyannote diarization model']) {
@@ -165,7 +142,7 @@ test('a not-installed engine on Models says what it is for and links to Packages
   await expect(engines.locator(':scope > li', { hasText: 'SenseVoice' }).getByTestId('engine-not-installed')).toHaveCount(0)
   await qwen.getByRole('link', { name: 'Install it in Packages and installs' }).click()
   await expect(diagTab(page, 'Packages and installs')).toHaveAttribute('aria-selected', 'true')
-  await expect(fold(page, /^Packages/)).toBeInViewport()
+  await expect(diagSectionHead(page, /^Packages/)).toBeInViewport()
   expect(unmocked).toEqual([])
 })
 

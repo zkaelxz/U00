@@ -8,7 +8,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsPyannoteReadiness } from '../../types/diagnostics'
 import { hfModelUrl, pyannoteSummary } from './diagnosticsAdmin'
 
-/** Packages and installs > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
+/** Diagnostics > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
 export function PyannoteSection({ openSignal }: { openSignal?: number }) {
   const [data, setData] = useState<DiagnosticsPyannoteReadiness | null>(null)
   const [checked, setChecked] = useState(false)

@@ -44,22 +44,16 @@ test('Settings: an all-collapsed state saved by an earlier version does not beco
   expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
 })
 
-test('Diagnostics: one card open per tab on a fresh browser, and a fold made by hand stays', async ({ page }) => {
+test('Diagnostics has no folds: each pane shows its sections in full', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics')
-  for (const name of ['Setup', 'Packages and installs', 'Models', 'System'] as const) {
+  for (const name of ['Setup', 'Packages and installs', 'Model status', 'Resources and ports'] as const) {
     await diagTab(page, name).click()
     await expect(diagTab(page, name)).toHaveAttribute('aria-selected', 'true')
-    await expect.poll(async () => (await openTitles(page, '.diag-panel')).length).toBe(1)
+    await expect(page.locator('.diag-panel:not([hidden]) .section-flat').first()).toBeVisible()
+    await expect(page.locator('.diag-panel:not([hidden]) > .diag-card > details.section')).toHaveCount(0)
   }
-  await diagTab(page, 'System').click()
-  const resources = topLevel(page, '.diag-panel').first()
-  await resources.locator('> summary').click()
-  await waitForStored(page, 'diagnostics.resources', '0')
-  await page.reload()
-  await diagTab(page, 'System').click()
-  expect(await openTitles(page, '.diag-panel')).toHaveLength(0)
 })
 
 const EMPTY = { items: [] }

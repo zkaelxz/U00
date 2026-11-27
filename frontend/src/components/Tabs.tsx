@@ -8,6 +8,7 @@
  *   tabs      id + label; optional `count` (a neutral number, e.g. search hits) and
  *             `attention` (a warning number, e.g. problems; announced in the tab's name) and
  *             `unsaved` (a small dot for edits not saved yet; announced in the tab's name) and
+ *             `danger` (a destructive section, drawn red and set apart; keep it last) and
  *             `short` (what a phone shows when the full label is too long for a row; the full label stays the
  *             accessible name)
  *   idPrefix  makes the DOM ids; the panels use tabButtonId / tabPanelId with the same prefix
@@ -26,7 +27,7 @@ import './tabs.css'
 import { tabButtonId, tabPanelId } from './tabIds'
 import { badgeClass } from './uiClasses'
 
-export type TabInfo<T extends string = string> = { id: T; label: string; short?: string; count?: number; attention?: number; unsaved?: boolean }
+export type TabInfo<T extends string = string> = { id: T; label: string; short?: string; count?: number; attention?: number; unsaved?: boolean; danger?: boolean }
 
 // Four tabs still fit a 390px row with short labels; five do not.
 export const PICKER_MIN_TABS = 5
@@ -177,7 +178,7 @@ export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix
           aria-selected={t.id === active}
           aria-controls={tabPanelId(idPrefix, t.id)}
           tabIndex={t.id === active ? 0 : -1}
-          className="ui-tab"
+          className={t.danger ? 'ui-tab ui-tab-danger' : 'ui-tab'}
           onClick={() => onSelect(t.id)}
         >
           <TabLabel t={t} phone={phone} />

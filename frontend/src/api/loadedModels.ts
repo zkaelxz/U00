@@ -1,4 +1,4 @@
-// Diagnostics > Models > Models in memory (api/routers/loaded_models_routes.py). The read is
+// Diagnostics > Loaded now > Models in memory (api/routers/loaded_models_routes.py). The read is
 // open to anyone who can read Settings; freeing the app's models is PC only.
 import { getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'

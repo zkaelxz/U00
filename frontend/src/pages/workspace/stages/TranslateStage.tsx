@@ -104,7 +104,7 @@ import { AI_ENGINE_LABEL, NO_KEY_ENGINES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 
 // Where to look when the chosen engine runs on this PC and does not answer.
-const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics > Models for what is installed.'
+const LOCAL_ENGINE_HINT = 'Ollama is not answering on this PC. See Diagnostics > Models on disk for what is installed.'
 
 const REVIEW_GLOSSARY_NOTE = 'Translate will first scan the transcript for glossary terms and show them for your approval, then translate.'
 const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_GLOSSARY_NOTE} The scan uses the engine saved for this title.`

@@ -1,4 +1,4 @@
-// Diagnostics > Models > Memory by process (api/routers/loaded_models_routes.py). PC only.
+// Diagnostics > Loaded now > Memory by process (api/routers/loaded_models_routes.py). PC only.
 import { getJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 import type { LoadedModels } from './loadedModels'
