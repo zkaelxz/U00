@@ -340,6 +340,38 @@ class TestPerUserJobCaps:
         assert _wait_for(lambda: user_caps.jobs_today(7) == 0)
         assert bg.get_status("gpu_member")["status"] == "error"
 
+    @pytest.mark.parametrize("leave", ["request_cancel", "cancel_queued", "clear_job", "clear_all_jobs", "dropped"])
+    def test_a_queued_job_that_leaves_without_running_gives_back_the_days_count(self, monkeypatch, leave):
+        user_caps.set_jobs_per_day(7, 3)
+        user_caps.count_daily_start(7)            # one the member ran earlier today stays counted
+        self._as(monkeypatch, None)
+        owner_gate = self._gate()
+        assert job_launch.start_job("owner_gpu", owner_gate.wait, 5.0, gpu_touching=True) is True
+        self._as(monkeypatch, 7)
+        ran = threading.Event()
+        assert job_launch.start_job("gpu_member", ran.set, gpu_touching=True) is True
+        assert bg.get_status("gpu_member")["status"] == "queued" and user_caps.jobs_today(7) == 2
+        if leave == "dropped":
+            # Ended by a path that leaves its entry behind; the next promotion drops it.
+            job_table._jobs["gpu_member"]["status"] = "cancelled"
+            owner_gate.set()
+            _wait("owner_gpu")
+        else:
+            getattr(bg, leave)(*(() if leave == "clear_all_jobs" else ("gpu_member",)))
+        assert _wait_for(lambda: user_caps.jobs_today(7) == 1)
+        owner_gate.set()
+        _wait("owner_gpu")
+        assert not ran.is_set() and user_caps.jobs_today(7) == 1      # given back once, never twice
+
+    def test_a_job_that_ran_and_was_then_cancelled_keeps_its_count(self, monkeypatch):
+        user_caps.set_jobs_per_day(7, 3)
+        self._as(monkeypatch, 7)
+        assert job_launch.start_job("translate_run", self._block) is True
+        bg.request_cancel("translate_run")
+        self.release.set()
+        _wait("translate_run")
+        assert user_caps.jobs_today(7) == 1
+
     def test_a_refund_lowers_only_the_count_of_the_day_it_was_taken(self):
         user_caps.set_jobs_per_day(7, 3)
         assert user_caps.count_daily_start(7, today="2026-11-24") == "2026-11-24"

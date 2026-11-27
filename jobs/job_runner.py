@@ -25,8 +25,9 @@ from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_reques
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
-from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
-                            _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked, _sort_fair_locked)
+from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _left_unstarted_hooks,
+                            _refresh_queue_messages_locked, _release_gpu_slot, _run_finish_hooks,
+                            _running_gpu_job_count_locked, _sort_fair_locked)
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
 
@@ -436,8 +437,7 @@ def _next_promotable_entry_locked(dropped):
         job = _jobs.get(entry["job_id"])
         if job is None or job["status"] != "queued":
             _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
-            if entry.get("on_finish") is not None:
-                dropped.append((entry["job_id"], entry["on_finish"]))
+            dropped.extend(_left_unstarted_hooks(entry))
             continue
         if not user_caps.held(_jobs, entry):
             return entry
