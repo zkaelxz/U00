@@ -382,6 +382,17 @@ class TestPerUserJobCaps:
         self._as(monkeypatch, 8)
         assert job_launch.start_job("other_gpu", lambda: None, gpu_touching=True) is True
 
+    def test_waiting_gpu_jobs_take_turns_between_people_and_the_owner_goes_first(self, monkeypatch):
+        self._as(monkeypatch, 99)      # a third person holds the GPU, so nobody listed below has a turn used
+        assert job_launch.start_job("gpu_busy", self._block, gpu_touching=True) is True
+        waiting = [(7, "gpu_m1"), (7, "gpu_m2"), (7, "gpu_m3"), (8, "gpu_n1"), (None, "gpu_own1")]
+        for uid, job_id in waiting:
+            self._as(monkeypatch, uid)
+            assert job_launch.start_job(job_id, lambda: None, gpu_touching=True) is True
+        order = [jid for jid, _ in gpu_queue.gpu_queue_order()]
+        # First turn: the owner, then each member's first job; the second member's later jobs come after.
+        assert order == ["gpu_own1", "gpu_m1", "gpu_n1", "gpu_m2", "gpu_m3"]
+
     def test_a_member_cannot_start_a_job_when_the_drive_is_nearly_full_but_the_owner_can(self, monkeypatch):
         from collections import namedtuple
         from lib.errors import ConflictError
