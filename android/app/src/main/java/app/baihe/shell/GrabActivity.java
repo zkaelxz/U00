@@ -69,6 +69,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile boolean partsContinuing;
     private volatile boolean uploading;
     private volatile long progressWatch;
+    /** Chapters this phone added to one novel since it last asked the PC to translate it, so the PC adds just those. */
+    private volatile long novelAddedTo;
+    private volatile int novelAdded;
     // Optional "Translate this page" for reading a raw site; a grab always switches it off first.
     private boolean translateOn;
     private boolean translateRestoring;
@@ -1560,6 +1563,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     /** Grab on a text chapter: its raw text is saved into a novel title, where the PC's novel tools translate it. */
     private void saveNovel(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks, String text) {
         long translate = 0;
+        int translateCount = 0;
         String translateName = "";
         try {
             say("Saving the chapter");
@@ -1569,11 +1573,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             JSONObject answer = client.saveNovelChapter(title.getLong("drama_id"), url, heading, text);
             String where = title.optString("title", "Baihe");
             boolean added = answer.optBoolean("saved", false);
+            long dramaId = title.getLong("drama_id");
+            if (dramaId != novelAddedTo) {
+                novelAddedTo = dramaId;
+                novelAdded = 0;
+            }
+            if (added) novelAdded++;
             finishGrab((added ? "Saved the chapter to " : "Already saved in ") + where, true);
-            // The lines are made once per title, so translating waits for the last chapter of this run.
-            if (!cancelRequested && chaptersLeft == 0 && !loadingNext) {
-                translate = title.getLong("drama_id");
+            // Translating waits for the last chapter of this run, and a run that saved nothing new asks for nothing.
+            if (!cancelRequested && chaptersLeft == 0 && !loadingNext && novelAdded > 0) {
+                translate = dramaId;
+                translateCount = novelAdded;
                 translateName = where;
+                novelAdded = 0;
             }
         } catch (BaiheClient.BridgeException e) {
             finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
@@ -1581,13 +1593,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             finishGrab("Could not save the chapter.");
         }
         // Outside the try: a failure here must not run finishGrab a second time.
-        if (translate > 0) translateOnPc(client, translate, translateName);
+        if (translate > 0) translateOnPc(client, translate, translateCount, translateName);
     }
 
-    /** Asks the PC to translate the novel just saved to (or its new chapters), then follows it. A refusal (no limit set) is shown, not retried; a 409 (already running, or nothing new) is not. */
-    private void translateOnPc(BaiheClient client, long dramaId, String name) {
+    /** Asks the PC to translate the novel just saved to (or the chapters this phone added to it), then follows it.
+     * A refusal (no spending limit set, an app too old) is shown and not retried; a 409 (another step already
+     * waiting, a full queue, or nothing new) is left unsaid. */
+    private void translateOnPc(BaiheClient client, long dramaId, int newChapters, String name) {
         try {
-            client.titleTranslate(dramaId);
+            client.titleTranslate(dramaId, newChapters);
         } catch (BaiheClient.BridgeException e) {
             if (e.status != 409) say(e.getMessage(), GrabUi.Kind.INFO);
             return;

@@ -180,10 +180,13 @@ final class BaiheClient {
         }
     }
 
-    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it is already running or has no new chapters). */
-    JSONObject titleTranslate(long dramaId) throws BridgeException {
+    /** Queues the PC's translating of a novel title this token saved `newChapters` chapters to. A run already
+     * waiting or running answers 200 with its progress; 409 means another step of the title is active, the queue
+     * or the account's share of it is full, or there is nothing new to translate. */
+    JSONObject titleTranslate(long dramaId, int newChapters) throws BridgeException {
         try {
-            return call("POST", "/title-translate", new JSONObject().put("drama_id", dramaId));
+            return call("POST", "/title-translate",
+                    new JSONObject().put("drama_id", dramaId).put("new_chapters", newChapters));
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
