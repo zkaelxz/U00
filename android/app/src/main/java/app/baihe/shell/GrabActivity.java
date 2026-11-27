@@ -1584,7 +1584,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (translate > 0) translateOnPc(client, translate, translateName);
     }
 
-    /** Asks the PC to translate the novel just saved to, then follows it. A refusal (no limit set, lines already made) is shown, not retried. */
+    /** Asks the PC to translate the novel just saved to (or its new chapters), then follows it. A refusal (no limit set) is shown, not retried; a 409 (already running, or nothing new) is not. */
     private void translateOnPc(BaiheClient client, long dramaId, String name) {
         try {
             client.titleTranslate(dramaId);
@@ -2003,7 +2003,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 try {
                     JSONObject now = new BaiheClient(server, token).titleProgress(dramaId);
                     String state = now.optString("state", "idle");
-                    String line = TitleProgress.line(state, now.optString("step", ""), name);
+                    String line = TitleProgress.line(state, now.optString("step", ""), name,
+                            now.isNull("reason") ? "" : now.optString("reason", ""));
                     // The run was queued a moment ago; a few idle answers in a row mean it is gone.
                     if (line == null) {
                         if (++quiet >= 3) return;

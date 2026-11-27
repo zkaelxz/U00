@@ -180,7 +180,7 @@ final class BaiheClient {
         }
     }
 
-    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it already has lines). */
+    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it is already running or has no new chapters). */
     JSONObject titleTranslate(long dramaId) throws BridgeException {
         try {
             return call("POST", "/title-translate", new JSONObject().put("drama_id", dramaId));
