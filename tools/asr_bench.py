@@ -42,8 +42,8 @@ import subtitle_parse
 from engine_backends import shared as engine_shared
 import whisper_models
 from jobs import gpu_slots
-from services.asr_timing_service import (COVER_FRACTION, count_in_silence, match, overlap as _overlap,
-                                         speech_spans)
+from services.asr_timing_service import (COVER_FRACTION, count_in_silence, covers, match,
+                                         overlap as _overlap, speech_spans)
 from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from lib.errors import ServiceError
 from tools import self_test
@@ -62,6 +62,8 @@ LOOP_RUN = 3
 # Resamples for the paired comparison's 95% range; fixed seed so a report reads the same twice.
 PAIRED_RESAMPLES = 2000
 PAIRED_SEED = 0
+# Below this many groups the resampled range is too narrow to trust, so no verdict is given.
+MIN_PAIRED_GROUPS = 20
 # Reference lines must sit inside the window, give or take what a cut can lose.
 EDGE_TOLERANCE_S = 0.25
 GPU_WAIT_S = 600.0
@@ -351,7 +353,9 @@ def paired_groups(reference: list, *recipe_lines: list) -> list:
         return i
     for lines in recipe_lines:
         for ln in lines:
-            touched = [i for i, r in enumerate(reference) if _overlap(ln, r) > 0]
+            # Covering, not any overlap: timings a little off the reference would otherwise chain
+            # every line into one group, and one group can't be resampled.
+            touched = [i for i, r in enumerate(reference) if covers(ln, r)]
             for i in touched[1:]:
                 parent[root(i)] = root(touched[0])
     groups: dict = {}
@@ -380,7 +384,11 @@ def group_errors(lines: list, reference: list, groups: list, language: str) -> l
     out = []
     for members, texts in zip(groups, given):
         r = tokens(" ".join(reference[i]["text"] for i in members))
-        out.append((benchmark_scoring_service._edit_distance(tokens(" ".join(texts)), r), len(r)))
+        h = tokens(" ".join(texts))
+        # The same bound as the whole-window scorer: a looping line far longer than its reference
+        # costs its extra length without an O(n*m) edit distance over it.
+        limit = 2 * len(r) + 10
+        out.append((benchmark_scoring_service._edit_distance(h[:limit], r) + max(0, len(h) - limit), len(r)))
     return out
 
 
@@ -390,7 +398,7 @@ def paired_difference(base: list, other: list, resamples: int = PAIRED_RESAMPLES
     difficulty cancels and a change too small for two separate scores to show can still be seen.
     Negative is fewer errors."""
     total = sum(n for _, n in base)
-    if not total or len(base) != len(other):
+    if not total or len(base) != len(other) or len(base) < MIN_PAIRED_GROUPS:
         return None
     deltas = [(o[0] - b[0], b[1]) for b, o in zip(base, other)]
     change = sum(d for d, _ in deltas) / total
@@ -417,6 +425,8 @@ def paired_rows(plan: Plan, results: list) -> list:
         found = paired_difference(group_errors(base.lines, plan.reference, groups, plan.language),
                                   group_errors(r.lines, plan.reference, groups, plan.language))
         if found is None:
+            rows.append((r.recipe.label, None, None, None,
+                         f"too few line groups ({len(groups)}, need {MIN_PAIRED_GROUPS}): use a longer window"))
             continue
         change, low, high = found
         verdict = "fewer errors" if high < 0 else "more errors" if low > 0 else "within noise"
@@ -559,7 +569,8 @@ def format_report(plan: Plan, results: list, audio_s: float, spans, use_gpu: boo
                 "with a 95% range from resampling those lines. A range that includes 0 is within noise. "
                 "Negative is fewer errors.", "",
                 "| change | recipe | 95% range | verdict |", "|---|---|---|---|"]
-        out += [f"| {change:+.4f} | {_cell(label)} | {low:+.4f} to {high:+.4f} | {verdict} |"
+        out += [f"| {change:+.4f} | {_cell(label)} | {low:+.4f} to {high:+.4f} | {verdict} |" if change is not None
+                else f"| n/a | {_cell(label)} | n/a | {verdict} |"
                 for label, change, low, high, verdict in paired]
     ok = [r for r in results if not r.error]
     out += ["", "## Lines that differ between recipes", ""]
