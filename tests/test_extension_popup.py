@@ -345,3 +345,22 @@ def test_a_saved_answer_serves_both_modes():
 def test_saving_after_a_quick_translate_makes_the_answer_a_saved_one():
     out = _answers("b.rememberAnswer('h', [1], false); b.rememberAnswer('h', [1], true); return !!b.answerFor('h', true);")
     assert out is True
+
+
+def test_video_and_live_send_only_the_page_link_and_refuse_a_private_page():
+    out = _node("background", "video_and_live_send_only_the_link")
+    assert out["video"] == {"ok": True, "data": {"drama_id": 9}}
+    assert out["live"]["ok"] is True
+    video, live = out["sent"][:2]
+    # The fragment is page state; the browser's cookies never ride along.
+    assert video == {"path": "/video", "body": {"url": "https://video.example.com/watch?v=abc"}, "credentials": "omit"}
+    assert live["path"] == "/live" and live["body"] == {"url": "https://live.example.com/room/7", "source_language": "ja"}
+    assert out["local"]["ok"] is False and "public website" in out["local"]["error"]
+    assert out["localCalls"] == 0
+
+
+def test_the_video_tab_offers_both_actions():
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    assert 'id="tab-video"' in html and 'aria-controls="panel-video"' in html
+    for needle in ('id="sendVideo"', 'id="startLive"', 'id="liveLanguage"'):
+        assert needle in html

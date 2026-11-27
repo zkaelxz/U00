@@ -405,6 +405,20 @@ async function background(scenario) {
     return { ...r, fetchCalls: h.fetchCalls.length, options: h.fetchCalls[0] && h.fetchCalls[0].options };
   };
   switch (scenario) {
+    case "video_and_live_send_only_the_link": {
+      const sent = [];
+      const reply = (body) => async (url, options) => {
+        sent.push({ path: new URL(url).pathname, body: JSON.parse(options.body), credentials: options.credentials });
+        return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      };
+      const video = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ drama_id: 9 }) });
+      const v = await video.ask({ type: "sendVideo", url: "https://video.example.com/watch?v=abc#t=30" });
+      const live = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ session_id: "s1" }) });
+      const l = await live.ask({ type: "startLive", url: "https://live.example.com/room/7", sourceLanguage: "ja" });
+      const local = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({}) });
+      const p = await local.ask({ type: "sendVideo", url: "http://192.168.1.20/video.mp4" });
+      return { video: v, live: l, local: p, sent, localCalls: local.fetchCalls.length };
+    }
     case "base64_matches_btoa": {
       const { base64Of } = loadBackground({ granted: () => true }).sandbox;
       const out = {};
