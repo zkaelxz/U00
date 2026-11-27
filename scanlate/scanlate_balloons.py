@@ -323,18 +323,33 @@ def _art_from_edge(roi, filled, outside):
     return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
 
 
-def _without_thick_dark_patches(filled, roi):
-    """All ones except the parts of `roi`'s dark, unfilled area where a disc wider than a stroke
-    fits (BALLOON_STROKE_MAX_PX)."""
+def _without_thick_dark_patches(filled, gray, area):
+    """All ones except the parts of the box's dark, unfilled area that are the outside of the
+    balloon: a disc wider than a stroke fits in them (BALLOON_STROKE_MAX_PX) and the page just
+    beyond the box, next to them, is as dark as they are. Heavy lettering cut by the box edge is
+    as thick, but the balloon's paper lies beyond it."""
     import cv2
 
+    x0, y0, x1, y1 = area
+    pad = scanlate_tuning.BALLOON_OUTSIDE_LOOK_PX
+    wide = gray[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad]
+    oy, ox = y0 - max(0, y0 - pad), x0 - max(0, x0 - pad)
+    inner = np.zeros(wide.shape, bool)
+    inner[oy:oy + filled.shape[0], ox:ox + filled.shape[1]] = True
     missing = (filled == 0).astype(np.uint8)
     n, labels = cv2.connectedComponents(missing, connectivity=8)
     depth = cv2.distanceTransform(missing, cv2.DIST_L2, 3)
     keep = np.ones_like(filled)
     for i in range(1, n):
         part = labels == i
-        if depth[part].max() >= scanlate_tuning.BALLOON_STROKE_MAX_PX:
+        if depth[part].max() < scanlate_tuning.BALLOON_STROKE_MAX_PX:
+            continue
+        grown = np.zeros(wide.shape, np.uint8)
+        grown[oy:oy + filled.shape[0], ox:ox + filled.shape[1]] = part
+        beyond = (cv2.dilate(grown, np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)) > 0) & ~inner
+        if not beyond.any():
+            continue
+        if abs(float(np.median(wide[beyond])) - float(np.median(gray[y0:y1, x0:x1][part]))) <= scanlate_tuning.BALLOON_OUTSIDE_LIKE:
             keep[part] = 0
     return keep
 
@@ -389,7 +404,7 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         # interior missed (lettering cut by the box edge) are lettering. A dark patch thicker
         # than any stroke at the box's corner is the art outside the outline; filling it made
         # square white notches on the outline.
-        filled = _without_thick_dark_patches(filled, roi)
+        filled = _without_thick_dark_patches(filled, gray, area)
     # Otherwise the balloon sits on dark art or tone, so no paper surrounds
     # it, yet part of the box is not balloon: only its interior is cleared.
     # Clearing the whole box wiped the outline and the art along it into a
