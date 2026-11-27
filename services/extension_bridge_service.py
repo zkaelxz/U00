@@ -24,7 +24,7 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch
+from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_runs
 from lib import device_use
 from lib.errors import ServiceError
 
@@ -356,6 +356,12 @@ def cancel_run(payload) -> dict:
     run_id = _run_id(payload)
     if not run_id:
         raise page_server.EndpointError(400, "run_id must be 8 to 64 letters, digits or dashes")
+    mark_cancelled(run_id)
+    quick_read_runs.finish(run_id)
+    return {"cancelled": True}
+
+
+def mark_cancelled(run_id: str) -> None:
     now = time.monotonic()
     with _cancelled_lock:
         for key in [k for k, at in _cancelled_runs.items() if now - at > _CANCELLED_TTL_SECONDS]:
@@ -363,7 +369,6 @@ def cancel_run(payload) -> dict:
         if len(_cancelled_runs) >= _MAX_CANCELLED_RUNS:
             del _cancelled_runs[min(_cancelled_runs, key=lambda k: _cancelled_runs[k])]
         _cancelled_runs[run_id] = now
-    return {"cancelled": True}
 
 
 MAX_SUMMARY_CHARS = 2000
@@ -701,6 +706,7 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
                     on_page(outcome[1])
         finally:
             order.finish(index)
+            quick_read_runs.page_finished(job["run_id"])
 
     if len(decoded) == 1:
         work(0)
@@ -787,6 +793,8 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         skipped += [{"key": image["key"], "url": image["url"], "reason": "same picture as an earlier page of this read"}
                     for image in repeats]
     job["single"] = len(decoded) == 1
+    if not store:
+        quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled)
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
     results, failed, stopped = [], [], ""
