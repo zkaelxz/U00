@@ -359,6 +359,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         intent.removeExtra(EXTRA_COMMAND);
         if ("start".equals(command)) {
             startQueue();
+        } else if ("reader".equals(command)) {
+            if (QuickReadSession.hasPages() || QuickReadSession.isDetached()) openReader();
         } else if ("bookmark".equals(command)) {
             // The Bookmarks screen's button only adds: there, Remove is on each card.
             String open = ServerAddress.browsable(web.getUrl());
@@ -1019,11 +1021,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (!QuickReadSession.isDetached()) return;
         quick.setDanger(false);
         quick.setLabel("Open reader", palette.onAccent, R.drawable.ic_quick);
-        say(backgroundLine(QuickReadSession.snapshot().size()), GrabUi.Kind.BUSY);
+        say(backgroundLine(QuickReadSession.snapshot().size()));
     }
 
     private static String backgroundLine(int ready) {
-        return "Still translating in the background: " + ready + " pages ready. More > Stop translating cancels it.";
+        int total = QuickReadSession.total();
+        String count = total > ready ? ready + " of " + total + " ready" : ready + " pages ready";
+        return "Reading: " + count + ". Tap here to open the reader. More > Stop translating cancels it.";
     }
 
     private void openReader() {
@@ -1054,6 +1058,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             web.goBack();
             return true;
         }
+        // Closing this screen would stop a running grab; Back leaves it going in the background instead.
+        if (keyCode == KeyEvent.KEYCODE_BACK && (grabbing || QuickReadSession.isDetached())) {
+            moveTaskToBack(true);
+            return true;
+        }
         return super.onKeyDown(keyCode, event);
     }
 
@@ -1067,6 +1076,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
+        // The bar for a Quick read the reader was left on: a tap goes back to it.
+        if (text.startsWith("Reading: ")) {
+            runOnUiThread(() -> chip.showTappable(text, GrabUi.Kind.BUSY, this::openReader));
+            return;
+        }
         boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ")
                 || text.startsWith("Still translating");
         say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
@@ -1601,6 +1615,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<PageImage> pages = PageFilter.pagesOnly(images);
             List<List<PageImage>> batches = Batches.plan(pages, max, 1);
             int n = batches.size();
+            QuickReadSession.addTotal(pages.size());
             Object lock = new Object();
             // A page's report text, found again by the very array that shows it.
             java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
@@ -1752,8 +1767,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     : (cancelRequested ? "Cancelled. " : "")
                     + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
+            boolean awayFromReader = QuickReadSession.isDetached() || !AppUpdate.inFront();
             if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
+            if (!carryOn && !cancelRequested && firstError[0].isEmpty() && awayFromReader && !QuickReadSession.isAbandoned()) {
+                GrabKeepAlive.notifyReady(getApplicationContext(), runName);
+            }
             // A refusal (a spent limit, a bad token) would refuse the next chapter too, so none is offered.
             String ahead = carryOn || cancelRequested || refused[0] || thisPart == 0 || queueRunning
                     || !prefs().getBoolean(KEY_READ_AHEAD, true) ? null : ServerAddress.nextChapterUrl(url, pageNext);

@@ -54,6 +54,11 @@ final class AppUpdate {
     static volatile File pending;
     private static int screensStarted;
 
+    /** Whether any screen of the app is in front (false once the person is in another app). */
+    static synchronized boolean inFront() {
+        return screensStarted > 0;
+    }
+
     /** One of the app's screens came to the front. */
     static synchronized void screenStarted() {
         screensStarted++;
