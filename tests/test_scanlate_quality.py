@@ -624,7 +624,8 @@ def test_light_lettering_mask_reaches_past_a_coloured_edge():
     from scanlate import scanlate_inpaint
     page = np.full((160, 200), 40, np.uint8)
     cv2.rectangle(page, (80, 60), (120, 100), 255, -1)
-    mask = scanlate_inpaint._lettering_mask(page)
+    mask = scanlate_inpaint._lettering_mask(page, wide=True)
+    assert scanlate_inpaint._lettering_mask(page)[80, 76] == 0
     assert mask[80, 76] > 0 and mask[80, 124] > 0 and mask[80, 40] == 0
 
 
