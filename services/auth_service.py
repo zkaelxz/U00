@@ -58,7 +58,8 @@ OPT_IN_PERMISSIONS = (
 # What a member account can hold; an admin can give or take each from the People screen.
 MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
-    "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
+    "admin.library", "admin.settings", "admin.diagnostics", "admin.diagnostics.read",
+    "admin.users.read", "admin.users",
 )
 # Every admin permission is view (GET routes only), away write or write. An
 # admin session on the internet-facing household listener keeps view and
@@ -68,7 +69,7 @@ ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
 # an admin account stays PC-only (_require_pc_for_admin), since a remote
 # session has no second factor and could otherwise lock the owner out. The
 # write families mix reads with writes, so they are write as a whole.
-ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
+ADMIN_VIEW_PERMISSIONS = ("admin.users.read", "admin.diagnostics.read")
 ADMIN_AWAY_WRITE_PERMISSIONS = ("admin.users",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics")
 ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSIONS
