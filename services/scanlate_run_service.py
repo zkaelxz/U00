@@ -67,7 +67,8 @@ from lib.errors import (
 )
 
 _OCR_ERRORED = "OCR failed on this page, so nothing was saved. Check the OCR backend in Diagnostics."
-_OCR_NO_TEXT = "OCR found no text on this page, so nothing was saved. Redo it after checking the OCR backend."
+_OCR_NO_TEXT = ("OCR found no text on this page, so nothing was saved. If the page has no lettering "
+                "this is expected; if it does, check the OCR backend and redo it.")
 
 
 class _DetectSkipped(Exception):
@@ -228,9 +229,35 @@ def _missing_run_has_work(drama_id: int, page_id) -> bool:
     if page is None:
         return False
     bubbles = db.load_bubbles(page_id)
-    if not any(_has_text(b) for b in bubbles):
+    if not any(_has_text(b) for b in bubbles) or _read_but_untranslated(bubbles, page):
         return True
     return not page.get("rendered_filename") and render_svc.has_something_to_place(bubbles)
+
+
+def _is_sent_for_translation(region: dict, gloss_sfx: bool) -> bool:
+    """Whether _translate asks for this region's English. A skipped region (an
+    effect, stamp or already-English text) and a sound effect left to the art
+    are deliberately left in their own language."""
+    from scanlate import scanlate_regions
+    return bool(not region.get("skip")
+                and (gloss_sfx or not scanlate_regions.region_excluded_from_auto(region))
+                and (region.get("source_text") or "").strip())
+
+
+_BLANK_ANSWER = "came back with an empty translation"
+
+
+def _read_but_untranslated(regions: list, page: dict) -> bool:
+    """A page OCR read but whose translation failed: regions are meant to be
+    translated and none has English. A page with some English is left alone,
+    since its regions may be hand-typed and a missing run must not redo them.
+    A page the engine answered blank is not asked again: it would answer
+    blank, and be paid for, on every run."""
+    if any(_BLANK_ANSWER in n.get("message", "") for n in pages_svc.parse_notes(page.get("run_notes"))):
+        return False
+    gloss_sfx = bool(settings_service.get("scanlate_sfx_gloss"))
+    wanted = [b for b in regions if _is_sent_for_translation(b, gloss_sfx)]
+    return bool(wanted) and not any((b.get("translated_text") or "").strip() for b in wanted)
 
 
 def _has_text(region: dict) -> bool:
@@ -494,15 +521,11 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     say why); context is the new rolling context, or None if none.
     `page_image` is _page_image's result: the page is then sent with its
     regions, and the text-only request below is the fallback when that fails."""
-    from scanlate import scanlate_regions
     from scanlate import scanlate_translate
     # A sound effect is translated only to be glossed beside the art, so it is
     # asked for only when the person turned that on.
     gloss_sfx = bool(settings_service.get("scanlate_sfx_gloss"))
-    by_key = {str(i): b for i, b in enumerate(bubbles)
-              if not b.get("skip")
-              and (gloss_sfx or not scanlate_regions.region_excluded_from_auto(b))
-              and (b.get("source_text") or "").strip()}
+    by_key = {str(i): b for i, b in enumerate(bubbles) if _is_sent_for_translation(b, gloss_sfx)}
     if not by_key:
         return True, None
     keyed = {key: b["source_text"] for key, b in by_key.items()}
@@ -570,8 +593,8 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     # sign that anything went wrong.
     blank = sum(1 for key in result if not (result[key] or "").strip())
     if blank:
-        notes.append(("warning", f"{blank} of {len(by_key)} regions came back with an empty "
-                                 "translation and were left as they are. If one is real "
+        notes.append(("warning", f"{blank} of {len(by_key)} regions {_BLANK_ANSWER} "
+                                 "and were left as they are. If one is real "
                                  "dialogue, type it in the Review screen or use Redo this page."))
     if len(result) < len(by_key):
         # A rejected chunk of a dense page is simply absent from the result.
@@ -665,7 +688,10 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
     existing = db.load_bubbles(page_id)
     # Regions that hold no text came from a failed or empty OCR; counting them
     # as done would make "Translate all" skip the page forever.
-    if mode == "missing" and any(_has_text(b) for b in existing):
+    if mode == "missing" and _read_but_untranslated(existing, page):
+        # The text is already read: translate it without reading the page again.
+        keep_text = True
+    elif mode == "missing" and any(_has_text(b) for b in existing):
         if not page.get("rendered_filename"):
             render_svc.check_cancel(jid)        # a read-ahead may start after a cancel
             notes = []
@@ -732,6 +758,8 @@ def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list,
     scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
     scanlate_watermark.flag_edge_fragments(bubbles, width, height)
     scanlate_watermark.flag_page_numbers(bubbles, width, height)
+    scanlate_watermark.flag_already_english(
+        bubbles, (db.get_drama(drama_id) or {}).get("source_language") or "zh")
 
 
 def _rerender(drama_id: int, page_id: int, jid: str) -> None:
@@ -921,7 +949,7 @@ def _read_regions(future, page_id: int) -> list:
     return result[3] if isinstance(result, tuple) else db.load_bubbles(page_id)
 
 
-def _count_page(counts: dict, jid: str, page_id: int, run_page):
+def _count_page(counts: dict, jid: str, page_id: int, run_page, first_error: list | None = None):
     """Runs one page and counts its outcome, which it returns; "failed" after a note on the
     page, None when the run stops before this page. Raises what ends the whole run."""
     try:
@@ -934,6 +962,8 @@ def _count_page(counts: dict, jid: str, page_id: int, run_page):
         raise
     except Exception as exc:
         outcome = "failed"
+        if first_error is not None and not first_error:
+            first_error.append(_failure_note(exc))
         try:
             db.update_page(page_id, run_notes=pages_svc.notes_to_json(
                 [("error", _failure_note(exc))]))
@@ -1154,6 +1184,7 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
                      "art_captions": art_captions}
     counts = {"translated": 0, "done": 0, "skipped": 0, "stale": 0, "kept": 0, "failed": 0}
     total = len(page_ids)
+    first_errors = []
     # Cancel and a total deadline for every AI call of the run, not only between
     # pages. One request per page, and with thinking on DeepSeek may take the
     # whole client timeout to answer, so the deadline is the per-request one.
@@ -1210,7 +1241,7 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
                                          detected=ahead.pop(pid, None), previous_id=previous_id,
                                          chapter_brief=brief, keep_text=keep_text,
                                          typeset=typeset)
-                outcome = _count_page(counts, jid, pid, run_page)
+                outcome = _count_page(counts, jid, pid, run_page, first_errors)
                 if outcome is None:
                     break  # the pages still to do stay as they are
                 if outcome == "translated":
@@ -1232,3 +1263,8 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
                                     + (f" {limits.stop_reason}." if limits.stop_reason else ""))
     if limits.stop_reason:
         background_jobs.set_result(jid, paid_job_service.stop_fields(limits))
+    elif counts["failed"] and not any(
+            counts[k] for k in ("translated", "done", "skipped", "stale", "kept")):
+        # A run that got nowhere must not end as Finished; the Jobs list and the bell show the
+        # error. One page succeeding keeps the run finished, with the failures in its summary.
+        raise RuntimeError(pages_svc.clean_note(first_errors[0]))

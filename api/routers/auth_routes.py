@@ -278,6 +278,8 @@ def me(request: Request):
     shown = MeResponse(**body).model_dump()
     if shown["preferences"] is None:
         del shown["preferences"]
+    else:
+        shown["preferences"] = {k: v for k, v in shown["preferences"].items() if v is not None}
     return JSONResponse(shown, headers=dict(NO_STORE))
 
 

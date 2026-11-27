@@ -4,7 +4,7 @@ import { openSettingsGroups } from './settingsNav'
 test('two quick toggle saves keep both, even when the first answer arrives last', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Transcription and jobs')
-  const a = page.getByRole('switch', { name: 'Free local-model memory before transcribing' })
+  const a = page.getByRole('switch', { name: 'Use the GPU for transcription' })
   const b = page.getByRole('switch', { name: 'Resume translation batches on start' })
   const aBefore = await a.isChecked()
   const bBefore = await b.isChecked()

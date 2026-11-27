@@ -14,7 +14,6 @@ import whisper_transcribe
 import whisper_hallucination
 import vad_segments
 import whisper_models
-import ollama_unload
 from engine_backends.shared import redact_secrets
 
 SLICE_TIMEOUT_S = 120
@@ -108,7 +107,7 @@ def hear_lines_worker(audio_path, windows, cfg, scratch_dir, result_queue):
         finally:
             if os.path.exists(slice_path):
                 os.remove(slice_path)
-    outcome = {**fatal, **ollama_unload.take_notice_result()}
+    outcome = dict(fatal)
     if gpu_fallback:
         outcome["gpu_fallback"] = gpu_fallback[0]
     result_queue.put(("ok", outcome))

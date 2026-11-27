@@ -1118,6 +1118,19 @@ class TestArtCaptionsAlone:
         assert [b["kind"] for b in bubbles] == ["caption"]
         assert not any("No bubbles found" in m for _, m in notes)
 
+    def test_the_stamp_search_choice_reaches_the_caption_reader(self, tmp_path, monkeypatch):
+        from scanlate import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        seen = []
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions",
+                            lambda *a, **k: seen.append(k.get("find_stamps")) or [])
+        scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True, art_caption_stamps=False)
+        scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert seen == [False, True]
+
     def test_no_bubbles_and_no_captions_still_says_so(self, tmp_path, monkeypatch):
         from scanlate import scanlate_art_text
         from PIL import Image
@@ -1374,3 +1387,14 @@ class TestRenderReportsTheDrawnSize:
         scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
                                            "of text that must shrink", font_size=40, report=report)
         assert 8 <= report["size"] < 40
+
+
+def test_a_site_stamp_read_as_a_caption_is_skipped_not_translated():
+    stamp = {"x": 10, "y": 900, "w": 400, "h": 40, "kind": "caption",
+             "source_text": "HTTPS://NEWTOKKI468.COM", "line_boxes": []}
+    story = {"x": 10, "y": 100, "w": 300, "h": 60, "kind": "caption",
+             "source_text": "그날 밤, 나는 아무 말도 하지 못했다", "line_boxes": []}
+    joined = scanlate.with_captions([], [stamp, story])
+    assert stamp["skip"] is True
+    assert not story.get("skip")
+    assert [r["reading_order"] for r in joined] == [0, 1]

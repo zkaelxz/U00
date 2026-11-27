@@ -87,7 +87,7 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Transcription and jobs')
   const system = page.locator('#settings-panel-transcription')
-  for (const name of [/Limit GPU jobs/, /Use the GPU/, /Free local-model memory/, /Resume translation batches on start/])
+  for (const name of [/Limit GPU jobs/, /Use the GPU/, /Resume translation batches on start/])
     await expect(system.getByRole('switch', { name })).toBeVisible()
   await expect(page.getByRole('checkbox')).toHaveCount(0)
   await openSettingsGroups(page, 'Connections')

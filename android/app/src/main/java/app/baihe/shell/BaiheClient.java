@@ -182,6 +182,24 @@ final class BaiheClient {
         }
     }
 
+    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it already has lines). */
+    JSONObject titleTranslate(long dramaId) throws BridgeException {
+        try {
+            return call("POST", "/title-translate", new JSONObject().put("drama_id", dramaId));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Where the PC's translating of a title this token saved to has got: state, step and kind. */
+    JSONObject titleProgress(long dramaId) throws BridgeException {
+        try {
+            return call("POST", "/title-progress", new JSONObject().put("drama_id", dramaId));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     JSONObject sendPages(long dramaId, String pageUrl, List<PageImage> batch) throws BridgeException {
         return post(pageUrl, batch, dramaId, true);
     }
@@ -281,6 +299,23 @@ final class BaiheClient {
         }
     }
 
+    /** The Quick read runs this phone's account still has working on the PC. */
+    JSONArray quickReadRuns() throws BridgeException {
+        JSONArray runs = call("POST", "/quick-reads", new JSONObject()).optJSONArray("runs");
+        return runs == null ? new JSONArray() : runs;
+    }
+
+    /** Drops one run (its pages not started are not worked on), or every run when `runId` is null. */
+    void dropQuickRead(String runId) throws BridgeException {
+        try {
+            JSONObject body = new JSONObject();
+            if (runId != null) body.put("run_id", runId);
+            call("POST", "/quick-reads/drop", body);
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Sends a Quick read page the reader found wrong, with what the PC read on it, to the PC's reports. */
     void sendReport(JSONObject body) throws BridgeException {
         call("POST", "/report", body);
@@ -338,7 +373,8 @@ final class BaiheClient {
                 answer.remove("pages");
                 return answer;
             }
-            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true);
+            // The heartbeat keeps the read timeout from ending a wait the PC is still working through.
+            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true).put("heartbeat", true);
             return callStream("/pages", body, onPage);
         } catch (JSONException | IOException e) {
             throw new BridgeException(0, "Could not read the pages.");

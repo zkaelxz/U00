@@ -23,7 +23,6 @@ import whisper_models
 from live import live_audio
 from live import live_translate as lt
 from live import live_whisper
-import ollama_unload
 from jobs import gpu_slots
 from services import live_service
 
@@ -155,11 +154,6 @@ def _texts(job_id):
     return [c["text"] for c in background_jobs.get_status(job_id).get("result") or []]
 
 
-def _prepare(use_gpu):
-    """The GPU loaders' hook as it really is (conftest stubs it for every test)."""
-    ollama_unload.prepare_gpu_for_transcription.real(use_gpu)
-
-
 def _live_whisper_threads():
     return sum(1 for t in threading.enumerate() if t.name == "live-whisper" and t.is_alive())
 
@@ -241,45 +235,6 @@ class TestWhisperThatNeverReturns:
         assert _wait(lambda: len(calls) >= 2)
         assert max(live_counts) == 1 and loads == ["small"]
         assert start.released == []
-
-    def test_the_original_shape_a_slow_chunk_after_a_local_translation_is_skipped(
-            self, job, monkeypatch):
-        """Ollama's translation model is resident, the next Whisper call crawls,
-        and the loader hook runs on every call. Ollama is freed once, the slow
-        chunk is given up on, and the run goes on."""
-        stream, start, notes = job
-        freed = []
-        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
-                            lambda: freed.append(1))
-        slow, release = threading.Event(), threading.Event()
-        calls = []
-
-        class LocalOllama(Engine):
-            name, model = "ollama", "translategemma:12b"
-
-        def whisper(path, **kw):
-            _prepare(True)   # what the loader does
-            calls.append(path)
-            if len(calls) == 2:
-                slow.set()
-                release.wait(20)
-                return []
-            return [{"start": 0.5, "end": 1.0, "text": f"t{len(calls)}"}]
-        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
-        monkeypatch.setattr(live_whisper, "warm_up",
-                            lambda size, gpu, cb=None: _prepare(True))
-        stream.add(2)
-        assert start("live_shape", LocalOllama(), use_gpu=True)
-        assert _wait(lambda: _texts("live_shape") == ["t1"])
-        stream.add(1)
-        assert slow.wait(PROMPT)
-        start.clock.advance(1000)
-        assert _wait(lambda: any("did not finish" in n for n in notes)), notes
-        release.set()
-        assert _wait(lambda: _live_whisper_threads() == 0)
-        stream.add(1)
-        assert _wait(lambda: _texts("live_shape") == ["t1", "t3"])
-        assert len(freed) == 1
 
     def test_whisper_starts_the_next_chunk_while_a_translation_is_held_then_it_fails(
             self, job, monkeypatch):
@@ -974,106 +929,6 @@ class TestChunkDiagnostics:
         monkeypatch.setattr(live_whisper, "_log", lambda level, text: logged.append(text))
         live_whisper.log_chunk(0, 10.0, 0.1, 2.0, 1.0, True, lambda t, k=None: None)
         assert "GPU" not in logged[0] and "not loaded yet" in logged[0]
-
-
-class TestOllamaCadence:
-    """Freeing a local Ollama is decided per Live job, not per chunk's thread."""
-
-    freed = None
-
-    def _loader_calls(self, scope, n, monkeypatch):
-        if self.freed is None:
-            self.freed = []
-        freed = self.freed
-        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
-                            lambda: freed.append(1) or "Ollama still has a model loaded.")
-        for _ in range(n):
-            # A new thread per call, as each chunk's Whisper call gets.
-            t = threading.Thread(target=lambda: _in_scope(scope))
-            t.start()
-            t.join()
-        return freed
-
-    def test_a_local_ollama_is_freed_once_per_job_across_threads(self, monkeypatch):
-        scope = ollama_unload.JobScope(True, min_free_mb=2000)
-        assert len(self._loader_calls(scope, 5, monkeypatch)) == 1
-
-    def test_a_cloud_engine_never_touches_ollama(self, monkeypatch):
-        scope = ollama_unload.JobScope(False)
-        assert self._loader_calls(scope, 5, monkeypatch) == []
-        assert scope.take_notice() is None
-
-    def test_the_notice_comes_back_to_the_job_thread_once(self, monkeypatch):
-        scope = ollama_unload.JobScope(True)
-        self._loader_calls(scope, 2, monkeypatch)
-        assert scope.take_notice() == "Ollama still has a model loaded."
-        assert scope.take_notice() is None
-
-    def test_a_cpu_run_does_nothing(self, monkeypatch):
-        freed = []
-        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory", lambda: freed.append(1))
-        with ollama_unload.job_scope(ollama_unload.JobScope(True)):
-            _prepare(False)
-        assert freed == []
-
-    def test_it_runs_again_only_while_no_whisper_call_has_worked_and_vram_is_short(
-            self, monkeypatch):
-        now = [0.0]
-        scope = ollama_unload.JobScope(True, min_free_mb=2000, clock=lambda: now[0])
-        free = [500.0]
-        monkeypatch.setattr(ollama_unload, "_free_vram_mb", lambda: free[0])
-        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
-        now[0] = 10.0   # inside the recheck window
-        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
-        now[0] = 100.0
-        free[0] = 9000.0   # plenty of room now
-        assert len(self._loader_calls(scope, 1, monkeypatch)) == 1
-        free[0] = 500.0
-        assert len(self._loader_calls(scope, 1, monkeypatch)) == 2
-        scope.model_ready = True   # a Whisper call has worked: nothing left to free for
-        now[0] = 500.0
-        assert len(self._loader_calls(scope, 1, monkeypatch)) == 2
-
-    def _run_job(self, job, monkeypatch, engine, job_id, use_gpu):
-        stream, start, notes = job
-        freed = []
-        monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory",
-                            lambda: freed.append(1) or "Ollama still has a model loaded (translategemma:12b).")
-
-        def whisper(path, **kw):
-            _prepare(True)   # the loader's hook, per call
-            return [{"start": 0.5, "end": 1.0, "text": "x"}]
-        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", whisper)
-        monkeypatch.setattr(live_whisper, "warm_up",
-                            lambda size, gpu, cb=None: _prepare(gpu))
-        stream.add(3)
-        assert start(job_id, engine, use_gpu=use_gpu)
-        assert _wait(lambda: len(_texts(job_id)) >= 2)
-        return freed, notes
-
-    def test_a_job_with_a_local_ollama_frees_it_once_and_shows_the_notice(self, job, monkeypatch):
-        class LocalOllama(Engine):
-            name, model = "ollama", "translategemma:12b"
-        freed, notes = self._run_job(job, monkeypatch, LocalOllama(), "live_ol", True)
-        assert len(freed) == 1
-        assert "Ollama still has a model loaded (translategemma:12b)." in notes
-
-    def test_a_job_with_a_cloud_translator_never_touches_ollama(self, job, monkeypatch):
-        class Hosted(Engine):
-            name, model = "deepseek", "deepseek-chat"
-        freed, notes = self._run_job(job, monkeypatch, Hosted(), "live_cloud", True)
-        assert freed == [] and not any("Ollama" in n for n in notes)
-
-    def test_ollama_cloud_models_are_hosted_too(self, job, monkeypatch):
-        class OllamaCloud(Engine):
-            name, model = "ollama", "gpt-oss:120b-cloud"
-        freed, _ = self._run_job(job, monkeypatch, OllamaCloud(), "live_oc", True)
-        assert freed == []
-
-
-def _in_scope(scope):
-    with ollama_unload.job_scope(scope):
-        _prepare(True)
 
 
 def test_speed_text_says_faster_or_slower_than_real_time():

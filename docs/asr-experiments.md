@@ -2,7 +2,7 @@
 
 How to turn on each transcription option, what it needs, and what went wrong
 before. How the backends fit together is in `engine-backends.md` section 3, not
-here. Checked against the code on `baihe-subtitler` at `747f2bb` (2026-10-08).
+here. Sections carry their own dates; the first part was checked against the code in October 2026.
 
 Numbers are only in "Measured results (snapshot)" at the end. They were measured
 once, on one machine, before some defaults changed. Do not read them as current
@@ -517,7 +517,7 @@ recordings 20 random 4-15 s utterances per language) plus three private clips th
 not in the repo. The scripts are not in the
 repo either, so none of this can be re-run from here. I could not verify any figure
 below against code or data in this repo; the exact sources, row ids, file hashes and
-harness are in the archive file.
+harness are not in this repo.
 
 Changed since: on 2026-10-07 the anti-loop settings
 `no_repeat_ngram_size=3` and `repetition_penalty=1.1` moved out of the default

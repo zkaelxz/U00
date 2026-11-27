@@ -70,13 +70,6 @@ class TestStartRefusal:
             _start(engine="claude", model=next(iter(translate_service.ENGINE_MODEL_DICTS["claude"])))
         assert live_service._sessions == {}
 
-    def test_a_local_engine_is_not_refused(self, live, monkeypatch):
-        from engine_backends import local
-        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
-        monkeypatch.setattr(local, "check_ollama_model_installed", lambda *a: None)
-        monkeypatch.setattr(live_translate, "run_live_job", lambda *a, **k: None)
-        _spend(1.5)
-        assert _terminal(_start(engine="ollama"))
 
     def test_the_session_folder_is_reaped_as_before(self, live, monkeypatch):
         import os
@@ -112,13 +105,6 @@ class TestDuringTheSession:
         assert [r["input_tokens"] for r in rows] == [1000, 0, 1000]
         assert rows[0]["estimated_cost_usd"] > 0 and rows[1]["estimated_cost_usd"] == 0
 
-    def test_a_free_local_engine_is_not_logged(self, guard_env):
-        engine = _PaidEngine()
-        engine.name, engine.model = "ollama", "translategemma:12b"
-        from services import live_spend_service
-        guard = live_spend_service.LiveSpendGuard(engine, "ollama", lambda reason, label: guard_env.append(reason))
-        CueTranslator(engine, "zh", spend_guard=guard).translate("a")
-        assert _usage_rows() == []
 
     def test_the_session_stops_when_the_cap_is_crossed_between_chunks(self, guard_env):
         engine = _PaidEngine()
@@ -291,15 +277,6 @@ class TestSessionSpendLimit:
         assert len(rows) == 2 and rows[1]["estimated_cost_usd"] > 0
         assert budget._spent == pytest.approx(sum(r["estimated_cost_usd"] for r in rows))
 
-    def test_no_session_limit_with_a_monthly_cap_or_a_free_engine(self, isolated_db, monkeypatch):
-        from services import live_spend_service
-        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
-        assert live_spend_service.session_budget(_PaidEngine(), "claude", 2.0) is None
-        monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
-        local_engine = _PaidEngine()
-        local_engine.model = "translategemma:12b"
-        assert live_spend_service.session_budget(local_engine, "ollama", 2.0) is None
-        assert live_spend_service.session_budget(_PaidEngine(), "claude", 2.0).limit_usd == 2.0
 
     def test_start_hands_the_limit_to_the_guard(self, live, monkeypatch):
         from engine_backends import engine_registry

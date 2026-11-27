@@ -71,6 +71,10 @@ STYLE_PRESETS = {
     },
 }
 
+# "manhua" stays in STYLE_PRESETS so values saved earlier still parse, but pickers no longer offer it: comic pages
+# always use their own prompt, and on a video it only made the subtitles shorter.
+PICKER_STYLE_PRESETS = {k: v for k, v in STYLE_PRESETS.items() if k != "manhua"}
+
 
 # ---------------------------------------------------------------------------
 # Baseline craft guidance -- the parts that apply regardless of settings

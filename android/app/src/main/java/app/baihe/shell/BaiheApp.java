@@ -10,6 +10,12 @@ public class BaiheApp extends Application {
     private static final long AWAY_MS = 10_000;
     private int started;
     private long leftAt;
+    private static volatile boolean inFront;
+
+    /** Whether any screen of the app is in front (false once the person is in another app). */
+    static boolean inFront() {
+        return inFront;
+    }
 
     @Override
     public void onCreate() {
@@ -17,6 +23,7 @@ public class BaiheApp extends Application {
         CrashLog.install(this);
         registerActivityLifecycleCallbacks(new ActivityLifecycleCallbacks() {
             @Override public void onActivityStarted(Activity activity) {
+                inFront = true;
                 if (started++ > 0 || leftAt == 0) return;
                 long since = leftAt;
                 if (System.currentTimeMillis() - since >= AWAY_MS) {
@@ -25,7 +32,10 @@ public class BaiheApp extends Application {
             }
 
             @Override public void onActivityStopped(Activity activity) {
-                if (--started == 0) leftAt = System.currentTimeMillis();
+                if (--started == 0) {
+                    leftAt = System.currentTimeMillis();
+                    inFront = false;
+                }
             }
 
             @Override public void onActivityCreated(Activity activity, Bundle state) {}

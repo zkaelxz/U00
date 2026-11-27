@@ -378,13 +378,6 @@ def _free_idle_models(state: dict, now: float) -> None:
         whisper_models.release_gpu_models()
     except Exception as exc:
         _warn("GPU guard: freeing the app's models failed", exc)
-    try:
-        import ollama_unload
-        count = ollama_unload.unload_loaded_models()
-        if count:
-            _log(f"GPU guard: GPU memory is short; asked Ollama to unload {count} model(s)")
-    except Exception as exc:
-        _warn("GPU guard: unloading Ollama's models failed", exc)
 
 
 def _stop_due(state: dict, now: float, stop_minutes: int) -> bool:

@@ -55,7 +55,8 @@ def list_tracked(request: Request):
 @router.get("/notifications", dependencies=[require_permission("library.read")], response_model=List[SourceNotification],
             summary="New-chapter notifications")
 def list_notifications(request: Request, include_dismissed: bool = False):
-    return svc.list_notifications(include_dismissed, principal_user_id(request) or 0)
+    return svc.list_notifications(include_dismissed, principal_user_id(request) or 0,
+                                  principal=request.state.principal)
 
 
 @router.get("/{name}", dependencies=[require_permission("library.read")], response_model=SourceDetail,
@@ -129,19 +130,21 @@ def post_tracked_save(payload: SourceTrackedSaveRequest, request: Request):
              summary="Job: check every tracked series for new chapters now (409 if one is running)",
              responses=error_responses(404, 422, 409))
 def post_check_now(request: Request):
-    return tracking.start_check_now(local=is_local_request(request))
+    return tracking.start_check_now(local=is_local_request(request), principal=request.state.principal)
 
 
 @router.post("/notifications/{notification_id}/dismiss", dependencies=[require_permission("sources.import")], response_model=SourceNotification,
              summary="Dismiss one new-chapter notification", responses=_ERR)
 def post_dismiss(request: Request, notification_id: int = Path(ge=1)):
-    return svc.dismiss_notification(notification_id, principal_user_id(request) or 0)
+    return svc.dismiss_notification(notification_id, principal_user_id(request) or 0,
+                                    principal=request.state.principal)
 
 
 @router.post("/notifications/{notification_id}/restore", dependencies=[require_permission("sources.import")], response_model=SourceNotification,
              summary="Undo dismissing one new-chapter notification", responses=_ERR)
 def post_restore(request: Request, notification_id: int = Path(ge=1)):
-    return svc.restore_notification(notification_id, principal_user_id(request) or 0)
+    return svc.restore_notification(notification_id, principal_user_id(request) or 0,
+                                    principal=request.state.principal)
 
 
 @router.post("/profiles/{domain}/{kind}/rollback", dependencies=[require_permission("admin.settings")], response_model=List[SourceProfileVersion],

@@ -115,13 +115,16 @@ def _is_caption_text(text: str) -> bool:
     return not all(c.isascii() for c in significant)
 
 
-def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str | None) -> list:
+def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str | None,
+                       find_stamps: bool = True) -> list:
     """The OCR lines of `read_lines`, plus the site-stamp lines PaddleOCR finds
     when RapidOCR is the reader. RapidOCR's detector misses a site's faint
     overlay stamp on art that Paddle's finds; Paddle is not needed otherwise, so
-    a missing install leaves the RapidOCR lines alone."""
+    a missing install leaves the RapidOCR lines alone. `find_stamps=False` skips
+    Paddle: its whole-page read runs on the CPU in the app's own process (about
+    20 s a page, the GPU idle), which a Quick read cannot afford on every page."""
     lines = list(read_lines(page, lang, scale))
-    if backend != "rapidocr":
+    if backend != "rapidocr" or not find_stamps:
         return lines
     import ocr
     from memory_headroom import HeadroomError
@@ -140,7 +143,7 @@ def _lines_with_stamps(read_lines, page, lang: str, scale: float, backend: str |
 
 
 def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=None,
-                      backend: str | None = None) -> list:
+                      backend: str | None = None, find_stamps: bool = True) -> list:
     """Caption boxes on the artwork that no existing region covers, as
     {"x","y","w","h","source_text"} in full-page pixels. Lines are read with
     RapidOCR when that is the page OCR backend, else with PaddleOCR."""
@@ -151,7 +154,8 @@ def find_art_captions(image_path: str, lang: str, existing_boxes: list, image=No
     scale = min(1.0, _DETECT_LIMIT_SIDE / float(max(h, w)))
     lines = []
     read_lines = ocr.rapidocr_lines if backend == "rapidocr" else ocr.paddle_lines
-    for text, conf, (x, y, bw, bh) in _lines_with_stamps(read_lines, page, lang, scale, backend):
+    for text, conf, (x, y, bw, bh) in _lines_with_stamps(read_lines, page, lang, scale, backend,
+                                                         find_stamps):
         # A site's overlay stamp is small by design, which is why small marks are
         # ignored; but it has to be found to be skipped and painted out.
         small = bh < _MIN_LINE_HEIGHT and not looks_like_site_mark(text)
@@ -252,6 +256,10 @@ def _paint_out_over_dark_art(page, box: dict) -> bool:
     return True
 
 
+# Untouched art kept round a caption's mask when the model repaints it.
+_CAPTION_CONTEXT_PX = 32
+
+
 def paint_out_captions(page, boxes: list, backend: str = "auto"):
     """Erases each caption's lettering from `page` (a BGR array, changed in
     place) with the LaMa-manga model. Returns True when the model painted every
@@ -270,11 +278,18 @@ def paint_out_captions(page, boxes: list, backend: str = "auto"):
             continue
         if _paint_out_over_dark_art(page, box):
             continue
-        y0, y1, x0, x1 = ys.min(), ys.max() + 1, xs.min(), xs.max() + 1
+        # The model repaints from the pixels the mask leaves clear; a crop cut tight round big
+        # lettering has few, and it filled the area with a flat pale patch. The margin of
+        # untouched art gives it the picture to continue, and only the masked pixels are taken
+        # back, so the area round the lettering keeps its own texture.
+        h, w = mask.shape
+        y0, y1 = max(0, ys.min() - _CAPTION_CONTEXT_PX), min(h, ys.max() + 1 + _CAPTION_CONTEXT_PX)
+        x0, x1 = max(0, xs.min() - _CAPTION_CONTEXT_PX), min(w, xs.max() + 1 + _CAPTION_CONTEXT_PX)
         roi, roi_mask = page[y0:y1, x0:x1], mask[y0:y1, x0:x1]
         if model_usable:
             try:
-                page[y0:y1, x0:x1] = _run_ml_inpaint(roi, roi_mask, allow_download=False)
+                painted = _run_ml_inpaint(roi, roi_mask, allow_download=False)
+                roi[roi_mask > 0] = painted[roi_mask > 0]
                 continue
             except ValueError:
                 pass            # too large for the model: OpenCV for this caption only

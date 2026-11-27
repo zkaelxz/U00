@@ -52,9 +52,15 @@ _ENGLISH_ONLY_NOTE = (" The answer is English only: never leave Japanese, Chines
 # made a small model drop a thanks and flip a sentence's sense in a test.
 _FLOW_NOTE = (" Write the English a skilled comic letterer would: short, natural spoken "
               "dialogue with contractions and the rhythm of real speech, never a "
-              "word-for-word gloss. Keep every name, detail, description and nuance: "
-              "rephrase freely so it reads smoothly, but add nothing, drop nothing and "
-              "keep each sentence's meaning. Keep each reply short enough for a speech "
+              "word-for-word gloss. Read all the regions first, as a reader would, and "
+              "translate them as one scene: who speaks to whom, what the last line set up, "
+              "what the next answers. Before you answer, silently check your lines in order; where "
+              "one doesn't follow from the line before it, or only makes sense as a gloss "
+              "of the source, reword it so the exchange flows, even when that departs from "
+              "the source's phrasing or sentence shape, except glossary terms, "
+              "honorifics and names. Keep every name, detail and "
+              "nuance, and each line's meaning: add nothing and drop nothing, but the "
+              "wording is yours. Keep each reply short enough for a speech "
               "bubble, and spell each name one way. Neighbouring regions are often one "
               "sentence split across bubbles: translate them as that sentence, broken at "
               "the same point, so each bubble reads on from the one before.")

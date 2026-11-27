@@ -420,14 +420,13 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
         language, skip_reason = _line_language(ln, cfg, ln.idx + 1)
         if not skip_reason:
             windows.append((ln.id, ln.idx + 1, float(ln.start), float(ln.end), language))
-    heard_by_id, failed_reason, detail, notice = {}, None, None, {}
+    heard_by_id, failed_reason, detail = {}, None, None
     if windows:
         heard_by_id, heard, cancelled, timed_out = _hear(job_id, audio_path, windows, cfg, errors)
         failed_reason = heard.get("failed_reason")
         detail = jobs_service.scrub_text(heard.get("detail") or "") or None
         if heard.get("gpu_fallback"):
             gpu_fallback.append(heard["gpu_fallback"])
-        notice = {k: v for k, v in heard.items() if k == "ollama_notice"}
     try:
         for n, ln in enumerate(lines):
             # Already cancelled while hearing: the lines heard still become
@@ -468,8 +467,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
               # The VAD backends never load Whisper, so a size would mislabel the run.
               "whisper_size": None if cfg["backend"] in _VAD_BACKENDS else cfg["whisper_size"],
               "translated": bool(translation),
-              "partial": bool(cancelled or timed_out or cap_reached),
-              **notice}
+              "partial": bool(cancelled or timed_out or cap_reached)}
     if gpu_fallback:
         result["gpu_fallback"] = gpu_fallback[0]
         result["device_notice"] = whisper_models.gpu_fallback_notice(

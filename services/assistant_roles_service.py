@@ -23,13 +23,6 @@ agent and a release agent.
 
 import re
 
-ROLES = {
-    "implement": {"capability": "coding.implement",
-                  "label": "Diagnose and propose a fix"},
-    "review": {"capability": "coding.review",
-               "label": "Independently review the proposed fix"},
-}
-
 VERDICTS = ("agrees", "concerns", "unclear", "unavailable")
 _VERDICT_RE = re.compile(r"^\s*VERDICT:\s*(AGREES|CONCERNS)\b[ \t]*", re.IGNORECASE)
 

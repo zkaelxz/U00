@@ -288,3 +288,8 @@ LINE_SPECK_REACH = 1.0
 # The English is started at this share of the original glyph size: the strip is one glyph high,
 # and the typesetter's own start size (set for the whole box) does not shrink into it.
 LINE_TEXT_SIZE_OF_GLYPH = 1.0
+
+# Lettering joined to a balloon's outline is ringed by the balloon's paper; art beside the
+# outline is not. A joined mark is kept only when this share of its surrounding ring is interior.
+BALLOON_JOINED_RING_PX = 3
+BALLOON_JOINED_INSIDE_SHARE = 0.6

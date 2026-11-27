@@ -570,3 +570,11 @@ def _make_series_private(series_id, owner):
                      (owner, series_id))
         conn.commit()
 
+
+
+def test_has_lines_tells_a_titled_drama_from_an_empty_one(isolated_db):
+    empty = db.create_drama(title_en="Empty")
+    full = db.create_drama(title_en="Full")
+    db.save_lines(full, [Line(idx=0, start=0, end=1, zh="你好", en="")])
+    assert not db.has_lines(empty)
+    assert db.has_lines(full)

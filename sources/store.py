@@ -148,6 +148,14 @@ CREATE TABLE IF NOT EXISTS tracked_series (
     save_cbz_by_user_id INTEGER,
     PRIMARY KEY (source, series_id)
 );
+-- Who tracks each series (user_id 0 is the PC itself). A member sees only the series they track;
+-- the series row goes when its last follower stops tracking it.
+CREATE TABLE IF NOT EXISTS tracked_series_followers (
+    source TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (source, series_id, user_id)
+);
 CREATE TABLE IF NOT EXISTS known_chapters (
     source TEXT NOT NULL,
     series_id TEXT NOT NULL,
@@ -362,8 +370,24 @@ def migrate_file(path: str) -> None:
         conn.execute("PRAGMA synchronous = NORMAL")
         conn.executescript(SCHEMA)
         _add_missing_columns(conn)
+        _backfill_followers(conn)
     finally:
         conn.close()
+
+
+def _backfill_followers(conn) -> None:
+    """A series tracked before followers were recorded goes to whoever linked it (else the PC)
+    and whoever saves it as CBZ. Only series with no follower at all are filled, so it is safe
+    to run on every start."""
+    rows = conn.execute(
+        "SELECT source, series_id, linked_by_user_id, save_cbz_by_user_id FROM tracked_series t "
+        "WHERE NOT EXISTS (SELECT 1 FROM tracked_series_followers f "
+        "WHERE f.source=t.source AND f.series_id=t.series_id)").fetchall()
+    conn.executemany("INSERT OR IGNORE INTO tracked_series_followers(source, series_id, user_id) "
+                     "VALUES(?, ?, ?)",
+                     [(r[0], r[1], uid) for r in rows
+                      for uid in {r[2] or 0, *([r[3]] if r[3] is not None else [])}])
+    conn.commit()
 
 
 def _initialise(path: str) -> None:
@@ -604,7 +628,7 @@ from sources.store_tracking import (  # noqa: E402,F401
     MANIFEST_STATUSES, record_import_retry, mark_text_in_flight, import_text_offset, has_text_retry_marker,
     import_retry_rows, set_tracked_drama, forget_drama_links, unlink_all_dramas, begin_unlink_all_dramas, set_tracked_save, MAX_SAVE_PENDING, save_pending_ids,
     set_save_pending, untrack_series, known_chapters, move_tracked_series, chapters_waiting, poll_validators,
-    save_poll_validators, list_tracked_series,
+    save_poll_validators, list_tracked_series, follow_series, unfollow_series, followers,
     known_chapter_ids, record_new_chapters, CHECK_CYCLE_LEASE_KEY, _setting_float,
     claim_check_cycle, release_check_cycle, mark_checked, list_notifications,
     dismiss_notification, restore_notification, new_chapter_counts_by_drama)

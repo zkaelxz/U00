@@ -168,7 +168,7 @@ def get_translate_config(drama_id: int) -> dict:
         "engines": (engines := translate_service.list_engines()),
         "batch_size_defaults": engine_registry.batch_size_defaults(engines),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
-                          for k, v in translation_guide.STYLE_PRESETS.items()],
+                          for k, v in translation_guide.PICKER_STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
         "locales": list(settings_service.LOCALE_CHOICES),
         "workflow_tiers": [
@@ -398,11 +398,10 @@ _OLLAMA_MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
 
 
 def _is_safe_ollama_model(model) -> bool:
-    """Ollama model names are only sent to the local Ollama server (never a
-    download), and users pull their own, so any name of this shape is
-    accepted: no whitespace, no "..", no leading slash."""
+    """Only hosted Ollama tags (ending in -cloud) are accepted, and of a safe
+    shape: no whitespace, no "..", no leading slash. Local models are refused."""
     return (isinstance(model, str) and _OLLAMA_MODEL_RE.fullmatch(model) is not None
-            and ".." not in model)
+            and ".." not in model and engine_local.is_ollama_cloud_model(model))
 
 
 def _require_offered_model(engine_name: str, model) -> None:
@@ -643,7 +642,7 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
-        replace_flags=replace_flags, gpu_touching=engine_local.chain_touches_local_gpu(chain),
+        replace_flags=replace_flags,
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
         run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
     if not started:

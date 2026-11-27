@@ -34,13 +34,9 @@ DEFAULT_ENGINE = "ollama"
 
 
 def _is_local_engine(name: str, model=None) -> bool:
-    """Loopback Ollama with a non-hosted model (None: the saved one)."""
-    from engine_backends.local import is_ollama_cloud_model
-    if name != "ollama" or not _ollama_is_local():
-        return False
-    if model is None and (_get("engine") or DEFAULT_ENGINE) == name:
-        model = _get("model")
-    return not is_ollama_cloud_model(model)
+    """Always False: Ollama serves only hosted models now, so every engine
+    sends the code and logs off this PC and needs the owner's consent."""
+    return False
 
 
 def _cloud_consent() -> dict:
@@ -48,16 +44,8 @@ def _cloud_consent() -> dict:
     return {k: True for k, v in raw.items() if v is True} if isinstance(raw, dict) else {}
 
 
-def _ollama_is_local() -> bool:
-    """Ollama is local only when its endpoint is this PC (loopback); a
-    remote or LAN Ollama server needs consent like a cloud engine."""
-    from services import settings_service
-    return settings_service.ollama_endpoint_is_loopback()
-
-
 def cloud_consent_given(engine_name: str, model=None) -> bool:
-    """A local engine needs no consent; a cloud one (or Ollama on another
-    machine) needs the owner's saved, per-provider "allow sending code
+    """Every engine needs the owner's saved, per-provider "allow sending code
     and logs" consent."""
     return _is_local_engine(engine_name, model) or _cloud_consent().get(engine_name) is True
 
@@ -66,8 +54,7 @@ def require_cloud_consent(engine_name: str, model=None):
     if not cloud_consent_given(engine_name, model):
         raise ConflictError(
             f"Sending this app's code and logs to {engine_name} isn't allowed yet. Allow it "
-            "for that engine in the assistant's settings, or use Ollama to keep everything "
-            "on this PC.", details={"reason": "cloud_consent_required", "engine": engine_name})
+            "for that engine in the assistant's settings.", details={"reason": "cloud_consent_required", "engine": engine_name})
 
 
 def developer_mode_enabled() -> bool:

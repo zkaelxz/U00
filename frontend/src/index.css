@@ -537,7 +537,7 @@ details.section[open] > summary::before { content: '\25BE'; }
 .field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 /* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
-.field-control > button.toggle:first-child { flex: 0 0 auto; }
+.field-control > button.toggle:first-child, .field-control > input[type='checkbox']:first-child { flex: 0 0 auto; }
 /* Without a cap a select stretches to the whole column (1400px at 1920 wide). Size classes go on the control. */
 .field-control > select,
 .field-control > input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { max-width: var(--field-w-lg); }
@@ -973,7 +973,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-shell-standard { max-width: var(--page-standard); }
 .page-shell-wide { max-width: var(--page-standard); }
 /* Not dialogs: a modal sheet positions itself with its own auto margins. */
-.page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
+.page-shell > :not(dialog), .page-shell > .page-shell-body > :not(dialog), .page-shell > .page-shell-body > .page-shell-body > :not(dialog) { min-width: 0; margin: 0; }
 .page-shell-tabs { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 /* An empty slot would still take a grid row and add a second --page-gap while a page loads. */
 .page-shell-tabs:empty, .page-shell-body:empty { display: none; }

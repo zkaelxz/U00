@@ -26,7 +26,6 @@ import whisper_models
 from whisper_hallucination import filter_hallucinated_segments
 import long_line_split
 import memory_headroom
-import ollama_unload
 import segment_splitting
 import sensitivity_preset as presets
 import storage
@@ -758,7 +757,6 @@ class _PipelineRun:
                 "coverage_warning": self.coverage_msg,
                 "stage_summary": _stage_summary(self.stage_counts),
                 **({"groq_usage": self.groq_usage} if self.groq_usage else {}),
-                **ollama_unload.take_notice_result(),
                 "run_config": run_config(o, self.vad_run)}
 
 

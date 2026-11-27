@@ -18,7 +18,7 @@ Do this only after a dependency change (`requirements-core.txt`, `constraints.tx
 ## 1a. Release signing key (in-app updates)
 An installed copy with a key line in `installer/release_public_key.txt` (in its own app folder, shipped by the installer, never fetched) accepts an in-app update only if the release's `BaiheStudio-Setup-<v>.exe.sig` verifies with that key: Ed25519 over the installer's name (so its version) and SHA-256 (`lib/release_signature.py`). It checks once after download and again on the temp copy just before Setup starts. A missing, malformed or wrong `.sig` is refused and the download deleted. A copy with no key line checks the SHA-256 only, and Settings -> App updates says "Not signature-checked". Keys come from `python tools/release_signing.py` (needs `cryptography`, already in the installer).
 **Turn it on (once)**
-1. On a PC you trust, in your own terminal: `python tools/release_signing.py generate`. It prints the private key once and the public key. Nothing is written to disk. Never run it through an agent (Claude, OpenCode) and never pipe or log its output: anything that keeps the output keeps the key. It refuses when its output isn't a terminal; don't override that with `--force` unless you know where the output goes.
+1. On a PC you trust, in your own terminal: `python tools/release_signing.py generate`. It prints the private key once and the public key. Nothing is written to disk. Never run it through an agent (Claude or any other agent) and never pipe or log its output: anything that keeps the output keeps the key. It refuses when its output isn't a terminal; don't override that with `--force` unless you know where the output goes.
 2. Store the private key on GitHub. Recommended: repository Settings -> Environments -> `release` (the release job already names it; GitHub creates it on the first tag run, or create it yourself first) -> Deployment branches and tags: "Selected branches and tags", add the tag rule `v*` -> Required reviewers: you -> Environment secrets -> Add secret: name `BAIHE_RELEASE_SIGNING_KEY`, value the whole `ed25519-private:...` line. It must be an environment secret on `release`, not a repository secret, for the reviewer and tag rules to protect it. Then each tag's release job waits for your approval before it can use the key. Fallback that also works: Settings -> Secrets and variables -> Actions -> New repository secret with the same name and value. A repository secret reaches the job without the environment's rules. Either way, keep an offline copy (password manager or USB stick), then clear the terminal. Never commit it, paste it into an issue or chat, or put it in the public key file (the installer build refuses a key file holding one, or a key line that isn't one public key).
 3. Put the `ed25519-public:...` line in `installer/release_public_key.txt` (below the comments; one key line only), commit and push. Copies installed from the next release on require signed updates. Older copies are still SHA-256-only until they install that release.
 4. After the next `v*` tag, open the release job's log. It prints `Installer: BaiheStudio-Setup-<v>.exe sha256 <hash>` and `Signed BaiheStudio-Setup-<v>.exe with ed25519-public:...`. The public key must equal the committed line. Note the hash. Without the secret, the log says `UNSIGNED`, the release has no `.sig`, and copies with a key refuse that update. That is the availability cost of a missing secret: until someone adds the `.sig` by hand (step 5), in-app updates to that version stop working for every signed copy. Unsigned copies are unaffected, so nothing unsafe gets through.
@@ -39,7 +39,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
-- Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
+- Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (about 17 minutes)
 - Frontend: `cd frontend && npx tsc -b && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
@@ -125,10 +125,10 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
   4. The PC's clock is correct.
 - User-only steps: router changes and the DNS account are yours to do by hand. Nothing here opens a router port for you.
 
-## 5. Compare local and hosted translation (Benchmark lab)
-1. Install a local model: `ollama pull <model>` (Ollama must be running).
+## 5. Compare two hosted engines (Benchmark lab)
+1. Sign in to Ollama (its hosted Gemma is the default) and add a second engine key, for example OpenAI.
 2. Diagnostics -> Benchmark Lab -> "Golden sets": use "Import golden set" or "Add one case" (source text plus a reference translation, so it can be scored). Put both runs on the same set.
-3. "Run a benchmark": Stage = translation; pick the golden set; under "Engines to compare" use "Add engine" for Ollama (your model) and the hosted engine.
+3. "Run a benchmark": Stage = translation; pick the golden set; under "Engines to compare" use "Add engine" for each engine to compare (for example Ollama's hosted Gemma and OpenAI).
 4. Press "Estimate cost" first. Paid engines are capped by the monthly cap and stop at it.
 5. Press "Start arena". When done, tick the runs in the recent-runs list and press "Compare" to see scores side by side (Model Arena).
 6. Use the winner: pick that engine on the drama's Translate page. (Not verified: whether the drama remembers it as its own setting.)
@@ -139,12 +139,11 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 - Transcription (faster-whisper / CTranslate2) runs on a V100 in float16 and int8_float16 and needs only cuBLAS 12. Whisper asks CTranslate2 which compute types the card supports and takes the first of float16, int8_float16, int8_float32, int8, float32 (`whisper_models.gpu_compute_type`), so a GTX 10xx (compute 6.x, no float16) runs int8_float32 on the GPU instead of falling back to the CPU. Volta has no native bfloat16 (torch only emulates it, slowly), so Qwen3 ASR and PaddleOCR-VL load in float16 there.
 - Video burn-in always re-encodes on the CPU (libx264): the V100 has no NVENC, and Baihe never asks for it.
 - Hardware: the card is passively cooled (it needs case airflow or a duct), takes EPS (CPU-style) power rather than PCIe 8-pin, and the motherboard needs Above 4G Decoding on. NVIDIA's R580 driver branch is the last data-center branch that lists the V100.
-- Not re-verified for this page: the driver-branch and torch-2.14 statements come from the owner's research notes; check NVIDIA's and PyTorch's current pages before relying on them.
+- Not re-verified for this page: the driver-branch and torch-2.14 statements come from the owner's own notes; check NVIDIA's and PyTorch's current pages before relying on them.
 
 ## Branches to keep
 Never delete these when cleaning up branches; they are the only record of the work they hold.
-- `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
-- `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
+- The `pre-streamlit-removal` tag: the removed Streamlit app. (The `legacy/streamlit` and planning branches no longer exist on origin.)
 - `baihe-subtitler` is the default branch; the old `main` branch no longer exists. Open every PR into `baihe-subtitler`.
 
 ## Logs, support report, locked-out admin

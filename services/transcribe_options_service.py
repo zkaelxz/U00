@@ -360,6 +360,7 @@ _LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_
 
 def lab_option_defaults() -> dict:
     """What a title with no saved options transcribes with, for the Lab's option form."""
+    timing = timing_settings_service.values()  # once: each call reads every setting
     return {
         "beam_size": _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": _DEFAULT_TUNING["min_silence_ms"],
@@ -374,7 +375,7 @@ def lab_option_defaults() -> dict:
         "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
         "refine_timing": asr_options_service.get_vad_refine_timing(),
         # What a title's run splits at today, Settings included.
-        **{key: timing_settings_service.value(row) for key, row in _SPLIT_ROWS.items()},
+        **{key: timing[row] for key, row in _SPLIT_ROWS.items()},
     }
 
 
@@ -686,7 +687,6 @@ _ADVICE_RULES = (
      and c["language"] in ("", "ja"),
      "Whisper ja-1.5B is meant for anime and games.", lambda c: None),
 )
-ADVICE_RULE_IDS = tuple(rule[0] for rule in _ADVICE_RULES)
 
 
 def asr_advice(language: str, media_type: str, backend: str, model: str, switches: dict,

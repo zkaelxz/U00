@@ -12,8 +12,10 @@ from scanlate import scanlate_lama
 def models(monkeypatch):
     import ocr
     state = {"detector_cached": True, "eraser_cached": True, "reader_cached": False, "detect": [],
-             "erase": [], "read": []}
+             "erase": [], "read": [], "manga_cached": False, "manga": []}
     monkeypatch.setattr(scanlate, "_chinese_reader_on_disk", lambda: state["reader_cached"])
+    monkeypatch.setattr(ocr, "manga_ocr_on_disk", lambda: state["manga_cached"])
+    monkeypatch.setattr(ocr, "load_manga_ocr", lambda: state["manga"].append(1))
     monkeypatch.setattr(ocr, "_run_rapidocr",
                         lambda key, source, allow_download=True: state["read"].append((key, allow_download)))
     monkeypatch.setattr(scanlate_detect, "bubble_ml_weights_cached", lambda: state["detector_cached"])
@@ -34,6 +36,20 @@ def test_the_chinese_text_reader_is_loaded_when_it_is_on_disk(models):
     models["reader_cached"] = True
     assert scanlate.warm_models("auto") == ["balloon detector", "text eraser", "Chinese text reader"]
     assert models["read"] == [("medium", False)], "warming never downloads the GPU weights"
+
+
+def test_the_japanese_text_reader_is_loaded_when_it_is_on_disk(models):
+    models["manga_cached"] = True
+    assert scanlate.warm_models("auto")[-1] == "Japanese text reader"
+    assert models["manga"] == [1]
+
+
+def test_a_manga_ocr_model_already_on_disk_is_used_without_asking_the_server(tmp_path, monkeypatch):
+    import ocr
+    from lib import model_offline
+    monkeypatch.setattr(model_offline, "hf_snapshot", lambda repo, revision=None: str(tmp_path))
+    monkeypatch.setattr(model_offline, "active", lambda: False)
+    assert ocr._manga_ocr_source() == (str(tmp_path),)
 
 
 def test_the_chinese_text_reader_counts_as_on_disk_only_with_both_files(tmp_path, monkeypatch):

@@ -66,8 +66,8 @@ In-app list: every job that finishes or fails is
 also kept in a short in-memory list (RECENT_KEEP events, at most RECENT_MAX
 shown to one viewer, lost on a restart), whether or not a channel is configured, for the header bell
 (`GET /api/notifications`). `list_recent(principal)` shows a job event only
-to someone who can see that job (`ownership_service.can_see_job`); new-
-chapter events are household-wide, like the Sources notifications list.
+to someone who can see that job (`ownership_service.can_see_job`); a new-
+chapter event goes to a member only with the count for the series they track.
 
 A followed Live channel (services/live_follow_poller.py) adds a "live"
 entry once per stream, for the follow's owner; it goes to Discord/ntfy only
@@ -817,11 +817,12 @@ def _waiting_text(text) -> str:
     return WAITING_PREFIX + _tidy(text, _WAITING_MAX)
 
 
-def _record(kind, text, job_id, owner_user_id, extra=None, names_drama_id=None):
+def _record(kind, text, job_id, owner_user_id, extra=None, names_drama_id=None, chapter_counts=None):
     """The id is the time in milliseconds (bumped to stay increasing), not a
     counter: a gap between two ids a viewer sees says nothing about how
     many events they were not shown. `names_drama_id` is kept for
-    _sees_target only: it is not one of _EXTRA_KEYS, so no viewer gets it."""
+    _sees_target only: it is not one of _EXTRA_KEYS, so no viewer gets it; likewise
+    `chapter_counts` ({follower id: new chapters}) for list_recent."""
     global _last_id
     now = time.time()
     with _recent_lock:
@@ -829,7 +830,8 @@ def _record(kind, text, job_id, owner_user_id, extra=None, names_drama_id=None):
         _recent.append({"id": _last_id, "at": now, "kind": kind, "text": text,
                         "job_id": job_id, "owner_user_id": owner_user_id,
                         **{k: v for k, v in (extra or {}).items() if k in _EXTRA_KEYS},
-                        **({"names_drama_id": names_drama_id} if names_drama_id else {})})
+                        **({"names_drama_id": names_drama_id} if names_drama_id else {}),
+                        **({"chapter_counts": chapter_counts} if chapter_counts is not None else {})})
     for fn in list(_listeners):
         try:
             fn()
@@ -871,14 +873,22 @@ def _sees_target(principal, event, admin_ids=None) -> bool:
 
 def list_recent(principal=None, limit=RECENT_MAX) -> list:
     """Newest first: {id, at, kind, text}. Job events only for a caller who
-    can see that job; new-chapter events for everyone (household-wide)."""
+    can see that job; a new-chapter event for the owner and admins, and for a member
+    with their own count when it names a series they track."""
     from services import ownership_service
     with _recent_lock:
         events = list(_recent)
     out = []
     admin_ids = None
     for e in reversed(events):
-        if e["kind"] != "chapters":
+        if e["kind"] == "chapters" and not ownership_service.sees_every_job(principal):
+            # A member hears only of the series they track.
+            uid = ownership_service.user_id(principal)
+            mine = (e.get("chapter_counts") or {}).get(uid, 0) if uid is not None else 0
+            if not mine:
+                continue
+            e = {**e, "text": chapter_message(mine)}
+        elif e["kind"] != "chapters":
             try:
                 if e["kind"] == "live" and admin_ids is None:
                     # Read once per call: the whole deque may be walked.
@@ -1032,6 +1042,22 @@ def _chapter_count(job_id):
         return 0
 
 
+def _chapter_counts_by_follower(job_id) -> dict:
+    """{follower id: new chapters in the series they track} for a finished chapter check."""
+    try:
+        import background_jobs
+        from sources import store as sources_store
+        result = (background_jobs.get_status(job_id) or {}).get("result") or {}
+        followers = sources_store.followers()
+        counts: dict = {}
+        for source, series_id, new in result.get("by_series") or []:
+            for uid in followers.get((source, series_id), ()):
+                counts[uid] = counts.get(uid, 0) + int(new or 0)
+        return counts
+    except Exception:
+        return {}
+
+
 def _waiting_job_text(description, note, shared_only) -> str:
     """"12 glossary names to review - <title>", "Translation stopped at the
     spending cap - <title>" or "Translation stopped - <title>. <reason>",
@@ -1088,12 +1114,15 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             if new <= 0:
                 return   # a routine scheduled check that found nothing
             category, kind, message = "chapters", "chapters", chapter_message(new)
+            _record(kind, message, job_id, owner_user_id,
+                    chapter_counts=_chapter_counts_by_follower(job_id))
         else:
             category = "jobs"
             kind = "job_done" if status == "done" else "job_failed"
             message = build_message(description, status, with_errors=with_errors, reason=reason)
         target = _finished_target(description) if kind == "job_done" and not with_errors else None
-        _record(kind, message, job_id, owner_user_id, {"target": target} if target else None)
+        if kind != "chapters":
+            _record(kind, message, job_id, owner_user_id, {"target": target} if target else None)
         if category == "jobs":
             if status == "done" and not with_errors and not _ran_long(job_id):
                 return   # a quick success stays in the bell

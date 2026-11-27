@@ -32,7 +32,7 @@ import re
 from html import unescape
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class
+from ..base import SourceAdapter, layout_changed_class, https_only
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -69,14 +69,9 @@ def _text(fragment: str) -> str:
     return unescape(_TAGS.sub("", fragment)).strip()
 
 
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
-
-
 def _decode_image_url(encoded: str) -> str:
     try:
-        return _https(base64.b64decode(encoded, validate=True).decode("utf-8"))
+        return https_only(base64.b64decode(encoded, validate=True).decode("utf-8"))
     except (binascii.Error, UnicodeDecodeError):
         return ""
 
@@ -118,7 +113,7 @@ class WelomaSource(SourceAdapter):
                 continue
             seen.add(m.group(1))
             out.append(SearchResult(self.name, m.group(1), title, f"{BASE_URL}/m/{m.group(1)}",
-                                    _https(row.get("image"))))
+                                    https_only(row.get("image"))))
         return out
 
     def _series_html(self, series_id: str) -> str:

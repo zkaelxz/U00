@@ -161,23 +161,6 @@ def test_gpu_whisper_releases_the_model_even_if_transcription_crashes(monkeypatc
     assert released == [True]
 
 
-def test_gpu_whisper_leaves_ollama_and_the_data_folder_alone(monkeypatch, tmp_path):
-    import ollama_unload
-    import whisper_models
-    monkeypatch.setenv("BAIHE_DATA_DIR", str(tmp_path / "data"))
-    unloads = []
-    monkeypatch.setattr(ollama_unload, "_free_ollama_gpu_memory", lambda: unloads.append(True))
-    _fake_gpu_whisper(monkeypatch, "cuda")
-
-    def load(name, use_gpu=False, local_model_path=None, hf_token=None):
-        ollama_unload.prepare_gpu_for_transcription(use_gpu)  # what the real loader does first
-        return types.SimpleNamespace(transcribe=lambda path: (iter([]), None))
-    monkeypatch.setattr(whisper_models, "load_whisper_model", load)
-    assert st.check_gpu_whisper()[0] == st.PASS
-    assert unloads == [] and not (tmp_path / "data").exists()
-    assert getattr(ollama_unload._state, "scope", None) is None  # scope restored
-
-
 def test_memory_is_read_first_before_anything_touches_the_gpu():
     names = [name for name, _ in st._checks("tiny")]
     assert names[0] == "VRAM / RAM headroom"

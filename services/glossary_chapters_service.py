@@ -107,7 +107,7 @@ def start_chapters_glossary_run(drama_id: int, engine_name: Optional[str] = None
         engine_name, bool(settings_service.get("gemini_free_tier")), getattr(engine, "model", None))
     job_id = chapters_glossary_job_id(drama_id)
     started = extract._start_extraction_job(
-        job_id, _run_job, drama_id, engine, engine_name, chapters, gpu_touching=extract.touches_gpu(engine_name, engine),
+        job_id, _run_job, drama_id, engine, engine_name, chapters,
         description=f"Glossary from every chapter (title #{drama_id})")
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")

@@ -68,7 +68,6 @@ def _local_model_folder(model: str):
 
 def check_gpu_whisper(model: str = DEFAULT_MODEL):
     import diagnostics
-    import ollama_unload
     import whisper_models
     if not diagnostics.check_dependency("faster_whisper"):
         return SKIPPED, "faster-whisper is not installed"
@@ -79,20 +78,16 @@ def check_gpu_whisper(model: str = DEFAULT_MODEL):
     if folder is None:
         return SKIPPED, f"the '{model}' model is not fully downloaded (no download is attempted; use --model)"
     try:
-        # A scope without a local Ollama keeps the loader from unloading the
-        # owner's Ollama models and from reading app settings (which would
-        # create the library folder and database).
-        with ollama_unload.job_scope(ollama_unload.JobScope(local_ollama=False)):
-            loaded = whisper_models.load_whisper_model(model, use_gpu=True, local_model_path=folder)
-            info = whisper_models.get_whisper_device_info(model, use_gpu=True, local_model_path=folder)
-            if info.get("device") != "cuda":
-                return FAIL, ("model loaded on the CPU, not the GPU: "
-                              + _clean(info.get("gpu_error") or "no reason given"))
-            with tempfile.TemporaryDirectory() as tmp:
-                clip = os.path.join(tmp, "clip.wav")
-                _write_silence_wav(clip)
-                segments, _ = loaded.transcribe(clip)
-                count = len(list(segments))
+        loaded = whisper_models.load_whisper_model(model, use_gpu=True, local_model_path=folder)
+        info = whisper_models.get_whisper_device_info(model, use_gpu=True, local_model_path=folder)
+        if info.get("device") != "cuda":
+            return FAIL, ("model loaded on the CPU, not the GPU: "
+                          + _clean(info.get("gpu_error") or "no reason given"))
+        with tempfile.TemporaryDirectory() as tmp:
+            clip = os.path.join(tmp, "clip.wav")
+            _write_silence_wav(clip)
+            segments, _ = loaded.transcribe(clip)
+            count = len(list(segments))
     finally:
         # Otherwise the model keeps its VRAM and skews every figure read after it.
         whisper_models.release_gpu_models()

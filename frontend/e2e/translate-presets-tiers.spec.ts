@@ -14,7 +14,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
     tierBodies.push(route.request().postDataJSON())
     await route.fulfill({
       json: {
-        drama_id: 1, tier: 'release', label: 'Release -- best quality, checked before export',
+        drama_id: 1, tier: 'release', label: 'Release – best quality, checked before export',
         translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: false, auto_qc: true,
       },
     })

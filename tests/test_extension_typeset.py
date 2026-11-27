@@ -110,7 +110,9 @@ def test_a_failed_overlay_render_keeps_the_boxes_and_hides_the_detail(token, fak
 
     monkeypatch.setattr(scanlate_render, "process_page", broken)
     page = _overlay_only(token, drama, typeset=True)
-    assert "typeset_image" not in page and page["regions"][0]["translated_text"] == "the translation"
+    # The picture that comes back is the original, so a phone that holds no bytes still shows the page.
+    assert page["regions"][0]["translated_text"] == "the translation"
+    assert "secret" not in str(page)
     assert any("typeset failed" in n[1] for n in page["notes"])
 
 
@@ -254,6 +256,27 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
     assert page["untranslated_lines"] == 1
     assert any("still had no translation after a retry" in n[1] for n in page["notes"])
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
+
+
+def test_only_the_first_retry_for_empty_lines_sends_the_page_picture_again(token, drama, monkeypatch):
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
+    from services import extension_service
+    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
+           "kind": "bubble", "font_category": "regular", "reading_order": 0}
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
+    monkeypatch.setattr(extension_service, "page_extras", lambda *a, **k: {"page_image": picture})
+    seen = []
+
+    def translate(bubbles, engine, drama_meta, **kwargs):
+        seen.append(kwargs.get("page_image"))
+        if len(seen) == 3:
+            bubbles[0]["translated_text"] = "Hello"
+
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+    _send(token, drama)
+    assert seen == [picture, picture, None]
 
 
 @pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])

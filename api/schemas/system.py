@@ -47,6 +47,9 @@ __all__ = [
     "SettingsOverview",
     "SettingsUpdateRequest",
     "JobCancelResult",
+    "QuickReadRun",
+    "QuickReadRunList",
+    "QuickReadDropResult",
     "JobDeleteResult",
     "JobForceStopResult",
     "JobsClearFinishedResult",
@@ -391,7 +394,6 @@ class SettingsOverview(BaseModel):
     engine_keys: dict[str, bool]
     gpu_limit_enabled: bool
     gpu_max_parallel: int = 1
-    unload_ollama_before_transcribe: bool = True
     notify_on_completion: bool
     use_gpu: bool = False
     gemini_free_tier: bool = False
@@ -437,7 +439,6 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     model_config = ConfigDict(extra="forbid")
     gpu_limit_enabled: Optional[StrictBool] = None
     gpu_max_parallel: Optional[StrictInt] = None  # clamped to 1..4
-    unload_ollama_before_transcribe: Optional[StrictBool] = None
     notify_on_completion: Optional[StrictBool] = None
     use_gpu: Optional[StrictBool] = None
     gemini_free_tier: Optional[StrictBool] = None
@@ -499,6 +500,25 @@ class JobQueueSummary(BaseModel):
     waiting: int
     # The caller's own waiting jobs (owned_by_me), next first.
     mine: List[JobQueuePosition]
+
+
+class QuickReadRun(BaseModel):
+    run_id: str
+    site: str
+    chapter: str
+    pages_received: int
+    pages_left: int
+    running_seconds: int
+
+
+class QuickReadRunList(BaseModel):
+    items: List[QuickReadRun]
+    count: int
+
+
+class QuickReadDropResult(BaseModel):
+    dropped_runs: int
+    dropped_pages: int
 
 
 class JobCancelResult(BaseModel):

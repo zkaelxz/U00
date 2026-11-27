@@ -1,7 +1,7 @@
-# Lead-session troubleshooting guide
+# Session troubleshooting guide
 
 What went wrong in the hard sessions of 2026-10-10, generalised into checks a
-lead or fix session runs before it spends an hour. Each rule names the incident
+session runs before it spends an hour. Each rule names the incident
 that taught it. Read the matching entry before diagnosing; if the symptom is
 new, add an entry when it is solved.
 

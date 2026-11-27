@@ -6,6 +6,7 @@ import sys
 import threading
 
 import pytest
+from lib.errors import InvalidInputError
 import requests
 from tests.saved_settings import patch_setting
 
@@ -133,7 +134,7 @@ def ollama(monkeypatch):
 
 
 class TestOllamaThinking:
-    @pytest.mark.parametrize("model", ["gemma4:12b", "qwen3.5:9b"])
+    @pytest.mark.parametrize("model", ["gemma4:31b-cloud", "gemma4:31b-cloud"])
     def test_think_false_is_sent_when_asked(self, ollama, model):
         out = local.OllamaEngine(model=model).translate_batch(
             ["你好"], {"reply_without_thinking": True})
@@ -142,28 +143,17 @@ class TestOllamaThinking:
         assert "think" not in ollama.bodies[0]["options"]
 
     def test_no_think_field_when_the_setting_is_off_or_absent(self, ollama):
-        engine = local.OllamaEngine(model="gemma4:12b")
+        engine = local.OllamaEngine(model="gemma4:31b-cloud")
         engine.translate_batch(["你好"], {"reply_without_thinking": False})
         engine.translate_batch(["你好"], {})
         assert all("think" not in body for body in ollama.bodies)
 
-    def test_a_model_that_rejects_think_is_retried_once_without_it_and_remembered(self, monkeypatch):
-        thinking._think_refused.clear()
-        fake = _Ollama(reject_think=True)
-        monkeypatch.setattr(local, "_ollama_chat", fake)
-        engine = local.OllamaEngine(model="llama3.1")
-        ctx = {"reply_without_thinking": True}
-        assert engine.translate_batch(["你好"], ctx) == ["Hello."]
-        assert ["think" in b for b in fake.bodies] == [True, False]
-        engine.translate_batch(["你好"], ctx)
-        assert ["think" in b for b in fake.bodies] == [True, False, False]
-        thinking._think_refused.clear()
 
     def test_a_400_about_something_else_is_retried_but_not_remembered(self, monkeypatch):
         thinking._think_refused.clear()
         fake = _Ollama(reject_think=True, reject_text="invalid options")
         monkeypatch.setattr(local, "_ollama_chat", fake)
-        engine = local.OllamaEngine(model="gemma4:12b")
+        engine = local.OllamaEngine(model="gemma4:31b-cloud")
         ctx = {"reply_without_thinking": True}
         assert engine.translate_batch(["你好"], ctx) == ["Hello."]
         engine.translate_batch(["你好"], ctx)
@@ -261,20 +251,13 @@ class TestLiveServiceWiring:
         assert out["ok"] is False and out["model"] == "gemma4:31b-cloud"
         assert "ollama pull gemma4:31b-cloud" in out["message"] and "localhost" not in out["message"]
 
-    def test_ollama_check_without_a_model_uses_the_model_start_would_use(self, monkeypatch):
-        seen = []
-        monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: seen.append(m))
-        monkeypatch.setattr(engine_registry, "model_override_for_default", lambda name: "override:7b")
-        monkeypatch.setattr(live_service, "_gpu_room_note", lambda *a: None)
-        assert live_service.check_ollama()["model"] == "override:7b"
-        assert seen == ["override:7b"]
 
     def test_a_start_without_an_engine_is_ollama_never_the_settings_default(self, isolated_db, monkeypatch):
         from services import translate_service
         patch_setting(monkeypatch, "default_engine", "deepseek")
         built = []
         monkeypatch.setattr(engine_registry, "get_engine", lambda name, *a, **k: built.append(name) or type(
-            "E", (), {"base_url": "http://x", "model": "gemma4:12b"})())
+            "E", (), {"base_url": "http://x", "model": "gemma4:31b-cloud"})())
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
         monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "")
         name, _ = live_service._build_engine(None, None)
@@ -282,122 +265,31 @@ class TestLiveServiceWiring:
 
     def test_ollama_check_ok_and_bad_model_name(self, monkeypatch):
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
-        monkeypatch.setattr(live_service, "_gpu_room_note", lambda *a: None)
-        assert live_service.check_ollama("qwen3.5:9b") == {
-            "ok": True, "model": "qwen3.5:9b", "message": None, "gpu_fit": False}
+        assert live_service.check_ollama("gemma4:31b-cloud") == {
+            "ok": True, "model": "gemma4:31b-cloud", "message": None}
         from lib.errors import InvalidInputError
         with pytest.raises(InvalidInputError):
             live_service.check_ollama("../x")
 
 
-class TestOllamaCheckGraphicsMemory:
-    """TranslateGemma 27B beside another program on the GPU was refused by the
-    keep-free reserve only after Start; the form now says so first. It counts
-    what Start does: Whisper's load unloads every Ollama model, then the model
-    loads again."""
+class TestOllamaCheck:
+    """The Live form asks whether Ollama answers so the hosted model can be reached."""
 
-    @pytest.fixture
-    def gpu(self, monkeypatch):
-        import memory_headroom
-        import ollama_unload
-        import whisper_models
+    def test_ok_when_ollama_answers(self, monkeypatch):
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 5 * 1024 if memory == "vram" else 0)
-        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        assert live_service.check_ollama("gemma4:31b-cloud") == {
+            "ok": True, "model": "gemma4:31b-cloud", "message": None}
 
-        def setup(free_gb, model_gb, loaded=(), unloads=True, name="translategemma:27b"):
-            monkeypatch.setattr(ollama_unload, "is_enabled", lambda: unloads)
-            monkeypatch.setattr(memory_headroom, "read_memory_mb",
-                                lambda memory, at_load=False: (48 * 1024, free_gb * 1024))
-            replies = {"/api/tags": {"models": [{"name": name, "size": model_gb * 1024 ** 3}]},
-                       "/api/ps": {"models": [{"name": n, "size_vram": g * 1024 ** 3} for n, g in loaded]}}
-            monkeypatch.setattr(memory_headroom, "_ollama_json",
-                                lambda url: replies[url[url.index("/api/"):]])
-        return setup
+    def test_the_message_is_ollamas_plain_text_when_it_does_not(self, monkeypatch):
+        def down(base, model):
+            raise engine_local.OllamaUnavailableError("ollama_unreachable", "Ollama isn't running.")
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", down)
+        out = live_service.check_ollama("gemma4:31b-cloud")
+        assert out["ok"] is False and out["message"] == "Ollama isn't running."
 
-    def test_a_model_and_whisper_that_eat_the_reserve_are_named_before_start(self, gpu):
-        gpu(free_gb=22, model_gb=17)
-        out = live_service.check_ollama("translategemma:27b", "large-v3", True)
-        assert out["ok"] is False and out["gpu_fit"] is True
-        assert out["message"] == (
-            "translategemma:27b and Whisper large-v3 may not fit in graphics memory (need about 27.4 GB, "
-            "22.0 GB free, 5.0 GB kept free for other programs). Pick a smaller model, "
-            "or turn off Use GPU.")
-
-    def test_room_enough_is_ok(self, gpu):
-        gpu(free_gb=33, model_gb=17)
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True) == {
-            "ok": True, "model": "translategemma:27b", "message": None, "gpu_fit": False}
-
-    def test_memory_another_loaded_ollama_model_holds_counts_as_free(self, gpu):
-        gpu(free_gb=24, model_gb=17, loaded=[("translategemma:12b", 9)])
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
-        gpu(free_gb=24, model_gb=17, loaded=[("translategemma:12b", 9)], unloads=False)
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
-
-    def test_the_chosen_model_already_loaded_still_needs_room_beside_whisper(self, gpu):
-        gpu(free_gb=4, model_gb=17, loaded=[("translategemma:27b", 18)], unloads=False)
-        out = live_service.check_ollama("translategemma:27b", "large-v3", True)
-        assert out["ok"] is False and "Whisper large-v3" in out["message"]
-
-    def test_a_whisper_already_loaded_in_this_process_is_not_counted_twice(self, gpu, monkeypatch):
-        import whisper_models
-        gpu(free_gb=27, model_gb=17)
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
-        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {"large-v3_gpu": object()})
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is True
-
-    @pytest.mark.parametrize("model,download_gb,whisper,real_gb", [
-        ("translategemma:12b", 8.1, "ja-1.5b", 15.4), ("translategemma:27b", 17.0, "large-v3", 24.2)])
-    def test_it_warns_wherever_the_measured_v100_need_would_break_the_reserve(
-            self, gpu, model, download_gb, whisper, real_gb):
-        # Peak GPU memory a cold Live run took on the V100 (Ollama at 16k context).
-        gpu(free_gb=real_gb + 5 - 0.1, model_gb=download_gb, name=model)
-        assert live_service.check_ollama(model, whisper, True)["ok"] is False
-
-    def test_ollamas_own_size_for_the_loaded_model_beats_the_estimate(self, gpu):
-        # Estimated 21.75 GB; Ollama says the loaded model holds 24 GB.
-        gpu(free_gb=10, model_gb=17, loaded=[("translategemma:27b", 24)])
-        assert live_service.check_ollama("translategemma:27b", "large-v3", True)["ok"] is False
-
-    def test_with_the_reserve_at_its_default_of_0_a_pair_that_does_not_fit_is_named(self, gpu, monkeypatch):
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
-        gpu(free_gb=11, model_gb=17)
-        out = live_service.check_ollama("translategemma:27b", "small", True)
-        assert out["ok"] is False and out["gpu_fit"] is True
-        assert out["message"].startswith("translategemma:27b and Whisper small may not fit in graphics memory")
-        assert "kept free" not in out["message"]
-        assert "To go ahead" not in out["message"] and "int8" not in out["message"]
-        gpu(free_gb=33, model_gb=17)
-        assert live_service.check_ollama("translategemma:27b", "small", True)["ok"] is True
-
-    def test_with_use_gpu_off_the_model_alone_is_checked(self, gpu, monkeypatch):
-        # Ollama is its own program and loads onto the GPU whatever Use GPU says.
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
-        gpu(free_gb=11, model_gb=17)
-        out = live_service.check_ollama("translategemma:27b", "large-v3", False)
-        assert out["ok"] is False and out["message"] == (
-            "translategemma:27b may not fit in graphics memory (need about 21.8 GB, 11.0 GB free). "
-            "Pick a smaller model.")
-        # Whisper stays on the CPU, so its size does not count.
-        gpu(free_gb=23, model_gb=17)
-        assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True
-
-    def test_with_use_gpu_off_a_loaded_model_needs_no_more_room(self, gpu, monkeypatch):
-        # Without Use GPU nothing unloads it first, so it stays where it is.
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
-        gpu(free_gb=1, model_gb=17, loaded=[("translategemma:27b", 21)])
-        assert live_service.check_ollama("translategemma:27b", "large-v3", False)["ok"] is True
-
-    def test_the_small_model_is_not_suggested_for_itself(self, gpu, monkeypatch):
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
-        gpu(free_gb=4, model_gb=8.1, name="translategemma:12b")
-        out = live_service.check_ollama("translategemma:12b", None, False)
-        assert out["message"].endswith("free). Pick a smaller model.")
+    def test_a_local_model_is_refused(self):
+        with pytest.raises(InvalidInputError):
+            live_service.check_ollama("llama3.1:8b")
 
 
 class TestStageTimerCleanup:

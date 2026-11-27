@@ -14,6 +14,7 @@ from typing import Literal, overload
 
 import numpy as np
 
+from lib import device_use
 from scanlate import scanlate_tuning
 from scanlate.scanlate_box_merge import _LOOSE_TEXT_LABEL, _form_cells, dedupe_overlapping_boxes
 from scanlate.scanlate_page_decode import page_bgr, page_gray
@@ -360,6 +361,7 @@ def _detector_outputs(model, inputs, torch):
                 for key, value in outputs.items():
                     if hasattr(value, "cpu"):
                         outputs[key] = value.cpu()
+                device_use.note("balloon detector", "GPU")
                 return outputs
         except Exception as exc:
             # A GPU that filled up since (Ollama, a transcription) costs only this page; any
@@ -371,6 +373,7 @@ def _detector_outputs(model, inputs, torch):
                 torch.cuda.empty_cache()
             except Exception:
                 pass
+        device_use.note("balloon detector", "CPU")
         return model(**inputs)
 
 

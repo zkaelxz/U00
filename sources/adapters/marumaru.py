@@ -31,7 +31,7 @@ import json
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class
+from ..base import SourceAdapter, layout_changed_class, https_only
 from ..domains import SiteDomains, hostport
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
@@ -58,11 +58,6 @@ def _safe_id(value, what: str) -> str:
     if not _ID.fullmatch(text):
         raise LayoutChanged(f"a usable {what}")
     return text
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 def _json(resp, what: str):
@@ -149,7 +144,7 @@ class MarumaruSource(SourceAdapter):
                 continue
             wid = str(item["id"])
             out.append(SearchResult(self.name, wid, item["title"], f"{self.site.base}/webtoon/{wid}",
-                                    _https(item.get("coverUrl")),
+                                    https_only(item.get("coverUrl")),
                                     extra={"author": str(item.get("author") or ""),
                                            "adult": bool(item.get("adult")),
                                            "chapters": item.get("episodeCount")}))
@@ -164,7 +159,7 @@ class MarumaruSource(SourceAdapter):
         status = str(work.get("status") or "").upper()
         return SeriesInfo(
             self.name, wid, work["title"], f"{self.site.base}/webtoon/{wid}",
-            _https(work.get("coverUrl")),
+            https_only(work.get("coverUrl")),
             authors=[a.strip() for a in str(work.get("author") or "").split("/") if a.strip()],
             description=str(data.get("synopsis") or ""),
             genres=[g.strip() for g in str(work.get("genres") or "").split(",") if g.strip()],
@@ -201,7 +196,7 @@ class MarumaruSource(SourceAdapter):
         body = (data.get("item") or {}).get("body")
         if not isinstance(body, list):
             raise LayoutChanged("this chapter's images")
-        urls = [_https(b.get("url")) for b in body if isinstance(b, dict) and b.get("kind") == "image"]
+        urls = [https_only(b.get("url")) for b in body if isinstance(b, dict) and b.get("kind") == "image"]
         urls = [u for u in urls if u]
         if not urls:
             raise LayoutChanged("any page images in this chapter")

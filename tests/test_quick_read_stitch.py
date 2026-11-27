@@ -55,7 +55,7 @@ def test_a_chunk_over_the_byte_cap_leaves_the_slices():
 
 
 def test_chunk_releases_every_slice_claim_when_it_fails():
-    chunk = {"key": "a", "run_claims": ["d1", "d2"]}
+    chunk = {"key": "a", "run_claim": ["d1", "d2"]}
     bridge._runs_seen["r"] = {"d1": "a", "d2": "b", "d3": "c"}
     bridge._release_unread([chunk], [("failed", {})], "r")
     assert bridge._runs_seen["r"] == {"d3": "c"}
@@ -116,5 +116,5 @@ def test_landscape_frames_are_never_joined():
 
 
 def test_a_chunk_carries_the_claims_of_its_slices():
-    slices = [{**_slice(f"c{i}", height=600), "run_claim": f"d{i}"} for i in range(2)]
-    assert quick_read_stitch.stitch(slices, 12 * 1024 * 1024)[0]["run_claims"] == ["d0", "d1"]
+    slices = [{**_slice(f"c{i}", height=600), "run_claim": [f"d{i}", f"url:u{i}"]} for i in range(2)]
+    assert quick_read_stitch.stitch(slices, 12 * 1024 * 1024)[0]["run_claim"] == ["d0", "url:u0", "d1", "url:u1"]

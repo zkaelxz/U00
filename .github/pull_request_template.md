@@ -20,8 +20,8 @@ The user guide line updated in this PR (name the file), or "no user-visible chan
 
 ## Merge lane
 
-The output of `python tools/pr_lane.py`, and whether this is a risky PR that waits for the owner's "Merge NNNN"
-(`docs/testing-and-ci.md`, "Merge flow").
+The output of `python tools/pr_lane.py`, and whether this is a risky PR (it needs a passed `security-reviewer` review before auto-merge;
+`docs/testing-and-ci.md`, "Merge flow").
 
 ## Anything uncertain or out of scope
 

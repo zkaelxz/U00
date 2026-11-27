@@ -54,7 +54,6 @@ def _env(monkeypatch, isolated_db):
     monkeypatch.setattr(tsweep, "KNOBS", (("batch_size", "Batch size", (2,)),
                                           ("context_window", "Context lines before", (0, 3))))
     # Ollama's model list is read from its server; no test may depend on one running here.
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: [])
     monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: True)
     FakeEngine.calls, FakeEngine.fail = [], False
     yield
@@ -162,26 +161,7 @@ class TestSweep:
         text = tsweep._recommend(plan, outcome)["text"]
         assert "smaller than the margin" not in text and "a profile can't save" in text
 
-    def test_on_ollama_only_pulled_local_models_are_tried(self, monkeypatch):
-        _cases()
-        monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda url: ["translategemma:12b", "local-a"])
-        monkeypatch.setattr(translate_service, "list_engines", lambda **k: [
-            {"name": "ollama", "models": ["translategemma:12b", "local-a", "not-pulled:7b", "gemma4:31b-cloud"]}])
-        monkeypatch.setattr(tsweep.lab, "check_config", lambda stage, cfg: {**cfg, "options": cfg["options"] or {}})
-        monkeypatch.setattr(tsweep.lab, "run_context", lambda *a, **k: {"app_version": "1"})
-        plan = tsweep._Plan("s", "zh", "ollama", "translategemma:12b", None)
-        by_model = {m["model"]: m for m in plan.models}
-        assert by_model["local-a"]["included"]
-        assert not by_model["not-pulled:7b"]["included"] and "isn't pulled" in by_model["not-pulled:7b"]["reason"]
-        assert not by_model["gemma4:31b-cloud"]["included"] and "off this PC" in by_model["gemma4:31b-cloud"]["reason"]
-        tried = []
-        sweep_core.descend(plan, lambda setup, half, repeat, step: tried.append(setup["model"]))
-        assert "gemma4:31b-cloud" not in tried and "not-pulled:7b" not in tried and "local-a" in tried
 
-    def test_with_ollama_down_its_models_are_left_out_for_that_reason(self, monkeypatch):
-        _cases()
-        monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda url: False)
-        assert all(m["reason"] == "Could not reach Ollama." for m in tsweep._model_choices("ollama", ["local-a"]))
 
     def test_a_series_is_part_of_every_pass_and_never_swept(self):
         series_id = db.create_series("Saga")

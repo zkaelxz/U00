@@ -124,3 +124,10 @@ def test_a_member_cannot_follow_more_series_than_the_limit(site, monkeypatch):
     assert "already tracking 1 series" in err.value.message
     # The owner (no account) is never counted.
     assert svc.follow_from_page("https://fake.example/night-owl")["already"] is False
+
+
+def test_following_a_series_someone_else_tracks_makes_the_caller_a_follower(site):
+    store.track_series("fakesite", "night-owl", "Night Owl", "", None, linked_by_user_id=8)
+    assert svc.follow_from_page("https://fake.example/night-owl",
+                                principal={"user_id": 7}) == {"title": "Night Owl", "already": True}
+    assert store.followers()[("fakesite", "night-owl")] == {7, 8}

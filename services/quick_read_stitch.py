@@ -64,7 +64,7 @@ def stitch(decoded: list, max_bytes: int, target_height: int = TARGET_CHUNK_HEIG
         first = group[0][0]
         out.append({"key": first["key"], "url": first["url"], "content_type": "image/png",
                     "content": content, "merged_keys": [image["key"] for image, _s in group[1:]],
-                    "run_claims": [image["run_claim"] for image, _s in group if image.get("run_claim")]})
+                    "run_claim": [d for image, _s in group for d in image.get("run_claim") or ()]})
 
     for image in decoded:
         size = _size(image["content"]) if image.get("content") is not None else None

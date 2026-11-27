@@ -54,6 +54,7 @@ export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)
 /** What an account keeps on the server so it follows the person to any device (absent until chosen). */
 export interface AccountPreferences {
   theme?: 'system' | 'light' | 'dark' | 'sepia' | 'oled'
+  live_focus?: boolean
 }
 
 export const putPreferences = (prefs: AccountPreferences, f?: Fetch) =>

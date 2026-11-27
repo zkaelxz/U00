@@ -14,8 +14,9 @@
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and every admin write but member-account changes); the blocks here
-# are defence in depth. The only admin routes that pass are the three read-only
-# admin views, GET /api/admin/users, GET /api/admin/audit and a user's device list, and the
+# are defence in depth. The only admin routes that pass are the four read-only
+# admin views, GET /api/admin/users, GET /api/admin/audit, a user's device list and
+# GET /api/diagnostics/resources, and the
 # member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
 # them that targets an admin account, except a name), and deleting a
 # deactivated member.
@@ -152,6 +153,11 @@
 		not {
 			method POST
 			path /api/diagnostics/bug-reports
+		}
+		# An admin may read the resource monitor (the Library's GPU line) from away.
+		not {
+			method GET HEAD
+			path /api/diagnostics/resources
 		}
 		# Members may bulk translate their own titles from their own device;
 		# the rest of /api/library/admin/* stays PC-only.

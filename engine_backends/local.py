@@ -29,7 +29,6 @@ from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use 
     _ollama_reachability_cache,
     check_ollama_model_installed,
     check_ollama_reachable,
-    pulled_ollama_models,
 )
 
 
@@ -213,15 +212,17 @@ def chat_target(base_url: str, model: str):
     return f"{base_url}/api/chat", None, model
 
 
-def ollama_touches_local_gpu(engine_name: str, model) -> bool:
-    """Whether a run on this engine uses this PC's GPU/memory: a local
-    Ollama model does, a cloud tag does not."""
-    return engine_name == "ollama" and not is_ollama_cloud_model(model)
+LOCAL_MODEL_REFUSAL = ("Local Ollama models are no longer supported: they were too slow and "
+                       "not accurate enough. Pick a hosted model (a tag ending in -cloud) or "
+                       "another engine.")
 
 
-def chain_touches_local_gpu(chain) -> bool:
-    """`ollama_touches_local_gpu` for any step of an engine chain."""
-    return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
+def require_hosted_model(model) -> None:
+    """Refuses a model that would run on this PC. The Ollama engine now serves
+    only hosted tags; saved titles, presets and settings that still name a
+    local tag fail here with a message instead of loading it."""
+    if not is_ollama_cloud_model(model):
+        raise OllamaUnavailableError("local_model_removed", LOCAL_MODEL_REFUSAL)
 
 
 class OllamaUnavailableError(Exception):
@@ -235,63 +236,20 @@ class OllamaUnavailableError(Exception):
         self.message = message
 
 
-# Local models can be slow, especially CPU-only or larger ones.
+# One request's wait for the hosted model's reply. With "stream": False Ollama
+# sends nothing until the whole reply is done, so this is also the wait for the
+# first byte.
 OLLAMA_CHAT_TIMEOUT = 300
-
-# With "stream": False Ollama sends nothing until the whole reply is done,
-# so this is also the wait for the first byte. Models of 20B parameters and
-# up split across GPU and CPU on most cards and can need far longer than
-# 300 s for a long batch; the cap stays finite so a hung server still fails.
-OLLAMA_SLOW_MODEL_CHAT_TIMEOUT = 900
-OLLAMA_SLOW_MODEL_MIN_BILLIONS = 20
-# "26b", "32B", "30b-a3b" (MoE: the first number is the total size); not
-# the "4" of "e4b" or "a3b", which are effective/active sizes.
-_MODEL_BILLIONS_RE = re.compile(r"(?<![a-z0-9.])(\d+(?:\.\d+)?)b(?![a-z0-9])", re.IGNORECASE)
-
-# Loading a model from disk happens inside the first request and can take
-# minutes on a slow disk; it must not use up the time meant for generating.
-OLLAMA_COLD_LOAD_SECONDS = 300
-# Under Ollama's default 5-minute keep_alive: after this long without a reply
-# the model may have been unloaded, so the next request may load it again.
-OLLAMA_WARM_SECONDS = 240
-# {(base_url, model, num_ctx): monotonic time until which it counts as loaded}
-_warm_until = {}
-
-
-def ollama_chat_timeout(model: str) -> int:
-    """Generation time allowed for one request, from the parameter count in
-    the tag; a tag without one is treated as a small model."""
-    if is_ollama_cloud_model(model):
-        return OLLAMA_CHAT_TIMEOUT
-    sizes = [float(m) for m in _MODEL_BILLIONS_RE.findall(model or "")]
-    if sizes and max(sizes) >= OLLAMA_SLOW_MODEL_MIN_BILLIONS:
-        return OLLAMA_SLOW_MODEL_CHAT_TIMEOUT
-    return OLLAMA_CHAT_TIMEOUT
 
 
 def ollama_max_request_seconds(model: str) -> int:
-    """The longest one request to this model may be allowed: generation
-    plus a cold load. Deadlines around a request must be at least this."""
-    cold = 0 if is_ollama_cloud_model(model) else OLLAMA_COLD_LOAD_SECONDS
-    return ollama_chat_timeout(model) + cold
-
-
-def _warm_key(base_url: str, payload: dict):
-    return (base_url, str(payload.get("model") or ""),
-            (payload.get("options") or {}).get("num_ctx"))
+    """The longest one request may be allowed; deadlines around a request must
+    be at least this."""
+    return OLLAMA_CHAT_TIMEOUT
 
 
 def _request_timeout(base_url: str, payload: dict) -> int:
-    import time
-    model = str(payload.get("model") or "")
-    if _warm_until.get(_warm_key(base_url, payload), 0) > time.monotonic():
-        return ollama_chat_timeout(model)
-    return ollama_max_request_seconds(model)
-
-
-def _mark_warm(base_url: str, payload: dict) -> None:
-    import time
-    _warm_until[_warm_key(base_url, payload)] = time.monotonic() + OLLAMA_WARM_SECONDS
+    return OLLAMA_CHAT_TIMEOUT
 
 
 # Thinking-capable models (Qwen3, Gemma 4) may put reasoning inline in
@@ -428,7 +386,6 @@ def _ollama_chat(base_url: str, payload: dict) -> dict:
         reply = _ollama_chat_request(requests.post, base_url, payload, cloud_key=key)
     else:
         reply = _ollama_chat_abortable(base_url, payload, check, cloud_key=key)
-    _mark_warm(base_url, payload)
     return reply
 
 
@@ -657,9 +614,9 @@ class OllamaEngine:
     def __init__(self, api_key: str | None = None, model: str = OLLAMA_DEFAULT_MODEL,
                  base_url: str = settings_schema.OLLAMA_URL_DEFAULT):
         # api_key is unused (kept for a consistent engine constructor signature)
+        require_hosted_model(model)
         self.model = model
         self.base_url = settings_schema.normalize_ollama_url(base_url)
-        self._headroom_checked = False
         self._num_ctx = None
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
         # {line id: reason} for lines of the last batch left untranslated
@@ -699,11 +656,6 @@ class OllamaEngine:
         return out
 
     def _translate_batch(self, zh_lines, context: dict):
-        if not self._headroom_checked:
-            # Once per engine: later batches reuse the model Ollama has loaded by then.
-            import memory_headroom
-            memory_headroom.check_ollama(self.base_url, self.model)
-            self._headroom_checked = True
         system_text = build_stable_system_text(context) + _QUOTE_RULE
         num_ctx_override = context.get("ollama_num_ctx_override")
         self.last_usage = {"input_tokens": 0, "output_tokens": 0}
