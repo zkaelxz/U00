@@ -61,7 +61,8 @@ _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
 _NO_DEPS_FLAG = "--no-deps"
 # Mirrors install_registry.SWAP_UNINSTALLABLE for the same reason.
 _UNINSTALLABLE = ("opencv-python", "opencv-python-headless", "onnxruntime", "onnxruntime-gpu")
-_CV2_PLAIN = _UNINSTALLABLE[:2]
+_CV2_PLAIN = ("opencv-python", "opencv-python-headless")
+_ORT_BUILDS = ("onnxruntime", "onnxruntime-gpu")
 _CV2_CONTRIB = "opencv-contrib-python"
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
@@ -583,10 +584,14 @@ def without_clashing_cv2(wanted: dict, now: dict, before: dict):
     Contrib is installed now and was not in `before`, so putting the plain one
     back would recreate the two-flavour clash the swap exists to avoid. This
     happens when pip is stopped after contrib landed."""
+    skipped = []
     if _CV2_CONTRIB in now and _CV2_CONTRIB not in before:
-        skipped = sorted(n for n in wanted if n in _CV2_PLAIN)
-        return {n: v for n, v in wanted.items() if n not in skipped}, skipped
-    return wanted, []
+        skipped += sorted(n for n in wanted if n in _CV2_PLAIN)
+    # The same for onnxruntime: a build that landed before pip was stopped must not get the
+    # other one put back over its files.
+    skipped += sorted(n for n in wanted if n in _ORT_BUILDS
+                      and any(o in now and o not in before for o in _ORT_BUILDS if o != n))
+    return {n: v for n, v in wanted.items() if n not in skipped}, skipped
 
 
 def kept_wheels_dir():

@@ -136,6 +136,20 @@ def cv2_clash(installed: dict, changes: list):
             + ", ".join(new) + " comes in as a dependency. Remove the one you don't need first.")
 
 
+def ort_clash(installed: dict, changes: list):
+    """A plain sentence when the result would hold both onnxruntime builds, else None. They fill
+    one 'onnxruntime' folder, so a dependency pulling the CPU build over the GPU one (a
+    faster-whisper update does) would leave the two overwriting each other."""
+    new = sorted(c["name"] for c in changes
+                 if c["name"] in install_registry.ORT_SWAP_PARTNER and c["name"] not in installed)
+    final = {n for n in install_registry.ORT_SWAP_PARTNER if n in installed} | set(new)
+    if not new or len(final) < 2:
+        return None
+    return ("This would put both onnxruntime and onnxruntime-gpu on the PC. They share one folder and "
+            "break each other, so nothing was queued; " + ", ".join(new) + " comes in as a dependency. "
+            "Keep the build you use and leave this package as it is.")
+
+
 def _classify(report: list, installed: dict) -> list:
     changes = []
     for name, version in report:
@@ -499,6 +513,9 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool | None = No
     clash = cv2_clash({n: v for n, v in installed.items() if n not in swap}, changes)
     if clash:
         plan["blocked"].append(clash)
+    ort = ort_clash({n: v for n, v in installed.items() if n not in swap}, changes)
+    if ort:
+        plan["blocked"].append(ort)
     mins = dependency_updates.required_min_versions() if mins is None else mins
     required = app_required_names() if required is None else required
     plan["blocked"].extend(_below_min(changes, mins))

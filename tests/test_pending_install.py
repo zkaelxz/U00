@@ -1280,3 +1280,11 @@ def test_a_pinned_requirement_is_the_only_equals_form_accepted():
     for bad in ("sentencepiece==", "sentencepiece>=1", "sentencepiece==1.0;os_name", "==1.0",
                 "sentencepiece==1.0 --index-url=http://x"):
         assert not pi._argv_accepted(_good_argv() + [bad]), bad
+
+
+def test_a_restore_does_not_put_the_cpu_onnxruntime_over_a_gpu_build_that_landed():
+    import pending_install as pi
+    wanted = {"onnxruntime": "1.32.0", "numpy": "2.5.0"}
+    assert pi.without_clashing_cv2(wanted, {"onnxruntime-gpu": "1.19.2"}, {}) == (
+        {"numpy": "2.5.0"}, ["onnxruntime"])
+    assert pi.without_clashing_cv2(wanted, {}, {}) == (wanted, [])
