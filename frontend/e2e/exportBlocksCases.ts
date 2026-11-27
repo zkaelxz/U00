@@ -19,10 +19,11 @@ export async function expectOpen(page: Page, expected: Partial<Record<(typeof BL
 }
 
 // Which block leads, and starts open when it can run, per seeded title kind (drama 1 audio, 2 novel, 3 video).
+// The seeded novel is not in novel-narration mode, so it has no EPUB block.
 export const FIRST_OPEN = {
   video: 'Video with a subtitle track',
   audio: 'Audiobook',
-  novel: 'EPUB',
+  novel: 'Audiobook',
   subtitle: 'Subtitle file',
 } as const
 

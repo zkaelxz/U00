@@ -20,6 +20,9 @@ interface Props {
   status?: ReactNode
 }
 
+// Counts every block that could be shown, so a remembered-open one is never missed.
+const ALL_MEDIA = { hasSourceVideo: true, hasDub: true, hasNarration: true, novelNarration: true }
+
 // One collapsible export. The blocks share an accordion group, so the last one opened is the one remembered
 // open (per title kind) and the page stays short on a phone.
 export function ExportBlock({ id, opening, reason, hint, children, status }: Props) {
@@ -28,7 +31,7 @@ export function ExportBlock({ id, opening, reason, hint, children, status }: Pro
   const kind = titleKind(drama.media_type, drama.content_mode)
   const title = EXPORT_BLOCK_TITLES[id]
   // A block the viewer left open wins; opening this one as well would leave two open in the accordion.
-  const remembered = shownExportBlocks(kind, simple).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
+  const remembered = shownExportBlocks(kind, simple, ALL_MEDIA).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
   return (
     <div className="export-block" role="group" aria-label={title}>
       <Section

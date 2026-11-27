@@ -16,7 +16,6 @@ export const EXPORT_BLOCK_TITLES: Record<ExportBlockId, string> = {
 
 const VIDEO_FIRST: ExportBlockId[] = ['softsub_video', 'burned_video', 'dubbed_video', 'audiobook']
 
-// Every kind lists every block: a mixed title (a video with narration, a novel with a dub) loses nothing.
 const ORDER: Record<TitleKind, ExportBlockId[]> = {
   video: [...VIDEO_FIRST, 'subtitles', 'epub'],
   audio: ['audiobook', 'dubbed_video', 'softsub_video', 'burned_video', 'subtitles', 'epub'],
@@ -27,15 +26,47 @@ const ORDER: Record<TitleKind, ExportBlockId[]> = {
   subtitle: ['subtitles', 'audiobook', 'burned_video', 'softsub_video', 'dubbed_video', 'epub'],
 }
 
+// The exports that fit each kind. The others stay hidden rather than showing a "not available" note.
+const FITS: Record<TitleKind, ExportBlockId[]> = {
+  video: ['softsub_video', 'burned_video', 'dubbed_video', 'subtitles'],
+  audio: ['audiobook', 'subtitles'],
+  novel: ['epub', 'audiobook', 'subtitles'],
+  comic: ['subtitles'],
+  subtitle: ['subtitles'],
+}
+
+export type ExportFacts = Partial<Pick<ExportInputs, 'hasSourceVideo' | 'hasDub' | 'hasNarration' | 'novelNarration'>>
+
+// A title can carry media its kind doesn't expect (a narrated video, an audio drama with a picture), so an export
+// that doesn't fit the kind still shows once the title has what it works from. EPUB needs novel-narration mode,
+// which only a novel has, so it is never an extra.
+function hasMediaFor(id: ExportBlockId, f: ExportFacts): boolean {
+  switch (id) {
+    case 'softsub_video':
+    case 'burned_video':
+      return f.hasSourceVideo === true
+    case 'dubbed_video':
+      return f.hasSourceVideo === true || f.hasDub === true
+    case 'audiobook':
+      return f.hasNarration === true
+    default:
+      return false
+  }
+}
+
 // The Simple view offers the two exports most titles need; the rest (burned-in, dub, audiobook, EPUB) are in Full.
 export const SIMPLE_EXPORT_BLOCKS: ExportBlockId[] = ['softsub_video', 'subtitles']
 
-export function exportBlockOrder(kind: TitleKind): ExportBlockId[] {
-  return ORDER[kind]
+/** Without `facts`, only what fits the kind; a novel's EPUB also needs novel-narration mode. */
+export function exportBlockOrder(kind: TitleKind, facts: ExportFacts = {}): ExportBlockId[] {
+  return ORDER[kind].filter((id) => {
+    if (id === 'epub') return kind === 'novel' && facts.novelNarration !== false
+    return FITS[kind].includes(id) || hasMediaFor(id, facts)
+  })
 }
 
-export function shownExportBlocks(kind: TitleKind, simple: boolean): ExportBlockId[] {
-  return ORDER[kind].filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id))
+export function shownExportBlocks(kind: TitleKind, simple: boolean, facts: ExportFacts = {}): ExportBlockId[] {
+  return exportBlockOrder(kind, facts).filter((id) => !simple || SIMPLE_EXPORT_BLOCKS.includes(id))
 }
 
 /**

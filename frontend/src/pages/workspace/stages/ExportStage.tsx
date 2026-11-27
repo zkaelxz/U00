@@ -116,7 +116,7 @@ export default function ExportStage() {
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
-  const shown = shownExportBlocks(kind, simple)
+  const shown = shownExportBlocks(kind, simple, inputs)
   // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
   // opened later could fold under a click aimed at it, and remounting one would drop a started export. From then on
   // only the viewer opens and folds blocks. The libass check is not awaited: Burned-in video always comes after Video
