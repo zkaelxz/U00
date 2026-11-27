@@ -39,8 +39,8 @@
 .assistant-suggestion-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .assistant-suggestion .error { flex-basis: 100%; margin: 0; }
 
-/* The question box stays in reach at the foot of the screen while a long chat scrolls past. */
-.assistant-ask { display: grid; gap: var(--space-3); position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
+/* The question box stays in reach at the foot of the screen while a long chat scrolls past, above a bottom bar or rail. */
+.assistant-ask { display: grid; gap: var(--space-3); position: sticky; bottom: calc(var(--page-inset-bottom, 0px) + var(--phone-bar-h, 0px)); z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
 .assistant-ask textarea { width: 100%; }
 .assistant-actions { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
 .assistant-engine { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
