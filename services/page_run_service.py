@@ -262,32 +262,51 @@ def after_import_run(principal, drama_id: int) -> dict:
     return _run_view(principal, drama_id, marker)
 
 
+_PHONE_REASON_CHARS = 200
+
+
 def phone_progress(principal, drama_id: int) -> dict:
     """What the phone's status line shows for a title it just saved to. Only comic and novel titles
-    have a translate run; any other title reads as idle rather than an error."""
+    have a translate run; any other title reads as idle rather than an error. A stopped run carries
+    its reason, so a refusal is never silent on the phone."""
+    from services import jobs_service
+    from engine_backends.shared import redact_secrets
     try:
         run = after_import_run(principal, drama_id)
     except InvalidInputError:
-        return {"state": "idle", "step": None, "kind": None}
+        return {"state": "idle", "step": None, "kind": None, "reason": None}
     kind = after_import_kind(principal, drama_id)
-    return {"state": run["state"], "step": run["step"], "kind": kind}
+    reason = None
+    if run["state"] == "stopped" and run["reason"]:
+        # Stored reasons are already redacted, but this leaves the PC: no URL, path or key, and one line's worth.
+        text = redact_secrets(jobs_service.scrub_text(run["reason"])).removeprefix("Skipped: ")
+        reason = " ".join(text.split())[:_PHONE_REASON_CHARS] or None
+    return {"state": run["state"], "step": run["step"], "kind": kind, "reason": reason}
 
 
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
                        model: Optional[str] = None, names: Optional[dict] = None,
-                       follow_import: bool = True) -> dict:
+                       follow_import: bool = True, add_chapters: bool = False,
+                       new_chapters: Optional[int] = None) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
     names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits
     for the import job, so a failed import stops the rest; `follow_import` is False for a phone save,
-    which has no import job. The caller checks every engine against the paid-engine permission."""
+    which has no import job. With `add_chapters` (a phone save), a novel that has lines gets its saved
+    chapters not yet in the text appended, lines for that text alone, and a translation of the lines
+    still untranslated; ConflictError when there is nothing new. `new_chapters` (how many chapters
+    that save added) is required then: the append starts at the first of them, so chapters the owner
+    cut off the end of the text are not put back. The caller checks every engine against the
+    paid-engine permission."""
     with _after_import_start:
         return _start_after_import_locked(principal, drama_id, engine, lines, at_pc=at_pc, model=model,
-                                          names=names, follow_import=follow_import)
+                                          names=names, follow_import=follow_import, add_chapters=add_chapters,
+                                          new_chapters=new_chapters)
 
 
 def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
-                               model: Optional[str], names: Optional[dict], follow_import: bool) -> dict:
+                               model: Optional[str], names: Optional[dict], follow_import: bool,
+                               add_chapters: bool, new_chapters: Optional[int]) -> dict:
     from services import sources_import_service
     kind = after_import_kind(principal, drama_id)
     view = after_import_run(principal, drama_id)
@@ -300,13 +319,24 @@ def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Opt
         steps.append((q.RUN_SCANLATE, {"engine": engine}))
     else:
         state = _novel_state(drama_id)
+        translate = {"engine": engine, "capped": True, **({"model": model} if model else {})}
+        if state["lines"] and add_chapters:
+            from services import novel_attach_service
+            if not novel_attach_service.has_chapters_to_add(drama_id):
+                raise ConflictError("This novel has no saved chapters that are not in its lines yet.")
+            if not new_chapters:
+                raise InvalidInputError("Update the Baihe app on the phone to translate a novel's new chapters.")
+            first_new = max(1, novel_attach_service.saved_chapter_count(drama_id) - new_chapters + 1)
+            # No names step: a new scan would wait for a review nobody at the phone is there to do.
+            steps += [(q.APPEND, {"from_chapter": first_new}), (q.LINES, {**(lines or {}), "append": True}),
+                      (q.RUN_TRANSLATE, {**translate, "new_lines_only": True})]
+            return _add_after_import(principal, drama_id, steps, at_pc)
         if state["lines"]:
             raise ConflictError("This novel already has lines. Press Translate on the title to go on.")
         _refuse_to_replace_own_text(drama_id)
         if not state["chapters"] or not state["text"]:
             steps.append((q.TEXT, {}))
-        steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL, **(names or {})}),
-                  (q.RUN_TRANSLATE, {"engine": engine, "capped": True, **({"model": model} if model else {})})]
+        steps += [(q.LINES, lines or {}), (q.NAMES, {"source": _NOVEL, **(names or {})}), (q.RUN_TRANSLATE, translate)]
     return _add_after_import(principal, drama_id, steps, at_pc)
 
 
@@ -368,6 +398,11 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
             raise ConflictError("This novel already has lines, so its text is left as it is.")
         novel_attach_service.attach_from_sources(drama_id, "replace")
         return None
+    if step == q.APPEND:
+        from services import novel_attach_service
+        # A retry after the chapters went in adds nothing and the chain goes on.
+        novel_attach_service.add_new_chapters_from_sources(drama_id, settings.get("from_chapter"))
+        return None
     if step == q.FOLLOW:
         import background_jobs
         job_id = settings.get("job_id") or ""
@@ -392,21 +427,45 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
         if settings.get("capped"):
             require_cap_for_after_import(engine, model)
         paid = q._holds(principal, "engines.paid")
+        scope = {}
+        if settings.get("new_lines_only"):
+            # Scoped to the untranslated lines, so the glossary's exact-term pass leaves translated English alone.
+            ids = [ln["id"] for ln in db.load_lines(drama_id)
+                   if (ln.get("zh") or "").strip() and not (ln.get("en") or "").strip()]
+            if not ids:
+                return None
+            scope = {"line_ids": ids, "own_lines_only": True}
         return translate_thinking_service.start_with_thinking(
             translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
-            locale=settings.get("locale"), model=model, allow_paid_summary=paid)["job_id"]
+            locale=settings.get("locale"), model=model, allow_paid_summary=paid, **scope)["job_id"]
+    return _start_lines(principal, drama_id, settings)
+
+
+def _start_lines(principal, drama_id: int, settings: dict) -> Optional[str]:
+    import novel_text
     from services import narration_service
     lines = lines_choice(drama_id, settings)
     first, last = lines.get("chapter_from"), lines.get("chapter_to")
-    if not lines["one_narrator"]:
-        _require_free_or_paid(principal, lines["engine"], lines.get("model"), "makes lines")
-        if not lines["cost_accepted"]:
-            # Priced here, not when added: before the text step has run there is no text to price.
-            cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), first, last)
-            if cost["has_key"] and cost["cap_applies"] and not cost["monthly_cap_set"] and cost["estimated_usd"] > 0:
-                raise InvalidInputError(
-                    f"Splitting and tagging would cost about ${cost['estimated_usd']:.2f} and no monthly spending "
-                    "cap is set. Tick the box to accept the cost, then press Continue.")
-    return narration_service.start_narration_run(
-        drama_id, engine_name=lines["engine"], model=lines.get("model"), one_narrator=lines["one_narrator"],
-        chapter_from=first, chapter_to=last)["job_id"]
+    append = bool(settings.get("append"))
+    folder = db.drama_dir(drama_id)
+    if append and novel_text.read_pending_lines(folder) is None:
+        return None     # the append added nothing, or a retry after these lines were saved
+    try:
+        if not lines["one_narrator"]:
+            _require_free_or_paid(principal, lines["engine"], lines.get("model"), "makes lines")
+            if not lines["cost_accepted"]:
+                # Priced here, not when added: before the text step has run there is no text to price.
+                cost = narration_service.estimate_tag_cost(drama_id, lines["engine"], lines.get("model"), first, last,
+                                                           append=append)
+                if cost["has_key"] and cost["cap_applies"] and not cost["monthly_cap_set"] and cost["estimated_usd"] > 0:
+                    raise InvalidInputError(
+                        f"Splitting and tagging would cost about ${cost['estimated_usd']:.2f} and no monthly spending "
+                        "cap is set. Tick the box to accept the cost, then press Continue.")
+        return narration_service.start_narration_run(
+            drama_id, engine_name=lines["engine"], model=lines.get("model"), one_narrator=lines["one_narrator"],
+            chapter_from=first, chapter_to=last, **({"append": True} if append else {}))["job_id"]
+    except InvalidInputError:
+        # The pending tail clears its marker when a stopped run had already saved these lines.
+        if append and novel_text.read_pending_lines(folder) is None:
+            return None
+        raise

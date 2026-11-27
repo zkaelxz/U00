@@ -662,7 +662,8 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
             raise ConflictError(
                 "The translation text is not a copy of the first saved chapters (it was pasted, edited or cut), "
                 "so the new chapters can't be added to it automatically. Add them in the Source stage.")
-        if from_chapter is not None and covered != from_chapter - 1:
+        # A text that already holds every saved chapter has nothing to put back: a retried add is a no-op.
+        if from_chapter is not None and covered != from_chapter - 1 and covered != len(chapters):
             raise ConflictError(
                 f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
                 "the new chapters can't be told apart. Add them in the Source stage.")
@@ -688,6 +689,33 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         pending = (waiting.chars if waiting else 0) + len(tail) + 2
         novel_text.write_pending_lines(folder, pending, count)
         return {"char_count": count, "added_chars": len(tail), "pending_chars": pending}
+
+
+def saved_chapter_count(drama_id: int) -> int:
+    """How many chapters the title's saved raw text is split into (0 when none are recorded). Changes nothing."""
+    from sources import chapter_manifest as manifest   # imported late: sources imports this package's neighbours
+    ownership_service.require_drama(drama_id)
+    known = manifest.load(drama_id)
+    return len(known["chapters"]) if known and known.get("chapters") else 0
+
+
+def has_chapters_to_add(drama_id: int) -> bool:
+    """Whether add_new_chapters_from_sources has anything to do (saved chapters past the text, or
+    added text still waiting for lines); it changes nothing. A text the add would refuse counts too,
+    so the refusal is reported rather than skipped."""
+    from sources import pipeline
+    ownership_service.require_drama(drama_id)
+    if novel_text.read_pending_lines(db.drama_dir(drama_id)) is not None:
+        return True
+    try:
+        with pipeline._page_lock(drama_id):
+            chapters = _saved_chapters(drama_id)
+    except NotFoundError:
+        return False
+    except (ConflictError, InvalidInputError):
+        return True
+    covered = _chapters_covered(chapters, _read_novel(drama_id).strip())
+    return covered is None or covered < len(chapters)
 
 
 def _chapters_covered(chapters: list, current: str):

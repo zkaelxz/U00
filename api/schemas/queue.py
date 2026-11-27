@@ -17,9 +17,10 @@ __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAdd
 _QueueStep = Literal["transcribe", "translate", "export"]
 # The download step exists only in the chain Quick video translate adds, and names (the glossary scan),
 # import (a novel link), text and lines only in a title page's one-button run, and follow and run_translate
-# only in the Add box's run (and after a chapter import), run_scanlate only after a comic chapter import; all are shown, never picked.
-_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "lines",
-                         "follow", "run_translate", "run_scanlate"]
+# only in the Add box's run (and after a chapter import), run_scanlate only after a comic chapter import, append
+# only after a phone save to a novel that has lines; all are shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "append",
+                         "lines", "follow", "run_translate", "run_scanlate"]
 
 
 class QueueItem(BaseModel):
