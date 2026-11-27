@@ -905,3 +905,43 @@ class TestTitleProgress:
         _, token = _member("a@example.com")
         for bad in ({}, {"drama_id": "1"}, {"drama_id": True}, {"drama_id": 0}):
             assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json=bad).status_code == 400
+
+
+class TestTitleTranslate:
+    def _phone(self, email, perms=("jobs.start", "lines.edit")):
+        u, _ = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_queues_a_novel_run_without_an_import_step(self, isolated_db, monkeypatch):
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] in ("waiting", "running")
+        steps = [i["step"] for i in page_run_service._title_items({"user_id": u["id"], "is_admin": False,
+                                                                   "permissions": []}, did)]
+        assert "follow" not in steps and "run_translate" in steps
+
+    def test_refuses_a_comic_and_someone_elses_title(self, isolated_db):
+        u, token = self._phone("a@example.com")
+        other, _ = _member("b@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        theirs = db.create_drama(title_en="Theirs", media_type="novel", owner_user_id=other["id"])
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": comic}).status_code == 422
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_needs_a_token_jobs_start_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-translate", json={"drama_id": 1}).status_code == 401
+        u, token = self._phone("a@example.com", perms=("lines.edit",))
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": 1}).status_code == 403
+        _, ok = self._phone("c@example.com")
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(ok), json={}).status_code == 400

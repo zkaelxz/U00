@@ -27,6 +27,7 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from services import page_server
+from api import after_import_plan
 from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
@@ -292,17 +293,45 @@ async def post_report(request: Request):
              summary="Device token: how far the translating of a title the caller saved to has got")
 async def post_title_progress(request: Request):
     principal = request.state.principal
-    return await _handle(request, lambda payload: _title_progress(payload, principal), needs=("library.read",))
+    return await _handle(request, lambda payload: _title_progress(payload, principal), needs=("jobs.start",))
 
 
-def _title_progress(payload: dict, principal) -> dict:
+def _drama_id(payload: dict) -> int:
     drama_id = payload.get("drama_id")
     if isinstance(drama_id, bool) or not isinstance(drama_id, int) or not 1 <= drama_id < 2**63:
         raise page_server.EndpointError(400, "drama_id is required")
+    return drama_id
+
+
+def _title_progress(payload: dict, principal) -> dict:
+    drama_id = _drama_id(payload)
     try:
         return page_run_service.phone_progress(principal, drama_id)
     except NotFoundError as e:
         raise page_server.EndpointError(404, e.message) from None
+
+
+@router.post("/title-translate", dependencies=[require_device_token()],
+             summary="Device token: queue the translating of a novel title the caller saved chapters to")
+async def post_title_translate(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _title_translate(request, payload, principal),
+                         needs=_ENGINE_WRITE)
+
+
+def _title_translate(request: Request, payload: dict, principal) -> dict:
+    drama_id = _drama_id(payload)
+    try:
+        if page_run_service.after_import_kind(principal, drama_id) != "novel":
+            raise page_server.EndpointError(422, "Only a novel title translates after a phone save.")
+        plan = after_import_plan.novel_plan(request, drama_id)
+        return page_run_service.start_after_import(
+            principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
+            follow_import=False)
+    except ServiceError as e:
+        status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)
+                  else 422 if isinstance(e, InvalidInputError) else 409)
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
 
 
 @router.post("/follow", dependencies=[require_device_token()],

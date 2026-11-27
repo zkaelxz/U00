@@ -271,11 +271,12 @@ def phone_progress(principal, drama_id: int) -> dict:
 
 
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
-                       model: Optional[str] = None, names: Optional[dict] = None) -> dict:
+                       model: Optional[str] = None, names: Optional[dict] = None,
+                       follow_import: bool = True) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
     names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits for the import job, so a failed
-    import stops the rest. The caller checks every engine against the paid-engine permission."""
+    import stops the rest; `follow_import` is False for a phone save, which has no import job. The caller checks every engine against the paid-engine permission."""
     from services import sources_import_service
     kind = after_import_kind(principal, drama_id)
     view = after_import_run(principal, drama_id)
@@ -283,8 +284,7 @@ def start_after_import(principal, drama_id: int, engine: str, lines: Optional[di
         return view
     if any(i["status"] in _ACTIVE for i in _title_items(principal, drama_id)):
         raise ConflictError("This title already has a step waiting in the queue. See the Jobs page.")
-    import_job = sources_import_service.import_job_id(drama_id)
-    steps = [(q.FOLLOW, {"job_id": import_job})]
+    steps = [(q.FOLLOW, {"job_id": sources_import_service.import_job_id(drama_id)})] if follow_import else []
     if kind == "comic":
         steps.append((q.RUN_SCANLATE, {"engine": engine}))
     else:

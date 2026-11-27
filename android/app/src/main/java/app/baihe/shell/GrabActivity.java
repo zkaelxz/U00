@@ -1559,6 +1559,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     /** Grab on a text chapter: its raw text is saved into a novel title, where the PC's novel tools translate it. */
     private void saveNovel(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks, String text) {
+        long translate = 0;
+        String translateName = "";
         try {
             say("Saving the chapter");
             JSONObject title = client.resolveTitle(url, titles, chapterLinks, "novel");
@@ -1568,11 +1570,29 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             String where = title.optString("title", "Baihe");
             boolean added = answer.optBoolean("saved", false);
             finishGrab((added ? "Saved the chapter to " : "Already saved in ") + where, true);
+            // The lines are made once per title, so translating waits for the last chapter of this run.
+            if (!cancelRequested && chaptersLeft == 0 && !loadingNext) {
+                translate = title.getLong("drama_id");
+                translateName = where;
+            }
         } catch (BaiheClient.BridgeException e) {
             finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
         } catch (Exception e) {
             finishGrab("Could not save the chapter.");
         }
+        // Outside the try: a failure here must not run finishGrab a second time.
+        if (translate > 0) translateOnPc(client, translate, translateName);
+    }
+
+    /** Asks the PC to translate the novel just saved to, then follows it. A refusal (no limit set, lines already made) is shown, not retried. */
+    private void translateOnPc(BaiheClient client, long dramaId, String name) {
+        try {
+            client.titleTranslate(dramaId);
+        } catch (BaiheClient.BridgeException e) {
+            if (e.status != 409) say(e.getMessage(), GrabUi.Kind.INFO);
+            return;
+        }
+        watchTranslating(dramaId, name);
     }
 
     private void readNovel(BaiheClient client, String text, String language) {
@@ -1979,12 +1999,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 } catch (InterruptedException e) {
                     return;
                 }
-                if (mine != progressWatch || grabbing || isDestroyed()) return;
+                if (mine != progressWatch || grabbing || loadingNext || queueRunning || isDestroyed()) return;
                 try {
                     JSONObject now = new BaiheClient(server, token).titleProgress(dramaId);
                     String state = now.optString("state", "idle");
                     String line = TitleProgress.line(state, now.optString("step", ""), name);
-                    // A run is queued right after the save; a few idle answers in a row mean none was.
+                    // The run was queued a moment ago; a few idle answers in a row mean it is gone.
                     if (line == null) {
                         if (++quiet >= 3) return;
                         continue;
@@ -1992,10 +2012,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     quiet = 0;
                     if (!line.equals(lastLine)) {
                         lastLine = line;
-                        say(line, TitleProgress.settled(state) ? GrabUi.Kind.OK : GrabUi.Kind.BUSY);
+                        say(line, TitleProgress.settled(state) ? ("done".equals(state) ? GrabUi.Kind.OK : GrabUi.Kind.INFO) : GrabUi.Kind.BUSY);
                     }
                     if (TitleProgress.settled(state)) return;
-                } catch (BaiheClient.BridgeException e) {
+                } catch (BaiheClient.BridgeException | RuntimeException e) {
                     // The status is only a convenience; a refused or unreachable server ends it quietly.
                     return;
                 }
@@ -2032,7 +2052,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
             // A chapter where every page was refused must not send the chain on to the next.
             finishGrab(out.toString(), stored > 0);
-            if (stored > 0 && !cancelRequested) watchTranslating(dramaId, title.optString("title", "Baihe"));
         } catch (BaiheClient.BridgeException e) {
             finishGrab(e.getMessage());
         } catch (Exception e) {
