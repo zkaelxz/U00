@@ -68,7 +68,7 @@ test('docked, the menu is 216px wide with the page to its right, and its rows ar
   expect(Math.round(box.width)).toBe(Math.round(216 * scale))
   // The header is the first thing in the page column: it starts clear of the menu.
   expect((await page.locator('.app-header').boundingBox())!.x).toBeGreaterThanOrEqual(box.width)
-  await expect(rail.locator('nav a svg:visible, .rail-toggle svg:visible')).toHaveCount(0)
+  await expect(rail.locator('nav a svg:visible')).toHaveCount(0)
   await expect(rail.locator('nav a').first()).toBeVisible()
   const mark = (await rail.locator('.rail-brand-mark').boundingBox())!
   expect([Math.round(mark.width), Math.round(mark.height)]).toEqual([30, 30])
@@ -114,20 +114,23 @@ test('docked, Jobs shows a quiet 0 that is not part of its name, and the running
   await expect(page.getByTestId('rail-jobs-zero')).toHaveCount(0)
 })
 
-test('docked, the two bottom rows are words: a decorative chevron and Minimize navigation, then Float navigation', async ({ page }) => {
+test('docked, the two bottom rows are plain bold rows with icons: Minimize navigation, then Float navigation', async ({ page }) => {
   await docked('docked')({ page })
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/#/library')
   const minimize = page.getByRole('button', { name: 'Minimize navigation' })
   const float = page.getByRole('button', { name: 'Float navigation' })
-  await expect(minimize).toHaveText('‹Minimize navigation')
-  await expect(minimize.locator('span[aria-hidden="true"]')).toHaveText('‹')
+  await expect(minimize).toHaveText('Minimize navigation')
   await expect(float).toHaveText('Float navigation')
-  const scale = (await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize))) / 15
+  const rowSize = await page.locator('.app-rail nav a').first().evaluate((el) => getComputedStyle(el).fontSize)
   for (const button of [minimize, float]) {
-    expect(await button.evaluate((el) => parseFloat(getComputedStyle(el).fontSize))).toBeCloseTo(14 * scale, 1)
+    await expect(button).toHaveCSS('font-size', rowSize)
+    await expect(button).toHaveCSS('font-weight', '600')
+    await expect(button).toHaveCSS('border-top-width', '0px')
+    expect(Math.round((await button.boundingBox())!.height)).toBeGreaterThanOrEqual(44)
+    await expect(button.locator('svg')).toBeVisible()
   }
-  await expect(page.locator('.app-rail svg:visible')).toHaveCount(0)
+  await expect(page.locator('.app-rail nav svg:visible')).toHaveCount(0)
 })
 
 test('floating and minimized keep their icons', async ({ page }) => {
