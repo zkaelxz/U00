@@ -20,7 +20,7 @@ A session that writes code never reviews its own change.
 
 ## Reviewer
 
-A fresh session (a subagent or `/code-review`) that did not write the change. The review policy is `docs/engineering-standards.md`, section 3; the existing roles in `.claude/agents/` (for example `security-reviewer`, which runs on Opus) apply it.
+A fresh session (a subagent or `/code-review`) that did not write the change. In short: every finding is verified and carries file:line evidence, with no quota. The full policy is `docs/engineering-standards.md`, section 3, and the roles in `.claude/agents/` (for example `security-reviewer`, which runs on Opus) apply it; read those only if you have room for them.
 
 - Check correctness, scope (nothing beyond the task), tests that can fail, and the privacy rule (real names, nicknames, emails, usernames, PC names, LAN IPs, work titles, in code, tests, docs, commit messages, PR text).
 - Check the rules in `CLAUDE.md`, "Rules learned from real bugs". Auth, routes, fetches and secrets: use `security-reviewer`.
