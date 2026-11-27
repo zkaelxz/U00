@@ -710,3 +710,21 @@ class TestLastPage:
         assert _client().post(f"{BASE}/last-pages", json={}).status_code == 401
         _, token = _member("a@example.com")
         assert _client().post(f"{BASE}/last-page", headers=_auth(token), json={"url": "file:///x"}).status_code == 422
+
+
+class TestSites:
+    def test_lists_switched_on_sources_with_a_front_page(self, isolated_db):
+        from sources import registry
+        _, token = _member("a@example.com")
+        r = _client().get(f"{BASE}/sites", headers=_auth(token))
+        assert r.status_code == 200
+        sites = r.json()["sites"]
+        assert sites and all(s["url"].startswith("https://") for s in sites)
+        assert {s["kind"] for s in sites} <= {"comic", "novel", "video"}
+        listed = {s["name"] for s in sites}
+        registry.set_enabled("rawkuma", False)
+        after = {s["name"] for s in _client().get(f"{BASE}/sites", headers=_auth(token)).json()["sites"]}
+        assert listed - after == {"Rawkuma"}
+
+    def test_needs_a_device_token(self, isolated_db):
+        assert _client().get(f"{BASE}/sites").status_code == 401

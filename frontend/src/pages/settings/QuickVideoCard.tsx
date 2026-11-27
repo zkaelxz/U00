@@ -2,7 +2,7 @@
  * Settings > One-click translate: the profile the "From a link" button on Make subtitles uses.
  * Profiles are the saved translation profiles; New and Edit open the same editor as Library tools.
  */
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { getQuickVideoSettings, setQuickVideoProfile } from '../../api/quickVideo'
 import { getPresets } from '../../api/library'
@@ -11,6 +11,7 @@ import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
 import { buttonClass } from '../../components/uiClasses'
+import { useCancellableEffect } from '../../hooks/useCancellableEffect'
 import { useHolds } from '../../hooks/useHolds'
 import type { LibraryPreset } from '../../types/library'
 import type { QuickVideoSettings } from '../../types/quickVideo'
@@ -25,9 +26,11 @@ export function QuickVideoCard() {
   const [error, setError] = useState<unknown>(null)
   const [reload, setReload] = useState(0)
 
-  useEffect(() => {
+  useCancellableEffect((cancelled) => {
     // Settings first: on a fresh install that read is what makes the Default profile the list must include.
-    getQuickVideoSettings().then((s) => getPresets().then((p) => { setSettings(s); setPresets(p.items) })).catch(setError)
+    getQuickVideoSettings()
+      .then((s) => getPresets().then((p) => { if (!cancelled()) { setSettings(s); setPresets(p.items) } }))
+      .catch((e: unknown) => { if (!cancelled()) setError(e) })
   }, [reload])
 
   const open = (existing: LibraryPreset | null) => {

@@ -25,8 +25,9 @@ from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_reques
                              _interrupted_by_stop_locked, is_cancel_requested, stage_ticker, update_progress)
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
-from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
-                            _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked, _sort_fair_locked)
+from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _left_unstarted_hooks,
+                            _refresh_queue_messages_locked, _release_gpu_slot, _run_finish_hooks,
+                            _running_gpu_job_count_locked, _sort_fair_locked)
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
 
@@ -298,6 +299,7 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
             result_queue.discard()
         except Exception:
             pass
+    refund = None
     with _lock:
         job = _jobs.get(job_id)
         # "queued": a promoted process job whose Process could not even be
@@ -308,6 +310,13 @@ def _fail_start(job_id, gpu_touching, exc, proc=None, result_queue=None, run=Non
             job["error"] = error_msg
             job["finished_at"] = time.time()
             _mirror_locked(job_id)
+            # A job that never ran must not use up one of its starter's jobs for the day.
+            refund = (job.get("owner_user_id"), job.pop("daily_day", None))
+    if refund is not None:
+        try:
+            user_caps.refund_daily_start(*refund)
+        except Exception as exc:
+            _warn(f"job {job_id}: could not give back its daily start", exc)
     applog.get_logger().error(f"job {job_id} failed to start: {error_msg}")
     _release_gpu_slot(job_id, gpu_touching, run)
     _promote_next_queued_gpu_job()
@@ -428,8 +437,7 @@ def _next_promotable_entry_locked(dropped):
         job = _jobs.get(entry["job_id"])
         if job is None or job["status"] != "queued":
             _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
-            if entry.get("on_finish") is not None:
-                dropped.append((entry["job_id"], entry["on_finish"]))
+            dropped.extend(_left_unstarted_hooks(entry))
             continue
         if not user_caps.held(_jobs, entry):
             return entry
@@ -468,7 +476,8 @@ def _promote_one_queued_gpu_job(dropped):
                     run["gpu_touching"], entry["description"],
                     run.get("owner_user_id"), start_method=entry.get("start_method"),
                     run_settings=run.get("run_settings"),
-                    initial_result=run.get("result"), line_fields=_line_fields(run))
+                    initial_result=run.get("result"), line_fields=_line_fields(run),
+                    daily_day=run.get("daily_day"))
                 run = _jobs[job_id]
             except Exception as exc:
                 # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -509,7 +518,7 @@ def _promote_one_queued_gpu_job(dropped):
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
                           start_method=None, run_settings=None,
-                          initial_result=None, line_fields=None):
+                          initial_result=None, line_fields=None, daily_day=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -522,7 +531,7 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
     _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
                                run_settings, result=initial_result, process=proc,
-                               line_fields=line_fields)
+                               line_fields=line_fields, daily_day=daily_day)
     _mirror_locked(job_id)
     return proc, result_queue
 

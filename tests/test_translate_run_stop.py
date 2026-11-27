@@ -5,7 +5,7 @@ import pytest
 from engine_backends import translate_pipeline
 from core import Line
 from engine_backends.fallback import FallbackEngine
-from engine_backends.shared import ContentModerationBlocked, TranslationCancelled
+from engine_backends.shared import ContentModerationBlocked, LLMTaskTimeout, TranslationCancelled
 
 
 class _Http(Exception):
@@ -141,3 +141,21 @@ class TestRateLimitBudget:
             sh._cancellable_sleep = orig
         # The exponential 2 s, 4 s, each up to a quarter longer (jitter).
         assert 2.0 <= slept[0] <= 2.5 and 4.0 <= slept[1] <= 5.0 and len(slept) == 2
+
+
+class TestStopDuringSmallerRetry:
+    def test_a_timeout_on_the_half_size_retry_stops_the_run_and_says_why(self):
+        class Engine(_Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls += 1
+                if self.calls == 1:
+                    return ["en a", "en b", "", ""]
+                raise LLMTaskTimeout("task deadline hit")
+
+        engine = Engine()
+        out, errors = translate_pipeline.translate_lines_with_engine(
+            _lines(8), engine, {}, batch_size=4, check_replies=False, save_cb=lambda ls: None)
+        # First batch + one half-size retry; the other half and batch 2 are never sent.
+        assert engine.calls == 2
+        assert any("task deadline hit" in e["error"] for e in errors)
+        assert [ln.en for ln in out[4:]] == [""] * 4

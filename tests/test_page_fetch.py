@@ -48,6 +48,15 @@ class TestShellDetection:
         html = '<html><head>' + ('<script></script>' * 12) + '</head><body><div id="root"></div></body></html>'
         assert pf.looks_like_unrendered_shell(html, "No results found")["is_shell"] is True
 
+    def test_short_chinese_empty_state_with_app_container_is_a_shell(self):
+        html = '<html><body><div id="app"></div></body></html>'
+        assert pf.looks_like_unrendered_shell(html, "暂无数据")["is_shell"] is True
+
+    def test_long_chapter_quoting_an_empty_state_phrase_is_not_a_shell(self):
+        text = "他找了很久,可是没有找到那封信。" * 200
+        html = '<html><body><div id="app">' + text + '</div></body></html>'
+        assert pf.looks_like_unrendered_shell(html, text)["is_shell"] is False
+
 
 class TestImageOnlyPages:
     """A comic chapter page is images, scripts and a "Loading" caption: little text,
