@@ -39,12 +39,13 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const ALL = ['Library', 'Library tools', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs', 'Settings']
+const BEFORE_ADMIN = ['Library', 'Library tools', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs']
+const ALL = [...BEFORE_ADMIN, 'Settings']
 
 
 describe('nav registry per persona', () => {
   it('owner at the PC', () => {
-    expect(labels(personas['owner at the PC'])).toEqual([...ALL, 'People and access', 'Diagnostics'])
+    expect(labels(personas['owner at the PC'])).toEqual([...BEFORE_ADMIN, 'People and access', 'Diagnostics', 'Settings'])
   })
 
   it('household member: no People and access, no Diagnostics', () => {
@@ -52,11 +53,11 @@ describe('nav registry per persona', () => {
   })
 
   it('member holding admin.diagnostics: Diagnostics without People and access', () => {
-    expect(labels(personas['member with admin.diagnostics'])).toEqual([...ALL, 'Diagnostics'])
+    expect(labels(personas['member with admin.diagnostics'])).toEqual([...BEFORE_ADMIN, 'Diagnostics', 'Settings'])
   })
 
   it('remote admin: People and access, no Diagnostics (the household listener never reports admin.diagnostics), no Assistant', () => {
-    expect(labels(personas['remote admin'])).toEqual([...ALL, 'People and access'])
+    expect(labels(personas['remote admin'])).toEqual([...BEFORE_ADMIN, 'People and access', 'Settings'])
   })
 
   it('auth unavailable: every page but the admin ones until /me answers', () => {
@@ -138,7 +139,7 @@ describe('left rail', () => {
       [null, ['Library', 'Library tools']],
       ['Find and add', ['Find & Add', 'Updates']],
       ['Tools', ['Text', 'Live']],
-      ['System', ['Jobs', 'Settings', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant']],
+      ['System', ['Jobs', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant', 'Settings']],
     ])
   })
 

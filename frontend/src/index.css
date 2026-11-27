@@ -531,13 +531,24 @@ dd { margin: 0; }
 .error-banner { border-color: var(--bad); color: var(--bad); }
 /* A long message must not squeeze Dismiss into a one-letter column. */
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
-.remote-health-banner { margin: var(--space-3) var(--space-4) 0; align-items: center; flex-wrap: wrap; }
-.remote-health-banner.warn { border-color: var(--warn); background: var(--warn-soft); }
-.remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
-.remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; padding-block: var(--space-1); border-color: var(--warn); background: var(--warn-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-/* A phone can't open the title tooltip, so there the note wraps rather than hiding how the limit ends. */
-@media (max-width: 640px) { .paid-limit-banner { white-space: normal; } }
+/* WarnBar (components/WarnBar.tsx): one thin line. With a mouse a long message is cut short and its full text is the
+   tooltip; a touch screen can't hover, so there it wraps instead. */
+.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
+.warn-bar-bad { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
+.warn-bar-shell { margin: var(--space-3) var(--space-4) 0; }
+.warn-bar-text { flex: 1 1 auto; min-width: 0; }
+.warn-bar-action { flex: none; white-space: nowrap; }
+.warn-bar-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-lg); cursor: pointer; }
+.warn-bar-close:hover:not(:disabled) { background: none; color: var(--text); }
+@media (hover: hover) and (min-width: 641px) {
+  .warn-bar-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (hover: none) {
+  .warn-bar-action > :is(a, button), .warn-bar-close { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (max-width: 640px) {
+  .warn-bar-action > :is(a, button), .warn-bar-close { min-height: 44px; display: inline-flex; align-items: center; }
+}
 
 .stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 

@@ -41,7 +41,7 @@ test.describe('500px wide', () => {
     await menuButton(page).click()
     await expect(drawer(page)).toBeVisible()
     await page.evaluate(() => {
-      const page = document.querySelector('.app-main > :not(header):not(.remote-health-banner)')!
+      const page = document.querySelector('.app-main > :not(header):not(.warn-bar)')!
       ;(page as unknown as { __mark: string }).__mark = 'same node'
     })
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -49,7 +49,7 @@ test.describe('500px wide', () => {
     await expect(menuButton(page)).toHaveCount(0)
     await expect(drawer(page)).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.classList.contains('nav-locked'))).toBe(false)
-    expect(await page.evaluate(() => (document.querySelector('.app-main > :not(header):not(.remote-health-banner)') as unknown as { __mark?: string }).__mark)).toBe('same node')
+    expect(await page.evaluate(() => (document.querySelector('.app-main > :not(header):not(.warn-bar)') as unknown as { __mark?: string }).__mark)).toBe('same node')
     await page.setViewportSize({ width: 500, height: 800 })
     await expect(menuButton(page)).toBeVisible()
   })
