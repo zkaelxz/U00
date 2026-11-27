@@ -110,11 +110,20 @@ def test_training_data_is_counted_per_source_language(isolated_db):
                         {"region_id": 3, "before": {"source_text": "d"}, "after": {"source_text": "e"}}])
     _comic_page(comic, [{"op": "create", "region_id": 4, "after": {"x": 1}},
                         {"op": "edit", "region_id": 4, "before": {"source_text": ""}, "after": {"source_text": "c"}}])
+    long_title = db.create_drama(title_en="L", source_language="zh")
+    db.save_lines(long_title, [Line(idx=0, start=0.0, end=1800.0, zh="甲", en="e"),
+                               Line(idx=1, start=1800.0, end=5400.0, zh="乙", en="e")])
+    long_ids = [ln.id for ln in db.load_line_objects(long_title)]
+    db.record_source_edits(long_title, [
+        {"line_id": long_ids[0], "path": "person", "before_zh": "甲", "after_zh": "申"},
+        {"line_id": long_ids[0], "path": "person", "before_zh": "申", "after_zh": "由"},
+        {"line_id": long_ids[1], "path": "person", "before_zh": "乙", "after_zh": "已"}])
     counts = svc.training_data_counts()
     assert counts["english_fixes"] == {"ja": 1}
     # Only a person's fixes count, with the length of the lines they fixed (1 s each here).
-    assert counts["source_fixes"] == {"ja": 2}
-    assert counts["fixed_audio_hours"] == {"ja": round(2 / 3600, 2)}
+    assert counts["source_fixes"] == {"ja": 2, "zh": 3}
+    # Every fix counts, but a line fixed twice adds its audio once: 0.5 h + 1 h.
+    assert counts["fixed_audio_hours"] == {"ja": round(2 / 3600, 2), "zh": 1.5}
     # The entry with no "op" predates ops and is an edit.
     assert counts["source_text_fixes"] == {"ko": 3}
     assert counts["pages_with_box_edits"] == {"ko": 2}
