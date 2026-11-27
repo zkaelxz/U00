@@ -13877,10 +13877,10 @@ export interface components {
          * @description Each field is absent until the person has chosen one on some device.
          */
         AccountPreferences: {
-            /** Theme */
-            theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
             /** Live Focus */
             live_focus?: boolean | null;
+            /** Theme */
+            theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
         };
         /** ActivityItem */
         ActivityItem: {
