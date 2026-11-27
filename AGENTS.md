@@ -22,6 +22,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
+- Role guides (coder, reviewer, test runner): `docs/agent-roles.md`.
 - Skip list, never read unless the task is about them: `docs/engineering-standards.md`,
   `.test_durations`, `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
