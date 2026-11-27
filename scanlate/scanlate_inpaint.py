@@ -866,6 +866,7 @@ _RULE_MAX_THICKNESS_PX = 6
 _RULE_MIN_LENGTH_PX = 40
 _RULE_LETTERING_GAP_PX = 8
 _RULE_LETTERING_MIN_AREA_PX = 30
+_RULE_LETTERING_MIN_SPAN_PX = 8
 _RULE_SPREAD = 100
 
 
@@ -876,18 +877,21 @@ def _channel_spread(bgr):
     return bgr.max(axis=2) - bgr.min(axis=2)
 
 
-def _beside_coloured_lettering(stats, i, thin) -> bool:
-    """True when a coloured mark that is not itself a thin line lies within a few pixels of
-    component `i`: glow lettering whose dash is as coloured as its letters, where a credit
-    rule has plain dark text beside it."""
+def _beside_coloured_lettering(stats, i, thin: set) -> bool:
+    """True when a glyph-sized coloured mark sits within a few pixels of component `i` with
+    the line at its middle: glow lettering whose dash is as coloured as its letters. A credit
+    rule has plain dark text beside it, and its ornaments do not sit on its line."""
     import cv2
     x, y, w, h = (int(v) for v in stats[i, :4])
+    middle = y + h / 2
     gap = _RULE_LETTERING_GAP_PX
     for j in range(1, len(stats)):
-        if j == i or j in thin or stats[j, cv2.CC_STAT_AREA] < _RULE_LETTERING_MIN_AREA_PX:
+        if j == i or j in thin:
             continue
         jx, jy, jw, jh = (int(v) for v in stats[j, :4])
-        if jx < x + w + gap and x - gap < jx + jw and jy < y + h + gap and y - gap < jy + jh:
+        if min(jw, jh) < _RULE_LETTERING_MIN_SPAN_PX or stats[j, cv2.CC_STAT_AREA] < _RULE_LETTERING_MIN_AREA_PX:
+            continue
+        if jx < x + w + gap and x - gap < jx + jw and jy + 0.25 * jh <= middle <= jy + 0.75 * jh:
             return True
     return False
 
@@ -902,9 +906,9 @@ def drop_colour_rules(mask, roi) -> None:
     coloured = (_channel_spread(roi) > _RULE_SPREAD).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
     rules = np.zeros(mask.shape, np.uint8)
-    thin = [i for i in range(1, count)
+    thin = {i for i in range(1, count)
             if min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) <= _RULE_MAX_THICKNESS_PX
-            and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _RULE_MIN_LENGTH_PX]
+            and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _RULE_MIN_LENGTH_PX}
     for i in thin:
         if not _beside_coloured_lettering(stats, i, thin):
             rules[labels == i] = 1
