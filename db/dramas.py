@@ -38,6 +38,9 @@ def create_drama(**fields) -> int:
         # NULL means "never chosen" (transcribe_options_service.effective_separate_vocals); the
         # column's own default of 0 would read as an explicit Off.
         fields.setdefault("separate_vocals_first", None)
+        # The column's own default is 300 in every library, which would pin each new title to the
+        # old app default instead of letting it follow _DEFAULT_TUNING.
+        fields.setdefault("min_silence_ms", None)
         now = clock.utcnow().isoformat()
         fields["created_at"] = now
         fields["updated_at"] = now

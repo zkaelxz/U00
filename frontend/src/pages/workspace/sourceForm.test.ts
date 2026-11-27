@@ -19,7 +19,7 @@ import {
 } from './sourceForm'
 
 const base: AdvancedValues = {
-  beam_size: '5', min_silence_ms: '300', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '0', hardsub_interval_sec: '1',
+  beam_size: '5', min_silence_ms: '1000', min_pause_sec: '0.35', vad_threshold: '0.5', hallucination_silence_sec: '0', hardsub_interval_sec: '1',
   alignment_method: 'whisper_diff', asr_backend_choice: 'whisper', separation_backend: 'auto',
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false,
   whisper_repeat_guard: false, split_by_sentences: false, vocabulary_hint: false, use_groq: false, prompt: '',

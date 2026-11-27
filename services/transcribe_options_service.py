@@ -37,7 +37,7 @@ from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputEr
 _DEFAULT_TUNING = {
     "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
     "beam_size": 5,
-    "min_silence_ms": 300,
+    "min_silence_ms": 1000,
     "vad_threshold": 0.5,
     "hallucination_silence_sec": core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
     "min_pause_sec": segment_splitting.MIN_WORD_GAP_SECONDS,
@@ -338,7 +338,7 @@ def apply_run_overrides(drama: dict, overrides) -> dict:
 
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.
 # A field a Lab run leaves out takes what a title with nothing saved uses, never
-# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
+# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 1000).
 LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
                      "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
                      "separate_vocals_first", "decode_randomness")

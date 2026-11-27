@@ -57,7 +57,7 @@ def whisper_calls(monkeypatch):
 class TestResolveLabOptions:
     def test_nothing_given_is_the_apps_default_not_the_functions(self):
         resolved = opts.resolve_lab_options(None)
-        assert resolved["min_silence_ms"] == 300       # transcribe_for_timing's own default is 2000
+        assert resolved["min_silence_ms"] == 1000      # transcribe_for_timing's own default is 2000
         assert resolved["beam_size"] == 5
         assert resolved["vad_threshold"] == 0.5
         assert resolved["sensitivity_preset"] == "normal"
@@ -68,7 +68,7 @@ class TestResolveLabOptions:
     def test_a_field_given_wins_and_the_rest_keep_the_default(self):
         resolved = opts.resolve_lab_options({"beam_size": 8, "difficult_audio": True, "initial_prompt": " 桜 "})
         assert (resolved["beam_size"], resolved["difficult_audio"], resolved["initial_prompt"]) == (8, True, "桜")
-        assert resolved["min_silence_ms"] == 300
+        assert resolved["min_silence_ms"] == 1000
 
     @pytest.mark.parametrize("bad", [
         {"beam_size": 11}, {"min_silence_ms": 5}, {"vad_threshold": 0.95}, {"sensitivity_preset": "loud"},
@@ -95,7 +95,7 @@ class TestWhisperArmRunsAtRealSettings:
         _run([{"engine": "whisper", "model": "large-v3"}])
         (call,) = whisper_calls
         assert call["beam_size"] == 5
-        assert call["min_silence_duration_ms"] == 300
+        assert call["min_silence_duration_ms"] == 1000
         assert call["vad_threshold"] == 0.5
         assert call["initial_prompt"] == ""
         assert call["repeat_guard"] is False
@@ -169,7 +169,7 @@ class TestRunRecordsWhatItRan:
         (sid,) = _run([{"engine": "whisper", "model": "large-v3", "options": {"beam_size": 2}}])["session_ids"]
         ctx = svc.get_run(sid)["run"]["context_settings"]
         assert ctx["transcribe_options"]["beam_size"] == 2
-        assert ctx["transcribe_options"]["min_silence_ms"] == 300
+        assert ctx["transcribe_options"]["min_silence_ms"] == 1000
         assert ctx["app_version"] == "0.1.0-test"
         assert ctx["model_identity"] == {"model": "large-v3"}
         assert ctx["text_normaliser"] == 2
@@ -350,7 +350,7 @@ class TestApiShapes:
     def test_options_endpoint_lists_the_app_defaults(self, isolated_db):
         got = svc.get_options()
         assert got["transcribe_defaults"] == opts.lab_option_defaults()
-        assert got["transcribe_defaults"]["min_silence_ms"] == 300
+        assert got["transcribe_defaults"]["min_silence_ms"] == 1000
 
 
 class TestRunSafety:
