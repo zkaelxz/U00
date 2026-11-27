@@ -47,6 +47,10 @@ from scanlate.scanlate_translate import translate_page_bubbles
 from scanlate.scanlate_watermark import flag_site_marks
 
 
+# About twice the usual GPU engine load (9 s on the V100), so a slow load still finishes.
+_GPU_WARM_WAIT_SECONDS = 25
+
+
 def warm_models(detect_backend: str = "auto") -> list:
     """Loads the balloon detector, the text eraser and the Chinese and Japanese text readers now, from weights
     already on disk, so the first page after the app starts does not wait for them (about 6 s of
@@ -67,6 +71,10 @@ def warm_models(detect_backend: str = "auto") -> list:
     if _chinese_reader_on_disk():
         import ocr
         ocr._run_rapidocr("medium", blank, allow_download=False)
+        # The read above ran on the CPU while the GPU engine started; wait here, off the first
+        # page's path, so that page reads on the GPU.
+        import ocr_worker
+        ocr_worker.start_gpu_load("medium", wait=_GPU_WARM_WAIT_SECONDS)
         warmed.append("Chinese text reader")
     import ocr
     if ocr.manga_ocr_on_disk():

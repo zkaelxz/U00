@@ -4,6 +4,7 @@
 import multiprocessing
 import sys
 import threading
+import time
 import types
 
 import pytest
@@ -48,7 +49,7 @@ def test_medium_reads_on_the_gpu_and_other_keys_on_the_cpu(worker):
     seen = []
     _fake_rapidocr(worker, lambda params, source: seen.append(params["gpu"]) or _Result("ok"))
     assert ocr_worker.read("medium", "/fake/page.png").txts == ("ok",)
-    ocr_worker.read("ko", "/fake/page.png")
+    ocr_worker.read("small", "/fake/page.png")
     assert seen == [True, False]
 
 
@@ -93,7 +94,7 @@ def test_a_cpu_failure_is_an_error_with_secrets_removed(worker):
         raise ValueError("bad image sk-ant-api03-" + "x" * 40)
     _fake_rapidocr(worker, engine)
     with pytest.raises(RuntimeError) as err:
-        ocr_worker.read("ko", "/fake/a.png")
+        ocr_worker.read("small", "/fake/a.png")
     assert "ValueError" in str(err.value) and "x" * 40 not in str(err.value)
 
 
@@ -243,9 +244,9 @@ def test_pages_are_read_on_the_cpu_while_the_gpu_helper_loads(helpers):
     assert gpu.sent[-1][:2] == ("read", "medium:gpu") and len(cpu.sent) == 1
 
 
-def test_korean_never_starts_the_gpu_helper(helpers):
-    helpers.scripts.append(_FakeConn([("ok", ("ko",), None, None)]))
-    assert ocr_worker.read("ko", "/fake/a.png").txts == ("ko",)
+def test_the_small_pair_never_starts_the_gpu_helper(helpers):
+    helpers.scripts.append(_FakeConn([("ok", ("small",), None, None)]))
+    assert ocr_worker.read("small", "/fake/a.png").txts == ("small",)
     assert len(helpers.starts) == 1 and not ocr_worker._gpu.alive()
 
 
@@ -282,21 +283,21 @@ def test_a_gpu_helper_that_went_away_hands_the_read_to_the_cpu(helpers):
 
 def test_a_cpu_helper_that_went_away_is_started_again_once(helpers):
     helpers.scripts += [_FakeConn([EOFError()]), _FakeConn([("ok", ("again",), None, None)])]
-    assert ocr_worker.read("ko", "/fake/a.png").txts == ("again",)
+    assert ocr_worker.read("small", "/fake/a.png").txts == ("again",)
     assert len(helpers.starts) == 2
 
 
 def test_a_cpu_helper_that_keeps_dying_is_an_error(helpers):
     helpers.scripts += [_FakeConn([EOFError()]), _FakeConn([EOFError()])]
     with pytest.raises(RuntimeError, match="stopped unexpectedly"):
-        ocr_worker.read("ko", "/fake/a.png")
+        ocr_worker.read("small", "/fake/a.png")
 
 
 def test_a_stuck_read_is_stopped(helpers):
     helpers.scripts.append(_FakeConn([]))
     helpers.monkeypatch.setattr(ocr_worker, "READ_TIMEOUT_SECONDS", 0)
     with pytest.raises(RuntimeError, match="too long"):
-        ocr_worker.read("ko", "/fake/a.png")
+        ocr_worker.read("small", "/fake/a.png")
     assert ocr_worker._cpu.child is None
 
 
@@ -400,7 +401,7 @@ def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
         process.alive = conn is not dead
         return process, conn
     helpers.monkeypatch.setattr(ocr_worker, "_start", start)
-    assert ocr_worker.read("ko", "/fake/a.png").txts == ("cpu",)
+    assert ocr_worker.read("small", "/fake/a.png").txts == ("cpu",)
     assert len(helpers.starts) == 2
 
 
@@ -424,8 +425,10 @@ class TestGivingWay:
         self.conn = _FakeConn([])
         ocr_worker._gpu.child = (_FakeProcess(), self.conn)
         ocr_worker._gpu.ready = True
+        ocr_worker._gpu.key = "medium"
         yield
         ocr_worker._gpu.child = None
+        ocr_worker._gpu.key = ""
 
     def test_turning_gpu_use_off_stops_the_gpu_helper(self):
         self.settings["use_gpu"] = False
@@ -453,3 +456,29 @@ def test_a_jobs_own_process_keeps_using_its_loaded_gpu_engine(monkeypatch):
     monkeypatch.setattr(vram, "free_vram_mb", lambda: pytest.fail("measured again"))
     monkeypatch.setitem(ocr_worker._inline_engines(), "medium:gpu", object())
     assert ocr_worker._gpu_allowed("medium")
+
+
+def test_start_gpu_load_waits_for_the_engine_only_when_the_gpu_is_allowed(monkeypatch):
+    import ocr_worker
+    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: False)
+    assert ocr_worker.start_gpu_load("medium", wait=1) is False
+    answers = iter([False, False, True])
+    monkeypatch.setattr(ocr_worker._gpu, "alive", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: next(answers))
+    assert ocr_worker.start_gpu_load("medium", wait=5) is True
+
+
+def test_a_read_waits_for_a_gpu_load_already_under_way_but_not_for_one_it_starts(monkeypatch):
+    import ocr_worker
+    monkeypatch.setattr(ocr_worker._gpu, "alive", lambda: True)
+    monkeypatch.setattr(ocr_worker._gpu, "key", "medium")
+    monkeypatch.setattr(ocr_worker._gpu, "load_started", time.monotonic())
+    answers = iter([False, False, True])
+    monkeypatch.setattr(ocr_worker._gpu, "loading", True)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: next(answers))
+    assert ocr_worker._gpu_ready_or_nearly("medium") is True
+    monkeypatch.setattr(ocr_worker._gpu, "loading", False)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: False)
+    assert ocr_worker._gpu_ready_or_nearly("medium") is False
