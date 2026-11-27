@@ -728,6 +728,33 @@ def test_a_member_past_their_daily_limit_waits_for_tomorrow_without_retrying_eve
     assert _items()[0]["status"] == "running" and jobs.started == [f"transcribe_{a}"]
 
 
+def test_a_full_drive_does_not_cut_short_a_members_daily_limit_rest(jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    free = {"gb": 50}
+    monkeypatch.setattr(user_caps.shutil, "disk_usage",
+                        lambda _p: usage(100 << 30, 0, free["gb"] << 30))
+    capped, other = _member("capped@example.com"), _member("other@example.com")
+    user_caps.set_jobs_per_day(capped["user_id"], 1)
+    user_caps.count_daily_start(capped["user_id"])
+    q.add_item(capped, _drama("A", owner_user_id=capped["user_id"], is_private=1), "transcribe", False, at_pc=True)
+    q.start(None)
+    t0 = q._clock()
+    q.tick(now=t0)
+    with q._lock:
+        rest_until = q._load()["items"][0]["not_before"]
+    assert rest_until == t0 + q.DAILY_LIMIT_RETRY_SECONDS
+
+    free["gb"] = 5
+    q.add_item(other, _drama("B", owner_user_id=other["user_id"], is_private=1), "transcribe", False, at_pc=True)
+    q.tick(now=t0 + 1)
+    with q._lock:
+        capped_item, other_item = q._load()["items"]
+    assert capped_item["not_before"] == rest_until and "tomorrow" in capped_item["reason"]
+    assert "almost out of disk space" in other_item["reason"]
+
+
 def test_members_together_cannot_lock_the_owner_out_of_the_queue(jobs):
     members = [_member(f"m{n}@example.com") for n in range(3)]
     titles = [_drama(f"M{n}", owner_user_id=m["user_id"], is_private=1) for n, m in enumerate(members)]

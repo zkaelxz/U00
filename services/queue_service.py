@@ -1058,7 +1058,9 @@ def _start_next(now: float, deferred=frozenset()) -> None:
                 if rest is not None:
                     shares, seconds = rest
                     for other in doc["items"]:
-                        if other["status"] == WAITING and shares(other):
+                        # A shorter disk rest must not cut short (or relabel) a daily-limit rest.
+                        if (other["status"] == WAITING and shares(other)
+                                and (other.get("not_before") or 0) < now + seconds):
                             other.update(reason=wait_reason, not_before=now + seconds)
             elif status == INTERRUPTED:
                 _finish(item, status, _INTERRUPTED, _clock())
