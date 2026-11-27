@@ -50,10 +50,11 @@ def render(report: dict) -> str:
         out.append("")
     training = report.get("training_data")
     if training:
-        out.append("Training data by source language (enough to learn from?):")
+        out.append("Training data by source language (enough to learn from?); (none) is a deleted title "
+                   "or one with no language set:")
         for key, label in (("english_fixes", "English fixes"), ("source_fixes", "source-text fixes"),
                            ("fixed_audio_hours", "hours of audio in fixed lines"),
-                           ("source_text_fixes", "comic text fixes (last 50 edits a page)"),
+                           ("source_text_fixes", "comic text changes, Redo re-reads included (last 50 edits a page)"),
                            ("pages_with_box_edits", "comic pages with box edits (last 50 edits a page)")):
             counts = training.get(key) or {}
             out.append(f"  {label}: " + (", ".join(f"{k} {v}" for k, v in counts.items()) or "none"))

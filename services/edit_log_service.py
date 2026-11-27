@@ -119,9 +119,10 @@ def _drama_languages(conn) -> dict:
 
 
 def _comic_edit_counts(conn, languages: dict) -> dict:
-    """Per source language: comic regions whose source text a person fixed, and pages where a
-    person moved, drew or removed a box. Read from each page's editor undo list, which keeps only
-    a page's last 50 edits and is cut by other region writes, so these are lower bounds."""
+    """Per source language: comic regions whose source text changed in the editor, and pages where
+    a box was moved, drawn or removed. Read from each page's editor undo list, which keeps only a
+    page's last 50 edits and is cut by other region writes. A Redo re-read is written the same way
+    as a person's fix, so the text count includes those."""
     text_fixes, box_pages = Counter(), Counter()
     for drama_id, raw in conn.execute(
             "SELECT drama_id, edit_history FROM pages WHERE edit_history IS NOT NULL"):
@@ -139,9 +140,11 @@ def _comic_edit_counts(conn, languages: dict) -> dict:
             after = entry.get("after")
             if not isinstance(after, dict):
                 after = {}
-            if entry.get("op") == "edit" and "source_text" in after:
+            # Entries saved before ops were recorded are edits (db/comic_pages reads them the same way).
+            op = entry.get("op", "edit")
+            if op == "edit" and "source_text" in after:
                 text_fixes[language] += 1
-            if entry.get("op") in ("create", "delete") or any(k in after for k in _BOX_FIELDS):
+            if op in ("create", "delete") or any(k in after for k in _BOX_FIELDS):
                 boxed = True
         box_pages[language] += boxed
     return {"source_text_fixes": dict(text_fixes.most_common()),

@@ -106,7 +106,8 @@ def test_training_data_is_counted_per_source_language(isolated_db):
     _comic_page(comic, [
         {"op": "edit", "region_id": 1, "before": {"source_text": "a"}, "after": {"source_text": "b"}},
         {"op": "edit", "region_id": 2, "before": {"translated_text": "x"}, "after": {"translated_text": "y"}}])
-    _comic_page(comic, [{"op": "edit", "region_id": 3, "before": {"x": 1}, "after": {"x": 5}}])
+    _comic_page(comic, [{"op": "edit", "region_id": 3, "before": {"x": 1}, "after": {"x": 5}},
+                        {"region_id": 3, "before": {"source_text": "d"}, "after": {"source_text": "e"}}])
     _comic_page(comic, [{"op": "create", "region_id": 4, "after": {"x": 1}},
                         {"op": "edit", "region_id": 4, "before": {"source_text": ""}, "after": {"source_text": "c"}}])
     counts = svc.training_data_counts()
@@ -114,7 +115,8 @@ def test_training_data_is_counted_per_source_language(isolated_db):
     # Only a person's fixes count, with the length of the lines they fixed (1 s each here).
     assert counts["source_fixes"] == {"ja": 2}
     assert counts["fixed_audio_hours"] == {"ja": round(2 / 3600, 2)}
-    assert counts["source_text_fixes"] == {"ko": 2}
+    # The entry with no "op" predates ops and is an edit.
+    assert counts["source_text_fixes"] == {"ko": 3}
     assert counts["pages_with_box_edits"] == {"ko": 2}
     report = svc.corrections_report()
     report["training_data"] = counts
