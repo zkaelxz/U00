@@ -1,5 +1,5 @@
 """
-api/scanlate_schemas.py -- request/response models for the automatic
+api/schemas/scanlate.py -- request/response models for the automatic
 Scanlate routes (api/routers/scanlate_routes.py). No path, filename or key
 field exists on any model.
 """
@@ -7,6 +7,13 @@ field exists on any model.
 from typing import Annotated, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+
+__all__ = [
+    "ScanlateEngine", "ScanlateUploadLimits", "ScanlateConfig", "ScanlateNote",
+    "ScanlateRegion", "ScanlatePageDetail", "ScanlatePageNotes", "ScanlateRunNotes",
+    "ScanlateUploadResult", "ScanlateRunRequest", "ScanlateRegionRedoRequest",
+    "ScanlateRenderRequest", "ScanlateExportRequest", "ScanlateJobStarted",
+]
 
 
 class ScanlateEngine(BaseModel):

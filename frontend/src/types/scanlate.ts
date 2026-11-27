@@ -1,4 +1,4 @@
-// Automatic Scanlate API shapes (api/scanlate_schemas.py); responses come from the generated schema.
+// Automatic Scanlate API shapes (api/schemas/scanlate.py); responses come from the generated schema.
 // No path, file name or key ever comes back from these routes.
 import type { components } from '../api/generated/schema'
 
