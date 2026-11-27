@@ -238,3 +238,10 @@ def test_english_is_not_skipped_when_the_source_is_not_cjk():
 def test_a_sign_read_in_fullwidth_latin_letters_is_already_english():
     regions = [_r("ＡＤＶＥＮＴＵＲＥＲＳ", kind="sign")]
     assert wm.flag_already_english(regions, "ja") == 1
+
+
+def test_a_stamp_the_ocr_read_in_english_is_skipped_whole():
+    stamp = "The fastest webtoon site\nWebtoon Kingdom\nNewtokki468\nHTTPS://NEWTOKKI468.COM"
+    regions = [_r(stamp)]
+    assert wm.flag_site_marks(regions) == 1
+    assert regions[0]["skip"]
