@@ -1,4 +1,4 @@
-// Diagnostics > Packages and installs "Install ffmpeg" (api/routers/diagnostics_ffmpeg_routes.py).
+// Diagnostics > Setup "Install ffmpeg" (api/routers/diagnostics_ffmpeg_routes.py).
 // Starting it is PC only (pcOnlyFetch); the status read is admin.diagnostics and is polled while the job runs.
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import type { FfmpegInstallStatus } from '../types/ffmpegInstall'

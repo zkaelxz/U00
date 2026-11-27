@@ -19,7 +19,7 @@ test('with Developer Mode off the rail has no Benchmark Lab and its page is a no
     if (r.url().includes('/api/benchmark')) benchmarkCalls.push(r.url())
   })
   const devModeAnswer = page.waitForResponse((r) => r.url().includes('/api/assistant/settings'))
-  await page.goto('/#/diagnostics?tab=models')
+  await page.goto('/#/diagnostics?tab=model-status')
   await devModeAnswer
   await openMenu(page)
   await expect(navLink(page, 'Diagnostics')).toBeVisible()

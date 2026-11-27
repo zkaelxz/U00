@@ -1,11 +1,12 @@
 // Pure helpers (and one small hook) for the Diagnostics admin sections and
 // the Settings extension section. Copy lives here so it is unit-tested.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 
 import type { ApiError } from '../../api/client'
 import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
+import { FlatPaneContext } from '../../components/flatPane'
 import type {
   DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
@@ -119,7 +120,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     if (c.browser.found || !optional) {
       add('browser', 'Browser for JavaScript-only sites', c.browser.found,
         `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
-        'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
+        'None found: install Chrome or Edge, or use Install browser support above')
     }
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
@@ -335,5 +336,7 @@ export function useDetailsOpen(): [(el: HTMLElement | null) => void, boolean] {
   const ref = useCallback((el: HTMLElement | null) => {
     if (el) setDetails(el.closest('details'))
   }, [])
-  return [ref, open]
+  // A flat pane has no fold: the body is "open" while its pane is on screen.
+  const pane = useContext(FlatPaneContext)
+  return [ref, details ? open : !!pane?.showing]
 }

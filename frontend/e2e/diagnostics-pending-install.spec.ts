@@ -87,9 +87,8 @@ async function mockPage(page: Page, plan: unknown, planReply?: { status: number;
 
 const openPackages = async (page: Page) => {
   await page.goto('/#/diagnostics?card=packages')
-  const summary = page.locator('summary', { hasText: /^Packages/ }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
-  // locator.all() doesn't wait: without this the groups can be listed before the presets arrive.
+  // The task groups are flat; each task's own details still fold. locator.all() doesn't wait: without this the
+  // tasks can be listed before the presets arrive.
   await expect(page.getByTestId('install-tasks').locator('summary').first()).toBeVisible()
   for (const s of await page.getByTestId('install-tasks').locator('summary').all()) await s.click()
 }

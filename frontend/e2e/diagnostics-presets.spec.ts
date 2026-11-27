@@ -234,9 +234,7 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('gpu-torch')
-  // A mismatch is a problem, so the fold is open by itself.
-  const gpuFold = page.locator('details.section', { has: page.locator('> summary', { hasText: /^GPU PyTorch/ }) })
-  await expect(gpuFold).toHaveJSProperty('open', true)
+  await expect(panel).toBeVisible()
   await expect(panel.locator('.pill')).toHaveText("Versions don't match")
   await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
   await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')

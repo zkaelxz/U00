@@ -2,7 +2,7 @@ import { mockPlainPlan } from './pendingInstallMocks'
 import { expect, test, type Page } from '@playwright/test'
 import { mockDependencyInstall } from './dependencyInstallMock'
 import { openSection } from './diagnosticsInstallsMocks'
-import { openDiagTab } from './diagnosticsTabsNav'
+import { diagSectionHead, openDiagTab } from './diagnosticsTabsNav'
 import { openSettingsGroups } from './settingsNav'
 import { guardWrites } from './mockHelpers'
 
@@ -73,8 +73,9 @@ test('keeps the testids, hides Jobs when empty, and shows the Setup problem firs
   await mockPage(page, { setup: setup({ ffmpeg: { found: false, version: null } }) })
   await page.goto('/#/diagnostics')
   const summary = page.getByTestId('diagnostics-summary')
-  await expect(summary.locator('.pill')).toHaveText(['1 setup problem', '2 of 4 packages', 'No jobs running'])
-  await expect(summary.locator('.pill').first()).toHaveClass(/pill-warn/)
+  // One muted line; a setup problem stands out in bold.
+  await expect(summary).toHaveText('1 setup problem · 2 of 4 packages · No jobs running')
+  await expect(summary.locator('.diag-meta-warn')).toHaveText('1 setup problem')
   // Setup is open on its tab; the problem sorts first with a Problem badge.
   const setupRows = page.getByTestId('setup-rows')
   await expect(setupRows).toBeVisible()
@@ -85,7 +86,7 @@ test('keeps the testids, hides Jobs when empty, and shows the Setup problem firs
   await expect(page.getByTestId('dependency-panel')).toHaveCount(1)
   await expect(page.getByTestId('jobs-summary')).toHaveCount(0)
   const header = await summary.boundingBox()
-  expect(header!.height).toBeLessThan(40) // one line of badges
+  expect(header!.height).toBeLessThan(40) // one line
   expect(unmocked).toEqual([])
 })
 
@@ -117,7 +118,7 @@ test('install: two presses, PC-only header, every admin button waits, then the r
   await expect(page.getByRole('button', { name: 'Install torch' })).toHaveAttribute('aria-describedby', runningId!)
   await expect(page.getByRole('button', { name: 'Install torch' })).toBeDisabled()
   await expect(page.getByRole('button', { name: /Update jieba/ })).toHaveCount(0) // no Update before a check
-  await openDiagTab(page, 'System')
+  await openDiagTab(page, 'Reset library')
   await page.getByLabel(/Type RESET to confirm/).fill('RESET')
   await expect(page.getByRole('button', { name: 'Reset library' })).toBeDisabled()
   await expect(page.locator('.danger-zone')).toContainText('Wait for the install to finish.')
@@ -355,8 +356,8 @@ test('check access asks online only when pressed and links to the terms', async 
     } })
   })
   await page.goto('/#/diagnostics')
-  await expect(page.locator('summary', { hasText: /^Speaker detection/ })).toContainText('Ready') // folded: nothing to do
   await openSection(page, /^Speaker detection/)
+  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('Ready')
   await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
   await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()

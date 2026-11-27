@@ -125,7 +125,7 @@ test('a search for setup kept on Diagnostics links there', async ({ page }) => {
   const others = page.getByRole('navigation', { name: 'On other pages' })
   await others.getByRole('link', { name: 'Diagnostics: Loaded models' }).click()
   await expect(page).toHaveURL(/#\/diagnostics\?card=loaded-models$/)
-  await expect(page.getByRole('tab', { name: 'Models' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Loaded now' })).toHaveAttribute('aria-selected', 'true')
 })
 
 test('a search for who can sign in links to People and access', async ({ page }) => {
@@ -155,8 +155,8 @@ test('Settings has no Ports card; Diagnostics owns the ports', async ({ page }) 
   await expect(page.getByRole('region', { name: 'Ports' })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Open Ports on Diagnostics' })).toHaveCount(0)
   await page.goto('/#/diagnostics?card=ports')
-  await expect(page.getByRole('tab', { name: 'System' })).toHaveAttribute('aria-selected', 'true')
-  await expect(page.locator('summary', { hasText: /^Ports/ })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Resources and ports' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.diag-panel:not([hidden]) .section-title', { hasText: /^Ports/ })).toBeVisible()
 })
 
 test('Advanced lists the keys-file settings as set or not set, never a value', async ({ page }) => {
