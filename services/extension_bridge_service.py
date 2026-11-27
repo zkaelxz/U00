@@ -801,7 +801,8 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
                     for image in repeats]
     job["single"] = len(decoded) == 1
     if not store:
-        quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled)
+        quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled,
+                              device=(principal or {}).get("device_token_id"))
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
     results, failed, stopped = [], [], ""
@@ -815,7 +816,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
             if outcome == "fatal":
                 stopped = value["error"]
         elif not stopped:
-            stopped = "cancelled by the extension"
+            stopped = quick_read_runs.dropped_reason(job["run_id"]) or "cancelled by the extension"
     if store:
         _record_chapter(drama_id, results, source_url, job["run_id"], payload.get("page_titles"))
     return {"pages": results, "skipped": skipped, "failed": failed,

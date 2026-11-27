@@ -16,6 +16,12 @@ _MAX_RUNS = 200
 
 _lock = threading.Lock()
 _runs: dict[str, dict] = {}
+# Why a run was stopped on the PC, so the phone can say so instead of showing a short page count.
+_dropped: dict[str, str] = {}
+
+
+def dropped_reason(run_id: str) -> str:
+    return _dropped.get(run_id, "")
 
 
 def _label(source_url: str) -> tuple[str, str]:
@@ -29,13 +35,16 @@ def _label(source_url: str) -> tuple[str, str]:
 def _forget_old(now: float) -> None:
     for run_id in [k for k, r in _runs.items() if r["finished_at"] and now - r["finished_at"] > _KEEP_FINISHED_SECONDS]:
         del _runs[run_id]
+        _dropped.pop(run_id, None)
     while len(_runs) > _MAX_RUNS:
         del _runs[min(_runs, key=lambda k: _runs[k]["started"])]
 
 
-def begin(run_id: str, owner, source_url: str, pages: int, cancel) -> None:
-    """Counts `pages` more received pages for the run. The first batch of a run drops the same
-    owner's other runs still working (the reader moved on); `cancel(run_id)` stops one."""
+def begin(run_id: str, owner, source_url: str, pages: int, cancel, device=None) -> None:
+    """Counts `pages` more received pages for the run. The first batch of a run drops this reader's
+    other runs still working (the reader moved on); `cancel(run_id)` stops one. A reader is the same
+    account on the same device; where the device is unknown (the PC's own token) only a run on the
+    same page address counts, so a second phone or the PC's own extension is never stopped."""
     if not run_id or pages <= 0:
         return
     now = time.monotonic()
@@ -44,14 +53,17 @@ def begin(run_id: str, owner, source_url: str, pages: int, cancel) -> None:
         _forget_old(now)
         run = _runs.get(run_id)
         if run is None:
-            dropped = [k for k, r in _runs.items() if r["owner"] == owner and r["received"] > r["done"]]
+            dropped = [k for k, r in _runs.items() if r["owner"] == owner and r["received"] > r["done"]
+                       and (r["device"] == device if device is not None else r["source"] == source_url)]
             site, chapter = _label(source_url)
-            run = _runs[run_id] = {"owner": owner, "site": site, "chapter": chapter, "received": 0,
-                                   "done": 0, "started": now, "finished_at": 0.0}
+            run = _runs[run_id] = {"owner": owner, "device": device, "source": source_url, "site": site,
+                                   "chapter": chapter, "received": 0, "done": 0, "started": now,
+                                   "finished_at": 0.0}
         run["received"] += pages
         run["finished_at"] = 0.0
     get_logger().info("Quick read run %s: %d more pages (%s)", run_id[:8], pages, run["site"] or "no site")
     for old in dropped:
+        _dropped[old] = "Stopped on the PC: a newer Quick read started from this phone."
         cancel(old)
         finish(old)
         get_logger().info("Quick read run %s dropped: run %s started for the same reader", old[:8], run_id[:8])
@@ -101,6 +113,7 @@ def drop_run(run_id: str, principal=None) -> dict:
         if run is None or run["received"] <= run["done"] or not _visible(principal, run):
             raise NotFoundError("No such Quick read run")
         left = run["received"] - run["done"]
+    _dropped[run_id] = "Stopped on the PC: dropped from Jobs."
     extension_bridge_service.mark_cancelled(run_id)
     finish(run_id)
     get_logger().info("Quick read run %s dropped from Jobs (%d pages left)", run_id[:8], left)

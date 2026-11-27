@@ -1712,6 +1712,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
                         synchronized (lock) {
                             JSONArray failed = done.optJSONArray("failed");
+                            // Dropped on the PC (from Jobs, or by a newer read): say so instead of a bare page count.
+                            if (firstError[0].isEmpty() && !cancelRequested && done.optString("stopped").startsWith("Stopped on the PC")) {
+                                firstError[0] = done.optString("stopped");
+                            }
                             if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
                                 firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
                             }
