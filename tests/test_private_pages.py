@@ -16,7 +16,7 @@ from services import auth_service
 PUBLIC_HOST = "baihe.example.com"
 SIGN_IN = {"google_client_id": "cid", "google_client_secret": "s3cr3t-value",
            "public_url": f"https://{PUBLIC_HOST}"}
-PAGE = b"<!doctype html><title>Grading</title><script>1</script>"
+PAGE = b"<!doctype html><html><head><title>Grading</title></head><script>1</script>"
 
 
 @pytest.fixture
@@ -47,11 +47,13 @@ def _session(admin: bool, isolated_db):
 
 def test_admin_opens_the_page_sandboxed_and_uncached(folder, isolated_db):
     r = _household().get("/private/pack-1.html", headers=_headers(_session(True, isolated_db)))
-    assert r.status_code == 200 and r.content == PAGE
+    assert r.status_code == 200 and r.content.startswith(b"<!doctype html><html><head><script>")
+    assert r.content.endswith(b"<title>Grading</title></head><script>1</script>")
+    assert b"window.name" in r.content and r.content.index(b"window.name") < r.content.index(b"<script>1")
     assert r.headers["content-type"].startswith("text/html")
     assert r.headers["cache-control"] == "no-store"
     csp = r.headers["content-security-policy"]
-    assert "sandbox allow-scripts" in csp and "allow-same-origin" not in csp
+    assert "sandbox allow-scripts allow-downloads allow-modals" in csp and "allow-same-origin" not in csp
     assert "connect-src" not in csp and "default-src 'none'" in csp
 
 

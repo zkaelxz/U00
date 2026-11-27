@@ -42,8 +42,8 @@ READER_PAGE_HEADERS = (
     ("Cache-Control", "no-store"),
 )
 # A grading page opened from private-pages: the Reader page's policy, plus
-# downloads so a page can save its own results file.
-PRIVATE_PAGE_CSP = READER_PAGE_CSP.replace("sandbox allow-scripts", "sandbox allow-scripts allow-downloads")
+# downloads and prompt() so a page can save or hand over its results.
+PRIVATE_PAGE_CSP = READER_PAGE_CSP.replace("sandbox allow-scripts", "sandbox allow-scripts allow-downloads allow-modals")
 PRIVATE_PAGE_HEADERS = (
     ("Content-Security-Policy", PRIVATE_PAGE_CSP),
     ("X-Frame-Options", "DENY"),
