@@ -477,7 +477,7 @@ def _promote_one_queued_gpu_job(dropped):
                     run.get("owner_user_id"), start_method=entry.get("start_method"),
                     run_settings=run.get("run_settings"),
                     initial_result=run.get("result"), line_fields=_line_fields(run),
-                    daily_day=run.get("daily_day"))
+                    daily_day=run.get("daily_day"), origin_device=run.get("origin_device"))
                 run = _jobs[job_id]
             except Exception as exc:
                 # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -518,7 +518,8 @@ def _promote_one_queued_gpu_job(dropped):
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
                           start_method=None, run_settings=None,
-                          initial_result=None, line_fields=None, daily_day=None):
+                          initial_result=None, line_fields=None, daily_day=None,
+                          origin_device=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
@@ -531,7 +532,8 @@ def _register_process_job(job_id, target, args, gpu_touching, description, owner
     proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
     _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
                                run_settings, result=initial_result, process=proc,
-                               line_fields=line_fields, daily_day=daily_day)
+                               line_fields=line_fields, daily_day=daily_day,
+                               origin_device=origin_device)
     _mirror_locked(job_id)
     return proc, result_queue
 

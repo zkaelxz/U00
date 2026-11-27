@@ -1117,6 +1117,31 @@ class TestNotifyOnCompletion:
         bg.clear_job(job_id)
 
 
+    def test_jobs_remember_the_device_that_started_them(self, monkeypatch):
+        from lib import acting
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        token = acting.bind_request()
+        try:
+            acting.note_acting_principal({"user_id": 7, "device_label": "Baihe phone app"})
+            bg.clear_job("origin_thread")
+            bg.clear_job("origin_process")
+            job_launch.start_job("origin_thread", lambda: None)
+            job_launch.start_process_job("origin_process", lambda q: q.put(("ok", {})), args=())
+        finally:
+            acting.unbind_request(token)
+        _wait("origin_thread")
+        _wait_for_status("origin_process", "running")
+        assert bg.get_status("origin_thread")["origin_device"] == "Baihe phone app"
+        assert bg.get_status("origin_process")["origin_device"] == "Baihe phone app"
+        bg.clear_job("origin_thread")
+        bg.clear_job("origin_process")
+
+        job_launch.start_job("origin_none", lambda: None)
+        _wait("origin_none")
+        assert bg.get_status("origin_none")["origin_device"] is None
+        bg.clear_job("origin_none")
+
+
 class TestJobRecordsMirror:
     """Migration Slice 7: a job's status transitions mirror into db.py's
     cross-process job_records table -- the actual cross-process

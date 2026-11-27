@@ -43,8 +43,8 @@ def acting_user_id():
 
 def acting_device():
     """A coarse name for the device this request came from ("Chrome on
-    Android", "Browser extension"), or None when unknown: the local owner on
-    the PC itself, auth off, a background thread."""
+    Android", "Browser extension"), or None when unknown: auth off, a
+    background thread, or a queued item started later."""
     principal = acting_principal()
     if not principal:
         return None
