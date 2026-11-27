@@ -2,7 +2,7 @@ import { expect, test } from './fixtures'
 import type { Page } from '@playwright/test'
 
 import { withExportLines, withTranslateLines } from './stageLineMocks'
-import { exportBlock, openExportBlock } from './exportBlocks'
+import { exportBlock, mockExportReady, openExportBlock } from './exportBlocks'
 
 // Leaving a stage while its job runs and coming back picks the job up again
 // (useReattachJob). Job starts and job reads are mocked; nothing runs.
@@ -171,6 +171,7 @@ test('a "running" record left by a crashed app does not lock Start', async ({ pa
 })
 
 test('Export media shows the earlier export and a running export on revisit', async ({ page }) => {
+  await mockExportReady(page)
   await page.route('**/api/artifacts/dramas/1/video/info', (route) =>
     route.fulfill({ json: { name: 'burned_video_1.mp4', size: 3 * 1024 * 1024, kind: 'video' } }))
   await page.route('**/api/jobs/audiobook_1', (route) => route.fulfill({ json: job('audiobook_1', 'running') }))
