@@ -85,7 +85,7 @@ for (const width of WIDTHS) {
 
     test('Library tools: tab bar and card bodies are not clipped or flush left', async ({ page }) => {
       await page.goto('/#/library-tools')
-      // A phone shows five or more tabs as a picker; wider screens keep the tab row.
+      // Wider screens list the sections down the side; a phone shows one row that scrolls.
       const tabs = page.getByRole('tablist')
       const picker = page.locator('.ui-tab-picker-btn').first()
       await expect(tabs.or(picker).first()).toBeVisible()
@@ -96,15 +96,21 @@ for (const width of WIDTHS) {
         await pickTab(page, name)
         if (asRow) {
           await expectInside(page.getByRole('tab', { name }), tabs)
-          // Underline tab: the open tab has an accent underline and no filled background.
           const open = () => page.getByRole('tab', { name }).evaluate((t) => {
             const s = getComputedStyle(t)
             return { width: s.borderBottomWidth, color: s.borderBottomColor, bg: s.backgroundColor }
           })
-          // Poll: the border colour transitions in when a tab opens, so the first read can still be transparent.
-          await expect.poll(async () => (await open()).color).not.toBe('rgba(0, 0, 0, 0)')
-          expect((await open()).width).toBe('2px')
-          expect((await open()).bg).toBe('rgba(0, 0, 0, 0)')
+          if ((await tabs.getAttribute('aria-orientation')) === 'vertical') {
+            // The list down the side marks the open section with a tint, not an underline.
+            await expect.poll(async () => (await open()).bg).not.toBe('rgba(0, 0, 0, 0)')
+            expect((await open()).width).toBe('0px')
+          } else {
+            // Underline tab: the open tab has an accent underline and no filled background.
+            // Poll: the border colour transitions in when a tab opens, so the first read can still be transparent.
+            await expect.poll(async () => (await open()).color).not.toBe('rgba(0, 0, 0, 0)')
+            expect((await open()).width).toBe('2px')
+            expect((await open()).bg).toBe('rgba(0, 0, 0, 0)')
+          }
         }
         if (name === 'Organize') continue
         // First visible text of the panel starts well inside the card edge.
