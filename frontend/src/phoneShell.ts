@@ -17,6 +17,8 @@ type Bridge = {
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
+  // Added with the lock-screen controls: an older app build lacks it.
+  mediaState?: (json: string) => void
 }
 
 const bridge = (): Bridge | null => {
@@ -103,5 +105,24 @@ export function shellDiagnostics(): { phone: string; crash: string } | null {
     return { phone: typeof d.phone === 'string' ? d.phone : '', crash: typeof d.crash === 'string' ? d.crash : '' }
   } catch {
     return null
+  }
+}
+
+/** What the Watch page's player is doing, for the phone app's lock-screen controls. Seconds; null while unknown. */
+export type ShellMediaState = {
+  state: 'playing' | 'paused' | 'stopped'
+  position: number
+  duration: number | null
+  rate: number
+  title: string
+  artist: string
+}
+
+/** Tells the app what the player is doing; the time it was read goes with it, so the lock screen's clock can run on from there. */
+export function reportMediaState(s: ShellMediaState): void {
+  try {
+    bridge()?.mediaState?.(JSON.stringify({ ...s, at: Date.now() }))
+  } catch {
+    // The shell went away with the page.
   }
 }

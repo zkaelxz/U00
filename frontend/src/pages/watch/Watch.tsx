@@ -9,6 +9,7 @@ import {
 } from 'react'
 
 import { api } from '../../api/client'
+import { coverUrl } from '../../api/metadata'
 import { readerApi } from '../../api/reader'
 import { listAllLines, listRiskLineIds, patchLine } from '../../api/review'
 import { browserSession } from '../../api/sessionStore'
@@ -49,6 +50,7 @@ import { NowCard } from './NowCard'
 import { WatchParty } from './WatchParty'
 import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
+import { useLockScreen } from './useLockScreen'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
@@ -286,6 +288,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
   const sourceStage = kind ? stageLabel('source', kind) : undefined
   const badge = drama ? titleKindAndLanguages(drama.media_type, drama.source_language) : ''
   const sourceLanguage = drama?.source_language || 'und'
+  useLockScreen(mediaRef, id, playable, { title: drama ? titleOf(drama) : '', artist: drama?.studio || drama?.author || '', artwork: drama?.has_cover_art ? coverUrl(id) : undefined })
 
   return (
     <PageShell
