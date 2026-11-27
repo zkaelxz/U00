@@ -67,7 +67,8 @@ from lib.errors import (
 )
 
 _OCR_ERRORED = "OCR failed on this page, so nothing was saved. Check the OCR backend in Diagnostics."
-_OCR_NO_TEXT = "OCR found no text on this page, so nothing was saved. Redo it after checking the OCR backend."
+_OCR_NO_TEXT = ("OCR found no text on this page, so nothing was saved. If the page has no lettering "
+                "this is expected; if it does, check the OCR backend and redo it.")
 
 
 class _DetectSkipped(Exception):
