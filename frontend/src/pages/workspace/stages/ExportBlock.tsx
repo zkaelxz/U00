@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 
 import { Section } from '../../../components/Section'
 import { readSectionOpen } from '../../../components/sectionStorage'
@@ -6,6 +6,7 @@ import { browserStorage } from '../../../hooks/usePersistedState'
 import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, type ExportBlockId } from '../exportBlocks'
 import { useStage } from '../StageContext'
 import { titleKind } from '../titleKind'
+import { ShownExportBlocks } from './ShownExportBlocks'
 
 interface Props {
   id: ExportBlockId
@@ -19,9 +20,6 @@ interface Props {
   // Progress and the finished file. Rendered outside the fold so a running export is never hidden.
   status?: ReactNode
 }
-
-// The blocks this title shows; the open choice is stored per kind, so one the title hides must not count as remembered.
-export const ShownExportBlocks = createContext<ExportBlockId[]>([])
 
 // One collapsible export. The blocks share an accordion group, so the last one opened is the one remembered
 // open (per title kind) and the page stays short on a phone.
