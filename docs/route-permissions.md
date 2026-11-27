@@ -912,6 +912,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/web-search/status` | library.read |
 | `POST /api/web-search/test` | local_only() |
 | `GET /api/workflow/dramas/{drama_id}/progress` | library.read |
+| `GET /private/{name}` | pages.private |
 | `GET /{path:path}` | public() |
 
 Non-routes: `/api/docs`, `/api/openapi.json` and `/docs/oauth2-redirect` exist only with auth off (loopback-only); with auth on they are not registered, and a request for them is a 401 like any other non-public `/api` path. There are no mounts or WebSocket routes; a future one shows up in the static test as undeclared.
