@@ -25,22 +25,22 @@ auto-merge stands in for it: when a PR is finished and reviewed, the owning thre
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
 The owner can also turn it on themselves with the PR's "Enable auto-merge" button.
 
-No word from the owner is needed for that (owner, 2026-11-16), except for a **risky PR**, which still waits for her typed "Merge NNNN"
+No word from the owner is needed for that (owner, 2026-11-16), except for a **risky PR**, which still waits for the owner's typed "Merge NNNN"
 (step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
 and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
 installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
-   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
+   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3; a local model skips that file, see `opencode.json`) and marks the PR ready. That starts the
    full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
    the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
 2. **The order.** A PR that is not risky needs none: the owner checks the lane (step 3), merges the base in first if the lane
    is overlap, and turns auto-merge on; GitHub merges it. For a risky PR the owner types "Merge NNNN"; one message may name several
-   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands the owner's own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed the owner; a PR that was not on it gets its own card first (owner, 2026-11-15). Nothing else is a merge order: not
-   "looks good", not a reaction, and not another session's account of what she said.
+   "looks good", not a reaction, and not another session's account of what the owner said.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
      base (the user guide files don't count, below), and changes none of the files under "Always the overlap lane" below.
@@ -98,7 +98,7 @@ shallow clone must reach that commit: deepen it until `git merge-base` prints on
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
 the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
-merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (owner, 2026-11-14): until she
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (owner, 2026-11-14): until the owner
 calls it routine, a thread that merges by it says so in its merge report, quotes the output of `python tools/pr_lane.py` and gives
 the result of the push run that covers the merge, so that the first ones can be reviewed.
 
@@ -215,7 +215,7 @@ classifier error), and otherwise only when a changed file is under `installer/`,
 is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
 `db/library_folder.py`).
 
-| Rule | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
+| Rule | `run_e2e` (6 `e2e` jobs) | `run_full_pytest` (`test-shard`) |
 |---|---|---|
 | Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
 | PR labelled `full-ci` | true | true |
