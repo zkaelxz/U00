@@ -1001,7 +1001,10 @@ def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
     ns.notify_job_finished("Library backup", "done", job_id="library_backup", owner_user_id=8)
     ns.notify_job_finished("Library backup", "error", job_id="library_backup2",
                            owner_user_id=7)
-    job_table._jobs["sources_chapter_check"] = {"status": "done", "result": {"new": 2}}
+    from sources import store as sources_store
+    monkeypatch.setattr(sources_store, "followers", lambda: {("a", "s1"): {7}, ("a", "s2"): {0}})
+    job_table._jobs["sources_chapter_check"] = {
+        "status": "done", "result": {"new": 5, "by_series": [["a", "s1", 2], ["a", "s2", 3]]}}
     try:
         ns.notify_job_finished("Checking tracked series for new chapters", "done",
                                job_id=ns.CHAPTER_CHECK_JOB_ID)
@@ -1009,6 +1012,10 @@ def test_in_app_list_follows_job_visibility(env, no_timer, monkeypatch):
         job_table._jobs.pop("sources_chapter_check", None)
     kid = {"user_id": 7, "is_admin": False, "is_local_owner": False}
     assert [e["kind"] for e in ns.list_recent(kid)] == ["chapters", "job_failed", "job_done"]
+    # A member hears only of the series they track, with their own count.
+    assert ns.list_recent(kid)[0]["text"] == "2 new chapters found"
+    assert "chapters" not in [e["kind"] for e in ns.list_recent({"user_id": 8, "is_admin": False})]
+    assert ns.list_recent(None)[0]["text"] == "5 new chapters found"
     assert len(ns.list_recent(None)) == 5
     assert len(ns.list_recent({"user_id": 1, "is_admin": True})) == 5
 

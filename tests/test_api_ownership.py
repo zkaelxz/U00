@@ -640,7 +640,7 @@ class TestDramaIdsInBodies:
 
 
     def test_tracked_series_hide_an_invisible_linked_drama(self, world):
-        # Tracked series are household-wide; the linked private drama's id isn't.
+        # A member sees only the series they track; a linked private drama's id stays hidden.
         from sources import store
         store.track_series("manhuagui", "1", "Priv", drama_id=world["private"])
         store.track_series("manhuagui", "2", "Shared", drama_id=world["shared"])
@@ -651,10 +651,14 @@ class TestDramaIdsInBodies:
             r = client.get("/api/sources/tracked", headers=world[who])
             assert r.status_code == 200, r.text
             return {t["series_id"]: t["drama_id"] for t in r.json()}
-        assert linked("b") == {"1": None, "2": world["shared"], "3": None}
         expected = {"1": world["private"], "2": world["shared"], "3": None}
-        assert linked("a") == expected
+        assert linked("b") == {} and linked("a") == {}
         assert linked("admin") == expected
+        for sid in ("1", "2", "3"):
+            store.follow_series("manhuagui", sid, world["b_id"])
+            store.follow_series("manhuagui", sid, world["a_id"])
+        assert linked("b") == {"1": None, "2": world["shared"], "3": None}
+        assert linked("a") == expected
 
     def test_tracked_drama_link_follows_editability(self, world):
         # The chapter check auto-imports into the linked drama, so linking
@@ -662,7 +666,8 @@ class TestDramaIdsInBodies:
         from sources import store
         for key in ("private", "shared"):
             db.update_drama(world[key], media_type="manhua")
-        store.track_series("manhuagui", "1", "One")
+        store.track_series("manhuagui", "1", "One", follower_id=world["b_id"])
+        store.follow_series("manhuagui", "1", world["a_id"])
         client = _client(_app())
 
         def link(who, drama_id, series="1"):
@@ -684,14 +689,11 @@ class TestDramaIdsInBodies:
         assert [t["drama_id"] for t in r.json()] == [world["shared"]]
 
         # A links their private drama; B's list hides it, and B can't
-        # relink, clear or untrack it (all 404, nothing changed).
+        # relink or clear it (404, nothing changed).
         r = link("a", world["private"])
         assert r.status_code == 200 and r.json()[0]["drama_id"] == world["private"], r.text
         assert link("b", None).status_code == 404
         assert link("b", world["shared"]).status_code == 404
-        r = client.post("/api/sources/tracked", headers=world["b"],
-                        json={"source": "manhuagui", "series_id": "1", "tracked": False})
-        assert r.status_code == 404, r.text
         assert stored() == {"1": world["private"]}
         r = client.get("/api/sources/tracked", headers=world["b"])
         assert [t["drama_id"] for t in r.json()] == [None]
@@ -708,7 +710,8 @@ class TestDramaIdsInBodies:
         # Turning on auto-save for a series linked to a drama B can't edit
         # is refused like relinking it: 404, nothing changed.
         from sources import store
-        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"], follower_id=world["b_id"])
+        store.follow_series("manhuagui", "1", world["a_id"])
         client = _client(_app())
 
         def save(who, on=True):
@@ -727,7 +730,8 @@ class TestDramaIdsInBodies:
     def test_link_to_a_deleted_drama_blocks_nobody(self, world):
         from services import sources_tracking_service as tracking
         from sources import store
-        store.track_series("manhuagui", "1", "One", drama_id=world["private"])
+        store.track_series("manhuagui", "1", "One", drama_id=world["private"],
+                           follower_id=world["b_id"])
         db.delete_drama(world["private"])
         b = {"user_id": world["b_id"], "is_admin": False, "is_local_owner": False}
         assert tracking.set_tracked_drama("manhuagui", "1", None, principal=b)[0]["drama_id"] \
