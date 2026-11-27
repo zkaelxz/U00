@@ -356,7 +356,8 @@ MAX_FIX_ENGLISH_CHARS = 80
 class TermHints:
     """The glossary a session translates with: calling it looks terms up in some texts (for the
     translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none).
-    Names fixed during the stream (add_fix) come first in both: the viewer has just seen the
+    Names fixed during the stream (add_fix) win in both: first in the lookup, and last in the
+    prompt, since Whisper keeps only the end of a long one. The viewer has just seen the
     glossary's or the model's reading go wrong."""
 
     def __init__(self, lookup=None, names: str = ""):
@@ -381,7 +382,7 @@ class TermHints:
         fixed = [s for s, _ in self.fixes() if s not in self._names]
         if not fixed:
             return self._names
-        return "、".join(fixed) + "。" + self._names
+        return self._names + "、".join(fixed) + "。"
 
     def __call__(self, texts):
         text = "\n".join(t for t in texts if isinstance(t, str))

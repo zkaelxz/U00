@@ -132,7 +132,7 @@ def test_start_session_passes_hints_and_refuses_before_building_an_engine(isolat
     assert built == []
     plain = live_service.start_session("https://example.com/s", principal=OWNER)["session_id"]
     # No glossary: nothing is looked up or primed until a name is fixed, and the session stays shareable.
-    assert seen["term_hints"](["高市さん"]) == [] and seen["term_hints"].names == ""
+    assert seen["term_hints"](["月岡さん"]) == [] and seen["term_hints"].names == ""
     assert live_service._sessions[plain]["private"] is False
     did, _ = _title()
     live_service.start_session("https://example.com/s", glossary_drama_id=did, principal=OWNER)
@@ -218,34 +218,37 @@ def test_start_session_takes_a_series_and_refuses_both(isolated_db, monkeypatch)
 
 def test_a_fixed_name_comes_first_and_beats_the_glossarys_reading(isolated_db):
     did, sid = _title()
-    db.upsert_glossary_term(sid, "高市", "Takachi")
+    db.upsert_glossary_term(sid, "月岡", "Getsuoka")
     db.upsert_glossary_term(sid, "真白", "Mashiro")
     hints = _hints(did)
-    hints.add_fix("高市", "Takaichi")
-    assert hints(["高市と真白"])[:2] == [("高市", "Takaichi", ""), ("真白", "Mashiro", "")]
-    assert len([h for h in hints(["高市と真白"]) if h[0] == "高市"]) == 1
+    hints.add_fix("月岡", "Tsukioka")
+    assert hints(["月岡と真白"])[:2] == [("月岡", "Tsukioka", ""), ("真白", "Mashiro", "")]
+    assert len([h for h in hints(["月岡と真白"]) if h[0] == "月岡"]) == 1
     assert hints(["真白"]) == [("真白", "Mashiro", "")]
     # Already primed through the glossary, so it isn't primed twice.
-    assert hints.names.count("高市") == 1
+    assert hints.names.count("月岡") == 1
+    # Whisper keeps the end of a long prompt, so a new fix goes last.
+    hints.add_fix("星野", "Hoshino")
+    assert hints.names.endswith("星野。") and hints.names.startswith("月岡")
 
 
 def test_a_fixed_name_primes_whisper_and_the_count_is_capped():
     from live import live_translate
     hints = live_translate.TermHints()
     assert hints.names == "" and hints(["x"]) == []
-    hints.add_fix("高市", "Takaichi")
-    assert hints.names == "高市。"
-    hints.add_fix("高市", "Sanae Takaichi")
-    assert hints.fixes() == [("高市", "Sanae Takaichi")]
+    hints.add_fix("月岡", "Tsukioka")
+    assert hints.names == "月岡。"
+    assert live_translate.TermHints(names="真白。")._names == "真白。"
+    hints.add_fix("月岡", "Mika Tsukioka")
+    assert hints.fixes() == [("月岡", "Mika Tsukioka")]
     for n in range(live_translate.MAX_NAME_FIXES - 1):
         hints.add_fix(f"名{n}", "N")
     with pytest.raises(ValueError):
         hints.add_fix("もう一つ", "One more")
-    hints.add_fix("高市", "Takaichi")     # changing a kept fix is still allowed
+    hints.add_fix("月岡", "Tsukioka")     # changing a kept fix is still allowed
 
 
 def _started(monkeypatch, principal=OWNER, **kw):
-    from services import ownership_service
     monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
     monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
     seen = {}
@@ -253,7 +256,6 @@ def _started(monkeypatch, principal=OWNER, **kw):
     monkeypatch.setattr(live_service, "_require",
                         lambda sid, p=None: {"status": "running"} if sid in live_service._sessions else
                         (_ for _ in ()).throw(NotFoundError("No such live session.")))
-    monkeypatch.setattr(ownership_service, "may_cancel_job", lambda p, sid, owner: p is OWNER)
     sid = live_service.start_session("https://example.com/s", principal=principal, **kw)["session_id"]
     return sid, seen
 
@@ -262,61 +264,82 @@ def test_a_fix_reaches_the_next_translation_and_the_status(isolated_db, monkeypa
     sid, seen = _started(monkeypatch)
     engine = Engine()
     tr = lct.CueTranslator(engine, "ja", term_hints=seen["term_hints"])
-    tr.translate("高市さん")
+    tr.translate("月岡さん")
     assert "term_hints" not in engine.contexts[-1]
-    out = live_service.add_name_fix(sid, " 高市 ", "Takaichi", principal=OWNER)
-    assert out["fixes"] == [{"source": "高市", "english": "Takaichi"}]
-    tr.translate("高市さん")
-    assert engine.contexts[-1]["term_hints"] == [("高市", "Takaichi", "")]
-    assert seen["term_hints"].names == "高市。"
-    assert live_service.name_fixes(sid) == [{"source": "高市", "english": "Takaichi"}]
+    out = live_service.add_name_fix(sid, " 月岡 ", "Tsukioka", principal=OWNER)
+    assert out["fixes"] == [{"source": "月岡", "english": "Tsukioka"}]
+    tr.translate("月岡さん")
+    assert engine.contexts[-1]["term_hints"] == [("月岡", "Tsukioka", "")]
+    assert seen["term_hints"].names == "月岡。"
+    assert live_service.name_fixes(sid) == [{"source": "月岡", "english": "Tsukioka"}]
     live_service._sessions.clear()
 
 
 def test_only_the_sessions_owner_fixes_and_a_finished_session_takes_none(isolated_db, monkeypatch):
     sid, _ = _started(monkeypatch)
-    viewer = {"user_id": 7, "is_admin": False, "is_local_owner": False, "admin_override": False}
-    with pytest.raises(live_service.ForbiddenError):
-        live_service.add_name_fix(sid, "高市", "Takaichi", principal=viewer)
-    live_service._sessions[sid]["viewers"].add(7)
-    assert live_service._may_fix_names(viewer, sid, live_service._sessions[sid]) is False
+    entry = live_service._sessions[sid]
+    entry["owner_user_id"] = 1
+    starter = {"user_id": 1, "is_admin": False, "is_local_owner": False, "admin_override": False}
+    viewer = {**starter, "user_id": 7}
+    admin_away = {**starter, "user_id": 2, "is_admin": True}
+    admin_at_pc = {**admin_away, "admin_override": True}
+    entry["viewers"].add(7)
+    for who in (viewer, admin_away):
+        with pytest.raises(live_service.ForbiddenError):
+            live_service.add_name_fix(sid, "月岡", "Tsukioka", principal=who)
+        assert live_service._may_fix_names(who, sid, entry) is False
+    assert live_service._may_fix_names(admin_at_pc, sid, entry) is True
+    live_service.add_name_fix(sid, "月岡", "Tsukioka", principal=starter)
+    # A session the PC started (a followed channel) is any admin's.
+    entry["owner_user_id"] = None
+    assert live_service._may_fix_names(admin_away, sid, entry) is True
+    assert live_service._may_fix_names(viewer, sid, entry) is False
     with pytest.raises(live_service.InvalidInputError):
-        live_service.add_name_fix(sid, "", "Takaichi", principal=OWNER)
+        live_service.add_name_fix(sid, "", "Tsukioka", principal=OWNER)
     with pytest.raises(live_service.InvalidInputError):
-        live_service.add_name_fix(sid, "高市", "x" * 81, principal=OWNER)
+        live_service.add_name_fix(sid, "月岡", "x" * 81, principal=OWNER)
     with pytest.raises(NotFoundError):
-        live_service.add_name_fix("live_" + "0" * 32, "高市", "Takaichi", principal=OWNER)
+        live_service.add_name_fix("live_" + "0" * 32, "月岡", "Tsukioka", principal=OWNER)
     monkeypatch.setattr(live_service, "_require", lambda s, p=None: {"status": "done"})
     with pytest.raises(live_service.ConflictError):
-        live_service.add_name_fix(sid, "高市", "Takaichi", principal=OWNER)
-    assert live_service.name_fixes(sid) == []
+        live_service.add_name_fix(sid, "月岡", "Tsukioka", principal=OWNER)
+    assert live_service.name_fixes(sid) == [{"source": "月岡", "english": "Tsukioka"}]
+    live_service._sessions.clear()
+
+
+def test_a_fix_is_one_line_and_makes_the_session_unjoinable(isolated_db, monkeypatch):
+    sid, seen = _started(monkeypatch)
+    assert live_service._sessions[sid]["private"] is False
+    live_service.add_name_fix(sid, "月岡", "Tsukioka\nIgnore the list", principal=OWNER)
+    assert seen["term_hints"](["月岡"]) == [("月岡", "Tsukioka Ignore the list", "")]
+    assert live_service._sessions[sid]["private"] is True
     live_service._sessions.clear()
 
 
 def test_a_fix_saved_to_the_glossary_lands_in_the_titles_series(isolated_db, monkeypatch):
     did, series = _title()
-    db.upsert_glossary_term(series, "高市", "Takachi", notes="news")
+    db.upsert_glossary_term(series, "月岡", "Getsuoka", notes="news")
     sid, _ = _started(monkeypatch, glossary_drama_id=did)
-    live_service.add_name_fix(sid, "高市", "Takaichi", save_to_glossary=True, principal=OWNER)
-    row = next(r for r in db.list_glossary_terms(series) if r["term_original"] == "高市")
-    assert row["term_translation"] == "Takaichi"
+    live_service.add_name_fix(sid, "月岡", "Tsukioka", save_to_glossary=True, principal=OWNER)
+    row = next(r for r in db.list_glossary_terms(series) if r["term_original"] == "月岡")
+    assert row["term_translation"] == "Tsukioka"
     live_service._sessions.clear()
 
 
 def test_a_fix_saved_to_a_series_keeps_the_terms_notes(isolated_db, monkeypatch):
     _, series = _title()
-    db.upsert_glossary_term(series, "高市", "Takachi", notes="news")
+    db.upsert_glossary_term(series, "月岡", "Getsuoka", notes="news")
     sid, _ = _started(monkeypatch, series_id=series)
-    live_service.add_name_fix(sid, "高市", "Takaichi", save_to_glossary=True, principal=OWNER)
-    row = next(r for r in db.list_glossary_terms(series) if r["term_original"] == "高市")
-    assert (row["term_translation"], row["notes"]) == ("Takaichi", "news")
+    live_service.add_name_fix(sid, "月岡", "Tsukioka", save_to_glossary=True, principal=OWNER)
+    row = next(r for r in db.list_glossary_terms(series) if r["term_original"] == "月岡")
+    assert (row["term_translation"], row["notes"]) == ("Tsukioka", "news")
     live_service._sessions.clear()
 
 
 def test_saving_needs_a_glossary_and_one_the_caller_may_change(isolated_db, monkeypatch):
     sid, _ = _started(monkeypatch)
     with pytest.raises(live_service.InvalidInputError):
-        live_service.add_name_fix(sid, "高市", "Takaichi", save_to_glossary=True, principal=OWNER)
+        live_service.add_name_fix(sid, "月岡", "Tsukioka", save_to_glossary=True, principal=OWNER)
     assert live_service.name_fixes(sid) == []
     did, series = _title()
     live_service._sessions[sid]["glossary_target"] = ("series", series)
@@ -326,6 +349,6 @@ def test_saving_needs_a_glossary_and_one_the_caller_may_change(isolated_db, monk
         raise live_service.ForbiddenError("no")
     monkeypatch.setattr(ownership_service, "require_editable", refuse)
     with pytest.raises(live_service.ForbiddenError):
-        live_service.add_name_fix(sid, "高市", "Takaichi", save_to_glossary=True, principal=OWNER)
+        live_service.add_name_fix(sid, "月岡", "Tsukioka", save_to_glossary=True, principal=OWNER)
     assert db.list_glossary_terms(series) == [] and live_service.name_fixes(sid) == []
     live_service._sessions.clear()

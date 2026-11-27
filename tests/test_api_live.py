@@ -410,7 +410,7 @@ def test_fixing_a_name_is_the_sessions_starter_only(fake_live, monkeypatch):
     importer = _headers("media.import_url", email="imp@example.com", revoke=("lines.edit",))
     sid = c.post("/api/live/sessions", json={"url": URL, "engine": "fake"}, headers=importer).json()["session_id"]
     assert _wait(lambda: background_jobs.is_running(sid))
-    fix = {"source": "高市", "english": "Takaichi"}
+    fix = {"source": "月岡", "english": "Tsukioka"}
     other = _headers("media.import_url", email="other@example.com")
     assert c.post(f"/api/live/sessions/{sid}/names", json=fix, headers=other).status_code == 404
     assert c.post(f"/api/live/sessions/{sid}/names", json={**fix, "save_to_glossary": True},

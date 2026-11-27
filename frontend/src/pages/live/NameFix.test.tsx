@@ -6,11 +6,11 @@ import { NameFix } from './NameFix'
 describe('NameFix', () => {
   it('starts as one button and lists the names fixed so far', () => {
     const html = renderToStaticMarkup(
-      <NameFix sessionId="live_x" fixes={[{ source: '高市', english: 'Takaichi' }, { source: '真白', english: 'Mashiro' }]} hasGlossary lang="ja" />,
+      <NameFix sessionId="live_x" fixes={[{ source: '月岡', english: 'Tsukioka' }, { source: '真白', english: 'Mashiro' }]} hasGlossary lang="ja" />,
     )
     expect(html).toContain('Fix a name')
     expect(html).not.toContain('<form')
-    expect(html).toContain('高市</span> → Takaichi')
+    expect(html).toContain('月岡</span> → Tsukioka')
     expect(html).toContain(', <span lang="ja">真白')
   })
 

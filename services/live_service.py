@@ -856,8 +856,9 @@ def add_name_fix(session_id, source, english, save_to_glossary=False, principal=
     term into the glossary the session was started with (NotFoundError/ForbiddenError as the glossary
     routes give), and is refused for a session started without one."""
     job = _require(session_id, principal)
-    source = source.strip() if isinstance(source, str) else ""
-    english = english.strip() if isinstance(english, str) else ""
+    # One line each: a line break would end the prompt's "- source -> English" row.
+    source = " ".join(source.split()) if isinstance(source, str) else ""
+    english = " ".join(english.split()) if isinstance(english, str) else ""
     if not source or not english:
         raise InvalidInputError("Both the name as heard and the right name are needed.")
     if len(source) > live_translate.MAX_FIX_SOURCE_CHARS or len(english) > live_translate.MAX_FIX_ENGLISH_CHARS:
@@ -877,6 +878,10 @@ def add_name_fix(session_id, source, english, save_to_glossary=False, principal=
         hints.add_fix(source, english)
     except ValueError:
         raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
+    with _lock:
+        # Like a picked glossary: someone starting the same stream later gets their own session,
+        # not captions shaped by this person's fixes.
+        (_sessions.get(session_id) or {})["private"] = True
     return {"session_id": session_id, "fixes": [{"source": s, "english": e} for s, e in hints.fixes()]}
 
 
@@ -894,10 +899,16 @@ def _save_fix_to_glossary(principal, target, source, english) -> None:
 
 
 def _may_fix_names(principal, session_id, entry) -> bool:
+    """The session's starter, or whoever may change anything (the PC, an admin at the PC). Unlike
+    Stop, an admin away from the PC may not: a fix changes what the starter reads, it stops nothing.
+    A session the PC started itself (a followed channel) counts as every admin's own."""
+    if ownership_service.may_override(principal):
+        return True
+    owner = entry.get("owner_user_id")
     uid = ownership_service.user_id(principal)
-    if uid in entry.get("viewers", ()) and uid != entry.get("owner_user_id"):
-        return False
-    return ownership_service.may_cancel_job(principal, session_id, entry.get("owner_user_id"))
+    if owner is None:
+        return bool(principal.get("is_admin"))
+    return uid is not None and uid == owner
 
 
 def name_fixes(session_id) -> list:
