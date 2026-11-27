@@ -47,7 +47,7 @@ Testing is risk-based. Details, gotchas and CI facts live in `docs/testing-and-c
 - Work on your own branch. Never push to a branch you were not told to use.
 - Never force-push, rewrite published history, skip hooks or checks (`--no-verify`), or delete branches, worktrees or files you did not create.
 - Never commit generated or session-local folders (for example `.claude/worktrees/`, temporary screenshot folders, `node_modules`).
-- Merging: push and open a draft PR into `baihe-subtitler`; when it is finished and reviewed, the thread that owns the PR turns on auto-merge (squash) only after the owner has OK'd the fix, and after the owner types "Merge NNNN" if it is a risky PR, and GitHub merges it once the required checks (`test`, `browser-tests`) are green (root `CLAUDE.md`; `docs/testing-and-ci.md`, "Merge flow").
+- Merging: push and open a draft PR into `baihe-subtitler`; when it is finished and reviewed, the thread that owns the PR turns on auto-merge (squash) once the independent review passes, and only after the owner types "Merge NNNN" if it is a risky PR, and GitHub merges it once the required checks (`test`, `browser-tests`) are green (root `CLAUDE.md`; `docs/testing-and-ci.md`, "Merge flow").
 - Secrets, tokens and keys never appear in code, URLs, logs, errors, commits or docs (root `CLAUDE.md`, "Rules learned from real bugs").
 - Destructive or hard-to-reverse actions (deleting data, restoring backups, dropping tables) need the user's explicit go-ahead unless the task already grants it.
 - Delegating does not widen the user's requested scope, and does not give a subagent any authority its lead lacks.
