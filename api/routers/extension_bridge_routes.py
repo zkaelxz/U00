@@ -126,12 +126,11 @@ async def _streamed(work, heartbeat: bool = False, run_id: str = "") -> Streamin
     loop = asyncio.get_running_loop()
     ended = False
 
+    stream = extension_bridge_service.stream_opened(run_id) if run_id else 0
+
     def closed(lost: bool):
         if run_id:
-            extension_bridge_service.stream_closed(run_id, lost)
-
-    if run_id:
-        extension_bridge_service.stream_opened(run_id)
+            extension_bridge_service.stream_closed(run_id, stream, lost)
     lines: asyncio.Queue = asyncio.Queue()
 
     def put(item):

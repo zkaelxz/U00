@@ -802,9 +802,10 @@ class TestStreamedAnswerLost:
         import asyncio
         from api.routers import extension_bridge_routes as routes
         heard = []
-        monkeypatch.setattr(extension_bridge_service, "stream_opened", lambda run_id: heard.append(("open", run_id)))
+        monkeypatch.setattr(extension_bridge_service, "stream_opened",
+                            lambda run_id: heard.append(("open", run_id)) or 7)
         monkeypatch.setattr(extension_bridge_service, "stream_closed",
-                            lambda run_id, lost: heard.append(("closed", run_id, lost)))
+                            lambda run_id, stream, lost: heard.append(("closed", run_id, stream, lost)))
 
         async def go():
             first_line = asyncio.Event()
@@ -832,14 +833,14 @@ class TestStreamedAnswerLost:
             time.sleep(0.3)
             write({"done": {}})
 
-        assert self._serve(monkeypatch, work, True) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", True)]
+        assert self._serve(monkeypatch, work, True) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, True)]
 
     def test_an_answer_that_reaches_its_last_line_is_not_lost(self, monkeypatch):
         def work(write):
             write({"page": {"key": "p0"}})
             write({"done": {}})
 
-        assert self._serve(monkeypatch, work, False) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", False)]
+        assert self._serve(monkeypatch, work, False) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, False)]
 
 
 class TestQuickReadRunRoutes:

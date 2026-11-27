@@ -394,28 +394,36 @@ _stream_events = itertools.count(1)
 
 
 def stream_run_id(payload) -> str:
-    """The run a streamed Quick read belongs to; "" for a saved send, which goes on as it always has."""
-    return "" if bool(payload.get("store", True)) else _run_id(payload)
+    """The run a streamed Quick read belongs to, or "". Only a caller that asked for the heartbeat
+    (the phone) is watched: the desktop extension cuts its own calls at 4.5 minutes and sends the
+    pages again later, so its pages must go on being read and remembered. A saved send goes on as
+    it always has."""
+    if bool(payload.get("store", True)) or payload.get("heartbeat") is not True:
+        return ""
+    return _run_id(payload)
 
 
-def stream_opened(run_id: str) -> None:
+def stream_opened(run_id: str) -> int:
+    """The stream's number, which `stream_closed` takes."""
     with _streams_lock:
         state = _streams.setdefault(run_id, {"open": 0, "lost": False})
         state["open"] += 1
         state["lost"] = False
         state["heard"] = next(_stream_events)   # a drop still counting down for this run no longer applies
+        return state["heard"]
 
 
-def stream_closed(run_id: str, lost: bool) -> None:
+def stream_closed(run_id: str, stream: int, lost: bool) -> None:
     """`lost`: the answer ended before its last line (the caller went away, or the heartbeat limit).
     Once no stream of the run is open and one was lost, the run is dropped unless the phone is
-    heard from again within the grace."""
+    heard from again within the grace. A stream older than the newest one opened is not counted
+    as lost: the phone came back after it."""
     with _streams_lock:
         state = _streams.get(run_id)
         if state is None:
             return
         state["open"] = max(state["open"] - 1, 0)
-        state["lost"] = state["lost"] or lost
+        state["lost"] = state["lost"] or (lost and stream >= state["heard"])
         if state["open"]:
             return
         if not state["lost"]:
@@ -730,30 +738,28 @@ _in_flight_lock = threading.Lock()
 _SHARE_CHECK_SECONDS = 1.0
 
 
-def _claim_or_share(key: str, job: dict, turn) -> tuple[threading.Event | None, dict | None]:
+def _claim_or_share(key: str, turn) -> tuple[threading.Event | None, dict | None]:
     """(claim, None): this request reads the page and must `_release_claim` it. (None, answer): a
-    request that was already reading it answered. (None, None): this run was stopped meanwhile."""
+    request that was already reading it answered. (None, None): this request stopped meanwhile."""
     stepped_aside = False
     while True:
         with _in_flight_lock:
             working = _in_flight.get(key)
             if working is None:
                 claim = _in_flight[key] = threading.Event()
-        if working is None:
-            # The other request may have remembered its answer between our cache look and the claim.
-            hit = _cached_quick_read(key)
-            if hit is not None:
-                _release_claim(key, claim)
-            return (None, hit) if hit is not None else (claim, None)
+                return claim, None
         if not stepped_aside:
-            # A waiting page holds no turn, so two requests waiting on each other's pages cannot stall.
+            # Only the read turn is let go: every other wait on a page is bounded, so a page waiting
+            # here never holds up another request's page that it is itself waiting for.
             turn.step_aside()
             stepped_aside = True
         while not working.wait(_SHARE_CHECK_SECONDS):
-            if _run_cancelled(job["run_id"]):
+            if turn.stopping():
                 return None, None
         hit = _cached_quick_read(key) or _disk_cached(key)
         if hit is not None:
+            # The next page's translation is given this page's lines, as if it had been read here.
+            turn.keep([{**region, "skip": region.get("left_alone")} for region in hit.get("regions") or ()])
             return None, hit
         # The other request failed or got only part of the page, which is never remembered: read it here.
 
@@ -781,14 +787,17 @@ def _translate_one(image: dict, job: dict, turn):
         cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
     claim = None
     if cached is None and cache_key is not None and not job.get("redo"):
-        claim, cached = _claim_or_share(cache_key, job, turn)
+        claim, cached = _claim_or_share(cache_key, turn)
         if claim is None and cached is None:
             return "stopped", None
-    if cached is not None:
-        _log_page_time(cached, job, started)
-        return "page", {**cached, "key": image["key"], "url": image["url"],
-                        **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
     try:
+        if claim is not None:
+            # The request that had it may have remembered its answer between our cache look and the claim.
+            cached = _cached_quick_read(cache_key)
+        if cached is not None:
+            _log_page_time(cached, job, started)
+            return "page", {**cached, "key": image["key"], "url": image["url"],
+                            **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
         return _translate_fresh(image, job, turn, cache_key, started)
     finally:
         if claim is not None and cache_key is not None:
