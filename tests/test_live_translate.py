@@ -738,6 +738,12 @@ class TestDedupOverlap:
         lt.dedup_overlap([_seg(0.5, 1.5, "你好")], 0.0, "你好", on_outcome=seen.append)
         assert seen == []
 
+    def test_silent_overlap_reports_no_outcome(self):
+        # Nothing was heard in the overlap, so the exact match had nothing to fail on.
+        seen = []
+        lt.dedup_overlap([_seg(3.0, 4.0, "你好")], 2.0, "我们明天去", on_outcome=seen.append)
+        assert seen == []
+
     def test_segments_starting_after_the_overlap_are_never_matched(self):
         # "好的" said AFTER the boundary is new speech even though the
         # previous chunk's tail also ended with "好的".

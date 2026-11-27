@@ -292,7 +292,7 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
 
     on_outcome("matched" or "fallback"): called once when a previous tail was
     compared with this chunk's start, so a session can count how often the exact
-    match failed. Not called when there was nothing to compare.
+    match failed. Not called when either side had no words to compare.
     """
     segments = list(segments)
     if overlap_seconds <= 0 or not segments:
@@ -320,7 +320,9 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
         if cut is not None:
             break
 
-    if on_outcome:
+    # An empty head (silent or dropped overlap audio) gave the exact match nothing to
+    # compare, so it is not a failure of the match.
+    if on_outcome and head_tokens:
         on_outcome("fallback" if cut is None else "matched")
     if cut is None:
         covered = overlap_seconds if covered_seconds is None else min(covered_seconds, overlap_seconds)
