@@ -11,11 +11,12 @@ and cancelled jobs don't count.
 """
 
 import contextlib
+import shutil
 import threading
 import time
 
 import db
-from lib.errors import RateLimitedError
+from lib.errors import ConflictError, RateLimitedError
 
 MAX_RUNNING_JOBS_PER_USER = 2
 MAX_QUEUED_JOBS_PER_USER = 10
@@ -61,6 +62,26 @@ def count_daily_start(owner_user_id, today: str | None = None) -> None:
                 "It starts again tomorrow, or the PC owner can raise it.")
         return {"day": day, "n": n + 1}
     db.update_app_setting(JOBS_TODAY_KEY.format(owner_user_id), take_one, default={})
+
+
+# Matches the default of the "free disk space" PC alert. A member's download, import or dub can
+# write gigabytes, and nobody is at the PC to notice the drive filling, so their jobs stop
+# starting before the library drive is nearly full. The owner's own jobs are never held back.
+MEMBER_MIN_FREE_GB = 10
+
+
+def refuse_if_disk_low(owner_user_id) -> None:
+    """Raises ConflictError (409) when a member would start a job while the library drive has
+    less than MEMBER_MIN_FREE_GB free. An unreadable drive is not a reason to refuse."""
+    if owner_user_id is None:
+        return
+    try:
+        free_gb = shutil.disk_usage(db.LIBRARY_DIR).free / 1024 ** 3
+    except OSError:
+        return
+    if free_gb < MEMBER_MIN_FREE_GB:
+        raise ConflictError("This PC is almost out of disk space, so new jobs can't start right now. "
+                            "Try again later, or ask the PC owner to free some space.")
 
 
 _refusing = threading.local()
