@@ -63,6 +63,12 @@
   --radius-lg: var(--radius);
   --radius-pill: 999px;
   --radius-panel: 14px;
+  /* Spacing roles. Screens use these instead of raw paddings so Compact density has four values to change, not every literal. */
+  --gap-inline: var(--space-2);
+  --gap-stack: var(--space-3);
+  --pad-block: var(--space-4);
+  --gap-section: var(--page-gap);
+  --measure-form: 40rem;
   /* One type scale, "Comfortable": the root is 15px on a phone and 15.4px on wider windows, and everything is rem, so browser zoom scales it.
      --text-xs (about 13px) is for badges and tiny marks only; running text is --text-sm (15px) or larger. */
   --text-xs: 0.8rem;
@@ -74,6 +80,13 @@
   /* Subtitle text people edit and read closely (Review zh/en, textareas). */
   --text-edit: 1.1333rem;
   --leading: 1.5;
+  /* Type roles: a screen picks a role, not a size. The size tokens above stay as the underlying scale. */
+  --type-meta: var(--text-xs);
+  --type-body: var(--text-sm);
+  --type-label: var(--text-sm);
+  --type-title: var(--text-lg);
+  --type-page: var(--text-2xl);
+  --leading-tight: 1.2;
   --leading-cjk: 1.6;
   --weight-medium: 500;
   --weight-bold: 600;
@@ -82,6 +95,8 @@
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
+  /* Selected rows and tinted boxes: mixed with the page colour so dark, OLED and sepia get the same step as light. */
+  --tint-accent: color-mix(in srgb, var(--accent) 10%, var(--bg));
   /* Calm motion: short, no bounce. The global reduced-motion rule below turns all of it off. */
   --dur-1: 100ms;
   --dur-2: 160ms;
@@ -225,6 +240,15 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
   src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+/* The same file as Figtree, cut to U+0000-00FF so CJK lines can put Latin letters and digits first: leaving out U+2000-206F keeps Chinese curly quotes and the ellipsis full width. */
+@font-face {
+  font-family: 'Figtree Latin';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
+  unicode-range: U+0000-00FF;
+}
 @font-face {
   font-family: 'Fraunces';
   font-style: normal;
@@ -276,10 +300,11 @@ html[data-width='full'] { --content-max: none; --content-max-wide: none; }
 html[data-text='small'] { font-size: 87.5%; }
 html[data-text='large'] { font-size: 106.25%; }
 html[data-text='larger'] { font-size: 118.75%; }
-/* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
-:lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
-:lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }
-:lang(ko) { font-family: var(--font-ko), var(--font-sans); line-height: var(--leading-cjk); }
+/* CJK text uses each language's system fonts; Latin letters and digits inside it come from Figtree so names and numbers match the rest of the app. */
+:lang(zh) { font-family: 'Figtree Latin', var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
+:lang(ja) { font-family: 'Figtree Latin', var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); line-break: strict; }
+/* keep-all stops Korean breaking inside words; break-word still lets a word longer than its box wrap instead of overflowing. */
+:lang(ko) { font-family: 'Figtree Latin', var(--font-ko), var(--font-sans); line-height: var(--leading-cjk); word-break: keep-all; overflow-wrap: break-word; }
 body {
   margin: 0 auto;
   /* The frost wash is painted on body, which is only as tall as its content: without this a short page shows a flat band under the wash. */
@@ -500,7 +525,7 @@ dd { margin: 0; }
 .remote-health-banner.warn { border-color: var(--warn); background: var(--warn-soft); }
 .remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
 .remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; border-color: var(--warn); background: var(--warn-soft); }
+.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; padding-block: 5px; border-color: var(--warn); background: var(--warn-soft); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
@@ -931,7 +956,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .badge.bad { color: var(--bad); background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
-.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
+.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); background: none; border: 1px solid transparent; border-top-color: var(--border); border-radius: 0; box-shadow: none; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .card-heading { display: grid; gap: 2px; min-width: 0; }
 .card-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }
@@ -1015,7 +1040,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
-.continue-title { font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.continue-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 /* The placeholder's tile, text and button as bars: --border, because the tile's own fill is the skeleton colour.
    A text bar is drawn a little shorter than its line (clipped, so the tile keeps its height) and two lines read as

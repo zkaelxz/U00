@@ -12,7 +12,7 @@ export function PaidLimitBanner() {
   const s = useSession()
   if (s.status !== 'ready' || !s.me.paid_limit_reached) return null
   return (
-    <div className="banner banner-prose paid-limit-banner" role="status" data-testid="paid-limit-banner">
+    <div className="banner banner-prose paid-limit-banner" role="status" data-testid="paid-limit-banner" title={PAID_LIMIT_BANNER}>
       {PAID_LIMIT_BANNER}
     </div>
   )
