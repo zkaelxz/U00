@@ -31,9 +31,11 @@ def get_status():
     return svc.get_status()
 
 
-@router.get("/download", dependencies=[local_only()], response_class=Response,
+# The files are the same public source as the repo, with no token in them, so a member who may use
+# the extension can fetch them from any device to set it up on their own computer.
+@router.get("/download", dependencies=[require_permission("extension.send")], response_class=Response,
             responses={200: {"content": {"application/zip": {}}}, **error_responses(404)},
-            summary="PC only: the browser extension as a zip to unpack and load")
+            summary="The browser extension as a zip to unpack and load")
 def get_download():
     return Response(svc.extension_zip(), media_type="application/zip",
                     headers={"Content-Disposition": 'attachment; filename="baihe-extension.zip"'})

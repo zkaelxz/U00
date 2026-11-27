@@ -19,6 +19,8 @@ test('adds a device, shows its token once with a copy button, then hides it for 
   await expect(card).toContainText('Home desktop')
   await expect(card).toContainText('Last used 2 hours ago · network 198.51.100.x')
   await expect(card).toContainText('Revoked yesterday')
+  await expect(card.getByTestId('extension-setup')).toContainText('Set up on another computer')
+  await expect(card.getByRole('link', { name: 'Download extension (.zip)' })).toHaveAttribute('href', '/api/extension/download')
 
   await card.getByRole('button', { name: 'Add device' }).click()
   await expect(card).toContainText('Name the device')

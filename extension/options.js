@@ -30,10 +30,10 @@ function serverOrigin(text) {
   }
 }
 
-function describeConnection(data) {
+function describeConnection(data, serverUrl = "") {
   const { dramas, engine_configured: engineConfigured } = data;
   const count = dramas?.length ?? 0;
-  const stale = staleExtensionNote(data);
+  const stale = staleExtensionNote(data, serverUrl);
   return `Connected to Baihe. ${pluralize(count, "drama")} available.` +
     (engineConfigured ? "" : NO_ENGINE_HINT) + (stale ? ` ${stale}` : "");
 }
@@ -53,7 +53,7 @@ async function saveAndTest() {
   say("Saved. Testing…");
   const result = await chrome.runtime.sendMessage({ type: "health" });
   if (isFailure(result)) return say(failureMessage(result, "Couldn't reach the app."), true);
-  say(describeConnection(result.data));
+  say(describeConnection(result.data, serverUrl));
 }
 
 document.getElementById("save").addEventListener("click", saveAndTest);

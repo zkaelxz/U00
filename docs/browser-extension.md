@@ -346,8 +346,11 @@ Edge) reach Baihe through the household address, in three parts:
    loopback only), and the worker then calls `<address>/api/ext-bridge/*` with
    `Authorization: Bearer <device token>`, no cookies and no redirects. "Open
    in Baihe" opens that address. Remote setup: a signed-in member makes a token
-   under Settings > Sharing and devices, loads the `extension/` folder
-   unpacked (copy it from the repo), and pastes the household address and token.
+   under Settings > Sharing and devices > Remote access keys, downloads the
+   extension there (`GET /api/extension/download`: any signed-in member with `extension.send`; the
+   zip holds no token), loads it unpacked, and pastes the household address and token. That copy is
+   not updated by itself: the popup and options say when Baihe ships a newer version and give the
+   download address.
 
 The PC-only shared token above is unchanged and still what the extension
 on the PC itself uses. Port 8756 is never routed by the reverse proxy.

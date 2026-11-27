@@ -28,7 +28,7 @@ import type { AdminDeviceToken, DeviceToken, DeviceTokenList } from '../../types
 import { copyFallbackText } from '../diagnostics/diagnosticsAdmin'
 import '../diagnostics/diagnostics.css'
 import {
-  ADMIN_DEVICE_NOTE, DEFAULT_EXPIRY_DAYS, DEVICES_NOTE, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
+  ADMIN_DEVICE_NOTE, DEFAULT_EXPIRY_DAYS, SETUP_STEPS, SETUP_UPDATE_NOTE, DEVICES_NOTE, EXPIRY_CHOICES, MAX_DEVICE_LABEL_CHARS, NO_SEND_PERMISSION, SHOWN_ONCE_WARNING,
   activeCount, adminTokensBlock, extensionDevicesView, labelProblem, tokenDetails,
 } from './extensionDevicesModel'
 
@@ -45,10 +45,26 @@ export function ExtensionDevicesCard() {
         <p className="settings-note">
           {DEVICES_NOTE}
         </p>
+        {view.canCreate && <SetupBlock />}
         {view.own && <OwnDevices canCreate={view.canCreate} block={adminTokensBlock(session, pc)} />}
         {view.all && <AllDevices />}
       </div>
     </Card>
+  )
+}
+
+function SetupBlock() {
+  return (
+    <div data-testid="extension-setup">
+      <h2 className="settings-subhead subhead">Set up on another computer</h2>
+      <ol className="settings-note">
+        {SETUP_STEPS.map((step) => <li key={step}>{step}</li>)}
+      </ol>
+      <p>
+        <a className={buttonClass()} href="/api/extension/download" download="baihe-extension.zip">Download extension (.zip)</a>
+      </p>
+      <p className="muted">{SETUP_UPDATE_NOTE}</p>
+    </div>
   )
 }
 
