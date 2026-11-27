@@ -616,3 +616,13 @@ class TestDarkStripErase:
     def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
         assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
         assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None
+
+
+def test_light_lettering_mask_reaches_past_a_coloured_edge():
+    import cv2
+    import numpy as np
+    from scanlate import scanlate_inpaint
+    page = np.full((160, 200), 40, np.uint8)
+    cv2.rectangle(page, (80, 60), (120, 100), 255, -1)
+    mask = scanlate_inpaint._lettering_mask(page)
+    assert mask[80, 76] > 0 and mask[80, 124] > 0 and mask[80, 40] == 0

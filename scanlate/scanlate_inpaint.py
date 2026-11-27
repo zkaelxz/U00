@@ -45,6 +45,10 @@ def background_is_dark(gray_roi) -> bool:
     return float(np.median(gray_roi)) < 100
 
 
+_LIGHT_LETTERING_GROW_ITERATIONS = 5
+_LIGHT_LETTERING_BIG_BOX_PX = 100
+
+
 def _lettering_mask(gray_roi):
     """uint8 mask (255 = erase) of the lettering in a gray crop, grown past
     its anti-aliased edge: a fixed gray cut-off left the pale strokes and the
@@ -56,14 +60,17 @@ def _lettering_mask(gray_roi):
     import cv2
     if background_is_dark(gray_roi):
         # Light lettering on a dark balloon: masking the dark pixels would
-        # erase the whole balloon and smear the surrounding art across it.
+        # erase the whole balloon and smear the surrounding art across it. In a big balloon the
+        # grow reaches past the coloured edge its large lettering carries, which a smaller one
+        # left as a ghost.
         _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
     else:
         paper = float(np.median(gray_roi))
         cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
         _, mask = cv2.threshold(gray_roi, cutoff, 255, cv2.THRESH_BINARY_INV)
         return _with_halo(gray_roi, paper, cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2))
-    return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
+    grow = _LIGHT_LETTERING_GROW_ITERATIONS if min(gray_roi.shape[:2]) >= _LIGHT_LETTERING_BIG_BOX_PX else 2
+    return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=grow)
 
 
 def is_art_mistaken_for_sign(gray_page, box: dict) -> bool:
