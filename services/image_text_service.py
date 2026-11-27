@@ -95,6 +95,23 @@ def _encoded(im) -> tuple:
     raise InvalidInputError("This picture is too detailed to send. Crop it smaller.")
 
 
+_AS_IS_MIME = {"JPEG": "image/jpeg", "PNG": "image/png"}
+_AS_IS_MODES = {"JPEG": ("RGB", "L"), "PNG": ("RGB", "RGBA", "L", "LA", "P")}
+# Header facts that carry nothing about the person or place. Anything else (EXIF, XMP, comments,
+# text chunks, ICC profiles) means the picture is rewritten, which strips it, as before.
+_AS_IS_INFO = {"jfif", "jfif_version", "jfif_unit", "jfif_density", "dpi", "progressive",
+               "progression", "adobe", "adobe_transform", "transparency", "aspect"}
+
+
+def _sendable_as_is(im, size: int) -> bool:
+    """True when re-encoding would only rewrite the same pixels into a bigger file: a site's
+    JPEG page became a PNG several times its size, which every Quick read page then uploaded."""
+    return (im.format in _AS_IS_MIME and im.mode in _AS_IS_MODES[im.format]
+            and size <= MAX_SENT_BYTES and max(im.size) <= MAX_EDGE
+            and set(im.info) <= _AS_IS_INFO
+            and getattr(im, "n_frames", 1) == 1)
+
+
 def _prepared(content: bytes) -> tuple:
     """(bytes, mime, width, height) of the picture as it will be sent."""
     from PIL import Image, ImageOps
@@ -108,6 +125,8 @@ def _prepared(content: bytes) -> tuple:
             f"limit ({width}x{height}). Crop it smaller.")
     try:
         with Image.open(io.BytesIO(content)) as im:
+            if _sendable_as_is(im, len(content)):
+                return content, _AS_IS_MIME[im.format], im.width, im.height
             im = ImageOps.exif_transpose(im)
             scale = min(1.0, MAX_EDGE / max(im.size))
             if scale < 1.0:

@@ -233,6 +233,27 @@ class TestPreparedPicture:
         original = _png((300, 80))
         assert image_text_service._prepared(original)[0] == original
 
+    def test_a_plain_jpeg_page_is_sent_as_it_came_not_as_a_bigger_png(self):
+        out = io.BytesIO()
+        Image.effect_noise((800, 1200), 60).convert("RGB").save(out, "JPEG", quality=85)
+        original = out.getvalue()
+        data, mime, w, h = image_text_service._prepared(original)
+        assert data == original and mime == "image/jpeg" and (w, h) == (800, 1200)
+
+    def test_a_jpeg_with_metadata_is_still_rewritten_without_it(self):
+        out = io.BytesIO()
+        exif = Image.Exif()
+        exif[0x010E] = "secret description"
+        Image.new("RGB", (300, 80), "white").save(out, "JPEG", exif=exif, comment=b"gps=1,2")
+        data, _mime, *_ = image_text_service._prepared(out.getvalue())
+        assert b"secret description" not in data and b"gps=1,2" not in data
+
+    def test_a_cmyk_jpeg_is_still_converted(self):
+        out = io.BytesIO()
+        Image.new("CMYK", (300, 80), (0, 50, 100, 0)).save(out, "JPEG")
+        data, mime, *_ = image_text_service._prepared(out.getvalue())
+        assert data != out.getvalue() and Image.open(io.BytesIO(data)).mode == "RGB"
+
     def test_webp_is_sent_as_png(self):
         _data, mime, *_ = image_text_service._prepared(_png((300, 80), "WEBP"))
         assert mime == "image/png"
