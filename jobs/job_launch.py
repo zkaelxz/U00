@@ -14,7 +14,7 @@ import db
 import gpu_probe
 import job_force_stop
 from jobs import crash_retry, gpu_guard, user_caps
-from jobs.gpu_queue import (_gpu_queue, _gpu_queue_waiting_locked,
+from jobs.gpu_queue import (_enqueue_locked, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
                              _start_job_thread)
@@ -276,12 +276,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
             queued = {"job_id": job_id, "target": target, "args": args,
                       "kwargs": kwargs, "description": description, "kind": "thread",
                       "cap_exempt": user_caps.refusing(), "priority": priority}
-            if priority:
-                # After earlier priority jobs, so they keep their order.
-                at = next((i for i, q in enumerate(_gpu_queue) if not q.get("priority")), len(_gpu_queue))
-                _gpu_queue.insert(at, queued)
-            else:
-                _gpu_queue.append(queued)
+            _enqueue_locked(queued)
             _note_gpu_wait_reason_locked(job_id)
             return True
         run = _jobs[job_id]
@@ -401,7 +396,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                        run_settings, result=initial_result, process=None,
                                        line_fields=line_fields)
             _new_run_locked(job_id)
-            _gpu_queue.append({"job_id": job_id, "target": target, "args": args,
+            _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
                                 "on_done": on_done, "on_finish": on_finish,
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method,
