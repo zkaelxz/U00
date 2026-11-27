@@ -4469,6 +4469,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device token: the source sites the phone's Grab screen can open */
+        get: operations["get_sites_api_ext_bridge_sites_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -13860,6 +13877,8 @@ export interface components {
          * @description Each field is absent until the person has chosen one on some device.
          */
         AccountPreferences: {
+            /** Live Focus */
+            live_focus?: boolean | null;
             /** Theme */
             theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
         };
@@ -30355,6 +30374,11 @@ export interface components {
              * @default 20480
              */
             max_upload_mb: number;
+            /**
+             * Member Upload Mb
+             * @default 1024
+             */
+            member_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
@@ -30744,6 +30768,8 @@ export interface components {
             lncrawl_cmd?: string | null;
             /** Max Upload Mb */
             max_upload_mb?: number | null;
+            /** Member Upload Mb */
+            member_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
             /** Narration Pace */
@@ -45079,7 +45105,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DramaDetail"];
                 };
             };
             /** @description Not Found */
@@ -47330,6 +47356,26 @@ export interface operations {
         };
     };
     post_report_api_ext_bridge_report_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_sites_api_ext_bridge_sites_get: {
         parameters: {
             query?: never;
             header?: never;

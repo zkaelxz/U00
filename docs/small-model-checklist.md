@@ -50,7 +50,7 @@ hundred bytes (the lean command in `docs/testing-and-ci.md`). `-GpuProfile 32gb`
 12 GB profile is unchanged.
 
 `opencode.json` also loads `CLAUDE.md` as instructions, asks before destructive git (`push`, `reset`, `clean`, `rebase`,
-`restore`, `branch -D`) and `rm -rf`, and denies reads of the skip-list files in `AGENTS.md`. The `permission` and
+`restore`, `branch -D`) and `rm -rf`, and denies reads of `docs/engineering-standards.md` and `.test_durations` (two of the five skip-list entries in `AGENTS.md`). The `permission` and
 `instructions` keys were checked against opencode.ai/docs/permissions and /docs/config on 2026-10-11 (last matching
 rule wins, so `*` comes first); not run against a live OpenCode.
 

@@ -73,7 +73,8 @@ function AppUpdatesControls() {
 
   const downloading = status != null && isDownloading(status)
   useInterval(() => {
-    getUpdateStatus().then(setStatus, setError)
+    // A later good poll means the failure was transient; leaving it would sit beside a progressing download.
+    getUpdateStatus().then((s) => { setStatus(s); setError(null) }, setError)
   }, downloading ? POLL_MS : null)
 
   async function install() {

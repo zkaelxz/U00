@@ -750,3 +750,8 @@ class TestRunSettings:
 
     def test_every_row_is_allowed_in_the_record(self):
         assert set(BY_KEY) <= set(run_settings_service.ALLOWED_KEYS)
+
+
+def test_value_matches_values_for_every_key(isolated_db):
+    expected = timing_settings_service.values()
+    assert {k: timing_settings_service.value(k) for k in expected} == expected

@@ -39,7 +39,7 @@ from api.auth import (ActingPrincipalMiddleware, EarlyAuthGate, HouseholdGate,
 from api.device_token_paths import device_token_paths
 from api.error_handlers import install_error_handlers
 from api.json_body_cap import JsonBodyCapGate, multipart_matchers
-from api.remote_uploads import RemoteUploadGate, upload_matchers
+from api.remote_uploads import RemoteUploadGate, member_upload_matchers, upload_matchers
 from api.routers import (
     admin_users_routes,
     android_app_routes,
@@ -314,7 +314,8 @@ def _install_middleware(app: FastAPI, settings: ApiSettings) -> None:
         # (api.auth.ActingPrincipalMiddleware).
         app.add_middleware(ActingPrincipalMiddleware)
         # Inside EarlyAuthGate: needs its session and CSRF checks done first.
-        app.add_middleware(RemoteUploadGate, upload_fn=lambda: upload_matchers(app))
+        app.add_middleware(RemoteUploadGate, upload_fn=lambda: upload_matchers(app),
+                           member_upload_fn=lambda: member_upload_matchers(app))
         # Added before CORS so CORS stays the outermost layer (dev preflight).
         app.add_middleware(EarlyAuthGate, public_paths_fn=lambda: (public_api_paths(app)
                                                     | device_token_paths(app)),

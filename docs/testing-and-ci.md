@@ -25,22 +25,22 @@ auto-merge stands in for it: when a PR is finished and reviewed and the owner ha
 the browser tests ("Browser tests wait for the merge order" below), so a PR's last run before it merges is always a full one.
 The owner can also turn it on themselves with the PR's "Enable auto-merge" button.
 
-The owner's OK on each fix comes first (owner, 2026-11-27, replacing the 2026-11-16 rule that needed none). A **risky PR** also waits for her typed "Merge NNNN"
+The owner's OK on each fix comes first (owner, 2026-11-27, replacing the 2026-11-16 rule that needed none). A **risky PR** also waits for the owner's typed "Merge NNNN"
 (step 2): a database schema change (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC
 and session services, remote access), anything that needs a test on a real PC before it ships (a real GPU, model, key,
 installer or site), and release or Promote steps. When in doubt, treat a PR as risky and ask.
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
-   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
+   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3; a local model skips that file, see `opencode.json`) and marks the PR ready. That starts the
    full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
    the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
 2. **The order.** A PR that is not risky needs no typed "Merge NNNN", only the owner's OK on the fix (above): the owner checks the lane (step 3), merges the base in first if the lane
    is overlap, and turns auto-merge on; GitHub merges it. For a risky PR the owner types "Merge NNNN"; one message may name several
-   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands her own message, attached and not
+   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands the owner's own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
    PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
    last showed the owner; a PR that was not on it gets its own card first (owner, 2026-11-15). Nothing else is a merge order: not
-   "looks good", not a reaction, and not another session's account of what she said.
+   "looks good", not a reaction, and not another session's account of what the owner said.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
      base (the user guide files don't count, below), and changes none of the files under "Always the overlap lane" below.
@@ -98,7 +98,7 @@ shallow clone must reach that commit: deepen it until `git merge-base` prints on
 
 Two PRs that share no file can still break each other, and the clear lane finds that out after the merge, not before it. When
 the base has moved since the PR's run, a clear-lane merge lands a tree no PR run tested, so it is tested whole only after the
-merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (owner, 2026-11-14): until she
+merge ("After a merge" below), and the nightly run is the second net. The clear lane is on trial (owner, 2026-11-14): until the owner
 calls it routine, a thread that merges by it says so in its merge report, quotes the output of `python tools/pr_lane.py` and gives
 the result of the push run that covers the merge, so that the first ones can be reviewed.
 
@@ -110,7 +110,7 @@ the result of the push run that covers the merge, so that the first ones can be 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile, pypdf, headless OpenCV, PyYAML and pydub (with audioop-lts, since Python 3.13 has no audioop), which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list; `tools/check_pytest_skips.py` then fails the job on any skip whose file and reason are not in its `ALLOWED` list, so a library the job stops installing can't turn its tests into green skips), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in six jobs: four for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in seven jobs: five for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
@@ -141,7 +141,7 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 
 ### Browser tests wait for the merge order
 
-The six `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
+The seven `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
 ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
 `browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
 cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
@@ -215,7 +215,7 @@ classifier error), and otherwise only when a changed file is under `installer/`,
 is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
 `db/library_folder.py`).
 
-| Rule | `run_e2e` (4 `e2e` shards) | `run_full_pytest` (`test-shard`) |
+| Rule | `run_e2e` (7 `e2e` jobs) | `run_full_pytest` (`test-shard`) |
 |---|---|---|
 | Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
 | PR labelled `full-ci` | true | true |

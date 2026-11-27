@@ -81,6 +81,7 @@ const RIGHTS: Record<string, { name: string; about: string }> = {
   'media.import_url': { name: 'Import from a link', about: 'Add media from a web link, start Live from a stream link, and make subtitles from a video link with One-click translate. These run on the PC; a paid engine also needs Paid engines and stays under the monthly cap and their own limit.' },
   'sources.import': { name: 'Import from sources', about: 'Add chapters from novel and comic sites, and follow series for new chapters.' },
   'engines.paid': { name: 'Paid engines', about: 'Use engines that cost money, such as Claude, Gemini, OpenAI, DeepSeek or Ollama cloud models other than Gemma 31B cloud, which everyone may use.' },
+  'media.upload_member': { name: 'Upload audio and video', about: 'Send audio and video files from their phone into titles they own, up to the member upload limit in Settings (1 GB unless changed). Off unless you turn it on.' },
   'extension.send': { name: 'Browser extension', about: 'Connect the browser extension and send pages to Baihe from their own browser.' },
   'library.create': { name: 'Add titles', about: 'Add titles of their own, in the Library and in Discover (up to 200), and import them from the Discover catalogue.' },
   'media.stream': { name: 'Play media', about: 'Play audio and video and view comic pages from the PC.' },

@@ -523,18 +523,6 @@ public class QuickReadActivity extends Activity {
     }
 
     @Override
-    protected void onStart() {
-        super.onStart();
-        AppUpdate.screenStarted();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        AppUpdate.screenStopped(this);
-    }
-
-    @Override
     protected void onDestroy() {
         // A chapter still being translated keeps going without the reader; its pages stay for the next open.
         if (!savedMode && !QuickReadSession.detach()) {

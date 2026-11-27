@@ -82,7 +82,7 @@ class TestDecode:
         whisper_transcribe.transcribe_for_timing("/fake.mp3", min_silence_duration_ms=300, vad_threshold=0.5)
         assert seen == {
             "language": "zh", "vad_filter": True, "beam_size": 5,
-            "vad_parameters": {"min_silence_duration_ms": 300, "threshold": 0.5},
+            "vad_parameters": {"min_silence_duration_ms": 300, "threshold": 0.5, "max_speech_duration_s": 20},
             "word_timestamps": True, "condition_on_previous_text": False}
 
     @pytest.mark.parametrize("preset", ["normal", "sensitive"])

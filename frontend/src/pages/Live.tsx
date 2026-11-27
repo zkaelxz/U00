@@ -37,6 +37,7 @@ import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useLivePrefs } from './live/useLivePrefs'
+import { useLiveFocus } from './live/useLiveFocus'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
@@ -120,6 +121,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [focus, setFocus] = useLiveFocus()
   const { session, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines, switchTo } = useLiveSession(setError)
 
   // A remembered title or series that was deleted or hidden is not sent.
@@ -190,7 +192,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   }
 
   return (
-    <PageShell width="standard" title="Live" label="Live" className={active ? 'live-page live-wide' : 'live-page'}>
+    <PageShell width="standard" title="Live" label="Live" className={active ? (focus ? 'live-page live-wide live-focus' : 'live-page live-wide') : 'live-page'}>
       <div className="panel">
         {!active && <CheckAllChannels follows={follows} />}
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
@@ -353,7 +355,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
         </form>
-        <ShowEveryone onChange={showEveryone} />
+        {!(active && focus) && <ShowEveryone onChange={showEveryone} />}
         {error && (
           <p className="error live-error" role="alert">
             {error}
@@ -363,7 +365,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
 
         {session && (
           <LiveWatch session={session} stopping={stopping} joined={joined} onStop={() => void stop()} onClear={clearLines}
-            onSwitch={switchTo} language={form.source_language} segmentSeconds={form.segment_seconds} />
+            onSwitch={switchTo} focus={focus} onFocus={setFocus} language={form.source_language} segmentSeconds={form.segment_seconds} />
         )}
       </div>
     </PageShell>

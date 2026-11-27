@@ -152,6 +152,10 @@ def client(env):
                       headers=LOCAL_HEADERS)
 
 
+def _has_captions(drama_id):
+    return os.path.isfile(os.path.join(db.drama_dir(drama_id), site_captions_service.FILE_NAME))
+
+
 def _drama(**kw):
     return db.create_drama(content_mode=kw.pop("content_mode", "audio_drama"), **kw)
 
@@ -210,7 +214,7 @@ def test_the_sites_captions_are_asked_for_and_kept_as_hints(client, env):
 def test_a_title_without_site_captions_downloads_as_before(client, env):
     did = _drama(source_language="zh")
     assert _run(client, did)["status"] == "done"
-    assert not site_captions_service.has_captions(did)
+    assert not _has_captions(did)
 
 
 def test_use_site_captions_makes_them_the_lines_of_a_title_with_none(client, env):
@@ -236,7 +240,7 @@ def test_a_part_or_download_again_does_not_take_captions(client, env):
     FakeYDL.script = {"captions": {"zh": _VTT}}
     did = _drama(source_language="zh")
     assert _run(client, did, part_start="0:00:01")["status"] == "done"
-    assert "writesubtitles" not in FakeYDL.last_opts and not site_captions_service.has_captions(did)
+    assert "writesubtitles" not in FakeYDL.last_opts and not _has_captions(did)
     r = _start(client, did, keep_lines=True, use_site_captions=True)
     assert r.status_code == 422
 
@@ -1772,7 +1776,7 @@ def test_new_media_without_captions_drops_the_old_ones(client, env):
     FakeYDL.script = {"captions": {"zh": _VTT}}
     did = _drama(source_language="zh")
     assert _run(client, did)["status"] == "done"
-    assert site_captions_service.has_captions(did)
+    assert _has_captions(did)
     FakeYDL.script = {}
     assert _run(client, did, confirm_replace_audio=True)["status"] == "done"
-    assert not site_captions_service.has_captions(did)
+    assert not _has_captions(did)

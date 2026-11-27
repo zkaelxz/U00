@@ -52,3 +52,11 @@ def test_anonymous_is_401_and_auth_off_is_404(isolated_db):
     local = TestClient(_app("off"), base_url="http://127.0.0.1:8600",
                        client=("127.0.0.1", 5000), raise_server_exceptions=False)
     assert local.put(URL, json={"theme": "dark"}).status_code == 404
+
+
+def test_live_focus_is_kept_on_the_account_and_false_is_a_saved_choice(isolated_db):
+    c = _remote(_app())
+    _a, laptop = _session("a@example.com")
+    assert c.put(URL, json={"live_focus": False}, headers=_h(laptop)).json() == {"live_focus": False}
+    assert c.put(URL, json={"theme": "dark"}, headers=_h(laptop)).json() == {"live_focus": False, "theme": "dark"}
+    assert c.put(URL, json={"live_focus": "maybe"}, headers=_h(laptop)).status_code == 422
