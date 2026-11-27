@@ -6,8 +6,7 @@ The API contract: Pydantic request/response models, one module per domain
 share; the other modules import only from `common`. `__init__.py` re-exports
 everything, so `from api.schemas import X` works.
 
-Older schema modules sit beside this package as `api/*_schemas.py` and are
-imported directly by their routers. New models go here, not there.
+New models go here.
 
 ## Start here
 - `python tools/repo_map.py api/schemas/<domain>`: classes with their `fields:`.
