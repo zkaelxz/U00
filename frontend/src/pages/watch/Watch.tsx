@@ -866,7 +866,7 @@ const WatchRow = memo(function WatchRow({ line: l, slot, current, sourceLanguage
         <LineMarkBadge line={l} />
         {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>
-      {l.zh && <span className="watch-row-zh" lang={chineseLang(l.lang || sourceLanguage, l.zh)}>{l.zh}</span>}
+      {l.zh && <span className="watch-row-zh" lang={chineseLang(l.lang || sourceLanguage, l.zh, sourceLanguage)}>{l.zh}</span>}
       <span className={l.en ? 'watch-row-en' : 'watch-row-en is-empty'} lang={l.en ? 'en' : undefined}>{l.en || 'No English yet'}</span>
     </>
   )

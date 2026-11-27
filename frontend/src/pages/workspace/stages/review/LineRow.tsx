@@ -36,7 +36,6 @@ import { TIMING_UNCERTAIN_FLAG } from './useTimingSnap'
 import { caretToEnd } from './caretToEnd'
 import { EngineGateNote } from '../EngineGateNote'
 import { useEngineGate } from '../useEngineGate'
-import { useTitleTextLang } from '../../StageContext'
 
 export interface NoteDraft {
   term: string
@@ -119,6 +118,8 @@ interface Props {
   prose?: boolean
   // The drama's source_language: what a line with no lang of its own is spoken in.
   sourceLanguage: string | null
+  /** The title's text lang (useTitleTextLang), for a line whose own characters don't show its Chinese script. */
+  titleLang?: string
   active: boolean
   selected: boolean
   isPhone: boolean
@@ -522,9 +523,8 @@ function LineEnglish({ line, draft, discardWarning, isPhone, active, actions, on
   )
 }
 
-function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
+function LineRowImpl({ dramaId, line, prose = false, sourceLanguage, titleLang = 'zh', active, selected, isPhone, hasMedia, jobRunning, limited, edit, ai, tm, stronger, guesses, speakerNote, timingSnap, issue, actions, simple = false, queue = false, queueNext = null, retranscribe = null, linePanel = false, searchHit, jumped, focusRetranscribe }: Props) {
   const draft = edit?.draft ?? null
-  const titleLang = useTitleTextLang()
   const [flagOpen, setFlagOpen] = useState(false)
   const flagNoteId = `flag-note-${line.id}`
   const reasonId = `review-reason-${line.id}`

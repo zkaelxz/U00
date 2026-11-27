@@ -24,6 +24,7 @@ describe('chineseLang', () => {
   it('keeps a script the lang already names when the text shows none, and leaves other languages alone', () => {
     expect(chineseLang('zh-Hant', '你好！')).toBe('zh-Hant')
     expect(chineseLang('ja', '這是')).toBe('ja')
+    expect(chineseLang('zh', '你好！', 'ja')).toBe('zh')
   })
 })
 

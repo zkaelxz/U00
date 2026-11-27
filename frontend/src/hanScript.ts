@@ -27,10 +27,10 @@ export function hanScript(text: string): 'zh-Hant' | 'zh-Hans' | null {
 }
 
 /** A Chinese `lang` narrowed to the text's own script; text that shows none keeps a lang that names one, and plain
- *  zh takes `fallback` (the title's). Other languages pass through. */
+ *  zh takes `fallback` (the title's) when that is Chinese. Other languages pass through. */
 export function chineseLang(lang: string, text: string | null | undefined, fallback = 'zh'): string {
   if (lang !== 'zh' && !lang.startsWith('zh-')) return lang
-  return hanScript(text ?? '') ?? (lang === 'zh' ? fallback : lang)
+  return hanScript(text ?? '') ?? (lang !== 'zh' ? lang : fallback.startsWith('zh') ? fallback : 'zh')
 }
 
 type TitleText = {
