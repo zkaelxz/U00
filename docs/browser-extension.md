@@ -213,7 +213,7 @@ extension/                     the browser side
   options.html / options.js    paste the token
 services/page_server.py        the endpoint, on a thread started by the API
 services/extension_service.py  the opt-in switch, the token, the engine setting
-api/routers/extension_routes.py  /api/extension/*, PC-only; UI in Settings → Browser extension
+api/routers/extension_routes.py  /api/extension/*, PC-only except the zip download; UI in Settings → Browser extension
 ```
 
 The endpoint's routes:

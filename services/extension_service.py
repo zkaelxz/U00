@@ -12,7 +12,8 @@ page_server calls on every request. Resolving per request means a key,
 engine or OCR path saved in Settings applies to the next page without a
 restart.
 
-Every function here is meant for `local_only()` routes, because the token
+Every function here but `extension_zip` is meant for `local_only()` routes (the zip holds no token
+and goes to any signed-in member who may use the extension), because the token
 and the settings behind them must not be reachable by a remote household
 user. `get_status` never returns the port or the token; only `reveal_token`
 returns the token. Keys and the Hugging Face token never leave the PC: the
@@ -60,9 +61,11 @@ def _shipped_files() -> list[tuple[str, str]]:
     for root, dirs, files in os.walk(_EXTENSION_DIR):
         dirs[:] = sorted(d for d in dirs if d != "__pycache__")
         for name in sorted(files):
-            if name in _NOT_SHIPPED or name.endswith(".pyc"):
-                continue
             full = os.path.join(root, name)
+            # The zip reaches signed-in members, so a stray dotfile (.env, an editor swap file) or a
+            # link to a file elsewhere in a checkout must never ride along.
+            if name in _NOT_SHIPPED or name.endswith(".pyc") or name.startswith(".") or os.path.islink(full):
+                continue
             found.append((full, os.path.relpath(full, _EXTENSION_DIR)))
     return found
 

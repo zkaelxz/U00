@@ -2,7 +2,7 @@
 api/routers/extension_routes.py -- PC-only control for the browser-extension
 bridge (page_server): status, on/off, and showing its token (user decision 2026-09-29). Thin: see services/extension_service.py.
 
-All of these but the engine read are `local_only()`: the bridge and its token belong to the owner
+All of these but the engine read and the zip download are `local_only()`: the bridge and its token belong to the owner
 at the PC. The status never carries the port or the token. The token is
 returned only by `POST /token` with `confirm=true`, with
 `Cache-Control: no-store`; nothing here logs it.

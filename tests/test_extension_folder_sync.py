@@ -65,3 +65,17 @@ def test_open_folder_opens_it_or_hands_the_path_to_the_pc_owner(shipped, monkeyp
         raise file_manager.NoDesktopError("no desktop session")
     monkeypatch.setattr(file_manager, "open_folder", no_desktop)
     assert svc.open_synced_folder() == {"opened": False, "folder": svc.synced_folder()}
+
+
+def test_dotfiles_and_links_never_ship(shipped, tmp_path):
+    (shipped / ".env").write_text("SECRET=1")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private")
+    try:
+        os.symlink(outside, shipped / "link.txt")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not available")
+    svc.sync_extension_folder()
+    assert sorted(os.listdir(svc.synced_folder())) == ["background.js", "icons", "manifest.json"]
+    names = [rel for _full, rel in svc._shipped_files()]
+    assert ".env" not in names and "link.txt" not in names
