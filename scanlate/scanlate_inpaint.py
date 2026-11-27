@@ -48,7 +48,11 @@ def background_is_dark(gray_roi) -> bool:
     return float(np.median(gray_roi)) < _DARK_MEDIAN
 
 
-def _lettering_mask(gray_roi):
+_LIGHT_LETTERING_GROW_ITERATIONS = 5
+_LIGHT_LETTERING_BIG_BOX_PX = 100
+
+
+def _lettering_mask(gray_roi, wide: bool = False):
     """uint8 mask (255 = erase) of the lettering in a gray crop, grown past
     its anti-aliased edge: a fixed gray cut-off left the pale strokes and the
     halo round each stroke behind as ghost text under the English. The cut-off
@@ -59,14 +63,20 @@ def _lettering_mask(gray_roi):
     import cv2
     if background_is_dark(gray_roi) or _has_light_lettering_on_midtone(gray_roi):
         # Light lettering on a dark balloon: masking the dark pixels would
-        # erase the whole balloon and smear the surrounding art across it.
+        # erase the whole balloon and smear the surrounding art across it. `wide`, asked for only
+        # inside a found balloon outline, grows the mask in a big dark balloon past the coloured
+        # edge its large lettering carries, which a smaller grow left as a ghost. A mid-tone
+        # balloon keeps the small grow (a bigger one ate its body), and so does any box with no
+        # outline, where nothing bounds the grow and the share tests read the mask's size.
         _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
     else:
         paper = float(np.median(gray_roi))
         cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
         _, mask = cv2.threshold(gray_roi, cutoff, 255, cv2.THRESH_BINARY_INV)
         return _with_halo(gray_roi, paper, cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2))
-    return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2)
+    big = wide and min(gray_roi.shape[:2]) >= _LIGHT_LETTERING_BIG_BOX_PX
+    grow = _LIGHT_LETTERING_GROW_ITERATIONS if big and background_is_dark(gray_roi) else 2
+    return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=grow)
 
 
 _MIDTONE_MEDIAN_MAX = 130
@@ -940,7 +950,7 @@ def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool, roi=None):
     """(uint8 mask of the lettering to erase in a crop, whether it is a single line's strokes).
     `keep` is the balloon's inside, or None for a box with no outline."""
     if keep is not None:
-        mask = _lettering_mask(_without_hatching(gray_roi, keep))
+        mask = _lettering_mask(_without_hatching(gray_roi, keep), wide=True)
         mask[~keep] = 0
         _drop_rim_rings(mask, keep)
         return mask, False
