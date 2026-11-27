@@ -321,13 +321,17 @@ async def post_title_translate(request: Request):
 
 def _title_translate(request: Request, payload: dict, principal) -> dict:
     drama_id = _drama_id(payload)
+    new_chapters = payload.get("new_chapters")
+    if new_chapters is not None and (isinstance(new_chapters, bool) or not isinstance(new_chapters, int)
+                                     or not 1 <= new_chapters <= 500):
+        raise page_server.EndpointError(400, "new_chapters must be a whole number from 1 to 500")
     try:
         if page_run_service.after_import_kind(principal, drama_id) != "novel":
             raise page_server.EndpointError(422, "Only a novel title translates after a phone save.")
         plan = after_import_plan.novel_plan(request, drama_id)
         return page_run_service.start_after_import(
             principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
-            follow_import=False, add_chapters=True)
+            follow_import=False, add_chapters=True, new_chapters=new_chapters)
     except ServiceError as e:
         # 409 is the only answer the phone keeps quiet about (already running, or no new chapters to translate).
         status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)

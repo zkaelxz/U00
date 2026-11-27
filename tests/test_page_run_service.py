@@ -588,8 +588,9 @@ def _rows(did):
     return [(ln["id"], ln["zh"], ln["en"]) for ln in db.load_lines(did)]
 
 
-def _start_append(did, **kw):
-    return runs.start_after_import(None, did, "ollama", {"engine": "ollama", "one_narrator": True}, at_pc=True,
+def _start_append(did, principal=None, **kw):
+    kw.setdefault("new_chapters", 1)
+    return runs.start_after_import(principal, did, "ollama", {"engine": "ollama", "one_narrator": True}, at_pc=True,
                                    follow_import=False, add_chapters=True, **kw)
 
 
@@ -621,6 +622,8 @@ def test_new_chapters_get_appended_lines_for_the_new_text_only_and_a_translation
     view = _start_append(did)
     assert view["state"] == "waiting"
     assert [s for s, _ in _flow(did)] == ["append", "lines", "run_translate"]
+    # The phone added one chapter, so the append starts at chapter 2 of the two saved.
+    assert q._load()["items"][0]["settings"] == {"from_chapter": 2}
     _run_chain(jobs, did, lambda: bool(translate_calls))
     after = _rows(did)
     # The saved lines are untouched, in place; the new ones come after them.
@@ -679,6 +682,7 @@ def test_retried_steps_after_the_chapters_went_in_add_nothing_and_end_cleanly(tr
     text, rows = _text(did), _rows(did)
     drama = db.get_drama(did)
     assert runs.start_step(None, drama, q.APPEND, {}) is None
+    assert runs.start_step(None, drama, q.APPEND, {"from_chapter": 2}) is None
     assert runs.start_step(None, drama, q.LINES, {"engine": "ollama", "one_narrator": True, "append": True}) is None
     assert runs.start_step(None, drama, q.RUN_TRANSLATE, {"engine": "ollama", "new_lines_only": True}) is None
     assert _text(did) == text and _rows(did) == rows and len(translate_calls) == 1
@@ -718,3 +722,66 @@ def test_the_phones_reason_has_no_link_or_key_and_is_one_short_line(translate_ca
     reason = runs.phone_progress(None, did)["reason"]
     assert reason.startswith("Refused at") and len(reason) <= 200
     assert "private.example" not in reason and "sk-ant" not in reason and "\n" not in reason
+
+
+def test_chapters_cut_off_the_end_of_the_text_are_not_put_back(translate_calls, jobs):  # noqa: F811
+    import os
+    import novel_text
+    from services import narration_service
+    from sources import pipeline
+    from jobs import job_runner
+    did = db.create_drama(title_en="Novel", title_zh="题", media_type="novel", translation_engine="ollama")
+    pipeline.append_novel_chapter_once(did, "甲说了话。", "第一章 开始", source="x")
+    pipeline.append_novel_chapter_once(did, "乙回答了。", "第二章 继续", source="x")
+    from services import novel_attach_service
+    novel_attach_service.attach_from_sources(did)
+    path = os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME)
+    full = _text(did)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(full[:full.index("第二章")].strip())          # the owner cut chapter 2 off the end
+    narration_service.start_narration_run(did, one_narrator=True)
+    assert job_runner.wait_for_job_threads(10, job_ids=[f"narration_{did}"])
+    cut, rows = _text(did), _rows(did)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第三章 新", source="x")
+    _start_append(did, new_chapters=1)
+    _run_chain(jobs, did, lambda: runs.after_import_run(None, did)["state"] == "stopped")
+    view = runs.after_import_run(None, did)
+    assert view["step"] == "append" and "holds 1 saved chapters, not the 2 expected" in view["reason"]
+    assert _text(did) == cut and _rows(did) == rows and translate_calls == []
+
+
+def test_a_phone_without_the_new_chapter_count_is_asked_to_update(translate_calls):
+    from sources import pipeline
+    did = _novel_with_lines()
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    with pytest.raises(InvalidInputError, match="Update the Baihe app"):
+        _start_append(did, new_chapters=None)
+    assert _flow(did) == []
+
+
+def test_losing_lines_edit_after_queuing_stops_the_append(translate_calls, jobs):  # noqa: F811
+    from sources import pipeline
+    u = auth_service.add_user("m@example.com")
+    for p in ("jobs.start", "lines.edit"):
+        auth_service.grant_permission(u["id"], p)
+    did = _novel_with_lines(owner_user_id=u["id"], is_private=1)
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    text, rows = _text(did), _rows(did)
+    _start_append(did, principal={"user_id": u["id"], "is_admin": False,
+                                  "permissions": ["jobs.start", "lines.edit"]})
+    auth_service.revoke_permission(u["id"], "lines.edit")
+    _run_chain(jobs, did, lambda: _flow(did)[0][1] == "skipped")
+    assert "can no longer do this step" in q._load()["items"][0]["reason"]
+    assert _text(did) == text and _rows(did) == rows and translate_calls == []
+
+
+def test_the_append_chains_translate_takes_every_untranslated_line_of_the_title(translate_calls, jobs):  # noqa: F811
+    # Pins today's scope: an earlier chapter left untranslated is translated with the new one (bounded by the cap).
+    from sources import pipeline
+    did = _novel_with_lines(translated=False)
+    old_ids = [i for i, _zh, _en in _rows(did)]
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    _start_append(did)
+    _run_chain(jobs, did, lambda: bool(translate_calls))
+    all_ids = [i for i, _zh, _en in _rows(did)]
+    assert translate_calls[0]["line_ids"] == all_ids and set(old_ids) < set(all_ids)

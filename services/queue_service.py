@@ -122,7 +122,7 @@ def _empty() -> dict:
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
                  "translate": TRANSLATE_KEYS, "export": EXPORT_KEYS, DOWNLOAD: ("url",), NAMES: ("source", "engine", "model"),
-                 IMPORT: ("url", "local"), TEXT: (), APPEND: (),
+                 IMPORT: ("url", "local"), TEXT: (), APPEND: ("from_chapter",),
                  LINES: ("engine", "model", "chapter_from", "chapter_to", "one_narrator", "cost_accepted", "append"),
                  FOLLOW: ("job_id",), RUN_TRANSLATE: ("engine", "locale", "model", "capped", "new_lines_only"),
                  RUN_SCANLATE: ("engine",)}
@@ -840,7 +840,11 @@ def _start_item(item: dict) -> Optional[str]:
     principal = _run_principal(item)
     if not _owns_title(principal, item["drama_id"]):
         raise ForbiddenError("The account that added this item no longer owns the title.")
-    needed = {"export": ("lines.read",), DOWNLOAD: ("jobs.start", "media.import_url")}.get(item["step"], ("jobs.start",))
+    needed = {"export": ("lines.read",), DOWNLOAD: ("jobs.start", "media.import_url"),
+              APPEND: ("jobs.start", "lines.edit")}.get(item["step"], ("jobs.start",))
+    if item["step"] == LINES and (item.get("settings") or {}).get("append"):
+        # Appending a phone save's chapters edits the title's text and lines, as the Source stage's add does.
+        needed = ("jobs.start", "lines.edit")
     if not all(_holds(principal, p) for p in needed):
         raise ForbiddenError("The account that added this item can no longer do this step.")
     if item.get("auto_series") is not None:

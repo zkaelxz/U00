@@ -1003,9 +1003,15 @@ class TestTitleTranslate:
         pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
         answers = []
 
+        missing = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert missing.status_code == 422 and "Update the Baihe app" in missing.text
+        for bad in (0, 501, True, "1"):
+            assert _client().post(f"{BASE}/title-translate", headers=_auth(token),
+                                  json={"drama_id": did, "new_chapters": bad}).status_code == 400
+
         def start():
             answers.append(_client().post(f"{BASE}/title-translate", headers=_auth(token),
-                                          json={"drama_id": did}).status_code)
+                                          json={"drama_id": did, "new_chapters": 1}).status_code)
         threads = [threading.Thread(target=start) for _ in range(3)]
         for t in threads:
             t.start()
@@ -1014,6 +1020,7 @@ class TestTitleTranslate:
         items = page_run_service._title_items(principal, did)
         assert len({i["chain"] for i in items}) == 1, answers
         assert [i["step"] for i in items] == ["append", "lines", "run_translate"]
+        assert items[0]["settings"] == {"from_chapter": 2}
         assert items[1]["settings"]["append"] is True and items[2]["settings"]["new_lines_only"] is True
         # Queuing changes nothing yet: the steps run on the PC's queue.
         assert db.load_line_ids(did) == lines_before

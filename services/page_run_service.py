@@ -286,23 +286,27 @@ def phone_progress(principal, drama_id: int) -> dict:
 
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
                        model: Optional[str] = None, names: Optional[dict] = None,
-                       follow_import: bool = True, add_chapters: bool = False) -> dict:
+                       follow_import: bool = True, add_chapters: bool = False,
+                       new_chapters: Optional[int] = None) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
     names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits
     for the import job, so a failed import stops the rest; `follow_import` is False for a phone save,
     which has no import job. With `add_chapters` (a phone save), a novel that has lines gets its saved
     chapters not yet in the text appended, lines for that text alone, and a translation of the lines
-    still untranslated; ConflictError when there is nothing new. The caller checks every engine
-    against the paid-engine permission."""
+    still untranslated; ConflictError when there is nothing new. `new_chapters` (how many chapters
+    that save added) is required then: the append starts at the first of them, so chapters the owner
+    cut off the end of the text are not put back. The caller checks every engine against the
+    paid-engine permission."""
     with _after_import_start:
         return _start_after_import_locked(principal, drama_id, engine, lines, at_pc=at_pc, model=model,
-                                          names=names, follow_import=follow_import, add_chapters=add_chapters)
+                                          names=names, follow_import=follow_import, add_chapters=add_chapters,
+                                          new_chapters=new_chapters)
 
 
 def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
                                model: Optional[str], names: Optional[dict], follow_import: bool,
-                               add_chapters: bool) -> dict:
+                               add_chapters: bool, new_chapters: Optional[int]) -> dict:
     from services import sources_import_service
     kind = after_import_kind(principal, drama_id)
     view = after_import_run(principal, drama_id)
@@ -320,8 +324,11 @@ def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Opt
             from services import novel_attach_service
             if not novel_attach_service.has_chapters_to_add(drama_id):
                 raise ConflictError("This novel has no saved chapters that are not in its lines yet.")
+            if not new_chapters:
+                raise InvalidInputError("Update the Baihe app on the phone to translate a novel's new chapters.")
+            first_new = max(1, novel_attach_service.saved_chapter_count(drama_id) - new_chapters + 1)
             # No names step: a new scan would wait for a review nobody at the phone is there to do.
-            steps += [(q.APPEND, {}), (q.LINES, {**(lines or {}), "append": True}),
+            steps += [(q.APPEND, {"from_chapter": first_new}), (q.LINES, {**(lines or {}), "append": True}),
                       (q.RUN_TRANSLATE, {**translate, "new_lines_only": True})]
             return _add_after_import(principal, drama_id, steps, at_pc)
         if state["lines"]:
@@ -394,7 +401,7 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
     if step == q.APPEND:
         from services import novel_attach_service
         # A retry after the chapters went in adds nothing and the chain goes on.
-        novel_attach_service.add_new_chapters_from_sources(drama_id)
+        novel_attach_service.add_new_chapters_from_sources(drama_id, settings.get("from_chapter"))
         return None
     if step == q.FOLLOW:
         import background_jobs
