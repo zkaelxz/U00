@@ -383,9 +383,9 @@ A real Chromium and mangaz.com's own reader, one page load. The captured page wa
 
 Chapter capture was checked with a throwaway Playwright page that mounts and unmounts 70 images as it scrolls, like a virtualised reader (the extension's messaging stubbed): chapter order kept even with a shuffled DOM, a repeated page sent once, batches of at most 12, only a window of pages in the DOM at once, cancel, the stall stop, the 300 cap on 320 pages, and a second run sending nothing. A real Bilibili Manga chapter in real Chrome has not been tried.
 
-The browser-side test suite is static only. There is no automated test
-that drives a real browser, on purpose: this project's tests are mocked
-throughout and CI has no browser.
+The browser-side test suite is static only. No automated test drives the
+extension in a real browser (`extension/verify_end_to_end.py` is run by hand);
+CI's browser tests cover the web app only.
 
 ## Marking a source as extension-only
 

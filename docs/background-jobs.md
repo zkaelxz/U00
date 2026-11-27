@@ -191,7 +191,7 @@ is on (`get_gpu_limit_enabled`, `app_settings.gpu_limit_enabled`, default on). I
 soft guard against two jobs fighting for VRAM, not a model manager.
 
 Per-user caps (`jobs/user_caps.py`) apply to every job, GPU or not: a signed-in user
-may have `MAX_RUNNING_JOBS_PER_USER` (2) running and `MAX_QUEUED_JOBS_PER_USER` (5)
+may have `MAX_RUNNING_JOBS_PER_USER` (2) running and `MAX_QUEUED_JOBS_PER_USER` (10)
 queued jobs they started (`owner_user_id`), whatever the job ids; past either,
 `start_job`/`start_process_job` raise `RateLimitedError` (429). The count and the new
 entry happen under `_lock`, and a force-stopped job's worker that is still running
@@ -377,7 +377,7 @@ A GPU job's worker is started through `services/gpu_process_job.py`: `run_in_chi
 
 Every process-job worker hands its result back through `job_process_result.py`: small items go on the queue, a large final result is written to a file and only a short marker is queued, so a child killed mid-write cannot leave the parent blocked on a half-written message. A done job has already removed its result file. A thread job that waits for the pipeline lock takes it with `lib/cancellable_lock.hold(lock, cancel_check)`, which polls the cancel check between acquire attempts so Cancel works while it waits. A URL-media download runs yt-dlp in a killable child (`services/ytdlp_child.py`, started through `lib/proc.stream_tree`), so Cancel and the time cap kill extraction, challenge solving and ffmpeg post-processing together. URL downloads queue inside `services/url_media_service.py`, not in the GPU queue: each request's job starts at once and waits in its own thread (message "Queued: Nth in line", status running) until a slot frees, so the Jobs page and Cancel treat it like any running job.
 
-The job store in `jobs/job_store.py` (#1058, merged) is the only writer of `job_records` rows; the in-memory dict still decides what a job this process runs does next.
+The job store in `jobs/job_store.py` is the only writer of `job_records` rows; the in-memory dict still decides what a job this process runs does next.
 
 A worker whose server dies is not left running: a process job started with
 `start_own_process_group()` ends itself when its parent is gone

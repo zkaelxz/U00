@@ -29,6 +29,6 @@ Titles, lines and settings are in `library.db`. Sources keep their own `sources.
 
 1. Match model results back to lines by explicit id, never by list position.
 2. API keys go in headers, never in URLs, log lines or stored errors.
-3. Every route declares exactly one of `require_permission(...)`, `public_route()` or `local_only()`.
+3. Every route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`.
 
 The full rules are in `CLAUDE.md`; translation engines are in [`engine-backends.md`](engine-backends.md); tests and CI are in [`testing-and-ci.md`](testing-and-ci.md).
