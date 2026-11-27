@@ -19,7 +19,8 @@ const noSideScroll = (page: import('@playwright/test').Page) =>
 test('headings are 44px tall, each kind opens its own block and nothing scrolls sideways', async ({ page }) => {
   await page.goto('/#/drama/3/export')
   await expectOpen(page, { [FIRST_OPEN.video]: true, 'Burned-in video': false, 'Subtitle file': false })
-  for (const title of BLOCKS) expect(await hitHeight(summaryOf(page, title))).toBeGreaterThanOrEqual(44)
+  // A video title has no Audiobook or EPUB block.
+  for (const title of BLOCKS.filter((b) => b !== 'Audiobook' && b !== 'EPUB')) expect(await hitHeight(summaryOf(page, title))).toBeGreaterThanOrEqual(44)
   expect(await noSideScroll(page)).toBeLessThanOrEqual(0)
 
   await page.goto('/#/drama/1/export')
