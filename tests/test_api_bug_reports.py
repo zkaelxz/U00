@@ -561,3 +561,17 @@ def test_server_section_lists_recent_jobs_and_bundled_extension(client, monkeypa
     assert "Translate" in md and "boom" in md
     assert KEY not in md and "192.168.1.9" not in md
     assert "Extension bundled with this app:" in md
+
+
+def test_a_report_from_away_tells_the_owner_and_one_from_the_pc_does_not(fakes, monkeypatch):
+    sent = []
+    from services import notification_service
+    monkeypatch.setattr(notification_service, "notify_waiting",
+                        lambda text, **kw: sent.append((text, kw)))
+    svc.create_report(_report())
+    assert sent == []
+    saved = svc.create_report(_report(), reporter="user:7")
+    assert len(sent) == 1
+    text, kw = sent[0]
+    assert f"#{saved['id']}" in text and "Diagnostics at the PC" in text
+    assert kw.get("owner_user_id") is None and "user:7" not in text
