@@ -27,6 +27,7 @@ import threading
 import time
 import uuid
 import zipfile
+from typing import Any
 
 import memory_headroom
 from lib.pid import pid_alive
@@ -454,7 +455,7 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
             "audio-separator can't be limited to the CPU here. Turn GPU on to separate vocals.")
 
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
-    separator = None
+    separator: Any = None  # reassigned in finally so the model can be freed
     try:
         if event_cb:
             event_cb("loading", "audio_separator")
