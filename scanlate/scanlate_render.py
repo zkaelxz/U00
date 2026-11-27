@@ -67,7 +67,10 @@ def _tilts_and_lines(page, regions: list):
     (strip, angle, size) of that line, which also gives the angle: the skew detector is thrown off by
     the busy art round such a band."""
     lines = [sign_text_line(page, b) if b.get("kind") == "sign" else None for b in regions]
-    angles = [line[1] if line else scanlate_tilt.estimate_text_angle(page, b)
+    # A few columns of vertical lettering can score best at a slant; the English that replaces
+    # them reads across, so it is set level.
+    angles = [line[1] if line else 0.0 if b.get("orientation") == "vertical"
+              else scanlate_tilt.estimate_text_angle(page, b)
               for line, b in zip(lines, regions)]
     return angles, lines
 
