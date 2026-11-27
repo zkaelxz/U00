@@ -149,6 +149,21 @@ def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optiona
     return settings_service.resolve_key(engine_name, env_path)
 
 
+HOSTED_FALLBACK_ENGINE = "openai"
+
+
+def default_hosted_engine() -> str:
+    """The engine a feature uses when nothing picked one: Ollama's hosted
+    Gemma 4 31B, or OpenAI (GPT-6 Luna) when Ollama does not answer and an
+    OpenAI key is saved. Without either, Ollama, so the refusal names it."""
+    from engine_backends import local
+    if local.check_ollama_reachable(settings_service.ollama_url()):
+        return "ollama"
+    if settings_service.resolve_key(HOSTED_FALLBACK_ENGINE):
+        return HOSTED_FALLBACK_ENGINE
+    return "ollama"
+
+
 CAP_STOP_MESSAGE = ("Stopped at chunk {first} of {total}: the next chunk would pass your "
                     "monthly cap. {finished}")
 REQUEST_CHUNKS = 8   # chunks per request (standalone_translate's batch_size)

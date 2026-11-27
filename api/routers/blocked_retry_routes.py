@@ -31,7 +31,7 @@ async def _engine_gate(request: Request):
         body = await request.json()
     except Exception:
         body = None
-    engine = body.get("engine", blocked_retry_service.DEFAULT_ENGINE) if isinstance(body, dict) else None
+    engine = body.get("engine") if isinstance(body, dict) else None
     require_engines_allowed(request, engine if isinstance(engine, str) else None)
 
 

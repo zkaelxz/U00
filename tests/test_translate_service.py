@@ -431,3 +431,26 @@ class TestPasteKeepsEveryLine:
         text = "\n".join(f"line {i}" for i in range(1, 21))
         result = translate_service.estimate(text, "fake", "zh", "en")
         assert result["requests"] == len(engine_standalone.standalone_requests(text, 8)) == 3
+
+
+class TestDefaultHostedEngine:
+    """The engine a feature uses when none was picked: hosted Gemma through
+    Ollama, GPT-6 Luna through OpenAI when Ollama does not answer."""
+
+    def test_ollama_when_it_answers(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: True)
+        assert translate_service.default_hosted_engine() == "ollama"
+
+    def test_openai_when_ollama_is_down_and_a_key_is_saved(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key",
+                            lambda name, *a: "sk-test" if name == "openai" else None)
+        assert translate_service.default_hosted_engine() == "openai"
+
+    def test_ollama_when_neither_is_available(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key", lambda name, *a: None)
+        assert translate_service.default_hosted_engine() == "ollama"

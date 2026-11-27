@@ -192,10 +192,9 @@ def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    # Never the Settings default: that may be a hosted engine, and a Live
-    # request without an engine (API client, extension, stale bundle) must not
-    # send the stream's text off this PC unasked.
-    engine_name = engine_name or LIVE_DEFAULT_ENGINE
+    # Never the Settings default: Live has its own, the hosted Gemma through
+    # Ollama (OpenAI Luna when Ollama does not answer).
+    engine_name = engine_name or translate_service.default_hosted_engine()
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
