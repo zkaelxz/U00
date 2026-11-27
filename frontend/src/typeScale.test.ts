@@ -43,14 +43,24 @@ describe('type foundation', () => {
     }
   })
 
-  it('uses the heading face (Fraunces) only for page titles and the names of titles and series', () => {
-    const allowed = ['.page-title', '.continue-title', '.drama-card-title', '.table-title', '.cover-title', '.workspace-header h1']
+  const selectorsUsing = (token: string) => {
     const used: string[] = []
     for (const f of files) {
       const css = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
-      for (const m of css.matchAll(/([^{}]+)\{[^{}]*var\(--font-heading\)[^{}]*\}/g)) used.push(m[1].trim().replace(/\s+/g, ' '))
+      for (const m of css.matchAll(new RegExp(`([^{}]+)\\{[^{}]*var\\(${token}\\)[^{}]*\\}`, 'g'))) used.push(m[1].trim().replace(/\s+/g, ' '))
     }
-    expect(used.filter((sel) => !allowed.includes(sel))).toEqual([])
+    return used
+  }
+
+  it('uses the heading face (Fraunces) only for page titles', () => {
+    expect(selectorsUsing('--font-heading')).toEqual(['.page-title'])
+  })
+
+  it('sets the names of titles and series in the text font, with their language\'s CJK stack', () => {
+    const names = ['.page-title .title-name', '.continue-title', '.drama-card-title', '.table-title', '.cover-title', '.workspace-header h1']
+    expect(selectorsUsing('--font-title').sort()).toEqual([...names].sort())
+    for (const sel of selectorsUsing('--weight-title')) expect(names).toContain(sel)
+    expect(index).toContain('--font-title: var(--font-sans);')
   })
 
   it('defines the type roles on top of the scale', () => {
@@ -59,7 +69,10 @@ describe('type foundation', () => {
 
   it('declares a CJK stack per language', () => {
     for (const l of ['zh', 'ja', 'ko']) expect(index).toContain(`:lang(${l})`)
-    expect(index).toMatch(/:lang\(zh\) \{ font-family: 'Figtree Latin', var\(--font-zh\)/)
+    expect(index).toMatch(/:lang\(zh\) \{ --font-lang: 'Figtree Latin', var\(--font-zh\)/)
+    // Traditional text takes Taiwan fonts, whose punctuation sits centred.
+    expect(index).toMatch(/:lang\(zh-Hant\)[^{]*\{ --font-lang: 'Figtree Latin', var\(--font-zh-hant\)/)
+    expect(index).toMatch(/--font-zh-hant: 'Microsoft JhengHei UI', 'PingFang TC', 'Noto Sans CJK TC'/)
   })
 
   it('breaks Korean at word boundaries and Japanese with strict kana rules', () => {
