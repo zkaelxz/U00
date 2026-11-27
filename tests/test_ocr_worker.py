@@ -4,6 +4,7 @@
 import multiprocessing
 import sys
 import threading
+import time
 import types
 
 import pytest
@@ -468,3 +469,17 @@ def test_start_gpu_load_waits_for_the_engine_only_when_the_gpu_is_allowed(monkey
     monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: True)
     monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: next(answers))
     assert ocr_worker.start_gpu_load("medium", wait=5) is True
+
+
+def test_a_read_waits_for_a_gpu_load_already_under_way_but_not_for_one_it_starts(monkeypatch):
+    import ocr_worker
+    monkeypatch.setattr(ocr_worker._gpu, "alive", lambda: True)
+    monkeypatch.setattr(ocr_worker._gpu, "key", "medium")
+    monkeypatch.setattr(ocr_worker._gpu, "load_started", time.monotonic())
+    answers = iter([False, False, True])
+    monkeypatch.setattr(ocr_worker._gpu, "loading", True)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: next(answers))
+    assert ocr_worker._gpu_ready_or_nearly("medium") is True
+    monkeypatch.setattr(ocr_worker._gpu, "loading", False)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: False)
+    assert ocr_worker._gpu_ready_or_nearly("medium") is False

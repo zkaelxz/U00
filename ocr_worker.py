@@ -79,6 +79,7 @@ _gpu_off_at = 0.0
 # briefly full) otherwise left every later read on the CPU until the app restarted.
 GPU_OFF_SECONDS = 300
 GPU_SLOW_LOAD_SECONDS = 90
+GPU_READ_WAIT_SECONDS = 20
 _gpu_checked_at = None
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
@@ -95,7 +96,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
-    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready(key):
+    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
             _gpu_off(reply[1])
@@ -180,6 +181,24 @@ def _gpu_weights_on_disk(key: str = "medium") -> bool:
     specs += ([ocr.RAPIDOCR_KOREAN_MODEL] if key == "ko"
               else [ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT])
     return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in specs)
+
+
+def _gpu_ready_or_nearly(key: str) -> bool:
+    """_gpu_ready, but a load that was already under way before this read is waited for (up to
+    GPU_READ_WAIT_SECONDS after it started): the GPU reads a page in about a second where
+    the CPU takes ten, so a few seconds of waiting pays for itself. A load this read starts is
+    not waited for, so a lone read is never held up."""
+    under_way = _gpu.loading and _gpu.alive() and _gpu.key == key
+    if _gpu_ready(key):
+        return True
+    if not under_way:
+        return False
+    deadline = _gpu.load_started + GPU_READ_WAIT_SECONDS
+    while _gpu.loading and _gpu.alive() and time.monotonic() < deadline:
+        time.sleep(0.2)
+        if _gpu_ready(key):
+            return True
+    return False
 
 
 def _gpu_ready(key: str) -> bool:
