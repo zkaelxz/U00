@@ -472,3 +472,12 @@ def test_the_torch_setup_preview_can_be_cancelled():
     assert plan_mod.torch_setup_blocks("cu126", runner=cancelled_run, installed={}, mins={},
                                        required=set(), cancel=probe) == []
     assert seen["cancel"] is probe
+
+
+def test_a_dependency_pulling_the_cpu_onnxruntime_over_the_gpu_build_is_blocked():
+    changes = [{"name": "onnxruntime", "kind": "install"}]
+    assert "break each other" in plan_mod.ort_clash({"onnxruntime-gpu": "1.19.2"}, changes)
+    assert plan_mod.ort_clash({}, changes) is None
+    # The swap removes the other build first, so the plan sees it as gone.
+    assert plan_mod.ort_clash({}, [{"name": "onnxruntime-gpu", "kind": "install"}]) is None
+    assert plan_mod.ort_clash({"onnxruntime": "1.32.0"}, [{"name": "onnxruntime", "kind": "upgrade"}]) is None

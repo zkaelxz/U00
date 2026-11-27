@@ -87,3 +87,46 @@ def test_the_one_package_install_route_also_installs_paddles_requirements(monkey
 def test_paddles_install_names_all_pass_the_apply_steps_name_check():
     import pending_install
     assert pending_install._argv_accepted(install_registry.install_argv(["paddleocr", "paddlepaddle"]))
+
+
+def test_onnxruntime_gpu_replaces_the_cpu_build_and_back():
+    import pending_install
+    both = {"onnxruntime": "1.32.0"}
+    assert install_registry.swap_names(["onnxruntime-gpu"], both) == ["onnxruntime"]
+    assert install_registry.swap_names(["onnxruntime-gpu"], {}) == []
+    assert install_registry.swap_names(["onnxruntime"], {"onnxruntime-gpu": "1.19.2"}) == ["onnxruntime-gpu"]
+    for name in ("onnxruntime", "onnxruntime-gpu"):
+        assert pending_install._uninstall_steps_accepted([install_registry.uninstall_argv(name)])
+    argv = install_registry.install_argv(["onnxruntime-gpu"])
+    assert "onnxruntime-gpu==1.19.2" in argv and pending_install._argv_accepted(argv)
+    try:
+        install_registry.uninstall_argv("numpy")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("only the swappable packages may be uninstalled")
+
+
+def test_onnxruntime_gpu_needs_an_nvidia_card_and_cannot_join_the_cpu_build(monkeypatch):
+    monkeypatch.setattr(install_registry.shutil, "which", lambda name: None)
+    assert "NVIDIA" in install_registry.unqueueable_reason(["onnxruntime-gpu"])
+    monkeypatch.setattr(install_registry.shutil, "which", lambda name: "nvidia-smi")
+    assert install_registry.unqueueable_reason(["onnxruntime-gpu"]) is None
+    assert "replace each other" in install_registry.unqueueable_reason(["onnxruntime-gpu", "onnxruntime"])
+
+
+def test_the_one_package_route_previews_removes_then_installs_for_onnxruntime_gpu(monkeypatch):
+    from services import diagnostics_packages_service as svc
+    monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"onnxruntime": "1.32.0"})
+    cmds = [c for c, _ in svc._install_commands("onnxruntime-gpu")]
+    assert "--dry-run" in cmds[0] and cmds[1][-3:] == ["uninstall", "-y", "onnxruntime"]
+    assert "onnxruntime-gpu==1.19.2" in cmds[2]
+
+
+def test_onnxruntime_gpu_is_found_by_its_distribution_not_an_import_name(monkeypatch):
+    import diagnostics
+    slot = diagnostics.OPTIONAL_DEPENDENCIES["onnxruntime-gpu"][0]
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "1.19.2" if name == "onnxruntime-gpu" else None)
+    assert diagnostics.check_dependency(slot) is True
+    monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: None)
+    assert diagnostics.check_dependency(slot) is False

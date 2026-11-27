@@ -21,10 +21,15 @@ import types
 from expected_files import EXPECTED_TOP_LEVEL_FILES
 from lib.no_window import NO_WINDOW
 
+# onnxruntime-gpu has no import name of its own (it fills the same 'onnxruntime' folder as the
+# CPU build), so its slot is looked up as an installed distribution instead.
+ORT_GPU_SLOT = "onnxruntime:gpu"
+
 # name -> (import name, feature it powers, required vs optional)
 OPTIONAL_DEPENDENCIES = {
     "faster_whisper": ("faster_whisper", "audio alignment/timing", "feature"),
     "onnxruntime": ("onnxruntime", "ASMR VAD", "feature"),
+    "onnxruntime-gpu": (ORT_GPU_SLOT, "Korean text reader on the GPU (replaces onnxruntime)", "feature"),
     "ctranslate2": ("ctranslate2", "Whisper GPU detection (installed with faster-whisper)", "feature"),
     "cv2": ("cv2", "Scanlate bubble detection/inpainting", "feature"),
     "anthropic": ("anthropic", "Claude translation engine", "engine"),
@@ -183,7 +188,7 @@ APPROX_DOWNLOAD_MB = {
     "lightnovel-crawler": 30,
     "playwright": 40, "trafilatura": 5, "audio-separator": 30, "audioread": 1, "funasr": 5,
     "cryptography": 4, "authlib": 1, "numpy": 15, "httpx": 1, "nagisa": 22, "soynlp": 1,
-    "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15,
+    "jiwer": 3, "sacrebleu": 2, "onnxruntime": 15, "onnxruntime-gpu": 280,
     "nvidia-cublas-cu12": 470, "nvidia-cudnn-cu12": 700,
 }
 PULLS_TORCH = {"pyannote-audio", "manga-ocr", "audio-separator", "funasr", "torchaudio"}
@@ -300,6 +305,10 @@ INSTALL_TASKS = [
     {"id": "ocr_rapidocr", "group": "Scanlate", "label": "RapidOCR (Chinese, Japanese, Korean text)",
      "help": "Light OCR for pages and captions that runs without PaddlePaddle.",
      "packages": ["rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog", "six", "tqdm", "PyYAML"]},
+    {"id": "ocr_korean_gpu", "group": "Scanlate", "label": "Korean text reader on the GPU",
+     "help": "Replaces onnxruntime with its GPU build so Korean pages are read on the GPU, with the "
+             "same text. Needs an NVIDIA GPU; Baihe puts the CPU build back if the install fails.",
+     "packages": ["onnxruntime-gpu"]},
     {"id": "paid_engines", "group": "Translation", "label": "Claude and DeepSeek",
      "help": "Client libraries for the paid translation engines (keys go in Settings).",
      "packages": ["anthropic", "openai"],
@@ -476,6 +485,8 @@ def check_dependency(module_name: str) -> bool:
     effects and is faster for modules with heavy import-time work,
     like torch-backed packages). External programs (EXTERNAL_PROGRAMS)
     are looked up as programs instead."""
+    if module_name == ORT_GPU_SLOT:
+        return get_installed_version("onnxruntime-gpu") is not None
     if module_name in EXTERNAL_PROGRAMS:
         try:
             return bool(importlib.import_module(EXTERNAL_PROGRAMS[module_name]).is_installed())
