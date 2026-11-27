@@ -3,6 +3,7 @@ setting (bulk.auto_resume). Fully mocked: the fake batch provider from
 test_translate_run_bulk_reflect, no network, no real keys."""
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 import background_jobs
@@ -16,8 +17,10 @@ from services import translate_service
 from tests.test_translate_run_bulk_reflect import (  # noqa: F401
     _current, _env, _fake_engines, _seed)
 
+pytestmark = pytest.mark.usefixtures("free_engine")
 
-def _pending_batch(did, status="submitted", engine="ollama"):
+
+def _pending_batch(did, status="submitted", engine="echo"):
     rows = db.load_lines(did)
     return db.create_bulk_job(did, engine, "m", status, [(rows[0]["id"], "k", "h", "")])
 
@@ -90,7 +93,7 @@ def test_missing_key_is_skipped_and_noted(isolated_db, monkeypatch):
 def test_a_paid_engine_is_held_for_the_person_and_noted(isolated_db, monkeypatch):
     did = _setup(monkeypatch)
     paid = _pending_batch(did, engine="claude")
-    free = _pending_batch(did, engine="ollama")
+    free = _pending_batch(did, engine="echo")
     settings_service.set_settings({"bulk_auto_resume": True})
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 1, "skipped": 1}
     assert not background_jobs.is_running(bulk_poll.poll_job_id(paid))
@@ -167,7 +170,7 @@ def test_a_job_whose_package_is_missing_is_skipped_and_noted(isolated_db, monkey
     def get_engine(name, *a, **k):
         raise MissingPackageError("requests")
     monkeypatch.setattr(engine_registry, "get_engine", get_engine)
-    broken = _pending_batch(did, engine="ollama")
+    broken = _pending_batch(did, engine="echo")
     settings_service.set_settings({"bulk_auto_resume": True})
     assert svc.resume_interrupted_at_startup() == {"enabled": True, "resumed": 0, "skipped": 1}
     assert not background_jobs.is_running(bulk_poll.poll_job_id(broken))
