@@ -224,6 +224,19 @@ def chain_touches_local_gpu(chain) -> bool:
     return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
 
 
+LOCAL_MODEL_REFUSAL = ("Local Ollama models are no longer supported: they were too slow and "
+                       "not accurate enough. Pick a hosted model (a tag ending in -cloud) or "
+                       "another engine.")
+
+
+def require_hosted_model(model) -> None:
+    """Refuses a model that would run on this PC. The Ollama engine now serves
+    only hosted tags; saved titles, presets and settings that still name a
+    local tag fail here with a message instead of loading it."""
+    if not is_ollama_cloud_model(model):
+        raise OllamaUnavailableError("local_model_removed", LOCAL_MODEL_REFUSAL)
+
+
 class OllamaUnavailableError(Exception):
     """Ollama can't serve the request for a reason the user can fix.
     `reason` is a stable machine id; the message never carries the Ollama
@@ -657,6 +670,7 @@ class OllamaEngine:
     def __init__(self, api_key: str | None = None, model: str = OLLAMA_DEFAULT_MODEL,
                  base_url: str = settings_schema.OLLAMA_URL_DEFAULT):
         # api_key is unused (kept for a consistent engine constructor signature)
+        require_hosted_model(model)
         self.model = model
         self.base_url = settings_schema.normalize_ollama_url(base_url)
         self._headroom_checked = False

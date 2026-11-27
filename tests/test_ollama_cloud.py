@@ -174,9 +174,6 @@ def test_gpu_seam_skips_cloud_only():
     assert not engine_local.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
 
 
-def test_local_model_costs_nothing():
-    engine = engine_local.OllamaEngine(model="gemma4:12b")
-    assert pricing.estimate_cost_for_engine(engine, 100_000, 50_000) == 0.0
 
 
 def test_model_health_does_not_call_cloud_tag_retired_or_unlisted(isolated_db):

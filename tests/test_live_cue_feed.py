@@ -248,7 +248,7 @@ class TestSourceScriptKeptInTheReply:
             bodies.append(payload)
             return {"message": {"content": '{"1": "%s"}' % content}}
         monkeypatch.setattr(local, "_ollama_chat", chat)
-        translated = CueTranslator(local.OllamaEngine(model="translategemma:12b"), "ja").translate(self.LINE)
+        translated = CueTranslator(local.OllamaEngine(model="gemma4:31b-cloud"), "ja").translate(self.LINE)
         return translated, bodies
 
     def test_a_name_left_in_japanese_still_gives_a_caption(self, monkeypatch):

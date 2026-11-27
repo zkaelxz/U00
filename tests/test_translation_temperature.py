@@ -70,7 +70,7 @@ def test_ollama_translates_at_a_repeatable_temperature_unless_a_lab_arm_sets_one
         bodies.append(payload)
         return {"message": {"content": '{"1": "Hello."}'}}
     monkeypatch.setattr(local, "_ollama_chat", fake)
-    engine = local.OllamaEngine(model="gemma4:12b")
+    engine = local.OllamaEngine(model="gemma4:31b-cloud")
     engine.translate_batch(["你好"], _ctx())
     engine.translate_batch(["你好"], _ctx(temperature=0.3))
     assert bodies[0]["options"]["temperature"] == 0.0 and bodies[0]["options"]["seed"] == 1
@@ -101,6 +101,6 @@ def test_the_ollama_task_path_is_repeatable_too(monkeypatch):
         bodies.append(payload)
         return {"message": {"content": '{"translations": {"1": "Hello."}}'}, "done_reason": "stop"}
     monkeypatch.setattr(local, "_ollama_chat", fake)
-    engine = local.OllamaEngine(model="translategemma:27b")
+    engine = local.OllamaEngine(model="gemma4:31b-cloud")
     local.ollama_task_reply(local._ollama_chat, engine, [{"role": "user", "content": "hi"}], 500, "json_object")
     assert bodies[0]["options"]["temperature"] == 0.0 and bodies[0]["options"]["seed"] == 1

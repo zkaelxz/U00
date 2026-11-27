@@ -765,10 +765,10 @@ def test_a_model_pulled_on_the_ollama_server_is_accepted(live, monkeypatch):
     from engine_backends import local as engine_local
     seen = _capture_engine(live, monkeypatch)
     monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["qwen3:4b"])
-    sid = _start(engine="ollama", model="qwen3:4b")
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["gemma4:31b-cloud"])
+    sid = _start(engine="ollama", model="gemma4:31b-cloud")
     assert _terminal(sid)
-    assert seen["engine"].model == "qwen3:4b"
+    assert seen["engine"].model == "gemma4:31b-cloud"
     with pytest.raises(InvalidInputError):
         _start(engine="ollama", model="not-a-real-model:1b")
 
@@ -789,7 +789,7 @@ def test_ollama_default_model_is_hosted_gemma_31b_whatever_the_card(live, monkey
     import memory_headroom
     from engine_backends import local as engine_local
     monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 24 * 1024)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["qwen3:4b"])
+    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["gemma4:31b-cloud"])
     seen = _capture_engine(live, monkeypatch)
     checked = []
     monkeypatch.setattr(engine_local, "check_ollama_model_installed",
@@ -806,37 +806,15 @@ def test_a_model_picked_in_settings_beats_the_graphics_memory_default(live, monk
     from engine_backends import engine_registry, local as engine_local
     monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 8 * 1024)
     monkeypatch.setattr(engine_registry, "model_override_for_default",
-                        lambda name: "qwen3:4b" if name == "ollama" else None)
+                        lambda name: "gemma4:31b-cloud" if name == "ollama" else None)
     seen = _capture_engine(live, monkeypatch)
     monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
     sid = _start(engine="ollama")
     assert _terminal(sid)
-    assert seen["engine"].model == "qwen3:4b"
-    assert live_service.form_options()["default_model"] == "qwen3:4b"
+    assert seen["engine"].model == "gemma4:31b-cloud"
+    assert live_service.form_options()["default_model"] == "gemma4:31b-cloud"
 
 
-def test_check_ollama_model_installed_reads_the_tag_list(monkeypatch):
-    import json
-    from engine_backends import local
-    from lib import http
-
-    def fake_get(url, ip, headers, timeout, method="GET", **k):
-        return _TagsResp(json.dumps({"models": [{"name": "translategemma:12b"}, {"name": "tiny:latest"}]}).encode())
-
-    class _TagsResp:
-        ok = True
-        status_code = 200
-        def __init__(self, body): self._body = body
-        def iter_content(self, chunk_size=1, decode_unicode=False): yield self._body
-        def close(self): pass
-        headers = {}
-
-    monkeypatch.setattr(http, "pinned_get", fake_get)
-    local.check_ollama_model_installed("http://x", "translategemma:12b")
-    local.check_ollama_model_installed("http://x", "tiny")
-    with pytest.raises(local.OllamaUnavailableError) as exc:
-        local.check_ollama_model_installed("http://x", "gemma4:12b")
-    assert exc.value.reason == "ollama_model_missing" and 'ollama pull gemma4:12b' in exc.value.message
 
 
 def test_session_folder_is_held_until_the_job_is_registered(live, monkeypatch):

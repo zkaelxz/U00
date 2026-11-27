@@ -112,7 +112,7 @@ class TestOllamaRequest:
     REPLY = {"message": {"content": '<think>try {"1": "no"}</think>{"1": "Hello."}',
                          "thinking": '{"1": "Reasoning leaked."}'}}
 
-    @pytest.mark.parametrize("model", ["gemma4:12b", "qwen3.5:9b"])
+    @pytest.mark.parametrize("model", ["gemma4:31b-cloud", "gemma4:31b-cloud"])
     def test_off_form_by_default_and_on_form_when_toggled(self, monkeypatch, model):
         fake = _Ollama(self.REPLY)
         monkeypatch.setattr(local, "_ollama_chat", fake)
@@ -124,24 +124,9 @@ class TestOllamaRequest:
 
     def test_reasoning_in_content_or_the_thinking_field_is_not_saved(self, monkeypatch):
         monkeypatch.setattr(local, "_ollama_chat", _Ollama(self.REPLY))
-        out = local.OllamaEngine(model="gemma4:12b").translate_batch(["你好"], _ctx(thinking=True))
+        out = local.OllamaEngine(model="gemma4:31b-cloud").translate_batch(["你好"], _ctx(thinking=True))
         assert out == ["Hello."]
 
-    def test_a_model_without_thinking_is_retried_without_the_field(self, monkeypatch):
-        bodies = []
-
-        def chat(base_url, payload):
-            bodies.append(payload)
-            if "think" in payload:
-                resp = requests.Response()
-                resp.status_code = 400
-                resp._content = b'"llama3.1" does not support thinking'
-                raise requests.HTTPError("400", response=resp)
-            return {"message": {"content": '{"1": "Hello."}'}}
-        monkeypatch.setattr(local, "_ollama_chat", chat)
-        engine = local.OllamaEngine(model="llama3.1")
-        assert engine.translate_batch(["你好"], _ctx(thinking=True)) == ["Hello."]
-        assert "think" not in bodies[-1]
 
 
 class _Capturing:

@@ -398,11 +398,10 @@ _OLLAMA_MODEL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}")
 
 
 def _is_safe_ollama_model(model) -> bool:
-    """Ollama model names are only sent to the local Ollama server (never a
-    download), and users pull their own, so any name of this shape is
-    accepted: no whitespace, no "..", no leading slash."""
+    """Only hosted Ollama tags (ending in -cloud) are accepted, and of a safe
+    shape: no whitespace, no "..", no leading slash. Local models are refused."""
     return (isinstance(model, str) and _OLLAMA_MODEL_RE.fullmatch(model) is not None
-            and ".." not in model)
+            and ".." not in model and engine_local.is_ollama_cloud_model(model))
 
 
 def _require_offered_model(engine_name: str, model) -> None:

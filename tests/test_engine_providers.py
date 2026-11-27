@@ -797,8 +797,8 @@ class TestGetEngineOllamaBaseUrlPassthrough:
         assert engine.base_url == "http://localhost:11434"
 
     def test_base_url_reaches_ollama_even_with_an_explicit_model(self):
-        engine = engine_registry.get_engine("ollama", None, "qwen2.5:14b", base_url="http://gpu-box:11434")
-        assert engine.model == "qwen2.5:14b"
+        engine = engine_registry.get_engine("ollama", None, "gemma4:31b-cloud", base_url="http://gpu-box:11434")
+        assert engine.model == "gemma4:31b-cloud"
         assert engine.base_url == "http://gpu-box:11434"
 
     def test_base_url_kwarg_is_ignored_for_non_ollama_engines(self):
