@@ -16,6 +16,9 @@
  * Phones (640px and narrower): four tabs or fewer stay one row. Five or more become one picker button that names
  * the current section and opens a list, so no label is cut or scrolled out of sight. `keepRow` opts out, for a tab
  * row inside a sticky panel whose height cannot change (Review tools).
+ *
+ * `side` draws the tabs as a list down the left of a SidePane on wider screens. On a phone it stays one row that
+ * scrolls sideways, never the picker, so switching section is one tap.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -118,29 +121,46 @@ export function TabPicker<T extends string>({ tabs, active, onSelect, label, idP
   )
 }
 
-export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix, keepRow }: {
+export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix, keepRow, side }: {
   tabs: TabInfo<T>[]
   active: T
   onSelect: (id: T) => void
   label: string
   idPrefix: string
   keepRow?: boolean
+  side?: boolean
 }) {
   const phone = useMediaQuery(PHONE_QUERY)
+  const vertical = side && !phone
+  // A section picked off-screen in the scrolling phone row (a search hit, a link) slides into view.
+  useEffect(() => {
+    if (side && phone) document.getElementById(tabButtonId(idPrefix, active))?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [side, phone, idPrefix, active])
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
     const at = tabs.findIndex((t) => t.id === active)
     const last = tabs.length - 1
-    const to = { ArrowRight: at === last ? 0 : at + 1, ArrowLeft: at === 0 ? last : at - 1, Home: 0, End: last }[ev.key as 'Home']
+    const next = at === last ? 0 : at + 1
+    const prev = at === 0 ? last : at - 1
+    // A list down the side also answers Up and Down, the keys a vertical tablist is expected to use.
+    const keys: Record<string, number> = { ArrowRight: next, ArrowLeft: prev, Home: 0, End: last }
+    if (vertical) Object.assign(keys, { ArrowDown: next, ArrowUp: prev })
+    const to = keys[ev.key]
     if (to === undefined) return
     ev.preventDefault()
     onSelect(tabs[to].id)
     document.getElementById(tabButtonId(idPrefix, tabs[to].id))?.focus()
   }
-  if (phone && !keepRow && tabs.length >= PICKER_MIN_TABS) {
+  if (phone && !keepRow && !side && tabs.length >= PICKER_MIN_TABS) {
     return <TabPicker tabs={tabs} active={active} onSelect={onSelect} label={label} idPrefix={idPrefix} />
   }
   return (
-    <div role="tablist" aria-label={label} className="ui-tabs" onKeyDown={onKeyDown}>
+    <div
+      role="tablist"
+      aria-label={label}
+      aria-orientation={vertical ? 'vertical' : undefined}
+      className={side ? `ui-tabs ${vertical ? 'ui-tabs-side' : 'ui-tabs-scroll'}` : 'ui-tabs'}
+      onKeyDown={onKeyDown}
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
