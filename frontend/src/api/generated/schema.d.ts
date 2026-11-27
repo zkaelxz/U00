@@ -6212,7 +6212,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The Library's shelves: what needs you, what is running, what is ready */
+        /** The Library's Running line: titles with a step running or waiting */
         get: operations["get_home_api_library_home_get"];
         put?: never;
         post?: never;

@@ -14,7 +14,7 @@ import './homeShelves.css'
 export function HomeShelves({ reloadKey }: { reloadKey: number }) {
   const { jobs } = useJobs()
   const active = activeCount(jobs ?? [])
-  // A step starting or ending moves titles between shelves; the jobs list already hears about it.
+  // A step starting or ending changes the Running line; the jobs list already hears about it.
   const home = useLoad(getHome, reloadKey * 1000 + active)
   const now = useNow(active > 0)
   if (!home.data) return null

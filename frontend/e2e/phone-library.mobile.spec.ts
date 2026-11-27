@@ -14,8 +14,7 @@ test.beforeEach(async ({ page }) => {
 
 test('the first title card starts above the fold and the filters open in a sheet', async ({ page }) => {
   const viewport = page.viewportSize()!
-  // The Ready shelf comes before the full list, so its first card is the one on the first screen when it has one.
-  const card = page.locator('.home-ready-card, .drama-card').first()
+  const card = page.locator('.drama-card').first()
   const box = (await card.boundingBox())!
   // Two Continue tiles sit above the list, so the card itself starts on the first screen but may run past it.
   expect(box.y, 'first card starts inside the viewport').toBeLessThan(viewport.height)
