@@ -30,6 +30,7 @@ STATE_KEYS = {
     "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
+    "backfills.per_line_confidence": "marker that the one-time line-score rescoring has run (services/confidence_backfill_service.py), never shown",
     "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
