@@ -175,8 +175,45 @@ def _record_engine_usage(engine, record_usage):
                      u.get("cache_read_tokens", 0), u.get("cache_write_tokens", 0))
 
 
+NEIGHBOURS_BEFORE = 3
+NEIGHBOURS_AFTER = 1
+
+
+def neighbour_context(lines, chunk, before: int, ahead: int):
+    """(recent_context, upcoming_lines, around) for one request on chunk, a list of lines in
+    story order. As always, the `before` lines ahead of its first line and the `ahead` lines
+    after its last. When the chunk's lines are scattered (Re-translate selected, the redo of
+    flagged or failed lines, the pronoun re-check), each of its lines also gets its own
+    NEIGHBOURS_BEFORE and NEIGHBOURS_AFTER lines, capped by the run's windows; otherwise a
+    line from minute 58 would be read against minute 3's surroundings. The number of
+    requests is unchanged. A neighbour with English is shown as a translated pair, one
+    without as source only. around is True when such neighbours were added, since they
+    are then not all "immediately before" the batch."""
+    pos = {ln.idx: i for i, ln in enumerate(lines)}
+    in_chunk = {ln.idx for ln in chunk}
+    first, last = pos[chunk[0].idx], pos[chunk[-1].idx]
+    window = set(range(max(0, first - before), first)) if before > 0 else set()
+    # From the last line's own position: an already-translated line inside the span
+    # is not in the chunk, so the span can be longer than the chunk.
+    ahead_pos = [i for i in range(last + 1, min(len(lines), last + 1 + max(0, ahead)))
+                 if lines[i].idx not in in_chunk]
+    extra = set()
+    for ln in chunk:
+        p = pos[ln.idx]
+        extra.update(range(max(0, p - min(max(0, before), NEIGHBOURS_BEFORE)), p))
+        extra.update(range(p + 1, min(len(lines), p + 1 + min(max(0, ahead), NEIGHBOURS_AFTER))))
+    extra = {i for i in extra - window - set(ahead_pos)
+             if lines[i].idx not in in_chunk and (lines[i].en.strip() or lines[i].zh.strip())}
+    shown_english = sorted(window | {i for i in extra if lines[i].en.strip()})
+    recent = [(lines[i].zh, lines[i].en) for i in shown_english if lines[i].en.strip()]
+    source_only = sorted({i for i in extra if not lines[i].en.strip()} | set(ahead_pos))
+    upcoming = [lines[i].zh for i in source_only if lines[i].zh.strip()]
+    return recent, upcoming, bool(extra)
+
+
 def _recheck_male_pronouns(engine, lines, translated, context, character_names, batch_size,
-                           save_cb, record_usage, cap_reached, cancel_check_cb):
+                           save_cb, record_usage, cap_reached, cancel_check_cb,
+                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER):
     """With the she/her default on, asks once more for the lines it was meant to
     prevent: an English line saying he/him/his for a speaker with no he/him
     character. Only those ids go back, with a stricter instruction; a line still
@@ -204,6 +241,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             break
         chunk = suspects[start:start + batch_size]
         chunk_context: dict[str, Any] = dict(strict)
+        # Each suspect's own neighbours, not the run's last batch's.
+        recent, upcoming, _around = neighbour_context(
+            lines, chunk, min(context_window, NEIGHBOURS_BEFORE), min(context_window_ahead, NEIGHBOURS_AFTER))
+        chunk_context.update(recent_context=recent, upcoming_lines=upcoming, context_around=True)
         chunk_context["speaker_labels"] = [character_names.get(ln.speaker) for ln in chunk]
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
@@ -574,30 +615,16 @@ class _TranslateRun:
             self.args.detail_cb(self.last_frac, message)
 
     def _set_batch_context(self, batch):
-        a = self.args
-        lines = self.lines
-        first_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[0].idx)
-        if a.context_window > 0:
-            # Recomputed each batch (not just once outside the loop) since
-            # more lines have been translated -- including by this very
-            # loop -- by the time later batches run.
-            preceding = lines[max(0, first_pos - a.context_window):first_pos]
-            self.context["recent_context"] = [(ln.zh, ln.en) for ln in preceding if ln.en.strip()]
-        if a.context_window_ahead > 0:
-            # batch[-1]'s own position, not first_pos + len(batch) - 1 --
-            # that assumed the batch is a contiguous slice of `lines`,
-            # which isn't true when force_retranslate=False and an
-            # already-translated line sits in the middle of what would
-            # otherwise be contiguous target lines: target_lines skips it,
-            # so the batch is shorter than the span it covers in `lines`.
-            # The stale arithmetic could land back inside the batch itself,
-            # showing the model a line as "upcoming" (don't translate this)
-            # while also asking it to translate that same line right now.
-            last_pos = next(i for i, ln in enumerate(lines) if ln.idx == batch[-1].idx)
-            batch_idxs = {ln.idx for ln in batch}
-            upcoming = lines[last_pos + 1:last_pos + 1 + a.context_window_ahead]
-            self.context["upcoming_lines"] = [ln.zh for ln in upcoming
-                                              if ln.zh.strip() and ln.idx not in batch_idxs]
+        # Recomputed each batch (not just once outside the loop) since
+        # more lines have been translated -- including by this very
+        # loop -- by the time later batches run.
+        recent, upcoming, around = neighbour_context(
+            self.lines, batch, self.args.context_window, self.args.context_window_ahead)
+        if self.args.context_window > 0:
+            self.context["recent_context"] = recent
+        if self.args.context_window_ahead > 0 or around:
+            self.context["upcoming_lines"] = upcoming
+        self.context["context_around"] = around
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         self.spent += estimate_cost_for_engine(self.engine, inp, out, cache_read, cache_write)
@@ -966,7 +993,7 @@ class _TranslateRun:
             _recheck_male_pronouns(
                 self.engine, self.lines, self.translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                self._cap_reached, a.cancel_check_cb)
+                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead)
         except Exception as e:
             if not stops_translate_run(e):
                 raise
