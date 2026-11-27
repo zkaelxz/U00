@@ -11,7 +11,11 @@ export function useDelayedSave<T>(value: T | null, delayMs: number, save: (value
   const saveRef = useLatest(save)
   const waiting = useRef<T | null>(null)
   useEffect(() => {
-    if (value === null) return
+    if (value === null) {
+      // The pending value was withdrawn; unmount must not save it after all.
+      waiting.current = null
+      return
+    }
     waiting.current = value
     const t = setTimeout(() => {
       waiting.current = null

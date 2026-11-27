@@ -6,7 +6,8 @@ No network, no LLM.
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import local_only, require_permission
-from api.schemas import (DiscoverPlatforms, DiscoverSearchLinks, KnownTitle,
+from api.routers.library_routes import to_detail
+from api.schemas import (DiscoverPlatforms, DramaDetail, DiscoverSearchLinks, KnownTitle,
                          KnownTitleCreate, KnownTitleDelete, KnownTitleDeleted, KnownTitleList,
                          KnownTitleSeedResult, error_responses)
 from lib.ids import MAX_ID
@@ -44,10 +45,10 @@ def post_delete(body: KnownTitleDelete, title_id: int = Path(ge=1, le=MAX_ID)):
 
 
 @router.post("/titles/{title_id}/import-to-library", dependencies=[require_permission("library.create")], status_code=201,
-             summary="Create a drama from a known title (409 if already imported)",
+             response_model=DramaDetail, summary="Create a drama from a known title (409 if already imported)",
              responses=_ERRS)
 def post_import(request: Request, title_id: int = Path(ge=1, le=MAX_ID)):
-    return svc.import_to_library(title_id, principal=request.state.principal)
+    return to_detail(svc.import_to_library(title_id, principal=request.state.principal))
 
 
 @router.get("/platforms", dependencies=[require_permission("library.read")], response_model=DiscoverPlatforms,

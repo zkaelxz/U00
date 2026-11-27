@@ -75,6 +75,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
@@ -245,12 +246,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     return;
                 }
                 address.setText(url);
+                sitesHolder.setVisibility(android.view.View.GONE);
                 // Leaving the page ends a grab that is still reading it, or Grab would stay
                 // disabled. A grab already uploading finishes on its own.
                 if (grabbing && !uploading) finishGrab("");
             }
         });
-        root.addView(web, new LinearLayout.LayoutParams(
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stage.addView(web, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        sitesHolder = new android.widget.FrameLayout(this);
+        stage.addView(sitesHolder, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(stage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         chip = new GrabUi.Chip(this, palette);
@@ -293,12 +301,43 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
         setContentView(root);
         root.setFitsSystemWindows(true);
-        if (state != null) web.restoreState(state);
-        else {
+        if (state != null) {
+            web.restoreState(state);
+            if (web.getUrl() == null) showSites();
+        } else {
+            showSites();
             say(OPEN_FIRST);
             handleShare(getIntent());
             handleCommand(getIntent());
         }
+    }
+
+    private android.widget.FrameLayout sitesHolder;
+
+    /** Until a page opens the web view is a black rectangle, so the supported sites are listed there instead. */
+    private void showSites() {
+        String saved = prefs().getString(GrabSites.KEY_SITES, "");
+        drawSites(GrabBookmarks.parse(saved));
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) return;
+        sender.execute(() -> {
+            try {
+                List<GrabBookmarks.Mark> fresh = new BaiheClient(server, token).sites();
+                if (fresh.isEmpty()) return;
+                prefs().edit().putString(GrabSites.KEY_SITES, GrabBookmarks.serialize(fresh)).apply();
+                runOnUiThread(() -> drawSites(fresh));
+            } catch (BaiheClient.BridgeException e) {
+                // The saved list stays; the grab buttons report connection problems themselves.
+            }
+        });
+    }
+
+    private void drawSites(List<GrabBookmarks.Mark> sites) {
+        sitesHolder.removeAllViews();
+        sitesHolder.addView(GrabSites.panel(this, palette, sites,
+                "Enter a comic site address above, or set up Grab in Settings to see the sites Baihe supports.",
+                url -> web.loadUrl(url)));
     }
 
     @Override
@@ -520,7 +559,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         return line;
     }
 
-    /** Sections put what a reader needs on this page first; Open Baihe and Settings sit last. */
+    /** Sections put what a reader needs on this page first; Settings sits last. */
     private void showMore(android.view.View anchor) {
         List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
         String here = ServerAddress.browsable(web.getUrl());
@@ -550,7 +589,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.section("App");
         menu.item("Settings", this::showSettings);
         menu.item("Report a problem", () -> ProblemReportDialog.show(this, "Grab", web.getUrl(), web));
-        menu.item("Open Baihe", this::openBaihe);
         menu.show();
     }
 
@@ -1038,10 +1076,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         runOnUiThread(() -> chip.show(text, kind));
     }
 
-    private void openBaihe() {
-        ShellTabs.show(this, MainActivity.class);
-    }
-
     private void showSettings() {
         startActivity(new Intent(this, GrabSettingsActivity.class));
     }
@@ -1292,11 +1326,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private boolean desktopAgent;
 
     @Override
-    public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {
+    public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth, boolean accept) {
         final String run = runningGrab;
         runOnUiThread(() -> {
             if (web == null || run.isEmpty() || !grabbing || web.getWidth() <= 0 || web.getHeight() <= 0) {
-                answerSnap(run, id, false);
+                answerSnap(run, id, 0);
                 return;
             }
             int[] at = new int[2];
@@ -1305,7 +1339,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             android.graphics.Rect area = new android.graphics.Rect(at[0], at[1], at[0] + web.getWidth(), at[1] + web.getHeight());
             try {
                 android.view.PixelCopy.request(getWindow(), area, shot, result -> {
-                    boolean ok = false;
+                    int code = 0;
                     if (result == android.view.PixelCopy.SUCCESS) {
                         double scale = shot.getWidth() / viewWidth;
                         int x = Math.max(0, (int) Math.round(left * scale));
@@ -1315,17 +1349,24 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         if (w > 0 && h > 0) {
                             // A grab that ended while the picture was taken must not leave a strip behind.
                             if (grabbing && run.equals(runningGrab)) {
-                                strips.add(key, Bitmap.createBitmap(shot, x, y, w, h));
-                                ok = true;
+                                Bitmap strip = Bitmap.createBitmap(shot, x, y, w, h);
+                                if (!accept && StripCheck.looksBlank(brightnessSamples(strip))) {
+                                    // The reader has not drawn this page yet: nothing is kept and the page asks again.
+                                    strip.recycle();
+                                    code = 2;
+                                } else {
+                                    strips.add(key, strip);
+                                    code = 1;
+                                }
                             }
                         }
                     }
                     shot.recycle();
-                    answerSnap(run, id, ok);
+                    answerSnap(run, id, code);
                 }, new android.os.Handler(android.os.Looper.getMainLooper()));
             } catch (RuntimeException e) {
                 shot.recycle();
-                answerSnap(run, id, false);
+                answerSnap(run, id, 0);
             }
         });
     }
@@ -1358,14 +1399,28 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             }
             for (Bitmap strip : taken) strip.recycle();
             final boolean filed = ok;
-            runOnUiThread(() -> answerSnap(run, id, filed));
+            runOnUiThread(() -> answerSnap(run, id, filed ? 1 : 0));
         });
     }
 
-    private void answerSnap(String run, String id, boolean ok) {
+    /** 0 failed, 1 kept, 2 looked undrawn and was not kept. */
+    private void answerSnap(String run, String id, int code) {
         if (web == null || run.isEmpty() || !run.equals(runningGrab)) return;
         String callback = "window['__baiheSnap" + run + "']";
-        web.evaluateJavascript(callback + "&&" + callback + "('" + id + "'," + ok + ")", null);
+        web.evaluateJavascript(callback + "&&" + callback + "('" + id + "'," + code + ")", null);
+    }
+
+    private static int[] brightnessSamples(Bitmap bitmap) {
+        int grid = 16;
+        int[] out = new int[grid * grid];
+        for (int row = 0; row < grid; row++) {
+            for (int col = 0; col < grid; col++) {
+                int px = bitmap.getPixel(col * (bitmap.getWidth() - 1) / (grid - 1), row * (bitmap.getHeight() - 1) / (grid - 1));
+                out[row * grid + col] = (android.graphics.Color.red(px) * 299 + android.graphics.Color.green(px) * 587
+                        + android.graphics.Color.blue(px) * 114) / 1000;
+            }
+        }
+        return out;
     }
 
     @Override

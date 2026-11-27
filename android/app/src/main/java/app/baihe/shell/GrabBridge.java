@@ -26,8 +26,11 @@ final class GrabBridge {
         /** The language the page's own text and lang attribute point to ("zh", "ja", "ko" or ""). */
         default void onLanguage(String language) {}
 
-        /** The page asks for a strip of page {@code key} as the web view shows it: its place in page pixels. */
-        default void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {}
+        /**
+         * The page asks for a strip of page {@code key} as the web view shows it: its place in page pixels.
+         * A strip that looks undrawn is refused unless {@code accept} is set (the page has waited long enough).
+         */
+        default void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth, boolean accept) {}
 
         /** The page has asked for the strips taken so far to be joined and filed under this key. */
         default void onStitch(String id, String key) {}
@@ -201,14 +204,14 @@ final class GrabBridge {
 
     /** Only while this grab runs, and only a short id the page itself made up. */
     @JavascriptInterface
-    public void snap(String given, String id, String key, double left, double top, double width, double height, double viewWidth) {
+    public void snap(String given, String id, String key, double left, double top, double width, double height, double viewWidth, boolean accept) {
         synchronized (this) {
             if (!accepts(given) || !begun) return;
         }
         if (id == null || !id.matches("s[0-9]{1,6}") || key == null || !key.matches("p[0-9]{1,5}")) return;
         if (!(viewWidth >= 1 && viewWidth <= 10000 && width >= 1 && width <= 10000
                 && height >= 1 && height <= 20000 && left > -10000 && left < 10000 && top > -10000 && top < 20000)) return;
-        listener.onSnap(id, key, left, top, width, height, viewWidth);
+        listener.onSnap(id, key, left, top, width, height, viewWidth, accept);
     }
 
     @JavascriptInterface

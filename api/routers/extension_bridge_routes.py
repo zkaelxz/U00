@@ -186,6 +186,12 @@ async def get_health(request: Request):
     return _answer(200, await run_in_threadpool(extension_bridge_service.health_payload, principal))
 
 
+@router.get("/sites", dependencies=[require_device_token()],
+            summary="Device token: the source sites the phone's Grab screen can open")
+async def get_sites():
+    return _answer(200, await run_in_threadpool(extension_bridge_service.sites_payload))
+
+
 @router.post("/page", dependencies=[require_device_token()],
              summary="Device token: translate one page image")
 async def post_page(request: Request):

@@ -19,24 +19,10 @@ from engine_backends.llm_tasks import call_llm_json
 # Reading / listening time estimates (no LLM needed)
 # ---------------------------------------------------------------------------
 
-def estimate_reading_time(lines, wpm: int = 220) -> dict:
-    """Estimates reading time from the translated text. 220 wpm is a
-    common average for comfortable adult reading of fiction."""
-    return reading_time(sum(len(ln.en.split()) for ln in lines if ln.en), wpm)
-
-
 def reading_time(words: int, wpm: int = 220) -> dict:
     minutes = words / wpm if wpm else 0
     return {"word_count": words, "minutes": round(minutes, 1),
             "display": _format_duration(minutes)}
-
-
-def estimate_listening_time(lines) -> dict:
-    """For timed content, the real duration is just the last line's end
-    timestamp -- no estimation needed."""
-    if not lines:
-        return {"seconds": 0, "display": "0m"}
-    return listening_time(max(ln.end for ln in lines))
 
 
 def listening_time(seconds: float) -> dict:

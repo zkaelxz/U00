@@ -6,6 +6,7 @@ pytest.importorskip("httpx")
 
 
 import db
+from api.schemas import DramaDetail
 
 BODY = {"title_original": "余情", "title_en": "Lingering", "language": "zh",
         "media_type": "audio_drama"}
@@ -56,6 +57,7 @@ def test_import_and_duplicate_409(local_client):
     r = local_client.post(f"/api/discover/titles/{tid}/import-to-library")
     assert r.status_code == 201
     drama_id = r.json()["id"]
+    assert set(r.json()) == set(DramaDetail.model_fields)
     r2 = local_client.post(f"/api/discover/titles/{tid}/import-to-library")
     assert r2.status_code == 409 and _code(r2) == "conflict"
     assert r2.json()["error"]["details"] == {"drama_id": drama_id}

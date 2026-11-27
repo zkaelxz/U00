@@ -131,6 +131,23 @@ def count_active_job_records() -> dict:
     return {"queued": 0, "running": 0, **{r[0]: r[1] for r in rows}}
 
 
+def fresh_active_job_ids(job_ids, cutoff: float) -> set:
+    """Ids of queued/running rows updated at or after `cutoff`, read by key
+    without the result blobs. `job_ids` None means every row."""
+    sql = ("SELECT job_id FROM job_records WHERE status IN ('queued', 'running') "
+           "AND COALESCE(updated_at, 0) >= ?")
+    with contextlib.closing(db.get_conn()) as conn:
+        if job_ids is None:
+            return {r[0] for r in conn.execute(sql, (cutoff,))}
+        ids, found = sorted(job_ids), set()
+        # Stay under sqlite's host-parameter limit on old builds (999).
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            found.update(r[0] for r in conn.execute(
+                f"{sql} AND job_id IN ({','.join('?' * len(chunk))})", (cutoff, *chunk)))
+        return found
+
+
 def get_job_record(job_id: str):
     with contextlib.closing(db.get_conn()) as conn:
         row = conn.execute("SELECT * FROM job_records WHERE job_id = ?", (job_id,)).fetchone()

@@ -77,6 +77,22 @@ def bundled_extension_version() -> str | None:
         return None
 
 
+def sites_payload() -> dict:
+    """The listed, switched-on sources with a front page, for the phone's empty Grab screen."""
+    from sources import registry
+    sites = []
+    for name, cls in registry.adapter_classes().items():
+        if registry.is_unlisted(cls) or not registry.is_enabled(name):
+            continue
+        if not cls.homepage.startswith("https://"):
+            continue
+        types = {str(getattr(t, "value", t)) for t in cls.content_types}
+        kind = "video" if "video" in types else "novel" if types == {"novel"} else "comic"
+        sites.append({"name": cls.display_name or name, "url": cls.homepage, "kind": kind})
+    sites.sort(key=lambda site: (site["kind"], site["name"].lower()))
+    return {"sites": sites}
+
+
 def health_payload(principal=None, app_port=None) -> dict:
     import db
     dramas = db.list_dramas()

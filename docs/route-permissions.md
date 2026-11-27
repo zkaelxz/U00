@@ -51,6 +51,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/auth/ollama-key` | authenticated() |
 | `GET /api/auth/ollama-key` | jobs.start |
 | `POST /api/auth/ollama-key` | jobs.start |
+| `PUT /api/auth/preferences` | authenticated() |
 | `GET /api/auth/sessions` | authenticated() |
 | `POST /api/auth/sessions/revoke-others` | authenticated() |
 | `POST /api/auth/sessions/{auth_session_id}/revoke` | authenticated() |
@@ -289,6 +290,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
 | `POST /api/ext-bridge/pages` | device_token (extension.send) |
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
+| `GET /api/ext-bridge/sites` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `POST /api/ext-bridge/video` | device_token (extension.send) |
@@ -462,8 +464,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/media/dramas/{drama_id}/remove` | local_only() |
 | `GET /api/media/dramas/{drama_id}/shot-changes` | media.stream |
 | `GET /api/media/dramas/{drama_id}/status` | library.read |
-| `POST /api/media/dramas/{drama_id}/upload` | media.upload |
-| `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | media.upload + jobs.start |
+| `POST /api/media/dramas/{drama_id}/upload` | media.upload_member |
+| `POST /api/media/dramas/{drama_id}/upload-and-transcribe` | media.upload_member + jobs.start |
 | `GET /api/media/dramas/{drama_id}/video` | media.stream |
 | `HEAD /api/media/dramas/{drama_id}/video` | media.stream |
 | `GET /api/meta` | public() |
