@@ -258,7 +258,7 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
 
 
-def test_the_retry_for_empty_lines_sends_the_page_picture_again(token, drama, monkeypatch):
+def test_only_the_first_retry_for_empty_lines_sends_the_page_picture_again(token, drama, monkeypatch):
     from scanlate import scanlate
     from scanlate import scanlate_translate
     from services import extension_service
@@ -271,12 +271,12 @@ def test_the_retry_for_empty_lines_sends_the_page_picture_again(token, drama, mo
 
     def translate(bubbles, engine, drama_meta, **kwargs):
         seen.append(kwargs.get("page_image"))
-        if len(seen) == 2:
+        if len(seen) == 3:
             bubbles[0]["translated_text"] = "Hello"
 
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     _send(token, drama)
-    assert seen == [picture, picture]
+    assert seen == [picture, picture, None]
 
 
 @pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])

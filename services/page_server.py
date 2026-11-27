@@ -505,12 +505,14 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         # A second engine call is a page's slowest case; the log says how often it happens.
         get_logger().info("Extension page: %d of %d lines came back empty, asking again",
                           len(missing), len(bubbles))
-        for _ in range(2):   # a line the model skips twice often comes back on the third ask
+        for attempt in range(2):   # a line the model skips twice often comes back on the third ask
             try:
                 scanlate_translate.translate_page_bubbles(
                     missing, engine, meta, previous_context="", glossary_terms=glossary,
                     usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                    previous_lines=extras["previous_lines"], page_image=extras.get("page_image"))
+                    previous_lines=extras["previous_lines"],
+                    # Only the first retry pays for the picture: a second one would double the slowest case.
+                    page_image=extras.get("page_image") if attempt == 0 else None)
             except Exception:
                 break  # the first call's own note already says why; this is a second chance only
             missing = _lines_without_english(bubbles)
