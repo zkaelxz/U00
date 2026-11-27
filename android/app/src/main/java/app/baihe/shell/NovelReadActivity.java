@@ -24,6 +24,7 @@ public class NovelReadActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         // Reading has long stretches with no touch, and the screen would otherwise dim mid-paragraph.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

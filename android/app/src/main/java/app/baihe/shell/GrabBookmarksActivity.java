@@ -26,6 +26,7 @@ public class GrabBookmarksActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         palette = GrabUi.Palette.saved(this);
         recent = getIntent().getBooleanExtra(EXTRA_RECENT, false);
