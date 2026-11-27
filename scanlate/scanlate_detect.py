@@ -9,6 +9,7 @@ pipeline live in scanlate.py.
 """
 
 import os
+import threading
 import time
 from typing import Literal, overload
 
@@ -321,10 +322,15 @@ def detect_bubbles_ml(image_path: str, confidence: float | None = None, hf_token
 
 # The detector's copy on the GPU under "cuda", made on the first page when the GPU has room. The
 # CPU copy stays the master, as LaMa's does (scanlate_lama): a full GPU costs one page its speed,
-# a broken one goes back to the CPU for the process. Measured on the V100 PC (2026-11-23), the CPU
+# a broken one goes back to the CPU for a few minutes. Measured on the V100 PC (2026-11-23), the CPU
 # run was about 0.8 s of a page's 0.9 s of reading.
 _bubble_ml_gpu: dict = {}
 _bubble_ml_gpu_broken: list = []
+# A fault sends pages to the CPU for this long only, like the text reader's GPU pause.
+_GPU_OFF_SECONDS = 300
+_bubble_ml_gpu_off_until = 0.0
+# Quick read and Scanlate can detect at once; one thread's fault must not clear the copy the other is using.
+_bubble_ml_gpu_lock = threading.Lock()
 # The weights, CUDA's own share and one page's working memory, generous like LaMa's first load.
 _GPU_DETECTOR_MB = 800
 
@@ -332,7 +338,7 @@ _GPU_DETECTOR_MB = 800
 def _detector_on_gpu(model, torch):
     """The GPU copy when Settings allows GPU use and it fits (or is already there), else None."""
     cuda = getattr(torch, "cuda", None)
-    if _bubble_ml_gpu_broken or cuda is None or not cuda.is_available():
+    if time.monotonic() < _bubble_ml_gpu_off_until or cuda is None or not cuda.is_available():
         return None
     import stored_settings
     if not stored_settings.read("use_gpu"):
@@ -354,25 +360,28 @@ def _detector_outputs(model, inputs, torch):
     post-processing reads on the CPU either way."""
     import vram
     with torch.no_grad(), vram.comic_gpu_use():
-        try:
-            gpu = _detector_on_gpu(model, torch)
-            if gpu is not None:
-                outputs = gpu(**{key: value.to("cuda") for key, value in inputs.items()})
-                for key, value in outputs.items():
-                    if hasattr(value, "cpu"):
-                        outputs[key] = value.cpu()
-                device_use.note("balloon detector", "GPU")
-                return outputs
-        except Exception as exc:
-            # A GPU that filled up since (Ollama, a transcription) costs only this page; any
-            # other fault would repeat on every page, so the CPU is kept for the process.
-            if not isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ())):
-                _bubble_ml_gpu_broken.append(type(exc).__name__)
-                _bubble_ml_gpu.clear()
+        with _bubble_ml_gpu_lock:
             try:
-                torch.cuda.empty_cache()
-            except Exception:
-                pass
+                gpu = _detector_on_gpu(model, torch)
+                if gpu is not None:
+                    outputs = gpu(**{key: value.to("cuda") for key, value in inputs.items()})
+                    for key, value in outputs.items():
+                        if hasattr(value, "cpu"):
+                            outputs[key] = value.cpu()
+                    device_use.note("balloon detector", "GPU")
+                    return outputs
+            except Exception as exc:
+                # A GPU that filled up since (Ollama, a transcription) costs only this page; any
+                # other fault would repeat on every page, so the CPU is kept for a while.
+                if not isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ())):
+                    global _bubble_ml_gpu_off_until
+                    _bubble_ml_gpu_broken.append(type(exc).__name__)
+                    _bubble_ml_gpu_off_until = time.monotonic() + _GPU_OFF_SECONDS
+                    _bubble_ml_gpu.clear()
+                try:
+                    torch.cuda.empty_cache()
+                except Exception:
+                    pass
         device_use.note("balloon detector", "CPU")
         return model(**inputs)
 

@@ -31,8 +31,9 @@ def _dir() -> str:
 # shows the new result instead of the old redraw.
 _PIPELINE_FILES = ("ocr.py", "ocr_layout.py", "page_turns.py", "page_capture_checks.py", "en_cleanup.py",
                    "services/page_server.py", "services/extension_bridge_service.py",
-                   "services/page_reread_service.py", "services/comic_glossary_service.py")
-_PIPELINE_DIRS = ("scanlate",)
+                   "services/page_reread_service.py", "services/comic_glossary_service.py",
+                   "services/comic_fixes_service.py", "translation_guide.py")
+_PIPELINE_DIRS = ("scanlate", "engine_backends")
 
 
 @functools.cache
@@ -66,13 +67,15 @@ def get(key: str | None) -> dict | None:
         return None
     path = _path(key)
     try:
-        if time.time() - os.path.getmtime(path) > MAX_AGE_SECONDS:
-            return None
         with open(path, "r", encoding="utf-8") as f:
-            result = json.load(f)
+            stored = json.load(f)
+        # Age counts from the first save: the touch below only orders the size sweep, so an entry
+        # that keeps being read still expires and its page is read again with current code.
+        if time.time() - float(stored["saved_at"]) > MAX_AGE_SECONDS:
+            return None
         os.utime(path)   # the sweep drops the least recently used first
-        return result
-    except (OSError, ValueError):
+        return stored["result"]
+    except (OSError, ValueError, KeyError, TypeError):
         return None
 
 
@@ -84,7 +87,7 @@ def put(key: str | None, result: dict) -> None:
     try:
         with _lock:
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(result, f)
+                json.dump({"saved_at": time.time(), "result": result}, f)
             atomic_write.replace_file(tmp, path)
             _sweep()
     except OSError:

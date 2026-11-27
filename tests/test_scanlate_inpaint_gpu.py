@@ -80,6 +80,7 @@ def gpu(monkeypatch):
     monkeypatch.setattr(vram, "check_fits", check_fits)
     monkeypatch.setattr(scanlate_lama, "_lama_gpu", {})
     monkeypatch.setattr(scanlate_lama, "_lama_gpu_broken", [])
+    monkeypatch.setattr(scanlate_lama, "_lama_gpu_off_until", 0.0)
     return state
 
 
@@ -125,7 +126,7 @@ def test_a_full_gpu_costs_only_that_region(gpu):
     assert _run(master, torch) == "cpu from cuda"
 
 
-def test_any_other_gpu_fault_keeps_the_cpu_for_the_rest_of_the_run(gpu):
+def test_any_other_gpu_fault_keeps_the_cpu_for_a_few_minutes(gpu):
     master, torch = _Generator(), _Torch()
     _run(master, torch)
     scanlate_lama._lama_gpu["cuda"].gpu_error = RuntimeError("CUDA error: an illegal memory access")
@@ -165,3 +166,24 @@ def test_loading_and_running_the_eraser_hold_its_own_lock(monkeypatch):
     roi = np.full((16, 16, 3), 255, dtype=np.uint8)
     scanlate_lama._run_ml_inpaint(roi, np.zeros((16, 16), dtype=np.uint8))
     assert held == [("load", True), ("run", True)]
+
+
+def test_the_gpu_comes_back_after_a_fault_once_the_pause_is_over(gpu, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(scanlate_lama.time, "monotonic", lambda: now[0])
+    master, torch = _Generator(), _Torch()
+    _run(master, torch)
+    scanlate_lama._lama_gpu["cuda"].gpu_error = RuntimeError("CUDA error: an illegal memory access")
+    assert _run(master, torch) == "cpu"
+    now[0] += scanlate_lama._GPU_OFF_SECONDS - 1
+    assert _run(master, torch) == "cpu"
+    now[0] += 2
+    assert _run(master, torch) == "cpu from cuda"
+    assert scanlate_lama._lama_gpu_broken == ["RuntimeError"], "the fault stays in the log"
+
+
+@pytest.mark.parametrize("fits", [True, False])
+def test_a_region_over_a_megapixel_goes_by_the_free_memory(gpu, fits):
+    gpu["fits"] = fits
+    assert _run(_Generator(), _Torch(), 2000, 1000) == ("cpu from cuda" if fits else "cpu")
+    assert gpu["asked_mb"][0] > 6000, "the need still grows with the region"
