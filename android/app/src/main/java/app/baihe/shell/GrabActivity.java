@@ -75,6 +75,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
@@ -245,12 +246,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     return;
                 }
                 address.setText(url);
+                sitesHolder.setVisibility(android.view.View.GONE);
                 // Leaving the page ends a grab that is still reading it, or Grab would stay
                 // disabled. A grab already uploading finishes on its own.
                 if (grabbing && !uploading) finishGrab("");
             }
         });
-        root.addView(web, new LinearLayout.LayoutParams(
+        android.widget.FrameLayout stage = new android.widget.FrameLayout(this);
+        stage.addView(web, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        sitesHolder = new android.widget.FrameLayout(this);
+        stage.addView(sitesHolder, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(stage, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
         chip = new GrabUi.Chip(this, palette);
@@ -293,12 +301,43 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
         setContentView(root);
         root.setFitsSystemWindows(true);
-        if (state != null) web.restoreState(state);
-        else {
+        if (state != null) {
+            web.restoreState(state);
+            if (web.getUrl() == null) showSites();
+        } else {
+            showSites();
             say(OPEN_FIRST);
             handleShare(getIntent());
             handleCommand(getIntent());
         }
+    }
+
+    private android.widget.FrameLayout sitesHolder;
+
+    /** Until a page opens the web view is a black rectangle, so the supported sites are listed there instead. */
+    private void showSites() {
+        String saved = prefs().getString(GrabSites.KEY_SITES, "");
+        drawSites(GrabBookmarks.parse(saved));
+        String server = prefs().getString(KEY_SERVER, "");
+        String token = prefs().getString(KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) return;
+        sender.execute(() -> {
+            try {
+                List<GrabBookmarks.Mark> fresh = new BaiheClient(server, token).sites();
+                if (fresh.isEmpty()) return;
+                prefs().edit().putString(GrabSites.KEY_SITES, GrabBookmarks.serialize(fresh)).apply();
+                runOnUiThread(() -> drawSites(fresh));
+            } catch (BaiheClient.BridgeException e) {
+                // The saved list stays; the grab buttons report connection problems themselves.
+            }
+        });
+    }
+
+    private void drawSites(List<GrabBookmarks.Mark> sites) {
+        sitesHolder.removeAllViews();
+        sitesHolder.addView(GrabSites.panel(this, palette, sites,
+                "Enter a comic site address above, or set up Grab in Settings to see the sites Baihe supports.",
+                url -> web.loadUrl(url)));
     }
 
     @Override
@@ -520,7 +559,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         return line;
     }
 
-    /** Sections put what a reader needs on this page first; Open Baihe and Settings sit last. */
+    /** Sections put what a reader needs on this page first; Settings sits last. */
     private void showMore(android.view.View anchor) {
         List<GrabBookmarks.Mark> marks = GrabBookmarks.parse(prefs().getString(KEY_BOOKMARKS, ""));
         String here = ServerAddress.browsable(web.getUrl());
@@ -550,7 +589,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         menu.section("App");
         menu.item("Settings", this::showSettings);
         menu.item("Report a problem", () -> ProblemReportDialog.show(this, "Grab", web.getUrl(), web));
-        menu.item("Open Baihe", this::openBaihe);
         menu.show();
     }
 
@@ -1036,10 +1074,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     private void say(String text, GrabUi.Kind kind) {
         runOnUiThread(() -> chip.show(text, kind));
-    }
-
-    private void openBaihe() {
-        ShellTabs.show(this, MainActivity.class);
     }
 
     private void showSettings() {
