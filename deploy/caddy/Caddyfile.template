@@ -159,6 +159,11 @@
 			method POST
 			path /api/library/admin/bulk/translate
 		}
+		# The extension's own files (no token inside) are what a member sets up another computer with.
+		not {
+			method GET HEAD
+			path /api/extension/download
+		}
 		# An admin may view the users, the audit log and a user's devices from away.
 		not {
 			method GET HEAD
