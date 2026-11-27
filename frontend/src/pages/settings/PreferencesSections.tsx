@@ -175,7 +175,7 @@ const ADVANCED_FOLDS: { title: string; keys: string[] }[] = [
   { title: 'Offline models', keys: ['whisper_model_path', 'ollama_num_ctx_override'] },
   { title: 'Downloads', keys: ['cookies_browser'] },
   { title: 'Program locations', keys: ['cookies_file', 'tesseract_cmd', 'lncrawl_cmd'] },
-  { title: 'Uploads', keys: ['max_upload_mb'] },
+  { title: 'Uploads', keys: ['max_upload_mb', 'member_upload_mb'] },
 ]
 
 // These live in the Jobs and GPU card, so the generic "Other" fold must not pick them up here.

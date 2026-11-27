@@ -30355,6 +30355,11 @@ export interface components {
              * @default 20480
              */
             max_upload_mb: number;
+            /**
+             * Member Upload Mb
+             * @default 1024
+             */
+            member_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
@@ -30744,6 +30749,8 @@ export interface components {
             lncrawl_cmd?: string | null;
             /** Max Upload Mb */
             max_upload_mb?: number | null;
+            /** Member Upload Mb */
+            member_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
             /** Narration Pace */

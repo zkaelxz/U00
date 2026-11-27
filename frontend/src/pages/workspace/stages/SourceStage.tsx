@@ -25,11 +25,12 @@ import { useStageTab } from '../useStageTab'
 import { MEDIA_TAB_PREFIX, asMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { useCanUpload } from '../../../hooks/useHolds'
+import { useCanUpload, useCanUploadMedia } from '../../../hooks/useHolds'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
+  slowUploadHint,
   isUploadLimitProblem,
   isVideoFile,
   SOURCE_DRAFT_SHAPE,
@@ -88,6 +89,7 @@ export default function SourceStage() {
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
   const canUpload = useCanUpload()
+  const canUploadMedia = useCanUploadMedia()
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered for this title.
   const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
@@ -280,6 +282,9 @@ export default function SourceStage() {
           />
           <button type="button" id={mediaFileInputId(dramaId)} className={buttonClass('secondary')} disabled={!media} onClick={() => mediaInput.current?.click()}>Choose a file</button>
           <span className="source-file-name muted">{file ? file.name : 'No file chosen'}</span>
+          {file && !uploading && slowUploadHint(file.size) && (
+            <span className="muted" data-testid="slow-upload-hint">{slowUploadHint(file.size)}</span>
+          )}
           <button
             type="button"
             className={buttonClass('secondary')}
@@ -331,7 +336,7 @@ export default function SourceStage() {
         </p>
       )}
       {uploaded && <p role="status">{uploaded}</p>}
-      <ErrorBanner error={error} describe={{ pcOnly: !canUpload }} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error} describe={{ pcOnly: !canUploadMedia }} onDismiss={() => setError(null)} />
     </>
   )
 

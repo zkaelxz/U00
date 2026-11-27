@@ -162,13 +162,14 @@ def test_household_listener_refuses_every_upload_route(isolated_db):
 def test_only_reviewed_routes_reach_max_upload_bytes():
     """The setting caps every upload, so a new caller outside these modules
     must be reviewed. Restores and downloads stay PC-only; the media uploads
-    may come from away only with media.upload, and RemoteUploadGate then
+    may come from away only with media.upload or the member upload right, and RemoteUploadGate then
     applies the limit before the body is read."""
     import pathlib
     root = pathlib.Path(__file__).resolve().parent.parent
     callers = {str(p.relative_to(root)).replace(os.sep, "/")
                for folder in ("api", "services") for p in (root / folder).rglob("*.py")
-               if "max_upload_bytes" in p.read_text(encoding="utf-8")}
+               if any(name in p.read_text(encoding="utf-8")
+                      for name in ("max_upload_bytes", "upload_limit_bytes"))}
     assert callers == {
         "api/remote_uploads.py",
         "api/routers/backup_routes.py", "api/routers/library_admin_routes.py",
@@ -191,7 +192,7 @@ def test_only_reviewed_routes_reach_max_upload_bytes():
         elif path.startswith("/api/media/dramas/") and name in ("upload", "upload-and-transcribe"):
             seen += 1
             assert [d[0] for d in decls] == ["permission"], path
-            assert "media.upload" in decls[0][1].split(" + "), path
+            assert "media.upload_member" in decls[0][1].split(" + "), path
             sample = path.replace("{drama_id}", "1")
             assert any(rx.match(sample) for rx in gated), path
     assert seen == 6
