@@ -63,7 +63,7 @@
   --radius-lg: var(--radius);
   --radius-pill: 999px;
   --radius-panel: 14px;
-  /* Spacing roles. Screens use these instead of raw paddings so Compact density has four values to change, not every literal. */
+  /* Spacing roles. Screens use these instead of raw paddings so a density can change four values, not every literal. */
   --gap-inline: var(--space-2);
   --gap-stack: var(--space-3);
   --pad-block: var(--space-4);
@@ -247,7 +247,17 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
   font-weight: 300 900;
   font-display: swap;
   src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
-  unicode-range: U+0000-00FF;
+  /* U+00B7 is left to the CJK font: it is the full-width dot between the parts of a transliterated name. */
+  unicode-range: U+0000-00B6, U+00B8-00FF;
+}
+/* Pinyin tone letters (ǎ, ū) inside Chinese text, so a romanised word doesn't switch faces mid-word. */
+@font-face {
+  font-family: 'Figtree Latin';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range: U+0100-024F;
 }
 @font-face {
   font-family: 'Fraunces';
@@ -525,7 +535,9 @@ dd { margin: 0; }
 .remote-health-banner.warn { border-color: var(--warn); background: var(--warn-soft); }
 .remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
 .remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; padding-block: 5px; border-color: var(--warn); background: var(--warn-soft); font-size: var(--text-xs); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; padding-block: var(--space-1); border-color: var(--warn); background: var(--warn-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* A phone can't open the title tooltip, so there the note wraps rather than hiding how the limit ends. */
+@media (max-width: 640px) { .paid-limit-banner { white-space: normal; } }
 
 .stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
@@ -956,7 +968,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .badge.bad { color: var(--bad); background: var(--bad-soft); }
 
 /* Card: flat, always-open block. */
-.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); background: none; border: 1px solid transparent; border-top-color: var(--border); border-radius: 0; box-shadow: none; }
+.card { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
 .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .card-heading { display: grid; gap: 2px; min-width: 0; }
 .card-title { margin: 0; font-size: var(--text-lg); font-weight: var(--weight-bold); }

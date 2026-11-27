@@ -24,7 +24,7 @@ describe('type foundation', () => {
       expect(existsSync(new URL(`../public/fonts/${f}`, import.meta.url)), f).toBe(true)
     }
     const faces = index.match(/@font-face \{[^}]*\}/g) ?? []
-    expect(faces).toHaveLength(7)
+    expect(faces).toHaveLength(8)
     for (const face of faces) {
       expect(face).toContain('font-display: swap')
       expect(face).toContain('unicode-range')

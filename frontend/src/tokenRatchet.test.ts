@@ -26,7 +26,7 @@ function rawValues(property: RegExp): Set<string> {
 
 // Ceilings, not targets: lower them when a screen moves to the role tokens (--gap-*, --pad-block, --radius*, --leading*).
 // A new literal value fails here, so add a token instead of another number.
-const CEILING = { padding: 75, radius: 20, lineHeight: 13 }
+const CEILING = { padding: 74, radius: 20, lineHeight: 13 }
 
 describe('token ratchet', () => {
   it('has no more distinct raw paddings than the ceiling', () => {
