@@ -15,7 +15,8 @@ A session that writes code never reviews its own change.
 5. When a coordinator session is running the work, check in with it before opening or merging a PR, before moving, renaming or deleting files or folders, and before any change on a PC, and tell it about anything that could affect another session's work. `python tools/pr_lane.py` (quoted in the merge report) does not replace the check-in.
 6. Every PR gets an independent review (below) before the owner is shown it. Fix what it finds, have it re-reviewed, then re-run the area's tests and the guard set.
 7. Show the owner what the change does and how it turned out. Merging follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow"; where the project's instructions ask for the owner's OK on each fix, wait for it.
-8. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and commit under the owner's GitHub no-reply address.
+8. No comment, review or reply is posted on a GitHub PR or issue without the owner's OK; send the exact text to the coordinator first.
+9. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and commit under the owner's GitHub no-reply address.
 
 ## Reviewer
 
@@ -24,6 +25,7 @@ A fresh session (a subagent or `/code-review`) that did not write the change. Th
 - Check correctness, scope (nothing beyond the task), tests that can fail, and the privacy rule (real names, nicknames, emails, usernames, PC names, LAN IPs, work titles, in code, tests, docs, commit messages, PR text).
 - Check the rules in `CLAUDE.md`, "Rules learned from real bugs". Auth, routes, fetches and secrets: use `security-reviewer`.
 - Report only findings you can point at (file and line, with the input that goes wrong). No quota, and no pre-existing issues the diff doesn't touch.
+- Findings go to the coder or coordinator, not onto the PR: nothing is posted on GitHub without the owner's OK.
 - Fixes go back to the coder and get re-reviewed. The reviewer does not edit the change.
 
 ## Test runner (shared test PC)
