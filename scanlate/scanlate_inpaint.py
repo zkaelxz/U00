@@ -882,7 +882,6 @@ def _beside_coloured_lettering(stats, i, glyphs) -> bool:
     horizontal rule `i` on its line: glow lettering whose dash is as coloured
     as its letters. A credit rule has plain dark text beside it; a small end cap on it is
     smaller than a glyph."""
-    import cv2
     x, y, w, h = (int(v) for v in stats[i, :4])
     if h > w:
         return False
