@@ -29,6 +29,8 @@ final class BaiheClient {
 
     /** Names this client's page batches so the server can be told to stop working on them. */
     volatile String runId;
+    /** Quick read: the PC joins consecutive strip slices into one picture (its health says it can). */
+    volatile boolean stitch;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
     /** How the English lettering looks; null or the default sends nothing, so the PC keeps its own render. */
@@ -333,6 +335,9 @@ final class BaiheClient {
         java.util.Set<String> delivered = new java.util.HashSet<>();
         PageListener tracking = page -> {
             delivered.add(page.optString("key", ""));
+            // A joined chunk answers for the slices it holds, so a retry must not send them again.
+            org.json.JSONArray merged = page.optJSONArray("merged_keys");
+            if (merged != null) for (int i = 0; i < merged.length(); i++) delivered.add(merged.optString(i, ""));
             onPage.onPage(page);
         };
         List<PageImage> todo = batch;
@@ -496,6 +501,8 @@ final class BaiheClient {
                         .put("stroke", look.outline).put("font", look.fontName()));
             }
             if (redo) body.put("redo", true);
+            // Only pictures the PC downloads itself are strip slices; a screen capture goes up as bytes.
+            if (stitch && asksPc) body.put("stitch", true);
         }
         return body;
     }
