@@ -34,7 +34,7 @@ installer or site), and release or Promote steps. When in doubt, treat a PR as r
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3; a local model skips that file, see `opencode.json`) and marks the PR ready. That starts the
    full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
    the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
-2. **The order.** A PR that is not risky needs no typed "Merge NNNN": the owner checks the lane (step 3), merges the base in first if the lane
+2. **The order.** A PR that is not risky needs no typed "Merge NNNN": the owning thread checks the lane (step 3), merges the base in first if the lane
    is overlap, and turns auto-merge on; GitHub merges it. For a risky PR the owner types "Merge NNNN"; one message may name several
    PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands the owner's own message, attached and not
    retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several

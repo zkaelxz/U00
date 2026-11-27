@@ -46,7 +46,7 @@ git push origin HEAD:<branch>
 ```
 - Open a draft PR into `baihe-subtitler` with the GitHub MCP tools. The body covers: what changed in plain words, the tests run and their counts, and known gaps and doubts from the branch report.
 - End the PR body with the session's attribution lines.
-- Mark it ready and show the owner what the fix does and how it turned out. Once they have OK'd it, run `python tools/pr_lane.py`, merge the base in again if the lane is overlap, and turn auto-merge (squash) on while fewer than two other PR runs are going; GitHub merges it once `test` and `browser-tests` are green. A risky PR (schema, sign-in or auth, a real-PC test, release steps) waits for the owner's "Merge NNNN". `docs/testing-and-ci.md`, "Merge flow", has the details.
+- Mark it ready. Once the independent review passes, run `python tools/pr_lane.py`, merge the base in again if the lane is overlap, and turn auto-merge (squash) on while fewer than two other PR runs are going; GitHub merges it once `test` and `browser-tests` are green. A risky PR (schema, sign-in or auth, a real-PC test, release steps) waits for the owner's "Merge NNNN". `docs/testing-and-ci.md`, "Merge flow", has the details.
 - Remove the scratch worktree: `git worktree remove <path>`.
 
 ## 5. After merging
