@@ -356,7 +356,8 @@ def ensure_rapidocr_model(spec: dict) -> str:
 
 def _rapidocr_params(key: str, gpu: bool = False) -> dict:
     """The engine settings for `key`; with `gpu`, the medium pair on PyTorch's CUDA instead of
-    onnxruntime on the CPU (only "medium" has PyTorch weights here)."""
+    onnxruntime on the CPU. Only "medium" has PyTorch weights for both models: "ko" moves just
+    the line detector, its recognizer stays the ONNX one on the CPU."""
     import os
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
@@ -374,6 +375,12 @@ def _rapidocr_params(key: str, gpu: bool = False) -> dict:
     if key != "small":
         from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
+        if gpu:
+            from rapidocr import EngineType
+            params.update({"Det.engine_type": EngineType.TORCH, "Det.ocr_version": OCRVersion.PPOCRV6,
+                           "Det.model_type": ModelType.MEDIUM,
+                           "Det.model_path": ensure_rapidocr_model(RAPIDOCR_TORCH_MEDIUM_DET_MODEL),
+                           "EngineConfig.torch.use_cuda": True})
         params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
                        "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
                        "Rec.lang_type": LangRec.KOREAN})

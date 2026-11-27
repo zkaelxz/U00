@@ -35,8 +35,9 @@ def _log(text: str, warning: bool = False) -> None:
     except Exception:
         pass
 
-# Only the medium pair has PyTorch weights here; balloons and pages use it.
-GPU_KEYS = frozenset({"medium"})
+# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean has only its
+# ONNX recognizer, so its GPU engine finds the lines with the PyTorch detector and reads them on the CPU.
+GPU_KEYS = frozenset({"medium", "ko"})
 # The helper held 2.25 GB on the V100 while reading Chinese pages (two models, CUDA's own
 # share, a page's working memory); a little over that so it only goes on a card with room.
 GPU_NEED_MB = 2500
@@ -64,6 +65,7 @@ class _Helper:
         self.ready = False
         self.load_started = 0.0
         self.slow_logged = False
+        self.key = ""
 
     def alive(self) -> bool:
         return self.child is not None and self.child[0].is_alive()
@@ -184,6 +186,10 @@ def _gpu_ready(key: str) -> bool:
     if inline or multiprocessing.current_process().daemon:
         return True
     with _gpu.lock:
+        if _gpu.key != key and _gpu.child is not None:
+            # An engine is built for one model set; a read for another needs its own load.
+            _end(_gpu.child)
+            _gpu.child, _gpu.loading, _gpu.ready = None, False, False
         if _gpu.ready and _gpu.alive():
             return True
         if not (_gpu.loading and _gpu.alive()):
@@ -191,6 +197,7 @@ def _gpu_ready(key: str) -> bool:
                 _end(_gpu.child)
             child = _start()
             _gpu.child, _gpu.ready, _gpu.load_started = child, False, time.monotonic()
+            _gpu.key = key
             _gpu.slow_logged = False
             child[1].send(("load", f"{key}:gpu", key, GPU_IDLE_EXIT_SECONDS))
             _gpu.loading = True
