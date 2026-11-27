@@ -24,7 +24,7 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch
+from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_stitch
 from lib.errors import ServiceError
 
 
@@ -114,6 +114,8 @@ def health_payload(principal=None, app_port=None) -> dict:
         # A member's extension sends picture addresses only to an app that says it can read them;
         # an older one would take the empty upload as a page and fail it.
         "picture_addresses": True,
+        # A phone sends `stitch` only to an app that says it can join slices.
+        "stitch_slices": True,
         # `title_en or title_zh` is the app's own display-title
         # convention, not a new one.
         "dramas": [{"id": d["id"],
@@ -346,8 +348,10 @@ def _release_unread(decoded: list, outcomes: list, run_id: str) -> None:
         if taken is None:
             return
         for image, (outcome, _value) in zip(decoded, outcomes):
-            if outcome != "page" and image.get("run_claim"):
-                taken.pop(image["run_claim"], None)
+            if outcome != "page":
+                for claim in [image.get("run_claim"), *image.get("run_claims", ())]:
+                    if claim:
+                        taken.pop(claim, None)
 
 
 def cancel_run(payload) -> dict:
@@ -626,7 +630,8 @@ def _translate_one(image: dict, job: dict, turn):
         cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
     if cached is not None:
         _log_page_time(cached, job, started)
-        return "page", {**cached, "key": image["key"], "url": image["url"]}
+        return "page", {**cached, "key": image["key"], "url": image["url"],
+                        **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
     try:
         if page_capture_checks.looks_blank(image["content"]):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
@@ -659,6 +664,8 @@ def _translate_one(image: dict, job: dict, turn):
     _log_page_time(result, job, started)
     result["key"] = image["key"]
     result["url"] = image["url"]
+    if image.get("merged_keys"):
+        result["merged_keys"] = image["merged_keys"]
     return "page", result
 
 
@@ -781,6 +788,10 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         decoded, repeats = _drop_repeats_in_run(decoded, job["run_id"])
         skipped += [{"key": image["key"], "url": image["url"], "reason": "same picture as an earlier page of this read"}
                     for image in repeats]
+    # Joined last, after the filters judged each slice on its own: a chunk is one picture to read,
+    # and a seam bubble is whole in it. The phone opts in; an older one never sends the field.
+    if not store and not job["redo"] and payload.get("stitch") is True and len(decoded) > 1:
+        decoded = quick_read_stitch.stitch(decoded, page_server.MAX_IMAGE_BYTES)
     job["single"] = len(decoded) == 1
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.

@@ -29,6 +29,8 @@ final class BaiheClient {
 
     /** Names this client's page batches so the server can be told to stop working on them. */
     volatile String runId;
+    /** Quick read: the PC joins consecutive strip slices into one picture (its health says it can). */
+    volatile boolean stitch;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
     /** How the English lettering looks; null or the default sends nothing, so the PC keeps its own render. */
@@ -460,6 +462,7 @@ final class BaiheClient {
                         .put("stroke", look.outline).put("font", look.fontName()));
             }
             if (redo) body.put("redo", true);
+            if (stitch) body.put("stitch", true);
         }
         return body;
     }

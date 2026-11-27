@@ -1301,6 +1301,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private static final int MAX_CHAPTERS = GrabQueue.MAX_CHAPTERS;
     private static final String OPEN_FIRST = "Open a comic chapter first: enter its site address above and tap Go.";
     private static final int QUICK_READ_BATCH = 2;
+    // With the PC joining slices, a request carries a few more so a chunk has something to join.
+    private static final int QUICK_READ_STITCH_BATCH = 4;
     // Batches in flight at once: the PC reads two pages at a time, so one stream leaves it waiting on uploads.
     private static final int QUICK_READ_STREAMS = 3;
     private volatile String pageNext = "";
@@ -1595,7 +1597,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         try {
             // A typeset answer is large, so the batch stays small however many the server allows.
             JSONObject health = client.health();
-            int max = Math.min(QUICK_READ_BATCH, health.optInt("max_images_per_request", 12));
+            client.stitch = health.optBoolean("stitch_slices", false);
+            int max = Math.min(client.stitch ? QUICK_READ_STITCH_BATCH : QUICK_READ_BATCH,
+                    health.optInt("max_images_per_request", 12));
             if (!continuing) QuickReadActivity.clear(this);
             // Clear non-pages stay home: on a slow link each one costs real time to upload.
             List<PageImage> pages = PageFilter.pagesOnly(images);
