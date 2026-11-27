@@ -4571,6 +4571,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/title-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: how far the translating of a title the caller saved to has got */
+        post: operations["post_title_progress_api_ext_bridge_title_progress_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/title-translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: queue the translating of a novel title the caller saved chapters to */
+        post: operations["post_title_translate_api_ext_bridge_title_translate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/video": {
         parameters: {
             query?: never;
@@ -47602,6 +47636,46 @@ export interface operations {
         };
     };
     post_title_api_ext_bridge_title_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_title_progress_api_ext_bridge_title_progress_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_title_translate_api_ext_bridge_title_translate_post: {
         parameters: {
             query?: never;
             header?: never;
