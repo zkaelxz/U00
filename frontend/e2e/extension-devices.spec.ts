@@ -4,9 +4,9 @@ import { ME } from './authMocks'
 import { NEW_TOKEN, mockExtensionDevices } from './extensionDevicesMocks'
 import { openSettingsGroups } from './settingsNav'
 
-// Settings > Extension tokens per computer (desktop). Every device-token call is mocked.
+// Settings > Remote access keys (desktop). Every device-token call is mocked.
 
-const TITLE = 'Extension tokens per computer'
+const TITLE = 'Remote access keys'
 const member = { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'extension.send'] }
 
 test('adds a device, shows its token once with a copy button, then hides it for good', async ({ page, context, baseURL }) => {
@@ -19,6 +19,8 @@ test('adds a device, shows its token once with a copy button, then hides it for 
   await expect(card).toContainText('Home desktop')
   await expect(card).toContainText('Last used 2 hours ago · network 198.51.100.x')
   await expect(card).toContainText('Revoked yesterday')
+  await expect(card.getByTestId('extension-setup')).toContainText('Set up on another computer')
+  await expect(card.getByRole('link', { name: 'Download extension (.zip)' })).toHaveAttribute('href', '/api/extension/download')
 
   await card.getByRole('button', { name: 'Add device' }).click()
   await expect(card).toContainText('Name the device')

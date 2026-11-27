@@ -427,7 +427,7 @@ async function load() {
     els.textDirection.value = directionValue;
   }
 
-  const stale = staleExtensionNote(data);
+  const stale = staleExtensionNote(data, settings.serverUrl);
   if (stale) say(stale, true);
   else say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
 }

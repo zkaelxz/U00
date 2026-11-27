@@ -303,10 +303,15 @@ def test_pc_downloads_the_extension_as_a_zip(env):
     assert not any(n.endswith((".py", ".pyc")) for n in names)
 
 
-def test_the_extension_download_is_pc_only(env):
-    app = create_app(ApiSettings())
-    remote = TestClient(app, base_url=REMOTE, raise_server_exceptions=False)
-    assert remote.get("/api/extension/download").status_code in (401, 403)
+def test_the_extension_download_needs_a_sign_in_and_the_extension_right(env):
+    from tests.test_device_tokens import _app, _h, _member, _remote
+    app = _app()
+    assert _remote(app).get("/api/extension/download").status_code in (401, 403)
+    allowed, session_ok = _member("ext@example.com")
+    r = _remote(app).get("/api/extension/download", headers=_h(session_ok))
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    denied, session_no = _member("noext@example.com", send=False)
+    assert _remote(app).get("/api/extension/download", headers=_h(session_no)).status_code == 403
 
 
 def test_download_says_so_when_the_extension_files_are_missing(env, monkeypatch, tmp_path):

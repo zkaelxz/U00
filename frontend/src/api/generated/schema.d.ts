@@ -4545,7 +4545,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** PC only: the browser extension as a zip to unpack and load */
+        /** The browser extension as a zip to unpack and load */
         get: operations["get_download_api_extension_download_get"];
         put?: never;
         post?: never;

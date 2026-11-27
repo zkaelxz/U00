@@ -102,6 +102,14 @@ async function options(scenario) {
       await page.click();
       return snapshot(page);
     }
+    case "stale_extension_remote": {
+      const page = await loadOptions({ reply: {
+        ok: true, data: { dramas: [], engine_configured: true, extension_version: "1.3.0" } } });
+      page.els.token.value = "tok";
+      page.els.server.value = "https://baihe.example.com";
+      await page.click();
+      return snapshot(page);
+    }
     case "connected_two_dramas": {
       const page = await loadOptions({ reply: { ok: true, data: { dramas: [{}, {}], engine_configured: true } } });
       page.els.token.value = "tok";
