@@ -13879,6 +13879,8 @@ export interface components {
         AccountPreferences: {
             /** Theme */
             theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
+            /** Live Focus */
+            live_focus?: boolean | null;
         };
         /** ActivityItem */
         ActivityItem: {
