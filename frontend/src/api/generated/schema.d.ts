@@ -24126,6 +24126,16 @@ export interface components {
              */
             notes: string[];
             /**
+             * Overlap Fallback
+             * @default 0
+             */
+            overlap_fallback: number;
+            /**
+             * Overlap Matched
+             * @default 0
+             */
+            overlap_matched: number;
+            /**
              * Player Ready
              * @default false
              */
