@@ -37,7 +37,9 @@ def _forget_old(now: float) -> None:
         del _runs[run_id]
         _dropped.pop(run_id, None)
     while len(_runs) > _MAX_RUNS:
-        del _runs[min(_runs, key=lambda k: _runs[k]["started"])]
+        oldest = min(_runs, key=lambda k: _runs[k]["started"])
+        del _runs[oldest]
+        _dropped.pop(oldest, None)
 
 
 def begin(run_id: str, owner, source_url: str, pages: int, cancel, device=None) -> None:
@@ -52,6 +54,8 @@ def begin(run_id: str, owner, source_url: str, pages: int, cancel, device=None) 
     with _lock:
         _forget_old(now)
         run = _runs.get(run_id)
+        if run is not None and run["owner"] != owner:
+            return   # a run id is its first sender's; another account cannot add to it
         if run is None:
             dropped = [k for k, r in _runs.items() if r["owner"] == owner and r["received"] > r["done"]
                        and (r["device"] == device if device is not None else r["source"] == source_url)]
@@ -74,7 +78,7 @@ def page_finished(run_id: str) -> None:
         run = _runs.get(run_id)
         if run is None:
             return
-        run["done"] += 1
+        run["done"] = min(run["done"] + 1, run["received"])
         if run["done"] >= run["received"]:
             run["finished_at"] = time.monotonic()
 
@@ -121,6 +125,11 @@ def drop_run(run_id: str, principal=None) -> dict:
 
 
 def drop_all(principal=None) -> dict:
-    ids = [r["run_id"] for r in list_runs(principal)]
-    pages = sum(drop_run(i, principal)["dropped_pages"] for i in ids)
-    return {"dropped_runs": len(ids), "dropped_pages": pages}
+    runs = pages = 0
+    for run in list_runs(principal):
+        try:
+            pages += drop_run(run["run_id"], principal)["dropped_pages"]
+            runs += 1
+        except NotFoundError:
+            continue   # it finished between the list and the drop
+    return {"dropped_runs": runs, "dropped_pages": pages}

@@ -13,7 +13,7 @@ class TestFairLock:
         threads = []
         for page in (5, 2, 9, 1):
             def run(page=page):
-                lock.acquire(priority=(1, page))
+                lock.acquire(priority=(0, page))
                 order.append(page)
                 lock.release()
             t = threading.Thread(target=run)
@@ -50,8 +50,8 @@ class TestFairLock:
         assert not lock.locked()
         with lock:
             assert lock.locked()
-        assert page_turns.page_priority("p25") == (1, 25)
-        assert page_turns.page_priority("") == (1, 0)
+        assert page_turns.page_priority("p25") == (0, 25)
+        assert page_turns.page_priority("") == (0, 0)
 
 
     def test_acquire_gives_up_after_its_timeout_without_blocking_others(self):
@@ -62,3 +62,29 @@ class TestFairLock:
         lock.release()
         assert lock.acquire(timeout=0.05) is True
         lock.release()
+
+
+    def test_quick_read_pages_go_ahead_of_callers_with_no_priority(self):
+        import threading
+        import time
+        lock = page_turns.FairLock()
+        order = []
+        lock.acquire()
+
+        def plain():
+            with lock:
+                order.append("plain")
+
+        def quick():
+            lock.acquire(priority=page_turns.page_priority("p3"))
+            order.append("quick")
+            lock.release()
+
+        threads = [threading.Thread(target=plain), threading.Thread(target=quick)]
+        for t in threads:
+            t.start()
+            time.sleep(0.05)
+        lock.release()
+        for t in threads:
+            t.join(5)
+        assert order == ["quick", "plain"]

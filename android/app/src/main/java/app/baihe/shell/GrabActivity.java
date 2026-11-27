@@ -1058,9 +1058,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             web.goBack();
             return true;
         }
-        // Closing this screen would stop a running grab; Back leaves it going in the background instead.
+        // Closing this screen would stop a running grab; Back brings Studio forward and leaves it going.
         if (keyCode == KeyEvent.KEYCODE_BACK && (grabbing || QuickReadSession.isDetached())) {
-            moveTaskToBack(true);
+            ShellTabs.show(this, MainActivity.class);
             return true;
         }
         return super.onKeyDown(keyCode, event);

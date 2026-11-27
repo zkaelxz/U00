@@ -53,7 +53,8 @@ public class GrabKeepAlive extends Service {
                         READY_CHANNEL, "Baihe chapter ready", NotificationManager.IMPORTANCE_DEFAULT));
             }
             PendingIntent open = PendingIntent.getActivity(context, 1,
-                    new Intent(context, GrabActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    new Intent(context, GrabActivity.class)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
                             .putExtra(GrabActivity.EXTRA_COMMAND, "reader"),
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
             Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O

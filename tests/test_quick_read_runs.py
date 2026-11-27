@@ -93,3 +93,31 @@ def test_cancel_endpoint_also_clears_the_run_from_the_list():
     _start("run-aaaaaaaa")
     extension_bridge_service.cancel_run({"run_id": "run-aaaaaaaa"})
     assert quick_read_runs.list_runs(OWNER) == []
+
+
+def test_drop_all_skips_a_run_that_finished_meanwhile(monkeypatch):
+    _start("run-aaaaaaaa")
+    _start("run-bbbbbbbb", owner=None)
+    real = quick_read_runs.drop_run
+
+    def flaky(run_id, principal=None):
+        if run_id == "run-aaaaaaaa":
+            raise quick_read_runs.NotFoundError("gone")
+        return real(run_id, principal)
+
+    monkeypatch.setattr(quick_read_runs, "drop_run", flaky)
+    assert quick_read_runs.drop_all(OWNER)["dropped_runs"] == 1
+
+
+def test_pages_finishing_after_a_drop_never_push_done_past_received():
+    _start("run-aaaaaaaa", pages=2)
+    quick_read_runs.drop_run("run-aaaaaaaa", OWNER)
+    for _ in range(5):
+        quick_read_runs.page_finished("run-aaaaaaaa")
+    assert quick_read_runs._runs["run-aaaaaaaa"]["done"] == 2
+
+
+def test_another_account_cannot_add_pages_to_a_run_id():
+    _start("run-aaaaaaaa", owner=7, pages=2)
+    _start("run-aaaaaaaa", owner=8, pages=9)
+    assert quick_read_runs._runs["run-aaaaaaaa"]["received"] == 2
