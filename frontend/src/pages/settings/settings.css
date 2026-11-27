@@ -22,8 +22,8 @@
 .settings-card > .card-fold { padding-block: var(--space-2); }
 .settings-card > .card-fold > details.section { padding-block: 0; }
 
-.settings-tabrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.settings-tabrow > :first-child { flex: 1 1 auto; min-width: 0; }
+.settings-tabrow { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.settings-tabrow > .settings-search { flex: 1 1 auto; min-width: 0; }
 .settings-fold-controls { display: flex; justify-content: flex-end; gap: var(--space-2); }
 @media (max-width: 640px) {
   /* Search takes the whole row; the fold menu keeps a row of its own below it. */

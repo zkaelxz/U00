@@ -47,6 +47,6 @@
   .ui-sidepane-nav { position: static; }
   /* One row that scrolls, so switching section stays one tap; natural widths keep every name whole. These beat the
      themes' wrapping tab rows on purpose. */
-  .ui-tabs.ui-tabs-scroll { flex-wrap: nowrap; overflow-x: auto; }
+  .ui-tabs.ui-tabs-scroll { position: relative; flex-wrap: nowrap; overflow-x: auto; }
   .ui-tabs.ui-tabs-scroll .ui-tab { flex: none; min-width: 0; white-space: nowrap; }
 }

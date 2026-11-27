@@ -132,9 +132,16 @@ export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix
 }) {
   const phone = useMediaQuery(PHONE_QUERY)
   const vertical = side && !phone
-  // A section picked off-screen in the scrolling phone row (a search hit, a link) slides into view.
+  // A section picked off-screen in the scrolling phone row (a search hit, a link) slides into view. Only the row
+  // scrolls: moving the page here would jump it on load.
   useEffect(() => {
-    if (side && phone) document.getElementById(tabButtonId(idPrefix, active))?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+    if (!side || !phone) return
+    const tab = document.getElementById(tabButtonId(idPrefix, active))
+    const row = tab?.parentElement
+    if (!tab || !row) return
+    if (tab.offsetLeft < row.scrollLeft || tab.offsetLeft + tab.offsetWidth > row.scrollLeft + row.clientWidth) {
+      row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2
+    }
   }, [side, phone, idPrefix, active])
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
     const at = tabs.findIndex((t) => t.id === active)
