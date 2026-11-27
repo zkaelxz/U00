@@ -320,7 +320,8 @@ with `BAIHE_API_AUTH=on` and check a signed-out request gets 401, the member can
 (403) and is refused a write without the CSRF token. It asserts that transcription produced lines, not what they say: tiny Whisper on
 a synthetic voice is not a quality check. The only download is `Systran/faster-whisper-tiny` (about 75 MB), cached in CI by the hash
 of `model_pins.py`; it needs `faster-whisper` and ffmpeg. About 25 s on a warm machine; the CI step is limited to 5 minutes. A red
-smoke blocks the `v0.1.0` tag (owner decision 2026-10-13). `--keep` leaves the data folder and server logs for a look. On failure
+smoke blocks a release
+tag (owner decision 2026-10-13). `--keep` leaves the data folder and server logs for a look. On failure
 it prints the last 40 lines of the server log.
 
 `assets/smoke/speech-zh.wav` (10 s, mono, 16 kHz) was made with

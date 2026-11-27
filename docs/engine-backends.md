@@ -441,7 +441,7 @@ flag on the Whisper path in `transcribe_service`.
 
 A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
 displays as the backend a title with no saved choice gets
-(`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
+(`asr_options_service.stored_asr_backend`: always `whisper`, see
 below), with `removed_asr_backend_notice()` shown in the Transcribe stage. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the

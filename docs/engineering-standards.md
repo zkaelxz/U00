@@ -38,7 +38,7 @@ Testing is risk-based. Details, gotchas and CI facts live in `docs/testing-and-c
 
 - While iterating: run the focused test file or selection for what you touched.
 - When the change crosses a shared module (database layer, background jobs, translation engines, API schemas): also run the relevant subsystem tests.
-- Before handing work back or merging: run the full suite (command in the root `CLAUDE.md`; for frontend changes also the frontend checks) on the integrated result and report the counts you saw.
+- Before pushing: run the area's tests plus the guard set (`python tools/check_change.py` prints the command for your diff; for frontend changes also the frontend checks) and report the counts you saw. CI runs the full suite.
 - Do not re-run an identical check on an unchanged tree without a reason. Do not weaken, skip or narrow a required check to save time or minutes.
 - A failure is not "environmental" or "flaky" until the mechanism is confirmed. Say what was and was not run.
 

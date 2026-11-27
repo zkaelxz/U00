@@ -4,7 +4,7 @@ Decided by the user on 2026-09-29, from a discussion session. No repo changes we
 It replaces the earlier decision D6 (Tailscale + Tailscale Serve) and the first remote-access design; both documents have since been removed from the repo.
 **D5 stays** (admin actions are PC-only, on a separate loopback listener); built, see [`remote-access-listeners.md`](remote-access-listeners.md).
 
-**Key entry (decided 2026-09-29):** the launcher (`start.bat`) sets `BAIHE_API_ALLOW_KEY_WRITES=1` unless the user already set it (an explicit `0` opts out), so API keys can be entered in the React Settings form at the PC, or by editing `.env`. Key writes stay `local_only()` and still require a direct loopback peer and Host, no proxy headers, and Origin, if sent, is loopback (`api/routers/settings_routes.py:_require_local_admin`); values are written to `.env` and never returned. `python -m api` started directly leaves the flag off.
+**Key entry (decided 2026-09-29):** the launcher (`start.bat`) sets `BAIHE_API_ALLOW_KEY_WRITES=1` unless the user already set it (an explicit `0` opts out), so API keys can be entered in the React Settings form at the PC, or by editing `.env`. Key writes stay `local_only()` and still require a direct loopback peer and Host, no proxy headers, and Origin, if sent, is loopback (`api/routers/settings_routes.py:require_local_admin`); values are written to `.env` and never returned. `python -m api` started directly leaves the flag off.
 Status: sign-in, ownership, the D5 listeners and sharing are merged; the files listed under "Where the as-built detail is" describe them as built. Left for the owner: the LAN test with a real certificate and the router port.
 
 ## Context
@@ -12,7 +12,7 @@ Status: sign-in, ownership, the D5 listeners and sharing are merged; the files l
 - The user doubted the VPN, so Tailscale is out.
 - The PC is always on with a normal home IP. The user owns a domain.
 - Household members use their own phones and computers, browser only.
-- Today `api/server.py` has no authentication, and the API binds to loopback by default.
+- Before this decision `api/server.py` had no authentication; the API binds to loopback by default.
 
 ## Decided
 
@@ -25,14 +25,14 @@ Status: sign-in, ownership, the D5 listeners and sharing are merged; the files l
 - **Keys:** unchanged. Entered at the PC, resolved server-side, never sent to a device. Slice 24 stays off by default.
 - **Admin:** stays on a separate loopback listener (D5) that Caddy never routes to. Remote admin, if ever wanted, would need identity plus a second factor.
 - **Host:** stays on the always-on PC. A movable host was discussed and not chosen.
-- **Extension:** desktop Chrome and Edge only, for household members' computers. Each person creates a per-device API token in Baihe's settings (hash stored, shown once, revocable). The plan is to move the bridge from `services/page_server.py` (loopback, one shared token) into the API behind this auth. Built: the per-device tokens and their check ("Extension device tokens" in [`remote-access-permissions-accounts.md`](remote-access-permissions-accounts.md)). Not done yet: no bridge route in the API uses them, the bridge is still `services/page_server.py` on 8756, and the extension can't be pointed at another address. Never route port 8756.
+- **Extension:** desktop Chrome and Edge only, for household members' computers. Each person creates a per-device API token in Baihe's settings (hash stored, shown once, revocable). The plan is to move the bridge from `services/page_server.py` (loopback, one shared token) into the API behind this auth. Built: the per-device tokens and their check ("Extension device tokens" in [`remote-access-permissions-accounts.md`](remote-access-permissions-accounts.md)). Also built: `/api/ext-bridge/*` (`api/routers/extension_bridge_routes.py`) accepts those tokens, and the extension's options page has a Baihe address. The loopback bridge `services/page_server.py` on 8756 stays for use at the PC. Never route port 8756.
 - **Phones:** an installable PWA first. Capacitor is deferred. Mobile URL capture uses a share target (Android), an iOS Shortcut posting to the API, and pasting a URL into URL import. If a native wrapper is ever built, Google sign-in must open in the system browser.
 
 ## Repo work
 
 1. Users table, allowlist, sessions, and the permission dependency plus its static test.
 2. Google OIDC login and callback.
-3. Per-device extension tokens (built), then move the extension bridge into the API (not done yet).
+3. Per-device extension tokens and the bridge routes in the API (both built).
 4. URL-import guards: http/https only, block private, loopback and link-local addresses (including after redirects), and caps on size, count and concurrency.
 5. Per-user job limits, and per-user bandwidth caps for media. Built: each signed-in user may have 2 running and 10 queued jobs they started directly (`jobs/user_caps.py`, 429 beyond; a job started by another job, such as the speaker step a transcription starts when it ends, runs with no starter and is not counted) and 3 open audio/video streams (`api/routers/media_routes.py`, 429 beyond). Not built: a bandwidth (bytes per second) cap.
 6. Verify Range and seek behaviour with a multi-GB file (the API uses `FileResponse`), and job progress through Caddy.
@@ -74,7 +74,7 @@ Tailscale and other VPNs; Cloudflare Tunnel + Access (revisit if large media isn
 
 ## Effect on other docs and slices
 
-- The Discover/Sources/Live spec's open question Q2 (what other devices may trigger) is answered by the permission list in the `remote-access-permissions-*.md` files: `media.import_url`, `engines.paid` and `extension.send` are off by default; browse, read, review, edit lines, play media (`media.stream`, a default since 2026-11-17), import from Sources (`sources.import`, a default since 2026-11-24), and start and cancel jobs on media already on the PC are on. Slices S-3 to S-6 must not ship to non-local clients before the permission dependency (step 133) exists. Sign-in, proxy, pacing floors and cookies stay local-only. The saved yt-dlp cookies (Settings > Downloads) are used by the PC-only URL download and by a Live capture started at the PC (`is_local_request`); a Live start from another device never gets them.
+- The Discover/Sources/Live spec's open question Q2 (what other devices may trigger) is answered by the permission list in the `remote-access-permissions-*.md` files: `media.import_url`, `engines.paid` and `extension.send` are off by default; browse, read, review, edit lines, play media (`media.stream`, a default since 2026-11-17), import from Sources (`sources.import`, a default since 2026-11-24), and start and cancel jobs on media already on the PC are on. Sign-in, proxy, pacing floors and cookies stay local-only. The saved yt-dlp cookies (Settings > Downloads) are used by the PC-only URL download and by a Live capture started at the PC (`is_local_request`); a Live start from another device never gets them.
 - Live capture URLs (any public URL) map to `media.import_url`.
 - History: option E (built-in logins, publicly exposed) was chosen on 2026-09-28, reversed the same day in favour of Tailscale, and is now chosen again on 2026-09-29 with the design above.
 
