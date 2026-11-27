@@ -110,6 +110,15 @@ CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
 # A box this much filled by an outlined balloon interior is a balloon whatever its shade.
 CLASSIFY_BALLOON_FILL = 0.5
+# A dark balloon with white lettering: the box is mostly dark pixels of one flat tone with a
+# minority of light lettering. Tuned on a flat dark-brown balloon. A busy ground stays a sign; white
+# lettering on a flat dark-grey wall is indistinguishable from this by pixels and is read as a balloon.
+CLASSIFY_DARK_GRAY = 130
+CLASSIFY_DARK_BALLOON_MIN_SHARE = 0.5
+CLASSIFY_DARK_BALLOON_MAX_SPREAD = 13
+CLASSIFY_DARK_BALLOON_LIGHT_SHARE = (0.08, 0.27)
+# Black is not a balloon's tone: white lettering on a black panel is a sound effect or a caption.
+CLASSIFY_DARK_BALLOON_MIN_TONE = 60
 # Lettering on dark, busy art is first guessed to be a sound effect. Once it
 # is read, a sound effect is a few big characters: more characters than this,
 # or more lines, is a caption or sign on the art and is translated like one.
