@@ -647,6 +647,19 @@ def load_lines(drama_id: int, with_words: bool = False, ids=None):
     return [dict(r) for r in rows]
 
 
+def drama_ids_with_lines() -> list:
+    with contextlib.closing(db.get_conn()) as conn:
+        return [r[0] for r in conn.execute("SELECT DISTINCT drama_id FROM lines ORDER BY drama_id")]
+
+
+def set_line_confidences(scores: dict) -> None:
+    """Sets `confidence` on the lines named by id, touching nothing else."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.executemany("UPDATE lines SET confidence = ? WHERE id = ?",
+                         [(conf, line_id) for line_id, conf in scores.items()])
+        conn.commit()
+
+
 def load_line_page(drama_id: int, offset: int, limit: int):
     """(line count, rows of lines offset..offset+limit in line order), as
     load_lines would give them: a Reader page turn on a long title must not
