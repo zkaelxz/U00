@@ -12,6 +12,7 @@ import contextlib
 import contextvars
 import copy
 import hashlib
+import itertools
 import json
 import os
 import queue
@@ -382,6 +383,75 @@ def mark_cancelled(run_id: str) -> None:
         _cancelled_runs[run_id] = now
 
 
+# Longer than the phone takes to come back for a dropped batch (its stream retries after 3 s and
+# 6 s, then the batch is asked again after 5, 20 and 45 s), so only a phone that is really gone
+# (app swiped away, Wi-Fi lost) has its unstarted pages dropped.
+STREAM_GONE_GRACE_SECONDS = 90
+_streams: dict[str, dict] = {}
+_streams_lock = threading.Lock()
+# One count for every run, so a countdown left from a forgotten state never matches a new one.
+_stream_events = itertools.count(1)
+
+
+def stream_run_id(payload) -> str:
+    """The run a streamed Quick read belongs to, or "". Only a caller that asked for the heartbeat
+    (the phone) is watched: the desktop extension cuts its own calls at 4.5 minutes and sends the
+    pages again later, so its pages must go on being read and remembered. A saved send goes on as
+    it always has."""
+    if bool(payload.get("store", True)) or payload.get("heartbeat") is not True:
+        return ""
+    return _run_id(payload)
+
+
+def stream_opened(run_id: str) -> int:
+    """The stream's number, which `stream_closed` takes."""
+    with _streams_lock:
+        state = _streams.setdefault(run_id, {"open": 0, "lost": False})
+        state["open"] += 1
+        state["lost"] = False
+        state["heard"] = next(_stream_events)   # a drop still counting down for this run no longer applies
+        return state["heard"]
+
+
+def stream_closed(run_id: str, stream: int, lost: bool) -> None:
+    """`lost`: the answer ended before its last line (the caller went away, or the heartbeat limit).
+    Once no stream of the run is open and one was lost, the run is dropped unless the phone is
+    heard from again within the grace. A stream older than the newest one opened is not counted
+    as lost: the phone came back after it."""
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is None:
+            return
+        state["open"] = max(state["open"] - 1, 0)
+        state["lost"] = state["lost"] or (lost and stream >= state["heard"])
+        if state["open"]:
+            return
+        if not state["lost"]:
+            del _streams[run_id]
+            return
+        heard = state["heard"]
+    timer = threading.Timer(STREAM_GONE_GRACE_SECONDS, _drop_if_unheard, args=(run_id, heard))
+    timer.daemon = True
+    timer.start()
+
+
+def _heard_from(run_id: str) -> None:
+    """A request of the run that is not streamed (a lone page) also shows the phone is back."""
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is not None and not state["open"]:
+            del _streams[run_id]
+
+
+def _drop_if_unheard(run_id: str, heard: int) -> None:
+    with _streams_lock:
+        state = _streams.get(run_id)
+        if state is None or state["open"] or state["heard"] != heard:
+            return
+        del _streams[run_id]
+    quick_read_runs.drop_unheard(run_id, mark_cancelled)
+
+
 MAX_SUMMARY_CHARS = 2000
 _URL_IN_SUMMARY = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
 
@@ -661,6 +731,46 @@ def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> Non
         result["typeset_image"] = picture
 
 
+# Quick read pages being read now, by cache key. A phone whose stream dropped asks again for the
+# pages it did not get, and the ones still being read would otherwise be read (and paid for) twice.
+_in_flight: dict[str, threading.Event] = {}
+_in_flight_lock = threading.Lock()
+_SHARE_CHECK_SECONDS = 1.0
+
+
+def _claim_or_share(key: str, turn) -> tuple[threading.Event | None, dict | None]:
+    """(claim, None): this request reads the page and must `_release_claim` it. (None, answer): a
+    request that was already reading it answered. (None, None): this request stopped meanwhile."""
+    stepped_aside = False
+    while True:
+        with _in_flight_lock:
+            working = _in_flight.get(key)
+            if working is None:
+                claim = _in_flight[key] = threading.Event()
+                return claim, None
+        if not stepped_aside:
+            # Only the read turn is let go: every other wait on a page is bounded, so a page waiting
+            # here never holds up another request's page that it is itself waiting for.
+            turn.step_aside()
+            stepped_aside = True
+        while not working.wait(_SHARE_CHECK_SECONDS):
+            if turn.stopping():
+                return None, None
+        hit = _cached_quick_read(key) or _disk_cached(key)
+        if hit is not None:
+            # The next page's translation is given this page's lines, as if it had been read here.
+            turn.keep([{**region, "skip": region.get("left_alone")} for region in hit.get("regions") or ()])
+            return None, hit
+        # The other request failed or got only part of the page, which is never remembered: read it here.
+
+
+def _release_claim(key: str, claim: threading.Event) -> None:
+    with _in_flight_lock:
+        if _in_flight.get(key) is claim:
+            del _in_flight[key]
+    claim.set()
+
+
 def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
@@ -675,12 +785,28 @@ def _translate_one(image: dict, job: dict, turn):
         cache_key = _quick_read_key(image, job)
         # A redo reads the page again; the new answer then replaces the remembered one.
         cached = None if job.get("redo") else (_cached_quick_read(cache_key) or _disk_cached(cache_key))
-    if cached is not None:
-        _log_page_time(cached, job, started)
-        return "page", {**cached, "key": image["key"], "url": image["url"],
-                        **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
+    claim = None
+    if cached is None and cache_key is not None and not job.get("redo"):
+        claim, cached = _claim_or_share(cache_key, turn)
+        if claim is None and cached is None:
+            return "stopped", None
     try:
-        if page_capture_checks.looks_blank(image["content"]):
+        if claim is not None:
+            # The request that had it may have remembered its answer between our cache look and the claim.
+            cached = _cached_quick_read(cache_key)
+        if cached is not None:
+            _log_page_time(cached, job, started)
+            return "page", {**cached, "key": image["key"], "url": image["url"],
+                            **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
+        return _translate_fresh(image, job, turn, cache_key, started)
+    finally:
+        if claim is not None and cache_key is not None:
+            _release_claim(cache_key, claim)
+
+
+def _translate_fresh(image: dict, job: dict, turn, cache_key: str | None, started: float):
+    try:
+        if job["flat_pages"].undrawn(image):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
         result = page_server.translate_image(
             image["content"], image["content_type"], drama_id=job["drama_id"],
@@ -796,6 +922,10 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     return outcomes
 
 
+# Sent with the 422 for a batch the page filter rejected whole; the phone keys on it (GrabActivity).
+NO_PAGES_CODE = "no_comic_pages"
+
+
 def _comic_language(raw) -> str:
     """The page language the sender named, when it is one comic reading handles; else "" so the
     title, the source or the page's own text decides (services/page_server)."""
@@ -837,7 +967,9 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         kept_ids = {id(i) for i in kept}
         decoded = [i for i in decoded if i["content"] is None or id(i) in kept_ids]
         if not decoded and not unfetched:
-            raise page_server.EndpointError(422, "none of those images look like comic pages")
+            # The code tells this apart from an older Baihe's refusal of picture addresses, which turns
+            # PC download off on the phone for the rest of the chapter.
+            raise page_server.EndpointError(422, "none of those images look like comic pages", code=NO_PAGES_CODE)
     # Only a Quick read: a saved send already reuses a stored page with the same bytes, and a
     # Redo asks for the same picture again on purpose.
     if not store and not job["redo"]:
@@ -849,7 +981,10 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     if not store and not job["redo"] and payload.get("stitch") is True and len(decoded) > 1:
         decoded = quick_read_stitch.stitch(decoded, page_server.MAX_IMAGE_BYTES)
     job["single"] = len(decoded) == 1
+    # A saved page is kept for good, so a saved send refuses every flat page as before.
+    job["flat_pages"] = page_capture_checks.FlatPages(decoded, keep_plain=not store)
     if not store:
+        _heard_from(job["run_id"])
         quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled,
                               device=(principal or {}).get("device_token_id"))
     # One bad page must not discard the rest of a chapter: each failure

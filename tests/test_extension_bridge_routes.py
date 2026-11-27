@@ -151,6 +151,21 @@ class TestSending:
         r = _client().post(f"{BASE}/page", headers=_auth(token), json={"images": [img, img]})
         assert r.status_code == 400
 
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_a_batch_the_page_filter_rejects_carries_its_code(self, isolated_db, stream):
+        Image = pytest.importorskip("PIL.Image")
+        _, token = _member("a@example.com")
+        icons = []
+        for i in range(3):
+            buf = io.BytesIO()
+            Image.new("RGB", (40, 40 + i), (10 * i, 20, 30)).save(buf, format="PNG")
+            icons.append({"key": f"i{i}", "content_type": "image/png",
+                          "data": base64.b64encode(buf.getvalue()).decode("ascii")})
+        r = _client().post(f"{BASE}/pages", headers=_auth(token),
+                           json={"images": icons, "store": False, "stream": stream})
+        assert r.status_code == 422
+        assert r.json()["code"] == extension_bridge_service.NO_PAGES_CODE
+
     def test_an_oversized_body_is_refused_by_its_length(self, isolated_db):
         _, token = _member("a@example.com")
         r = _client().post(f"{BASE}/pages", headers={
@@ -792,6 +807,55 @@ class TestStreamedAnswersHeartbeat:
 
         lines = asyncio.run(self._lines(work, True))
         assert lines and set(lines) == {b'{"waiting": true}\n'}
+
+
+class TestStreamedAnswerLost:
+    """The run hears whether its answer reached the end or the caller went away first."""
+
+    @staticmethod
+    def _serve(monkeypatch, work, caller_leaves):
+        import asyncio
+        from api.routers import extension_bridge_routes as routes
+        heard = []
+        monkeypatch.setattr(extension_bridge_service, "stream_opened",
+                            lambda run_id: heard.append(("open", run_id)) or 7)
+        monkeypatch.setattr(extension_bridge_service, "stream_closed",
+                            lambda run_id, stream, lost: heard.append(("closed", run_id, stream, lost)))
+
+        async def go():
+            first_line = asyncio.Event()
+
+            async def receive():
+                if caller_leaves:
+                    await first_line.wait()
+                    return {"type": "http.disconnect"}
+                await asyncio.Event().wait()
+
+            async def send(message):
+                if message.get("body"):
+                    first_line.set()
+
+            response = await routes._streamed(work, run_id="run-aaaaaaaa")
+            await response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send)
+        asyncio.run(go())
+        return heard
+
+    def test_a_caller_that_goes_away_mid_answer_is_a_lost_stream(self, monkeypatch):
+        import time
+
+        def work(write):
+            write({"page": {"key": "p0"}})
+            time.sleep(0.3)
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, True) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, True)]
+
+    def test_an_answer_that_reaches_its_last_line_is_not_lost(self, monkeypatch):
+        def work(write):
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, False) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, False)]
 
 
 class TestQuickReadRunRoutes:

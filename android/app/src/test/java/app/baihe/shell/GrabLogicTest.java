@@ -317,6 +317,32 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void quickReadSummaryNamesEveryFailedPage() {
+        java.util.SortedMap<Integer, String> failed = new java.util.TreeMap<>();
+        assertEquals("Cancelled", QuickRead.withFailedPages("Cancelled", failed));
+        failed.put(7, "the page could not be processed");
+        failed.put(3, "the page was blank (the reader had not drawn it yet)");
+        assertEquals("Pages not opened: 3 (the page was blank (the reader had not drawn it yet)); "
+                + "7 (the page could not be processed)", QuickRead.withFailedPages("", failed));
+        for (int i = 10; i < 22; i++) failed.put(i, "x");
+        assertTrue(QuickRead.withFailedPages("", failed).endsWith("; and 4 more"));
+    }
+
+    @Test
+    public void aPagesGapsAreItsUntranslatedRegionsAndWarnings() throws Exception {
+        org.json.JSONArray regions = new org.json.JSONArray()
+                .put(new org.json.JSONObject().put("untranslated", true))
+                .put(new org.json.JSONObject().put("untranslated", false));
+        org.json.JSONArray notes = new org.json.JSONArray()
+                .put(new org.json.JSONArray().put("info").put("fine"))
+                .put(new org.json.JSONArray().put("warning").put("the redraw failed"));
+        assertEquals(2, QuickRead.gaps(new org.json.JSONObject().put("regions", regions).put("notes", notes)));
+        assertEquals(0, QuickRead.gaps(new org.json.JSONObject().put("regions", new org.json.JSONArray())));
+        // An old sidecar ("{}") gives nothing to compare a redo with.
+        assertEquals(-1, QuickRead.gaps(new org.json.JSONObject()));
+    }
+
+    @Test
     public void aPictureWithOnlyAnAddressNeedsDownloading() {
         assertTrue(new PageImage("p0", "https://cdn.example/1.jpg", "image/jpeg", "").needsDownload());
         assertFalse(new PageImage("p1", "https://cdn.example/2.jpg", "image/jpeg", "AAAA").needsDownload());

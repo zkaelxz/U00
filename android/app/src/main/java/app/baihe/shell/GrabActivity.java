@@ -1699,10 +1699,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             long[] firstPageAt = {0};
             boolean[] opened = {continuing};
             String[] firstError = {""};
+            // Every page the PC failed, by its number in this read, so the summary names each one.
+            java.util.SortedMap<Integer, String> failedPages = new java.util.TreeMap<>();
+            boolean[] errorIsFailedPage = {false};
+            java.util.Map<String, Integer> pageNumber = new java.util.HashMap<>();
+            for (int i = 0; i < pages.size(); i++) pageNumber.put(pages.get(i).key, i + 1);
             boolean[] refused = {false};
             // Cleared when the PC turns out not to download pictures (an older Baihe): bytes go up instead.
             // Older Baihe versions omit the flag, so they never get addresses to fetch.
             boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
+            java.util.concurrent.atomic.AtomicInteger refusedByAddress = new java.util.concurrent.atomic.AtomicInteger();
 
             // Pages that finished but wait for an earlier batch count as ready, so the counter moves
             // with the PC and not only with the order the reader shows them in.
@@ -1795,7 +1801,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         while (true) {
                             boolean fetchedBefore = pcFetch[0];
                             try {
-                                done = sendBatch(client, url, todo, counted, pcFetch);
+                                done = sendBatch(client, url, todo, counted, pcFetch, refusedByAddress);
                                 // Pages the PC never streams back (failed, repeats) make a retry look like an
                                 // older Baihe; that guess is only trusted on the first ask.
                                 if (attempt > 0) pcFetch[0] = fetchedBefore;
@@ -1827,8 +1833,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             if (firstError[0].isEmpty() && !cancelRequested && done.optString("stopped").startsWith("Stopped on the PC")) {
                                 firstError[0] = done.optString("stopped");
                             }
+                            for (int f = 0; failed != null && f < failed.length(); f++) {
+                                JSONObject entry = failed.optJSONObject(f);
+                                Integer number = entry == null ? null : pageNumber.get(entry.optString("key", ""));
+                                if (number != null) failedPages.put(number, entry.optString("error", ""));
+                            }
                             if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
                                 firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                                errorIsFailedPage[0] = !failedPages.isEmpty();
                             }
                             JSONArray skipped = done.optJSONArray("skipped");
                             if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
@@ -1880,7 +1892,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
             String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
-                    + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
+                    + QuickRead.summary(thisPart, pages.size() + unreadable,
+                            QuickRead.withFailedPages(errorIsFailedPage[0] ? "" : firstError[0], failedPages))
                     + (truncated ? ". Some pages were left out." : "") + timing;
             boolean awayFromReader = QuickReadSession.isDetached() || !BaiheApp.inFront();
             if (!carryOn) QuickReadSession.finish(message);
@@ -1932,22 +1945,27 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private int aheadLoads;
     /** Waits before asking again for a batch the PC could not be reached for. */
     private static final long[] BATCH_RETRY_WAITS_MS = {5_000, 20_000, 45_000};
+    /** Batches in a row the PC fetched by address and refused as no pages before it stops fetching. */
+    private static final int PLACEHOLDER_REFUSALS = 2;
 
     /**
      * One request of a Quick read. The PC is asked to download the pictures first; any it could
      * not get (and a whole batch, when the PC is too old to know the field) go up as bytes.
      */
     private JSONObject sendBatch(BaiheClient client, String pageUrl, List<PageImage> batch,
-                                 BaiheClient.PageListener onPage, boolean[] pcFetch) throws BaiheClient.BridgeException {
+                                 BaiheClient.PageListener onPage, boolean[] pcFetch,
+                                 java.util.concurrent.atomic.AtomicInteger refusedByAddress) throws BaiheClient.BridgeException {
         if (pcFetch[0]) {
             List<PageImage> asked = PcFetch.mark(batch);
             if (asked != null) {
+                boolean byAddress = true;
                 try {
                     int[] delivered = {0};
                     JSONObject done = client.streamPages(pageUrl, asked, page -> {
                         delivered[0]++;
                         onPage.onPage(page);
                     });
+                    refusedByAddress.set(0);
                     // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
                     // "unfetched" list either. That is told apart from a stop by the user.
                     boolean stopped = cancelRequested || QuickReadSession.isAbandoned();
@@ -1958,10 +1976,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     List<PageImage> again = PcFetch.unfetched(batch, done.optJSONArray("unfetched"));
                     if (again.isEmpty()) return done;
                     List<PageImage> bytes = withBytes(again, pageUrl);
-                    return bytes.isEmpty() ? done : client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+                    if (bytes.isEmpty()) return done;
+                    byAddress = false;
+                    return client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
                 } catch (BaiheClient.BridgeException e) {
                     if (e.status != 400 && e.status != 422) throw e;
-                    pcFetch[0] = false;
+                    if (!BaiheClient.NO_PAGES_CODE.equals(e.code)) {
+                        pcFetch[0] = false;   // an older Baihe that cannot fetch by address
+                    } else if (byAddress && refusedByAddress.incrementAndGet() >= PLACEHOLDER_REFUSALS) {
+                        // One batch of banners is normal; batch after batch of "no pages" from the PC's
+                        // own downloads means the site hands it stand-ins, so later batches go up as bytes.
+                        pcFetch[0] = false;
+                    }
                 }
             }
         }
