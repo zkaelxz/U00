@@ -78,6 +78,17 @@ def _run_episode(jobs, did, spoken=True):
     q.tick()    # export runs inline
 
 
+def _drain_waiting(jobs, did):
+    """Ticks until nothing waits. The queue still starts the stopped episode's translate, and it ends
+    failed at once here instead of waiting out its gate (WAIT seconds)."""
+    jobs.fail.add(f"translate_{did}")
+    while any(st == "waiting" for *_, st in _auto_steps()):
+        q.tick()
+        for job_id in list(jobs.started):
+            if not jobs.gates[job_id].is_set():
+                jobs.finish(job_id)
+
+
 def _on(sid, ceiling=1.0):
     return auto.switch_on(None, sid, ceiling, True)
 
@@ -128,8 +139,7 @@ def test_a_stopped_episode_holds_the_series_and_continue_skips_it(jobs):
     q.tick()
     jobs.finish(f"transcribe_{e1}")
     q.tick()
-    while any(st == "waiting" for *_, st in _auto_steps()):
-        q.tick()
+    _drain_waiting(jobs, e1)
     auto.scan()
     state = auto.get_state(None, sid)
     assert state["hold_kind"] == "stopped" and "transcribe" in state["hold"]
@@ -317,8 +327,7 @@ def test_a_stopped_episode_is_announced_once(jobs, told):
     q.tick()
     jobs.finish(f"transcribe_{e1}")
     q.tick()
-    while any(st == "waiting" for *_, st in _auto_steps()):
-        q.tick()
+    _drain_waiting(jobs, e1)
     auto.scan()
     auto.scan()
     (call,) = told
@@ -399,8 +408,7 @@ def _fail_first_episode(jobs, sid, e1, reason=None):
     q.tick()
     jobs.finish(f"transcribe_{e1}")
     q.tick()
-    while any(st == "waiting" for *_, st in _auto_steps()):
-        q.tick()
+    _drain_waiting(jobs, e1)
     if reason is not None:
         with q._lock:
             doc = q._load()

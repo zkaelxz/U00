@@ -110,7 +110,7 @@ the result of the push run that covers the merge, so that the first ones can be 
 the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile, pypdf, headless OpenCV, PyYAML and pydub (with audioop-lts, since Python 3.13 has no audioop), which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list; `tools/check_pytest_skips.py` then fails the job on any skip whose file and reason are not in its `ALLOWED` list, so a library the job stops installing can't turn its tests into green skips), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
-`frontend` (build, vitest, lint), `e2e` (Playwright in six jobs: four for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
+`frontend` (build, vitest, lint), `e2e` (Playwright in seven jobs: five for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
@@ -141,7 +141,7 @@ fixes). A cache miss only costs the download. The ffmpeg apt install is not cach
 
 ### Browser tests wait for the merge order
 
-The six `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
+The seven `e2e` jobs are the largest share of a run's runner time, and a ready PR is often pushed several times before it is
 ordered to merge. On a pull request without auto-merge on, `changes` holds them back (`e2e_deferred=true`), and the
 `browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
 cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
@@ -215,7 +215,7 @@ classifier error), and otherwise only when a changed file is under `installer/`,
 is `tools/windows_script_checks.py` or is the restore code (`services/library_restore_service.py`, `services/library_restore_sql.py`,
 `db/library_folder.py`).
 
-| Rule | `run_e2e` (6 `e2e` jobs) | `run_full_pytest` (`test-shard`) |
+| Rule | `run_e2e` (7 `e2e` jobs) | `run_full_pytest` (`test-shard`) |
 |---|---|---|
 | Push to `baihe-subtitler` (but see "After a merge" above), or any event that is not a pull request (a `merge_group` and the nightly `schedule` run included) | true | true |
 | PR labelled `full-ci` | true | true |

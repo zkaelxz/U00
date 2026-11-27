@@ -1005,8 +1005,11 @@ def test_only_the_facades_import_their_split_modules():
             if not name.endswith(".py") or rel in split_files or path == os.path.abspath(__file__):
                 continue
             with open(path, encoding="utf-8") as fh:
-                tree = ast.parse(fh.read())
-            for node in ast.walk(tree):
+                source = fh.read()
+            # Parsing every file in the tree took ~9 s; an import of a split module has to spell its last part.
+            if not any(m.rsplit(".", 1)[1] in source for m in allowed):
+                continue
+            for node in ast.walk(ast.parse(source)):
                 imported = []
                 if isinstance(node, ast.ImportFrom):
                     imported = [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]
