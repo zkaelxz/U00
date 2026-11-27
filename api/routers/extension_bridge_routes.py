@@ -34,12 +34,10 @@ from lib.errors import InvalidInputError
 from services import extension_bridge_service, extension_subs_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import (grab_last_page_service, live_service, model_readiness_service, page_run_service,
-                      quick_video_service,
+from services import (grab_last_page_service, live_service, page_run_service,
                       sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
-from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
-                        RateLimitedError, ServiceError, UnsupportedOperationError)
+from lib.errors import ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError, ServiceError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])
@@ -456,26 +454,7 @@ def _drop_quick_reads(payload: dict, principal) -> dict:
     return {"dropped_runs": 1, "dropped_pages": dropped["dropped_pages"]}
 
 
-_VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),
-                 (DependencyUnavailableError, 503), (UnsupportedOperationError, 400),
-                 (RateLimitedError, 429))
 _VIDEO_NEEDS = ("media.import_url", "jobs.start")
-
-
-def _send_video(payload: dict, principal, holds_paid: bool) -> dict:
-    url = payload.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise page_server.EndpointError(400, "url is required")
-    try:
-        started = quick_video_service.start(principal, url.strip(), None, False,
-                                            holds_paid=holds_paid, at_pc=False)
-    except ForbiddenError:
-        raise
-    except ServiceError as e:
-        # Plain refusals (no profile set, bad link, title limit) are for the person to read.
-        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
-        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
-    return {"drama_id": started["drama_id"]}
 
 
 @router.post("/video", dependencies=[require_device_token()],
@@ -483,40 +462,17 @@ def _send_video(payload: dict, principal, holds_paid: bool) -> dict:
 async def post_video(request: Request):
     principal = request.state.principal
     holds_paid = holds(request, "engines.paid")
-    return await _handle(request, lambda payload: _send_video(payload, principal, holds_paid),
+    return await _handle(request, lambda payload: extension_bridge_service.send_video(payload, principal, holds_paid),
                          needs=_VIDEO_NEEDS)
 
 
 def _start_live(request: Request, payload: dict, principal) -> dict:
-    """Starts Live on a stream page's link with the PC's own defaults: the form's language
-    default Whisper model and chunking, the engine a member may use, no delayed player and
-    no saved logins, as for any other device."""
-    url = payload.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise page_server.EndpointError(400, "url is required")
-    options = live_service.form_options()
-    language = payload.get("source_language") or options["defaults"]["source_language"]
-    if not isinstance(language, str):
-        raise page_server.EndpointError(422, "source_language must be a language code")
-    whisper_size = options["language_whisper_defaults"].get(language) or options["defaults"]["whisper_size"]
-    chunk = live_service.LANGUAGE_CHUNK_DEFAULTS.get(language, {})
+    """Live on a stream page's link with the PC's own defaults and the engine a member may use."""
+    choices = extension_bridge_service.live_choices(payload)
     engine, model = engine_for_caller(request, None, live_service.LIVE_DEFAULT_ENGINE, None)
     require_engines_allowed(request, engine, model=model)
     require_cloud_model_allowed(request, (engine, model))
-    try:
-        model_readiness_service.require_ready(False, model_readiness_service.for_whisper_size, whisper_size)
-        started = live_service.start_session(
-            url.strip(), source_language=language, whisper_size=whisper_size,
-            segment_seconds=chunk.get("segment_seconds", options["defaults"]["segment_seconds"]),
-            overlap_seconds=chunk.get("overlap_seconds", options["defaults"]["overlap_seconds"]),
-            engine=engine, model=model, use_gpu=live_service.gpu_available(),
-            use_saved_cookies=False, principal=principal)
-    except ForbiddenError:
-        raise
-    except ServiceError as e:
-        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
-        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
-    return {"session_id": started["session_id"], "joined": bool(started.get("joined"))}
+    return extension_bridge_service.start_live(choices, engine, model, principal)
 
 
 @router.post("/live", dependencies=[require_device_token()],

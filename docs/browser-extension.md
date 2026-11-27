@@ -226,6 +226,7 @@ The endpoint's routes:
 | `POST /text` | A block of raw page text. |
 | `POST /novel` | A web-novel page's text, appended to a novel title as a new raw chapter. |
 | `POST /title` | Finds or creates the title (and series) for a page: `url`, `titles` (page title candidates), `language`, `kind` (`comic` or `novel`) and the `create`, `fill`, `series` switches. Answers ids, booleans, the stored display name and which blank fields were filled; never the address. |
+| `POST /video`, `POST /live` | The popup's Subtitle this video and Start Live captions, as the device-token routes below do them (only the link, no saved logins), as the PC owner. |
 
 A page whose bytes already match one in the drama is reused, not added again,
 and counts in `already_stored`. Its saved bubbles are never re-read or
