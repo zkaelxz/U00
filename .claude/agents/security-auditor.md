@@ -47,7 +47,8 @@ You audit the whole system, not one diff.
    - user URLs go through `safe_fetch` (scheme and host checks, DNS pinning, redirect re-checks, time and size limits);
    - every `requests` call has a timeout;
    - served file paths are confined, and paths never appear in responses or headers.
-7. **Multi-user data:** drama and series ownership checks are in place, and one user's jobs or state can't leak to another where the model says users are separate.
+7. **Public repo:** no real names, nicknames, PC names, personal emails or LAN addresses in code, tests, sample data or docs.
+8. **Multi-user data:** drama and series ownership checks are in place, and one user's jobs or state can't leak to another where the model says users are separate.
 
 **Output:**
 - Findings ranked BLOCKER, HIGH, MEDIUM, LOW. Each gives file:line evidence, a concrete attack scenario (who, from where, which request) and the smallest fix.
