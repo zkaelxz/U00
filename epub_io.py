@@ -112,18 +112,68 @@ def _chapter_title(heading, part: int, chapter_num: int, field: str) -> str:
     fallback = f"Chapter {chapter_num}"
     if heading is None:
         return fallback
-    title = " ".join(getattr(heading, field, "").split()) or fallback
+    fields = ("en", "zh") if field == "bilingual" else (field,)
+    title = next((t for t in (" ".join(getattr(heading, f, "").split()) for f in fields) if t), fallback)
     return title if part == 1 else f"{title} ({part})"
+
+
+def _line_html(text, paragraph, image_item):
+    """One line's text as HTML fragments -- plain text as paragraph(text),
+    an [[IMG:filename]] placeholder as an <img> tag referencing the
+    embedded image (once image_item resolves it; no image_item drops it),
+    everything in its original left-to-right order within the line."""
+    parts = []
+    pos = 0
+    for m in IMG_TOKEN_RE.finditer(text):
+        before = text[pos:m.start()].strip()
+        if before:
+            parts.append(paragraph(before))
+        item = image_item(m.group(1)) if image_item else None
+        if item:
+            parts.append(f'<img src="{html.escape(item.file_name)}" alt=""/>')
+        pos = m.end()
+    tail = text[pos:].strip()
+    if tail:
+        parts.append(paragraph(tail))
+    return parts
+
+
+def _english_html(text: str) -> str:
+    return f'<p class="en" lang="en">{html.escape(text)}</p>'
+
+
+def _paragraph_html(text: str, reading_language, chinese_script: str) -> str:
+    if reading_language:
+        return f"<p>{_ruby_html(text, reading_language, chinese_script)}</p>"
+    return f"<p>{html.escape(text)}</p>"
+
+
+def _ruby_html(text: str, language: str, chinese_script: str) -> str:
+    import segment
+
+    out = []
+    for word, reading in segment.segment_and_annotate(text, language, chinese_script=chinese_script):
+        # pypinyin hands back punctuation and Latin text as their own "reading".
+        if reading and word.strip() and reading != word:
+            out.append(f"<ruby>{html.escape(word)}<rt>{html.escape(reading)}</rt></ruby>")
+        else:
+            out.append(html.escape(word))
+    return "".join(out)
 
 
 def export_epub(lines, title: str, author: str, out_path: str, field: str = "en",
                  lines_per_chapter: int = 200, images_dir: str | None = None,
-                 source_language: str | None = None):
+                 source_language: str | None = None, readings: bool = False,
+                 chinese_script: str = "simplified"):
     """Exports translated (or original) lines as a proper .epub, split
     into chapters at the novel's own chapter headings, or into chapters of
     `lines_per_chapter` lines each when it has none (_chapter_groups). field: 'en' for the
-    translation, 'zh' for the raw text (e.g. exporting a bilingual
-    reading copy would need two calls or a custom merge).
+    translation, 'zh' for the raw text, 'bilingual' for each original
+    paragraph followed by its English.
+
+    readings: with 'zh' or 'bilingual', pinyin or furigana over the
+    original as <ruby> (segment.segment_and_annotate); its ImportError
+    reaches the caller.
 
     images_dir: a directory (e.g. import_epub_text's
     own images_dir, or a drama's Scanlate page images) to resolve
@@ -141,8 +191,9 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
     place on success, so a crash never truncates an existing export."""
     from ebooklib import epub
 
-    lang = "en" if field == "en" else (
-        source_language if source_language in SOURCE_LANGUAGES else "zh")
+    source_lang = source_language if source_language in SOURCE_LANGUAGES else "zh"
+    lang = "en" if field == "en" else source_lang
+    text_field = "zh" if field == "bilingual" else field
 
     book = epub.EpubBook()
     book.set_identifier(f"baihe-subtitler-{title}")
@@ -169,35 +220,25 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
         added_images[fname] = item
         return item
 
-    def _line_html(text):
-        """One line's text as HTML fragments -- plain text as <p>...</p>,
-        an [[IMG:filename]] placeholder as an <img> tag referencing the
-        embedded image (once resolved), everything in its original
-        left-to-right order within the line."""
-        parts = []
-        pos = 0
-        for m in IMG_TOKEN_RE.finditer(text):
-            before = text[pos:m.start()].strip()
-            if before:
-                parts.append(f"<p>{html.escape(before)}</p>")
-            item = _image_item(m.group(1))
-            if item:
-                parts.append(f'<img src="{html.escape(item.file_name)}" alt=""/>')
-            pos = m.end()
-        tail = text[pos:].strip()
-        if tail:
-            parts.append(f"<p>{html.escape(tail)}</p>")
-        return parts
+    reading_language = source_lang if readings and field != "en" else None
+
+    def original(text):
+        return _paragraph_html(text, reading_language, chinese_script)
 
     chapters = []
     for chapter_num, (heading, chunk, part) in enumerate(
-            _chapter_groups(lines, field, lines_per_chapter), 1):
+            _chapter_groups(lines, text_field, lines_per_chapter), 1):
         title = _chapter_title(heading, part, chapter_num, field)
         html_parts = []
         for ln in chunk:
-            text = getattr(ln, field, "")
+            text = getattr(ln, text_field, "")
             if text:
-                html_parts.extend(_line_html(text))
+                html_parts.extend(_line_html(text, original, _image_item))
+            english = ln.en if field == "bilingual" else ""
+            if english:
+                # A translation usually keeps the [[IMG]] placeholder; the picture is shown once, with the original.
+                html_parts.extend(_line_html(english, _english_html,
+                                             None if IMG_TOKEN_RE.search(text or "") else _image_item))
         html_paragraphs = "\n".join(html_parts)
         c = epub.EpubHtml(title=title, file_name=f"chap_{chapter_num:03d}.xhtml", lang=lang)
         c.content = f"<h1>{html.escape(title)}</h1>\n{html_paragraphs}"

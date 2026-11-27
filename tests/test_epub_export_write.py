@@ -2,7 +2,8 @@
 epub_io with a stand-in for ebooklib, so these run on a core-only install:
 a failed write leaves the previous export and no temp file behind, an
 [[IMG:...]] placeholder embeds only a plain file inside images_dir (line text
-can name any path), and an imported book can't write outside images_dir.
+can name any path), an imported book can't write outside images_dir, and a
+two-language book puts each original paragraph before its English.
 """
 import os
 import sys
@@ -200,3 +201,34 @@ def test_a_heading_with_nothing_after_it_is_still_a_chapter(fake_epub, tmp_path)
              Line(idx=2, start=0, end=1, zh="尾声", en="Epilogue")]
     epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"))
     assert [t for t, _ in _chapters(fake_epub["book"])] == ["Chapter 1", "Epilogue"]
+
+
+def test_a_two_language_book_puts_each_original_paragraph_before_its_english(fake_epub, tmp_path):
+    images = tmp_path / "epub_images"
+    images.mkdir()
+    (images / "pic.png").write_bytes(b"png")
+    lines = [Line(idx=0, start=0, end=1, zh="第一章 开始", en="Chapter 1 The start"),
+             Line(idx=1, start=1, end=2, zh="你好<世界>", en="Hello <world>"),
+             Line(idx=2, start=2, end=3, zh="[[IMG:pic.png]]", en="[[IMG:pic.png]]")]
+
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), field="bilingual",
+                        images_dir=str(images), source_language="zh")
+
+    text = _chapter_text(fake_epub["book"])
+    assert "<h1>Chapter 1 The start</h1>" in text
+    assert text.index("<p>你好&lt;世界&gt;</p>") < text.index('<p class="en" lang="en">Hello &lt;world&gt;</p>')
+    assert text.count("<img ") == 1
+
+
+def test_reading_marks_go_over_the_original_only(fake_epub, tmp_path, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "segment_and_annotate",
+                        lambda text, language, chinese_script="simplified": [("你好", "nǐ hǎo"), ("。", None)])
+    lines = [Line(idx=0, start=0, end=1, zh="你好。", en="Hello.")]
+
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), field="bilingual",
+                        readings=True, source_language="zh")
+
+    text = _chapter_text(fake_epub["book"])
+    assert "<p><ruby>你好<rt>nǐ hǎo</rt></ruby>。</p>" in text
+    assert '<p class="en" lang="en">Hello.</p>' in text
