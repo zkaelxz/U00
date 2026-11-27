@@ -333,8 +333,9 @@ def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Opt
             # Added text still waiting for lines is a retry: the append finds it in the text and adds nothing.
             if not saved_by_phone and novel_text.read_pending_lines(db.drama_dir(drama_id)) is None:
                 raise ConflictError("The phone has saved no chapters to this title that are waiting to be added.")
-            new_chapters = min(new_chapters, saved_by_phone) or 1
-            first_new = max(1, novel_attach_service.saved_chapter_count(drama_id) - new_chapters + 1)
+            saved = novel_attach_service.saved_chapter_count(drama_id)
+            # No count: start past every saved chapter, so the append only passes when nothing is left to add.
+            first_new = (max(1, saved - min(new_chapters, saved_by_phone) + 1) if saved_by_phone else saved + 1)
             # No names step: a new scan would wait for a review nobody at the phone is there to do.
             steps += [(q.APPEND, {"from_chapter": first_new}), (q.LINES, {**(lines or {}), "append": True}),
                       (q.RUN_TRANSLATE, {**translate, "new_lines_only": True})]

@@ -84,7 +84,7 @@ def _read_novel(drama_id: int) -> str:
         return f.read()
 
 
-def _write_novel(drama_id: int, text: str, mode: str) -> int:
+def _write_novel(drama_id: int, text: str, mode: str, settled_phone_count: bool = False) -> int:
     """Atomic write; returns the stored character count."""
     if mode == "append":
         old = _read_novel(drama_id).rstrip()
@@ -93,9 +93,12 @@ def _write_novel(drama_id: int, text: str, mode: str) -> int:
         raise InvalidInputError(
             f"The combined novel text is too large (at most {MAX_TEXT_CHARS:,} characters).")
     final = _novel_path(drama_id, create=True)
-    if mode == "replace":
-        # Before the write: a stop in between then under-counts, which only makes the phone's next ask refuse.
-        novel_text.clear_phone_added(os.path.dirname(final))
+    if not settled_phone_count:
+        # Any other write may have put phone-saved chapters in the text by hand, so the count can't be
+        # trusted. Before the write: a stop in between then under-counts, which only makes the phone's next ask refuse.
+        from sources import pipeline
+        with pipeline._page_lock(drama_id):
+            novel_text.clear_phone_added(os.path.dirname(final))
     fd, tmp = tempfile.mkstemp(prefix=".novel_", suffix=".part", dir=os.path.dirname(final))
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -701,7 +704,7 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         # Before the write, like a replace: only the chapters read above are settled, so one the phone saves
         # meanwhile stays counted.
         _settle_phone_added(drama_id, folder, phone_seen)
-        count = _write_novel(drama_id, tail, "append")
+        count = _write_novel(drama_id, tail, "append", settled_phone_count=True)
         # Recorded after the text is saved, so a stop in between only leaves text without a marker
         # (which the Source stage's chunk & tag still covers); the added text is never lost track of.
         pending = (waiting.chars if waiting else 0) + len(tail) + 2
