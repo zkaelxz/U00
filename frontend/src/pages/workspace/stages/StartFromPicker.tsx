@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { getPresets } from '../../../api/library'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
+import { GroupedPicker } from '../../../components/GroupedPicker'
 import { humanize } from '../../../components/labels'
 import { NOTHING_STARTS_HELP } from '../../../helpText'
 import type { LibraryPreset } from '../../../types/library'
@@ -67,29 +68,21 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
   return (
     <>
       <Field label="Style" help={`What the translator should sound like. Each choice fills in engine, model and other settings together, and you can still edit them. Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are saved in the Library. ${NOTHING_STARTS_HELP}`}>
-        <select
+        <GroupedPicker
+          title="Style"
           value={style}
           disabled={pending}
-          onChange={(e) => {
+          groups={[
+            { label: 'Styles', options: config.style_presets.map((p) => ({ value: p.key, label: p.label })) },
+            ...(groups.tiers.length > 0 ? [{ label: 'Start from a tier', options: groups.tiers }] : []),
+            ...(groups.presets.length > 0 ? [{ label: 'Start from my profile', options: groups.presets }] : []),
+          ]}
+          onPick={(value) => {
             setApplied(null)
-            if (parseStartValue(e.target.value)) apply(e.target.value)
-            else onStyleChange(e.target.value)
+            if (parseStartValue(value)) apply(value)
+            else onStyleChange(value)
           }}
-        >
-          <optgroup label="Styles">
-            {config.style_presets.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-          </optgroup>
-          {groups.tiers.length > 0 && (
-            <optgroup label="Start from a tier">
-              {groups.tiers.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </optgroup>
-          )}
-          {groups.presets.length > 0 && (
-            <optgroup label="Start from my profile">
-              {groups.presets.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </optgroup>
-          )}
-        </select>
+        />
       </Field>
       {(applied || error != null) && (
         <div className="translate-basics-wide">
