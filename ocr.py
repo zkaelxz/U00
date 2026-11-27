@@ -279,7 +279,7 @@ RAPIDOCR_MEDIUM_REC_MODEL = {
     "max_bytes": 128 * 1024 * 1024,
 }
 # The same PP-OCRv6 medium weights as PyTorch files, so pages can be read on the GPU through
-# the app's own torch: onnxruntime's GPU build needs a CUDA that clashes with that torch.
+# the app's own torch without onnxruntime's GPU build (only the optional Korean install uses it).
 # The PyTorch recognizer has no character list inside it, hence the separate dictionary.
 # On 5 real Chinese pages (150 lines) both read exactly the same text.
 RAPIDOCR_TORCH_MEDIUM_DET_MODEL = {
@@ -354,6 +354,7 @@ def ensure_rapidocr_model(spec: dict) -> str:
     return path
 
 
+# Caps onnxruntime's CUDA arena; its default grew to 16 GB.
 KOREAN_GPU_MEM_LIMIT = 2 * 1024 ** 3
 
 

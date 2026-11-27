@@ -76,6 +76,10 @@ _cpu = _Helper("cpu")
 _gpu = _Helper("gpu")
 _gpu_off_reason = None
 _gpu_off_at = 0.0
+# Korean's own off state: its onnxruntime-gpu engine can fail (no CUDA provider, a missing
+# PyTorch) without the PyTorch engine Chinese and Japanese use being at fault.
+_ko_off_reason = None
+_ko_off_at = 0.0
 # A GPU fault turns the GPU reader off, but for this long only: one fault (a card that was
 # briefly full) otherwise left every later read on the CPU until the app restarted.
 GPU_OFF_SECONDS = 300
@@ -100,12 +104,12 @@ def read(key: str, source, allow_download: bool = True):
     if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
-            _gpu_off(reply[1])
+            _gpu_off(reply[1], key)
             _stop_helper(_gpu)
         elif reply[0] == "gpu_later":
             _gpu_retry_later()
         elif reply[0] == "gpu_timeout":
-            _gpu_off("a GPU read took too long")
+            _gpu_off("a GPU read took too long", key)
             _stop_helper(_gpu)
         if reply[0] not in ("ok", "error"):
             reply = None
@@ -160,13 +164,16 @@ def _params(key: str) -> dict:
     return _params_cache[key]
 
 
-def _gpu_off(reason: str) -> None:
-    global _gpu_off_reason, _gpu_off_at
-    if _gpu_off_reason is None:
+def _gpu_off(reason: str, key: str = "medium") -> None:
+    global _gpu_off_reason, _gpu_off_at, _ko_off_reason, _ko_off_at
+    current = _ko_off_reason if key == "ko" else _gpu_off_reason
+    if current is None:
         _log(f"Text reader: using the CPU for the next {GPU_OFF_SECONDS // 60} minutes: {reason}",
              warning=True)
-    _gpu_off_reason = reason
-    _gpu_off_at = time.monotonic()
+    if key == "ko":
+        _ko_off_reason, _ko_off_at = reason, time.monotonic()
+    else:
+        _gpu_off_reason, _gpu_off_at = reason, time.monotonic()
 
 
 def _gpu_retry_later() -> None:
@@ -255,7 +262,7 @@ def _gpu_ready(key: str) -> bool:
         _gpu_skipped("the GPU engine found no room while loading")
         _gpu_retry_later()
     else:
-        _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load")
+        _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load", key)
         _stop_helper(_gpu)
     return False
 
@@ -274,11 +281,14 @@ def _gpu_skipped(reason: str) -> bool:
 
 
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at, _gpu_off_reason
+    global _gpu_checked_at, _gpu_off_reason, _ko_off_reason
     if _gpu_off_reason is not None and time.monotonic() - _gpu_off_at >= GPU_OFF_SECONDS:
         _gpu_off_reason = None
         _log("Text reader: trying the GPU again")
-    if key not in GPU_KEYS or _gpu_off_reason is not None:
+    if _ko_off_reason is not None and time.monotonic() - _ko_off_at >= GPU_OFF_SECONDS:
+        _ko_off_reason = None
+        _log("Text reader: trying the Korean GPU engine again")
+    if key not in GPU_KEYS or (_ko_off_reason if key == "ko" else _gpu_off_reason) is not None:
         return False
     if key == "ko" and not _ort_gpu_installed():
         return False
@@ -506,6 +516,7 @@ def _load_gpu_engine(engines: dict, engine_id: str, key: str, threads) -> tuple:
         if key == "ko":
             # torch is imported above, which loads the CUDA 12 DLLs onnxruntime-gpu then finds;
             # a build without the provider would read on the CPU in a helper meant for the GPU.
+            _add_torch_dll_directory(torch)
             import onnxruntime
             if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
                 return ("gpu_failed", "onnxruntime has no CUDA provider")
@@ -516,6 +527,15 @@ def _load_gpu_engine(engines: dict, engine_id: str, key: str, threads) -> tuple:
         return ("ready",)
     except Exception as exc:
         return _gpu_fault(engines, engine_id, exc)
+
+
+def _add_torch_dll_directory(torch) -> None:
+    """onnxruntime-gpu 1.19 has no preload_dlls(); on Windows it finds the CUDA 12 and cuDNN 9
+    DLLs PyTorch ships only when torch's lib folder is on the DLL search path."""
+    if hasattr(os, "add_dll_directory"):
+        lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+        if os.path.isdir(lib):
+            os.add_dll_directory(lib)
 
 
 def _lower_priority() -> None:

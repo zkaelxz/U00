@@ -510,3 +510,12 @@ def test_the_korean_gpu_engine_keeps_its_own_models_and_caps_the_cards_memory(mo
         "EngineConfig.onnxruntime.cuda_ep_cfg.arena_extend_strategy": "kSameAsRequested",
         "EngineConfig.onnxruntime.cuda_ep_cfg.gpu_mem_limit": ocr.KOREAN_GPU_MEM_LIMIT}
     assert all(gpu[k] == v for k, v in cpu.items())
+
+
+def test_a_korean_gpu_failure_leaves_the_chinese_gpu_reader_on(monkeypatch):
+    monkeypatch.setattr(ocr_worker, "_gpu_off_reason", None)
+    monkeypatch.setattr(ocr_worker, "_ko_off_reason", None)
+    ocr_worker._gpu_off("onnxruntime has no CUDA provider", "ko")
+    assert ocr_worker._ko_off_reason and ocr_worker._gpu_off_reason is None
+    monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: True)
+    assert ocr_worker._gpu_allowed("ko") is False
