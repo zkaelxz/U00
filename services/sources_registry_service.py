@@ -402,6 +402,7 @@ def update_settings(changes: dict) -> dict:
 
 
 MAX_PROXY_URL_LEN = 500
+MEMBER_TRACKED_LIMIT = 100   # a member's tracked series are all checked hourly on the owner's PC and its internet address
 
 
 def set_proxy_url(url) -> dict:
@@ -521,6 +522,12 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     if drama_id is not None and (db.get_drama(drama_id) is None or not
                                  ownership_service.can_edit_drama(principal, drama_id)):
         raise NotFoundError(f"No title with id {drama_id}.")
+    uid = (principal or {}).get("user_id")
+    if not exists and uid is not None and sum(
+            1 for r in store.list_tracked_series() if r.get("linked_by_user_id") == uid
+    ) >= MEMBER_TRACKED_LIMIT:
+        raise ConflictError(f"You are already tracking {MEMBER_TRACKED_LIMIT} series, the most a member "
+                            "account can. Stop tracking one first.")
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None
     if (not isinstance(result, dict) or result.get("series_id") != series_id

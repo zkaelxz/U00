@@ -393,6 +393,20 @@ class TestPerUserJobCaps:
         # First turn: the owner, then each member's first job; the second member's later jobs come after.
         assert order == ["gpu_own1", "gpu_m1", "gpu_n1", "gpu_m2", "gpu_m3"]
 
+    def test_a_member_cannot_start_a_job_when_the_drive_is_nearly_full_but_the_owner_can(self, monkeypatch):
+        from collections import namedtuple
+        from lib.errors import ConflictError
+        usage = namedtuple("usage", "total used free")
+        monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 95 << 30, 5 << 30))
+        self._as(monkeypatch, 7)
+        with pytest.raises(ConflictError) as err:
+            job_launch.start_job("translate_low", lambda: None)
+        assert "out of disk space" in err.value.message
+        assert bg.get_status("translate_low") is None
+        self._as(monkeypatch, None)
+        assert job_launch.start_job("owner_low", lambda: None) is True
+        _wait("owner_low")
+
     def test_a_gpu_job_at_the_running_cap_waits_without_holding_up_others_then_starts(
             self, monkeypatch):
         self._as(monkeypatch, 7)

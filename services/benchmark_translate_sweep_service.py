@@ -37,7 +37,7 @@ DECISION_CAPABILITY = "translation_settings"
 # (option, label, values): the translation rows of the plan's "Starting numbers and sweep ranges".
 # Context before and after are swept one at a time, like every other setting.
 KNOBS = (
-    ("batch_size", "Batch size", (15, 30, 60)),
+    ("batch_size", "Batch size", (15, 30, 60, 90)),
     ("context_window", "Context lines before", (3, 6, 10, 20)),
     ("context_window_ahead", "Context lines after", (1, 3, 6, 10)),
     ("style_preset", "Style preset", None),
