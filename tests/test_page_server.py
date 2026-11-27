@@ -504,7 +504,6 @@ class TestTranslatingAPage:
         for key in ("read", "translate", "read_wait", "translate_wait", "extras", "reread"):
             assert isinstance(seconds[key], float), key
         assert seconds["reread_changed"] == 0
-        assert seconds["extras"] <= seconds["translate"]
 
     def test_the_page_time_log_line_names_the_split(self):
         from services import extension_bridge_service

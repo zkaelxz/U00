@@ -721,7 +721,8 @@ _SPLIT_KEYS = ("read_wait", "translate_wait", "extras", "reread", "reread_change
 
 def _split_text(seconds: dict) -> str:
     """Where a page's time went inside each step, so stages can be ranked before speeding one up.
-    The step totals above include these parts; the waits are time queued behind other pages."""
+    read_wait and translate_wait are time queued behind other pages before a step starts, so they
+    are on top of its total; typeset_wait, extras, reread and retry are parts of their step's total."""
     parts = [f"{key} {seconds[key]}" for key in _SPLIT_KEYS if key in seconds]
     return f"; split: {', '.join(parts)}" if parts else ""
 
