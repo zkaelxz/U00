@@ -76,7 +76,7 @@ export function RemoteHealthBanner() {
       action={<a href={routeHref({ name: 'diagnostics' })}>Diagnostics</a>}
       onDismiss={dismiss}
     >
-      {text}
+      <strong>{bannerTitle(health)}:</strong> {health.message} <span className="muted">{checkedLine(health)}</span>
     </WarnBar>
   )
 }
