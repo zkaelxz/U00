@@ -20,8 +20,11 @@ _SYSTEMS = (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
 def device_label(user_agent) -> str:
     """"Chrome on Android", "Safari on iPhone", "Browser on Windows",
     "Firefox browser" or "Unknown device", built only from the fixed names
-    above, so no part of the raw user agent is ever stored or shown."""
+    above, so no part of the raw user agent is ever stored or shown. The
+    phone app's shell appends "BaiheAndroid/" to its WebView's agent."""
     ua = str(user_agent or "")[:512]
+    if "BaiheAndroid/" in ua:
+        return "Baihe phone app"
     browser = next((name for token, name in _BROWSERS if f"{token}/" in ua), None)
     system = next((name for token, name in _SYSTEMS if token in ua), None)
     if system is None:

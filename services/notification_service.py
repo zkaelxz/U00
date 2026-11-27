@@ -41,7 +41,8 @@ holds (RESULT_COUNTS), one scrubbed sentence of the failure reason, how long it
 ran, a link to the title only when BAIHE_PUBLIC_URL is an https address, and
 who ran it only when more than one account exists (display name, or "A
 member (no name in People)", never an email). The footer "Sent from <PC>"
-names the sending PC, not the runner. Never line text. ntfy keeps plain text.
+names the device the job was requested from (phone browser, extension), else
+the sending PC. Never line text. ntfy keeps plain text.
 
 Rate limit: events arriving within one wait are collapsed into one message, and at most
 MAX_PER_MINUTE messages (tests included) go out in any 60 s. Only clean
@@ -640,7 +641,10 @@ def _payload(channel, text, embed=None):
         # allowed_mentions: a drama title can never ping @everyone/@here.
         body: dict = {"allowed_mentions": {"parse": []}}
         if embed:
-            body["embeds"] = [{**embed, "footer": {"text": f"Sent from {pc}"}} if pc else embed]
+            # A card that already names the requesting device keeps it; the
+            # sending PC is only the fallback for a request with no origin.
+            body["embeds"] = [{**embed, "footer": {"text": f"Sent from {pc}"}}
+                              if pc and "footer" not in embed else embed]
         else:
             body["content"] = f"{APP_NAME}{f' ({pc})' if pc else ''}: {text}"
         return (json.dumps(body, ensure_ascii=False).encode("utf-8"),
@@ -998,6 +1002,9 @@ def _job_embed(description, status, with_errors, reason, job_id, owner_user_id):
     if fields:
         embed["fields"] = [{"name": n, "value": redact_secrets(v), "inline": True}
                            for n, v in fields[:10]]
+    device = _tidy(job.get("origin_device") or "", PC_NAME_MAX)
+    if device:
+        embed["footer"] = {"text": f"Sent from {redact_secrets(device)}"}
     link = _title_link(description) if title else None
     if link:
         embed["url"] = link
