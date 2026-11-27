@@ -93,7 +93,7 @@ test('Library at 360px: no sideways scroll; Add, New title and Details open with
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(page.getByRole('dialog', { name: 'New title' })).toBeVisible()
   await expectNoSidewaysScroll(page)
-  await page.getByRole('button', { name: 'Close' }).click()
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Details: Signal' }).click()
   const sheet = page.getByRole('dialog', { name: 'Signal' })
   // The details load after the sheet opens.
