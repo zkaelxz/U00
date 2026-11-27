@@ -110,9 +110,9 @@ CLASSIFY_LIGHT_LEVEL = 200
 CLASSIFY_MIN_LIGHT_SHARE = 0.55
 # A box this much filled by an outlined balloon interior is a balloon whatever its shade.
 CLASSIFY_BALLOON_FILL = 0.5
-# A dark balloon with white lettering: the box is mostly dark pixels of one flat tone (art is
-# busier), with a minority of light lettering. Tuned on a flat dark-brown balloon; a grey one
-# with more light pixels, and a night scene with glowing narration (a busier ground), stay signs.
+# A dark balloon with white lettering: the box is mostly dark pixels of one flat tone with a
+# minority of light lettering. Tuned on a flat dark-brown balloon. A busy ground stays a sign; white
+# lettering on a flat dark-grey wall is indistinguishable from this by pixels and is read as a balloon.
 CLASSIFY_DARK_GRAY = 130
 CLASSIFY_DARK_BALLOON_MIN_SHARE = 0.5
 CLASSIFY_DARK_BALLOON_MAX_SPREAD = 13

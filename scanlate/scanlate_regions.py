@@ -14,7 +14,9 @@ import re
 import numpy as np
 
 from scanlate import scanlate_tuning
-from scanlate.scanlate_balloons import TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, is_flat_dark_balloon
+from scanlate.scanlate_balloons import (
+    TEXT_REGION_KINDS, _holds_balloon_interior, classify_text_regions, is_flat_dark_balloon,
+)
 from scanlate.scanlate_detect import inset_box_for_ocr
 from scanlate.scanlate_page_decode import page_gray
 from scanlate.scanlate_panels import detect_panels
@@ -233,6 +235,7 @@ def split_separate_lettering(gray, box: dict) -> list:
         return [box]
     if float(np.median(roi)) < 100 or is_flat_dark_balloon(roi):
         # A dark balloon with a pale margin round it has a median a little above 100.
+        #
         # Light lettering on dark art (a glowing caption) is one caption, not
         # frames drawn side by side. The dark gaps between its letters were
         # taken for glyphs, and the pieces each covered only part of it, so
