@@ -264,3 +264,13 @@ def test_glued_dialogue_with_other_words_is_not_an_address():
 def test_a_region_with_no_kind_is_treated_as_a_bubble_by_the_english_skip():
     regions = [dict(_r("SECRET GARDEN"), kind=None)]
     assert wm.flag_already_english(regions, "ko") == 0
+
+
+@pytest.mark.parametrize("text", ["장빠른 웹문제공사이", "빠른 웹툰공급사이트"])
+def test_a_stamp_line_missing_its_first_syllable_is_still_a_mark(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["빠른 말이야", "공사 중이야", "이 사이로 가자", "빠른 웹소설 추천해줘", "공공 사이에 끼었어", "정보 제공 사이트"])
+def test_ordinary_korean_with_a_stamp_syllable_is_not_a_mark(text):
+    assert not wm.looks_like_site_mark(text)

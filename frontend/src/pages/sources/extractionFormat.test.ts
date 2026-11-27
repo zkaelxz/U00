@@ -52,6 +52,15 @@ describe('comic import result', () => {
     expect(comicImportText(base)).toBe('Added 12 pages to the title.')
     expect(comicImportText({ ...base, pages_added: 1 })).toBe('Added 1 page to the title.')
     expect(comicImportText({ ...base, needs_review: true, pages_added: 0 })).toMatch(/nothing was added/)
+    expect(comicImportText({ ...base, pages_added: 0, already_present: 40 })).toBe(
+      'This chapter’s pages are already in the title, so nothing was added.',
+    )
+    expect(comicImportText({ ...base, pages_added: 25, already_present: 15 })).toBe(
+      'Added 25 pages to the title (15 images already there).',
+    )
+    expect(comicImportText({ ...base, pages_added: 0, already_present: 15, skipped_count: 2 })).toBe(
+      'Nothing was added (15 images already there).',
+    )
   })
 
   it('titles the left-out list, noting when it is cut short', () => {
