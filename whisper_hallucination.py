@@ -125,6 +125,28 @@ _CJK_CHAR_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿가-힯]")
 _MIN_RATE_SEC = 0.5
 
 
+# Laughs and interjections are real speech that is short and fast by nature, so the
+# rate, blink and sliver checks would flag every "哈哈哈". Only these characters count: a
+# line of other text, or of them mixed with it, is still judged normally. The chatter check
+# keeps judging them, since a run of one-character lines is how noise comes out.
+_VOCALIZATION_CHARS = frozenset("哈呵嘿嘻嗯啊哦噢呃唉哎哇喔欸呜哼はハふフあアおオうウえエんンㅋㅎ")
+# Kana vowels and ん alone are also ordinary words ("ああ", "うん") and what Whisper writes
+# over noise, so a kana-only line must hold a laughing syllable to be exempt.
+_KANA_LAUGH_CHARS = frozenset("はハふフ")
+_KANA_RE = re.compile(r"[぀-ヿ]")
+# A longer stretch is a stuck decoder, not a laugh.
+VOCALIZATION_MAX_LETTERS = 10
+
+
+def _is_vocalization(text):
+    key = _stock_key(text)
+    if not key or len(key) > VOCALIZATION_MAX_LETTERS:
+        return False
+    if not all(ch in _VOCALIZATION_CHARS for ch in key):
+        return False
+    return not _KANA_RE.search(key) or any(ch in _KANA_LAUGH_CHARS for ch in key)
+
+
 def _is_item_list(text):
     items = [i for i in (_stock_key(p) for p in _LIST_SPLIT_RE.split(text or "")) if i]
     return (len(items) >= LIST_MIN_ITEMS
@@ -162,7 +184,8 @@ def _flag_chatter_and_blinks(segments):
     out = _flag_slivers(out)
     for k, seg in enumerate(out):
         try:
-            blink = seg["end"] - seg["start"] < MIN_WORD_SEC and _letters_in(seg) >= 3
+            blink = (seg["end"] - seg["start"] < MIN_WORD_SEC and _letters_in(seg) >= 3
+                     and not _is_vocalization(seg["text"]))
         except KeyError:
             blink = False
         if blink:
@@ -173,7 +196,8 @@ def _flag_chatter_and_blinks(segments):
 def _flag_slivers(segments):
     """`segments` with each one under SLIVER_SEC long flagged: too short to hold a word."""
     return [_flag(s, IMPLAUSIBLE_SLIVER_NOTE)
-            if "start" in s and "end" in s and 0 < s["end"] - s["start"] < SLIVER_SEC else s
+            if "start" in s and "end" in s and 0 < s["end"] - s["start"] < SLIVER_SEC
+            and not _is_vocalization(s["text"]) else s
             for s in segments]
 
 
@@ -197,7 +221,8 @@ def screen_implausible_text(segments, drop_lists: bool = True):
                 f"invented list dropped: segment {seg['start']:.1f}-{seg['end']:.1f}s "
                 f"({rate:.1f} characters/s)")
             continue
-        if (is_list or rate >= IMPLAUSIBLE_CHARS_PER_SEC) and not seg.get("flag"):
+        too_fast = rate >= IMPLAUSIBLE_CHARS_PER_SEC and not _is_vocalization(seg["text"])
+        if (is_list or too_fast) and not seg.get("flag"):
             seg = {**seg, "flag": IMPLAUSIBLE_FLAG,
                    "flag_note": IMPLAUSIBLE_LIST_NOTE if is_list else IMPLAUSIBLE_RATE_NOTE}
         out.append(seg)
