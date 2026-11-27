@@ -7,6 +7,8 @@ MAX_SLICE_HEIGHT = 1200
 # A whole comic page is about 1.4 times taller than wide and is never joined to the next one; a strip's
 # slice is squarer. Joining real pages would put two pages in one picture.
 MAX_SLICE_ASPECT = 1.2
+# Below this a picture is a landscape frame or spread, not a strip slice.
+MIN_SLICE_ASPECT = 0.6
 TARGET_CHUNK_HEIGHT = 2000
 # Under the reader's 3 MP per-region cap even for a wide chunk.
 MAX_CHUNK_PIXELS = 2_500_000
@@ -29,7 +31,9 @@ def _join(parts: list) -> bytes:
     top = 0
     for content, size in parts:
         with Image.open(io.BytesIO(content)) as image:
-            canvas.paste(image.convert("RGB"), (0, top))
+            # Transparent areas become white paper, not the black an alpha-less convert would give.
+            rgba = image.convert("RGBA")
+            canvas.paste(rgba, (0, top), rgba)
         top += size[1]
     out = io.BytesIO()
     canvas.save(out, "PNG")
@@ -64,7 +68,7 @@ def stitch(decoded: list, max_bytes: int, target_height: int = TARGET_CHUNK_HEIG
 
     for image in decoded:
         size = _size(image["content"]) if image.get("content") is not None else None
-        if size is None or size[1] > MAX_SLICE_HEIGHT or size[1] > size[0] * MAX_SLICE_ASPECT:
+        if size is None or size[1] > MAX_SLICE_HEIGHT or not MIN_SLICE_ASPECT <= size[1] / size[0] <= MAX_SLICE_ASPECT:
             flush()
             out.append(image)
             continue

@@ -300,6 +300,9 @@ final class BaiheClient {
         java.util.Set<String> delivered = new java.util.HashSet<>();
         PageListener tracking = page -> {
             delivered.add(page.optString("key", ""));
+            // A joined chunk answers for the slices it holds, so a retry must not send them again.
+            org.json.JSONArray merged = page.optJSONArray("merged_keys");
+            if (merged != null) for (int i = 0; i < merged.length(); i++) delivered.add(merged.optString(i, ""));
             onPage.onPage(page);
         };
         List<PageImage> todo = batch;
@@ -462,7 +465,8 @@ final class BaiheClient {
                         .put("stroke", look.outline).put("font", look.fontName()));
             }
             if (redo) body.put("redo", true);
-            if (stitch) body.put("stitch", true);
+            // Only pictures the PC downloads itself are strip slices; a screen capture goes up as bytes.
+            if (stitch && asksPc) body.put("stitch", true);
         }
         return body;
     }

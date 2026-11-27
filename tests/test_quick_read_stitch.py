@@ -108,3 +108,13 @@ def test_a_saved_send_is_never_joined(isolated_db, monkeypatch):
 def test_whole_comic_pages_are_never_joined():
     pages = [_slice(f"p{i}", width=800, height=1130, colour=(i * 20, 0, 0)) for i in range(3)]
     assert quick_read_stitch.stitch(pages, 12 * 1024 * 1024) == pages
+
+
+def test_landscape_frames_are_never_joined():
+    frames = [_slice(f"f{i}", width=1280, height=720, colour=(i * 20, 0, 0)) for i in range(2)]
+    assert quick_read_stitch.stitch(frames, 12 * 1024 * 1024) == frames
+
+
+def test_a_chunk_carries_the_claims_of_its_slices():
+    slices = [{**_slice(f"c{i}", height=600), "run_claim": f"d{i}"} for i in range(2)]
+    assert quick_read_stitch.stitch(slices, 12 * 1024 * 1024)[0]["run_claims"] == ["d0", "d1"]
