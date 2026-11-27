@@ -30,6 +30,7 @@ import db
 from core import Line
 from api import auth as api_auth
 from api import remote_uploads
+from api import steady_listener
 from api.api_config import (ApiSettings, check_bind_safety, check_household_bind_safety,
                             household_settings, load_settings)
 from api.server import create_app
@@ -1340,6 +1341,7 @@ class TestRunServers:
             def run(self):
                 pass
         monkeypatch.setattr(uvicorn, "Server", Single)
+        monkeypatch.setattr(steady_listener, "SteadyServer", Single)
         monkeypatch.setattr(main_mod, "_run_servers", lambda servers: ran.append(servers))
         main_mod._serve()
         return single, ran, cleaned, shutdown_service
