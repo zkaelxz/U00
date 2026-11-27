@@ -214,20 +214,22 @@ def test_a_scanlator_credit_with_no_known_domain_is_a_mark(text):
     assert wm.looks_like_site_mark(text)
 
 
-@pytest.mark.parametrize("text", ["Hello. Please sit down.", "Wait...why would you do that.", "Mr.Kim said no"])
+@pytest.mark.parametrize("text", ["Hello. Please sit down.", "Wait...why would you do that.", "Mr.Kim said no", "Okay.Please sit"])
 def test_a_sentence_break_is_not_an_address(text):
     assert not wm.looks_like_site_mark(text)
 
 
 def test_text_already_in_english_on_a_cjk_page_is_left_alone():
-    logo = _r("SECRET GARDEN")
-    mixed = _r("안녕 OK")
-    cjk = _r("你好")
-    regions = [logo, mixed, cjk]
+    logo = _r("SECRET GARDEN", kind="sign")
+    mixed = _r("안녕 OK", kind="sign")
+    cjk = _r("你好", kind="sign")
+    shout = _r("I SAID STOP")
+    regions = [logo, mixed, cjk, shout]
     assert wm.flag_already_english(regions, "ko") == 1
-    assert [r["skip"] for r in regions] == [True, False, False]
+    assert [r["skip"] for r in regions] == [True, False, False, False]
 
 
 def test_english_is_not_skipped_when_the_source_is_not_cjk():
-    regions = [_r("SECRET GARDEN")]
+    regions = [_r("SECRET GARDEN", kind="sign")]
     assert wm.flag_already_english(regions, "en") == 0
+    assert wm.flag_already_english(regions, "") == 0

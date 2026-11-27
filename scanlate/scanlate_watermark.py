@@ -15,8 +15,9 @@ _DOMAIN = re.compile(
 
 # Scanlators' credit lines come out of OCR as one Latin run with a dot inside ("Feaserasa.cripmon"),
 # which no list of domains covers. Two runs of four letters or more joined by a dot with no space
-# is an address, not dialogue (a sentence break has a space after its dot).
-_LATIN_ADDRESS = re.compile(r"[A-Za-z]{4,}\.[A-Za-z]{4,}")
+# is an address, not dialogue (a sentence break has a space after its dot, and OCR that drops it
+# leaves a capital after the dot, so the right-hand run must be lowercase).
+_LATIN_ADDRESS = re.compile(r"[A-Za-z]{4,}\.[a-z]{4,}")
 
 # An address stamped under a Korean or CJK site name has no Latin label before
 # the dot, and OCR garbles the name itself ("토끼뉴소.com"), so the dot-and-suffix
@@ -247,7 +248,9 @@ def flag_already_english(regions: list, source_language: str) -> int:
         return 0
     flagged = 0
     for r in regions:
-        if r.get("skip"):
+        # A bubble's English is dialogue the person may have kept or un-skipped on purpose; only
+        # lettering outside a balloon (logo, credit, caption, sign) is the artist's own English.
+        if r.get("skip") or r.get("kind", "bubble") == "bubble":
             continue
         letters = [c for c in (r.get("source_text") or "") if c.isalpha()]
         latin = sum(1 for c in letters if c.isascii())

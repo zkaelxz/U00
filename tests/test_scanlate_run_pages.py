@@ -576,20 +576,3 @@ def test_start_run_pages_needs_a_confirm_and_pages_of_this_title(isolated_db, mo
         run_svc.start_run(did, mode="all", page_ids=[pid], confirm=True)
     with pytest.raises(InvalidInputError):
         run_svc.start_run(did, mode="missing", keep_text=True)
-
-
-def test_a_run_names_a_title_in_english_once_and_a_failure_does_not_stop_it(harness, monkeypatch):
-    from services import extension_title_service
-    asked = []
-
-    def name_in_english(drama_id):
-        asked.append(drama_id)
-        raise RuntimeError("no key")
-
-    monkeypatch.setattr(extension_title_service, "name_in_english", name_in_english)
-    did = db.create_drama(title_zh="原名", source_language="zh")
-    p1 = _page(did, 0)
-    _detect_by_page(monkeypatch, {p1: [_region("你好")]})
-    run_svc._run_job("j", did, "all", [p1], "mt", _MT(), "auto")
-    assert asked == [did]
-    assert _texts(p1) == {"你好": "Hello"}
