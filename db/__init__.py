@@ -509,7 +509,7 @@ from db.lines import (  # noqa: E402,F401
     line_value, update_line_fields_if, update_lines_fields_if_many, save_lines,
     FULL_SYNC, UndeclaredLineWrite, adopt_job_scope, check_line_fields, current_job_scope, job_line_fields,
     line_ids_with_refs, load_lines, load_line_page, line_reading_stats, line_text_stamp,
-    load_line_objects, load_line_ids, line_ids_exist,
+    load_line_objects, load_line_ids, has_lines, line_ids_exist,
     LineText, load_line_texts, settle_copied_marks, list_marked_lines)
 
 
@@ -749,6 +749,7 @@ from db.job_records import (  # noqa: F401
     list_job_records,
     list_job_record_fingerprints,
     count_active_job_records,
+    fresh_active_job_ids,
     get_job_record,
     delete_job_record,
     delete_finished_job_record,

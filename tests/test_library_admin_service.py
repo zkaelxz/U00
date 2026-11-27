@@ -347,8 +347,7 @@ def test_restore_refused_while_job_running(isolated_db, monkeypatch):
 
 
 def test_restore_refused_for_other_process_job_record(isolated_db, monkeypatch):
-    monkeypatch.setattr(db, "list_job_records", lambda: [
-        {"job_id": "transcribe_1", "status": "running", "updated_at": time.time()}])
+    db.save_job_record("transcribe_1", "running")
     with pytest.raises(ConflictError):
         lbr.restore_backup(_zip({"library.db": b"x"}), confirm=True, confirm_text="RESTORE")
 
