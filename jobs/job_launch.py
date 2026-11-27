@@ -404,8 +404,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     starter, applies the per-user caps and refuses during a clean stop like start_job().
     """
     line_fields = db.check_line_fields(line_fields)
-    owner_user_id = _acting_user_id()
-    origin_device = _acting_device()
+    owner_user_id, origin_device = _acting_user_id(), _acting_device()
     target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id)
     if gpu_touching and get_gpu_limit_enabled():
         gpu_probe.prefetch()
@@ -416,8 +415,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         if status == "queued":
             _jobs[job_id] = _new_entry(status, "process", gpu_touching, description, owner_user_id,
                                        run_settings, result=initial_result, process=None,
-                                       line_fields=line_fields, daily_day=counted_day,
-                                       origin_device=origin_device)
+                                       line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
@@ -432,8 +430,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                                        start_method=start_method,
                                                        run_settings=run_settings,
                                                        initial_result=initial_result,
-                                                       line_fields=line_fields, daily_day=counted_day,
-                                                       origin_device=origin_device)
+                                                       line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
             _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day)
