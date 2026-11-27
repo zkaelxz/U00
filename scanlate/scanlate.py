@@ -48,7 +48,7 @@ from scanlate.scanlate_watermark import flag_site_marks
 
 
 def warm_models(detect_backend: str = "auto") -> list:
-    """Loads the balloon detector, the text eraser and the Chinese text reader now, from weights
+    """Loads the balloon detector, the text eraser and the Chinese and Japanese text readers now, from weights
     already on disk, so the first page after the app starts does not wait for them (about 6 s of
     a first page on a 3080 Ti PC, before the reader was added). Downloads nothing; a model that is not on disk, or is not the chosen detector, is left
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
@@ -68,6 +68,10 @@ def warm_models(detect_backend: str = "auto") -> list:
         import ocr
         ocr._run_rapidocr("medium", blank, allow_download=False)
         warmed.append("Chinese text reader")
+    import ocr
+    if ocr.manga_ocr_on_disk():
+        ocr.load_manga_ocr()
+        warmed.append("Japanese text reader")
     return warmed
 
 

@@ -743,12 +743,30 @@ def extract_text_manga_ocr(image_path: str) -> str:
     Note: designed for single speech-bubble crops, not full pages --
     for best results, crop to one bubble/text block per image. Whole-
     page results will be noisier."""
-    from manga_ocr import MangaOcr
-    global _manga_ocr_instance
     with _MODEL_LOCK:
-        if "_manga_ocr_instance" not in globals():
-            globals()["_manga_ocr_instance"] = MangaOcr(*_manga_ocr_source())
-        return globals()["_manga_ocr_instance"](image_path)
+        return _manga_ocr_loaded()(image_path)   # inference stays under the lock: one at a time
+
+
+def load_manga_ocr() -> None:
+    """Loads the manga-ocr reader now, once per process."""
+    with _MODEL_LOCK:
+        _manga_ocr_loaded()
+
+
+def _manga_ocr_loaded():
+    """The manga-ocr reader; the caller holds _MODEL_LOCK."""
+    from manga_ocr import MangaOcr
+    if "_manga_ocr_instance" not in globals():
+        globals()["_manga_ocr_instance"] = MangaOcr(*_manga_ocr_source())
+    return globals()["_manga_ocr_instance"]
+
+
+def manga_ocr_on_disk() -> bool:
+    """Whether manga-ocr is installed and its pinned model is already downloaded, so loading it
+    asks no server."""
+    from lib import model_offline
+    return (backend_problem("manga_ocr") is None
+            and model_offline.hf_snapshot(MANGA_OCR_REPO, model_pins.revision(MANGA_OCR_REPO)) is not None)
 
 
 def loaded_gpu_models() -> list:
@@ -812,6 +830,11 @@ def _manga_ocr_source() -> tuple:
     the PC) only the one already on disk."""
     from lib import model_offline
     revision = model_pins.revision(MANGA_OCR_REPO)
+    # A model already on disk at the pin is used as it is: asking the server about every one of its
+    # files first cost a first read minutes on a PC whose route to Hugging Face is slow.
+    on_disk = model_offline.hf_snapshot(MANGA_OCR_REPO, revision)
+    if on_disk is not None:
+        return (on_disk,)
     if not model_offline.active():
         import huggingface_hub
         with model_pins.fetching(MANGA_OCR_REPO):
