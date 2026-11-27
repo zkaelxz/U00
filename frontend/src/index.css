@@ -537,7 +537,7 @@ details.section[open] > summary::before { content: '\25BE'; }
 .field-item:has(> .field-control > .btn-sm) { gap: var(--space-2); }
 .field-control > :first-child { flex: 1 1 auto; min-width: 0; }
 /* Outranks the stretch rule above: the thumb only travels a fixed 20px, so a stretched switch track leaves the knob mid-bar. */
-.field-control > button.toggle:first-child { flex: 0 0 auto; }
+.field-control > button.toggle:first-child, .field-control > input[type='checkbox']:first-child { flex: 0 0 auto; }
 /* Without a cap a select stretches to the whole column (1400px at 1920 wide). Size classes go on the control. */
 .field-control > select,
 .field-control > input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']) { max-width: var(--field-w-lg); }

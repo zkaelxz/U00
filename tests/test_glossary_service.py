@@ -179,9 +179,9 @@ class TestInstructions:
 class TestCatalogues:
     def test_match_real_constants(self):
         c = gs.get_catalogues()
-        assert [p["key"] for p in c["style_presets"]] == list(tguide.STYLE_PRESETS)
+        assert [p["key"] for p in c["style_presets"]] == list(tguide.PICKER_STYLE_PRESETS)
         assert {p["key"]: p["label"] for p in c["style_presets"]} == {
-            k: v["label"] for k, v in tguide.STYLE_PRESETS.items()}
+            k: v["label"] for k, v in tguide.PICKER_STYLE_PRESETS.items()}
         assert {x["key"]: x["label"] for x in c["term_categories"]} == glossary_io.TERM_CATEGORIES
         assert {x["key"]: x["label"] for x in c["term_policies"]} == {
             k: v["label"] for k, v in glossary_io.TERM_POLICIES.items()}

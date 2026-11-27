@@ -168,7 +168,7 @@ def get_translate_config(drama_id: int) -> dict:
         "engines": (engines := translate_service.list_engines()),
         "batch_size_defaults": engine_registry.batch_size_defaults(engines),
         "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
-                          for k, v in translation_guide.STYLE_PRESETS.items()],
+                          for k, v in translation_guide.PICKER_STYLE_PRESETS.items()],
         "default_style_preset": "novel" if is_novel else "audio_drama",
         "locales": list(settings_service.LOCALE_CHOICES),
         "workflow_tiers": [

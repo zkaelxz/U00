@@ -149,7 +149,7 @@ def profile_editor_fields() -> dict:
     """What the profile editor offers; nothing here is a secret."""
     return {"engines": translate_service.list_engines(),
             "style_presets": [{"key": k, "label": v["label"], "guidance": v["guidance"]}
-                              for k, v in translation_guide.STYLE_PRESETS.items()],
+                              for k, v in translation_guide.PICKER_STYLE_PRESETS.items()],
             "fields": profile_service.editor_fields()}
 
 
