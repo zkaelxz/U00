@@ -9,6 +9,8 @@ A Developer Mode row reads as its default while Developer Mode is off, so turnin
 it off puts the app back to its normal behaviour instead of leaving a hidden
 override in force.
 """
+from typing import Any
+
 import asr_backend
 import sensitivity_preset
 import sentence_groups
@@ -41,7 +43,14 @@ def values() -> dict:
     return out
 
 
-def value(key: str):
+_PAIRED_KEYS = frozenset(k for pair in settings_schema.ORDERED_PAIRS for k in pair[:2])
+
+
+def value(key: str) -> Any:
+    # A plain row (not Developer Mode, not half of an ordered pair) is just its
+    # stored value, so skip reading every other row; the rest need the full pass.
+    if key in KEYS and key not in _PAIRED_KEYS and not settings_schema.BY_KEY[key].dev_only:
+        return settings_service.get(key)
     return values()[key]
 
 
@@ -114,4 +123,4 @@ def translate_limits() -> dict:
 def vad_threshold_for(drama) -> float:
     """sensitivity_preset.stored_vad_threshold with the Sensitive preset's own number."""
     return sensitivity_preset.stored_vad_threshold(
-        drama, values()["sensitive_vad_threshold"])
+        drama, value("sensitive_vad_threshold"))

@@ -53,7 +53,7 @@ export default function DiagnosticsPage() {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
         <p className="muted" data-testid="diagnostics-not-allowed">
-          Only an admin can see this page. Ask the PC owner.{' '}
+          Only an admin can see this page. Ask the PC owner to make you an admin.{' '}
           <a href={routeHref({ name: 'library' })}>Back to Library</a>
         </p>
       </PageShell>

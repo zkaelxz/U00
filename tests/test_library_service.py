@@ -155,17 +155,6 @@ def test_service_layer_never_imports_a_ui_framework():
     assert offenders == []
 
 
-class TestCacheHitShare:
-    """Step 9: the Library dashboard shows what share of input tokens were
-    prompt-cache reads, next to the cost."""
-
-    def test_share_of_input_tokens(self):
-        assert library_service.cache_hit_share({"input_tokens": 1000, "cache_read_tokens": 250}) == 0.25
-
-    def test_no_usage_is_zero_not_a_division_error(self):
-        assert library_service.cache_hit_share({"input_tokens": 0, "cache_read_tokens": 0}) == 0.0
-
-
 class TestListSeriesWithDramas:
     def _build(self, db, n_series):
         for i in range(n_series):

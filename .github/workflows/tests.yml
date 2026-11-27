@@ -663,7 +663,7 @@ jobs:
           python -m pytest -q -o addopts= tests/test_windows_real.py
 
   # The React frontend: typecheck + production build, unit tests and lint.
-  # The browser (Playwright) tests run in the separate four-shard `e2e` job
+  # The browser (Playwright) tests run in the separate sharded `e2e` job
   # below, so this job no longer waits on them.
   #
   # Duration: this job used to include the single-process Playwright run
@@ -700,14 +700,15 @@ jobs:
       - name: Lint
         run: npm run lint
 
-  # The browser tests, in six jobs that run at the same time. Each job starts
+  # The browser tests, in seven jobs that run at the same time. Each job starts
   # its own seeded API and library, so specs that share state keep running
   # together exactly as they did in the single-worker run. Playwright shards
   # by test count, not time, and a phone test takes about twice as long as a
-  # desktop one: four plain shards put all 414 phone tests in the last one,
-  # which took 18 minutes while the others took 11 (run 43810799674, 11-16).
-  # So the phone project gets two jobs of its own and every other project four
-  # (E2E_PROJECT_GROUP in frontend/playwright.config.ts).
+  # desktop one, so the phone project gets two jobs of its own and every other
+  # project five (E2E_PROJECT_GROUP in frontend/playwright.config.ts). Measured
+  # on a run with four desktop shards (500/496/539/455 tests): the test steps
+  # took 773/723/961/810 s for desktop and 310/368 s for phone, so the 539-test
+  # desktop shard set the wall time; five shards put at most 412 tests in one.
   e2e:
     needs: changes
     if: needs.changes.outputs.run_e2e == 'true'
@@ -717,10 +718,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { group: desktop, part: 1, of: 4 }
-          - { group: desktop, part: 2, of: 4 }
-          - { group: desktop, part: 3, of: 4 }
-          - { group: desktop, part: 4, of: 4 }
+          - { group: desktop, part: 1, of: 5 }
+          - { group: desktop, part: 2, of: 5 }
+          - { group: desktop, part: 3, of: 5 }
+          - { group: desktop, part: 4, of: 5 }
+          - { group: desktop, part: 5, of: 5 }
           - { group: phone, part: 1, of: 2 }
           - { group: phone, part: 2, of: 2 }
     defaults:

@@ -449,51 +449,49 @@ def _promote_one_queued_gpu_job(dropped):
     entries it drops, and of a promoted process job that fails to start, to
     `dropped`, which the caller runs once _lock is released."""
     proc = result_queue = build_error = None
-    while True:
-        if _gpu_queue:
-            gpu_probe.prefetch()
-        with _lock:
-            if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
-                return
-            _sort_fair_locked()      # a job that just ended changes whose turn it is
-            entry = _next_promotable_entry_locked(dropped)
-            if entry is None:
-                return
-            job_id = entry["job_id"]
-            if not _gpu_slot_available_locked(job_id, entry["description"]):
-                return
-            _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
-            _refresh_queue_messages_locked()
-            if entry.get("kind") == "process":
-                on_done = entry.get("on_done")
-                on_finish = entry.get("on_finish")
-                kill_whole_tree = entry.get("kill_whole_tree", False)
+    if _gpu_queue:
+        gpu_probe.prefetch()
+    with _lock:
+        if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
+            return
+        _sort_fair_locked()      # a job that just ended changes whose turn it is
+        entry = _next_promotable_entry_locked(dropped)
+        if entry is None:
+            return
+        job_id = entry["job_id"]
+        if not _gpu_slot_available_locked(job_id, entry["description"]):
+            return
+        _gpu_queue[:] = [e for e in _gpu_queue if e is not entry]
+        _refresh_queue_messages_locked()
+        if entry.get("kind") == "process":
+            on_done = entry.get("on_done")
+            on_finish = entry.get("on_finish")
+            kill_whole_tree = entry.get("kill_whole_tree", False)
+            run = _jobs[job_id]
+            proc = result_queue = None
+            build_error = None
+            try:
+                proc, result_queue = _register_process_job(
+                    job_id, entry["target"], entry["args"],
+                    run["gpu_touching"], entry["description"],
+                    run.get("owner_user_id"), start_method=entry.get("start_method"),
+                    run_settings=run.get("run_settings"),
+                    initial_result=run.get("result"), line_fields=_line_fields(run),
+                    daily_day=run.get("daily_day"))
                 run = _jobs[job_id]
-                proc = result_queue = None
-                build_error = None
-                try:
-                    proc, result_queue = _register_process_job(
-                        job_id, entry["target"], entry["args"],
-                        run["gpu_touching"], entry["description"],
-                        run.get("owner_user_id"), start_method=entry.get("start_method"),
-                        run_settings=run.get("run_settings"),
-                        initial_result=run.get("result"), line_fields=_line_fields(run),
-                        daily_day=run.get("daily_day"))
-                    run = _jobs[job_id]
-                except Exception as exc:
-                    # mp.Queue()/Process() can fail (no fds, no /dev/shm)
-                    # after the GPU row was claimed and the entry popped:
-                    # handled below like a failed start, so the job ends,
-                    # its row is released and its on_finish runs once.
-                    build_error = exc
-                break
+            except Exception as exc:
+                # mp.Queue()/Process() can fail (no fds, no /dev/shm)
+                # after the GPU row was claimed and the entry popped:
+                # handled below like a failed start, so the job ends,
+                # its row is released and its on_finish runs once.
+                build_error = exc
+        else:
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
             _jobs[job_id]["started_at"] = time.time()
             _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]
             run = _jobs[job_id]
-            break
     try:
         if entry.get("kind") == "process":
             if build_error is not None:

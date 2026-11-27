@@ -13877,6 +13877,8 @@ export interface components {
          * @description Each field is absent until the person has chosen one on some device.
          */
         AccountPreferences: {
+            /** Live Focus */
+            live_focus?: boolean | null;
             /** Theme */
             theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
         };
@@ -30372,6 +30374,11 @@ export interface components {
              * @default 20480
              */
             max_upload_mb: number;
+            /**
+             * Member Upload Mb
+             * @default 1024
+             */
+            member_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
@@ -30761,6 +30768,8 @@ export interface components {
             lncrawl_cmd?: string | null;
             /** Max Upload Mb */
             max_upload_mb?: number | null;
+            /** Member Upload Mb */
+            member_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
             /** Narration Pace */
@@ -45096,7 +45105,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DramaDetail"];
                 };
             };
             /** @description Not Found */

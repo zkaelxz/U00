@@ -63,10 +63,31 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
   return null
 }
 
+// A phone's upload link is usually the slow side, so a big file warns before it starts. The
+// speed is a typical home connection, not a measurement, hence "about" and a high-ish threshold.
+const TYPICAL_UPLOAD_MBPS = 10
+const SLOW_UPLOAD_MINUTES = 10
+
+export function uploadMinutes(sizeBytes: number, mbps = TYPICAL_UPLOAD_MBPS): number {
+  return Math.ceil((sizeBytes * 8) / (mbps * 1_000_000) / 60)
+}
+
+export function slowUploadHint(sizeBytes: number): string | null {
+  const minutes = uploadMinutes(sizeBytes)
+  if (minutes < SLOW_UPLOAD_MINUTES) return null
+  return `This may take about ${minutes} minutes on a typical home connection. Keep this page open and the screen on, or use Wi-Fi.`
+}
+
+// Time left from the speed so far: a measurement, shown only after a few seconds of data.
+export function remainingSeconds(sent: { loaded: number; total: number }, elapsedMs: number): number | null {
+  if (elapsedMs < 5000 || sent.loaded <= 0 || sent.loaded >= sent.total) return null
+  return Math.ceil(((sent.total - sent.loaded) / sent.loaded) * (elapsedMs / 1000))
+}
+
 // Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py; the default is services/transcribe_service.py _DEFAULT_TUNING.
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
-export const MIN_SILENCE_MS_DEFAULT = 300
+export const MIN_SILENCE_MS_DEFAULT = 1000
 
 // Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35

@@ -276,10 +276,8 @@ def test_guard_sees_queued_jobs_and_other_process_records(isolated_db, monkeypat
                         lambda: {"translate_1": {"status": "queued"}})
     with pytest.raises(admin_svc.AdminActionJobsRunning):
         admin_svc.reset_library(confirm=True)
-    import time as _t
     monkeypatch.setattr(background_jobs, "list_all_jobs", lambda: {})
-    monkeypatch.setattr(db, "list_job_records", lambda: [
-        {"job_id": "dub_3", "status": "running", "updated_at": _t.time()}])
+    db.save_job_record("dub_3", "running")
     with pytest.raises(admin_svc.AdminActionJobsRunning):
         admin_svc.reset_library(confirm=True)
 

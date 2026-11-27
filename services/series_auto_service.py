@@ -261,7 +261,7 @@ def _next_episode(series_id: int, state: dict) -> Optional[dict]:
             continue
         if (drama.get("transcript_mode") or "") == "have_transcript":
             continue
-        if db.load_lines(drama["id"]):
+        if db.has_lines(drama["id"]):
             continue
         return drama
     return None

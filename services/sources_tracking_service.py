@@ -34,8 +34,8 @@ from services import ownership_service
 from engine_backends.shared import safe_url
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import (require_link_editable, require_source,
-                                               list_tracked)
+from services.sources_registry_service import (require_link_editable, require_member_tracking_room,
+                                               require_source, list_tracked)
 from services import sources_search_service as search
 from services.sources_search_service import clean_series_id
 from services.sources_extension_service import require_not_extension_only
@@ -262,6 +262,7 @@ def _follow_locked(cls, url: str, principal) -> dict:
 
     if (found := tracked_title()) is not None:
         return {"title": found, "already": True}
+    require_member_tracking_room(principal)
     try:
         search.ladder.check_terms(name, adapter.capabilities())
         info = adapter.get_series(series_id) if adapter.supports("get_series") else None
