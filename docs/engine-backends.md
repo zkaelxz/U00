@@ -124,7 +124,11 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   hand: `ENV_NAMES` in `services/settings_service.py` against `SECRET_ENGINES`
   in `frontend/src/pages/settingsKeys.ts`, and `tests/test_engine_key_lists.py`
   fails if they drift.
-- **Free vs paid.** `FREE_ENGINES = {"ollama"}` is free every time.
+- **Free vs paid.** `FREE_ENGINES` is empty: Ollama runs hosted tags only and
+  they are billed per token (`pricing.py`), so cost, cap, queue and auto-start
+  treat it as paid. `engine_registry.open_to_all_accounts` is the separate
+  access question: Ollama stays open to accounts without `engines.paid` for
+  the tags in `local.MEMBER_CLOUD_MODELS` (owner decision 2026-11-24).
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
   `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
@@ -167,7 +171,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
     models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
     products, and people may read it.
-  Callers without `engines.paid` are limited to `FREE_ENGINES`
+  Callers without `engines.paid` are limited to `open_to_all_accounts` engines
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
   `long_context`, `local`, `cheap`, `grounded_search`) feed
@@ -199,7 +203,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   monthly_cap, month_spend)` returns the tighter of the per-job cap and what is
   left of the monthly cap, or a refusal when the month is already spent.
 - A cap applies only to `translate_run_service._CAP_ENGINES` (`claude`,
-  `deepseek`, `gemini`, `openai`) and not to free-tier Gemini
+  `deepseek`, `gemini`, `openai`, `ollama`) and not to free-tier Gemini
   (`engine_cap_applies`). With a `FallbackEngine`, each engine has its own cap
   and spend.
 - `bulk/bulk_translate.py` submits whole-drama batches (`bulk/bulk_apply.py` applies the results,

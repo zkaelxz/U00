@@ -132,7 +132,7 @@ def test_paid_engine_needs_allow_paid(tmp_path):
         rc.run_translation(manifest["clips"][0], opts, rc.Spend(1.0))
 
 
-def test_translation_scores_with_a_fake_engine(tmp_path, monkeypatch):
+def test_translation_scores_with_a_fake_engine(tmp_path, monkeypatch, free_engine):
     clip = {"id": "t", "kind": "translation", "source_srt": "r.srt", "reference_srt": "r.srt", "language": "zh"}
     manifest = rc.load_manifest(_write(tmp_path, [clip]))
 
@@ -144,7 +144,7 @@ def test_translation_scores_with_a_fake_engine(tmp_path, monkeypatch):
 
     monkeypatch.setattr(rc.translate_service, "resolve_api_key", lambda name: "local")
     monkeypatch.setattr(rc.engine_registry, "get_engine", lambda *a, **k: Engine())
-    opts = rc.argparse.Namespace(engine="ollama", allow_paid=False, max_usd=1.0)
+    opts = rc.argparse.Namespace(engine=free_engine, allow_paid=False, max_usd=1.0)
     row = rc.run_translation(manifest["clips"][0], opts, rc.Spend(1.0))
     assert row["score"] == pytest.approx(1.0)
 

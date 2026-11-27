@@ -109,7 +109,7 @@ def default_ai_engine() -> Optional[str]:
 
 def engines_view() -> dict:
     """{engines, free, default} for the picker. Names only: no key, no key
-    status. `free`: the ones that need no `engines.paid`."""
+    status. `free`: the ones that cost nothing."""
     engines = ai_engines()
     return {"engines": engines, "default": default_ai_engine(),
             "free": [e for e in engines if e in engine_registry.FREE_ENGINES]}

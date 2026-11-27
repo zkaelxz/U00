@@ -172,9 +172,9 @@ class TestEstimate:
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0001)
         assert translate_service.estimate(TEXT, "claude", "zh", "en")["fits_cap"] is False
 
-    def test_a_free_engine_costs_nothing_and_has_no_cap(self, isolated_db, monkeypatch):
+    def test_a_free_engine_costs_nothing_and_has_no_cap(self, isolated_db, monkeypatch, free_engine):
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
-        est = translate_service.estimate(TEXT, "ollama", "zh", "en")
+        est = translate_service.estimate(TEXT, free_engine, "zh", "en")
         assert est["estimated_usd"] == 0 and est["cap_applies"] is False
         assert est["cap_left_usd"] is None
 

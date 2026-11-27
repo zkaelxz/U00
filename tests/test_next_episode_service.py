@@ -50,12 +50,11 @@ def test_prepare_refuses_when_there_is_no_next_title_or_no_media(isolated_db):
         nxt.prepare_next(None, e1, True, at_pc=True)
 
 
-def test_a_local_model_is_free_and_an_ollama_cloud_tag_is_not(isolated_db, monkeypatch):
+def test_only_a_free_engine_is_free_and_ollama_is_billed(isolated_db, free_engine):
     e1, e2, _ = _series()
-    db.update_drama(e2, translation_engine="ollama")
-    monkeypatch.setattr(nxt.queue_translate_settings, "_queued_model_and_batch", lambda d, e: ("local-model", None))
+    db.update_drama(e2, translation_engine=free_engine)
     assert nxt.get_next(None, e1)["free"] is True
-    monkeypatch.setattr(nxt.queue_translate_settings, "_queued_model_and_batch", lambda d, e: ("gemma4:31b-cloud", None))
+    db.update_drama(e2, translation_engine="ollama")
     assert nxt.get_next(None, e1)["free"] is False
 
 

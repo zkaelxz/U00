@@ -110,9 +110,9 @@ class TestRecordCall:
         (row,) = _usage_rows()
         assert row["input_tokens"] == 0 and row["estimated_cost_usd"] == 0
 
-    def test_a_free_engine_with_no_tokens_is_not_logged(self):
-        local = SimpleNamespace(name="ollama", model="translategemma:12b")
-        assert not paid_calls.record_call(local, "ollama", "op", {})
+    def test_a_free_engine_with_no_tokens_is_not_logged(self, free_engine):
+        local = SimpleNamespace(name=free_engine, model="echo")
+        assert not paid_calls.record_call(local, free_engine, "op", {})
         assert _usage_rows() == []
 
     def test_a_free_engine_that_reports_tokens_is_logged(self):
@@ -220,9 +220,9 @@ class TestCallLimits:
                 assert inner is outer
         assert _usage_rows() == []
 
-    def test_a_free_engine_with_no_tokens_writes_nothing(self):
+    def test_a_free_engine_with_no_tokens_writes_nothing(self, free_engine):
         engine = FakeClaude()
-        engine.name, engine.model = "ollama", "translategemma:12b"
+        engine.name, engine.model = free_engine, "echo"
         engine.client.messages.create = lambda **kw: SimpleNamespace(
             content=[SimpleNamespace(type="text", text="[]")], usage=None)
         with paid_calls.call_limits(engine, None, "op", log_usage=True):
@@ -312,9 +312,13 @@ class TestUnattendedNeedsACap:
             with pytest.raises(UnsupportedOperationError, match="Settings"):
                 paid_job_service.require_cap_for_unattended(engine, False, None)
 
-    def test_free_engines_and_gemini_free_tier_need_no_cap(self, no_cap):
-        paid_job_service.require_cap_for_unattended("ollama", False, None)
+    def test_free_engines_and_gemini_free_tier_need_no_cap(self, no_cap, free_engine):
+        paid_job_service.require_cap_for_unattended(free_engine, False, None)
         paid_job_service.require_cap_for_unattended("gemini", True, None)
+
+    def test_ollama_needs_a_cap_like_any_billed_engine(self, no_cap):
+        with pytest.raises(UnsupportedOperationError, match="Settings"):
+            paid_job_service.require_cap_for_unattended("ollama", False, None)
 
     def test_a_set_cap_lets_it_through(self):
         assert paid_job_service.require_monthly_cap([("claude", None), ("ollama", None)]) == 50.0
@@ -377,10 +381,11 @@ class TestUnattendedNeedsACap:
         wjs.run_bulk_series_translate_job("series_stop", ids, {"claude": "k"}, monthly_cap=50.0)
         assert len(seen) == 3 and results["stopped"] == "Stopped: 3 titles in a row failed"
 
-    def test_an_automatic_live_start_is_refused(self, no_cap, monkeypatch):
+    def test_an_automatic_live_start_is_refused(self, no_cap, monkeypatch, free_engine):
         monkeypatch.setattr("services.live_service.list_sessions", lambda principal: [])
         assert "monthly spending cap" in live_follow_poller._gate_refusal("claude", None)
-        assert live_follow_poller._gate_refusal("ollama", None) == ""
+        assert live_follow_poller._gate_refusal(free_engine, None) == ""
+        assert "monthly spending cap" in live_follow_poller._gate_refusal("ollama", None)
 
 
 def _bulk_job(status="submitted", engine="claude"):
@@ -678,8 +683,8 @@ class TestStopReachesTheUser:
 
 
 class TestSummaryNeedsACapUnattended:
-    def test_a_bulk_series_drops_a_paid_summary_engine_when_no_cap_is_set(self, monkeypatch):
-        did = db.create_drama(title_zh="D", status="aligned", translation_engine="ollama")
+    def test_a_bulk_series_drops_a_paid_summary_engine_when_no_cap_is_set(self, monkeypatch, free_engine):
+        did = db.create_drama(title_zh="D", status="aligned", translation_engine=free_engine)
         db.save_lines(did, _lines(2, translated=False))
         monkeypatch.setattr(translate_run_service, "pick_summary_engine",
                             lambda *a, **k: (FakeClaude(), "claude"))

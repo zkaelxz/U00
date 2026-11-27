@@ -5,8 +5,8 @@ Thin: see services/live_service.py.
 
 Start fetches a public URL through yt-dlp from this PC, so it needs
 `media.import_url`, and a paid translation engine (anything outside
-`engine_backends.engine_registry.FREE_ENGINES`) also needs `engines.paid`. An omitted
-engine runs the free default (Ollama), so it is gated as that, but an Ollama `-cloud` tag
+`engine_backends.engine_registry.open_to_all_accounts`) also needs `engines.paid`. An omitted
+engine runs the default (Ollama), so it is gated as that, but an Ollama `-cloud` tag
 outside `MEMBER_CLOUD_MODELS` also needs `engines.paid`. Reading a session is `library.read`; stopping one is
 `jobs.cancel`. Sessions live in this process only (404 after a restart).
 """

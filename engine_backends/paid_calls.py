@@ -11,7 +11,7 @@ import contextvars
 import threading
 
 from .engine_registry import FREE_ENGINES
-from .local import is_ollama_cloud_model, scrub_error_text
+from .local import scrub_error_text
 from .pricing import estimate_cost_for_engine
 from .run_limits import (RATE_LIMIT_STOP_MESSAGE, RATE_LIMIT_STOP_REASON, FailureStreak,
                          RateLimitWaitBudget, TranslateRunStopped, _rate_limit_budget_var)
@@ -36,9 +36,7 @@ def stop_reason_for(exc) -> str:
 
 
 def is_paid(engine_name: str, engine=None) -> bool:
-    """A hosted Ollama model sends the text off this PC, so it is logged even
-    though it has no per-token price."""
-    return engine_name not in FREE_ENGINES or is_ollama_cloud_model(getattr(engine, "model", ""))
+    return engine_name not in FREE_ENGINES
 
 
 def record_call(engine, engine_name: str, operation: str, usage: dict | None = None, *,

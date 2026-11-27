@@ -15,13 +15,13 @@ JSON = {"X-Baihe-Local": "1"}
 
 
 @pytest.fixture
-def client(isolated_db, monkeypatch):
+def client(isolated_db, monkeypatch, free_engine):
     monkeypatch.setattr(url_media_service, "check_link", lambda url: url)
     return TestClient(create_app())
 
 
 def _profile(**options):
-    return db.save_preset("Quick", translation_engine="ollama", options_json=profile_service.dump_options(options))
+    return db.save_preset("Quick", translation_engine="echo", options_json=profile_service.dump_options(options))
 
 
 def test_the_chosen_profile_round_trips_and_a_missing_one_is_404(client):

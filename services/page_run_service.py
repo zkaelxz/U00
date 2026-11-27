@@ -313,9 +313,9 @@ def _require_free_or_paid(principal, engine: str, model, what: str) -> None:
     if q._holds(principal, "engines.paid"):
         return
     run_model = model or engine_registry.effective_default_model(engine)
-    cloud = (engine in engine_registry.FREE_ENGINES and engine_cap_applies(engine, False, run_model)
+    cloud = (engine_registry.open_to_all_accounts(engine) and engine_cap_applies(engine, False, run_model)
              and engine_local.cloud_model_needs_paid(run_model))
-    if engine not in engine_registry.FREE_ENGINES or (
+    if not engine_registry.open_to_all_accounts(engine) or (
             cloud and not member_key_service.has_usable_key((principal or {}).get("user_id"))):
         raise ForbiddenError(f"This title {what} with a paid engine, which the account that added it can't use.")
 

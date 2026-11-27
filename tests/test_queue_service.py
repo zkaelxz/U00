@@ -16,13 +16,13 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoun
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
                       translate_run_service)
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("local_ollama_default", "free_engine")
 
 
 WAIT = 10
 
 
-def _drama(title="T", engine="ollama", lines=(("你好", ""),), **fields):
+def _drama(title="T", engine="echo", lines=(("你好", ""),), **fields):
     fields.setdefault("transcript_mode", "whisper")
     did = db.create_drama(title_en=title, title_zh="题", translation_engine=engine, **fields)
     db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z, en=en)
@@ -198,7 +198,7 @@ def cap(monkeypatch):
 
 def test_translate_is_skipped_when_the_month_cap_is_used_up(jobs, cap, monkeypatch):
     monkeypatch.setattr(translate_run_service.translate_service, "resolve_api_key", lambda name: "k")
-    paid, free = _drama("Paid", engine="claude"), _drama("Free", engine="ollama")
+    paid, free = _drama("Paid", engine="claude"), _drama("Free", engine="echo")
     cap(5.0, spend=5.0)
     q.add_item(None, paid, "translate", True, at_pc=True)
     q.add_item(None, free, "transcribe", True, at_pc=True)

@@ -403,18 +403,18 @@ class TestMonthlyCap:
         assert called == []
 
     @pytest.mark.parametrize("tool", ["alternatives", "grammar"])
-    def test_free_engine_allowed_when_cap_used_up(self, client, tool):
+    def test_free_engine_allowed_when_cap_used_up(self, client, tool, free_engine):
         did, ids = _seed()
-        assert client.post(_ai(did, ids[0], tool), json={"engine": "ollama"}).status_code == 200
+        assert client.post(_ai(did, ids[0], tool), json={"engine": free_engine}).status_code == 200
 
-    def test_shorten_paid_refused_free_allowed(self, client, monkeypatch):
+    def test_shorten_paid_refused_free_allowed(self, client, monkeypatch, free_engine):
         did, _ = _overlong_drama()
         _forbid_writes(monkeypatch)
         monkeypatch.setattr(llm_tasks, "rewrite_for_pacing_llm",
                             lambda work, engine, usage_cb=None: work)
         r = client.post(_shorten(did), json={"confirm": True, "engine": "deepseek"})
         assert r.status_code == 400 and "spending cap" in r.json()["error"]["message"]
-        assert client.post(_shorten(did), json={"confirm": True, "engine": "ollama"}).status_code == 200
+        assert client.post(_shorten(did), json={"confirm": True, "engine": free_engine}).status_code == 200
 
 
 # ---------------------------------------------------------------------------

@@ -212,8 +212,8 @@ export function formatLength(display: string): string {
   return display.replace(/(\d+)h\b/g, '$1 h').replace(/(\d+)m\b/g, '$1 min')
 }
 
-// The remembered engine while it can still run, else the first free one, else the first.
+// The remembered engine while it can still run, else the first one every account may use, else the first.
 export function readerEngine(engines: TranslateEngine[], remembered: string): string {
   if (engines.some((e) => e.name === remembered)) return remembered
-  return (engines.find((e) => e.free) ?? engines[0])?.name ?? ''
+  return (engines.find((e) => e.free || e.name === 'ollama') ?? engines[0])?.name ?? ''
 }

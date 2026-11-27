@@ -9,7 +9,7 @@ const eng = (over: Partial<TranslateEngine> = {}): TranslateEngine => ({
   name: 'claude', label: 'Paid, cloud.', free: false, models: ['m1', 'm2'], key_configured: true, model_labels: {}, cloud_models: [], package_installed: true, ...over,
 })
 const claude = eng()
-const ollama = eng({ name: 'ollama', free: true, models: ['gemma', 'cloud-x'], cloud_models: ['cloud-x'] })
+const ollama = eng({ name: 'ollama', free: false, models: ['gemma', 'cloud-x'], cloud_models: ['cloud-x'] })
 
 function stubStorage(store: Record<string, string> = {}) {
   vi.stubGlobal('localStorage', {
@@ -28,7 +28,7 @@ describe('engineBlockReason', () => {
     expect(engineBlockReason(claude, false)).toBe(NEEDS_PAID_REASON)
     expect(engineBlockReason(claude, true)).toBeNull()
   })
-  it('lets a free engine through without the paid permission, for every line AI tool', () => {
+  it('lets Ollama through without the paid permission although it is billed, for every line AI tool', () => {
     expect(engineBlockReason(ollama, false)).toBeNull()
   })
 })

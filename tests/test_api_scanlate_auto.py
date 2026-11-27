@@ -1511,10 +1511,9 @@ def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
     assert not started
 
 
-def test_read_ahead_on_ollama_swapped_in_for_a_member_counts_its_hosted_default(client, monkeypatch):
-    """Ollama standing in for a member's paid default runs its own default, which is hosted and
-    billed per token, so the read-ahead needs a cap like a paid engine; the owner's own Ollama
-    default is checked as before."""
+def test_read_ahead_on_ollama_needs_a_cap_swapped_in_or_not(client, monkeypatch):
+    """Ollama runs hosted tags and is billed per token, so a read-ahead on it is held to the
+    cap whether or not it stands in for a member's paid default."""
     from engine_backends import engine_registry
     from services import translate_run_service
     from lib.errors import UnsupportedOperationError
@@ -1526,8 +1525,9 @@ def test_read_ahead_on_ollama_swapped_in_for_a_member_counts_its_hosted_default(
     with pytest.raises(UnsupportedOperationError):
         run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama", engine_swapped=True)
     assert not started
-    run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama")
-    assert started["targets"] == ids
+    with pytest.raises(UnsupportedOperationError):
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama")
+    assert not started
 
 
 def test_read_ahead_leaves_out_pages_that_have_nothing_to_do(client, monkeypatch):

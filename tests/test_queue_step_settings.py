@@ -35,11 +35,11 @@ def seen_run(monkeypatch):
     return seen
 
 
-def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_run, monkeypatch):
+def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_run, monkeypatch, free_engine):
     real = settings_service.get
     monkeypatch.setattr(settings_service, "get", lambda k: {
         "default_locale": "en-GB", "default_style_note": "Keep honorifics."}.get(k) or real(k))
-    did = _drama(translate_thinking=1)
+    did = _drama(engine=free_engine, translate_thinking=1)
 
     rows = _rows(q.step_settings(None, did, "translate"))
     q._start_translate(None, db.get_drama(did))
@@ -47,7 +47,7 @@ def test_translate_panel_shows_what_the_queued_run_resolves(isolated_db, seen_ru
     assert seen_run["locale"] == "en-GB" and rows["English variant"] == seen_run["locale"]
     assert bool(seen_run["style_note"]) and rows["Style note"] == "Set"
     assert seen_run["thinking"] is False and rows["Thinking"] == "Off"
-    options = translate_run_service.get_translate_config_defaults(False, "ollama")
+    options = translate_run_service.get_translate_config_defaults(False, free_engine)
     assert rows["Batch size"] == str(options["batch_size"])
     assert "Audio drama" in rows["Tone and character voice"]
 
