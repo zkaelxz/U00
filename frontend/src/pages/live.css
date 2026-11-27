@@ -76,8 +76,8 @@
 .live-tabs { display: flex; width: fit-content; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--radius-md, 12px); overflow: hidden; }
 .live-tabs button { min-height: 44px; padding: 0 var(--space-4); border: 0; border-radius: 0; }
 .live-tabs button[aria-selected='true'] { background: var(--accent); color: var(--on-accent, #fff); font-weight: var(--weight-bold); }
-.live-stopbar { padding: var(--space-2) 0; }
-.live-stopbar button { width: 100%; min-height: 48px; }
+.live-stopbar { padding: var(--space-2) 0; display: flex; gap: var(--space-2); }
+.live-stopbar button { flex: 1; min-height: 48px; }
 @media (min-width: 900px) {
   .live-watch[data-running] { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'bar bar' 'video feed'; }
   .live-watch[data-running] .live-chips, .live-watch[data-running] > .live-stopbar { grid-area: bar; align-self: center; }
@@ -180,3 +180,10 @@ html.shell-pip body { overflow: hidden; }
 
 .live-check-all { margin-bottom: var(--space-3); display: grid; gap: var(--space-2); }
 .live-check-all button { min-height: 44px; }
+
+/* Focus: the player and the lines only. The page title goes too, so the picture gets the height. */
+.live-focus .page-head { display: none; }
+.live-focus .live-watch[data-running] { --live-chrome: 3rem; }
+
+/* A stopped session keeps its lines in a box of their own as well, so a long transcript does not stretch the page. */
+.live-watch:not([data-running]):not([data-tv]) .live-cues-box { max-height: min(60dvh, 32rem); overscroll-behavior: contain; }

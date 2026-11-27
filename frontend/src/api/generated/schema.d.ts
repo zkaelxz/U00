@@ -13877,6 +13877,8 @@ export interface components {
          * @description Each field is absent until the person has chosen one on some device.
          */
         AccountPreferences: {
+            /** Live Focus */
+            live_focus?: boolean | null;
             /** Theme */
             theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
         };
