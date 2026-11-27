@@ -110,7 +110,6 @@ class TestOllamaCallIsAbortable:
         assert _wait(lambda: silent_ollama.hung_up == 1)
 
     def test_without_a_cancel_check_the_request_path_is_unchanged(self, monkeypatch):
-        monkeypatch.setattr(local, "_warm_until", {})
         seen = {}
 
         def fake_post(url, json=None, stream=None, timeout=None):

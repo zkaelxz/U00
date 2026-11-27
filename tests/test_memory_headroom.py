@@ -85,23 +85,16 @@ def test_estimates_exist_for_the_loaders(kind, name):
     assert vram > 0 and ram > 0
 
 
-def test_before_load_frees_ollama_first_and_skips_cached(monkeypatch, reserve):
+def test_before_load_skips_a_cached_model(monkeypatch, reserve):
     reserve(vram=31, vram_free=1 * GB)
-    import ollama_unload
-    calls = []
-    monkeypatch.setattr(ollama_unload, "prepare_gpu_for_transcription", lambda g: calls.append(g))
     mh.before_load("whisper", "large-v3", True, cached=True)  # cached: no check, no error
-    assert calls == [True]
     with pytest.raises(mh.HeadroomError):
         mh.before_load("whisper", "large-v3", True, cached=False)
-    assert calls == [True, True]
 
 
 def test_whisper_loader_refuses_before_importing_the_model(monkeypatch, reserve):
     reserve(vram=31, vram_free=2 * GB)
     monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
-    import ollama_unload
-    monkeypatch.setattr(ollama_unload, "prepare_gpu_for_transcription", lambda g: None)
     with pytest.raises(mh.HeadroomError):
         whisper_models.load_whisper_model("large-v3", use_gpu=True)
 
@@ -120,68 +113,6 @@ def test_vram_service_unchanged_when_off(reserve):
     vram_mod.check_fits("OmniVoice", free_mb=3 * GB)
     with pytest.raises(vram_mod.InsufficientVramError):
         vram_mod.check_fits("OmniVoice", free_mb=100)
-
-
-class TestOllama:
-    def _serve(self, monkeypatch, loaded=(), size_gb=8.0):
-        calls = []
-
-        def fake(base, model):
-            calls.append((base, model))
-            return None if model in loaded else size_gb * GB
-        monkeypatch.setattr(mh, "_ollama_size_mb_if_not_loaded", fake)
-        return calls
-
-
-    def test_cloud_tags_and_remote_servers_are_never_checked(self, monkeypatch, reserve):
-        reserve(vram=31, vram_free=1 * GB)
-        calls = self._serve(monkeypatch)
-        mh.check_ollama("http://localhost:11434", "gpt-oss:120b-cloud")
-        mh.check_ollama("http://localhost:11434", "qwen3-coder:cloud")
-        mh.check_ollama("http://192.168.1.5:11434", "gemma4:31b-cloud")
-        assert calls == []
-
-    def test_off_makes_no_request(self, monkeypatch, reserve):
-        reserve()
-        calls = self._serve(monkeypatch)
-        mh.check_ollama("http://localhost:11434", "gemma4:31b-cloud")
-        assert calls == []
-
-    def test_already_loaded_model_needs_nothing(self, monkeypatch, reserve):
-        reserve(vram=31, vram_free=1 * GB)
-        self._serve(monkeypatch, loaded=("gemma4:31b-cloud",))
-        mh.check_ollama("http://localhost:11434", "gemma4:31b-cloud")
-
-    def _resident(self, monkeypatch, models):
-        monkeypatch.setattr(mh, "_ollama_json", lambda url: {"models": models})
-
-
-    def test_a_model_that_fits_the_gpu_is_not_refused_on_ram(self, monkeypatch, reserve):
-        reserve(ram=8, ram_free=9 * GB, vram_free=30 * GB)
-        self._serve(monkeypatch, size_gb=17)
-        self._resident(monkeypatch, [])
-        mh.check_ollama("http://localhost:11434", "gemma4:31b-cloud")
-
-
-    def test_unreadable_vram_does_not_block_on_ram(self, monkeypatch, reserve):
-        reserve(ram=8, ram_free=9 * GB)  # no VRAM reading
-        self._serve(monkeypatch, size_gb=20)
-        self._resident(monkeypatch, [])
-        mh.check_ollama("http://localhost:11434", "gemma4:31b-cloud")
-
-    def test_engine_checks_once_per_instance(self, monkeypatch):
-        from engine_backends.local import OllamaEngine
-        seen = []
-        monkeypatch.setattr(mh, "check_ollama", lambda base, model: seen.append((base, model)))
-        engine = OllamaEngine(model="gemma4:31b-cloud")
-        monkeypatch.setattr("engine_backends.local._ollama_chat",
-                            lambda base, payload: {"message": {"content": "{}"}})
-        for _ in range(2):
-            try:
-                engine.translate_batch(["你好"], {"line_ids": [1]})
-            except Exception:
-                pass  # the reply is not the point; the check is
-        assert seen == [("http://localhost:11434", "gemma4:31b-cloud")]
 
 
 class TestSettings:

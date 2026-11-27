@@ -99,14 +99,6 @@ def test_claude_keeps_its_client_timeout_and_a_deadline_past_it():
     assert llm_tasks._deadline_for(scope, _engine("deepseek")[0]) == llm_tasks.LLM_TASK_DEADLINE_SECONDS
 
 
-def test_ollama_deadline_follows_its_own_chat_timeout():
-    from engine_backends.local import OllamaEngine, ollama_chat_timeout
-    scope = llm_tasks._BoundedScope("jo", lambda: False, None, False)
-    for model in ("gemma4:31b-cloud", "gemma4:31b-cloud"):
-        engine = OllamaEngine(model=model)
-        assert llm_tasks._deadline_for(scope, engine) >= ollama_chat_timeout(model)
-    explicit = llm_tasks._BoundedScope("jo", lambda: False, 5, False)
-    assert llm_tasks._deadline_for(explicit, OllamaEngine(model="gemma4:31b-cloud")) == 5
 
 
 @pytest.mark.parametrize("how", ["cancel", "deadline"])

@@ -705,7 +705,6 @@ def _apply_transcription(job_id, drama_id, outcome, *, source_language, whisper_
                              and not forced_align_error else "whisper_diff"),
         "forced_align_error": forced_align_error,
         "coverage_warning": outcome["coverage_warning"],
-        "ollama_notice": outcome.get("ollama_notice"),
         "diarize_started": diarize_started,
         "diarize_skipped_reason": diarize_skipped_reason,
     }

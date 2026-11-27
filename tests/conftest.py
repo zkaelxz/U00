@@ -712,26 +712,6 @@ def _workers_do_not_leave_the_test_session(request):
 
 
 @pytest.fixture(autouse=True)
-def _no_ollama_unload_requests(request):
-    """A GPU model load asks a local Ollama to free its memory; no test but
-    test_ollama_unload.py (which fakes the HTTP calls) may reach one.
-
-    Patched and restored by hand, not through `monkeypatch`, for the reason
-    given on _testclient_defaults_to_loopback."""
-    import ollama_unload
-    original = ollama_unload.prepare_gpu_for_transcription
-    if not request.module.__name__.endswith("test_ollama_unload"):
-        def stub(use_gpu):
-            return None
-        stub.real = original   # for tests of a caller's own unload policy
-        ollama_unload.prepare_gpu_for_transcription = stub
-    try:
-        yield
-    finally:
-        ollama_unload.prepare_gpu_for_transcription = original
-
-
-@pytest.fixture(autouse=True)
 def _isolated_page_server_config():
     """page_server keeps the extension's translation config and the API's
     config provider (services/extension_service.push_translation_config) in

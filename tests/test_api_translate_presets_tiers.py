@@ -92,10 +92,6 @@ def test_service_save_preset_invalid(isolated_db, kw):
     assert db.list_presets() == []
 
 
-def test_service_save_preset_accepts_a_pulled_ollama_model(isolated_db):
-    p = translate_preset_service.save_translate_preset(
-        "Local", "ollama", engine_model="my-own/qwen3:14b-q4")["preset"]
-    assert p["engine_model"] == "my-own/qwen3:14b-q4"
 
 
 @pytest.mark.parametrize("bad", ["../x", "/abs", "has space", "a/../b", "", "x" * 101])

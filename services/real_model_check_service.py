@@ -292,9 +292,6 @@ def _check_translate() -> str:
     model = engine_local.OLLAMA_DEFAULT_MODEL
     try:
         engine_local.check_ollama_model_installed(base_url, model)
-        # A real translation honours Keep free graphics memory before the
-        # model loads; the check must refuse the same way.
-        memory_headroom.check_ollama(base_url, model)
         reply = engine_local._ollama_chat(base_url, {
             "model": model, "stream": False,
             "messages": [{"role": "user", "content":

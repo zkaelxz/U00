@@ -241,7 +241,6 @@ class TestSourceScriptKeptInTheReply:
         from engine_backends import local
         from live.live_cue_translation import CueTranslator
         import memory_headroom
-        monkeypatch.setattr(memory_headroom, "check_ollama", lambda *a, **k: None)
         bodies = []
 
         def chat(base_url, payload):

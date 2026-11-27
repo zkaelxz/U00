@@ -22,7 +22,6 @@ use none of this machine's memory and are never checked.
 import json
 import os
 import sys
-from urllib.parse import urlsplit
 
 from lib import http
 
@@ -274,27 +273,13 @@ def check_separation(use_gpu) -> None:
 
 
 def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:
-    """The ASR / aligner loaders' one hook. Freeing Ollama comes first so the
-    check sees the memory that frees up; a cached model needs no check."""
-    import ollama_unload
-    ollama_unload.prepare_gpu_for_transcription(use_gpu)
+    """The ASR / aligner loaders' one hook; a cached model needs no check."""
     if not cached:
         check(kind, name, use_gpu)
 
 
-def _is_cloud_tag(model: str) -> bool:
-    return model.endswith("-cloud") or model.endswith(":cloud")
-
-
-def _is_loopback(base_url: str) -> bool:
-    try:
-        host = (urlsplit(base_url).hostname or "").lower()
-    except ValueError:
-        return False
-    return host in ("localhost", "127.0.0.1", "::1")
-
-
 def _ollama_json(url: str) -> dict:
+    """GET a JSON answer from the Ollama address the owner configured (loopback)."""
     # engine_backends.shared imports this module, so it can only be imported late.
     from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
     # guard=None: base_url is the Ollama address the user configured (loopback here).
@@ -303,98 +288,6 @@ def _ollama_json(url: str) -> dict:
     if resp.status >= 400:
         raise ValueError(f"HTTP {resp.status}")
     return json.loads(resp.body)
-
-
-def _ollama_size_mb_if_not_loaded(base_url: str, model: str):
-    wanted = model if ":" in model else f"{model}:latest"
-
-    def names(entries):
-        return {str(e.get(k)) for e in entries or [] if isinstance(e, dict) for k in ("name", "model") if e.get(k)}
-
-    try:
-        if wanted in names(_ollama_json(f"{base_url}/api/ps").get("models")):
-            return None  # already resident: it takes no more memory
-        for entry in _ollama_json(f"{base_url}/api/tags").get("models") or []:
-            if isinstance(entry, dict) and wanted in names([entry]):
-                return float(entry.get("size") or 0) / MB or None
-    except Exception:
-        pass
-    return None
-
-
-def _ollama_ram_need_mb(base_url: str, need_mb: float) -> float:
-    """RAM a not-yet-loaded Ollama model will take. Ollama fills the GPU first
-    and puts the rest in RAM, so that is the part that doesn't fit the free
-    VRAM. A resident model with nothing on the GPU means this Ollama cannot
-    use the card at all (an unsupported CUDA build, say), so the whole model
-    lands in RAM however much VRAM is free."""
-    try:
-        resident = _ollama_json(f"{base_url}/api/ps").get("models") or []
-    except Exception:
-        resident = []
-    for entry in resident:
-        if isinstance(entry, dict) and (entry.get("size") or 0) > 0 and not entry.get("size_vram"):
-            return need_mb
-    reading = read_memory_mb("vram", at_load=True)
-    if reading is None:
-        return 0.0  # unreadable VRAM: a guess must not stop a job that might fit
-    return max(0.0, need_mb - reading[1])
-
-
-def ollama_load_mb(base_url: str, model: str):
-    """About how much memory a local Ollama model takes to load (its download
-    size plus context cache), or None when it is already loaded, hosted, or
-    unknown to this Ollama."""
-    if _is_cloud_tag(model) or not _is_loopback(base_url):
-        return None
-    size_mb = _ollama_size_mb_if_not_loaded(base_url.rstrip("/"), model)
-    return size_mb * 1.1 + 512 if size_mb else None
-
-
-# A loaded Ollama model is its download plus its context cache. Measured on a V100 at
-# Ollama's 16k context, TranslateGemma 12B and 27B took 1.23x their download size
-# (10 GB and 21 GB); the 1.1 the load-time guard uses came in up to 12% low.
-OLLAMA_LOADED_FACTOR = 1.25
-
-
-def ollama_footprint(base_url: str, model: str):
-    """(load_mb, loaded, resident_vram_mb) for a local Ollama model: what it takes
-    to load whether or not it is loaded now, whether it is, and the graphics
-    memory every loaded Ollama model holds. None when hosted, remote or unknown."""
-    if _is_cloud_tag(model) or not _is_loopback(base_url):
-        return None
-    base_url = base_url.rstrip("/")
-    wanted = model if ":" in model else f"{model}:latest"
-    try:
-        resident = [e for e in _ollama_json(f"{base_url}/api/ps").get("models") or [] if isinstance(e, dict)]
-        tags = [e for e in _ollama_json(f"{base_url}/api/tags").get("models") or [] if isinstance(e, dict)]
-    except Exception:
-        return None
-    size_mb = next((float(e.get("size") or 0) / MB for e in tags if wanted in (e.get("name"), e.get("model"))), 0)
-    if not size_mb:
-        return None
-    mine = [float(e.get("size_vram") or 0) / MB for e in resident if wanted in (e.get("name"), e.get("model"))]
-    resident_mb = sum(float(e.get("size_vram") or 0) for e in resident) / MB
-    # What Ollama reports for the loaded model beats any estimate from its download size.
-    return max([size_mb * OLLAMA_LOADED_FACTOR + 512, *mine]), bool(mine), resident_mb
-
-
-def check_ollama(base_url: str, model: str) -> None:
-    """Before a translation on a local Ollama model: a model Ollama has not
-    loaded yet takes about its download size plus context cache, in VRAM and
-    in whatever part Ollama has to keep in RAM."""
-    vram_kept, ram_kept = reserved_mb("vram") > 0, reserved_mb("ram") > 0
-    if not (vram_kept or ram_kept) or _is_cloud_tag(model) or not _is_loopback(base_url):
-        return
-    base_url = base_url.rstrip("/")
-    need_mb = ollama_load_mb(base_url, model)
-    if not need_mb:
-        return
-    label = f"the Ollama model {model}"
-    if vram_kept:
-        check_need(label, need_mb, "vram")
-    if ram_kept:
-        check_need(label, _ollama_ram_need_mb(base_url, need_mb), "ram")
 
 
 def status() -> dict:

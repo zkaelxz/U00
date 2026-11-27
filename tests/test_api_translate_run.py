@@ -194,10 +194,11 @@ def test_offered_or_default_models_pass_the_check():
 
 
 @pytest.mark.parametrize("model,ok", [
-    ("gemma4:12b", True), ("qwen3:14b", True), ("my-own/llama3.1:8b-instruct-q4_K_M", True),
+    ("gemma4:31b-cloud", True), ("qwen3-coder:cloud", True),
+    ("gemma4:12b", False), ("qwen3:14b", False), ("my-own/llama3.1:8b-instruct-q4_K_M", False),
     ("../x", False), ("/abs/path", False), ("has space", False), ("a/../b", False),
     ("x" * 101, False), ("", False)])
-def test_ollama_takes_any_safe_model_name(model, ok):
+def test_ollama_takes_only_safe_hosted_model_names(model, ok):
     from services import translate_run_service as svc
     from lib.errors import InvalidInputError
     if ok:

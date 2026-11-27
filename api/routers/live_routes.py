@@ -71,10 +71,8 @@ def get_options():
             response_model=LiveOllamaCheck,
             summary="Whether Ollama answers and has the model (no address in the reply)",
             responses=_ERRS)
-def get_ollama_check(model: str = Query(None, max_length=100),
-                     whisper_size: str = Query(None, max_length=100),
-                     use_gpu: bool = Query(False)):
-    return live_service.check_ollama(model, whisper_size, use_gpu)
+def get_ollama_check(model: str = Query(None, max_length=100)):
+    return live_service.check_ollama(model)
 
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],

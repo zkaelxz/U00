@@ -381,11 +381,9 @@ def test_the_form_options_are_the_values_start_checks(client, monkeypatch):
     assert o["defaults"]["whisper_size"] in o["whisper_sizes"]
 
 
-def test_ollama_check_passes_the_whisper_size_and_gpu(client, monkeypatch):
+def test_ollama_check_passes_the_model(client, monkeypatch):
     seen = []
     monkeypatch.setattr(live_service, "check_ollama",
                         lambda *a: seen.append(a) or {"ok": True, "model": "m", "message": None})
-    r = client.get("/api/live/ollama-check", params={"model": "m", "whisper_size": "large-v3", "use_gpu": "true"})
-    assert r.status_code == 200 and seen == [("m", "large-v3", True)]
-    client.get("/api/live/ollama-check", params={"model": "m"})
-    assert seen[-1] == ("m", None, False)
+    r = client.get("/api/live/ollama-check", params={"model": "m"})
+    assert r.status_code == 200 and seen == [("m",)]

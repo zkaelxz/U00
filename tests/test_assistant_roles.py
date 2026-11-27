@@ -105,7 +105,6 @@ def ladder(engines, monkeypatch):
     only_claude = lambda choices=None: [{"tier": 1, "engine": "claude", "local": False, "consent": True}]
     monkeypatch.setattr(settings_svc, "tier_ladder", only_claude)
     monkeypatch.setattr(svc, "tier_ladder", only_claude)
-    monkeypatch.setattr(settings_svc, "_ollama_is_local", lambda: True)
 
 
 def test_escalation_never_sends_the_fix_to_an_unconfirmed_cloud_reviewer(ladder):
@@ -116,12 +115,6 @@ def test_escalation_never_sends_the_fix_to_an_unconfirmed_cloud_reviewer(ladder)
     assert out["proposed_patches"]  # the fix is still shown
 
 
-def test_escalation_still_reviews_on_a_local_reviewer(ladder):
-    settings_svc.set_settings({"review_engine": "ollama"})
-    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nLooks right."])
-    out = svc.ask("x", engine_name="claude", escalate=True, consent=True, chat=chat)
-    assert [c[0] for c in chat.calls] == ["claude", "ollama"]
-    assert out["review"]["verdict"] == "agrees" and out["review_skipped"] == ""
 
 
 def test_a_plain_ask_still_uses_the_cloud_reviewer(ladder):
@@ -247,13 +240,6 @@ def test_remote_ollama_reviewer_needs_consent(engines, monkeypatch):
     assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
 
 
-def test_local_ollama_reviewer_needs_no_consent(engines, monkeypatch):
-    from services import settings_service
-    _real_review_build(monkeypatch)
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://127.0.0.1:11434")
-    settings_svc.set_settings({"review_engine": "ollama"})
-    chat = EngineChat(claude=[PATCH], ollama=["VERDICT: AGREES\nok"])
-    assert svc.ask("x", chat=chat)["review"]["verdict"] == "agrees"
 
 
 def test_cloud_reviewer_without_consent_is_refused_through_the_api(engines, monkeypatch):

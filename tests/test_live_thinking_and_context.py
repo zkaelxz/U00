@@ -6,6 +6,7 @@ import sys
 import threading
 
 import pytest
+from lib.errors import InvalidInputError
 import requests
 from tests.saved_settings import patch_setting
 
@@ -264,59 +265,31 @@ class TestLiveServiceWiring:
 
     def test_ollama_check_ok_and_bad_model_name(self, monkeypatch):
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
-        monkeypatch.setattr(live_service, "_gpu_room_note", lambda *a: None)
         assert live_service.check_ollama("gemma4:31b-cloud") == {
-            "ok": True, "model": "gemma4:31b-cloud", "message": None, "gpu_fit": False}
+            "ok": True, "model": "gemma4:31b-cloud", "message": None}
         from lib.errors import InvalidInputError
         with pytest.raises(InvalidInputError):
             live_service.check_ollama("../x")
 
 
-class TestOllamaCheckGraphicsMemory:
-    """TranslateGemma 27B beside another program on the GPU was refused by the
-    keep-free reserve only after Start; the form now says so first. It counts
-    what Start does: Whisper's load unloads every Ollama model, then the model
-    loads again."""
+class TestOllamaCheck:
+    """The Live form asks whether Ollama answers so the hosted model can be reached."""
 
-    @pytest.fixture
-    def gpu(self, monkeypatch):
-        import memory_headroom
-        import ollama_unload
-        import whisper_models
+    def test_ok_when_ollama_answers(self, monkeypatch):
         monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda b, m: None)
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 5 * 1024 if memory == "vram" else 0)
-        monkeypatch.setattr(whisper_models, "_whisper_model_cache", {})
+        assert live_service.check_ollama("gemma4:31b-cloud") == {
+            "ok": True, "model": "gemma4:31b-cloud", "message": None}
 
-        def setup(free_gb, model_gb, loaded=(), unloads=True, name="gemma4:31b-cloud"):
-            monkeypatch.setattr(ollama_unload, "is_enabled", lambda: unloads)
-            monkeypatch.setattr(memory_headroom, "read_memory_mb",
-                                lambda memory, at_load=False: (48 * 1024, free_gb * 1024))
-            replies = {"/api/tags": {"models": [{"name": name, "size": model_gb * 1024 ** 3}]},
-                       "/api/ps": {"models": [{"name": n, "size_vram": g * 1024 ** 3} for n, g in loaded]}}
-            monkeypatch.setattr(memory_headroom, "_ollama_json",
-                                lambda url: replies[url[url.index("/api/"):]])
-        return setup
+    def test_the_message_is_ollamas_plain_text_when_it_does_not(self, monkeypatch):
+        def down(base, model):
+            raise engine_local.OllamaUnavailableError("ollama_unreachable", "Ollama isn't running.")
+        monkeypatch.setattr(engine_local, "check_ollama_model_installed", down)
+        out = live_service.check_ollama("gemma4:31b-cloud")
+        assert out["ok"] is False and out["message"] == "Ollama isn't running."
 
-
-    def test_room_enough_is_ok(self, gpu):
-        gpu(free_gb=33, model_gb=17)
-        assert live_service.check_ollama("gemma4:31b-cloud", "large-v3", True) == {
-            "ok": True, "model": "gemma4:31b-cloud", "message": None, "gpu_fit": False}
-
-
-
-
-
-
-
-
-    def test_with_use_gpu_off_a_loaded_model_needs_no_more_room(self, gpu, monkeypatch):
-        # Without Use GPU nothing unloads it first, so it stays where it is.
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "reserved_mb", lambda memory: 0.0)
-        gpu(free_gb=1, model_gb=17, loaded=[("gemma4:31b-cloud", 21)])
-        assert live_service.check_ollama("gemma4:31b-cloud", "large-v3", False)["ok"] is True
-
+    def test_a_local_model_is_refused(self):
+        with pytest.raises(InvalidInputError):
+            live_service.check_ollama("llama3.1:8b")
 
 
 class TestStageTimerCleanup:

@@ -23933,11 +23933,6 @@ export interface components {
         };
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
-            /**
-             * Gpu Fit
-             * @default false
-             */
-            gpu_fit: boolean;
             /** Message */
             message: string | null;
             /** Model */
@@ -30205,11 +30200,6 @@ export interface components {
              */
             remote_uploads: boolean;
             /**
-             * Unload Ollama Before Transcribe
-             * @default true
-             */
-            unload_ollama_before_transcribe: boolean;
-            /**
              * Upload Max Mb From Env
              * @default false
              */
@@ -30832,8 +30822,6 @@ export interface components {
             translate_alignment_check?: boolean | null;
             /** Translate Reply Guard */
             translate_reply_guard?: string | null;
-            /** Unload Ollama Before Transcribe */
-            unload_ollama_before_transcribe?: boolean | null;
             /** Use Gpu */
             use_gpu?: boolean | null;
             /** Whisper Model Path */
@@ -54305,8 +54293,6 @@ export interface operations {
         parameters: {
             query?: {
                 model?: string;
-                whisper_size?: string;
-                use_gpu?: boolean;
             };
             header?: never;
             path?: never;
