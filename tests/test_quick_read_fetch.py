@@ -129,8 +129,10 @@ def test_a_saved_send_is_never_cached(pipeline, monkeypatch):
 def test_cache_drops_old_and_oversized_entries(isolated_db, monkeypatch):
     quick_read_cache.put("old", {"a": 1})
     path = quick_read_cache._path("old")
-    os.utime(path, (time.time() - 30 * 24 * 3600,) * 2)
+    now = time.time()
+    monkeypatch.setattr(quick_read_cache.time, "time", lambda: now + 30 * 24 * 3600)
     assert quick_read_cache.get("old") is None
+    monkeypatch.undo()
     monkeypatch.setattr(quick_read_cache, "MAX_BYTES", 300)
     for i in range(5):
         quick_read_cache.put(f"k{i}", {"pad": "x" * 100})
@@ -267,3 +269,82 @@ def test_a_page_asked_again_in_the_same_run_is_answered_not_skipped(pipeline):
     # A copy of it under another key is still a repeat.
     copy = _run([{**_b64_image(200), "key": "copy"}], **run)
     assert copy["pages"] == [] and copy["skipped"][0]["key"] == "copy"
+
+
+def _job(**over):
+    job = {"drama_id": None, "source_language": "", "typeset": True, "typeset_style": None,
+           "typeset_max_width": None, "glossary_version": "", "store": False, "member": False}
+    return {**job, **over}
+
+
+def _config(**over):
+    return {"engine": "e", "model": "m", "ocr_backend": "", "detect_backend": "auto",
+            "prefer_paddle_vl_manga": False, **over}
+
+
+@pytest.mark.parametrize("change", [{"ocr_backend": "paddle"}, {"detect_backend": "yolo"},
+                                    {"prefer_paddle_vl_manga": True}])
+def test_reader_settings_change_the_cache_key(isolated_db, change):
+    assert bridge._key_settings(_job(), _config()) != bridge._key_settings(_job(), _config(**change))
+
+
+def test_text_colour_matching_changes_the_cache_key(isolated_db):
+    from services import settings_service
+    before = bridge._key_settings(_job(), _config())
+    settings_service.set_settings({"scanlate_match_text_color": not settings_service.get("scanlate_match_text_color")})
+    assert bridge._key_settings(_job(), _config()) != before
+
+
+def test_a_kept_series_fix_changes_the_cache_key(isolated_db):
+    series = isolated_db.create_series("Fix Series")
+    drama = isolated_db.create_drama(title_zh="t", title_en="t", media_type="manga", series_id=series)
+    before = bridge._glossary_version(drama)
+    isolated_db.record_translation_memory(series, "你好", "Hi")
+    added = bridge._glossary_version(drama)
+    assert added != before
+    isolated_db.record_translation_memory(series, "你好", "Hello there")
+    assert bridge._glossary_version(drama) != added
+
+
+def test_an_edit_to_the_series_cast_changes_the_cache_key(isolated_db):
+    series = isolated_db.create_series("Cast Series")
+    drama = isolated_db.create_drama(title_zh="t", title_en="t", media_type="manga", series_id=series)
+    before = bridge._glossary_version(drama)
+    isolated_db.upsert_series_character(series, "Alex Example")
+    assert bridge._glossary_version(drama) != before
+
+
+def test_sending_the_page_picture_changes_the_cache_key(isolated_db):
+    from services import settings_service
+    before = bridge._key_settings(_job(), _config())
+    settings_service.set_settings({"scanlate_page_image": not settings_service.get("scanlate_page_image")})
+    assert bridge._key_settings(_job(), _config()) != before
+
+
+def test_a_change_to_the_prompt_code_changes_the_pipeline_version():
+    assert "translation_guide.py" in quick_read_cache._PIPELINE_FILES
+    assert "engine_backends" in quick_read_cache._PIPELINE_DIRS
+
+
+def test_an_entry_that_keeps_being_read_still_expires(isolated_db, monkeypatch):
+    start = time.time()
+    clock = [start]
+    monkeypatch.setattr(quick_read_cache.time, "time", lambda: clock[0])
+    real_utime = os.utime
+    # A hit touches the file; on the faked clock that touch is "now" too.
+    monkeypatch.setattr(os, "utime", lambda path, times=None: real_utime(path, times or (clock[0], clock[0])))
+    quick_read_cache.put("busy", {"a": 1})
+    for day in range(1, 14):
+        clock[0] = start + day * 24 * 3600
+        assert quick_read_cache.get("busy") == {"a": 1}
+    clock[0] = start + 15 * 24 * 3600
+    assert quick_read_cache.get("busy") is None
+
+
+def test_a_blank_picture_is_not_stored(pipeline, monkeypatch):
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (64, 64), "white").save(buf, "PNG")
+    _serve(monkeypatch, {"https://cdn.example.com/blank.png": (200, buf.getvalue())})
+    _run([{"key": "a", "fetch_url": "https://cdn.example.com/blank.png"}])
+    assert not [n for n in os.listdir(quick_read_cache._dir()) if n.endswith(".json")]

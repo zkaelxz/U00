@@ -500,8 +500,13 @@ def _glossary_version(drama_id) -> str:
     from services import comic_glossary_service
     drama = db.get_drama(int(drama_id)) if drama_id else None
     terms = db.list_run_glossary_terms(drama) if drama else []
+    # The series' kept fixes are shown to the translator too, so an edit to one must miss the cache.
+    series_id = drama.get("series_id") if drama else None
+    fixes = db.translation_memory_stamp(series_id) if series_id else ""
+    # So are the cast's pronouns and voice notes.
+    cast = db.list_series_characters(series_id) if series_id else []
     return quick_read_cache.make_key(sorted(terms, key=lambda t: str(t.get("term_original"))),
-                                     comic_glossary_service.version())[:16]
+                                     comic_glossary_service.version(), fixes, cast)[:16]
 
 
 def _quick_read_key(image: dict, job: dict) -> str | None:
@@ -523,7 +528,12 @@ def _style_key(style) -> str:
 def _key_settings(job: dict, config: dict) -> list:
     from services import settings_service
     # Sound-effect captions change the redraw, so a page cached without them must not answer once they are on.
-    return [bool(settings_service.get("scanlate_sfx_gloss")), job["drama_id"], job["source_language"], job["typeset"],
+    # The read and the redraw use these too: another detector, OCR engine or text-colour match gives another page.
+    # The page picture sent with the request changes the translation.
+    return [bool(settings_service.get("scanlate_sfx_gloss")), bool(settings_service.get("scanlate_page_image")),
+            bool(settings_service.get("scanlate_match_text_color")),
+            config.get("ocr_backend"), config.get("detect_backend"), bool(config.get("prefer_paddle_vl_manga")),
+            job["drama_id"], job["source_language"], job["typeset"],
             _style_key(job["typeset_style"]), job["typeset_max_width"],
             job["glossary_version"], quick_read_cache.pipeline_version(),
             config.get("engine"), config.get("model")]
