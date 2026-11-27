@@ -4,10 +4,11 @@ import { useEffect, useState } from 'react'
 const SHOW_MS = 1600
 
 export function ComicPageBadge({ label, phone }: { label: string; phone: boolean }) {
-  const [shown, setShown] = useState(false)
+  // Shown until the timer marks this label as seen, so a new label shows again without setting state in the effect body.
+  const [seen, setSeen] = useState<string | null>(null)
+  const shown = seen !== label
   useEffect(() => {
-    setShown(true)
-    const t = window.setTimeout(() => setShown(false), SHOW_MS)
+    const t = window.setTimeout(() => setSeen(label), SHOW_MS)
     return () => window.clearTimeout(t)
   }, [label])
   return (
