@@ -43,6 +43,7 @@ import {
 } from './libraryForm'
 import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MonthRecap } from './libraryParity/MonthRecap'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -536,6 +537,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
+      <MonthRecap />
       {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (

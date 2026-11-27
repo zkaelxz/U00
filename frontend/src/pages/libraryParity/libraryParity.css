@@ -16,3 +16,16 @@
 
 /* Library: one link to the Series folders. */
 .library-series-links { margin: 0; }
+
+/* Library: last month's recap in the first week of a month. Lines and space, no box. */
+.month-recap { display: grid; gap: var(--space-2); padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.month-recap-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.month-recap-head h2 { margin: 0; font-size: var(--text-lg); font-weight: 700; }
+.month-recap-stats { margin: 0; display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-5); }
+.month-recap-stat { display: flex; flex-direction: column-reverse; }
+.month-recap-stat dt { color: var(--muted); font-size: var(--text-sm); }
+.month-recap-stat dd { margin: 0; font-size: var(--text-xl); font-weight: 600; font-variant-numeric: tabular-nums; }
+.month-recap-top { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .month-recap-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
