@@ -728,3 +728,67 @@ class TestSites:
 
     def test_needs_a_device_token(self, isolated_db):
         assert _client().get(f"{BASE}/sites").status_code == 401
+
+
+class TestStreamedAnswersHeartbeat:
+    """A caller that asks hears "waiting" lines while its pages queue, so a long wait is not a timeout."""
+
+    @staticmethod
+    async def _lines(work, heartbeat):
+        from api.routers import extension_bridge_routes as routes
+        response = await routes._streamed(work, heartbeat=heartbeat)
+        return [chunk async for chunk in response.body_iterator]
+
+    def test_a_slow_first_page_is_preceded_by_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.3)
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[0] == b'{"waiting": true}\n'
+        assert lines[-2:] == [b'{"page": {"key": "p0"}}\n', b'{"done": {}}\n']
+
+    def test_without_the_request_there_are_no_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            write({"done": {}})
+
+        assert asyncio.run(self._lines(work, False)) == [b'{"done": {}}\n']
+
+    def test_a_refusal_after_the_answer_started_comes_as_an_error_line(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            raise page_server.EndpointError(429, "limit spent")
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[-1] == b'{"error": "limit spent", "status": 429}\n'
+
+    def test_a_stream_with_nothing_real_to_send_ends_at_the_limit(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.02)
+        monkeypatch.setattr(routes, "_HEARTBEAT_LIMIT_SECONDS", 0.1)
+
+        def work(write):
+            time.sleep(0.5)
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines and set(lines) == {b'{"waiting": true}\n'}

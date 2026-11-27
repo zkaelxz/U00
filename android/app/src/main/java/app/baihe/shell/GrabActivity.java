@@ -1719,6 +1719,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             int thisPart = shown[0] - shownBefore;
+            // A run that ended on an error leaves batches the PC is still queueing; they would hold
+            // up the next Quick read, so the pages it has not started are dropped.
+            if (!cancelRequested && !firstError[0].isEmpty() && thisPart < pages.size() && runId != null) {
+                String stale = runId;
+                new Thread(() -> {
+                    try {
+                        client.cancelRun(stale);
+                    } catch (BaiheClient.BridgeException ignored) {
+                        // The PC is unreachable or already done; nothing more to stop.
+                    }
+                }, "grab-cancel").start();
+            }
             // A part of a split chapter hands over to the next one with the reader still open.
             boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
             partsContinuing = carryOn;

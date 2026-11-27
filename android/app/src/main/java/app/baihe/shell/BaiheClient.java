@@ -333,7 +333,8 @@ final class BaiheClient {
                 answer.remove("pages");
                 return answer;
             }
-            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true);
+            // The heartbeat keeps the read timeout from ending a wait the PC is still working through.
+            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true).put("heartbeat", true);
             return callStream("/pages", body, onPage);
         } catch (JSONException | IOException e) {
             throw new BridgeException(0, "Could not read the pages.");

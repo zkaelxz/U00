@@ -91,10 +91,19 @@ def _images(payload: dict, single: bool, principal, write=None) -> dict | None:
     return extension_bridge_service.run_images(payload, images, principal=principal)
 
 
-async def _streamed(work) -> StreamingResponse:
+# A caller that asks for it hears a line this often while its pages wait their turn, so a long
+# queue is not mistaken for a dead PC by the phone's read timeout. After the limit with nothing
+# real to send the stream ends, and the caller asks again for what it did not get.
+_HEARTBEAT_SECONDS = 15
+_HEARTBEAT_LIMIT_SECONDS = 20 * 60
+
+
+async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
     """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
     The answer starts only with the first line, so a refusal raised before it (a bad batch, the
-    spending cap, no such title) is re-raised here and becomes the usual error answer."""
+    spending cap, no such title) is re-raised here and becomes the usual error answer. With
+    `heartbeat`, the answer starts after `_HEARTBEAT_SECONDS` at the latest and a refusal after
+    that comes as an error line instead."""
     loop = asyncio.get_running_loop()
     lines: asyncio.Queue = asyncio.Queue()
 
@@ -109,15 +118,32 @@ async def _streamed(work) -> StreamingResponse:
         finally:
             put(("end", None))
 
+    async def next_item():
+        """The next queued item, or None when a heartbeat is due."""
+        if not heartbeat:
+            return await lines.get()
+        try:
+            return await asyncio.wait_for(lines.get(), _HEARTBEAT_SECONDS)
+        except asyncio.TimeoutError:
+            return None
+
     asyncio.ensure_future(run_in_threadpool(run))
-    kind, first = await lines.get()
-    if kind == "error":
-        raise first
+    first = await next_item()
+    if first is not None and first[0] == "error":
+        raise first[1]
 
     async def body():
-        item = (kind, first)
-        while item[0] != "end":
-            if item[0] == "line":
+        item = first
+        quiet_since = loop.time()
+        while True:
+            if item is None:
+                if loop.time() - quiet_since > _HEARTBEAT_LIMIT_SECONDS:
+                    return
+                yield b'{"waiting": true}\n'
+            elif item[0] == "end":
+                return
+            elif item[0] == "line":
+                quiet_since = loop.time()
                 yield json.dumps(item[1]).encode("utf-8") + b"\n"
             else:
                 import applog
@@ -126,7 +152,7 @@ async def _streamed(work) -> StreamingResponse:
                 message = (item[1].message if isinstance(item[1], page_server.EndpointError)
                            else "the app failed to answer this request")
                 yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
-            item = await lines.get()
+            item = await next_item()
 
     return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
                              headers=_NO_STORE)
@@ -166,7 +192,8 @@ async def _handle(request: Request, work, uses_engine: bool = False, needs=(), s
             _require_engine_allowed(request)
         payload = await _json_body(request)
         if streamed is not None and payload.get("stream") is True:
-            return await _streamed(lambda write: streamed(payload, write))
+            return await _streamed(lambda write: streamed(payload, write),
+                                   heartbeat=payload.get("heartbeat") is True)
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
