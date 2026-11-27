@@ -207,3 +207,60 @@ def test_a_misread_bare_site_name_is_still_cut_from_a_caption(text):
     regions = [_r(f"자신이 원하는걸 얻고야 말겠다는\n{text}")]
     assert wm.flag_site_marks(regions) == 0
     assert regions[0]["source_text"] == "자신이 원하는걸 얻고야 말겠다는"
+
+
+@pytest.mark.parametrize("text", ["Feaserasa.cripmon", "今のBlo...SoleVingontwinthonkenter.come."])
+def test_a_scanlator_credit_with_no_known_domain_is_a_mark(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["Hello. Please sit down.", "Wait...why would you do that.", "Mr.Kim said no", "Okay.Please sit"])
+def test_a_sentence_break_is_not_an_address(text):
+    assert not wm.looks_like_site_mark(text)
+
+
+def test_text_already_in_english_on_a_cjk_page_is_left_alone():
+    logo = _r("SECRET GARDEN", kind="sign")
+    mixed = _r("안녕 OK", kind="sign")
+    cjk = _r("你好", kind="sign")
+    shout = _r("I SAID STOP")
+    regions = [logo, mixed, cjk, shout]
+    assert wm.flag_already_english(regions, "ko") == 1
+    assert [r["skip"] for r in regions] == [True, False, False, False]
+
+
+def test_english_is_not_skipped_when_the_source_is_not_cjk():
+    regions = [_r("SECRET GARDEN", kind="sign")]
+    assert wm.flag_already_english(regions, "en") == 0
+    assert wm.flag_already_english(regions, "") == 0
+
+
+def test_a_sign_read_in_fullwidth_latin_letters_is_already_english():
+    regions = [_r("ＡＤＶＥＮＴＵＲＥＲＳ", kind="sign")]
+    assert wm.flag_already_english(regions, "ja") == 1
+
+
+def test_a_stamp_the_ocr_read_in_english_is_skipped_whole():
+    stamp = "The fastest webtoon site\nWebtoon Kingdom\nNewtokki468\nHTTPS://NEWTOKKI468.COM"
+    regions = [_r(stamp)]
+    assert wm.flag_site_marks(regions) == 1
+    assert regions[0]["skip"]
+
+
+@pytest.mark.parametrize("text", ["빠른 웹툰공급사이트", "웹툰왕국뉴토끼468", "가장 빠른 웹툰 공급사이트\nHTTPS://NEWTOKI468.COM"])
+def test_the_stamps_korean_wordings_without_its_first_word_are_marks(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["이 웹툰 재밌어", "빠른 말이야", "공급이 부족해"])
+def test_ordinary_korean_near_the_stamp_words_is_not_a_mark(text):
+    assert not wm.looks_like_site_mark(text)
+
+
+def test_glued_dialogue_with_other_words_is_not_an_address():
+    assert not wm.looks_like_site_mark("Wait.maybe later")
+
+
+def test_a_region_with_no_kind_is_treated_as_a_bubble_by_the_english_skip():
+    regions = [dict(_r("SECRET GARDEN"), kind=None)]
+    assert wm.flag_already_english(regions, "ko") == 0
