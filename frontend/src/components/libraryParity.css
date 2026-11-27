@@ -13,3 +13,21 @@
 .drama-grid.skeleton .skeleton-text { color: transparent; background: var(--surface-2); border-radius: var(--radius-sm); width: 80%; }
 .drama-grid.skeleton .skeleton-text.short { width: 50%; }
 .drama-grid.skeleton :is(.pill, .badge, .btn) { visibility: hidden; }
+
+.cover-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-4); }
+.cover-cell { position: relative; display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.cover-link { display: block; text-decoration: none; }
+.cover-cell .drama-tile { flex: none; width: 100%; height: auto; aspect-ratio: 3 / 4; margin: 0; border-radius: var(--radius-lg); font-size: 3rem; box-shadow: var(--shadow-1); }
+.cover-cell.selected .drama-tile { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cover-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: var(--space-1); color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; }
+a.cover-title:hover { text-decoration: underline; text-underline-offset: 2px; }
+.cover-sub { color: var(--muted); font-size: var(--text-sm); }
+.cover-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
+.cover-bar > span { display: block; height: 100%; background: var(--accent); }
+.cover-actions { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0 calc(-1 * var(--space-2)); }
+.cover-grid.selecting .cover-cell { cursor: pointer; }
+.cover-grid .card-check { position: absolute; top: var(--space-2); left: var(--space-2); z-index: 1; display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--surface) 85%, transparent); cursor: pointer; }
+.cover-grid .card-check input { width: 22px; height: 22px; margin: 0; }
+@media (max-width: 640px) {
+  .cover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+}

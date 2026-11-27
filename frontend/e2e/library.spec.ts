@@ -64,6 +64,19 @@ test('Details opens a sheet; Esc closes it and returns focus', async ({ page }) 
   await expect(details).toBeFocused()
 })
 
+test('covers view shows a cover per title; the choice is remembered', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Covers' }).check()
+  await expect(page.locator('.cover-grid .cover-cell')).toHaveCount(3)
+  await expect(page.locator('.drama-grid')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Details: Signal' }).click()
+  await expect(page.getByRole('dialog', { name: 'Signal' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(page.getByRole('radio', { name: 'Covers' })).toBeChecked()
+  await expect(page.locator('.cover-grid .cover-cell')).toHaveCount(3)
+})
+
 test('grid and list views; the choice is remembered', async ({ page }) => {
   await page.goto('/')
   await expect(page.locator('.drama-grid .drama-card')).toHaveCount(3)

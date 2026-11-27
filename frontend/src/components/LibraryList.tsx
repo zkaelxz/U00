@@ -16,6 +16,7 @@ import {
 import type { LibraryFilterOptions, LibrarySearchHit } from '../types/library'
 import { Badge } from './Badge'
 import { Card } from './Card'
+import { CoverGrid } from './CoverGrid'
 import { DramaCards } from './DramaCards'
 import { ErrorBanner } from './ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN } from './errorMessages'
@@ -37,7 +38,8 @@ const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exporte
 const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
 
 type Scope = 'titles' | 'lines'
-type View = 'grid' | 'list'
+// 'grid' is the card list (tile left, text right); 'covers' is the big-cover shelf; 'list' is the desktop table.
+type View = 'grid' | 'covers' | 'list'
 
 interface Props {
   selectedId: number | null
@@ -126,8 +128,9 @@ export function LibraryList({
   const onVisibleRef = useLatest(onVisible)
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
-  // Phones always get cards; List view is the desktop table.
+  // The table needs width: a phone saved on List shows cards.
   const table = view === 'list' && !phone
+  const covers = view === 'covers'
   const titleSearch = scope === 'titles' ? search : ''
   const filtered = !!(titleSearch.trim() || status || quickFilter || reading) || moreFilterCount(more) > 0
   // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
@@ -222,7 +225,17 @@ export function LibraryList({
   )
 
   // One group's titles (or the whole list): cards, or on desktop the table.
-  const listView = (list: DramaSummary[], label = '') => !table ? (
+  const listView = (list: DramaSummary[], label = '') => covers ? (
+    <CoverGrid
+      items={list}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      selectMode={selecting && selectMode}
+      checked={checked}
+      onToggle={toggle}
+      continuing={continuing}
+    />
+  ) : !table ? (
     <DramaCards
       items={list}
       selectedId={selectedId}
@@ -332,8 +345,8 @@ export function LibraryList({
   )
   const viewControl = (
     <Segmented<View>
-      label="View" name="library-view" value={view} onChange={setView}
-      options={[['grid', 'Grid'], ['list', 'List']]}
+      label="View" name="library-view" value={phone && view === 'list' ? 'grid' : view} onChange={setView}
+      options={phone ? [['grid', 'Cards'], ['covers', 'Covers']] : [['grid', 'Cards'], ['covers', 'Covers'], ['list', 'List']]}
     />
   )
 
@@ -357,6 +370,7 @@ export function LibraryList({
             <button type="button" className={buttonClass('secondary')} onClick={() => setFiltersOpen(true)}>
               Filters{activeFilters > 0 && ` (${activeFilters})`}
             </button>
+            {scope === 'titles' && viewControl}
             <div className="toolbar-end">{selectControls}</div>
           </div>
         ) : (
