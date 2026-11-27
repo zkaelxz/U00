@@ -3,6 +3,8 @@ import type { ReactNode } from 'react'
 import './tabs.css'
 
 export function SidePane({ nav, children }: { nav: ReactNode; children: ReactNode }) {
+  // No list yet (still loading) or only one section: no empty column beside the content.
+  if (!nav) return <>{children}</>
   return (
     <div className="ui-sidepane">
       <div className="ui-sidepane-nav">{nav}</div>
