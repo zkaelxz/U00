@@ -69,3 +69,9 @@ def test_scan_hashes_titles_without_a_hash(isolated_db):
     assert db.get_drama(did)["media_hash"] == media_fingerprint_service.hash_file(
         os.path.join(db.drama_dir(did), "a.mp3"))
     assert media_fingerprint_service.duplicate_groups(None)["unhashed"] == 0
+
+
+def test_links_whose_video_id_is_cut_do_not_match_on_the_bare_host(isolated_db):
+    db.create_drama(title_en="One", source_url="https://video.example/watch/BV1aB2cD3eF4")
+    db.create_drama(title_en="Two", source_url="https://video.example/watch/BV9xY8zW7vU6")
+    assert media_fingerprint_service.duplicate_groups(None)["groups"] == []

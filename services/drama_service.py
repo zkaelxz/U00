@@ -416,12 +416,12 @@ def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None)
     "same" is "link" or "name". Names match ignoring case, width and spacing; links
     match on their display-safe form, so the answer never depends on a stored query or token."""
     names = {key for key in (_name_key(title_en), _name_key(title_zh)) if key}
-    link = _link_key(source_url)
+    link = _page_link_key(source_url)
     if not names and not link:
         return []
     found = []
     for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal)):
-        if link and _link_key(row.get("source_url")) == link:
+        if link and _page_link_key(row.get("source_url")) == link:
             same = "link"
         elif names & {_name_key(row.get("title_en")), _name_key(row.get("title_zh"))}:
             same = "name"

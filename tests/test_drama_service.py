@@ -641,3 +641,9 @@ def test_find_titles_by_links_ignores_links_that_reduce_to_a_bare_host(isolated_
     ds.set_source_url_once(stored, token_path)
     other = "https://site.example/title/" + "f9e8d7c6" * 5 + "/other"
     assert ds.find_titles_by_links([token_path, other, "https://site.example/"]) == [None, None, None]
+
+
+def test_find_same_titles_ignores_a_link_cut_down_to_the_host(isolated_db):
+    other = ds.create_drama(source_language="zh", title_en="Other")["id"]
+    assert ds.set_source_url_once(other, "https://video.example/watch/BV9xY8zW7vU6")
+    assert ds.find_same_titles(title_en="New", source_url="https://video.example/watch/BV1aB2cD3eF4") == []
