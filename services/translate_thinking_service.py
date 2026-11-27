@@ -13,13 +13,7 @@ A run is handed its own value explicitly, so the request, the job and the
 provenance record agree; the choice is saved only once the run is accepted,
 so a refused request leaves it alone.
 """
-import logging
-
-import db
 from engine_backends import thinking as thinking_switch
-from services import translate_run_service
-
-log = logging.getLogger(__name__)
 
 SWITCH_ENGINES = thinking_switch.NO_THINKING_ENGINES
 
