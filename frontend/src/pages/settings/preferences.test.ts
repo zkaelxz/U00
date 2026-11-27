@@ -32,6 +32,7 @@ const saved: SettingsPreferences = {
   episode_summary_engine: 'claude',
   narration_pace: 0.9,
   max_upload_mb: 20480,
+  member_upload_mb: 1024,
   monthly_cap_usd: null,
   ollama_num_ctx_override: 0,
   keep_free_vram_gb: 0,

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The app's four looks (light, dark, sepia, OLED): the activity theme and its dialog theme, so every
+     native screen and AlertDialog matches the colours Baihe's page is showing, not only the phone's setting. -->
+<resources>
+    <style name="Baihe.Light" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
+    <style name="Baihe.Dark" parent="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+    <style name="Baihe.Sepia" parent="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        <item name="android:colorAccent">#8A4A1F</item>
+        <item name="android:alertDialogTheme">@style/Baihe.Dialog.Sepia</item>
+    </style>
+
+    <style name="Baihe.Oled" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <item name="android:alertDialogTheme">@style/Baihe.Dialog.Oled</item>
+    </style>
+
+    <style name="Baihe.Dialog.Sepia" parent="@android:style/Theme.DeviceDefault.Light.Dialog.Alert">
+        <item name="android:colorBackground">#EBE0C6</item>
+        <item name="android:colorBackgroundFloating">#EBE0C6</item>
+        <item name="android:textColorPrimary">#3B3220</item>
+        <item name="android:textColorSecondary">#5F5238</item>
+        <item name="android:colorAccent">#8A4A1F</item>
+    </style>
+
+    <style name="Baihe.Dialog.Oled" parent="@android:style/Theme.DeviceDefault.Dialog.Alert">
+        <item name="android:colorBackground">#0B0B0B</item>
+        <item name="android:colorBackgroundFloating">#0B0B0B</item>
+    </style>
+</resources>

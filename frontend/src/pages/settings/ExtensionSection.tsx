@@ -273,10 +273,10 @@ function TokenReveal() {
         <div className="actions">
           <ConfirmButton
             label="Show token…"
-            ariaLabel="Show extension token"
+            ariaLabel="Show local extension key"
             verb="show"
             tone="primary"
-            name="extension token"
+            name="local extension key"
             busy={busy}
             onConfirm={reveal}
           />
@@ -289,7 +289,7 @@ function TokenReveal() {
             value={token}
             autoComplete="off"
             spellCheck={false}
-            aria-label="Extension token"
+            aria-label="Local extension key"
             onFocus={(e) => e.currentTarget.select()}
           />
           <button type="button" className={buttonClass('secondary')} onClick={() => void copy()}>

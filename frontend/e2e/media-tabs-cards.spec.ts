@@ -208,7 +208,7 @@ test.describe('range hints', () => {
 
   test('min silence says its range and default in ms', async ({ page }) => {
     await gotoMedia(page, 'tools')
-    await expect(await hint(page, 'Min silence')).toContainText('100-3000 ms, default 300 ms.')
+    await expect(await hint(page, 'Min silence')).toContainText('100-3000 ms, default 1000 ms.')
   })
 
   test('speaker counts read as whole-number ranges', async ({ page }) => {

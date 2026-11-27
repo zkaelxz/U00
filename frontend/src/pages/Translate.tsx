@@ -335,7 +335,7 @@ export default function TranslatePage() {
               )}
               {!canTranslate && (
                 <p id="translate-needs-permission" className="translate-warning">
-                  Text translation isn't allowed for this account. Ask the PC owner.
+                  Text translation isn't allowed for this account. Ask the PC owner to allow it.
                 </p>
               )}
               {canTranslate && noKey && selected && (
@@ -349,7 +349,7 @@ export default function TranslatePage() {
                   ) : (
                     <>
                       Still needed: an API key for {engineShortName(selected)}.{' '}
-                      {canAddKey ? <a href="#/settings">Add a key in Settings</a> : 'Ask the PC owner to add it.'}
+                      {canAddKey ? <a href="#/settings">Add a key in Settings</a> : 'Ask the PC owner to add a key.'}
                     </>
                   )}
                 </p>

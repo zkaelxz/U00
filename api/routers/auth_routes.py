@@ -76,7 +76,8 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       set_session_cookie)
 from api.no_store import NO_STORE, no_store_json
 from api.remote_uploads import away_principal
-from services import auth_service, member_key_service, oidc_service
+from api.schemas import AccountPreferences
+from services import account_prefs_service, auth_service, member_key_service, oidc_service
 from lib.errors import DependencyUnavailableError, NotFoundError, RateLimitedError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -115,6 +116,8 @@ class MeResponse(BaseModel):
     # The member's own monthly limit for paid engines is used up, so
     # `engines.paid` is left out of `permissions` until it is raised or the month ends.
     paid_limit_reached: bool = False
+    # What the account keeps for every device (theme); only for a signed-in account.
+    preferences: Optional[AccountPreferences] = None
 
 
 class LogoutResponse(BaseModel):
@@ -267,16 +270,30 @@ def me(request: Request):
             body.update(signed_in=True, permissions=sorted(principal["permissions"]),
                         own_ollama_key=member_key_service.has_usable_key(principal["user_id"]),
                         paid_limit_reached=auth_service.paid_engines_held_back(principal["user_id"]),
+                        # Left out until the account has saved something, so the body is unchanged for most.
+                        preferences=account_prefs_service.get(principal["user_id"]) or None,
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})
-    return JSONResponse(MeResponse(**body).model_dump(), headers=dict(NO_STORE))
+    shown = MeResponse(**body).model_dump()
+    if shown["preferences"] is None:
+        del shown["preferences"]
+    else:
+        shown["preferences"] = {k: v for k, v in shown["preferences"].items() if v is not None}
+    return JSONResponse(shown, headers=dict(NO_STORE))
 
 
 def _own(request: Request) -> dict:
     """The caller's session principal; only ever from their own cookie."""
     _require_auth_on(request)
     return request.state.principal
+
+
+@router.put("/preferences", dependencies=[authenticated()], response_model=AccountPreferences,
+            response_model_exclude_none=True, summary="Save some of my preferences")
+def put_preferences(body: AccountPreferences, request: Request):
+    saved = account_prefs_service.update(_own(request)["user_id"], body.model_dump(exclude_none=True))
+    return JSONResponse(AccountPreferences(**saved).model_dump(exclude_none=True), headers=dict(NO_STORE))
 
 
 @router.get("/sessions", dependencies=[authenticated()], response_model=DeviceSessionList,

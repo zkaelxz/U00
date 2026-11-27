@@ -112,7 +112,7 @@ class TestGetTranscribeConfig:
             "gpu_runtime": result["gpu_runtime"],
             "use_gpu": result["use_gpu"],
             "beam_size": 5,
-            "min_silence_ms": 300,
+            "min_silence_ms": 1000,
             "vad_threshold": 0.5,
             "sensitivity_preset": "normal",
             "effective_vad_threshold": 0.5,

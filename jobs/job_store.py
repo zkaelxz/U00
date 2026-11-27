@@ -487,10 +487,6 @@ def sweep_dead_owners(stale_seconds: float, records=None) -> int:
     return closed
 
 
-# fresh_active reads up to this many named rows one by one, more with one scan.
-_POINT_READ_IDS = 8
-
-
 def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
     """True while a matching job is queued or running: live in this process,
     or a job_records row another process (a second server, say) wrote within
@@ -511,12 +507,9 @@ def fresh_active(job_ids=None, prefix=None, exclude=None) -> bool:
            for jid, job in bj.list_all_jobs().items()):
         return True
     cutoff = time.time() - job_table.STALE_JOB_SECONDS
-    # job_records keeps every job ever run, so a few known ids are cheaper read
-    # one by one; a drama's ~50 possible job ids are not.
-    records = (filter(None, map(db.get_job_record, sorted(wanted)))
-               if wanted is not None and len(wanted) <= _POINT_READ_IDS else db.list_job_records())
-    return any(matches(rec.get("job_id")) and rec.get("status") in ACTIVE
-               and (rec.get("updated_at") or 0) >= cutoff for rec in records)
+    # job_records keeps every job ever run and its rows carry result blobs, so
+    # ask for the matching ids only instead of loading the table.
+    return any(matches(jid) for jid in db.fresh_active_job_ids(wanted, cutoff))
 
 
 _ANY_OWNER = object()

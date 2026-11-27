@@ -558,3 +558,21 @@ def test_a_member_sees_only_the_series_they_track_or_that_link_to_a_title_they_c
     seen = lambda who: {r["series_id"] for r in sources_registry_service.list_tracked(who)}  # noqa: E731
     assert seen(_p(b)) == {"mine", "linked"}
     assert seen(None) == {"mine", "theirs", "owners", "linked"}      # the owner sees everything
+
+
+def test_tracking_an_already_tracked_series_keeps_its_link_and_new_chapters(env, monkeypatch):
+    from services import sources_search_service as search
+    did = db.create_drama(title_en="Linked", media_type="novel",
+                          content_mode="novel_narration", is_private=0)
+    _track("alpha", drama_id=did)
+    monkeypatch.setattr(sources_registry_service, "require_source", lambda name: None)
+    result = {"kind": "series", "series_id": SERIES, "info": {"title": "Series T"},
+              "chapters": [{"chapter_id": c, "title": c} for c in ("c1", "c2", "c3")]}
+    real_status = background_jobs.get_status
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: (
+        {"status": "done", "result": result} if jid == search.SERIES_JOB_PREFIX + "alpha"
+        else real_status(jid)))
+    sources_registry_service.set_tracked("alpha", SERIES, True, principal=None)
+    assert _row("alpha")["drama_id"] == did
+    # c2 and c3 came out after the last check: still new, so the next check announces them.
+    assert {c["chapter_id"] for c in store.known_chapters("alpha", SERIES)} == {"c1"}

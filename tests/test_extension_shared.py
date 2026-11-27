@@ -95,3 +95,9 @@ class TestOptionsPage:
     def test_an_older_loaded_copy_is_told_to_update(self):
         out = _run("options", "stale_extension")
         assert "version 1.2.0; your Baihe has 1.3.0" in out["status"]
+        assert "Open extension folder" in out["status"]
+
+    def test_a_copy_for_another_computer_is_told_where_to_download_the_new_one(self):
+        out = _run("options", "stale_extension_remote")
+        assert "https://baihe.example.com/api/extension/download" in out["status"]
+        assert "Open extension folder" not in out["status"]

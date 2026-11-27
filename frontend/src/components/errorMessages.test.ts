@@ -4,7 +4,7 @@ import { ApiError } from '../api/client'
 import { resetPcModeForTests } from '../api/pcOnly'
 import { resetSessionForTests } from '../hooks/useSession'
 import {
-  ASK_PC_OWNER, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, PAID_LIMIT_REASON, summarizeEngineFailure,
+  ASK_PC_OWNER_INSTALL, couldNotReachBaihe, describeError, isForbidden, JOB_FAILED, keyWritesRefused, PAID_LIMIT_REASON, summarizeEngineFailure,
 } from './errorMessages'
 
 
@@ -247,11 +247,11 @@ describe('error text by who is reading', () => {
   it('a member is told to ask the person who runs Baihe, with no Diagnostics pointer or env var', () => {
     resetSessionForTests(me([]))
     const { title, detail } = describeError(missing)
-    expect(title).toContain(ASK_PC_OWNER)
+    expect(title).toContain('Ask the PC owner to check it.')
     expect(title).not.toMatch(/Diagnostics/)
     expect(detail).toBeNull()
-    expect(describeError(new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'missing_package' } }, 'POST')).title).toContain(ASK_PC_OWNER)
-    expect(keyWritesRefused()).toBe(ASK_PC_OWNER)
+    expect(describeError(new ApiError(503, { code: 'dependency_unavailable', message: 'x', details: { reason: 'missing_package' } }, 'POST')).title).toContain(ASK_PC_OWNER_INSTALL)
+    expect(keyWritesRefused()).toBe('Ask the PC owner to change this.')
   })
 
   it('a member whose failed action reason points at Diagnostics gets the generic heading', () => {

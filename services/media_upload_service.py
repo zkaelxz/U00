@@ -35,7 +35,7 @@ client still polls one job id. Cancel kills the ffmpeg process tree.
 
 The client's filename is never used for storage or returned: only its
 extension is read, and only if it is on the whitelist. The body is streamed
-to a temp file in the drama folder (capped by `max_upload_bytes`). Every new
+to a temp file in the drama folder (capped by `upload_limit_bytes`: the PC limit, or the smaller member limit). Every new
 file is fsynced before it is put in place and recorded. No path is ever
 returned.
 
@@ -205,7 +205,8 @@ def upload_limit_from_env() -> bool:
 def max_upload_bytes() -> int:
     """The environment variable wins over the saved setting so an owner who
     pinned a limit there isn't overridden from the UI. An upload from away
-    from the PC (an admin, media.upload) is held to it before its body is
+    from the PC (an admin, media.upload, or a member with media.upload_member, whose
+    limit is further capped by upload_limit_bytes) is held to it before its body is
     read (api.auth.EarlyAuthGate)."""
     mb = _env_limit_mb()
     if mb is None:
@@ -214,8 +215,32 @@ def max_upload_bytes() -> int:
     return int(mb * _MB)
 
 
-def too_large_message(limit: int) -> str:
+def member_upload_bytes() -> int:
+    stored = settings_service.get("member_upload_mb")
+    mb = stored if isinstance(stored, (int, float)) else settings_schema.MEMBER_UPLOAD_MB_DEFAULT
+    return int(mb * _MB)
+
+
+def upload_limit_bytes(principal=None) -> int:
+    """The size limit for this caller. An admin, the PC owner and a job with
+    no request (no principal) get the PC's upload limit; a member gets the
+    smaller member limit, never more than the PC's own, because a phone's
+    connection is the slow, shared link the member limit exists for."""
+    limit = max_upload_bytes()
+    if principal is None or principal.get("is_admin"):
+        return limit
+    return min(limit, member_upload_bytes())
+
+
+def too_large_message(limit: int, member: bool = False) -> str:
+    if member:
+        return (f"That file is larger than the {limit // _MB} MB limit for uploads from members. "
+                "Send a shorter or smaller file, or ask the person who runs this PC.")
     return f"That file is larger than the {limit // _MB} MB upload limit. {UPLOAD_LIMIT_HINT}"
+
+
+def is_member_caller(principal) -> bool:
+    return principal is not None and not principal.get("is_admin")
 
 
 def _check_disk_room(folder, fileobj):
@@ -676,7 +701,7 @@ def recover_all_stale_uploads() -> int:
     return moved
 
 
-def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False):
+def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False, principal=None):
     """Streams the body to a hidden file in the drama folder; returns
     (ext, size, staged path, sha256 hex). Nothing is put in place here."""
     ext = _safe_extension(client_filename)
@@ -685,7 +710,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
         raise InvalidInputError(NO_UPLOAD_MODE)
     if has_media(drama, drama_id) and not confirm_replace_audio:
         raise InvalidInputError(_CONFIRM_REPLACE, details={"reason": "confirm_replace_audio"})
-    limit = max_upload_bytes()
+    limit = upload_limit_bytes(principal)
     ddir = db.drama_dir(drama_id)
     _check_disk_room(ddir, fileobj)
     fd, tmp_path = tempfile.mkstemp(prefix=".upload_", suffix=".part", dir=ddir)
@@ -700,7 +725,7 @@ def _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio=False
                 hasher.update(chunk)
                 size += len(chunk)
                 if size > limit:
-                    raise InvalidInputError(too_large_message(limit))
+                    raise InvalidInputError(too_large_message(limit, is_member_caller(principal)))
                 out.write(chunk)
             out.flush()
             os.fsync(out.fileno())
@@ -760,6 +785,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
     id returned as "transcribe_job_id" (the upload is kept if it fails)."""
     if not isinstance(confirm_replace_audio, bool):
         raise InvalidInputError("confirm_replace_audio must be true or false.")
+    ownership_service.require_own_drama(principal, drama_id)
     with claims_lock:
         if drama_id in claimed:
             raise ConflictError("Another upload is in progress for this title.")
@@ -770,7 +796,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
         recover_stale_uploads(drama_id)
-        ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio)
+        ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio, principal)
         ddir = db.drama_dir(drama_id)
         try:
             _claim_hash(media_hash, drama_id, principal)
@@ -954,7 +980,7 @@ def kept_media_usage(drama_id) -> dict:
     return {"kept_media_files": files, "kept_media_bytes": size}
 
 
-def get_media_status(drama_id) -> dict:
+def get_media_status(drama_id, principal=None) -> dict:
     """Booleans, counts and the upload cap only -- never a path or filename."""
     drama = ownership_service.require_drama(drama_id)
     audio = drama.get("audio_filename")
@@ -963,6 +989,6 @@ def get_media_status(drama_id) -> dict:
         "has_audio": _file_exists(db.drama_dir(drama_id), audio),
         "has_source_video": bool(drama.get("source_video_filename")),
         "reads_burned_in_subtitles": drama.get("transcript_mode") == "hardsub_ocr",
-        "upload_max_mb": max_upload_bytes() // _MB,
+        "upload_max_mb": upload_limit_bytes(principal) // _MB,
         **kept_media_usage(drama_id),
     }

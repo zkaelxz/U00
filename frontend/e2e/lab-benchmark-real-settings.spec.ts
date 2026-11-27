@@ -27,7 +27,7 @@ test('Benchmark Lab: transcription options start at the app defaults and travel 
   await fold.locator('summary').click()
   // What a title uses when nothing is saved, not transcribe_for_timing's 2000 ms.
   await expect(fold.getByLabel('Beam size', { exact: true })).toHaveValue('5')
-  await expect(fold.getByLabel('Min silence', { exact: true })).toHaveValue('300')
+  await expect(fold.getByLabel('Min silence', { exact: true })).toHaveValue('1000')
   await expect(fold.getByLabel('VAD threshold', { exact: true })).toHaveValue('0.5')
 
   await fold.getByLabel('Beam size', { exact: true }).fill('1')

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { probeLink, probeTitleLink, type LinkDetailFields, type MediaLinkProbe } from '../../../api/linkDetails'
 import { suggestMetadata } from '../../../api/metadata'
@@ -23,27 +23,37 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
   const [probe, setProbe] = useState<MediaLinkProbe | null>(null)
   const [aiValues, setAiValues] = useState<Partial<LinkDetailFields> | null>(null)
   const [ticked, setTicked] = useState<Set<LinkField>>(new Set())
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const url = link.trim()
+  // Replies are only for the newest request, and only while the form still shows the link and title it was for.
+  const key = `${dramaId}\n${url}`
+  const shown = useRef(key)
+  useEffect(() => { shown.current = key }, [key])
+  const request = useRef(0)
+  const [busyFor, setBusyFor] = useState<string | null>(null)
+  const busy = busyFor === key
   if (pc === 'remote') return null
 
   const values = aiValues ?? (probe ? linkValues(probe) : null)
   const rows: LinkRow[] = values ? linkRows(values, current) : []
 
   const read = () => {
-    setBusy(true)
+    const mine = ++request.current
+    const stale = () => mine !== request.current || shown.current !== key
+    setBusyFor(key)
     setError(null)
     setAiValues(null)
     const asked = url === savedLink.trim() ? probeTitleLink(dramaId).then((r) => r.link) : probeLink(url)
     asked.then(
       (p) => {
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setProbe(p)
         setTicked(defaultTicks(linkRows(linkValues(p), current)))
       },
       (e: unknown) => {
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setError(e)
       },
     )
@@ -51,16 +61,20 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
 
   // The second, explicit press for any other page: the paid AI listing read.
   const readWithAi = () => {
-    setBusy(true)
+    const mine = ++request.current
+    const stale = () => mine !== request.current || shown.current !== key
+    setBusyFor(key)
     suggestMetadata(dramaId, { url }).then(
       (r) => {
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         const next = { title_zh: r.suggestion.title_zh ?? '', author: r.suggestion.author ?? '' }
         setAiValues(next)
         setTicked(defaultTicks(linkRows(next, current)))
       },
       (e: unknown) => {
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setError(e)
       },
     )

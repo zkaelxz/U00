@@ -50,7 +50,7 @@ hundred bytes (the lean command in `docs/testing-and-ci.md`). `-GpuProfile 32gb`
 12 GB profile is unchanged.
 
 `opencode.json` also loads `CLAUDE.md` as instructions, asks before destructive git (`push`, `reset`, `clean`, `rebase`,
-`restore`, `branch -D`) and `rm -rf`, and denies reads of the skip-list files in `AGENTS.md`. The `permission` and
+`restore`, `branch -D`) and `rm -rf`, and denies reads of `docs/engineering-standards.md` and `.test_durations` (two of the five skip-list entries in `AGENTS.md`). The `permission` and
 `instructions` keys were checked against opencode.ai/docs/permissions and /docs/config on 2026-10-11 (last matching
 rule wins, so `*` comes first); not run against a live OpenCode.
 
@@ -170,7 +170,7 @@ about 9-10k tokens; at 16k to 32k context list only `CLAUDE.md` and this file.
 Branch and PR flow: one task per branch off the latest `baihe-subtitler`
 (`git fetch origin && git checkout -b <task-name> origin/baihe-subtitler`; roadmap steps use `step-<id>-<short-name>`).
 Run the area test, then the guard set, and the frontend commands if you touched `frontend/`. Push and open a
-draft PR into `baihe-subtitler` and don't merge it yourself: the thread that owns the PR turns on auto-merge once it is finished and reviewed, and GitHub merges it on a full green Tests run (`docs/testing-and-ci.md`, "Merge flow"). Finish with a short summary: what
+draft PR into `baihe-subtitler` and don't merge it yourself: the thread that owns the PR turns on auto-merge once it is finished, reviewed and the owner has OK'd it, and GitHub merges it on a full green Tests run (`docs/testing-and-ci.md`, "Merge flow"). Finish with a short summary: what
 changed, commands run with pass counts, what you're unsure about.
 
 Clone in a folder of its own. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`: a

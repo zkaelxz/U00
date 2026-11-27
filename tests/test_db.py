@@ -1315,6 +1315,20 @@ class TestInitDbSchema:
         isolated_db.init_db()
         assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
 
+    def test_stored_old_default_min_silence_is_reset_to_unset_once(self, isolated_db):
+        old = isolated_db.create_drama(title_en="A")
+        custom = isolated_db.create_drama(title_en="B", min_silence_ms=600)
+        with contextlib.closing(sqlite3.connect(isolated_db.DB_PATH)) as conn:
+            conn.execute("UPDATE dramas SET min_silence_ms = 300 WHERE id = ?", (old,))
+            conn.execute("DELETE FROM app_settings WHERE key = 'migrations.min_silence_unset'")
+            conn.commit()
+        isolated_db.init_db()
+        assert isolated_db.get_drama(old)["min_silence_ms"] is None
+        assert isolated_db.get_drama(custom)["min_silence_ms"] == 600
+        isolated_db.update_drama(old, min_silence_ms=300)   # a later choice of 300
+        isolated_db.init_db()
+        assert isolated_db.get_drama(old)["min_silence_ms"] == 300
+
     def test_library_read_holders_get_lines_read_once_for_the_reader_page(self, isolated_db):
         from services import auth_service
         reader = auth_service.add_user("reader@example.com")["id"]
