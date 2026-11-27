@@ -108,41 +108,41 @@ describe('auto-run ceiling', () => {
 })
 
 describe('filterSeries', () => {
-  const items = [{ name: 'HS' }, { name: 'anok00' }, { name: 'Chion' }]
+  const items = [{ name: 'HS' }, { name: 'maple00' }, { name: 'Birch' }]
   it('sorts by name ignoring case', () => {
-    expect(filterSeries(items, '').map((s) => s.name)).toEqual(['anok00', 'Chion', 'HS'])
+    expect(filterSeries(items, '').map((s) => s.name)).toEqual(['maple00', 'Birch', 'HS'])
   })
   it('keeps names that contain the text, ignoring case and outer spaces', () => {
-    expect(filterSeries(items, '  CHI ').map((s) => s.name)).toEqual(['Chion'])
+    expect(filterSeries(items, '  CHI ').map((s) => s.name)).toEqual(['Birch'])
     expect(filterSeries(items, 'zzz')).toEqual([])
   })
 })
 
 describe('streamer folders', () => {
   const items = [
-    { name: 'Anok00', streamer: 'Chion', title_count: 41 },
-    { name: 'HS', streamer: 'Chion', title_count: 3 },
-    { name: 'Solo', streamer: 'anok', title_count: 6 },
+    { name: 'Maple00', streamer: 'Birch', title_count: 41 },
+    { name: 'HS', streamer: 'Birch', title_count: 3 },
+    { name: 'Solo', streamer: 'maple', title_count: 6 },
     { name: 'Loose', streamer: null, title_count: 5 },
     { name: 'Old', title_count: 1 },
   ]
 
   it('groups by streamer by name, with No streamer last', () => {
     expect(streamerFolders(items)).toEqual([
-      { name: 'anok', seriesCount: 1, titleCount: 6 },
-      { name: 'Chion', seriesCount: 2, titleCount: 44 },
+      { name: 'maple', seriesCount: 1, titleCount: 6 },
+      { name: 'Birch', seriesCount: 2, titleCount: 44 },
       { name: null, seriesCount: 2, titleCount: 6 },
     ])
-    expect(streamerFolders(items.slice(0, 2)).map((f) => f.name)).toEqual(['Chion'])
+    expect(streamerFolders(items.slice(0, 2)).map((f) => f.name)).toEqual(['Birch'])
   })
 
   it('filters folders by name and picks one streamer\'s series', () => {
-    expect(filterStreamers(streamerFolders(items), 'chi').map((f) => f.name)).toEqual(['Chion'])
+    expect(filterStreamers(streamerFolders(items), 'chi').map((f) => f.name)).toEqual(['Birch'])
     expect(filterStreamers(streamerFolders(items), 'no str').map((f) => f.name)).toEqual([null])
-    expect(seriesOfStreamer(items, 'Chion').map((s) => s.name)).toEqual(['Anok00', 'HS'])
-    const respelt = [...items, { name: 'Late', streamer: 'CHION', title_count: 2 }]
-    expect(streamerFolders(respelt).find((f) => f.name === 'Chion')?.seriesCount).toBe(3)
-    expect(seriesOfStreamer(respelt, 'chion').map((s) => s.name)).toEqual(['Anok00', 'HS', 'Late'])
+    expect(seriesOfStreamer(items, 'Birch').map((s) => s.name)).toEqual(['Maple00', 'HS'])
+    const respelt = [...items, { name: 'Late', streamer: 'BIRCH', title_count: 2 }]
+    expect(streamerFolders(respelt).find((f) => f.name === 'Birch')?.seriesCount).toBe(3)
+    expect(seriesOfStreamer(respelt, 'birch').map((s) => s.name)).toEqual(['Maple00', 'HS', 'Late'])
     expect(seriesOfStreamer(items, '').map((s) => s.name)).toEqual(['Loose', 'Old'])
   })
 })

@@ -4,13 +4,13 @@ import type { GlossaryTerm, NameReport, NameReportGroup } from '../../../types/t
 import { groupsForTab, planApply, scanNotes, tabCount } from './nameReportModel'
 
 const term = (over: Partial<GlossaryTerm> = {}): GlossaryTerm => ({
-  id: 7, term_original: 'Yalo', term_translation: 'Yarrow', notes: '', category: null, policy: null,
+  id: 7, term_original: 'Nalo', term_translation: 'Yarrow', notes: '', category: null, policy: null,
   enforce_exact: false, aliases: [], banned_translations: [], ...over,
 })
 
 const group = (over: Partial<NameReportGroup> = {}): NameReportGroup => ({
-  key: 'yalo', canonical: 'Yalo', total: 6, titles_total: 2, mark: 'right', examples: [],
-  variants: [{ text: 'Yalo', count: 4 }, { text: 'Yaloch', count: 2 }],
+  key: 'nalo', canonical: 'Nalo', total: 6, titles_total: 2, mark: 'right', examples: [],
+  variants: [{ text: 'Nalo', count: 4 }, { text: 'Naloch', count: 2 }],
   titles: [], ...over,
 })
 
@@ -23,7 +23,7 @@ const report = (over: Partial<NameReport> = {}): NameReport => ({
 describe('groupsForTab / tabCount', () => {
   it('lists unresolved groups under To check and marked ones under their mark', () => {
     const r = report()
-    expect(groupsForTab(r, 'open').map((g) => g.key)).toEqual(['yalo'])
+    expect(groupsForTab(r, 'open').map((g) => g.key)).toEqual(['nalo'])
     expect(groupsForTab(r, 'wrong').map((g) => g.key)).toEqual(['b'])
     expect(groupsForTab(r, 'skip')).toEqual([])
     expect(tabCount(r, 'open')).toBe(1)
@@ -50,19 +50,19 @@ describe('scanNotes', () => {
 describe('planApply', () => {
   it('adds the missing spellings as aliases of the term that already holds one', () => {
     const plan = planApply([term()], group(), '')
-    expect(plan).toEqual({ kind: 'alias', body: { id: 7, aliases: ['Yaloch'] } })
+    expect(plan).toEqual({ kind: 'alias', body: { id: 7, aliases: ['Naloch'] } })
   })
   it('keeps the aliases already there and finds the term by an alias', () => {
-    const plan = planApply([term({ term_original: 'Other', aliases: ['yaloch', 'Z'] })], group(), '')
-    expect(plan).toEqual({ kind: 'alias', body: { id: 7, aliases: ['yaloch', 'Z', 'Yalo'] } })
+    const plan = planApply([term({ term_original: 'Other', aliases: ['naloch', 'Z'] })], group(), '')
+    expect(plan).toEqual({ kind: 'alias', body: { id: 7, aliases: ['naloch', 'Z', 'Nalo'] } })
   })
   it('is covered when every spelling is already a term or alias', () => {
-    expect(planApply([term({ aliases: ['Yaloch'] })], group(), '')).toEqual({ kind: 'covered' })
+    expect(planApply([term({ aliases: ['Naloch'] })], group(), '')).toEqual({ kind: 'covered' })
   })
   it('creates a term only when an English name is given', () => {
     expect(planApply([], group(), '  ')).toEqual({ kind: 'needs-english' })
     expect(planApply([term({ term_original: 'Mirel' })], group(), ' Yarrow ')).toEqual({
-      kind: 'create', body: { term_original: 'Yalo', term_translation: 'Yarrow', aliases: ['Yaloch'] },
+      kind: 'create', body: { term_original: 'Nalo', term_translation: 'Yarrow', aliases: ['Naloch'] },
     })
   })
 })

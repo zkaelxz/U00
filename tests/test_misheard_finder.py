@@ -27,10 +27,10 @@ def _lines(*texts):
 
 class TestFinder:
     def test_rare_sound_alike_of_a_glossary_name_is_suggested(self):
-        out = mf.find_misheard(_lines("亞羅赫來了"[:4], "亞洛赫說"[:4]), [("亞洛", "glossary")], cut)
+        out = mf.find_misheard(_lines("納羅赫來了"[:4], "納洛赫說"[:4]), [("納洛", "glossary")], cut)
         found = {s["heard"]: s for s in out["suggestions"]}
-        assert found["亞羅"]["suggested"] == "亞洛"
-        assert found["亞羅"]["source"] == "glossary" and found["亞羅"]["lines"][0]["line_id"] == 100
+        assert found["納羅"]["suggested"] == "納洛"
+        assert found["納羅"]["source"] == "glossary" and found["納羅"]["lines"][0]["line_id"] == 100
 
     def test_a_word_heard_often_is_trusted_and_a_rare_twin_points_to_it(self):
         lines = _lines("書院學生", "書院學生", "書院學生", "數院學生")
@@ -46,7 +46,7 @@ class TestFinder:
         assert out["suggestions"] == []
 
     def test_different_length_or_unrelated_sound_is_not_suggested(self):
-        out = mf.find_misheard(_lines("今天", "今天", "今天", "明年"), [("亞洛赫", "name")], cut)
+        out = mf.find_misheard(_lines("今天", "今天", "今天", "明年"), [("納洛赫", "name")], cut)
         assert out["suggestions"] == []
 
     def test_glossary_outranks_a_frequent_word(self):
@@ -76,9 +76,9 @@ class TestFinder:
         assert out["suggestions"] == []
 
     def test_a_name_next_to_an_exclamation_is_not_a_slip(self):
-        # 哎唷洛赫啊 is 哎唷 + the name 洛赫, so the window 唷洛赫 must not be offered as 亞洛赫.
+        # 哎唷洛赫啊 is 哎唷 + the name 洛赫, so the window 唷洛赫 must not be offered as 納洛赫.
         lines = _lines("唷洛赫", "卡洛赫")
-        out = mf.find_misheard(lines, [("亞洛赫", "glossary")], lambda t: [t])
+        out = mf.find_misheard(lines, [("納洛赫", "glossary")], lambda t: [t])
         assert [s["heard"] for s in out["suggestions"]] == ["卡洛赫"]
 
     def test_a_spelling_inside_a_longer_known_one_is_left_alone(self):
@@ -93,10 +93,10 @@ class TestFinder:
 def test_service_reads_title_lines(isolated_db):
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="zh")
-    db.upsert_glossary_term(sid, "亞洛赫", "Yaloch", aliases="")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="亞羅赫來了", en="")])
+    db.upsert_glossary_term(sid, "納洛赫", "Naloch", aliases="")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="納羅赫來了", en="")])
     out = misheard_service.find_for_title(did)
-    assert out["available"] and out["suggestions"][0]["suggested"] == "亞洛赫"
+    assert out["available"] and out["suggestions"][0]["suggested"] == "納洛赫"
 
 
 def test_service_reports_unavailable_for_other_languages(isolated_db):
@@ -122,16 +122,16 @@ def test_a_dictionary_word_is_not_a_slip_of_a_merely_frequent_word():
 
 
 def test_a_dictionary_word_can_still_be_a_slip_of_a_glossary_word():
-    out = mf.find_misheard(_lines("亞羅"), [("亞洛", "glossary")], cut, is_dictionary_word=lambda w: True)
-    assert out["suggestions"][0]["suggested"] == "亞洛"
+    out = mf.find_misheard(_lines("納羅"), [("納洛", "glossary")], cut, is_dictionary_word=lambda w: True)
+    assert out["suggestions"][0]["suggested"] == "納洛"
 
 
 def _title_with_slips(isolated_db):
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="zh")
-    db.upsert_glossary_term(sid, "亞洛赫", "Yaloch", aliases="")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="亞羅赫來了", en="Yaloch came"),
-                        Line(idx=1, start=1, end=2, zh="亞羅赫說話", en=""),
+    db.upsert_glossary_term(sid, "納洛赫", "Naloch", aliases="")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="納羅赫來了", en="Naloch came"),
+                        Line(idx=1, start=1, end=2, zh="納羅赫說話", en=""),
                         Line(idx=2, start=2, end=3, zh="沒有", en="")])
     return did, [ln.id for ln in db.load_line_objects(did)]
 
@@ -141,52 +141,52 @@ class TestApply:
         pytest.importorskip("jieba")
         did, _ = _title_with_slips(isolated_db)
         [s] = misheard_service.find_for_title(did)["suggestions"]
-        assert (s["heard"], s["line_count"]) == ("亞羅赫", 2)
+        assert (s["heard"], s["line_count"]) == ("納羅赫", 2)
 
     def test_use_it_changes_one_line_flags_its_translation_and_snapshots(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
-        out = misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")
+        out = misheard_service.apply(did, "納羅赫", "納洛赫", ids[0], "納羅赫來了")
         assert out == {"applied": 1, "skipped": 0}
         lines = {ln.id: ln for ln in db.load_line_objects(did)}
-        assert lines[ids[0]].zh == "亞洛赫來了" and lines[ids[0]].flag == "source_changed"
-        assert lines[ids[1]].zh == "亞羅赫說話"
+        assert lines[ids[0]].zh == "納洛赫來了" and lines[ids[0]].flag == "source_changed"
+        assert lines[ids[1]].zh == "納羅赫說話"
         assert db.list_line_history(did)[0]["label"] == "before mis-heard word fix"
 
     def test_use_everywhere_changes_every_line_holding_it(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
-        assert misheard_service.apply(did, "亞羅赫", "亞洛赫")["applied"] == 2
-        assert [ln.zh for ln in db.load_line_objects(did)] == ["亞洛赫來了", "亞洛赫說話", "沒有"]
+        assert misheard_service.apply(did, "納羅赫", "納洛赫")["applied"] == 2
+        assert [ln.zh for ln in db.load_line_objects(did)] == ["納洛赫來了", "納洛赫說話", "沒有"]
 
     def test_a_line_edited_since_is_refused(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
         with pytest.raises(ConflictError):
-            misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫去了")
-        assert db.load_line_objects(did)[0].zh == "亞羅赫來了"
+            misheard_service.apply(did, "納羅赫", "納洛赫", ids[0], "納羅赫去了")
+        assert db.load_line_objects(did)[0].zh == "納羅赫來了"
 
     def test_one_line_needs_the_text_the_person_saw(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
         with pytest.raises(InvalidInputError):
-            misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0])
+            misheard_service.apply(did, "納羅赫", "納洛赫", ids[0])
 
     def test_the_change_is_logged_as_a_person_correction(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
-        misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")
+        misheard_service.apply(did, "納羅赫", "納洛赫", ids[0], "納羅赫來了")
         [row] = db.list_source_edits(did)
-        assert (row["path"], row["before_zh"], row["after_zh"]) == ("person", "亞羅赫來了", "亞洛赫來了")
+        assert (row["path"], row["before_zh"], row["after_zh"]) == ("person", "納羅赫來了", "納洛赫來了")
 
     def test_use_it_accepts_the_stripped_text_the_list_shows(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
         ln = db.load_line_objects(did)[0]
-        ln.zh = " 亞羅赫來了 "
+        ln.zh = " 納羅赫來了 "
         db.save_lines(did, [ln], fields=("zh",))
-        assert misheard_service.apply(did, "亞羅赫", "亞洛赫", ids[0], "亞羅赫來了")["applied"] == 1
+        assert misheard_service.apply(did, "納羅赫", "納洛赫", ids[0], "納羅赫來了")["applied"] == 1
 
 
 class TestKeepAsHeard:
     def test_a_kept_suggestion_is_not_offered_again_until_shown_again(self, isolated_db):
         pytest.importorskip("jieba")
         did, _ = _title_with_slips(isolated_db)
-        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        misheard_service.keep_as_heard(did, "納羅赫", "納洛赫")
         out = misheard_service.find_for_title(did)
         assert out["suggestions"] == [] and out["kept_count"] == 1
         assert misheard_service.show_kept_again(did) == {"cleared": 1}
@@ -195,16 +195,16 @@ class TestKeepAsHeard:
     def test_the_kept_count_ignores_words_since_edited_away(self, isolated_db):
         pytest.importorskip("jieba")
         did, ids = _title_with_slips(isolated_db)
-        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
-        misheard_service.apply(did, "亞羅赫", "亞洛赫")
+        misheard_service.keep_as_heard(did, "納羅赫", "納洛赫")
+        misheard_service.apply(did, "納羅赫", "納洛赫")
         assert misheard_service.find_for_title(did)["kept_count"] == 0
 
     def test_keeping_twice_stores_one_row_and_is_per_title(self, isolated_db):
         did, _ = _title_with_slips(isolated_db)
         other = db.create_drama(title_en="U", source_language="zh")
-        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
-        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
-        assert db.list_misheard_keeps(did) == [("亞羅赫", "亞洛赫")]
+        misheard_service.keep_as_heard(did, "納羅赫", "納洛赫")
+        misheard_service.keep_as_heard(did, "納羅赫", "納洛赫")
+        assert db.list_misheard_keeps(did) == [("納羅赫", "納洛赫")]
         assert db.list_misheard_keeps(other) == []
 
     def test_keep_refuses_empty_or_identical_spellings(self, isolated_db):
@@ -214,27 +214,27 @@ class TestKeepAsHeard:
 
     def test_deleting_the_title_removes_its_keeps(self, isolated_db):
         did, _ = _title_with_slips(isolated_db)
-        misheard_service.keep_as_heard(did, "亞羅赫", "亞洛赫")
+        misheard_service.keep_as_heard(did, "納羅赫", "納洛赫")
         db.delete_drama(did)
         assert db.list_misheard_keeps(did) == []
 
 
 def test_kept_pairs_are_dropped_before_the_cap():
-    lines = _lines("亞羅赫來了"[:4], "亞洛赫說"[:4])
-    trusted = [("亞洛", "glossary")]
-    assert mf.find_misheard(lines, trusted, cut)["suggestions"][0]["heard"] == "亞羅"
-    assert mf.find_misheard(lines, trusted, cut, skip={("亞羅", "亞洛")})["suggestions"] == []
+    lines = _lines("納羅赫來了"[:4], "納洛赫說"[:4])
+    trusted = [("納洛", "glossary")]
+    assert mf.find_misheard(lines, trusted, cut)["suggestions"][0]["heard"] == "納羅"
+    assert mf.find_misheard(lines, trusted, cut, skip={("納羅", "納洛")})["suggestions"] == []
 
 
 class TestSafeEverywhere:
     def test_replace_skips_the_heard_spelling_inside_a_longer_ordinary_word(self, monkeypatch):
-        monkeypatch.setattr(misheard_service, "_in_dictionary", lambda w: w == "亞羅斯")
-        cut = lambda t: ["亞羅斯", "亞羅", "來了"]  # noqa: E731
-        out = misheard_service._replace("亞羅斯亞羅來了", "亞羅", "亞洛", (cut, lambda w: w))
-        assert out == "亞羅斯亞洛來了"
+        monkeypatch.setattr(misheard_service, "_in_dictionary", lambda w: w == "納羅斯")
+        cut = lambda t: ["納羅斯", "納羅", "來了"]  # noqa: E731
+        out = misheard_service._replace("納羅斯納羅來了", "納羅", "納洛", (cut, lambda w: w))
+        assert out == "納羅斯納洛來了"
 
     def test_replace_without_the_word_cutter_changes_every_occurrence(self):
-        assert misheard_service._replace("亞羅亞羅", "亞羅", "亞洛", None) == "亞洛亞洛"
+        assert misheard_service._replace("納羅納羅", "納羅", "納洛", None) == "納洛納洛"
 
     def test_replace_leaves_a_longer_typed_spelling_alone(self):
         out = misheard_service._replace("楊若鶴說楊若", "楊若", "雅若", None, ["楊若鶴"])
@@ -244,19 +244,19 @@ class TestSafeEverywhere:
         did, ids = _title_with_slips(isolated_db)
         sid = db.get_drama(did)["series_id"]
         [term] = db.list_glossary_terms(sid)
-        db.upsert_glossary_term(sid, term["term_original"], "Yaloch", aliases="亞洛哈")
-        out = misheard_service.remember_spelling(did, "洛哈", "亞洛赫", term["id"])
+        db.upsert_glossary_term(sid, term["term_original"], "Naloch", aliases="納洛哈")
+        out = misheard_service.remember_spelling(did, "洛哈", "納洛赫", term["id"])
         assert out["aliases_added"] == 0
-        assert db.list_glossary_terms(sid)[0]["aliases"] == "亞洛哈"
+        assert db.list_glossary_terms(sid)[0]["aliases"] == "納洛哈"
 
     def test_remember_rewrites_lines_with_one_snapshot_and_saves_the_alias(self, isolated_db):
         did, ids = _title_with_slips(isolated_db)
         sid = db.get_drama(did)["series_id"]
         [term] = db.list_glossary_terms(sid)
-        out = misheard_service.remember_spelling(did, "亞羅赫", "亞洛赫", term["id"])
+        out = misheard_service.remember_spelling(did, "納羅赫", "納洛赫", term["id"])
         assert out == {"applied": 2, "skipped": 0, "aliases_added": 1}
-        assert [ln.zh for ln in db.load_line_objects(did)][:2] == ["亞洛赫來了", "亞洛赫說話"]
-        assert db.list_glossary_terms(sid)[0]["aliases"] == "亞羅赫"
+        assert [ln.zh for ln in db.load_line_objects(did)][:2] == ["納洛赫來了", "納洛赫說話"]
+        assert db.list_glossary_terms(sid)[0]["aliases"] == "納羅赫"
         assert db.list_line_history(did)[0]["label"] == "before mis-heard word fix"
 
     def test_remember_writes_the_alias_the_card_suggested_not_the_main_spelling(self, isolated_db, monkeypatch):
@@ -278,8 +278,8 @@ class TestSafeEverywhere:
         db.upsert_glossary_term(sid, "別人", "Other", aliases="")
         other = [t for t in db.list_glossary_terms(sid) if t["term_original"] == "別人"][0]
         with pytest.raises(InvalidInputError):
-            misheard_service.remember_spelling(did, "亞羅赫", "亞洛赫", other["id"])
-        assert db.load_line_objects(did)[0].zh == "亞羅赫來了" and db.list_line_history(did) == []
+            misheard_service.remember_spelling(did, "納羅赫", "納洛赫", other["id"])
+        assert db.load_line_objects(did)[0].zh == "納羅赫來了" and db.list_line_history(did) == []
 
 
 def test_a_simplified_glossary_term_is_suggested_in_a_traditional_titles_script(isolated_db):
@@ -287,11 +287,11 @@ def test_a_simplified_glossary_term_is_suggested_in_a_traditional_titles_script(
     pytest.importorskip("opencc")
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="zh", chinese_script="traditional")
-    db.upsert_glossary_term(sid, "亚洛赫", "Yaloch", aliases="")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="亞羅赫來了", en=""),
-                        Line(idx=1, start=1, end=2, zh="亞羅赫說話", en="")])
+    db.upsert_glossary_term(sid, "纳洛赫", "Naloch", aliases="")
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="納羅赫來了", en=""),
+                        Line(idx=1, start=1, end=2, zh="納羅赫說話", en="")])
     [item] = misheard_service.find_for_title(did)["suggestions"]
-    assert item["suggested"] == "亞洛赫" and item["term_id"] is not None
+    assert item["suggested"] == "納洛赫" and item["term_id"] is not None
     out = misheard_service.remember_spelling(did, item["heard"], item["suggested"], item["term_id"])
     assert out["applied"] == 2
-    assert [ln.zh for ln in db.load_line_objects(did)] == ["亞洛赫來了", "亞洛赫說話"]
+    assert [ln.zh for ln in db.load_line_objects(did)] == ["納洛赫來了", "納洛赫說話"]

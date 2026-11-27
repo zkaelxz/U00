@@ -24,8 +24,8 @@ describe('UndoNotice', () => {
 
 describe('UndoNotice without a line-history copy', () => {
   it('leaves out the Records fallback', () => {
-    const html = renderToStaticMarkup(<UndoNotice message="Line #3 is now Anok." busy={false} historyNote={false} onUndo={() => {}} onDismiss={() => {}} />)
-    expect(html).toContain('Line #3 is now Anok.')
+    const html = renderToStaticMarkup(<UndoNotice message="Line #3 is now Maple." busy={false} historyNote={false} onUndo={() => {}} onDismiss={() => {}} />)
+    expect(html).toContain('Line #3 is now Maple.')
     expect(html).not.toContain('Records → Line history')
   })
 })

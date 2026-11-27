@@ -11,15 +11,15 @@ test.beforeEach(async ({ page }) => {
 // mocked term route, and only after the confirm.
 
 const TERMS = [
-  { id: 11, term_original: 'ヤロ', term_translation: 'Yalo', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] },
+  { id: 11, term_original: 'ナロ', term_translation: 'Nalo', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] },
 ]
 const BASE = '**/api/glossary/dramas/1/spelling-suggestions'
 
 const done = (over = {}) => ({
   job_id: 'spelling_suggest_1', status: 'done', progress: 1, message: '', run_id: 'r1',
   result: {
-    term: 'ヤロ', english: 'Yalo', unusable: false, lines_scanned: 120, truncated: false,
-    proposals: [{ text: 'ヤロック', count: 3, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ヤロックはどこだ' }] }],
+    term: 'ナロ', english: 'Nalo', unusable: false, lines_scanned: 120, truncated: false,
+    proposals: [{ text: 'ナロック', count: 3, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ナロックはどこだ' }] }],
     ...over,
   },
 })
@@ -29,8 +29,8 @@ async function openPanel(page: Page, mockTerms = true) {
   await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expect(glossary.getByRole('tab', { name: 'Terms', exact: true })).toBeVisible()
-  await glossary.getByRole('button', { name: 'Suggest spellings of ヤロ' }).click()
-  return glossary.getByRole('region', { name: 'Suggest spellings of ヤロ' })
+  await glossary.getByRole('button', { name: 'Suggest spellings of ナロ' }).click()
+  return glossary.getByRole('region', { name: 'Suggest spellings of ナロ' })
 }
 
 // Idle until a start is posted, then the given status.
@@ -55,27 +55,27 @@ test('suggests spellings from the English name and adds one only after confirmin
   await page.route('**/api/glossary/dramas/1/terms', (route) => {
     if (route.request().method() === 'POST') {
       saved.push(route.request().postDataJSON())
-      return route.fulfill({ json: { ...TERMS[0], aliases: ['ヤロック'] } })
+      return route.fulfill({ json: { ...TERMS[0], aliases: ['ナロック'] } })
     }
     return route.fulfill({ json: TERMS })
   })
   const panel = await openPanel(page, false)
-  await expect(panel.getByRole('textbox', { name: 'Name in English' })).toHaveValue('Yalo')
+  await expect(panel.getByRole('textbox', { name: 'Name in English' })).toHaveValue('Nalo')
   await panel.getByRole('textbox', { name: 'Name in English' }).fill('Yaro')
   await panel.getByRole('button', { name: 'Suggest spellings', exact: true }).click()
-  await expect(panel).toContainText('ヤロック')
+  await expect(panel).toContainText('ナロック')
   await expect(panel).toContainText('3 mentions in the lines')
-  await expect(panel).toContainText('#5 ヤロックはどこだ')
+  await expect(panel).toContainText('#5 ナロックはどこだ')
   expect(started).toEqual([{ term_id: 11, english: 'Yaro' }])
   expect(saved).toHaveLength(0)
 
-  await panel.getByRole('button', { name: 'Add ヤロック as alias' }).click()
+  await panel.getByRole('button', { name: 'Add ナロック as alias' }).click()
   await panel.getByRole('button', { name: 'Cancel' }).click()
   expect(saved).toHaveLength(0)
-  await panel.getByRole('button', { name: 'Add ヤロック as alias' }).click()
+  await panel.getByRole('button', { name: 'Add ナロック as alias' }).click()
   await panel.getByRole('button', { name: 'Yes, add alias' }).click()
   await expect(panel.getByText('Added as an alias.')).toBeVisible()
-  expect(saved).toEqual([{ id: 11, aliases: ['ヤロック'] }])
+  expect(saved).toEqual([{ id: 11, aliases: ['ナロック'] }])
 })
 
 test('an unusable model answer says so plainly and lists nothing', async ({ page }) => {
@@ -131,17 +131,17 @@ test('a running suggestion can be cancelled', async ({ page }) => {
 test('the English name check lists lines that render the name differently', async ({ page }) => {
   await page.route('**/api/glossary/dramas/1/name-consistency?*', (route) => route.fulfill({
     json: {
-      term: 'ヤロ', english: 'Yalo', available: true, reason: '', lines_with_name: 4, untranslated: 1, consistent: 1,
-      differing: [{ line_idx: 2, source: 'ヤロが来た', english: 'Yaloch came' }, { line_idx: 3, source: 'ヤロも来た', english: 'Yalou came too' }],
-      other_words: ['Yaloch', 'Yalou'], lines_scanned: 4, truncated: true, more_rows: false,
+      term: 'ナロ', english: 'Nalo', available: true, reason: '', lines_with_name: 4, untranslated: 1, consistent: 1,
+      differing: [{ line_idx: 2, source: 'ナロが来た', english: 'Naloch came' }, { line_idx: 3, source: 'ナロも来た', english: 'Nalou came too' }],
+      other_words: ['Naloch', 'Nalou'], lines_scanned: 4, truncated: true, more_rows: false,
     },
   }))
   await page.route(BASE, (route) => route.fulfill({ json: { job_id: '', status: 'idle', progress: 0, message: '', run_id: null, result: null } }))
   const panel = await openPanel(page)
   await panel.getByRole('button', { name: 'Check English names' }).click()
   const check = panel.getByRole('region', { name: 'English name check' })
-  await expect(check).toContainText('2 of 4 lines do not use “Yalo”')
-  await expect(check).toContainText('Yaloch came')
+  await expect(check).toContainText('2 of 4 lines do not use “Nalo”')
+  await expect(check).toContainText('Naloch came')
   await expect(check).toContainText('Only the first 4 lines were checked.')
-  await expect(check).toContainText('Other capitalised words in those lines: Yaloch, Yalou.')
+  await expect(check).toContainText('Other capitalised words in those lines: Naloch, Nalou.')
 })

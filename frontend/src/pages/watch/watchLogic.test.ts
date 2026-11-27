@@ -442,8 +442,8 @@ describe('lines to check', () => {
 
 describe('speakerSlots', () => {
   it('numbers speakers by first appearance and skips lines with none', () => {
-    const slots = speakerSlots([line(1, 1, 2, { speaker: 'Chion' }), line(2, 3, 4), line(3, 5, 6, { speaker: 'Anok' }), line(4, 7, 8, { speaker: 'Chion' })])
-    expect([...slots]).toEqual([['Chion', 0], ['Anok', 1]])
+    const slots = speakerSlots([line(1, 1, 2, { speaker: 'Birch' }), line(2, 3, 4), line(3, 5, 6, { speaker: 'Maple' }), line(4, 7, 8, { speaker: 'Birch' })])
+    expect([...slots]).toEqual([['Birch', 0], ['Maple', 1]])
   })
 
   it('wraps after the colours the page defines, so a crowded stream repeats rather than fails', () => {

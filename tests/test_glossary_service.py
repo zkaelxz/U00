@@ -256,11 +256,11 @@ class TestCsvIncludesSharedTerms:
     def test_export_carries_shared_terms_and_the_series_wins_on_a_clash(self, isolated_db):
         did, sid = _drama(isolated_db)
         gid = isolated_db.create_shared_glossary_group("Streamer", None)
-        isolated_db.save_shared_glossary_term(gid, None, "ヤロ", "Yalo", "", None, None, 0, "", "")
+        isolated_db.save_shared_glossary_term(gid, None, "ナロ", "Nalo", "", None, None, 0, "", "")
         isolated_db.save_shared_glossary_term(gid, None, "共通", "Shared word", "", None, None, 0, "", "")
         isolated_db.set_series_shared_group(sid, gid)
-        gs.upsert_glossary_term(did, {"term_original": "ヤロ", "term_translation": "Own Yalo"})
+        gs.upsert_glossary_term(did, {"term_original": "ナロ", "term_translation": "Own Nalo"})
         other, _ = _drama(isolated_db, name="B")
         gs.import_glossary_text(other, gs.glossary_csv(did), "g.csv")
         got = {t["term_original"]: t["term_translation"] for t in gs.list_glossary_terms(other)}
-        assert got == {"ヤロ": "Own Yalo", "共通": "Shared word"}
+        assert got == {"ナロ": "Own Nalo", "共通": "Shared word"}

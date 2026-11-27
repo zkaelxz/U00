@@ -100,13 +100,13 @@ class TestRename:
 class TestStreamer:
     def test_set_shows_on_list_and_page_and_never_borrows_a_hidden_spelling(self, world):
         c = _remote(_app())
-        db.set_series_streamer(world["secret"], "Chion")
-        r = c.post(f"/api/series/{world['saga']}/streamer", headers=world["a"], json={"streamer": "chion"})
+        db.set_series_streamer(world["secret"], "Birch")
+        r = c.post(f"/api/series/{world['saga']}/streamer", headers=world["a"], json={"streamer": "birch"})
         assert r.status_code == 200, r.text
-        assert r.json() == {"series_id": world["saga"], "streamer": "chion"}
+        assert r.json() == {"series_id": world["saga"], "streamer": "birch"}
         items = {s["name"]: s["streamer"] for s in c.get("/api/series", headers=world["a"]).json()["items"]}
-        assert items["Saga"] == "chion" and items["Other"] is None
-        assert c.get(f"/api/series/{world['saga']}", headers=world["a"]).json()["streamer"] == "chion"
+        assert items["Saga"] == "birch" and items["Other"] is None
+        assert c.get(f"/api/series/{world['saga']}", headers=world["a"]).json()["streamer"] == "birch"
 
     def test_other_users_private_series_is_404_and_extra_fields_422(self, world):
         c = _remote(_app())

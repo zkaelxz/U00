@@ -26,13 +26,13 @@ def alike(a, b, lang="ja"):
 class TestJapanese:
     def test_long_vowel_and_kana_script_do_not_change_the_key(self):
         # ー, ウ after オ and hiragana vs katakana are the same sound: one name.
-        assert key("ヤロ") == key("ヤロー") == key("ヤロウ") == key("やろ")
+        assert key("ナロ") == key("ナロー") == key("ナロウ") == key("なろ")
 
     def test_trailing_sound_is_a_variant_but_a_different_sound_is_not(self):
-        assert alike("ヤロ", "ヤロック")      # ASR added a trailing ッ + ク
-        assert not alike("ヤロ", "ヤヤ")      # different consonant AND vowel: the owner adds it by hand
+        assert alike("ナロ", "ナロック")      # ASR added a trailing ッ + ク
+        assert not alike("ナロ", "ヤヤ")      # different consonant AND vowel: the owner adds it by hand
         assert not alike("ミキ", "ミカ")      # Miki and Mika are two people (short key, no slack)
-        assert not alike("アキラ", "ヤロ")
+        assert not alike("アキラ", "ナロ")
 
     def test_voiced_unvoiced_and_small_kana_are_tolerated(self):
         assert key("ガクト") == key("カクト")
@@ -48,23 +48,23 @@ class TestJapanese:
         assert not alike("サクラコ", "ヒロシ")
 
     def test_halfwidth_forms_match(self):
-        assert key("ﾔﾛｰ") == key("ヤロー")
+        assert key("ﾅﾛｰ") == key("ナロー")
 
     def test_cross_script_with_latin(self):
-        assert key("ヤロ", "ja") == key("Yalo", "ja")
+        assert key("ナロ", "ja") == key("Nalo", "ja")
 
 
 @needs_pypinyin
 class TestChinese:
     def test_tones_and_script_do_not_matter(self):
-        # 亚洛 / 雅洛 / 亚罗 / 亞洛 all read ya-luo without tones.
-        assert (key("亚洛", "zh") == key("雅洛", "zh") == key("亚罗", "zh")
-                == key("亞洛", "zh") == "yaluo")
+        # 纳洛 / 雅洛 / 纳罗 / 納洛 all read ya-luo without tones.
+        assert (key("纳洛", "zh") == key("雅洛", "zh") == key("纳罗", "zh")
+                == key("納洛", "zh") == "yaluo")
 
     def test_accent_confusions_are_folded_but_other_sounds_are_not(self):
         assert key("陈", "zh") == key("成", "zh")            # chen / cheng: -n vs -ng folded
         assert not alike("兰", "然", "zh")                   # lan and ran are different people
-        assert not alike("亚洛", "沈清疑", "zh")
+        assert not alike("纳洛", "沈清疑", "zh")
 
     def test_punctuation_is_skipped(self):
         assert key("亚·洛", "zh") == "yaluo"
@@ -87,12 +87,12 @@ class TestKorean:
 
 class TestLatin:
     def test_owner_example(self):
-        # Yalo / Yalou are the same sound; Yaloch only adds a trailing sound.
-        assert key("Yalo", "en") == key("Yalou", "en")
-        assert alike("Yalo", "Yaloch", "en")
+        # Nalo / Nalou are the same sound; Naloch only adds a trailing sound.
+        assert key("Nalo", "en") == key("Nalou", "en")
+        assert alike("Nalo", "Naloch", "en")
 
     def test_unrelated_names_do_not_match(self):
-        assert not alike("Yalo", "Marcus", "en")
+        assert not alike("Nalo", "Marcus", "en")
         assert not alike("Mika", "Miki", "en")
 
     def test_case_accents_and_punctuation_are_ignored(self):
@@ -114,11 +114,11 @@ class TestSimilarRule:
         assert ph.key_distance("sakul", "sakun") == pytest.approx(0.2)
 
     def test_tail_edits_are_cheaper_than_inner_ones(self):
-        assert ph.key_distance("yalo", "yaloku") < ph.key_distance("yalo", "yamoku")
-        assert ph.key_distance("yalo", "yaloku") == pytest.approx(ph.TAIL_EDIT_COST * 2 / 6)
+        assert ph.key_distance("nalo", "naloku") < ph.key_distance("nalo", "yamoku")
+        assert ph.key_distance("nalo", "naloku") == pytest.approx(ph.TAIL_EDIT_COST * 2 / 6)
 
     def test_distance_is_symmetric_and_bounded(self):
-        for a, b in [("yalo", "yaloku"), ("abc", "xyz"), ("", "a")]:
+        for a, b in [("nalo", "naloku"), ("abc", "xyz"), ("", "a")]:
             assert ph.key_distance(a, b) == ph.key_distance(b, a)
             assert 0 <= ph.key_distance(a, b) <= 1
 
@@ -126,8 +126,8 @@ class TestSimilarRule:
 class TestWorkBounds:
     def test_length_gap_alone_rules_out_a_match(self):
         # 4 vs 9 letters: even with half-price tail edits that is far over the threshold.
-        assert not ph.similar("yalo", "yalokumoto", "ja")
-        assert ph.similar("yalo", "yaloku", "ja")
+        assert not ph.similar("nalo", "nalokumoto", "ja")
+        assert ph.similar("nalo", "naloku", "ja")
 
     def test_very_long_keys_only_match_when_identical(self):
         long = "a" * (ph.MAX_KEY_LEN + 1)
@@ -166,7 +166,7 @@ class TestAvailability:
         with pytest.raises(ph.PhoneticUnavailable):
             ph.phonetic_key("山田", "ja")
         with pytest.raises(ph.PhoneticUnavailable):
-            ph.phonetic_key("亚洛", "zh")
-        assert ph.phonetic_key("ヤロ", "ja") == "yalo"   # kana alone needs no library
+            ph.phonetic_key("纳洛", "zh")
+        assert ph.phonetic_key("ナロ", "ja") == "nalo"   # kana alone needs no library
         ph._kanji_to_hira.cache_clear()
         ph._hanzi_pinyin.cache_clear()

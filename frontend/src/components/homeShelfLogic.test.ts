@@ -5,12 +5,12 @@ import type { LibraryNeedsYouEntry, LibraryReadyEntry, LibraryRunningEntry } fro
 import { formatLength, kindTag, needsRow, readyCard, readyOrder, runningLine, timeLeft } from './homeShelfLogic'
 
 const ready = (over: Partial<LibraryReadyEntry> = {}): LibraryReadyEntry => ({
-  drama_id: 4, title: 'Chion: karaoke', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
+  drama_id: 4, title: 'Birch: karaoke', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
   updated_at: null, read_percent: 0, length_seconds: 7500, page_count: 0, watched_seconds: 0, watched_at: null, unsure_count: 0, ...over,
 })
 
 const needs = (over: Partial<LibraryNeedsYouEntry>): LibraryNeedsYouEntry => ({
-  drama_id: 7, title: 'Anok collab', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
+  drama_id: 7, title: 'Maple collab', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
   updated_at: null, kind: 'failed', step: 'translate', reason: null, risk_count: null, series_id: null, hold_kind: null, ...over,
 })
 
@@ -76,13 +76,13 @@ describe('needsRow', () => {
 
 describe('runningLine', () => {
   const entry = (over: Partial<LibraryRunningEntry>): LibraryRunningEntry => ({
-    drama_id: 1, title: 'Chion: game night', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
+    drama_id: 1, title: 'Birch: game night', media_type: 'streamer_vod', content_mode: 'streamer_vod', has_cover_art: false,
     updated_at: null, step: 'transcribe', status: 'running', job_id: 'transcribe_1', started_at: null, ...over,
   })
   it('shows the running step with its progress, time left and how many wait', () => {
     const jobs = [{ job_id: 'transcribe_1', progress: 0.5, started_at: 1000 } as JobRecord]
     const line = runningLine([entry({ status: 'waiting', drama_id: 2, title: 'Other' }), entry({})], 2, jobs, 1600)
-    expect(line).toEqual({ text: 'Transcribing Chion: game night', progress: 0.5, left: '10 min left', waiting: '1 more is waiting its turn' })
+    expect(line).toEqual({ text: 'Transcribing Birch: game night', progress: 0.5, left: '10 min left', waiting: '1 more is waiting its turn' })
   })
   it('is null when nothing runs or waits', () => {
     expect(runningLine([], 0, [], 0)).toBeNull()

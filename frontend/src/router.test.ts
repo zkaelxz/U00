@@ -161,8 +161,8 @@ describe('parseRoute', () => {
     expect(parseRoute('#/series/3?tab=bogus')).toEqual({ name: 'series', id: 3 })
     expect(parseRoute('#/series')).toEqual({ name: 'series-list' })
     expect(routeHref({ name: 'series-list' })).toBe('#/series')
-    expect(parseRoute('#/series?streamer=Chion%20%E5%B8%8C%E7%BF%81')).toEqual({ name: 'series-list', streamer: 'Chion 希翁' })
-    expect(routeHref({ name: 'series-list', streamer: 'Chion 希翁' })).toBe('#/series?streamer=Chion%20%E5%B8%8C%E7%BF%81')
+    expect(parseRoute('#/series?streamer=Birch%20%E5%B8%8C%E7%BF%81')).toEqual({ name: 'series-list', streamer: 'Birch 德塔' })
+    expect(routeHref({ name: 'series-list', streamer: 'Birch 德塔' })).toBe('#/series?streamer=Birch%20%E5%B8%8C%E7%BF%81')
     expect(parseRoute('#/series?streamer=')).toEqual({ name: 'series-list', streamer: '' })
     expect(parseRoute(routeHref({ name: 'series-list', streamer: '' }))).toEqual({ name: 'series-list', streamer: '' })
     for (const h of ['#/series/0', '#/series/x', '#/series/3/extra']) {

@@ -125,7 +125,7 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   await page.getByRole('button', { name: 'Rename series' }).click()
 
   await expect(page.getByRole('button', { name: 'Save streamer' })).toBeDisabled()
-  await page.getByTestId('series-streamer').fill('Chion 希翁')
+  await page.getByTestId('series-streamer').fill('Birch 德塔')
   await page.getByRole('button', { name: 'Save streamer' }).click()
 
   await page.getByRole('button', { name: 'Delete series…' }).click()
@@ -142,7 +142,7 @@ test('opens a series from the Library and uses every tab', async ({ page }) => {
   expect(posts).toEqual([
     { path: '/api/series/9/copy-terms', body: { source_series_id: 12 } },
     { path: '/api/series/9/rename', body: { name: 'Saga II' } },
-    { path: '/api/series/9/streamer', body: { streamer: 'Chion 希翁' } },
+    { path: '/api/series/9/streamer', body: { streamer: 'Birch 德塔' } },
     { path: '/api/series/9/delete', body: { confirm: true, confirm_text: 'DELETE' } },
   ])
 })

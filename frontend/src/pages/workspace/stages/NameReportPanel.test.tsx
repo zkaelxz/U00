@@ -5,13 +5,13 @@ import type { NameReportGroup } from '../../../types/translateStage'
 import { ApplyForm, GroupCard, NameReportPanel } from './NameReportPanel'
 
 const group = (over: Partial<NameReportGroup> = {}): NameReportGroup => ({
-  key: 'yalo', canonical: 'Yalo', total: 6, titles_total: 3, mark: null,
-  variants: [{ text: 'Yalo', count: 4 }, { text: 'Yaloch', count: 2 }],
+  key: 'nalo', canonical: 'Nalo', total: 6, titles_total: 3, mark: null,
+  variants: [{ text: 'Nalo', count: 4 }, { text: 'Naloch', count: 2 }],
   titles: [
-    { drama_id: 1, title: 'Alpha Stream', count: 4, in_glossary: true, glossary_term: 'Yalo', glossary_english: 'Yarrow' },
+    { drama_id: 1, title: 'Alpha Stream', count: 4, in_glossary: true, glossary_term: 'Nalo', glossary_english: 'Yarrow' },
     { drama_id: 2, title: 'Beta Stream', count: 2, in_glossary: false, glossary_term: null, glossary_english: null },
   ],
-  examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Yaloch left' }],
+  examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Naloch left' }],
   ...over,
 })
 
@@ -39,17 +39,17 @@ describe('GroupCard', () => {
   it('shows the counts, spellings, titles with their glossary state and an example line', () => {
     const html = card(group())
     expect(html).toContain('3 titles · 6 mentions')
-    expect(html).toContain('Yaloch <span class="muted">×2</span>')
-    expect(html).toContain('in glossary as “Yalo” → “Yarrow”')
+    expect(html).toContain('Naloch <span class="muted">×2</span>')
+    expect(html).toContain('in glossary as “Nalo” → “Yarrow”')
     expect(html).toContain('not in glossary')
-    expect(html).toContain('Beta Stream #5: then Yaloch left')
+    expect(html).toContain('Beta Stream #5: then Naloch left')
     expect(html).toContain('and 1 more')
   })
 
   it('has Right, Wrong and Skip with tooltips, and marks the current one pressed', () => {
     const html = card(group({ mark: 'wrong' }))
-    for (const label of ['Mark Yalo right', 'Mark Yalo wrong', 'Mark Yalo skip']) expect(html).toContain(`aria-label="${label}"`)
-    expect(html).toMatch(/aria-pressed="true"[^>]*aria-label="Mark Yalo wrong"/)
+    for (const label of ['Mark Nalo right', 'Mark Nalo wrong', 'Mark Nalo skip']) expect(html).toContain(`aria-label="${label}"`)
+    expect(html).toMatch(/aria-pressed="true"[^>]*aria-label="Mark Nalo wrong"/)
     expect(html).toContain('title="These are different names.')
     expect(html).toContain('Undo mark')
   })
@@ -64,7 +64,7 @@ describe('GroupCard', () => {
   })
 
   it('disables the marks while one is being saved', () => {
-    expect(card(group(), true)).toMatch(/disabled=""[^>]*aria-label="Mark Yalo right"|aria-label="Mark Yalo right"[^>]*disabled=""/)
+    expect(card(group(), true)).toMatch(/disabled=""[^>]*aria-label="Mark Nalo right"|aria-label="Mark Nalo right"[^>]*disabled=""/)
   })
 })
 

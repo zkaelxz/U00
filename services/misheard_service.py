@@ -89,8 +89,8 @@ def _canon_of(drama: dict):
 
 
 def _replace(text: str, heard: str, suggested: str, tools, known=()) -> str:
-    """Replace `heard` everywhere in `text` except inside a longer ordinary word (亞羅 must not
-    change inside 亞羅斯) or a longer spelling the person typed, such as an alias (楊若 inside
+    """Replace `heard` everywhere in `text` except inside a longer ordinary word (納羅 must not
+    change inside 納羅斯) or a longer spelling the person typed, such as an alias (楊若 inside
     the alias 楊若鶴). Without the word cutter only the typed spellings protect."""
     protected: List[Tuple[int, int]] = []
     for word in known:

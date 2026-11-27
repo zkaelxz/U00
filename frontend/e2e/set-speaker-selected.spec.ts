@@ -17,7 +17,7 @@ function seedSpokenLines(count: number): void {
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
 db.update_drama(3, audio_filename=None, source_video_filename=None)
-db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', speaker='Anok' if i % 2 else 'Yamizuki Fuyu') for i in range(${count})])
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', speaker='Maple' if i % 2 else 'Yamizuki Fuyu') for i in range(${count})])
 `
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
 }
@@ -43,11 +43,11 @@ test('tick lines low on the page, Set speaker opens in view and changes them all
   await expect(panel).toBeInViewport()
   // One button per speaker the title has: pressing one sets it on every ticked line.
   await expect(panel).toContainText('Speaker for 5 lines')
-  await panel.getByRole('button', { name: 'Anok', exact: true }).click()
-  await expect(panel.getByRole('status')).toContainText('Set the speaker of 5 lines to Anok.')
+  await panel.getByRole('button', { name: 'Maple', exact: true }).click()
+  await expect(panel.getByRole('status')).toContainText('Set the speaker of 5 lines to Maple.')
   for (const n of [35, 36, 37, 38, 39]) {
     const row = page.locator('.review-line').filter({ has: tickBox(page, n) })
-    await expect(row).toContainText('Anok')
+    await expect(row).toContainText('Maple')
     await expect(row).not.toContainText('Yamizuki Fuyu')
   }
   await expect(page.locator('.review-line').filter({ has: tickBox(page, 33) })).toContainText('Yamizuki Fuyu')
@@ -73,14 +73,14 @@ test('the speaker name on a line is a button: pick another speaker and it is sav
   const row = (n: number) => page.locator('.review-line').filter({ has: tickBox(page, n) })
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
 
-  // Line 2 is Anok; its name opens the title's speakers.
+  // Line 2 is Maple; its name opens the title's speakers.
   await row(2).getByRole('button', { name: /Change it/ }).click()
   const list = page.getByRole('group', { name: 'Choose a speaker' })
   await expect(list.getByRole('button', { name: 'Yamizuki Fuyu' })).toBeVisible()
   await list.getByRole('button', { name: 'Yamizuki Fuyu' }).click()
   await expect(list).toHaveCount(0)
   await expect(row(2).getByRole('button', { name: /Change it/ })).toHaveText('Yamizuki Fuyu')
-  await expect(row(4).getByRole('button', { name: /Change it/ })).toHaveText('Anok')
+  await expect(row(4).getByRole('button', { name: /Change it/ })).toHaveText('Maple')
 
   await row(2).getByRole('button', { name: /Change it/ }).click()
   await page.getByLabel('New speaker').fill('Sensei')

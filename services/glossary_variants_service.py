@@ -2,7 +2,7 @@
 services/glossary_variants_service.py -- find the sound-alike spellings of a glossary
 term in a title's source lines, and the names that recur under several spellings.
 
-ASR writes one person several slightly different ways (Yalo / Yaloch / ヤロー), so an
+ASR writes one person several slightly different ways (Nalo / Naloch / ナロー), so an
 exact-text term or alias matches only some mentions. These two read-only scans point
 at the other spellings; they never change the glossary. The user confirms each
 candidate, and the existing term routes do the saving.
@@ -10,7 +10,7 @@ candidate, and the existing term routes do the saving.
 Offline and free: no engine, no network. Sounds come from glossary_phonetic. A scan reads
 at most SCAN_MAX_LINES lines / SCAN_MAX_CHARS characters and says so when it stopped early.
 
-Spellings that merely extend an exact mention (ヤロ + が) are not offered: the exact text
+Spellings that merely extend an exact mention (ナロ + が) are not offered: the exact text
 already finds them, and they would flood the list.
 
 Title visibility is checked by the route's `{drama_id}` path guard (api/auth.py). No

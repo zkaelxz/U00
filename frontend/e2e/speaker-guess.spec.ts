@@ -21,10 +21,10 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(7)
 
   // The best-supported speaker comes first; named lines get no buttons.
-  await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Anok/])
+  await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Maple/])
   await expect(guesses(page, 2).getByRole('button', { name: 'Cray: Same as the line below and what speaker detection heard' })).toBeVisible()
   await expect(guesses(page, 1)).toHaveCount(0)
-  await expect(guesses(page, 6).getByRole('button')).toHaveText([/Anok/, /Cray/])
+  await expect(guesses(page, 6).getByRole('button')).toHaveText([/Maple/, /Cray/])
 
   // N goes to the first line with no speaker after the open one; 1 takes its first guess and moves to the next one.
   await row(page, 1).click()
@@ -37,20 +37,20 @@ for (const view of ['full', 'simple'] as const) test(`fill blank speakers from t
   await expect(row(page, 3)).toBeFocused()
 
   // #3 now has Cray above and below; 2 takes the voice guess instead.
-  await expect(guesses(page, 3).getByRole('button')).toHaveText([/Cray/, /Anok/])
+  await expect(guesses(page, 3).getByRole('button')).toHaveText([/Cray/, /Maple/])
   await page.keyboard.press('2')
-  await expect(row(page, 3).locator('.review-speaker')).toHaveText('Anok')
+  await expect(row(page, 3).locator('.review-speaker')).toHaveText('Maple')
   await expect(row(page, 6)).toBeFocused()
 
   // A click sets the speaker too, and stays on the line.
   await guesses(page, 6).getByRole('button', { name: /^Cray/ }).click()
   await expect(row(page, 6).locator('.review-speaker')).toHaveText('Cray')
   await expect(page.getByRole('button', { name: /Next with no speaker/ })).toHaveCount(0)
-  expect(speakers()).toEqual(['Anok', 'Cray', 'Anok', 'Cray', 'Anok', 'Cray', 'Cray'])
+  expect(speakers()).toEqual(['Maple', 'Cray', 'Maple', 'Cray', 'Maple', 'Cray', 'Cray'])
 
   // Undo puts the last one back to no speaker, with its buttons.
   await page.getByTestId('speaker-undo').getByRole('button', { name: 'Undo' }).click()
-  await expect(guesses(page, 6).getByRole('button')).toHaveText([/Anok/, /Cray/])
+  await expect(guesses(page, 6).getByRole('button')).toHaveText([/Maple/, /Cray/])
   await expect(page.getByRole('button', { name: 'Next with no speaker (1) ›' })).toBeVisible()
   expect(speakers()[5] || null).toBeNull()
 
@@ -72,7 +72,7 @@ test('a line with no speaker is in Simple\'s Need a look, and taking a speaker m
   await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(3)
   // The open card is the first one; a closed card gives its reason in a few words.
   await expect(card(page, 3).getByTestId('queue-reason')).toHaveText('No speaker yet')
-  await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Anok/])
+  await expect(guesses(page, 2).getByRole('button')).toHaveText([/Cray/, /Maple/])
 
   // 1 takes the first guess; the line leaves the queue and the next card opens, not the first.
   await card(page, 2).click()
@@ -97,9 +97,9 @@ test('a flagged card with no speaker stays open after its speaker is picked, and
   await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
   await expect(card(page, 3).locator('.review-speaker')).toHaveCount(0)
 
-  await guesses(page, 3).getByRole('button', { name: /^Anok/ }).click()
-  await expect(card(page, 3).locator('.review-speaker')).toHaveText('Anok')
-  await expect(card(page, 3).getByTestId('speaker-note')).toHaveText('Speaker set to Anok. This line is still listed: too fast to read, 25 characters a second.')
+  await guesses(page, 3).getByRole('button', { name: /^Maple/ }).click()
+  await expect(card(page, 3).locator('.review-speaker')).toHaveText('Maple')
+  await expect(card(page, 3).getByTestId('speaker-note')).toHaveText('Speaker set to Maple. This line is still listed: too fast to read, 25 characters a second.')
   await expect(page.getByText('Need a look 3', { exact: true })).toBeVisible()
 
   // The note goes with the Undo, and the buttons come back.

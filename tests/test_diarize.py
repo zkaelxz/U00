@@ -356,9 +356,9 @@ class TestConfidenceCutoff:
         assert diarize.confident_speaker(0.0, 1.0, turns) == "SPEAKER_00"
 
     def test_a_hand_set_speaker_is_kept_on_an_unsure_line(self):
-        lines = [self._line(0.0, 1.0, "Anok", manual=True)]
+        lines = [self._line(0.0, 1.0, "Maple", manual=True)]
         counts = diarize.merge_speakers(lines, [self._turn(0.0, 1.0, "SPEAKER_00", [0.55] * 10)])
-        assert lines[0].speaker == "Anok" and lines[0].speaker_manual
+        assert lines[0].speaker == "Maple" and lines[0].speaker_manual
         assert counts == {"changed": 0, "kept_manual": 1}
 
 
@@ -1025,28 +1025,28 @@ class TestEmbeddingFromLines:
         self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 30},
                               {"speaker": "SPEAKER_01", "start": 30, "end": 40}],
                    {"SPEAKER_00": [1.0, 0.0], "SPEAKER_01": [0.0, 1.0]})
-        lines = self._lines((0, 30, "Uririn"), (30, 40, "Uririn"))
-        vec = diarize.embedding_from_lines(str(tmp_path), "Uririn", lines)
+        lines = self._lines((0, 30, "Cedar"), (30, 40, "Cedar"))
+        vec = diarize.embedding_from_lines(str(tmp_path), "Cedar", lines)
         assert vec == pytest.approx([0.75, 0.25])
 
     def test_a_detector_label_shared_with_another_speaker_is_left_out(self, tmp_path):
         self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 40}],
                    {"SPEAKER_00": [1.0, 0.0]})
-        lines = self._lines((0, 30, "Anok"), (30, 40, "Uririn"))
-        assert diarize.embedding_from_lines(str(tmp_path), "Anok", lines) is None
+        lines = self._lines((0, 30, "Maple"), (30, 40, "Cedar"))
+        assert diarize.embedding_from_lines(str(tmp_path), "Maple", lines) is None
 
     def test_blank_lines_do_not_count_as_another_speaker(self, tmp_path):
         self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 100}],
                    {"SPEAKER_00": [1.0, 0.0]})
-        lines = self._lines(*[(i * 10, i * 10 + 10, "Anok" if i < 8 else None) for i in range(10)])
-        assert diarize.embedding_from_lines(str(tmp_path), "Anok", lines) == pytest.approx([1.0, 0.0])
+        lines = self._lines(*[(i * 10, i * 10 + 10, "Maple" if i < 8 else None) for i in range(10)])
+        assert diarize.embedding_from_lines(str(tmp_path), "Maple", lines) == pytest.approx([1.0, 0.0])
 
     def test_too_little_clean_speech_gives_none(self, tmp_path):
         self._save(tmp_path, [{"speaker": "SPEAKER_00", "start": 0, "end": 5}], {"SPEAKER_00": [1.0, 0.0]})
-        assert diarize.embedding_from_lines(str(tmp_path), "Anok", self._lines((0, 5, "Anok"))) is None
+        assert diarize.embedding_from_lines(str(tmp_path), "Maple", self._lines((0, 5, "Maple"))) is None
 
     def test_no_saved_turns_gives_none(self, tmp_path):
-        assert diarize.embedding_from_lines(str(tmp_path), "Anok", self._lines((0, 20, "Anok"))) is None
+        assert diarize.embedding_from_lines(str(tmp_path), "Maple", self._lines((0, 20, "Maple"))) is None
 
 
 def test_m4a_is_decoded_before_soundfile_reads_it(monkeypatch):

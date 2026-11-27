@@ -28,26 +28,26 @@ def _run_terms(drama_id, text):
 
 def test_a_title_outside_any_series_translates_with_its_own_terms(isolated_db):
     d = _title()
-    _add(d, "亞洛赫", "Anok", aliases=["阿洛"])
-    assert "亞洛赫 / 阿洛 -> Anok" in _run_terms(d, "阿洛來了")
+    _add(d, "納洛赫", "Maple", aliases=["阿洛"])
+    assert "納洛赫 / 阿洛 -> Maple" in _run_terms(d, "阿洛來了")
 
 
 def test_joining_a_series_keeps_the_title_terms_and_the_title_wins_a_clash(isolated_db):
     d = _title()
-    _add(d, "亞洛赫", "Anok")
+    _add(d, "納洛赫", "Maple")
     _add(d, "小明", "Xiaoming")
     series = db.create_series("S")
-    db.upsert_glossary_term(series, "亞洛赫", "Alo")
+    db.upsert_glossary_term(series, "納洛赫", "Alo")
     db.upsert_glossary_term(series, "大白", "Dabai")
     db.assign_drama_series(d, series)
-    text = _run_terms(d, "亞洛赫和小明和大白")
-    assert "亞洛赫 -> Anok" in text and "小明 -> Xiaoming" in text and "大白 -> Dabai" in text
+    text = _run_terms(d, "納洛赫和小明和大白")
+    assert "納洛赫 -> Maple" in text and "小明 -> Xiaoming" in text and "大白 -> Dabai" in text
     assert "Alo" not in text
     # nothing was merged or deleted
     assert [t["term_translation"] for t in db.list_glossary_terms(series)
-            if t["term_original"] == "亞洛赫"] == ["Alo"]
+            if t["term_original"] == "納洛赫"] == ["Alo"]
     origins = {t["term_original"]: t["origin"] for t in glossary_service.effective_glossary_terms(d)}
-    assert origins == {"亞洛赫": "title", "小明": "title", "大白": "series"}
+    assert origins == {"納洛赫": "title", "小明": "title", "大白": "series"}
 
 
 def test_a_series_without_title_terms_is_unchanged(isolated_db):
@@ -72,15 +72,15 @@ def test_leaving_the_series_gives_the_title_back_its_own_glossary_not_a_second_o
 
 def test_copy_adds_only_terms_the_series_lacks_and_keeps_the_title_terms(isolated_db):
     d = _title()
-    _add(d, "亞洛赫", "Anok")
+    _add(d, "納洛赫", "Maple")
     _add(d, "小明", "Xiaoming", aliases=["明明"])
     series = db.create_series("S")
-    db.upsert_glossary_term(series, "亞洛赫", "Alo")
+    db.upsert_glossary_term(series, "納洛赫", "Alo")
     db.assign_drama_series(d, series)
     report = glossary_service.copy_title_terms_to_series(d)
-    assert report == {"copied": ["小明"], "skipped": ["亞洛赫"]}
+    assert report == {"copied": ["小明"], "skipped": ["納洛赫"]}
     rows = {t["term_original"]: t for t in db.list_glossary_terms(series)}
-    assert rows["亞洛赫"]["term_translation"] == "Alo" and rows["小明"]["aliases"] == "明明"
+    assert rows["納洛赫"]["term_translation"] == "Alo" and rows["小明"]["aliases"] == "明明"
     assert len(db.title_only_terms(db.get_drama(d))) == 2
 
 
@@ -101,14 +101,14 @@ def test_an_existing_private_series_is_linked_on_upgrade(isolated_db):
 
 def test_title_terms_list_marks_the_ones_a_series_term_shadows(isolated_db):
     d = _title()
-    _add(d, "亞洛赫", "Anok")
+    _add(d, "納洛赫", "Maple")
     _add(d, "小明", "Xiaoming")
     assert glossary_service.list_title_terms(d) == []          # still in its own series
     series = db.create_series("S")
-    db.upsert_glossary_term(series, "亞洛赫", "Alo")
+    db.upsert_glossary_term(series, "納洛赫", "Alo")
     db.assign_drama_series(d, series)
     assert {t["term_original"]: t["clashes_with_series"]
-            for t in glossary_service.list_title_terms(d)} == {"小明": False, "亞洛赫": True}
+            for t in glossary_service.list_title_terms(d)} == {"小明": False, "納洛赫": True}
 
 
 def test_upgrade_link_runs_twice_and_ignores_other_series_names(isolated_db):
@@ -138,9 +138,9 @@ def test_a_partial_copy_reports_both_lists_and_a_second_copy_adds_nothing(isolat
 
 
 def _joined_title_with_own_term():
-    """A title that kept 'Anok' for 亞洛赫 after joining a series that has other terms."""
+    """A title that kept 'Maple' for 納洛赫 after joining a series that has other terms."""
     d = _title()
-    _add(d, "亞洛赫", "Anok")
+    _add(d, "納洛赫", "Maple")
     series = db.create_series("S")
     db.upsert_glossary_term(series, "大白", "Dabai")
     db.assign_drama_series(d, series)
@@ -152,22 +152,22 @@ def test_the_readers_beside_the_run_use_the_title_terms_too(isolated_db):
 
     d = _joined_title_with_own_term()
     drama = db.get_drama(d)
-    wanted = {"亞洛赫", "大白"}
+    wanted = {"納洛赫", "大白"}
     assert {t["term_original"] for t in scanlate_run_service.load_translation_guide(drama)[0]} == wanted
     assert {t["term_original"] for t in stronger_engine_service._glossary(drama)} == wanted
     hint = vocabulary_hint_service.build_vocabulary_hint(d)
-    assert "亞洛赫" in hint and "大白" in hint
+    assert "納洛赫" in hint and "大白" in hint
 
 
 def test_a_title_with_no_series_still_gives_the_comic_its_own_terms(isolated_db):
     from services import scanlate_run_service
 
     d = _title()
-    _add(d, "亞洛赫", "Anok")
+    _add(d, "納洛赫", "Maple")
     drama = db.get_drama(d)
     drama["series_id"] = None
     terms, notes = scanlate_run_service.load_translation_guide(drama)
-    assert [t["term_original"] for t in terms] == ["亞洛赫"] and notes == ""
+    assert [t["term_original"] for t in terms] == ["納洛赫"] and notes == ""
     assert scanlate_run_service.load_translation_guide({"id": 0}) == (None, "")
 
 
@@ -177,4 +177,4 @@ def test_live_hints_for_a_title_include_its_own_terms(isolated_db):
     d = _joined_title_with_own_term()
     hints = live_service._hint_function(db.get_drama(d)["series_id"], None, "zh",
                                         glossary_title=db.get_drama(d))
-    assert hints(["亞洛赫"])
+    assert hints(["納洛赫"])

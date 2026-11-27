@@ -259,7 +259,7 @@ describe('queue reasons', () => {
   it('says a confident, unflagged line with no speaker is listed for that, and keeps any other reason first', () => {
     const blank = line(3)
     expect(queueReason(blank)).toEqual(NO_SPEAKER_REASON)
-    expect(queueReason({ ...blank, speaker: 'Anok' })).toBeNull()
+    expect(queueReason({ ...blank, speaker: 'Maple' })).toBeNull()
     expect(queueReason({ ...blank, speaker_manual: true })).toBeNull()
     expect(queueReason({ ...blank, sfx: true })).toBeNull()
     expect(queueReason({ ...blank, confidence: 0.5 })?.short).toBe('Whisper was unsure (50% sure)')
@@ -278,7 +278,7 @@ describe('queue reasons', () => {
     expect(onlyNeedsSpeaker(line(1))).toBe(true)
     expect(onlyNeedsSpeaker(line(1, { flag: 'reading_speed' }))).toBe(false)
     expect(onlyNeedsSpeaker(line(1, { confidence: 0.5 }))).toBe(false)
-    expect(onlyNeedsSpeaker(line(1, { speaker: 'Anok' }))).toBe(false)
+    expect(onlyNeedsSpeaker(line(1, { speaker: 'Maple' }))).toBe(false)
   })
 })
 
