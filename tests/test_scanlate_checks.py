@@ -1,9 +1,11 @@
 """The checks that judge a rendered balloon: fill leaking out, off-centre or tiny text, lettering left behind."""
 
-import cv2
 import numpy as np
+import pytest
 
-from scanlate import scanlate_checks as checks
+cv2 = pytest.importorskip("cv2")
+
+from scanlate import scanlate_checks as checks  # noqa: E402
 
 BOX = {"x": 0, "y": 0, "w": 200, "h": 300}
 
