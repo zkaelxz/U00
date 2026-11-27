@@ -2,7 +2,7 @@
 
 Last reviewed: 2026-11-27
 
-Short briefs for the three jobs a session can have, so a new session needs no re-briefing. They point at the rules in `CLAUDE.md`, `docs/testing-and-ci.md` and `docs/engineering-standards.md` instead of restating them; if a rule changes there, change it there, not here. "The coordinator" is the session that sequences the work and talks to the owner; "the owner" is the person who decides what merges.
+Short briefs for the three jobs a session can have, so a new session needs no re-briefing. They point at the rules in `CLAUDE.md`, `docs/testing-and-ci.md` and `docs/engineering-standards.md` instead of restating them; if a rule changes there, change it there, not here. "The coordinator" is the session that starts threads and talks to the owner; "the owner" is the person who decides what merges.
 
 A session that writes code never reviews its own change.
 
@@ -14,9 +14,9 @@ A session that writes code never reviews its own change.
 4. Test while iterating with the area's test file; before pushing run the command `python tools/check_change.py` prints for your diff. CI runs the full suite; don't.
 5. When a coordinator session is running the work, check in with it before opening or merging a PR, before moving, renaming or deleting files or folders, and before any change on a PC, and tell it about anything that could affect another session's work. `python tools/pr_lane.py` (quoted in the merge report) does not replace the check-in.
 6. Every PR gets an independent review (below) before the owner is shown it. Fix what it finds, have it re-reviewed, then re-run the area's tests and the guard set.
-7. Show the owner what the change does and how it turned out. Merging follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow"; where the project's instructions ask for the owner's OK on each fix, wait for it.
+7. Show the owner what the change does and how it turned out, and get their OK on each fix before auto-merge is turned on. Merging then follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow".
 8. No comment, review or reply is posted on a GitHub PR or issue without the owner's OK; send the exact text to the coordinator first.
-9. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and commit under the owner's GitHub no-reply address.
+9. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits.
 
 ## Reviewer
 
