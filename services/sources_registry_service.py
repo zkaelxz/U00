@@ -255,9 +255,13 @@ def list_profiles() -> list:
 
 
 def list_tracked(principal=None) -> list:
-    """Every tracked series (household-wide by decision). A linked drama
-    the principal can't see is reported as `drama_id: None`, so a private
-    drama's id doesn't leak."""
+    """The tracked series this caller may see: everything for the owner and admins; for a
+    member the ones they set up and the ones linked to a title they can see, so what another
+    person follows stays theirs. A linked drama the principal can't see is reported as
+    `drama_id: None`, so a private drama's id doesn't leak."""
+    see_all = ownership_service.visible_to_filter(principal) is None
+    uid = (principal or {}).get("user_id")
+
     def linked(drama_id):
         if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
             return drama_id
@@ -270,7 +274,8 @@ def list_tracked(principal=None) -> list:
              "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
                                   else scrub(r.get("last_check_error"))),
              "save_cbz": bool(r.get("save_cbz"))}
-            for r in store.list_tracked_series()]
+            for r in store.list_tracked_series()
+            if see_all or r.get("linked_by_user_id") == uid or linked(r.get("drama_id")) is not None]
 
 
 def list_notifications(include_dismissed: bool = False, user_id: int = 0) -> list:

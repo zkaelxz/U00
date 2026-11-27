@@ -640,7 +640,7 @@ class TestDramaIdsInBodies:
 
 
     def test_tracked_series_hide_an_invisible_linked_drama(self, world):
-        # Tracked series are household-wide; the linked private drama's id isn't.
+        # A member sees a tracked series only when they set it up or it links to a title they can see.
         from sources import store
         store.track_series("manhuagui", "1", "Priv", drama_id=world["private"])
         store.track_series("manhuagui", "2", "Shared", drama_id=world["shared"])
@@ -651,9 +651,9 @@ class TestDramaIdsInBodies:
             r = client.get("/api/sources/tracked", headers=world[who])
             assert r.status_code == 200, r.text
             return {t["series_id"]: t["drama_id"] for t in r.json()}
-        assert linked("b") == {"1": None, "2": world["shared"], "3": None}
+        assert linked("b") == {"2": world["shared"]}
         expected = {"1": world["private"], "2": world["shared"], "3": None}
-        assert linked("a") == expected
+        assert linked("a") == {"1": world["private"], "2": world["shared"]}
         assert linked("admin") == expected
 
     def test_tracked_drama_link_follows_editability(self, world):
@@ -694,7 +694,7 @@ class TestDramaIdsInBodies:
         assert r.status_code == 404, r.text
         assert stored() == {"1": world["private"]}
         r = client.get("/api/sources/tracked", headers=world["b"])
-        assert [t["drama_id"] for t in r.json()] == [None]
+        assert r.json() == []      # now linked to A's private title, so it is no longer B's to see
 
         # Admin (sees everything) and the PC owner / auth off are unchanged.
         r = link("admin", world["shared"])

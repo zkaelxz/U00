@@ -527,3 +527,18 @@ def test_a_browser_only_member_cbz_save_says_why_and_stays_pending(env, tmp_path
     assert summary["saved"] == [] and env["alpha"].seen == []
     assert summary["errors"]["Series T"].startswith("Saving as CBZ: Alpha needs the PC owner's browser")
     assert store.save_pending_ids(_row("alpha")) == ["c2", "c3"]
+
+
+def test_a_member_sees_only_the_series_they_track_or_that_link_to_a_title_they_can_see(env):
+    env["alpha"] = _make("alpha")
+    a = _user("a@example.com")
+    b = _user("b@example.com")
+    shared = db.create_drama(title_en="Shared", media_type="novel", content_mode="novel_narration",
+                             owner_user_id=a, is_private=0)
+    store.track_series("alpha", "mine", "Mine", "", None, linked_by_user_id=b)
+    store.track_series("alpha", "theirs", "Theirs", "", None, linked_by_user_id=a)
+    store.track_series("alpha", "owners", "Owners", "", None, linked_by_user_id=None)
+    store.track_series("alpha", "linked", "Linked", "", shared, linked_by_user_id=a)
+    seen = lambda who: {r["series_id"] for r in sources_registry_service.list_tracked(who)}  # noqa: E731
+    assert seen(_p(b)) == {"mine", "linked"}
+    assert seen(None) == {"mine", "theirs", "owners", "linked"}      # the owner sees everything
