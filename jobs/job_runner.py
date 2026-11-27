@@ -26,7 +26,7 @@ from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_reques
 from job_process_kill import _stop_process, kill_tree, reap_worker
 from jobs import user_caps
 from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _refresh_queue_messages_locked,
-                            _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked)
+                            _release_gpu_slot, _run_finish_hooks, _running_gpu_job_count_locked, _sort_fair_locked)
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
 
@@ -447,6 +447,7 @@ def _promote_one_queued_gpu_job(dropped):
         with _lock:
             if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
                 return
+            _sort_fair_locked()      # a job that just ended changes whose turn it is
             entry = _next_promotable_entry_locked(dropped)
             if entry is None:
                 return

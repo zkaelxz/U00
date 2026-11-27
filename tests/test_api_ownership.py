@@ -1156,12 +1156,13 @@ class TestJobs:
             assert summary() == (1, 2, [(b2, 2)])
             # A new one arrives at the back.
             go(b3, "b")
-            assert summary() == (1, 3, [(b2, 2), (b3, 3)])
+            # a already has a job running, so b's first waiting job takes the next turn.
+            assert summary() == (1, 3, [(b2, 1), (b3, 3)])
             # The running job finishes: the next starts and is no longer waiting.
             gates[a_run].set()
-            wait_status(a_wait, "running")
-            assert summary() == (1, 2, [(b2, 1), (b3, 2)])
-            assert summary("a")[2] == []
+            wait_status(b2, "running")      # b's first waiting job had the turn, not a's
+            assert summary() == (1, 2, [(b3, 2)])
+            assert summary("a")[2] == [(a_wait, 1)]
             # An admin's own list is theirs only; the counts are everyone's.
             body = client.get("/api/jobs/queue-summary", headers=world["admin"]).json()
             assert (body["running"], body["waiting"], body["mine"]) == (1, 2, [])

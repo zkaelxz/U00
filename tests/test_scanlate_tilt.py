@@ -134,3 +134,11 @@ def test_straight_diagonal_mark_across_level_text_is_not_a_tilt():
         page[88:116, col:col + 24] = 20
     cv2.line(page, (60, 40), (190, 150), (170, 170, 170), 7)
     assert scanlate_tilt.estimate_text_angle(page, BOX) == 0.0
+
+
+def test_vertical_lettering_is_set_level_even_when_its_ink_scores_a_slant():
+    from scanlate import scanlate_render
+    page = _page_with_blocks(25)
+    box = dict(BOX, orientation="vertical")
+    assert scanlate_render._tilts_and_lines(page, [box])[0] == [0.0]
+    assert scanlate_render._tilts_and_lines(page, [dict(BOX)])[0][0] != 0.0
