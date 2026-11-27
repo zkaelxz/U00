@@ -422,6 +422,18 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
                cancel_check_cb=cancel_check_cb, use_gpu=use_gpu, event_cb=event_cb)
 
 
+def _free_cached_gpu_memory() -> None:
+    import gc
+    import sys
+    gc.collect()
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass  # a broken CUDA install must not fail the separation that just finished
+
+
 def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      model: str = MEL_ROFORMER_VOCAL_MODEL,
                                      progress_cb=None, cancel_check_cb=None,
@@ -442,6 +454,7 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
             "audio-separator can't be limited to the CPU here. Turn GPU on to separate vocals.")
 
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
+    separator = None
     try:
         if event_cb:
             event_cb("loading", "audio_separator")
@@ -483,6 +496,10 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         return out_path
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+        # Torch keeps the separator's blocks cached after it is gone, and the Whisper load that
+        # follows in this process does not share that cache, so both would sit on the card.
+        separator = None
+        _free_cached_gpu_memory()
 
 
 def _separate_vocals_chunked(audio_path: str, out_path: str, process_chunk_fn,

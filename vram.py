@@ -17,7 +17,10 @@ deliberately low estimates of what each model needs, so the check only
 refuses loads that can't possibly fit.
 """
 
+import contextlib
 import sys
+import threading
+import time
 
 import memory_headroom
 
@@ -75,3 +78,65 @@ def check_fits(what: str, required_mb=None, free_mb=None) -> None:
         f"{required / 1024:.1f} GB and only {max(free, 0) / 1024:.1f} GB is free. "
         "Close other programs using the GPU (or wait for another Baihe job to "
         "finish), then try again.")
+
+
+# The comic detector and cleanup models keep a GPU copy in the server process (the CPU copy stays
+# the master), and nothing else frees it between comic runs, so the card kept about 1.6 GB plus
+# CUDA's cached blocks for a model nobody was using.
+COMIC_GPU_IDLE_SECONDS = 120.0
+_comic_lock = threading.Lock()
+_comic_active = 0
+_comic_last_use = 0.0
+_comic_timer = None
+
+
+def release_comic_gpu_copies() -> None:
+    """Drops the comic detector's and eraser's GPU copies (each reloads from its CPU copy on
+    the next page) and hands CUDA's cached memory back. Only touches modules already loaded."""
+    for module_name, cache_name in (("scanlate.scanlate_lama", "_lama_gpu"),
+                                    ("scanlate.scanlate_detect", "_bubble_ml_gpu")):
+        module = sys.modules.get(module_name)
+        if module is not None:
+            getattr(module, cache_name).clear()
+    import gc
+    gc.collect()
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass  # a broken CUDA install must not fail the page that just ran
+
+
+def _comic_idle_check() -> None:
+    global _comic_timer
+    with _comic_lock:
+        wait = COMIC_GPU_IDLE_SECONDS - (time.monotonic() - _comic_last_use)
+        if _comic_active or wait > 0:
+            _comic_timer = threading.Timer(max(wait, 1.0), _comic_idle_check)
+            _comic_timer.daemon = True
+            _comic_timer.start()
+            return
+        _comic_timer = None
+        # Under the lock: a page that starts now waits for this to finish instead of
+        # having its model freed mid-call.
+        release_comic_gpu_copies()
+
+
+@contextlib.contextmanager
+def comic_gpu_use():
+    """Held around each comic detector or eraser call: the idle release never frees a copy
+    while one is running, and runs COMIC_GPU_IDLE_SECONDS after the last call ended."""
+    global _comic_active, _comic_last_use, _comic_timer
+    with _comic_lock:
+        _comic_active += 1
+    try:
+        yield
+    finally:
+        with _comic_lock:
+            _comic_active -= 1
+            _comic_last_use = time.monotonic()
+            if _comic_timer is None:
+                _comic_timer = threading.Timer(COMIC_GPU_IDLE_SECONDS, _comic_idle_check)
+                _comic_timer.daemon = True
+                _comic_timer.start()
