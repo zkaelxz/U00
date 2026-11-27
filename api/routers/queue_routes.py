@@ -19,7 +19,7 @@ from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is
 from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
                          FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
 from services import (glossary_extract_service, model_readiness_service, page_run_service, queue_service,
-                      scanlate_pages_service, translate_run_service)
+                      scanlate_pages_service)
 
 router = APIRouter(prefix="/api/queue", tags=["queue"])
 

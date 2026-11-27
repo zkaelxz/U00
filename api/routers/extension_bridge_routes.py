@@ -329,8 +329,10 @@ def _title_translate(request: Request, payload: dict, principal) -> dict:
             principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
             follow_import=False)
     except ServiceError as e:
+        # 409 is the only answer the phone keeps quiet about (the title is already running or has lines).
         status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)
-                  else 422 if isinstance(e, InvalidInputError) else 409)
+                  else 409 if isinstance(e, ConflictError)
+                  else 503 if isinstance(e, DependencyUnavailableError) else 422)
         raise page_server.EndpointError(status, redact_secrets(e.message)) from None
 
 

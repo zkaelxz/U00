@@ -945,3 +945,20 @@ class TestTitleTranslate:
         assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": 1}).status_code == 403
         _, ok = self._phone("c@example.com")
         assert _client().post(f"{BASE}/title-translate", headers=_auth(ok), json={}).status_code == 400
+
+    def test_a_paid_engine_with_no_cap_is_refused_out_loud_and_lines_already_made_is_a_conflict(
+            self, isolated_db, monkeypatch):
+        from lib.errors import UnsupportedOperationError
+        from services import paid_job_service
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+
+        def no_cap(*a, **k):
+            raise UnsupportedOperationError("Set a monthly spending limit first.")
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", no_cap)
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 422 and "spending limit" in r.text
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 200
+        again = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert again.status_code == 200 and again.json()["state"] in ("waiting", "running")
