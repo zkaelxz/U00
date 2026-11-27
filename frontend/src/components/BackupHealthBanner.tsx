@@ -12,8 +12,7 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import { BACKUP_PROBLEM_TEXT } from '../pages/backupsFormat'
 import type { AutoBackupSettings } from '../types/backups'
-import { ButtonLink } from './Button'
-import { buttonClass } from './uiClasses'
+import { WarnBar } from './WarnBar'
 
 export const POLL_MS = 10 * 60_000
 const HIDE_ON = [401, 403, 404]
@@ -46,17 +45,16 @@ export function BackupHealthBanner() {
     }
   }, [pc])
   if (pc !== 'local' || !problem || problem === dismissed) return null
+  const text = BACKUP_PROBLEM_TEXT[problem]
   return (
-    <div className="banner banner-prose backup-health-banner" role="status" data-testid="backup-health-banner">
-      <div>{BACKUP_PROBLEM_TEXT[problem]}</div>
-      <div className="remote-health-actions">
-        <ButtonLink href={routeHref({ name: 'library-tools', tab: 'backup' })} variant="secondary" size="sm">
-          Backups
-        </ButtonLink>
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => setDismissed(problem)}>
-          Dismiss
-        </button>
-      </div>
-    </div>
+    <WarnBar
+      shell
+      testId="backup-health-banner"
+      title={text}
+      action={<a href={routeHref({ name: 'library-tools', tab: 'backup' })}>Backups</a>}
+      onDismiss={() => setDismissed(problem)}
+    >
+      {text}
+    </WarnBar>
   )
 }

@@ -44,7 +44,7 @@ test('Phone at the PC: the banner fits and its buttons are 44px', async ({ page 
   const banner = page.getByTestId('remote-health-banner')
   await expect(banner).toContainText('Remote access is not working')
   const heights = await banner.locator('button, a').evaluateAll((els) =>
-    els.map((e) => ({ text: (e.textContent ?? '').trim(), h: window.hitHeight(e) })))
+    els.map((e) => ({ text: (e.getAttribute('aria-label') ?? e.textContent ?? '').trim(), h: window.hitHeight(e) })))
   expect(heights.map((x) => x.text)).toEqual(['Diagnostics', 'Dismiss'])
   for (const { text, h } of heights) expect(h, `${text} height`).toBeGreaterThanOrEqual(44)
   const { scroll, client } = await page.evaluate(() => ({
