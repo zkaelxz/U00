@@ -10,8 +10,9 @@ function staleExtensionNote(data) {
   const shipped = data && data.extension_version;
   const mine = chrome.runtime.getManifest().version;
   if (!shipped || shipped === mine) return "";
-  return `This extension is version ${mine}; your Baihe has ${shipped}. In Baihe's Settings, download the` +
-    " extension, unzip it over this extension's folder, then press Reload on the extensions page.";
+  return `This extension is version ${mine}; your Baihe has ${shipped}. In Baihe's Settings > Browser` +
+    " extension, press Open extension folder, then on the extensions page remove this copy and Load unpacked from that folder." +
+    " A copy loaded from there updates itself after this.";
 }
 
 function pluralize(count, noun) {
