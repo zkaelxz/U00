@@ -276,7 +276,7 @@ def _ask(helper: _Helper, message) -> tuple:
             process, conn = child
             try:
                 conn.send(message)
-                if not conn.poll(READ_TIMEOUT_SECONDS):
+                if not _answered(process, conn):
                     helper.child = None
                     helper.ready = False
                     _end((process, conn))
@@ -296,6 +296,23 @@ def _ask(helper: _Helper, message) -> tuple:
                 if attempt == 2 or helper.device == "gpu":
                     break
     return ("error", "The text reader stopped unexpectedly.") if helper.device == "cpu" else ("gpu_lost",)
+
+
+def _answered(process, conn) -> bool:
+    """Whether `conn` has a reply, waiting up to READ_TIMEOUT_SECONDS. A helper that died
+    without closing its end (a crash while it started, or a spawned copy that failed to import)
+    is noticed within a second instead of after the whole timeout, and counts as an EOF."""
+    deadline = time.monotonic() + READ_TIMEOUT_SECONDS
+    while True:
+        if conn.poll(min(1, max(0, deadline - time.monotonic()))):
+            return True
+        if not process.is_alive():
+            if conn.poll(0):
+                return True
+            raise EOFError("the text reader helper stopped")
+        if time.monotonic() >= deadline:
+            break
+    return False
 
 
 def _start():

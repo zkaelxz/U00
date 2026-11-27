@@ -389,6 +389,21 @@ def test_a_stuck_gpu_read_is_redone_on_the_cpu(helpers):
     assert ocr_worker._gpu_off_reason and not ocr_worker._gpu.alive()
 
 
+def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
+    helpers.monkeypatch.setattr(ocr_worker, "READ_TIMEOUT_SECONDS", 3600)
+    dead = _FakeConn([])
+    helpers.scripts += [dead, _FakeConn([("ok", ("cpu",), None, None)])]
+    real_start = ocr_worker._start
+
+    def start():
+        process, conn = real_start()
+        process.alive = conn is not dead
+        return process, conn
+    helpers.monkeypatch.setattr(ocr_worker, "_start", start)
+    assert ocr_worker.read("ko", "/fake/a.png").txts == ("cpu",)
+    assert len(helpers.starts) == 2
+
+
 def test_warming_does_not_start_the_gpu_load_without_its_weights(helpers):
     helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: False)
     helpers.scripts.append(_FakeConn([("ok", ("cpu",), None, None)]))
