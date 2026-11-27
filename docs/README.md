@@ -1,6 +1,6 @@
 # Documentation index
 
-A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local models); the module map is `python tools/repo_map.py` (built from each module's docstring). The numbered roadmap, `docs/baihe-roadmap.md`, is not in this repo: it lives on the planning branch `claude/baihe-subtitle-planning-95qyvq`.
+A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for local-model coding agents such as OpenCode); the module map is `python tools/repo_map.py` (built from each module's docstring). The numbered roadmap is not kept in this repo.
 
 ## Start here
 
@@ -41,7 +41,7 @@ A map of `docs/`. Repo rules are in the root `CLAUDE.md` (and `AGENTS.md` for lo
 
 ## Working with a small or local model
 
-- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`lead-troubleshooting.md`** (checks for lead and fix sessions).
+- **`small-model-checklist.md`**, **`local-model-card.md`**, **`local-coder-recipes.md`**, **`lead-troubleshooting.md`** (checks for troubleshooting sessions).
 
 ## Plans, research and history
 

@@ -27,9 +27,9 @@ service menu) is not covered by either (§9).
 - **The React screens ship inside the installer.** `frontend/dist` is
   built at package time and served by FastAPI (`api/static_frontend.py`); no
   Node.js is needed on the user's PC.
-- **Heavier components stay opt-in** (research notes, heavier-components tiering): the installer
+- **Heavier components stay opt-in** (heavier-components tiering): the installer
   installs the Basic tier only; the rest comes from Diagnostics.
-- **Code signing is not built** (deferred until a public release; research notes §8), so
+- **Code signing is not built** (deferred until a public release), so
   SmartScreen shows "Windows protected your PC" (More info → Run anyway).
 - **`start.bat` stays the source-checkout path**; it runs the same
   `python -m api` and shares the same requirements files.
@@ -114,7 +114,7 @@ same as `start.bat`.
      the `PORTABLE`/`PYTHON_VERSION`/`INSTALLED` markers, and developer files.
      (`run_tests.py` does ship: Diagnostics' file-completeness check expects it.)
 3. Downloads the embeddable Python zip, checks its pinned SHA-256, extracts it,
-   and rewrites the `._pth` (research notes §2).
+   and rewrites the `._pth`.
 4. Checks that `installer/wheels.lock.txt` pins every package named in
    `requirements-core.txt` and pip, then runs
    `pip download --only-binary=:all: --platform win_amd64 --python-version 3.13 --require-hashes --no-deps -r installer/wheels.lock.txt`.
@@ -692,7 +692,7 @@ CUDA drivers, and Hugging Face/torch caches outside the data folder.
   ones the Windows pip picks.
 - Only a person on a real Windows PC can check: the interactive wizard and
   uninstall dialog, SmartScreen, the Edge app window, the service menu and
-  elevation prompt, and the research notes' clean-Windows GPU matrix once a GPU
+  elevation prompt, and a clean-Windows GPU matrix once a GPU
   tier is added through Diagnostics.
 
 ## 10. Still open / deferred
@@ -742,8 +742,8 @@ prove it on Windows.
 `127.0.0.1:8600` (or the port chosen with `set-port`, below) and nothing else, starting at boot (no sign-in needed),
 restarted after 10 s, 30 s, then every 60 s if it fails. It stops with
 Ctrl+C, so the server's clean stop (§5) runs and its Job Object ends every
-child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is on by
-default and is the only step that needs administrator permission (one prompt
+child. The wrapper is WinSW 2.12.0 (MIT, pinned by SHA-256). The task is off by
+default (unticked) and is the only step that needs administrator permission (one prompt
 on install, two on an update, one on uninstall); declined or failed, Setup
 exits with code 101 and the Start-menu launcher still works. Setup stays
 per-user.

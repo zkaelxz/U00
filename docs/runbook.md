@@ -39,7 +39,7 @@ An installed copy with a key line in `installer/release_public_key.txt` (in its 
 
 ## 2. Run the local test suite
 - One area: `python -m pytest -q tests/test_<area>.py`
-- Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (takes 10+ minutes)
+- Everything: `python -m pytest -q -n auto -p no:cacheprovider -o addopts=""` (about 17 minutes)
 - Frontend: `cd frontend && npx tsc -b && npx vitest run`
 - Browser tests (`frontend/e2e/`) use the Chromium already installed. Never run `playwright install`.
 - GitHub CI is the merge gate while the repo is public. If the repo becomes private or Actions minutes run out, the full local suite plus the frontend commands above is the gate.
@@ -139,12 +139,11 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 - Transcription (faster-whisper / CTranslate2) runs on a V100 in float16 and int8_float16 and needs only cuBLAS 12. Whisper asks CTranslate2 which compute types the card supports and takes the first of float16, int8_float16, int8_float32, int8, float32 (`whisper_models.gpu_compute_type`), so a GTX 10xx (compute 6.x, no float16) runs int8_float32 on the GPU instead of falling back to the CPU. Volta has no native bfloat16 (torch only emulates it, slowly), so Qwen3 ASR and PaddleOCR-VL load in float16 there.
 - Video burn-in always re-encodes on the CPU (libx264): the V100 has no NVENC, and Baihe never asks for it.
 - Hardware: the card is passively cooled (it needs case airflow or a duct), takes EPS (CPU-style) power rather than PCIe 8-pin, and the motherboard needs Above 4G Decoding on. NVIDIA's R580 driver branch is the last data-center branch that lists the V100.
-- Not re-verified for this page: the driver-branch and torch-2.14 statements come from the owner's research notes; check NVIDIA's and PyTorch's current pages before relying on them.
+- Not re-verified for this page: the driver-branch and torch-2.14 statements come from the owner's own notes; check NVIDIA's and PyTorch's current pages before relying on them.
 
 ## Branches to keep
 Never delete these when cleaning up branches; they are the only record of the work they hold.
-- `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
-- `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
+- The `pre-streamlit-removal` tag: the removed Streamlit app. (The `legacy/streamlit` and planning branches no longer exist on origin.)
 - `baihe-subtitler` is the default branch; the old `main` branch no longer exists. Open every PR into `baihe-subtitler`.
 
 ## Logs, support report, locked-out admin

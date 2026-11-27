@@ -11,7 +11,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 
 | Path | What lives there |
 |---|---|
-| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button below 1024px, `JobsMenu`, `NotificationBell`, `ReportProblemButton`, `ThemeMenu`, user menu), the left rail from 1024px up and the nav drawer below it and picks the page from the route. |
+| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button below 600px, `JobsMenu`, `NotificationBell`, `ReportProblemButton`, `ThemeMenu`, user menu), the side nav from 600px up and the nav drawer below it and picks the page from the route. |
 | `router.ts` | The hash router: `Route` type, `parseRoute`, `routeHref`, `useRoute`. |
 | `pages/*.tsx` | One file per top-level page (`Library`, `Translate`, `Sources`, `Discover`, `Live`, `Reader`, `Comic`, `SavedManga`, `Settings`, `Diagnostics`, `Admin`, `Assistant`, `Benchmark`, `Login`, `LibraryTools`). |
 | `pages/<page>/` | A page's own panels, forms and CSS (`settings/`, `diagnostics/`, `sources/`, `reader/`, ...). Pure form and format logic sits beside the panel as `<name>.ts` with a `<name>.test.ts`. |
@@ -43,9 +43,9 @@ Routes are location hashes, parsed by `parseRoute` in `router.ts`. Anything unkn
 | `#/read/<id>[?page=n]`, `#/comic/<id>[?page=n]` | Reader and comic reader |
 | `#/manga`, `#/manga/<source>/<series>[/<chapter>]` | Saved manga (rail: Library tools) |
 | `#/translate`, `#/sources`, `#/discover`, `#/live`, `#/library-tools` | Top-level pages |
-| `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | In the left rail (the drawer below 1024px) |
+| `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | In the floating side nav (the drawer below 600px) |
 
-Nav links are plain `<a href={routeHref(...)}>`. The header's `NAV` list in `App.tsx` also names which route names keep a link marked `aria-current="page"`.
+Nav links are plain `<a href={routeHref(...)}>`. `NAV_ITEMS` in `nav/navItems.ts` also names which route names keep a link marked `aria-current="page"`.
 
 **Opening a title.** A Library card links to `workspaceHref(id)` (`components/libraryView.ts`), which is `#/drama/<id>` with no stage. Then:
 
@@ -61,7 +61,7 @@ Adding a stage means an id and label in `stages.ts`, a `stages/<Name>Stage.tsx`,
 
 All tokens are CSS custom properties at the top of **`frontend/src/index.css`**. Per-page CSS files (`pages/**/*.css`, `components/*.css`) use them and define no colours of their own. The full table and values are in `ui-refresh-spec.md` section 2.1; this is where to look and what is enforced.
 
-**Colour.** An indigo palette: `--accent` `#3d4fa8` on light, `#9aa7ee` on dark, with `--on-accent`, `--accent-soft`, and `--bg` / `--surface` / `--surface-2` / `--border` / `--text` / `--muted` / `--highlight`. Status colours are `--ok`, `--warn`, `--bad`, `--info`, each with a `-soft` mix. `--speaker-1..4-bg/-fg` colour speaker chips. `--ink`, `--line`, `--accent-ink` and `--err` are aliases kept for older CSS. Accent is for the one primary button, the active nav or stage, focus and "on" toggles.
+**Colour.** A blue palette (values in `index.css`, not copied here): `--accent` on light and on dark, with `--on-accent`, `--accent-soft`, and `--bg` / `--surface` / `--surface-2` / `--border` / `--text` / `--muted` / `--highlight`. Status colours are `--ok`, `--warn`, `--bad`, `--info`, each with a `-soft` mix. `--speaker-1..4-bg/-fg` colour speaker chips. `--ink`, `--line`, `--accent-ink` and `--err` are aliases kept for older CSS. Accent is for the one primary button, the active nav or stage, focus and "on" toggles.
 
 **Themes** are applied by `theme.ts` as `<html data-theme="light|dark|sepia|oled">`; "Match this device" removes the attribute so the `prefers-color-scheme` block applies.
 
