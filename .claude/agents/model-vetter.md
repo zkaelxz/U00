@@ -14,9 +14,9 @@ You vet one candidate model or hosted service. You never write code or change co
 Find:
 1. **Identity:** exact name and series, and the version or revision.
 2. **Licence,** in one line, including region limits and restrictions on using outputs (for example training other models).
-3. **Getting it:** the Ollama tag, or the import steps (GGUF source, Modelfile), with download sizes per quantization.
-4. **Size:** total and active parameters (for MoE models, both).
-5. **VRAM** at 8k and at 32k context for the quantizations Baihe could use. Say whether each figure is a vendor number or your estimate, and show the arithmetic.
+3. **Getting it:** the hosted API model id, or the Ollama cloud tag; or, for an embedding model, the local download steps and size.
+4. **Size and context:** the context window and, if the card gives it, the parameter count (for MoE models, total and active).
+5. **Memory:** only for an embedding model: VRAM or RAM at the sizes Baihe would use, saying whether each figure is a vendor number or your estimate, with the arithmetic.
 6. **Languages:** what the card says about zh, ja and ko, with the evidence it cites.
 7. **Prompt template:** the required chat template, and how thinking/reasoning is switched off, or that it can't be.
 8. **Hosted services only:** price per million input and output tokens, a cost estimate for the workload the requesting session states (show the token arithmetic), and the data-retention and training-on-inputs statement.

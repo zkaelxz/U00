@@ -143,8 +143,7 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
 
 ## Branches to keep
 Never delete these when cleaning up branches; they are the only record of the work they hold.
-- `legacy/streamlit` (and the `pre-streamlit-removal` tag): the removed Streamlit app.
-- `claude/baihe-subtitle-planning-95qyvq`: the earlier planning steps, which exist nowhere else.
+- The `pre-streamlit-removal` tag: the removed Streamlit app. (The `legacy/streamlit` and planning branches no longer exist on origin.)
 - `baihe-subtitler` is the default branch; the old `main` branch no longer exists. Open every PR into `baihe-subtitler`.
 
 ## Logs, support report, locked-out admin

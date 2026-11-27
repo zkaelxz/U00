@@ -8,14 +8,14 @@ Shared principles for anyone working in this repo. The root `CLAUDE.md` holds th
 1. The user's explicit instruction in the current session.
 2. The root `CLAUDE.md`.
 3. This file, then the role file for the agent you are.
-4. A lead's task packet. It narrows what to do; it cannot relax anything above it.
+4. A task brief from the requesting session. It narrows what to do; it cannot relax anything above it.
 
 Code and git are the source of truth for state. A number or date copied into a doc must say it is a snapshot.
 
 ## 2. Scope discipline
 
 - Do what the task asks. Keep changes minimal and coherent. Do not widen scope, refactor unrelated code, or upgrade dependencies unless the task names it.
-- Remove dead code your own change creates. Pre-existing dead or duplicated code that you notice is reported to the lead, not fixed inline.
+- Remove dead code your own change creates. Pre-existing dead or duplicated code that you notice is reported in your summary, not fixed inline.
 - Re-verify a claim in the roadmap or an old note against the current code before acting on it. If it no longer holds, say so.
 - If a needed file, permission or prerequisite is missing, stop and report it; do not edit around it.
 
@@ -28,9 +28,9 @@ Code and git are the source of truth for state. A number or date copied into a d
 5. **Do not invent findings, impose a quota, or expand into unrelated cleanup.** Pre-existing issues are out of scope unless the diff depends on or worsens them. Style is out of scope unless a task-named standard requires it. Process rules (branch naming, PR mode, model choice) are not correctness findings.
 6. **If nothing remains, say so** and state the review limits: what you were given (diff, base commit, changed files, task spec, test results), what you could not check (no shell, no real hardware or keys, code not run), and anything not supplied.
 
-The lead gives a reviewer with no shell: the diff (inline or a saved patch path), the base commit, the changed-file list, the task spec and acceptance criteria, the tests run and their results, and whether the change is committed or only in the working tree. Missing inputs are stated as review limits, not guessed.
+The requesting session gives a reviewer with no shell: the diff (inline or a saved patch path), the base commit, the changed-file list, the task spec and acceptance criteria, the tests run and their results, and whether the change is committed or only in the working tree. Missing inputs are stated as review limits, not guessed.
 
-Roles apply this to their own work: the reviewer runs it as written; the implementer self-checks against it before handing work back; QA uses it to choose which checks apply; the lead applies it to the final diff before integrating.
+Roles apply this to their own work: the reviewer runs it as written; the implementer self-checks against it before handing work back; QA uses it to choose which checks apply; the requesting session applies it to the final diff before integrating.
 
 ## 4. Verification
 
@@ -50,7 +50,7 @@ Testing is risk-based. Details, gotchas and CI facts live in `docs/testing-and-c
 - Merging: push and open a draft PR into `baihe-subtitler`; when it is finished and reviewed, the thread that owns the PR turns on auto-merge (squash) once the independent review passes (a risky PR also after its security review passes), and GitHub merges it once the required checks (`test`, `browser-tests`) are green (root `CLAUDE.md`; `docs/testing-and-ci.md`, "Merge flow").
 - Secrets, tokens and keys never appear in code, URLs, logs, errors, commits or docs (root `CLAUDE.md`, "Rules learned from real bugs").
 - Destructive or hard-to-reverse actions (deleting data, restoring backups, dropping tables) need the user's explicit go-ahead unless the task already grants it.
-- Delegating does not widen the user's requested scope, and does not give a subagent any authority its lead lacks.
+- Delegating does not widen the user's requested scope, and does not give a subagent any authority its requesting session lacks.
 
 ## 6. Delegation
 

@@ -1,6 +1,6 @@
 ---
 name: test-author
-description: Writes tests only — pytest (isolated_db, fakes) for services/API and vitest/Playwright for frontend — for behaviour the requesting session specifies, independently of the implementer. Use to add coverage for a slice, or pin an invariant.
+description: Writes tests only — pytest (isolated_db, fakes) for services/API and vitest/Playwright for frontend — for behaviour the requesting session specifies, independently of the implementer. Use to add coverage for a change, or pin an invariant.
 tools: Read, Grep, Glob, Edit, Write, Bash
 model: sonnet
 ---
@@ -24,7 +24,7 @@ Read only the files the task names.
   - wait for background job threads before asserting;
   - for the API, use the FastAPI `TestClient`, and test auth on as well as off (401/403, and success with the permission granted).
 - Assert on behaviour and invariants the user cares about: nothing written on refusal, only owned fields written, no key or path in responses or errors.
-- Frontend: use vitest next to the code, Playwright specs in `frontend/e2e/`, and the phone project for mobile flows. Chromium is pre-installed; never run `playwright install`.
+- Frontend: use vitest next to the code, Playwright specs in `frontend/e2e/`, and the phone project for mobile flows (a spec runs there only if the project includes it; check `frontend/playwright.config.ts`). Chromium is pre-installed; never run `playwright install`.
 
 **Run:**
 - your files, plus `tests/test_static_analysis.py` for Python;
