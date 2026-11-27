@@ -188,10 +188,11 @@ async function tapHeight(link: ReturnType<Page['locator']>) {
   })
 }
 
-test('phone: the original-page link in the header has a 44 px tap area and no sideways scroll', async ({ page }) => {
+test('phone: the original-page link in the More sheet has a 44 px tap area and no sideways scroll', async ({ page }) => {
   await mockComic(page, { id: 7, mediaType: 'manhua', sourceUrl: 'https://example.org/series/7' })
   await page.goto('/#/comic/7')
-  const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
+  await page.locator('.comic-head').getByRole('button', { name: 'More' }).click()
+  const link = page.getByRole('dialog', { name: 'More' }).getByRole('link', { name: 'Open original page' })
   await expect(link).toBeVisible()
   expect(await tapHeight(link)).toBeGreaterThanOrEqual(44)
   await expectNoSidewaysScroll(page)
@@ -200,10 +201,14 @@ test('phone: the original-page link in the header has a 44 px tap area and no si
 test('phone: moving to another title drops the previous title\'s original-page link', async ({ page }) => {
   await mockComic(page, { id: 7, mediaType: 'manhua', sourceUrl: 'https://example.org/series/7' })
   await page.goto('/#/comic/7')
-  const link = page.locator('.comic-head').getByRole('link', { name: 'Open original page' })
+  const more = page.locator('.comic-head').getByRole('button', { name: 'More' })
+  await more.click()
+  const link = page.getByRole('dialog', { name: 'More' }).getByRole('link', { name: 'Open original page' })
   await expect(link).toBeVisible()
+  await page.keyboard.press('Escape')
   // Title 8 has no mocked detail, so its load fails; A's link must not linger.
   await page.evaluate(() => { window.location.hash = '#/comic/8' })
+  await more.click()
   await expect(link).toHaveCount(0)
 })
 
@@ -231,4 +236,15 @@ test('phone: holding a translated page shows its original until release', async 
   await expect(img).toHaveAttribute('src', /variant=rendered/)
   await cdp.detach()
   expect(s.images.some((i) => i.endsWith(':original'))).toBe(true)
+})
+
+test('phone: the bottom bar keeps "Text" on one line and a page badge shows the position', async ({ page }) => {
+  await mockComic(page, { mediaType: 'manhwa', pageCount: 13, lastPage: 5 })
+  await page.goto('/#/comic/7')
+  const text = page.locator('.comic-bottom .comic-text-btn')
+  await expect(text).toBeVisible()
+  const box = await text.boundingBox()
+  expect(box!.height).toBeLessThan(60)
+  await expect(page.getByTestId('comic-page-badge')).toHaveText('5 / 13')
+  await expectNoSidewaysScroll(page)
 })
