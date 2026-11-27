@@ -26,7 +26,7 @@ import re
 from html import unescape
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class
+from ..base import SourceAdapter, layout_changed_class, https_only
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -72,11 +72,6 @@ def _text(fragment: str) -> str:
     return unescape(_TAGS.sub("", fragment)).strip()
 
 
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
-
-
 def _number_key(label: str) -> float:
     try:
         return float(label)
@@ -120,7 +115,7 @@ class NihonKuniSource(SourceAdapter):
             seen.add(slug)
             cover = _CARD_COVER.search(card)
             out.append(SearchResult(self.name, slug, _text(title_m.group(2)), _series_url(slug),
-                                    _https(cover.group(1)) if cover else ""))
+                                    https_only(cover.group(1)) if cover else ""))
         return out
 
     def _series_html(self, series_id: str) -> str:
@@ -140,7 +135,7 @@ class NihonKuniSource(SourceAdapter):
         status_text = _text(status_m.group(1)).lower() if status_m else ""
         status = "completed" if "complete" in status_text else "ongoing" if status_text else "unknown"
         return SeriesInfo(
-            self.name, series_id, title, _series_url(series_id), _https(og.get("image")),
+            self.name, series_id, title, _series_url(series_id), https_only(og.get("image")),
             authors=[unescape(a).strip() for a in dict.fromkeys(_AUTHOR.findall(html))],
             genres=[unescape(g).strip() for g in dict.fromkeys(_GENRE.findall(html))],
             status=status, content_type=ContentType.MANGA.value, language="ja")

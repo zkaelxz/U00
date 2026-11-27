@@ -97,6 +97,12 @@ def parse_errors_as_layout_change():
         raise changed from e
 
 
+def https_only(url) -> str:
+    """The url when it is https, else "": adapters never hand on an http picture address."""
+    url = str(url or "")
+    return url if urlsplit(url).scheme == "https" else ""
+
+
 def soup(html: str):
     from bs4 import BeautifulSoup
     return BeautifulSoup(html or "", "html.parser")

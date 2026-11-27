@@ -27,7 +27,7 @@ images is reported as withheld; it is never worked around.
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup, https_only
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentHidden, ContentType,
                       FailureReason, PageRef, SeriesInfo)
 from ..registry import register
@@ -49,11 +49,6 @@ def _safe(pattern, value, what: str) -> str:
     if not pattern.fullmatch(value):
         raise LayoutChanged(f"a usable {what}")
     return value
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 _JPEG_MAGIC = bytes.fromhex("ffd8ff")
@@ -108,7 +103,7 @@ class Mh03Source(PlainImageDownload, SourceAdapter):
         status = "completed" if "完结" in tags else "ongoing" if "连载" in tags else "unknown"
         return SeriesInfo(
             self.name, series_id, title, f"{BASE_URL}/comic_{series_id}.html",
-            _https(cover.get("src")) if cover is not None else "",
+            https_only(cover.get("src")) if cover is not None else "",
             authors=authors, description=desc.get_text(" ", strip=True) if desc is not None else "",
             status=status, content_type=ContentType.MANHUA.value, language="zh")
 
@@ -136,7 +131,7 @@ class Mh03Source(PlainImageDownload, SourceAdapter):
         urls = []
         for img in reader.select("img.comic-image"):
             # src is a lazy-load placeholder; data-src is the real file.
-            url = _https(img.get("data-src"))
+            url = https_only(img.get("data-src"))
             if url and url not in urls:
                 urls.append(url)
         if not urls:
