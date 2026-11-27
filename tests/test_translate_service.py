@@ -68,7 +68,6 @@ def test_the_probed_engine_list_asks_ollama_once(tmp_path, monkeypatch):
         status = 200
         body = json.dumps({"models": [{"name": "gemma4:31b-cloud"}]}).encode()
 
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
     monkeypatch.setattr(local, "_ollama_reachability_cache", {})
     monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
     engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""),
@@ -77,34 +76,8 @@ def test_the_probed_engine_list_asks_ollama_once(tmp_path, monkeypatch):
     assert calls == ["http://localhost:11434/api/tags"]
 
 
-def test_pulled_ollama_models_reads_tags_caches_and_drops_unsafe_names(monkeypatch):
-    import json
-    from engine_backends import ollama_server as local
-    calls = []
-
-    class Resp:
-        status = 200
-        body = json.dumps({"models": [
-            {"name": "gemma4:31b-cloud"}, {"model": "gemma4:31b-cloud"}, {"name": "../etc"}, {"name": "has space"},
-            "junk", {"name": "nomic-embed-text:latest", "details": {"family": "nomic-bert"}},
-            {"name": "bge-m3:latest", "details": {"family": "bert", "families": ["bert"]}},
-            {"name": "mxbai-embed-large:latest"}]}).encode()
-
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
-    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
-    monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
-    assert local.pulled_ollama_models("localhost:11434") == ["gemma4:31b-cloud"]
-    assert local.pulled_ollama_models("http://localhost:11434/") == ["gemma4:31b-cloud"]
-    assert calls == ["http://localhost:11434/api/tags"]
 
 
-def test_pulled_ollama_models_is_empty_when_the_server_does_not_answer(monkeypatch):
-    from engine_backends import ollama_server as local
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
-    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
-    monkeypatch.setattr(local.http, "get", lambda url, **kw: (_ for _ in ()).throw(OSError("refused")))
-    assert local.pulled_ollama_models("http://127.0.0.1:11434") == []
-    assert local.check_ollama_reachable("http://127.0.0.1:11434") is False
 
 
 def test_list_engines_makes_no_network_call_by_default(tmp_path, monkeypatch):

@@ -167,11 +167,6 @@ def test_no_workflow_tier_names_a_cloud_model(isolated_db):
                    for t in engine_registry.WORKFLOW_TIERS.values())
 
 
-def test_gpu_seam_skips_cloud_only():
-    assert engine_local.ollama_touches_local_gpu("ollama", "gemma4:12b")
-    assert engine_local.ollama_touches_local_gpu("ollama", None)
-    assert not engine_local.ollama_touches_local_gpu("ollama", CLOUD)
-    assert not engine_local.ollama_touches_local_gpu("claude", "claude-sonnet-5-5")
 
 
 

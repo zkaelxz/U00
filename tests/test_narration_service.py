@@ -454,11 +454,7 @@ class TestGpuSlot:
         narration_service.start_narration_run(did, engine, model)
         return seen
 
-    def test_an_ollama_run_takes_the_gpu_slot(self, isolated_db, key, monkeypatch):
-        assert self._start(isolated_db, key, monkeypatch, "ollama")["gpu_touching"] is True
 
-    def test_a_cloud_engine_does_not(self, isolated_db, key, monkeypatch):
-        assert self._start(isolated_db, key, monkeypatch, "claude")["gpu_touching"] is False
 
 
 BOOK = ("第1章 开始\n\n他说：你好。\n\n夜很深了。\n\n"
@@ -648,7 +644,7 @@ class TestOneNarrator:
                             lambda job_id, target, *a, **k: launched.append((target, a, k)) or True)
         narration_service.start_narration_run(did, "claude", one_narrator=True)
         target, args, kw = launched[0]
-        assert args[4] is None and kw["one_narrator"] and kw["gpu_touching"] is False
+        assert args[4] is None and kw["one_narrator"]
         results = []
         monkeypatch.setattr(background_jobs, "set_result", lambda job_id, res: results.append(res))
         target(*args, **{k: v for k, v in kw.items() if k in ("fresh", "append", "chapters", "one_narrator")})

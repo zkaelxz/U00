@@ -36,7 +36,7 @@ from bulk import bulk_providers
 from bulk import bulk_translate
 import db
 from lib.safe_paths import plain_file_in
-from engine_backends import engine_registry, local, pricing
+from engine_backends import engine_registry, pricing
 from engine_backends import gemini as engine_gemini
 from services import (fixflag_translate, translate_run_options, ownership_service, paid_job_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
@@ -195,7 +195,6 @@ def _start(kind: str, drama_id: int, engine_name: Optional[str], model: Optional
         base_url=settings_service.ollama_url()
         if engine_name == "ollama" else None)
     args, kwargs = make_args(drama, lines, engine, engine_name)
-    kwargs.setdefault("gpu_touching", local.ollama_touches_local_gpu(engine_name, model))
     started = job_launch.start_job(
         job_id, runner, job_id, drama_id, *args,
         description=f"{label.capitalize()} (title #{drama_id})", **kwargs,
@@ -299,7 +298,7 @@ def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str 
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "principal": acting.acting_principal(),
-                      "gpu_touching": bool(audio_path) or local.ollama_touches_local_gpu(name, model)}
+                      "gpu_touching": bool(audio_path)}
     started = _start("fix-flagged", drama_id, engine_name, model, gemini_free_tier,
                      workspace_review_job_service.run_fix_flagged_lines_job, make_args,
                      allow_translation_only=True, precheck=precheck)

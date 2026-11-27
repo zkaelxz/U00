@@ -797,11 +797,6 @@ def test_overlap_is_off_by_default(jobs, cap, monkeypatch):
     assert jobs.started == [f"translate_{a}"]
 
 
-def test_a_translation_on_this_pcs_gpu_never_overlaps(jobs):
-    a, _b = _overlap_queue("ollama", True)
-    q.tick()
-    q.tick()
-    assert jobs.started == [f"translate_{a}"]
 
 
 def test_the_same_title_never_overlaps_itself(jobs, cap, monkeypatch):

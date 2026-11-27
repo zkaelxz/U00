@@ -13,7 +13,6 @@ import json
 
 import db
 from engine_backends import engine_registry, pricing
-from engine_backends import local as engine_local
 import translation_guide
 from engine_backends.temperature import TEMPERATURE_ENGINES
 from jobs import job_launch
@@ -154,24 +153,13 @@ class _Plan:
 
 
 def _model_choices(engine: str, models: list) -> list:
-    """The models the sweep may try, and why one is left out: on Ollama it tries only models
-    already pulled on this PC, never a cloud tag, which would send the cases' text off the PC
+    """The models the sweep may try, and why one is left out: on Ollama none, since every
+    model it serves now runs on Ollama's servers, which would send the cases' text off the PC
     without the owner having picked that model."""
-    pulled = None
-    if engine == "ollama":
-        pulled = {n if ":" in n else f"{n}:latest"
-                  for n in engine_local.pulled_ollama_models(settings_service.ollama_url())}
     out = []
     for m in models:
-        reason = None
-        if pulled is not None and engine_local.is_ollama_cloud_model(m):
-            reason = "Runs on Ollama's servers and sends text off this PC; the sweep only tries local models."
-        elif pulled is not None and not pulled and not engine_local.check_ollama_reachable(
-                settings_service.ollama_url()):
-            reason = "Could not reach Ollama."
-        elif pulled is not None and (m if ":" in m else f"{m}:latest") not in pulled:
-            reason = (f"{m} isn't pulled in Ollama on this PC. Pull it once; the sweep never downloads "
-                      "a model.")
+        reason = ("Runs on Ollama's servers and sends text off this PC; the sweep skips it."
+                  if engine == "ollama" else None)
         out.append({"engine": engine, "model": m, "label": m, "included": reason is None, "reason": reason})
     return out
 
@@ -253,11 +241,9 @@ def start(set_name: str, language: str, engine: str, model: str | None = None, s
     # The estimate leaves out re-asks and retries and counts Reflect as a flat three, so the sweep as
     # a whole may spend a margin above it, and no more.
     job_cap = round(est["estimated_cost_usd"] * COST_MARGIN + COST_MARGIN_FLOOR_USD, 6) if est["cap_applies"] else None
-    gpu = any(engine_local.ollama_touches_local_gpu(engine, m["model"]) for m in
-              [{"model": est["model"]}, *(m for m in est["models"] if m["included"])])
     return sweep_core.launch(_store, record, lambda: job_launch.start_job(
         JOB_ID, _run_job, JOB_ID, est["set_name"], language, engine, model, series_id,
-        est["passes_to_run"], job_cap, gpu_touching=gpu, description="Translation sweep", line_fields=()))
+        est["passes_to_run"], job_cap, description="Translation sweep", line_fields=()))
 
 
 def _run_job(job_id, set_name, language, engine, model, series_id, planned, job_cap=None):

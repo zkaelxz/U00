@@ -568,7 +568,7 @@ class TestOllamaModelInstalledCheck:
         calls = self._serve(monkeypatch,
                             self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
                             self.Resp(200))
-        engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
         assert calls[-1] == "http://proxy.local/api/tags"
 
     # 300 and 304 are redirect-class statuses lib/http does not follow, so they
@@ -577,14 +577,14 @@ class TestOllamaModelInstalledCheck:
     def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
         self._serve(monkeypatch, self.Resp(status))
         with pytest.raises(engine_local.OllamaUnavailableError) as exc:
-            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
         assert exc.value.reason == "ollama_unreachable"
 
     def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
         loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
         monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
         with pytest.raises(engine_local.OllamaUnavailableError):
-            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
 
 
 class TestOllamaReachability:

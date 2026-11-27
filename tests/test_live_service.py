@@ -761,16 +761,6 @@ def test_model_not_offered_for_the_engine_is_refused(live, monkeypatch):
     assert seen == {} and live_service._sessions == {}
 
 
-def test_a_model_pulled_on_the_ollama_server_is_accepted(live, monkeypatch):
-    from engine_backends import local as engine_local
-    seen = _capture_engine(live, monkeypatch)
-    monkeypatch.setattr(engine_local, "check_ollama_model_installed", lambda base, model: None)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["gemma4:31b-cloud"])
-    sid = _start(engine="ollama", model="gemma4:31b-cloud")
-    assert _terminal(sid)
-    assert seen["engine"].model == "gemma4:31b-cloud"
-    with pytest.raises(InvalidInputError):
-        _start(engine="ollama", model="not-a-real-model:1b")
 
 
 def test_ollama_model_must_be_pulled_at_start(live, monkeypatch):
@@ -789,7 +779,6 @@ def test_ollama_default_model_is_hosted_gemma_31b_whatever_the_card(live, monkey
     import memory_headroom
     from engine_backends import local as engine_local
     monkeypatch.setattr(memory_headroom, "total_mb", lambda memory: 24 * 1024)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models", lambda base: ["gemma4:31b-cloud"])
     seen = _capture_engine(live, monkeypatch)
     checked = []
     monkeypatch.setattr(engine_local, "check_ollama_model_installed",

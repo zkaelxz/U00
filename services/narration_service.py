@@ -31,7 +31,6 @@ from jobs import job_launch
 import novel_text
 import db
 from engine_backends import llm_tasks, engine_registry
-from engine_backends import local as engine_local
 from engine_backends import paid_calls, pricing
 from core import Line
 from engine_backends.run_limits import TranslateRunStopped
@@ -151,7 +150,6 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        gpu_touching=not one_narrator and engine_local.ollama_touches_local_gpu(engine_name, model),
         description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
         append=bool(append), chapters=selection, one_narrator=bool(one_narrator), line_fields=db.FULL_SYNC)
     if not started:

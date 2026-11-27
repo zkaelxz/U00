@@ -29,7 +29,6 @@ from .ollama_server import (  # noqa: F401  (re-exported; callers and tests use 
     _ollama_reachability_cache,
     check_ollama_model_installed,
     check_ollama_reachable,
-    pulled_ollama_models,
 )
 
 
@@ -211,17 +210,6 @@ def chat_target(base_url: str, model: str):
         return (f"{OLLAMA_CLOUD_URL}/api/chat", {"Authorization": f"Bearer {key}"},
                 direct_cloud_model(model))
     return f"{base_url}/api/chat", None, model
-
-
-def ollama_touches_local_gpu(engine_name: str, model) -> bool:
-    """Whether a run on this engine uses this PC's GPU/memory: a local
-    Ollama model does, a cloud tag does not."""
-    return engine_name == "ollama" and not is_ollama_cloud_model(model)
-
-
-def chain_touches_local_gpu(chain) -> bool:
-    """`ollama_touches_local_gpu` for any step of an engine chain."""
-    return any(ollama_touches_local_gpu(c["engine"], c["model"]) for c in chain)
 
 
 LOCAL_MODEL_REFUSAL = ("Local Ollama models are no longer supported: they were too slow and "

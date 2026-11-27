@@ -642,7 +642,7 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
         target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
-        replace_flags=replace_flags, gpu_touching=engine_local.chain_touches_local_gpu(chain),
+        replace_flags=replace_flags,
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
         run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
     if not started:

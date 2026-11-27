@@ -21,7 +21,6 @@ from jobs import gpu_slots, job_launch
 from engine_backends import translate_pipeline, fallback, pricing, engine_registry, llm_tasks, paid_calls
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
-from engine_backends import local as engine_local
 from engine_backends import alignment_judge, medium_prompts, stream_recipe
 from engine_backends.llm_feature_prompts import glossary_term_forms
 import translation_guide as tguide
@@ -759,10 +758,6 @@ def _start_bulk_title(did, drama, rows, plan, title, per_job_id, default_locale,
             batch_size=defs["batch_size"],
             summary_engine=summary_engine, summary_engine_choice=summary_choice,
             summary_monthly_cap_usd=monthly_cap,
-            # Only a local Ollama model loads onto this PC's GPU; an Ollama
-            # cloud tag is remote and must not queue behind GPU jobs. The
-            # guard stops a local one running alongside another GPU job.
-            gpu_touching=engine_local.ollama_touches_local_gpu(engine_choice, model),
             description=f"Ollama translation ({title})" if engine_choice == "ollama" else None,
             run_settings=run_settings_service.for_translate(
                 drama, include_genre_notes, default_female_pronouns, glossary_terms,
