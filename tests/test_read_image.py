@@ -304,6 +304,16 @@ class TestPreparedPicture:
             planted = plain + b"MARKER"
         assert b"MARKER" not in image_text_service._prepared(planted)[0]
 
+    def test_a_16_bit_or_padded_png_chunk_is_not_sent_as_it_came(self):
+        plain = _png((300, 80))
+        depth = plain.index(b"IHDR") + 12
+        sixteen = plain[:depth] + b"\x10" + plain[depth + 1:]
+        iend = plain.rindex(b"IEND") - 4
+        padded = plain[:iend] + self._chunk(b"pHYs", bytes(9) + b"MARKER") + plain[iend:]
+        assert image_text_service._png_is_bare(plain)
+        assert not image_text_service._png_is_bare(sixteen)
+        assert not image_text_service._png_is_bare(padded)
+
     def test_webp_is_sent_as_png(self):
         _data, mime, *_ = image_text_service._prepared(_png((300, 80), "WEBP"))
         assert mime == "image/png"

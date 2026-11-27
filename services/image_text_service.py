@@ -6,8 +6,8 @@ fill the text box. UI-free.
 The picture goes through the page-upload rules (page_import_limits:
 PNG, JPEG or WebP, 30 MB) with a tighter pixel cap, is decoded and
 written out again unless its file holds nothing but pixels (so EXIF, GPS, XMP,
-thumbnails and PNG text chunks never reach a provider) and is cut down to MAX_EDGE pixels on its long side so the cost is
-predictable. It is not kept: only the route's upload buffer holds it, which
+thumbnails and PNG text chunks never reach a provider) and is cut down to
+MAX_EDGE pixels on its long side so the cost is predictable. It is not kept: only the route's upload buffer holds it, which
 Starlette may spool to a temp file over 1 MB, removed when the request ends.
 A paid engine is priced first, at the most a request can cost, and refused when
 this month's cap is spent or the picture would pass it; every request is logged
@@ -103,6 +103,8 @@ _AS_IS_MODES = {"JPEG": ("RGB", "L"), "PNG": ("RGB", "RGBA", "L", "LA", "P")}
 _JPEG_TABLES = {0xC4, 0xCC, 0xDB, 0xDD}
 _JPEG_FRAMES = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
 _PNG_CHUNKS = {b"IHDR", b"PLTE", b"tRNS", b"pHYs", b"IDAT", b"IEND"}
+# Padding a known chunk past its real size would hide data in it.
+_PNG_MAX_LENGTH = {b"PLTE": 768, b"tRNS": 256, b"pHYs": 9, b"IEND": 0}
 
 
 def _jpeg_is_bare(data: bytes) -> bool:
@@ -129,7 +131,7 @@ def _jpeg_is_bare(data: bytes) -> bool:
             if not (body[:5] == b"JFIF\0" and len(body) == 14 and body[12:14] == b"\0\0"):
                 return False
         elif marker == 0xEE:
-            if body[:5] != b"Adobe":
+            if not (body[:5] == b"Adobe" and len(body) == 12):
                 return False
         elif marker not in _JPEG_TABLES and marker not in _JPEG_FRAMES and marker != 0xDA:
             return False
@@ -148,7 +150,10 @@ def _png_is_bare(data: bytes) -> bool:
     while i + 12 <= n:
         length = int.from_bytes(data[i:i + 4], "big")
         kind = data[i + 4:i + 8]
-        if kind not in _PNG_CHUNKS:
+        if kind not in _PNG_CHUNKS or length > _PNG_MAX_LENGTH.get(kind, length):
+            return False
+        # 16-bit samples were always rewritten at 8 bits; keep sending what providers have seen.
+        if kind == b"IHDR" and (length != 13 or data[i + 16] != 8):
             return False
         i += 12 + length
         if kind == b"IEND":
