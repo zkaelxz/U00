@@ -26,13 +26,6 @@ import weakref
 from . import store
 
 MODES = ["none", "temporary", "keep_originals", "keep_translated", "keep_both"]
-MODE_LABELS = {
-    "none": "Don't retain anything",
-    "temporary": "Temporary (cleared after each import)",
-    "keep_originals": "Keep originals",
-    "keep_translated": "Keep translated only (originals cleared after each import)",
-    "keep_both": "Keep originals and translated",
-}
 _PERSISTENT = {"keep_originals", "keep_both"}
 
 # Imports run as threads in one process, each with its own RawCache, and

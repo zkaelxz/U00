@@ -359,7 +359,6 @@ NVIDIA_DRIVER_FOR_CUDA = {
              "Linux": {"recommended": "525.60.13", "minimum": "525.60.13"}},
 }
 
-TORCH_SETUP_TIMEOUT_SECONDS = 3600    # ~2.5 GB of CUDA wheels on a slow link
 TORCH_VERIFY_TIMEOUT_SECONDS = 180    # a cold `import torch` can take a while
 
 _VERSION_RE = re.compile(r"^[0-9][0-9A-Za-z.+!_-]{0,63}$")

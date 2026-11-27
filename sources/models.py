@@ -416,9 +416,3 @@ class ContentHidden(SourceError):
     """The resource exists but is withheld behind an opt-in the app hasn't
     been given (e.g. a source's adult-content flag)."""
 
-
-CHALLENGE_HANDOFF_MESSAGE = (
-    "A browser verification page was detected. Automatic challenge solving is "
-    "disabled, so Baihe stopped and did not try to get past it. Open the page in your "
-    "own browser and complete whatever verification the site asks for, then import "
-    "from the page source you saved from that browser.")
