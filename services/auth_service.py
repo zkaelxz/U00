@@ -90,7 +90,11 @@ MEMBER_UPLOAD_PERMISSION = "media.upload_member"
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.
 UPDATE_PERMISSION = "system.update"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
+# Opening the self-contained pages in the data folder's private-pages folder
+# (services/private_pages_service.py). They embed private audio and video, so
+# only the admin flag grants it and an admin keeps it on the household listener.
+PRIVATE_PAGES_PERMISSION = "pages.private"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION, PRIVATE_PAGES_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)
