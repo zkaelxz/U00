@@ -365,3 +365,6 @@ def test_a_second_press_while_sending_sends_nothing_more_and_the_result_links_th
     assert out["disabledWhileSending"] is True and out["enabledAfter"] is True
     assert "downloading and subtitling" in out["status"]
     assert out["linkShown"] is True and out["link"].endswith("/#/drama/12")
+    html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
+    for element_id in ("tab-video", "panel-video", "sendVideo", "startLive", "liveLanguage", "openInBaihe"):
+        assert f'id="{element_id}"' in html
