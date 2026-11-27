@@ -4,7 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
-import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
+import { SlowUploadHint, UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { ButtonLink } from '../../../components/Button'
 import { formatDecimalBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -30,7 +30,6 @@ import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
   checkUploadFile,
-  slowUploadHint,
   isUploadLimitProblem,
   isVideoFile,
   SOURCE_DRAFT_SHAPE,
@@ -88,8 +87,7 @@ export default function SourceStage() {
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
-  const canUpload = useCanUpload()
-  const canUploadMedia = useCanUploadMedia()
+  const [canUpload, canUploadMedia] = [useCanUpload(), useCanUploadMedia()]
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered for this title.
   const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
@@ -281,10 +279,7 @@ export default function SourceStage() {
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
           <button type="button" id={mediaFileInputId(dramaId)} className={buttonClass('secondary')} disabled={!media} onClick={() => mediaInput.current?.click()}>Choose a file</button>
-          <span className="source-file-name muted">{file ? file.name : 'No file chosen'}</span>
-          {file && !uploading && slowUploadHint(file.size) && (
-            <span className="muted" data-testid="slow-upload-hint">{slowUploadHint(file.size)}</span>
-          )}
+          <span className="source-file-name muted">{file ? file.name : 'No file chosen'}{file && !uploading && <SlowUploadHint size={file.size} />}</span>
           <button
             type="button"
             className={buttonClass('secondary')}

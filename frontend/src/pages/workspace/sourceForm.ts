@@ -78,6 +78,12 @@ export function slowUploadHint(sizeBytes: number): string | null {
   return `This may take about ${minutes} minutes on a typical home connection. Keep this page open and the screen on, or use Wi-Fi.`
 }
 
+// Time left from the speed so far: a measurement, shown only after a few seconds of data.
+export function remainingSeconds(sent: { loaded: number; total: number }, elapsedMs: number): number | null {
+  if (elapsedMs < 5000 || sent.loaded <= 0 || sent.loaded >= sent.total) return null
+  return Math.ceil(((sent.total - sent.loaded) / sent.loaded) * (elapsedMs / 1000))
+}
+
 // Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py; the default is services/transcribe_service.py _DEFAULT_TUNING.
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000

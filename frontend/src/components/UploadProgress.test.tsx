@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { remainingSeconds, UploadProgress } from './UploadProgress'
+import { remainingSeconds } from '../pages/workspace/sourceForm'
+import { UploadProgress } from './UploadProgress'
 
 describe('UploadProgress', () => {
   it('shows percent, bytes and that it is still sending', () => {
