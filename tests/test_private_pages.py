@@ -68,7 +68,7 @@ def test_a_member_is_refused(folder, isolated_db):
     "/private/", "/private", "/private/missing.html", "/private/notes.txt", "/private/pack-1",
     "/private/..%2Fsecret.html", "/private/%2e%2e/secret.html", "/private/..%5Csecret.html",
     "/private/pack-1.html%00", "/private/C:%5Csecret.html", "/private/pack-1.html::$DATA",
-    "/private/.hidden.html", "/private/sub/pack-1.html",
+    "/private/.hidden.html", "/private/NUL.html", "/private/com1.html", "/private/sub/pack-1.html",
 ])
 def test_nothing_but_a_plain_html_file_is_served(path, folder, isolated_db):
     r = _household().get(path, headers=_headers(_session(True, isolated_db)))
