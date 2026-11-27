@@ -174,7 +174,7 @@ export default function JobsPage() {
       meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
       tabs={tabs}
     >
-      <div id={tabPanelId('jobs', 'jobs')} role="tabpanel" aria-labelledby={tabButtonId('jobs', 'jobs')} style={{ display: 'contents' }}>
+      <div id={tabPanelId('jobs', 'jobs')} role="tabpanel" aria-labelledby={tabButtonId('jobs', 'jobs')} className="page-shell-body">
       {/* A person with no jobs yet reads the empty state before the queue form. */}
       {!noJobsYet && <JobQueue titles={titles} />}
 
