@@ -15,6 +15,7 @@ import { ConfirmButton } from '../components/ConfirmButton'
 import { ErrorBanner } from '../components/ErrorBanner'
 import { Field } from '../components/Field'
 import { Tabs } from '../components/Tabs'
+import { SidePane } from '../components/SidePane'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { SharingControl } from '../components/SharingControl'
 import { countDramas, dramaName, parseTime, readHref, workspaceHref } from '../components/libraryView'
@@ -485,9 +486,9 @@ export default function LibraryToolsPage() {
       className="library-page library-tools-page"
       back={<Breadcrumbs crumbs={routeCrumbs({ name: 'library-tools' })} />}
       meta="Series, saved manga, costs, reading history, profiles, backups, storage and the data folder. Titles and Continue stay on the Library page."
-      tabs={<Tabs label="Library tools" idPrefix="library-tools" tabs={tabs} active={tab} onSelect={selectTab} />}
     >
       <ErrorBanner error={stats.error} />
+      <SidePane nav={<Tabs side label="Library tools" idPrefix="library-tools" tabs={tabs} active={tab} onSelect={selectTab} />}>
       <section className="tools-stack" aria-label="Library tools">
         {panel('organize', (
           <>
@@ -627,6 +628,7 @@ export default function LibraryToolsPage() {
         {pc !== 'remote' && panel('storage', <StorageTab pc={pc} usage={usage} />)}
         {pc !== 'remote' && panel('data', pc === 'local' ? <DataFolderPanel usage={usage} /> : <p className="muted">{pcPending}</p>)}
       </section>
+      </SidePane>
     </PageShell>
   )
 }
