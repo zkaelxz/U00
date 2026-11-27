@@ -11,6 +11,7 @@ import uuid
 from typing import Optional
 
 import db
+import novel_text
 from engine_backends import engine_registry, local as engine_local
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from services import glossary_extract_service, queue_service as q
@@ -326,6 +327,13 @@ def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Opt
                 raise ConflictError("This novel has no saved chapters that are not in its lines yet.")
             if not new_chapters:
                 raise InvalidInputError("Update the Baihe app on the phone to translate a novel's new chapters.")
+            # The phone's count is a claim: the append can't start before the chapters the phone really
+            # saved, or a modified phone could put back chapters the owner cut off.
+            saved_by_phone = novel_text.read_phone_added(db.drama_dir(drama_id))
+            # Added text still waiting for lines is a retry: the append finds it in the text and adds nothing.
+            if not saved_by_phone and novel_text.read_pending_lines(db.drama_dir(drama_id)) is None:
+                raise ConflictError("The phone has saved no chapters to this title that are waiting to be added.")
+            new_chapters = min(new_chapters, saved_by_phone) or 1
             first_new = max(1, novel_attach_service.saved_chapter_count(drama_id) - new_chapters + 1)
             # No names step: a new scan would wait for a review nobody at the phone is there to do.
             steps += [(q.APPEND, {"from_chapter": first_new}), (q.LINES, {**(lines or {}), "append": True}),

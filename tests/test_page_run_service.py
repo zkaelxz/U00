@@ -785,3 +785,42 @@ def test_the_append_chains_translate_takes_every_untranslated_line_of_the_title(
     _run_chain(jobs, did, lambda: bool(translate_calls))
     all_ids = [i for i, _zh, _en in _rows(did)]
     assert translate_calls[0]["line_ids"] == all_ids and set(old_ids) < set(all_ids)
+
+
+def test_a_phone_cannot_claim_more_new_chapters_than_it_saved(translate_calls):
+    from services import novel_attach_service
+    import os
+    import novel_text
+    from sources import pipeline
+    did = _novel_with_lines()
+    pipeline.append_novel_chapter_once(did, "乙回答了。", "第二章 继续", source="x")
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第三章 新", source="x")
+    novel_attach_service.attach_from_sources(did, "replace")      # the text now holds all three
+    assert novel_text.read_phone_added(db.drama_dir(did)) == 0
+    path = os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME)
+    full = _text(did)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(full[:full.index("第二章")].strip())          # the owner cut chapters 2 and 3
+    with pytest.raises(ConflictError):
+        _start_append(did, new_chapters=2)
+    assert _flow(did) == []
+
+
+def test_a_claim_is_capped_to_the_chapters_the_phone_saved(translate_calls):
+    from sources import pipeline
+    did = _novel_with_lines()
+    pipeline.append_novel_chapter_once(did, "乙回答了。", "第二章 继续", source="x")
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第三章 新", source="x")
+    _start_append(did, new_chapters=50)
+    assert q._load()["items"][0]["settings"] == {"from_chapter": 2}
+
+
+def test_a_phone_with_nothing_saved_waiting_queues_nothing(translate_calls):
+    import novel_text
+    from sources import pipeline
+    did = _novel_with_lines()
+    pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+    novel_text.clear_phone_added(db.drama_dir(did))
+    with pytest.raises(ConflictError):
+        _start_append(did, new_chapters=1)
+    assert _flow(did) == []
