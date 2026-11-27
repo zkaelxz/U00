@@ -48,13 +48,14 @@ export function DuplicatesCard({ canScan }: { canScan: boolean }) {
         <ul className="tool-list" aria-label="Duplicate titles">
           {found.groups.map((g) => (
             <li key={`${g.same}-${g.items.map((i) => i.id).join('-')}`}>
-              <strong>{WHY[g.same]}: </strong>
-              {g.items.map((i, n) => (
-                <span key={i.id}>
-                  {n > 0 && ', '}
-                  <a href={workspaceHref(i.id)}>{i.title || `Title ${i.id}`}</a>
-                </span>
-              ))}
+              <strong>{WHY[g.same]}:</strong>
+              <ul className="tool-list">
+                {g.items.map((i) => (
+                  <li key={i.id}>
+                    <a href={workspaceHref(i.id)}>{i.title || `Title ${i.id}`}</a>
+                  </li>
+                ))}
+              </ul>
             </li>
           ))}
         </ul>

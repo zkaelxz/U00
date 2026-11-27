@@ -87,6 +87,8 @@
     // hash -> regions, so paging back to a page already translated is
     // instant and nothing is ever translated twice.
     cache: new Map(),
+    // Hashes whose cached answer came from a no-save run; a save must send them again.
+    unsaved: new Set(),
     // element -> { layer, regions, naturalWidth }
     active: new Map(),
     observer: null,
@@ -95,6 +97,17 @@
     visible: null,
     missed: null,
   };
+  // A Quick translate answer has no copy in the library, so a later save of the same picture
+  // must go to the app instead of being treated as done.
+  function rememberAnswer(hash, regions, store) {
+    state.cache.set(hash, regions);
+    if (store === false) state.unsaved.add(hash); else state.unsaved.delete(hash);
+  }
+  function answerFor(hash, store) {
+    if (store !== false && state.unsaved.has(hash)) return undefined;
+    return state.cache.get(hash);
+  }
+
 
   // -- collecting ------------------------------------------------------
 
@@ -1420,7 +1433,7 @@
     for (const [position, el] of chosen.entries()) {
       try {
         const extracted = byAddress && addressOnly(el) ? await addressEntry(el) : await extractBytes(el);
-        const cached = state.cache.get(extracted.hash);
+        const cached = answerFor(extracted.hash, store);
         if (cached) {
           drawOverlay(el, cached);
           fromCache.push(el);
@@ -1467,7 +1480,7 @@
       const entry = pending.get(page && page.key);
       if (!entry || run.cancelled) return;
       const regions = regionsOf(page);
-      state.cache.set(page.key, regions);
+      rememberAnswer(page.key, regions, store);
       for (const el of entry.elements) drawOverlay(el, regions);
       drawnEarly.add(page.key);
     };
@@ -1491,7 +1504,7 @@
       for (const { extracted, elements } of batch) {
         const regions = byHash.get(extracted.hash);
         if (!regions) continue;
-        state.cache.set(extracted.hash, regions);
+        rememberAnswer(extracted.hash, regions, store);
         for (const el of elements) {
           if (!drawnEarly.has(extracted.hash)) drawOverlay(el, regions);
           drawn += 1;
@@ -2012,7 +2025,7 @@
         }
         unreadableAs.read(el);
         if (key !== null) handled.set(el, key);
-        const cached = state.cache.get(extracted.hash);
+        const cached = answerFor(extracted.hash, store);
         if (seen.has(extracted.hash)) {
           counts.duplicates += 1;
           repeats.push(ledger.get(extracted.hash)?.position);
@@ -2051,7 +2064,7 @@
       for (const { extracted, elements, srcKey } of items) {
         const regions = byHash.get(extracted.hash);
         if (!regions) continue;
-        state.cache.set(extracted.hash, regions);
+        rememberAnswer(extracted.hash, regions, store);
         // A virtualised reader may have recycled the element for a
         // later page while this batch was in flight; drawing then
         // would put these bubbles on the wrong page.
@@ -2340,5 +2353,5 @@
                      isTextPage, chapterHeading, saveNovelText, pageFacts, chapterTitles,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
-                     completenessLine, nextChapterUrl, looksGated };
+                     completenessLine, nextChapterUrl, looksGated, rememberAnswer, answerFor };
 })();

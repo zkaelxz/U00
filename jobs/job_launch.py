@@ -205,6 +205,7 @@ def _admit_locked(job_id, gpu_touching, description, owner_user_id, priority=Fal
     queued = gpu_touching and get_gpu_limit_enabled() and (
         user_caps.wait_for_cap(_jobs, owner_user_id) or (_gpu_queue_waiting_locked() and not priority)
         or not _gpu_slot_available_locked(job_id, description))
+    user_caps.refuse_if_disk_low(owner_user_id)
     user_caps.refuse_over_cap(_jobs, owner_user_id, queueing=bool(queued))
     # Last, so a start refused above never uses up one of the member's jobs for the day.
     user_caps.count_daily_start(owner_user_id)

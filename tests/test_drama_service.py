@@ -595,7 +595,7 @@ def test_find_same_titles_keeps_a_link_match_when_many_share_the_name(isolated_d
     assert ds.set_source_url_once(oldest, "https://example.com/twin")
     for _ in range(ds.MAX_SAME_TITLES + 1):
         ds.create_drama(source_language="zh", title_en="Twin")
-    found = ds.find_same_titles(title_en="Twin", source_url="https://example.com/twin?x=1")
+    found = ds.find_same_titles(title_en="Twin", source_url="https://example.com/twin?utm_source=share")
     assert len(found) == ds.MAX_SAME_TITLES
     assert found[0] == {"id": oldest, "title": "Twin", "same": "link"}
     assert {t["same"] for t in found[1:]} == {"name"}
@@ -641,3 +641,9 @@ def test_find_titles_by_links_ignores_links_that_reduce_to_a_bare_host(isolated_
     ds.set_source_url_once(stored, token_path)
     other = "https://site.example/title/" + "f9e8d7c6" * 5 + "/other"
     assert ds.find_titles_by_links([token_path, other, "https://site.example/"]) == [None, None, None]
+
+
+def test_find_same_titles_ignores_a_link_cut_down_to_the_host(isolated_db):
+    other = ds.create_drama(source_language="zh", title_en="Other")["id"]
+    assert ds.set_source_url_once(other, "https://video.example/watch/BV9xY8zW7vU6")
+    assert ds.find_same_titles(title_en="New", source_url="https://video.example/watch/BV1aB2cD3eF4") == []

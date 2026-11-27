@@ -529,6 +529,22 @@ def test_a_browser_only_member_cbz_save_says_why_and_stays_pending(env, tmp_path
     assert store.save_pending_ids(_row("alpha")) == ["c2", "c3"]
 
 
+def test_a_member_cannot_track_more_series_than_the_limit_but_the_owner_can(env, monkeypatch):
+    from lib.errors import ConflictError
+    env["alpha"] = _make("alpha")
+    b = _user("b@example.com")
+    monkeypatch.setattr(sources_registry_service, "MEMBER_TRACKED_LIMIT", 2)
+    for n in range(2):
+        store.track_series("alpha", f"own{n}", "Series", "", None, linked_by_user_id=b)
+    with pytest.raises(ConflictError) as err:
+        sources_registry_service.set_tracked("alpha", "one-too-many", True, principal=_p(b))
+    assert "already tracking 2 series" in err.value.message
+    # The owner (no account) is never counted, so the cap is not what refuses them.
+    with pytest.raises(ConflictError) as owner_err:
+        sources_registry_service.set_tracked("alpha", "one-too-many", True, principal=None)
+    assert "already tracking" not in owner_err.value.message
+
+
 def test_a_member_sees_only_the_series_they_track_or_that_link_to_a_title_they_can_see(env):
     env["alpha"] = _make("alpha")
     a = _user("a@example.com")
