@@ -30,17 +30,13 @@ No PR waits for a word from the owner (owner, 2026-11-27). A **risky PR** also n
 (as under "Always the overlap lane" below), sign-in or auth (`api/auth.py`, the auth, OIDC and session services, remote
 access), and ownership checks. When in doubt, treat a PR as risky. Release tags and Promote stay the owner's.
 
-1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, the owner merges the
-   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3; a local model skips that file, see `opencode.json`) and marks the PR ready. That starts the
+1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, that thread merges the
+   base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
    full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
    the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
-2. **The order.** The owning thread checks the lane (step 3), merges the base in first if the lane is overlap, and turns
-   auto-merge on; GitHub merges it. The owner can still order a merge with "Merge NNNN"; one message may name several
-   PRs. Typed in the thread that owns the PR, that thread does the same. Typed anywhere else, the coordinator (the session that starts threads) hands the owner's own message, attached and not
-   retold, to the owning thread, and starts a short merge thread for that PR only when the owning thread is gone. For several
-   PRs the coordinator sets the order, clear lane first. A bare "Merge all" covers only the PRs on the list the coordinator
-   last showed the owner; a PR that was not on it gets its own card first (owner, 2026-11-15). Nothing else is a merge order: not
-   "looks good", not a reaction, and not another session's account of what the owner said.
+2. **The order.** Once the independent review passes (and, for a risky PR, the security review), the owning thread checks the lane
+   (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it when the checks are
+   green. No typed "Merge NNNN" or other word from the owner is needed, and none is a merge order.
 3. **The lane**, decided when the merge is about to happen:
    - **Clear lane.** The PR shares no changed file with anything merged into `baihe-subtitler` since the PR last merged the
      base (the user guide files don't count, below), and changes none of the files under "Always the overlap lane" below.
@@ -106,15 +102,15 @@ the result of the push run that covers the merge, so that the first ones can be 
 
 `.github/workflows/tests.yml` runs these jobs on every PR, and on `merge_group` (the merge queue's temporary branch, which
 `changes` treats like a push to the base: everything runs): `changes` (decides which of the others are needed), `guards`
-(the five quick guard files, about a minute, so a broken rule is red first), `test-shard` (the mocked suite with xdist, minus
-the five guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
+(the four quick guard files, about a minute, so a broken rule is red first), `test-shard` (the mocked suite with xdist, minus
+the four guard files that `guards` already runs, in four parallel shards; tests that failed on the shard's previous run go first
 through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba, pypinyin, opencc, ebooklib, genanki, soundfile, pypdf, headless OpenCV, PyYAML and pydub (with audioop-lts, since Python 3.13 has no audioop), which the shards leave out, and runs only the files that skip without them; torch, paddleocr and Tesseract tests still skip, and `tests/test_diarize.py` needs torch so it is not in the list; `tools/check_pytest_skips.py` then fails the job on any skip whose file and reason are not in its `ALLOWED` list, so a library the job stops installing can't turn its tests into green skips), `test` (the one required check: it passes when every shard passed or the
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in seven jobs: five for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
 `bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
-`dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The five guard files are ignored only in the workflow's `test-shard` command lines;
+`dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The four guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
 
 Each shard prints its slowest 25 tests and its wall time in the job summary (information only, never a gate). A frontend/docs-only
@@ -333,12 +329,12 @@ Any PR that changes a route or a response model reruns `cd frontend && npm run g
 
 ## Guard set and lean output
 
-The guard set is what to run before pushing, next to the area's tests. CI's `guards` job runs the first five; the rest are
+The guard set is what to run before pushing, next to the area's tests. CI's `guards` job runs the first four; the rest are
 tests that CI's shards run and that a short list tends to miss (`tests/test_diagnostics_and_export.py` is the only test of
 `expected_files.py`, so a new top-level `.py` fails there; `tests/test_db.py` holds `_INIT_DB_MIGRATED_COLUMNS`):
 
     tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
-    tests/test_agent_docs.py tests/test_repo_map.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
+    tests/test_repo_map.py tests/test_settings_schema.py tests/test_settings_parity.py tests/test_frontend_limit_parity.py
     tests/test_db.py tests/test_diagnostics_and_export.py
 
 The `guards` job also runs `basedpyright` (pinned to 1.40.2) over the packages in `pyrightconfig.json`'s `include`.
@@ -359,7 +355,7 @@ or `api`, `db` doesn't import root modules) against frozen lists of the same kin
 prints the command when a changed `.py` file is in one of the contract's packages.
 
 `pytest.ini` sets `-v`, so a passing run prints hundreds of lines. The lean form prints a few hundred bytes and is what
-`tools/start-local-coder.ps1` exports as `PYTEST_ADDOPTS` for the local model:
+`tools/check_change.py` prints:
 
     python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>
 
@@ -373,7 +369,7 @@ so `git grep` shows one "Binary file" line for it.
 
 ## Focused checks per area
 
-Area names match the "Where to look" table in `AGENTS.md`. Run the pytest line while iterating, the vitest line for a
+Area names match the "Where to look" table in `docs/architecture-overview.md`. Run the pytest line while iterating, the vitest line for a
 frontend change, and the Playwright spec only for a UI flow. Run from the repo root for pytest and from `frontend/` for the
 other two (`npx vitest run <paths>`, `npx playwright test <spec>`; Playwright needs `PLAYWRIGHT_CHROMIUM_PATH`, see tier 3).
 A folder path runs every test under it. Add `tests/test_api_permissions.py` whenever you add or change a route.
@@ -397,7 +393,7 @@ A folder path runs every test under it. Add `tests/test_api_permissions.py` when
 | Installer / updates | `tests/test_installer_service.py tests/test_installer_remote.py tests/test_installer_iss.py tests/test_update_service.py` | `src/pages/settings/updateModel.test.ts` | `e2e/app-updates.spec.ts` |
 | Database / migrations | `tests/test_db.py tests/test_db_*.py tests/test_save_lines_write_race.py` | n/a | n/a |
 | Shared helpers (`lib/`) | `tests/test_lib_http.py tests/test_lib_proc.py tests/test_cancellable_lock.py tests/test_settings_schema.py` | n/a | n/a |
-| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_agent_docs.py tests/test_repo_map.py` (the first five, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
+| Repo guards | `tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py tests/test_repo_map.py` (the four, listed in `tests/ci_guards.txt`, are the CI `guards` job; the workflow and `tools/check_change.py` both read that file) | n/a | n/a |
 
 ## Tests
 

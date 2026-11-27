@@ -6,9 +6,16 @@ Short briefs for the three jobs a session can have, so a new session needs no re
 
 A session that writes code never reviews its own change.
 
+## Working rules (every role, owner 2026-11-27)
+
+1. **Assumptions first.** Before building, list what you are assuming. Ask the owner only about assumptions that would change the result.
+2. **Confidence.** Every result states how sure you are and what would make it certain.
+3. **Living status.** Update your item on the project dashboard as you work, following the dashboard's README steps. Private paths and links stay out of the repo.
+4. **One question at a time.** Short, plain messages; no walls of text.
+
 ## Coder
 
-1. Read `CLAUDE.md`, then the area's doc and tests (`AGENTS.md`, "Where to look").
+1. Read `CLAUDE.md`, then the area's doc and tests (`docs/architecture-overview.md`, "Where to look").
 2. More than a small fix: write a short plan first (scope, files, tests) and keep to it. A change that outgrows the plan goes back to the coordinator.
 3. Stay in scope: no new files, settings or abstractions the task didn't ask for. Pre-existing problems go in the summary, not the diff.
 4. Test while iterating with the area's test file; before pushing run the command `python tools/check_change.py` prints for your diff. CI runs the full suite; don't.
@@ -16,7 +23,10 @@ A session that writes code never reviews its own change.
 6. Every PR gets an independent review (below). Fix what it finds, have it re-reviewed, then re-run the area's tests and the guard set.
 7. Once the review passes, turn auto-merge on without waiting for the owner; GitHub merges when the checks are green. A risky PR (database schema or data, sign-in or auth including remote access, ownership) also needs an independent security review (`security-reviewer`) and is held only if that review finds problems. Merging follows `CLAUDE.md`, "Merging" and `docs/testing-and-ci.md`, "Merge flow". Keep code comments and PR text minimal and to the point.
 8. No comment, review or reply is posted on a GitHub PR or issue without the owner's OK; send the exact text to the coordinator first.
-9. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits.
+9. Search before opening, and bound it: `python tools/repo_map.py --find "<word>"` or `--callers <name>`. A task brief's allowed files are binding; more than about four files means say how to split the task.
+10. Stop and ask before touching: auth, sessions, permissions policy or remote access; keys, secrets, redaction or anything that logs or returns outbound error text; `db/` splits, table rebuilds or any migration that is not a plain `ADD COLUMN`; `background_jobs.py`, process-job workers, locks, threads or GPU slots; a test to skip, delete or loosen.
+11. Work in a clone of its own, never in the checkout that runs the app. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`, and a stray `core.py` there shadows the real module (`tests/test_local_coder_tools.py` catches it).
+12. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits.
 
 ## Reviewer
 
@@ -42,5 +52,5 @@ Runs real-hardware checks that mocked tests can't. It reports results; it does n
 
 ## Keeping these guides current
 
-- Update the matching guide, `CLAUDE.md` and `AGENTS.md` in the same change whenever a rule changes (an owner decision, a merged rule change, a repeated mistake), and bump "Last reviewed".
+- Update the matching guide and `CLAUDE.md` in the same change whenever a rule changes (an owner decision, a merged rule change, a repeated mistake), and bump "Last reviewed".
 - Any project notes kept outside the repo follow the same rule: only what is current (rules, preferences, open work, key facts); finished history moves to a dated archive.

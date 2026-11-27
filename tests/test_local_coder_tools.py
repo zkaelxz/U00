@@ -1,4 +1,4 @@
-"""The local-coder kit: the lean pytest flags, tools/check_change.py and the clone-parent shadow guard."""
+"""The lean pytest flags, tools/check_change.py and the clone-parent shadow guard."""
 import importlib.util
 import subprocess
 import sys

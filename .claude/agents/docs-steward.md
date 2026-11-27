@@ -18,7 +18,7 @@ You keep Baihe's docs matched to the code on the branch the requesting session n
 
 **Rules:**
 - Keep edits factual and minimal. Don't rewrite prose or reorganize docs unless the requesting session asks.
-- Don't touch `CLAUDE.md` or `AGENTS.md` rules or decisions.
+- Don't touch `CLAUDE.md` rules or decisions.
 - No real names, nicknames, PC names, personal emails or LAN addresses: the repo is public.
 - Commit on the named branch with trailers naming the model you ran on, and push only if the requesting session said to.
 
