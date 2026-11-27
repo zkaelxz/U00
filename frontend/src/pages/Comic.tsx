@@ -45,6 +45,8 @@ import { ComicGoTo, ComicPager, ComicViewControl } from './comic/ComicControls'
 import { ComicLines } from './comic/ComicText'
 import { LineEditSheet, type TappedLine } from './comic/LineEditSheet'
 import { ShowOriginalButton } from './comic/PageOriginal'
+import { ComicMoreMenu } from './comic/ComicMoreMenu'
+import { ComicPageBadge } from './comic/ComicPageBadge'
 import { useLowData } from './comic/lowData'
 import { useOriginalPages } from './comic/useOriginalPages'
 import { ComicPageView, FORBIDDEN_TEXT } from './comic/ComicPageView'
@@ -529,10 +531,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
         <header className="reader-phone-head comic-head">
           <a href={libraryHref} className="reader-back" aria-label="Back to Library">‹</a>
           <h1 className="reader-title">{title ?? (titleError ? 'This title' : 'Loading…')}</h1>
-          <SourceLink href={sourceUrl} dramaId={id} />
+          {empty && <SourceLink href={sourceUrl} dramaId={id} />}
           {label && <span className="comic-count" data-testid="comic-page-label">{label}</span>}
-          {!empty && <>{warningMenu}{toolsButton}</>}
-          {!empty && <>{addButton}{editButton}{view}</>}
+          {!empty && <>{warningMenu}{toolsButton}{view}<ComicMoreMenu dramaId={id} sourceUrl={sourceUrl} editHref={canEdit ? routeHref({ name: 'comic-edit', id, page: current }) : null} /></>}
           {chapterBar}
         </header>
       ) : (
@@ -551,6 +552,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
           {chapterBar}
         </div>
       )}
+      {!empty && current !== null && label && <ComicPageBadge label={label} phone={phone} />}
       {!phone && toolsOpen && !empty && (
         <div id="comic-scanlate" className="comic-scanlate" tabIndex={-1}>
           {panel}
