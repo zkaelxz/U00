@@ -25,6 +25,7 @@ import page_capture_checks
 from services import page_server
 import page_turns
 from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch
+from lib import device_use
 from lib.errors import ServiceError
 
 
@@ -607,11 +608,14 @@ def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
 def _log_page_time(result: dict, job: dict, started: float) -> None:
     from applog import get_logger
     seconds = result.get("seconds") or {}
+    # Counts since the last page, so with pages in parallel they blur, but a step stuck on the CPU still shows.
+    devices = device_use.take()
     get_logger().info("Extension page (%s%s): %.2fs in all; read %ss, translate %ss, typeset %ss; "
-                      "%d regions", "saved" if job["store"] else "quick read",
+                      "%d regions%s", "saved" if job["store"] else "quick read",
                       ", from cache" if result.get("cached") else "", time.monotonic() - started,
                       seconds.get("read", "-"), seconds.get("translate", "-"),
-                      seconds.get("typeset", "-"), len(result.get("regions") or []))
+                      seconds.get("typeset", "-"), len(result.get("regions") or []),
+                      f"; devices: {devices}" if devices else "")
 
 
 def _translate_one(image: dict, job: dict, turn):

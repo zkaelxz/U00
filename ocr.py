@@ -23,7 +23,7 @@ from typing import Any, NamedTuple, Optional
 
 import model_pins
 import ocr_layout
-from lib import proc
+from lib import device_use, proc
 
 # Tesseract language codes per source language. "zh" defaults to
 # Simplified -- see resolve_tesseract_lang() for the Traditional variant.
@@ -223,6 +223,7 @@ def paddle_lines(image, lang: str = "zh", scale: float = 1.0) -> list:
     import cv2
     from paddleocr import PaddleOCR
     paddle_lang = _PADDLE_LANG_BY_SOURCE.get(lang, "ch")
+    device_use.note("PaddleOCR page read", "CPU")
     with _MODEL_LOCK:
         instances = globals().setdefault("_paddle_line_instances", {})
         if paddle_lang not in instances:

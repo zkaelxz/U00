@@ -24,6 +24,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+from lib import device_use
+
 def _log(text: str, warning: bool = False) -> None:
     """To the app's log file (applog); a log that can't be written never stops a read."""
     try:
@@ -103,6 +105,9 @@ def read(key: str, source, allow_download: bool = True):
             reply = None
     if reply is None:
         reply = _ask(_cpu, ("read", f"{key}:cpu", _params(key), source))
+        device_use.note(f"text reader ({key})", "CPU")
+    else:
+        device_use.note(f"text reader ({key})", "GPU")
     if reply[0] == "error":
         raise RuntimeError(reply[1])
     _, txts, scores, boxes = reply
