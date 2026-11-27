@@ -437,9 +437,17 @@ def _lines_without_english(bubbles) -> list:
             and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
 
 
+def _is_cover_page(bubbles) -> bool:
+    """A page of at most two lettered regions and no balloon: a cover or title page, whose logo is
+    shown as drawn instead of spending a translation and a redraw on it."""
+    from scanlate import scanlate
+    return len(bubbles) <= 2 and not any(
+        b.get("kind") in scanlate.BALLOON_KINDS and (b.get("source_text") or "").strip() for b in bubbles)
+
+
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
                          image: bytes = b"", in_order: bool = True, language: str = "",
-                         turn=page_turns.UNORDERED) -> float:
+                         turn=page_turns.UNORDERED, cover: bool = False) -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
@@ -453,6 +461,10 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     if not (in_order or drama or quick_read_cache.source_language(source_url)):
         language = _learn_page_language(bubbles, language, source_url)
     if not bubbles:
+        return 0.0
+    if cover and _is_cover_page(bubbles):
+        for b in bubbles:
+            b["skip"] = True   # counted as left alone on purpose, so the page is cached as complete
         return 0.0
     if engine is None:
         notes.append(_no_engine_note(config, "read"))
@@ -591,7 +603,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
                     typeset_style=None, turn=page_turns.UNORDERED,
-                    typeset_max_width: int | None = None) -> dict:
+                    typeset_max_width: int | None = None, cover: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -708,7 +720,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, store, source_language, turn)
+                                                     notes, member, data, store, source_language, turn, cover)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)

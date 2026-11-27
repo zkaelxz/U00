@@ -480,6 +480,22 @@ class TestTranslatingAPage:
                                   "content_type": "image/png"}], "store": False})
         assert fake_pipeline["detect"][0]["kwargs"]["art_caption_stamps"] is False
 
+    def test_a_cover_with_only_a_logo_is_left_raw_and_a_page_with_a_balloon_is_not(self):
+        logo = {"kind": "caption", "source_text": "标题", "skip": False}
+        balloon = {"kind": "bubble", "source_text": "你好", "skip": False}
+        assert page_server._is_cover_page([logo, dict(logo)])
+        assert not page_server._is_cover_page([logo, dict(logo), dict(logo)])
+        assert not page_server._is_cover_page([logo, balloon])
+
+    def test_a_cover_is_not_sent_for_translation(self, token, fake_pipeline):
+        page_server.set_translation_config(engine="claude", api_key="test-key")
+        bubbles = [{"kind": "caption", "source_text": "标题", "translated_text": "", "skip": False}]
+        notes = []
+        seconds = page_server._translate_read_page(bubbles, page_server.get_translation_config(), None, None,
+                                                   "", notes, False, cover=True)
+        assert seconds == 0.0 and fake_pipeline["translate"] == []
+        assert bubbles[0]["skip"] is True and page_server._lines_without_english(bubbles) == []
+
     def test_an_unstored_page_leaves_no_temp_file_behind(self, token, fake_pipeline,
                                                         isolated_db):
         seen = {}

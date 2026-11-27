@@ -638,7 +638,8 @@ def _translate_one(image: dict, job: dict, turn):
             image["content"], image["content_type"], drama_id=job["drama_id"],
             source_url=job["source_url"], source_language=job["source_language"], store=job["store"],
             member=job["member"], typeset=job["typeset"] and not job["store"],
-            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"])
+            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"],
+            cover=image["key"] == "p0" and not job["store"])
     except page_turns.Stopped:
         return "stopped", None
     except page_server.EndpointError as e:
