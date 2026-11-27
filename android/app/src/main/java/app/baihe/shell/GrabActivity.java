@@ -1620,6 +1620,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // Older Baihe versions omit the flag, so they never get addresses to fetch.
             boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
 
+            // Pages that finished but wait for an earlier batch count as ready, so the counter moves
+            // with the PC and not only with the order the reader shows them in.
+            java.util.function.Supplier<String> readyLine = () -> {
+                int waiting = 0;
+                for (List<byte[]> batchHeld : held) waiting += batchHeld.size();
+                String line = "Redrawing " + pages.size() + " pictures: " + (shown[0] + waiting) + " ready";
+                return waiting > 0 ? line + ", showing " + shown[0] : line;
+            };
+
             // Called with `lock` held: writes a page and, the first time, opens the reader.
             java.util.function.Consumer<byte[]> show = jpeg -> {
                 String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
@@ -1635,8 +1644,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 if (originalArt != null) QuickReadActivity.writeOriginal(this, name, originalArt);
                 shown[0]++;
                 QuickReadSession.add(name);
-                say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
-                        : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                say(QuickReadSession.isDetached() ? backgroundLine(shown[0]) : readyLine.get());
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -1656,8 +1664,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
-                            : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0]) : readyLine.get());
                     try {
                         BaiheClient.PageListener onPage = page -> {
                             JSONObject wrapped;
@@ -1684,6 +1691,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }
+                                if (index != frontier[0] && !QuickReadSession.isDetached()) say(readyLine.get());
                             }
                         };
                         JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
