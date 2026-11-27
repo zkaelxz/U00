@@ -1387,3 +1387,14 @@ class TestRenderReportsTheDrawnSize:
         scanlate_text_layout.render_text_in_box(img, {"x": 0, "y": 0, "w": 80, "h": 60}, "A longer line "
                                            "of text that must shrink", font_size=40, report=report)
         assert 8 <= report["size"] < 40
+
+
+def test_a_site_stamp_read_as_a_caption_is_skipped_not_translated():
+    stamp = {"x": 10, "y": 900, "w": 400, "h": 40, "kind": "caption",
+             "source_text": "HTTPS://NEWTOKKI468.COM", "line_boxes": []}
+    story = {"x": 10, "y": 100, "w": 300, "h": 60, "kind": "caption",
+             "source_text": "그날 밤, 나는 아무 말도 하지 못했다", "line_boxes": []}
+    joined = scanlate.with_captions([], [stamp, story])
+    assert stamp["skip"] is True
+    assert not story.get("skip")
+    assert [r["reading_order"] for r in joined] == [0, 1]

@@ -519,6 +519,9 @@ def with_captions(regions: list, captions: list) -> list:
     """`regions` without the pieces of `captions`, then the captions, renumbered
     in that reading order."""
     joined = drop_parts_of_captions(regions, captions) + captions
+    # Captions join after the page's own regions were checked, so a site's stamp read as a caption would
+    # otherwise be translated and lettered over its Korean instead of being skipped and painted out.
+    flag_site_marks(joined)
     for caption in captions:
         caption.pop("line_boxes", None)
     for order, region in enumerate(joined):
