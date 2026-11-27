@@ -240,7 +240,6 @@ class TestSourceScriptKeptInTheReply:
     def _translate(self, monkeypatch, content):
         from engine_backends import local
         from live.live_cue_translation import CueTranslator
-        import memory_headroom
         bodies = []
 
         def chat(base_url, payload):
