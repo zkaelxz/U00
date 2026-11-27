@@ -1,13 +1,7 @@
-// Pure helpers for the Library's Ready, Needs you and Running shelves (HomeShelves.tsx; a different name from it, since Windows file names ignore case).
+// Pure helpers for the Library's Running line and the "Titles you added" shelf (HomeShelves.tsx; a different name from it, since Windows file names ignore case).
 
-import { formatClock, pluralLocale } from '../labels'
-import { titleKind } from '../pages/workspace/titleKind'
-import { routeHref } from '../router'
 import type { JobRecord } from '../types/jobs'
-import type { LibraryNeedsYouEntry, LibraryReadyEntry, LibraryRunningEntry } from '../types/library'
-import { readAction } from './libraryView'
-
-export type ShelfAction = { label: string; href: string }
+import type { LibraryRunningEntry } from '../types/library'
 
 /** "2 h 05 m" past an hour, else "45 min" (never "0 min"). */
 export function formatLength(seconds: number): string {
@@ -16,74 +10,10 @@ export function formatLength(seconds: number): string {
   return `${Math.floor(minutes / 60)} h ${String(minutes % 60).padStart(2, '0')} m`
 }
 
-/** The small tag on a Ready card: what kind of thing it is. */
-export function kindTag(e: Pick<LibraryReadyEntry, 'media_type' | 'content_mode'>): string {
-  if (e.media_type === 'streamer_vod' || e.content_mode === 'streamer_vod') return 'Stream'
-  const kind = titleKind(e.media_type, e.content_mode)
-  return { video: 'Video', audio: 'Audio', comic: 'Comic', novel: 'Novel', subtitle: 'Subtitles' }[kind]
-}
-
-export interface ReadyCard {
-  href: string
-  label: string
-  /** 0 to 1 once started, null for one not started yet (which shows New). */
-  progress: number | null
-}
-
-/** A Ready card's link and wording. `watchedAt` is where the Watch page last stopped on this device (0 for never). */
-export function readyCard(e: LibraryReadyEntry, watchedAt: number): ReadyCard {
-  const { href } = readAction({ id: e.drama_id, media_type: e.media_type ?? null, content_mode: e.content_mode })
-  const kind = titleKind(e.media_type, e.content_mode)
-  if (kind === 'video' || kind === 'audio') {
-    const length = e.length_seconds ?? 0
-    if (watchedAt > 0) return { href, label: `Continue at ${formatClock(watchedAt)}`, progress: length > 0 ? Math.min(1, watchedAt / length) : null }
-    const verb = kind === 'video' ? 'Watch' : 'Listen'
-    return { href, label: length > 0 ? `${verb} · ${formatLength(length)}` : verb, progress: null }
-  }
-  if (e.read_percent > 0) return { href, label: 'Continue reading', progress: Math.min(1, e.read_percent / 100) }
-  if (kind === 'comic' && e.page_count > 0) return { href, label: `Read · ${pluralLocale(e.page_count, 'page')}`, progress: null }
-  return { href, label: 'Read', progress: null }
-}
-
-/** Started cards first, then the rest in the server's newest-first order. */
-export function readyOrder<T extends { progress: number | null }>(cards: T[]): T[] {
-  return [...cards.filter((c) => c.progress !== null), ...cards.filter((c) => c.progress === null)]
-}
-
 const STEP_VERB: Record<string, string> = {
   transcribe: 'Transcribing', translate: 'Translating', export: 'Exporting', autoqc: 'Checking', auto_qc: 'Checking',
 }
 export const stepVerb = (step: string | null | undefined): string => (step && STEP_VERB[step]) || 'Working on'
-
-// A refused or missing key is the one failure the person fixes in Settings rather than in Jobs.
-const KEY_TROUBLE = /\b(api )?key\b/i
-
-export interface NeedsRow { text: string; action: ShelfAction | null }
-
-export interface NeedsViewer {
-  /** May retry and reorder queue items (the PC owner and admins). */
-  canControlQueue: boolean
-  /** May open Settings to change a key: at the PC. */
-  canOpenSettings: boolean
-}
-
-/** One Needs you row, or null when the viewer could do nothing with it. */
-export function needsRow(e: LibraryNeedsYouEntry, viewer: NeedsViewer): NeedsRow | null {
-  if (e.kind === 'failed') {
-    if (!viewer.canControlQueue) return { text: 'Stopped. The PC owner has been told.', action: null }
-    const reason = e.reason?.trim()
-    const text = `${stepVerb(e.step)} stopped${reason ? `: ${reason}` : ''}`
-    if (reason && KEY_TROUBLE.test(reason) && viewer.canOpenSettings) {
-      return { text, action: { label: 'Fix the key', href: routeHref({ name: 'settings', card: 'engine-routing' }) } }
-    }
-    return { text, action: { label: 'See what happened', href: routeHref({ name: 'jobs' }) } }
-  }
-  if (e.kind === 'series_hold' && e.series_id !== null && e.series_id !== undefined) {
-    const href = routeHref({ name: 'series', id: e.series_id })
-    return { text: e.reason ?? 'Its auto-run is waiting for you.', action: { label: e.hold_kind === 'review' ? 'See episode 1' : 'Open the series', href } }
-  }
-  return null
-}
 
 export interface RunningLine { text: string; progress: number | null; left: string | null; waiting: string | null }
 

@@ -153,7 +153,7 @@ def get_continue(request: Request, limit: int = Query(8, ge=1, le=50)):
 
 
 @router.get("/home", dependencies=[require_permission("library.read")], response_model=LibraryHome, responses=_ERR,
-            summary="The Library's shelves: what needs you, what is running, what is ready")
+            summary="The Library's Running line: titles with a step running or waiting")
 def get_home(request: Request):
     return library_home_service.get_home(principal=request.state.principal)
 
