@@ -23,16 +23,15 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
   const [probe, setProbe] = useState<MediaLinkProbe | null>(null)
   const [aiValues, setAiValues] = useState<Partial<LinkDetailFields> | null>(null)
   const [ticked, setTicked] = useState<Set<LinkField>>(new Set())
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const url = link.trim()
-  // Replies are only for the newest request; a new link, another title or leaving the stage retires any in flight.
+  // Replies are only for the newest request, and only while the form still shows the link and title it was for.
+  const key = `${dramaId}\n${url}`
+  const shown = useRef(key)
+  useEffect(() => { shown.current = key }, [key])
   const request = useRef(0)
-  useEffect(() => {
-    request.current++
-    setBusy(false)
-    return () => { request.current++ }
-  }, [url, dramaId])
+  const [busyFor, setBusyFor] = useState<string | null>(null)
+  const busy = busyFor === key
   if (pc === 'remote') return null
 
   const values = aiValues ?? (probe ? linkValues(probe) : null)
@@ -40,20 +39,21 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
 
   const read = () => {
     const mine = ++request.current
-    setBusy(true)
+    const stale = () => mine !== request.current || shown.current !== key
+    setBusyFor(key)
     setError(null)
     setAiValues(null)
     const asked = url === savedLink.trim() ? probeTitleLink(dramaId).then((r) => r.link) : probeLink(url)
     asked.then(
       (p) => {
-        if (mine !== request.current) return
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setProbe(p)
         setTicked(defaultTicks(linkRows(linkValues(p), current)))
       },
       (e: unknown) => {
-        if (mine !== request.current) return
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setError(e)
       },
     )
@@ -62,18 +62,19 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
   // The second, explicit press for any other page: the paid AI listing read.
   const readWithAi = () => {
     const mine = ++request.current
-    setBusy(true)
+    const stale = () => mine !== request.current || shown.current !== key
+    setBusyFor(key)
     suggestMetadata(dramaId, { url }).then(
       (r) => {
-        if (mine !== request.current) return
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         const next = { title_zh: r.suggestion.title_zh ?? '', author: r.suggestion.author ?? '' }
         setAiValues(next)
         setTicked(defaultTicks(linkRows(next, current)))
       },
       (e: unknown) => {
-        if (mine !== request.current) return
-        setBusy(false)
+        if (stale()) return
+        setBusyFor(null)
         setError(e)
       },
     )

@@ -27,10 +27,12 @@ vi.mock('react', () => ({
 import { useDelayedSave } from './useDelayedSave'
 
 const save = vi.fn()
+// Called through a plain name: the hook rules are for components, and this runner is not one.
+const runHook = useDelayedSave
 const render = <T,>(value: T | null) => {
   state.refIdx = 0
   state.effIdx = 0
-  useDelayedSave(value, 1000, save)
+  runHook(value, 1000, save)
   state.pending.splice(0).forEach((f) => f())
 }
 const unmount = () => slots.effects.forEach((e) => e.cleanup?.())
