@@ -27,6 +27,9 @@ from whisper_hallucination import (IMPLAUSIBLE_FLAG, STOCK_PHRASE_ISOLATION_SEC,
 # windows, so shorter values stop being distinguishable from the detector's noise.
 MIN_SILENCE_MS_MIN = 100
 MIN_SILENCE_MS_MAX = 3000
+# Cap on one detected speech stretch. With the 1000 ms default silence, a long run of fast
+# talk would otherwise stay one oversized segment; measured with that silence on gold clips.
+VAD_MAX_SPEECH_S = 20
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
 # "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
@@ -570,7 +573,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # batched pipeline needs its chunks.
         "language": language, "vad_filter": not (_skips_detector(language, difficult_audio) and not fast_mode),
         "beam_size": beam_size,
-        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms, "threshold": vad_threshold},
+        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms, "threshold": vad_threshold,
+                           "max_speech_duration_s": VAD_MAX_SPEECH_S},
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard), **_decode_randomness_kwargs(decode_randomness),
     }

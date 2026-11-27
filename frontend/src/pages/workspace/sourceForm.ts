@@ -66,7 +66,7 @@ export function checkUploadFile(name: string, sizeBytes: number, maxMb: number):
 // Keep in sync with MIN_SILENCE_MS_MIN/MAX in core.py; the default is services/transcribe_service.py _DEFAULT_TUNING.
 export const MIN_SILENCE_MS_MIN = 100
 export const MIN_SILENCE_MS_MAX = 3000
-export const MIN_SILENCE_MS_DEFAULT = 300
+export const MIN_SILENCE_MS_DEFAULT = 1000
 
 // Keep in sync with MIN_WORD_GAP_SECONDS (default) and its _MIN/_MAX in segment_splitting.py.
 export const MIN_PAUSE_SEC_DEFAULT = 0.35

@@ -54,7 +54,7 @@ describe('promptSummary', () => {
 })
 
 describe('formFromConfig', () => {
-  const saved = { beam_size: 5, min_silence_ms: 300, min_pause_sec: 0.35, vad_threshold: 0.5, hallucination_silence_sec: 0, hardsub_interval_sec: 1 } as TranscribeConfig
+  const saved = { beam_size: 5, min_silence_ms: 1000, min_pause_sec: 0.35, vad_threshold: 0.5, hallucination_silence_sec: 0, hardsub_interval_sec: 1 } as TranscribeConfig
 
   it('reads a config from before the option as off', () => {
     expect(formFromConfig(saved).difficult_audio).toBe(false)

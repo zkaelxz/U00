@@ -37,7 +37,7 @@ from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputEr
 _DEFAULT_TUNING = {
     "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
     "beam_size": 5,
-    "min_silence_ms": 300,
+    "min_silence_ms": 1000,
     "vad_threshold": 0.5,
     "hallucination_silence_sec": core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
     "min_pause_sec": segment_splitting.MIN_WORD_GAP_SECONDS,
