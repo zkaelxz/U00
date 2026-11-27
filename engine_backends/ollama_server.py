@@ -96,8 +96,8 @@ def check_ollama_model_installed(base_url: str, model: str) -> None:
 
 
 def model_pulled(base_url: str, model: str) -> bool:
-    """Whether `model` is pulled on the server, embedding models included (pulled_ollama_models
-    leaves those out). False when the server does not answer."""
+    """Whether `model` is pulled on the server (the embedding model, for one). False when the
+    server does not answer."""
     wanted = model if ":" in model else f"{model}:latest"
     try:
         return any(wanted in _entry_names(e) or model in _entry_names(e)
