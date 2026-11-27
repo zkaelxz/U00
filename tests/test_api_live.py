@@ -401,3 +401,23 @@ def test_a_start_with_no_engine_is_gated_on_the_engine_it_will_run(client, monke
     monkeypatch.setattr(live_routes, "require_engines_allowed", gate)
     r = client.post("/api/live/sessions", json={"url": "https://example.com/live"})
     assert r.status_code == 403 and seen == ["openai"]
+
+
+def test_fixing_a_name_is_the_sessions_starter_only(fake_live, monkeypatch):
+    from services import model_readiness_service
+    monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
+    c = _on_client()
+    importer = _headers("media.import_url", email="imp@example.com", revoke=("lines.edit",))
+    sid = c.post("/api/live/sessions", json={"url": URL, "engine": "fake"}, headers=importer).json()["session_id"]
+    assert _wait(lambda: background_jobs.is_running(sid))
+    fix = {"source": "高市", "english": "Takaichi"}
+    other = _headers("media.import_url", email="other@example.com")
+    assert c.post(f"/api/live/sessions/{sid}/names", json=fix, headers=other).status_code == 404
+    assert c.post(f"/api/live/sessions/{sid}/names", json={**fix, "save_to_glossary": True},
+                  headers=importer).status_code == 403
+    assert c.post(f"/api/live/sessions/{sid}/names", json={**fix, "source": "x" * 41},
+                  headers=importer).status_code == 422
+    r = c.post(f"/api/live/sessions/{sid}/names", json=fix, headers=importer)
+    assert r.status_code == 200 and r.json()["fixes"] == [fix]
+    status = c.get(f"/api/live/sessions/{sid}", headers=importer).json()
+    assert status["name_fixes"] == [fix] and status["can_fix_names"] is True and status["has_glossary"] is False

@@ -347,16 +347,48 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
 _SUBSCRIBE_RE = re.compile(r"チャンネル登録|subscribe|구독", re.IGNORECASE)
 
 
+# A name fixed during a stream is one short word or phrase, and a session keeps a handful.
+MAX_NAME_FIXES = 50
+MAX_FIX_SOURCE_CHARS = 40
+MAX_FIX_ENGLISH_CHARS = 80
+
+
 class TermHints:
     """The glossary a session translates with: calling it looks terms up in some texts (for the
-    translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none)."""
+    translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none).
+    Names fixed during the stream (add_fix) come first in both: the viewer has just seen the
+    glossary's or the model's reading go wrong."""
 
-    def __init__(self, lookup, names: str = ""):
+    def __init__(self, lookup=None, names: str = ""):
         self.lookup = lookup
-        self.names = names
+        self._names = names
+        self._fixes: dict = {}
+        self._lock = threading.Lock()
+
+    def add_fix(self, source: str, english: str) -> None:
+        with self._lock:
+            if source not in self._fixes and len(self._fixes) >= MAX_NAME_FIXES:
+                raise ValueError("too many fixes")
+            self._fixes.pop(source, None)
+            self._fixes[source] = english
+
+    def fixes(self) -> list:
+        with self._lock:
+            return list(self._fixes.items())
+
+    @property
+    def names(self) -> str:
+        fixed = [s for s, _ in self.fixes() if s not in self._names]
+        if not fixed:
+            return self._names
+        return "、".join(fixed) + "。" + self._names
 
     def __call__(self, texts):
-        return self.lookup(texts)
+        text = "\n".join(t for t in texts if isinstance(t, str))
+        fixed = [(s, e, "") for s, e in self.fixes() if s in text]
+        taken = {row[0] for row in fixed}
+        found = self.lookup(texts) if self.lookup is not None else []
+        return fixed + [row for row in found if row[0] not in taken]
 
 
 def drop_name_list_echo(segments: list, names: str) -> list:

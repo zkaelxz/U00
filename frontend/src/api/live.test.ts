@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   chosenForYou, DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
-  LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, WHISPER_SIZES,
+  LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, fixLiveName, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
 
@@ -246,6 +246,16 @@ describe('requests', () => {
     ])
     await expect(getLive('../x', 0, f)).rejects.toMatchObject({ status: 404 })
     expect(f).toHaveBeenCalledTimes(2)
+  })
+
+  it('posts a name fix to the session by id', async () => {
+    const f = ok({ session_id: SID, fixes: [{ source: '高市', english: 'Takaichi' }] })
+    const r = await fixLiveName(SID, { source: '高市', english: 'Takaichi', save_to_glossary: false }, f)
+    const [path, init] = f.mock.calls[0] as unknown as [string, RequestInit]
+    expect(path).toBe(`/api/live/sessions/${SID}/names`)
+    expect(JSON.parse(String(init.body))).toEqual({ source: '高市', english: 'Takaichi', save_to_glossary: false })
+    expect(r.fixes).toHaveLength(1)
+    await expect(fixLiveName('../x', { source: 'a', english: 'b' }, f)).rejects.toMatchObject({ status: 404 })
   })
 })
 
