@@ -34,12 +34,12 @@ test('Reader on a phone: a long title does not push the page sideways', async ({
   expect(aa.x + aa.width).toBeLessThanOrEqual(390)
 })
 
-test('Library at 360px: the title and the Titles/Lines toggle never break inside a word', async ({ page }) => {
+test('Library at 360px: the title and the Titles/Lines and Cards/Covers toggles never break inside a word', async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 800 })
   await page.goto('/#/library')
   await expect(page.locator('.page-title')).toHaveText('Library')
   await page.getByRole('button', { name: 'Filters' }).click()
-  await expect(page.locator('.segmented span')).toHaveText(['Titles', 'Lines'])
+  await expect(page.getByRole('dialog', { name: 'Filters' }).locator('.segmented span')).toHaveText(['Titles', 'Lines'])
   // Rendered lines of each one-word label, counted from the text's own boxes.
   const lines = await page.locator('.page-title, .segmented span').evaluateAll((els) =>
     els.map((el) => {
@@ -47,6 +47,6 @@ test('Library at 360px: the title and the Titles/Lines toggle never break inside
       range.selectNodeContents(el)
       return new Set([...range.getClientRects()].map((r) => Math.round(r.top))).size
     }))
-  expect(lines).toEqual([1, 1, 1])
+  expect(lines).toEqual([1, 1, 1, 1, 1])
   await expectNoSidewaysScroll(page)
 })
