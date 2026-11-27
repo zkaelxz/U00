@@ -136,7 +136,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
    title is a row of its own under Library. Floating, minimized, top and bottom keep their icons. */
 .app-rail.is-listed { padding: 18px 12px; gap: 2px; }
 .app-rail.is-listed nav { gap: 0; }
-.app-rail.is-listed nav a svg, .app-rail.is-listed .rail-toggle svg { display: none; }
+.app-rail.is-listed nav a svg { display: none; }
 .app-rail.is-listed .rail-brand a { gap: 10px; padding: 0 10px 8px; }
 .app-rail.is-listed .rail-brand-mark { width: 30px; height: 30px; }
 .app-rail.is-listed .rail-brand .rail-label { font-size: var(--text-lg); font-weight: var(--weight-bold); }
@@ -147,10 +147,11 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 /* The mark is for the other modes: here the indent under Library says "inside". */
 .app-rail.is-listed nav a.rail-title { margin-left: 0; padding-left: 26px; font-size: var(--text-sm); font-weight: var(--weight-bold); }
 .app-rail.is-listed .rail-title-mark { display: none; }
-.app-rail.is-listed .rail-toggle { gap: 6px; font-size: var(--text-sm); color: var(--muted); padding: 8px 10px; }
-.app-rail.is-listed .rail-toggle:hover { color: var(--text); background: var(--highlight); }
+/* The footer pair stay plain rows (no box), but full colour, bold, iconed and 44px tall so they are easy to see and hit. */
+.app-rail.is-listed nav + .rail-toggle { margin-top: auto; }
+.app-rail.is-listed .rail-toggle { gap: 10px; min-height: 44px; margin-top: 4px; padding: 0 10px; color: var(--text); font-weight: var(--weight-bold); }
+.app-rail.is-listed .rail-toggle:hover { background: var(--highlight); }
 .rail-zero { flex: none; margin-left: auto; padding: 0 8px; border-radius: 10px; background: var(--surface-2); color: var(--muted); font-size: var(--text-xs); font-weight: 400; line-height: 1.5; }
-.nav-right .rail-chevron { display: inline-block; transform: scaleX(-1); }
 /* Minimized: icons only, and it stays that width when pointed at, since a docked rail has no page behind it to open over. */
 .app-rail.is-minimized, .app-rail.is-minimized.is-open { width: 4rem; }
 .app-shell.has-rail.is-minimized { --page-inset-left: calc(4rem + var(--space-4)); }

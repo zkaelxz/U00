@@ -24,7 +24,7 @@ describe('type foundation', () => {
       expect(existsSync(new URL(`../public/fonts/${f}`, import.meta.url)), f).toBe(true)
     }
     const faces = index.match(/@font-face \{[^}]*\}/g) ?? []
-    expect(faces).toHaveLength(6)
+    expect(faces).toHaveLength(8)
     for (const face of faces) {
       expect(face).toContain('font-display: swap')
       expect(face).toContain('unicode-range')
@@ -43,7 +43,27 @@ describe('type foundation', () => {
     }
   })
 
+  it('uses the heading face (Fraunces) only for page titles and the names of titles and series', () => {
+    const allowed = ['.page-title', '.continue-title', '.drama-card-title', '.table-title', '.cover-title', '.workspace-header h1']
+    const used: string[] = []
+    for (const f of files) {
+      const css = readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+      for (const m of css.matchAll(/([^{}]+)\{[^{}]*var\(--font-heading\)[^{}]*\}/g)) used.push(m[1].trim().replace(/\s+/g, ' '))
+    }
+    expect(used.filter((sel) => !allowed.includes(sel))).toEqual([])
+  })
+
+  it('defines the type roles on top of the scale', () => {
+    for (const r of ['meta', 'body', 'label', 'title', 'page']) expect(index).toMatch(new RegExp(`--type-${r}: var\\(--text-`))
+  })
+
   it('declares a CJK stack per language', () => {
     for (const l of ['zh', 'ja', 'ko']) expect(index).toContain(`:lang(${l})`)
+    expect(index).toMatch(/:lang\(zh\) \{ font-family: 'Figtree Latin', var\(--font-zh\)/)
+  })
+
+  it('breaks Korean at word boundaries and Japanese with strict kana rules', () => {
+    expect(index).toMatch(/:lang\(ko\) \{[^}]*word-break: keep-all/)
+    expect(index).toMatch(/:lang\(ja\) \{[^}]*line-break: strict/)
   })
 })
