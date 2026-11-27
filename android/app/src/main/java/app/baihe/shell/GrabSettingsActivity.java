@@ -22,7 +22,7 @@ public class GrabSettingsActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        palette = GrabUi.Palette.of(this);
+        palette = GrabUi.Palette.saved(this);
         getWindow().setStatusBarColor(palette.surface);
         getWindow().setNavigationBarColor(palette.surface);
         ScrollView scroll = new ScrollView(this);

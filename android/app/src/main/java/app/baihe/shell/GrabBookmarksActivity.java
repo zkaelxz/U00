@@ -27,7 +27,7 @@ public class GrabBookmarksActivity extends Activity {
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
-        palette = GrabUi.Palette.of(this);
+        palette = GrabUi.Palette.saved(this);
         recent = getIntent().getBooleanExtra(EXTRA_RECENT, false);
         getWindow().setStatusBarColor(palette.surface);
         getWindow().setNavigationBarColor(palette.surface);
