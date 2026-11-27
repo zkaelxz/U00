@@ -25,8 +25,9 @@ public class GrabHistoryActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
-        palette = GrabUi.Palette.of(this);
+        palette = GrabUi.Palette.saved(this);
         getWindow().setStatusBarColor(palette.surface);
         getWindow().setNavigationBarColor(palette.surface);
         ScrollView scroll = new ScrollView(this);
