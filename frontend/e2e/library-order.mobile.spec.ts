@@ -12,9 +12,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('sort, group and collapse on a phone', async ({ page }) => {
-  await page.getByRole('button', { name: 'Filters' }).tap()
   await page.getByLabel('Sort by').selectOption('date-asc')
-  await page.getByRole('button', { name: 'Close' }).tap()
   expect(await cardTitles(page)).toEqual(['Solo', 'Early', 'Mid', 'Zeta', 'Loose'])
   await page.getByRole('button', { name: 'Filters' }).tap()
   await page.getByLabel('Group by').selectOption('series')

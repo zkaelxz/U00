@@ -32,13 +32,13 @@ test('filters go through the API', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
 
-  await page.getByLabel('Quick filter').selectOption('Favorite')
+  await page.getByRole('button', { name: 'Favorite' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   await expect(
     dramas(page).getByRole('link', { name: 'Grandmaster of Demonic Cultivation', exact: true }),
   ).toBeVisible()
 
-  await page.getByLabel('Quick filter').selectOption('')
+  await page.getByRole('button', { name: 'All titles' }).click()
   await page.getByLabel('Search title or summary').fill('Heaven')
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
 

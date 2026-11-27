@@ -308,17 +308,12 @@ export function LibraryList({
                 </div>
   )
 
-  const activeFilters = (status ? 1 : 0) + (quickFilter ? 1 : 0) + (reading ? 1 : 0) + moreFilterCount(more)
+  const activeFilters = (status ? 1 : 0) + (reading ? 1 : 0) + moreFilterCount(more)
   const statusSelects = (
     <div className="toolbar-filters">
       <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
         {STATUSES.map((s) => (
           <option key={s} value={s}>{s ? statusLabel(s) : 'Any status'}</option>
-        ))}
-      </select>
-      <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
-        {QUICK_FILTERS.map((q) => (
-          <option key={q} value={q}>{q ? tagLabel(q) : 'All titles'}</option>
         ))}
       </select>
       <select aria-label="Reading" value={reading} onChange={(e) => setReading(e.target.value as ReadingFilter)}>
@@ -333,15 +328,30 @@ export function LibraryList({
       options={[['titles', 'Titles'], ['lines', 'Lines']]}
     />
   )
-  const sortSelects = (
-    <>
+  // The select sits invisibly over the icon, so a tap opens the platform's own picker.
+  const sortIcon = (
+    <label className="sort-icon" title="Sort order">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4" />
+      </svg>
       <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
         {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
       </select>
-      <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
-        {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
-      </select>
-    </>
+    </label>
+  )
+  const groupSelect = (
+    <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
+      {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
+    </select>
+  )
+  const quickChips = (
+    <div className="quick-chips" role="group" aria-label="Quick filter">
+      {QUICK_FILTERS.map((q) => (
+        <button key={q} type="button" className="quick-chip" aria-pressed={quickFilter === q} onClick={() => setQuickFilter(q)}>
+          {q ? tagLabel(q) : 'All titles'}
+        </button>
+      ))}
+    </div>
   )
   const viewControl = (
     <Segmented<View>
@@ -370,6 +380,7 @@ export function LibraryList({
             <button type="button" className={buttonClass('secondary')} onClick={() => setFiltersOpen(true)}>
               Filters{activeFilters > 0 && ` (${activeFilters})`}
             </button>
+            {scope === 'titles' && sortIcon}
             {scope === 'titles' && viewControl}
             <div className="toolbar-end">{selectControls}</div>
           </div>
@@ -381,7 +392,8 @@ export function LibraryList({
               {scopeControl}
               {scope === 'titles' && (
                 <>
-                  {sortSelects}
+                  {sortIcon}
+                  {groupSelect}
                   {viewControl}
                 </>
               )}
@@ -390,13 +402,14 @@ export function LibraryList({
           </>
         )}
       </form>
+      {scope === 'titles' && !emptyLibrary && quickChips}
       <Sheet open={phone && filtersOpen} title="Filters" onClose={() => setFiltersOpen(false)}>
         <div className="filter-sheet">
           {scopeControl}
           {scope === 'titles' && (
             <>
               {statusSelects}
-              {sortSelects}
+              {groupSelect}
               {moreFilters}
             </>
           )}
