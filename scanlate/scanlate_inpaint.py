@@ -864,6 +864,9 @@ def sign_text_line(page_bgr, box: dict):
 
 _RULE_MAX_THICKNESS_PX = 6
 _RULE_MIN_LENGTH_PX = 40
+_RULE_LETTERING_GAP_PX = 8
+_RULE_LETTERING_MIN_AREA_PX = 30
+_RULE_LETTERING_MIN_SPAN_PX = 12
 _RULE_SPREAD = 100
 
 
@@ -872,6 +875,20 @@ def _channel_spread(bgr):
     is high for near-black ink, which is neutral."""
     bgr = bgr.astype(np.int16)
     return bgr.max(axis=2) - bgr.min(axis=2)
+
+
+def _beside_coloured_lettering(stats, i, glyphs) -> bool:
+    """True when a coloured glyph (`glyphs`, rows of x, y, w, h) sits within a few pixels of
+    horizontal rule `i` on its line: glow lettering whose dash is as coloured
+    as its letters. A credit rule has plain dark text beside it; a small end cap on it is
+    smaller than a glyph."""
+    x, y, w, h = (int(v) for v in stats[i, :4])
+    if h > w:
+        return False
+    middle = y + h / 2
+    gap = _RULE_LETTERING_GAP_PX
+    return bool(np.any((glyphs[:, 0] < x + w + gap) & (x - gap < glyphs[:, 0] + glyphs[:, 2])
+                       & (glyphs[:, 1] - gap <= middle) & (middle <= glyphs[:, 1] + glyphs[:, 3] + gap)))
 
 
 def drop_colour_rules(mask, roi) -> None:
@@ -884,9 +901,14 @@ def drop_colour_rules(mask, roi) -> None:
     coloured = (_channel_spread(roi) > _RULE_SPREAD).astype(np.uint8)
     count, labels, stats, _ = cv2.connectedComponentsWithStats(coloured, connectivity=8)
     rules = np.zeros(mask.shape, np.uint8)
-    for i in range(1, count):
-        w, h = stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]
-        if min(w, h) <= _RULE_MAX_THICKNESS_PX and max(w, h) >= _RULE_MIN_LENGTH_PX:
+    thin = {i for i in range(1, count)
+            if min(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) <= _RULE_MAX_THICKNESS_PX
+            and max(stats[i, cv2.CC_STAT_WIDTH], stats[i, cv2.CC_STAT_HEIGHT]) >= _RULE_MIN_LENGTH_PX}
+    glyphs = np.array([stats[j, :4] for j in range(1, count) if j not in thin
+                       and min(stats[j, cv2.CC_STAT_WIDTH], stats[j, cv2.CC_STAT_HEIGHT]) >= _RULE_LETTERING_MIN_SPAN_PX
+                       and stats[j, cv2.CC_STAT_AREA] >= _RULE_LETTERING_MIN_AREA_PX], dtype=float).reshape(-1, 4)
+    for i in thin:
+        if not _beside_coloured_lettering(stats, i, glyphs):
             rules[labels == i] = 1
     if rules.any():
         mask[cv2.dilate(rules, np.ones((5, 5), np.uint8)) > 0] = 0
