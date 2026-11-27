@@ -45,12 +45,12 @@ def test_a_spent_cap_refuses_before_any_engine_is_built(isolated_db, monkeypatch
     assert next(r for r in db.load_lines(did) if r["id"] == ids[1])["flag"] == "content_blocked"
 
 
-def test_a_local_engine_ignores_the_cap(isolated_db, monkeypatch):
+def test_a_free_engine_ignores_the_cap(isolated_db, monkeypatch, free_engine):
     did, ids = _blocked()
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
     db.log_usage(None, "claude", "claude-sonnet-4-5", "other", 1, 1, 2.0)
     _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Bye"]))
-    assert blocked_retry_service.retry_blocked_line(did, ids[1], "ollama")["retried"] is True
+    assert blocked_retry_service.retry_blocked_line(did, ids[1], free_engine)["retried"] is True
 
 
 def test_a_successful_retry_is_logged(isolated_db, monkeypatch):
@@ -86,8 +86,8 @@ def test_a_failed_retry_is_logged_and_stays_a_fixed_message(isolated_db, monkeyp
     assert _rows()[0]["input_tokens"] == 0
 
 
-def test_a_local_engine_is_not_logged(isolated_db, monkeypatch):
+def test_a_free_engine_is_not_logged(isolated_db, monkeypatch, free_engine):
     did, ids = _blocked()
     _use_engine(monkeypatch, FakeEngine(lambda zh, ctx: ["Bye"]))
-    blocked_retry_service.retry_blocked_line(did, ids[1], "ollama")
+    blocked_retry_service.retry_blocked_line(did, ids[1], free_engine)
     assert _rows() == []

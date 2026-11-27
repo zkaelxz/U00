@@ -59,7 +59,7 @@ Modes (`BAIHE_API_AUTH`, see `api/api_config.py`):
 
 Paid engines: a route that starts LLM work declares `jobs.start` (household)
 and its handler calls `require_engines_allowed` with the engines the request
-names, so a user without `engines.paid` can only use `FREE_ENGINES`.
+names, so a user without `engines.paid` can only use `open_to_all_accounts` engines.
 """
 
 import ipaddress
@@ -85,7 +85,7 @@ _GENERIC_403 = "Not allowed."
 # Says why, unlike the generic text: a member who picks a paid engine (or leaves
 # the default, which resolves to one) otherwise gets no way forward.
 _PAID_ENGINE_403 = ("That engine costs money and your account can't use paid engines. "
-                    "Pick a free engine such as Ollama, or ask the owner to allow "
+                    "Pick Ollama, which your account can use, or ask the owner to allow "
                     "\"Paid engines\" for you.")
 
 
@@ -397,15 +397,15 @@ def _refuse_if_paid_limit_reached(principal) -> None:
 
 def require_engines_allowed(request: Request, *engine_names, model=None):
     """Raises 403 unless the caller holds `engines.paid` or every named
-    engine is in `engine_backends.engine_registry.FREE_ENGINES`. A missing name (None:
+    engine is `engine_backends.engine_registry.open_to_all_accounts`. A missing name (None:
     "use the configured default") counts as possibly paid. Pass the request's
     `model` whenever it has one: an Ollama cloud tag is held to
     `engines.paid` too (`require_cloud_model_allowed`); an omitted model
     resolves to the engine default, which for Ollama is hosted Gemma 4 31B, a
     MEMBER_CLOUD_MODELS tag every account may use."""
     if not holds(request, "engines.paid"):
-        from engine_backends.engine_registry import FREE_ENGINES
-        if any(not name or name not in FREE_ENGINES for name in engine_names):
+        from engine_backends.engine_registry import open_to_all_accounts
+        if any(not name or not open_to_all_accounts(name) for name in engine_names):
             _refuse_if_paid_limit_reached(getattr(request.state, "principal", None))
             raise ForbiddenError(_PAID_ENGINE_403)
     require_cloud_model_allowed(request, *[(name, model) for name in engine_names])
@@ -422,11 +422,11 @@ def engine_for_caller(request: Request, named_engine, engine, model):
     still told so."""
     if named_engine or holds(request, "engines.paid"):
         return engine, model
-    from engine_backends.engine_registry import FREE_ENGINES, hosted_default_allowed
+    from engine_backends.engine_registry import hosted_default_allowed, open_to_all_accounts
     from engine_backends.local import MEMBER_DEFAULT_CLOUD_MODEL, cloud_model_needs_paid
     from services import member_key_service
     principal = getattr(getattr(request, "state", None), "principal", None) or {}
-    if engine in FREE_ENGINES and (not cloud_model_needs_paid(model)
+    if open_to_all_accounts(engine) and (not cloud_model_needs_paid(model)
                                    or member_key_service.has_usable_key(principal.get("user_id"))):
         return engine, model
     _refuse_if_paid_limit_reached(principal)
@@ -439,7 +439,7 @@ def require_cloud_model_allowed(request: Request, *engine_models):
     (engine, model) pairs names an Ollama cloud tag, or the caller saved
     their own Ollama key. A hosted tag sends the text off the PC and spends
     the owner's Ollama quota, so it is held to the same permission as a paid
-    engine even though Ollama is free; with their own key the quota is the
+    engine even though every account may name Ollama; with their own key the quota is the
     member's, so that alone is enough (owner decision 2026-10-14). The key
     lifts this check only: a paid engine still needs `engines.paid`. The tags in
     `engine_backends.local.MEMBER_CLOUD_MODELS` pass for every account (owner

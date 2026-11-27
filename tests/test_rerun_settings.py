@@ -298,7 +298,7 @@ def test_run_without_a_model_does_not_use_the_remembered_cloud_tag(isolated_db, 
 def test_library_batch_does_not_use_the_remembered_cloud_tag(isolated_db, translate_job):
     did = _ollama_title_that_last_ran_on_cloud()
     workspace_job_service.run_bulk_series_translate_job(
-        "bulk", [did], {}, locale_is_explicit=False)
+        "bulk", [did], {}, locale_is_explicit=False, monthly_cap=50.0)
     assert translate_job["args"][3].model != CLOUD
 
 

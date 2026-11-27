@@ -354,7 +354,7 @@ export function memberRunForm(f: RunForm): RunForm {
 
 /** The engine a member's run will use, mirroring api.auth.engine_for_caller: the default when their account may use it. */
 export function memberEngine(defaultEngine: string, engines: { name: string; free: boolean }[], holdsPaid: boolean): string {
-  return holdsPaid || engines.find((e) => e.name === defaultEngine)?.free ? defaultEngine : 'ollama'
+  return holdsPaid || defaultEngine === 'ollama' || engines.find((e) => e.name === defaultEngine)?.free ? defaultEngine : 'ollama'
 }
 
 export function buildRunBody(f: RunForm): TranslateRunStartBody {

@@ -20,7 +20,7 @@ cookies; see start_session); keys are resolved server-side, never taken
 from the caller. No FastAPI import.
 
 Router contract: start/get are gated like media.import_url, and an engine
-outside engine_registry.FREE_ENGINES (Gemini counts as paid: whether a key
+outside engine_registry.open_to_all_accounts (Gemini counts as paid: whether a key
 is free-tier isn't known server-side) additionally needs the engines.paid
 capability; stop is gated like jobs.cancel.
 """

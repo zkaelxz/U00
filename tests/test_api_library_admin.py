@@ -670,6 +670,7 @@ class TestAuthOn:
         started = []
         monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 0.0)
         c = _remote_app()
         a = _new("A")                                   # default engine: claude
         b = _new("B", translation_engine="ollama")
@@ -679,6 +680,9 @@ class TestAuthOn:
         assert c.post(f"{BASE}/bulk/translate", headers=h,
                       json={"drama_ids": [a, b]}).status_code == 403
         assert started == []
+        # Ollama is open to a member but billed, so it needs the monthly cap like any paid engine.
+        assert c.post(f"{BASE}/bulk/translate", headers=h, json={"drama_ids": [b]}).status_code == 400
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         r = c.post(f"{BASE}/bulk/translate", headers=h, json={"drama_ids": [b]})
         assert r.status_code == 200, r.text
         assert r.json()["queued"] == [b]
@@ -708,6 +712,7 @@ class TestAuthOn:
         started = []
         monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
+        monkeypatch.setattr(las.settings_service, "get_monthly_cap_usd", lambda *a, **k: 50.0)
         c = _remote_app()
         me = auth_service.add_user("kid@example.com")
         other = auth_service.add_user("sib@example.com")

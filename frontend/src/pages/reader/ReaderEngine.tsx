@@ -32,7 +32,7 @@ export function EnginePicker({ engines, off = [], engine, chosen, onChange }: {
   }
   return (
     <>
-    <Field label={AI_ENGINE_LABEL} help="Free engines (like Ollama) run locally. Paid engines need an account that may use them.">
+    <Field label={AI_ENGINE_LABEL} help="Ollama (hosted Gemma) is open to every account. Other paid engines need an account that may use them.">
       <select value={engine} onChange={(e) => onChange(e.target.value)}>
         {engines.map((e) => (
           <option key={e.name} value={e.name}>

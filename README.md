@@ -2,7 +2,7 @@
 
 A local app for transcribing, translating, reviewing and exporting English subtitles for Chinese, Japanese and Korean audio dramas, video dramas, novels, comics and streamer VODs, with a library to keep dozens of titles organised.
 
-It runs on your own Windows PC: a Python (FastAPI) server with a React interface in your browser at `http://127.0.0.1:8600/`. Transcription runs locally with Whisper; translation uses the engine you choose, paid (Claude, Gemini, DeepSeek, OpenAI) or free and local (Ollama).
+It runs on your own Windows PC: a Python (FastAPI) server with a React interface in your browser at `http://127.0.0.1:8600/`. Transcription runs locally with Whisper; translation uses the engine you choose, paid (Claude, Gemini, DeepSeek, OpenAI, or Gemma through Ollama's hosted models).
 
 **Use it only on content you have the right to use:** files you own or were given, text you have licensed, or public pages and URLs you may download from. It does not unlock paid apps or streaming platforms.
 
@@ -38,7 +38,7 @@ Every feature below is in the code today. The [User guide](docs/user-guide.md) h
 - **Raw transcripts and Chinese script**: Simplified or Traditional handling.
 
 ### Translation
-- **Engines**: Claude, Gemini, DeepSeek and OpenAI (paid), or Ollama (free on this PC; hosted cloud models such as Gemma 4 31B are paid, about $0.14 in and $0.40 out per million tokens).
+- **Engines**: Claude, Gemini, DeepSeek and OpenAI (paid), or Ollama (hosted cloud models such as Gemma 4 31B, about $0.14 in and $0.40 out per million tokens).
 - **Engine routing**: choose which engine does what, with per-person paid-engine limits.
 - **Glossary**: per-term policies, exact find-and-replace, CSV, TSV and JSON import and export, shared glossary groups, and aliases that fix the transcript.
 - **Auto-extract terms**: propose names and terms from a novel or a drama's own text, including a scan of one chapter or the whole novel.

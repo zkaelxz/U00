@@ -70,11 +70,8 @@ def month_cap_usd() -> float:
 
 
 def engine_cap_applies(engine_name: str, gemini_free_tier: bool, model) -> bool:
-    """Ollama is a free engine, but its hosted tags are billed per token, so the
-    cap covers them. `model` has no default so a caller cannot forget it; pass
-    None only where the engine runs its default (local) model."""
-    if engine_name == "ollama" and engine_local.is_ollama_cloud_model(model):
-        return True
+    """`model` has no default so a caller cannot forget it; pass None only where
+    the engine runs its default model."""
     return engine_name in _CAP_ENGINES and not (engine_name == "gemini" and gemini_free_tier)
 
 
@@ -376,9 +373,9 @@ def pick_summary_engine(allow_paid: bool = True):
     """The episode-summary engine from Settings (default Claude); (None, None), so the summary is skipped, if it
     can't be built or the pick has no key. Never fails the translation.
     allow_paid=False (an API caller without engines.paid) also skips a pick
-    outside engine_registry.FREE_ENGINES: it would spend the owner's key."""
+    that is not engine_registry.open_to_all_accounts: it would spend the owner's key."""
     choice = str(settings_service.get("episode_summary_engine"))
-    if not allow_paid and choice not in engine_registry.FREE_ENGINES:
+    if not allow_paid and not engine_registry.open_to_all_accounts(choice):
         return None, None
     try:
         api_key = translate_service.resolve_api_key(choice)

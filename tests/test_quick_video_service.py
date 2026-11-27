@@ -10,7 +10,7 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError
 from services import drama_service, profile_service, quick_video_service as qv, queue_service as q, url_media_service
 from tests.test_queue_service import jobs  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("local_ollama_default", "free_engine")
 
 
 URL = "https://example.com/watch?v=abc"
@@ -25,7 +25,7 @@ def started_downloads(monkeypatch):
     return calls
 
 
-def _profile(name="Quick", engine="ollama", **options):
+def _profile(name="Quick", engine="echo", **options):
     options = {"quick_source_language": "ja", **options}
     return db.save_preset(name, translation_engine=engine, options_json=profile_service.dump_options(options))
 
@@ -38,7 +38,7 @@ def test_start_creates_a_title_and_queues_the_four_steps_in_order(jobs, started_
     pid = _profile(quick_export_format="vtt", quick_export_language="bilingual")
     out = _start(pid)
     drama = db.get_drama(out["drama_id"])
-    assert drama["source_language"] == "ja" and drama["translation_engine"] == "ollama"
+    assert drama["source_language"] == "ja" and drama["translation_engine"] == "echo"
     assert drama["transcript_mode"] == "whisper"
     items = q.get_queue(None)["items"]
     assert [i["step"] for i in items] == ["download", "transcribe", "translate", "export"]
@@ -58,7 +58,7 @@ def test_the_profile_chosen_in_settings_is_used_when_none_is_given(jobs, started
 
 @pytest.mark.parametrize("make", ["cleared", "no_language"])
 def test_a_missing_profile_or_language_creates_nothing(jobs, started_downloads, make):
-    pid = db.save_preset("Bare", translation_engine="ollama") if make == "no_language" else None
+    pid = db.save_preset("Bare", translation_engine="echo") if make == "no_language" else None
     if make == "cleared":
         qv.set_profile(None)
     with pytest.raises(InvalidInputError):
@@ -101,7 +101,7 @@ def test_a_cleared_choice_stays_cleared(isolated_db):
 
 
 def test_a_users_own_profile_named_default_is_never_overwritten(isolated_db):
-    pid = db.save_preset("Default", translation_engine="ollama", engine_model="mine")
+    pid = db.save_preset("Default", translation_engine="echo", engine_model="mine")
     assert qv.get_settings()["profile_id"] is None
     assert db.list_presets()[0]["id"] == pid and db.list_presets()[0]["engine_model"] == "mine"
     ready = _profile(name="Default")   # save_preset replaces by name: now it has a language
@@ -212,7 +212,7 @@ def test_the_sweep_removes_only_old_watch_once_titles(jobs, started_downloads):
 
 
 def test_settings_summary_shows_the_chosen_profiles_values_and_the_defaults_it_leaves(isolated_db):
-    pid = db.save_preset("Quick", translation_engine="ollama", engine_model="translategemma:12b",
+    pid = db.save_preset("Quick", translation_engine="echo", engine_model="translategemma:12b",
                          options_json=profile_service.dump_options(
                              {"quick_source_language": "ja", "quick_export_format": "vtt",
                               "quick_export_language": "bilingual", "context_window": 3}))
@@ -220,7 +220,7 @@ def test_settings_summary_shows_the_chosen_profiles_values_and_the_defaults_it_l
     assert qv.get_settings()["summary"] == []
     qv.set_profile(pid)
     rows = {r["label"]: r for r in qv.get_settings()["summary"]}
-    assert rows["Engine and model"]["engine"] == "ollama" and rows["Engine and model"]["value"] == "translategemma:12b"
+    assert rows["Engine and model"]["engine"] == "echo" and rows["Engine and model"]["value"] == "translategemma:12b"
     assert rows["Source language"]["value"] == "Japanese"
     assert rows["Batch size"]["value"] == "30"
     assert rows["Context lines (before, after)"]["value"] == "3, 6"

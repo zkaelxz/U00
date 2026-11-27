@@ -980,7 +980,7 @@ function BlockedRetry({ dramaId, lineId, dirty, jobRunning, onApplied }: {
 
   const gate = useEngineGate(engines, engine, undefined)
   const reason = dirty ? 'Save or discard your edit first.' : jobRunning ? JOB_RUNNING_MESSAGE : null
-  const options = engines && engines.length > 0 ? engines : [{ name: RETRY_DEFAULT_ENGINE, label: RETRY_DEFAULT_ENGINE, free: true }]
+  const options = engines && engines.length > 0 ? engines : [{ name: RETRY_DEFAULT_ENGINE, label: RETRY_DEFAULT_ENGINE, free: false }]
   return (
     <div className="review-retry" data-testid="blocked-retry">
       <p className="muted">Blocked by the engine's content filter. Retry just this line with another engine:</p>

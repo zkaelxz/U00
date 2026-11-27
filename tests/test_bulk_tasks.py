@@ -521,14 +521,14 @@ class TestFinishTranslationRunEpisodeSummary:
 
         assert engine.call_count == 1
 
-    def test_free_summary_engine_ignores_a_used_up_cap(self, isolated_db):
+    def test_free_summary_engine_ignores_a_used_up_cap(self, isolated_db, free_engine):
         did, lines = self._translated_drama(isolated_db)
         isolated_db.log_usage(did, "claude", "m", "translate", estimated_cost_usd=9.0)
         engine = _FakeSummaryEngine()
 
         translation_finish.finish_translation_run(did, lines, NS(model="fake"), "claude", "audio_drama",
                                   glossary_terms=None, errors=[], enforce_ids={ln.id for ln in lines}, summary_engine=engine,
-                                  summary_engine_choice="ollama", summary_monthly_cap_usd=5.0)
+                                  summary_engine_choice=free_engine, summary_monthly_cap_usd=5.0)
 
         assert engine.call_count == 1
 

@@ -346,7 +346,8 @@ class TestLearnStyle:
         r = client.post(f"{BASE}/{did}/style/learn", json={})
         assert r.status_code == 503 and key not in r.text
 
-    def test_monthly_cap_used_up_refuses_paid_not_free(self, client, fake_engine, monkeypatch):
+    def test_monthly_cap_used_up_refuses_paid_not_free(self, client, fake_engine, monkeypatch,
+                                                       free_engine):
         from services import settings_service
         called = []
         monkeypatch.setattr(adaptive_style, "analyze_edit_patterns",
@@ -359,7 +360,7 @@ class TestLearnStyle:
                      "unsupported_operation")
         assert "spending cap" in msg and called == []
         assert db.get_style_profile(f"series:{sid}") is None
-        r = client.post(f"{BASE}/{did}/style/learn", json={"engine": "ollama"})
+        r = client.post(f"{BASE}/{did}/style/learn", json={"engine": free_engine})
         assert r.status_code == 200, r.text
         assert called == [1]
 

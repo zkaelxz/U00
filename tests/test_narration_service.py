@@ -622,12 +622,12 @@ class TestChapterSelection:
         assert 0 < one["estimated_usd"] < whole["estimated_usd"]
         assert whole["cap_applies"] and not whole["monthly_cap_set"]
 
-    def test_estimate_is_free_without_a_key_or_with_local_ollama(self, isolated_db, monkeypatch):
+    def test_estimate_is_free_without_a_key_and_ollama_is_capped(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         did = _drama(isolated_db, novel=BOOK)
         assert narration_service.estimate_tag_cost(did, "claude")["estimated_usd"] == 0.0
-        local = narration_service.estimate_tag_cost(did, "ollama", "llama3")
-        assert local["estimated_usd"] == 0.0 and not local["cap_applies"]
+        hosted = narration_service.estimate_tag_cost(did, "ollama", "gemma4:31b-cloud")
+        assert hosted["cap_applies"]
 
 
 class TestOneNarrator:
