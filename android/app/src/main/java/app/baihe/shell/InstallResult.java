@@ -16,7 +16,11 @@ public class InstallResult extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         int status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE);
-        if (status == PackageInstaller.STATUS_SUCCESS) return;
+        // The person pressed Cancel in Android's installer; that is an answer, not a failure.
+        if (status == PackageInstaller.STATUS_SUCCESS || status == PackageInstaller.STATUS_FAILURE_ABORTED) {
+            clear(context);
+            return;
+        }
         if (status != PackageInstaller.STATUS_PENDING_USER_ACTION) {
             notify(context, "The update did not install. Open Baihe and try Check for updates again.", null);
             return;
@@ -32,6 +36,11 @@ public class InstallResult extends BroadcastReceiver {
         } catch (RuntimeException ignored) {
             // Blocked from the background; the notification above still reaches the person.
         }
+    }
+
+    /** Removes the update notification once it has no use: the install ended or the app is in front. */
+    static void clear(Context context) {
+        context.getSystemService(NotificationManager.class).cancel(NOTE_ID);
     }
 
     private static void notify(Context context, String text, Intent confirm) {

@@ -1008,7 +1008,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @Override
     protected void onStart() {
         super.onStart();
-        AppUpdate.screenStarted();
         // The reader is destroyed after this screen is shown again, so it reports being left.
         QuickReadSession.onDetach(() -> runOnUiThread(this::showReaderLeft));
         showReaderLeft();
@@ -1035,7 +1034,6 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         super.onStop();
         // Android writes cookies to disk on its own schedule; a login made just before the app is killed would be lost.
         android.webkit.CookieManager.getInstance().flush();
-        AppUpdate.screenStopped(this);
     }
 
     @Override

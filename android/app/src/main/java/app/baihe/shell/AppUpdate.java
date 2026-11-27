@@ -49,12 +49,8 @@ final class AppUpdate {
     /** Returned by {@link #check} when the server could not be asked, so the caller tries again sooner. */
     static final long CHECK_FAILED = -1;
 
-    /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked. */
-    static long check(String address, String cookie) {
-        return check(address, cookie, false);
-    }
-
-    /** {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
+    /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked.
+     * {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
     static long check(String address, String cookie, boolean refresh) {
         try {
             HttpURLConnection conn = open(address + "/api/app/android" + (refresh ? "?refresh=true" : ""), cookie);
