@@ -1001,6 +1001,6 @@ def test_fresh_active_reads_rows_by_key_not_the_whole_table(isolated_db, monkeyp
     assert not job_store.fresh_active(job_ids=[*ids, "dub_8"])
     assert job_store.fresh_active(prefix="dub_")
     assert not job_store.fresh_active(job_ids=[*ids, "dub_7"], exclude="dub_7")
-    with db.get_conn() as conn:
+    with contextlib.closing(db.get_conn()) as conn, conn:
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'dub_7'", (time.time() - 10**6,))
     assert not job_store.fresh_active(job_ids=[*ids, "dub_7"])
