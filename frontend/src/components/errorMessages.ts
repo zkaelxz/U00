@@ -8,7 +8,9 @@ import { capFirst, engineLabel } from '../labels'
 // it is written for people, and anything path- or key-like is dropped.
 // Who is reading the error decides whether "see Diagnostics" or "ask the PC owner" is useful.
 // Unknown (/me not answered, auth off) reads as an admin, as useHolds does: the server still refuses.
+// Left generic only where no single action fits (an internal error).
 export const ASK_PC_OWNER = 'Ask the PC owner.'
+export const ASK_PC_OWNER_INSTALL = 'Ask the PC owner to install it.'
 
 export function canOpenDiagnostics(): boolean {
   const s = getSession()
@@ -17,11 +19,11 @@ export function canOpenDiagnostics(): boolean {
 
 // Fallback line for a failed background step whose own message was unusable: the log is for admins only.
 export function failedWithLogHint(what: string): string {
-  return `${what} ${canOpenDiagnostics() ? 'Details are in the app log.' : ASK_PC_OWNER}`
+  return `${what} ${canOpenDiagnostics() ? 'Details are in the app log.' : 'Ask the PC owner to check the log.'}`
 }
 
 const DEPENDENCY_ADMIN = 'A tool or package this needs is not installed or not reachable. See Diagnostics.'
-const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not reachable. ${ASK_PC_OWNER}`
+const DEPENDENCY_MEMBER = `A tool or package this needs is not installed or not reachable. ${ASK_PC_OWNER_INSTALL}`
 
 export function couldNotReachBaihe(): string {
   if (getPcMode() === 'remote' || !canOpenDiagnostics()) {
@@ -73,7 +75,7 @@ export const PC_ONLY_FORBIDDEN = 'This only works on the main PC.'
 
 // A call that returns line text refused with 403: the account may use the
 // panel but not read lines, so it gets a plain note, not an error banner.
-export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the PC owner.'
+export const LINES_READ_FORBIDDEN = 'Seeing line text needs permission to read lines. Ask the PC owner to allow it.'
 
 // api/auth.PAID_LIMIT_REASON: a 403 for a member whose own monthly paid-engine limit is used up.
 export const PAID_LIMIT_REASON = 'paid_limit_reached'
@@ -94,7 +96,7 @@ export function keyWritesRefused(): string {
   const s = getSession()
   const atPc = getPcMode() === 'local'
   const holdsSettings = s.status === 'ready' && (!s.me.auth_enabled || s.me.permissions.includes('admin.settings'))
-  if (s.status === 'ready' && !holdsSettings && !atPc) return ASK_PC_OWNER
+  if (s.status === 'ready' && !holdsSettings && !atPc) return 'Ask the PC owner to change this.'
   const base = 'Change this on the Baihe PC with key writes on.'
   return atPc || holdsSettings
     ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1. For an installed copy, add that line to the .env in the Baihe data folder and run Setup again.`
@@ -117,7 +119,7 @@ export interface DescribeOptions {
 
 // A package the server named in `details` (fixed text; no path or traceback): install it, don't add a key.
 export const MISSING_PACKAGE_TITLE = "A package this needs isn't installed. Install it in Diagnostics."
-const MISSING_PACKAGE_MEMBER = `A package this needs isn't installed. ${ASK_PC_OWNER}`
+const MISSING_PACKAGE_MEMBER = `A package this needs isn't installed. ${ASK_PC_OWNER_INSTALL}`
 
 const SERVER_TEXT_CODES = ['not_found', 'conflict', 'unsupported_operation', 'dependency_unavailable', 'application_error']
 

@@ -375,7 +375,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
         <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Clear and close</button>
       </div>
-      <p className="muted">Closing keeps what you typed.</p>
+      <p className="muted">Closing the sheet keeps what you typed; Clear and close erases it.</p>
     </form>
   )
 }

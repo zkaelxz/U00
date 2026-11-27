@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { cancelJob } from '../../../api/jobs'
 import { listSeriesCharacters } from '../../../api/stageDeletes'
@@ -101,6 +101,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
   const actorDirty = actor.trim() !== (entry.voice_actor ?? '')
   const designDirty = design.trim() !== (entry.voice_design ?? '')
   const skip = skipText(candidates)
+  const bankReasonId = useId()
   const bankHint = entry.has_ref_audio ? undefined : 'Set a reference clip first.'
 
   return (
@@ -248,7 +249,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
           <button
             type="button"
             disabled={!entry.has_ref_audio || !bankName.trim() || busy}
-            aria-describedby={bankName.trim() ? undefined : `bank-name-reason-${label}`}
+            aria-describedby={bankHint || !bankName.trim() ? bankReasonId : undefined}
             onClick={() =>
               run(saveToVoiceBank(dramaId, label, bankName), (e) => {
                 setBankName('')
@@ -260,8 +261,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
             Save to voice bank
           </button>
         </div>
-        {entry.has_ref_audio && <DisabledReason id={`bank-name-reason-${label}`}>{!bankName.trim() && 'Type a name first.'}</DisabledReason>}
-        {bankHint && <p className="muted">{bankHint}</p>}
+        <DisabledReason id={bankReasonId}>{bankHint ?? (!bankName.trim() && 'Type a name first.')}</DisabledReason>
         {bank.length > 0 && (
           <div className="voice-row">
             <Field label="Use a saved voice">

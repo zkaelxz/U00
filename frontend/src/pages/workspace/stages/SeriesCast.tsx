@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import { addSeriesPerson, updateSeriesPerson } from '../../../api/seriesPeople'
 import { deleteSeriesCharacter, listSeriesCharacters } from '../../../api/stageDeletes'
@@ -83,6 +83,7 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
   onCancel: () => void
 }) {
   const { form, set } = useForm(() => toPersonForm(person))
+  const saveReasonId = useId()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -113,10 +114,10 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
       <PersonFields form={form} set={set} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" className="primary" disabled={!dirty || busy} aria-describedby={dirty ? undefined : 'cast-save-reason'} onClick={save}>
+        <button type="button" className="primary" disabled={!dirty || busy} aria-describedby={dirty ? undefined : saveReasonId} onClick={save}>
           {busy ? 'Saving…' : 'Save'}
         </button>
-        <DisabledReason id="cast-save-reason">{!dirty && 'No changes to save.'}</DisabledReason>
+        <DisabledReason id={saveReasonId}>{!dirty && 'No changes to save.'}</DisabledReason>
         <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
@@ -126,6 +127,7 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
 
 function AddPerson({ seriesId, onAdded }: { seriesId: number; onAdded: (p: SeriesCharacter) => void }) {
   const { form, setForm, set } = useForm(() => toPersonForm())
+  const addReasonId = useId()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -155,10 +157,10 @@ function AddPerson({ seriesId, onAdded }: { seriesId: number; onAdded: (p: Serie
       <PersonFields form={form} set={set} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" disabled={busy || !form.character_name.trim()} aria-describedby={form.character_name.trim() ? undefined : 'cast-add-reason'} onClick={add}>
+        <button type="button" disabled={busy || !form.character_name.trim()} aria-describedby={form.character_name.trim() ? undefined : addReasonId} onClick={add}>
           {busy ? 'Adding…' : 'Add person'}
         </button>
-        <DisabledReason id="cast-add-reason">{!form.character_name.trim() && 'Type a name first.'}</DisabledReason>
+        <DisabledReason id={addReasonId}>{!form.character_name.trim() && 'Type a name first.'}</DisabledReason>
       </div>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </fieldset>
