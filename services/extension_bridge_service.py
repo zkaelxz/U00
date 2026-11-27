@@ -323,20 +323,23 @@ def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
         while len(_runs_seen) > _MAX_REMEMBERED_RUNS:
             _runs_seen.popitem(last=False)
         for image in decoded:
-            # A picture answered from the cache has no bytes here; the address it was fetched from stands
-            # in for them, so a chapter that lists one picture twice does not show it twice on a re-read.
-            if image["content"] is None:
-                if not image.get("fetch_url"):
-                    kept.append(image)
-                    continue
-                digest = "url:" + str(image["fetch_url"])
-            else:
-                digest = hashlib.sha256(image["content"]).hexdigest()
-            if digest not in taken:
-                taken[digest] = image["key"]
-                image["run_claim"] = digest
+            # A cache-answered copy has no bytes, so its address stands in for them; a copy with bytes
+            # claims both, so the two kinds of copy of one picture still meet.
+            digests = []
+            if image["content"] is not None:
+                digests.append(hashlib.sha256(image["content"]).hexdigest())
+            if image.get("fetch_url"):
+                digests.append("url:" + str(image["fetch_url"]))
+            if not digests:
                 kept.append(image)
-            elif image["key"] and taken[digest] == image["key"]:
+                continue
+            owners = {taken[d] for d in digests if d in taken}
+            if not owners:
+                for d in digests:
+                    taken[d] = image["key"]
+                image["run_claim"] = digests
+                kept.append(image)
+            elif image["key"] and owners == {image["key"]}:
                 # The claim stays with the request that made it, so this one never releases it.
                 kept.append(image)
             else:
@@ -351,8 +354,9 @@ def _release_unread(decoded: list, outcomes: list, run_id: str) -> None:
         if taken is None:
             return
         for image, (outcome, _value) in zip(decoded, outcomes):
-            if outcome != "page" and image.get("run_claim"):
-                taken.pop(image["run_claim"], None)
+            if outcome != "page":
+                for digest in image.get("run_claim") or ():
+                    taken.pop(digest, None)
 
 
 def cancel_run(payload) -> dict:

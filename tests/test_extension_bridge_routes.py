@@ -865,3 +865,12 @@ class TestCacheAnsweredRepeatsInARun:
         kept, repeats = extension_bridge_service._drop_repeats_in_run(
             [{"key": "a", "content": None}, {"key": "b", "content": None}], "run-nourl")
         assert len(kept) == 2 and not repeats
+
+
+class TestRepeatMeetsCacheAnsweredCopy:
+    def test_a_copy_with_bytes_and_a_cache_answered_copy_are_one_picture(self):
+        first = {"key": "a", "content": b"pic", "fetch_url": "https://img.example/9.jpg"}
+        again = {"key": "b", "content": None, "fetch_url": "https://img.example/9.jpg"}
+        kept, _ = extension_bridge_service._drop_repeats_in_run([first], "run-meet")
+        kept2, repeats = extension_bridge_service._drop_repeats_in_run([again], "run-meet")
+        assert kept and not kept2 and [p["key"] for p in repeats] == ["b"]

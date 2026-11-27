@@ -1724,8 +1724,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         JSONObject done;
                         int attempt = 0;
                         while (true) {
+                            boolean fetchedBefore = pcFetch[0];
                             try {
                                 done = sendBatch(client, url, todo, counted, pcFetch);
+                                // Pages the PC never streams back (failed, repeats) make a retry look like an
+                                // older Baihe; that guess is only trusted on the first ask.
+                                if (attempt > 0) pcFetch[0] = fetchedBefore;
                                 break;
                             } catch (BaiheClient.BridgeException e) {
                                 boolean stopped = cancelRequested || refused[0] || QuickReadSession.isAbandoned();
@@ -1736,11 +1740,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                     break;
                                 }
                                 try {
-                                    Thread.sleep(BATCH_RETRY_WAITS_MS[attempt++]);
+                                    // In short slices so Cancel is not held up by a long wait.
+                                    long until = System.currentTimeMillis() + BATCH_RETRY_WAITS_MS[attempt++];
+                                    while (System.currentTimeMillis() < until && !cancelRequested && !QuickReadSession.isAbandoned()) {
+                                        Thread.sleep(500);
+                                    }
                                 } catch (InterruptedException interrupted) {
                                     Thread.currentThread().interrupt();
                                     throw e;
                                 }
+                                if (cancelRequested || QuickReadSession.isAbandoned()) throw e;
                             }
                         }
                         synchronized (lock) {
