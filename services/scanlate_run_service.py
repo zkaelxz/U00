@@ -1267,4 +1267,4 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
             counts[k] for k in ("translated", "done", "skipped", "stale", "kept")):
         # A run that got nowhere must not end as Finished; the Jobs list and the bell show the
         # error. One page succeeding keeps the run finished, with the failures in its summary.
-        raise RuntimeError(engine_shared.redact_secrets(first_errors[0]))
+        raise RuntimeError(pages_svc.clean_note(first_errors[0]))
