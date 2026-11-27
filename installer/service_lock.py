@@ -14,7 +14,6 @@ from installer.service_control import (ADMINISTRATORS_SID, DATA_GRANT_TIMEOUT,
 from installer.service_layout import (APP_SERVICE, FILE_ATTRIBUTE_REPARSE_POINT, Layout,
                                       ServiceError, _norm)
 
-USERS_SID = "S-1-5-32-545"
 OWNER_SIDS = frozenset({ADMINISTRATORS_SID, SYSTEM_SID})
 
 

@@ -355,6 +355,12 @@ def _stage_sources_db(staging_dir: str, library_dir: str, from_upload: bool, own
                 raise ValueError(message) from None
             _rebuild_from_upload(staged_src, upload_src, skip_tables=("settings",),
                                  live_path=live_src, live_tables=("settings",), message=message)
+            # An older backup has no followers table: fill it from the rows just copied, before
+            # the account ids in it are matched.
+            try:
+                src_store.migrate_file(staged_src)
+            except sqlite3.Error:
+                raise ValueError(message) from None
             if not from_upload:
                 try:
                     library_restore_sql.match_source_owners(staged_src, owners)

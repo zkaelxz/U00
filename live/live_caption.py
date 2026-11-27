@@ -76,7 +76,6 @@ class ChunkCaptioner:
                 unheard = None
                 return
             unheard = None
-            self.runner.mark_model_ready()
             lost = unheard_again(held["cues"], new_cues) if reheard else []
             if lost:
                 # The second hearing left them out (Whisper skipped them, or the
@@ -110,7 +109,6 @@ class ChunkCaptioner:
                 self._release(unheard, path, worker, final)
             self.stage.whisper_over()
             self.state["last"] = idx
-            self.runner.flush_ollama_notice()
             for leftover in [path, *scratch]:
                 try:
                     os.remove(leftover)

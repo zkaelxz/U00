@@ -384,7 +384,7 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
         monkeypatch.delitem(engine_registry.ENGINES, "fake")
     elif gate == "default_engine":
         live_follow_store.update(fid, options=json.dumps({"max_minutes": 7}))
-        monkeypatch.setattr(live_service, "LIVE_DEFAULT_ENGINE", "gone")
+        monkeypatch.setattr(live_service, "default_engine", lambda: "gone")
     else:
         from lib.errors import DependencyUnavailableError
         exc = (ConflictError("x") if gate == "conflict" else MissingKeyError("fake") if gate == "key"
@@ -406,6 +406,8 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(poller, "probe", lambda row: live())
     monkeypatch.setattr(notification_service, "notify_live_follow", lambda *a, **k: None)
+    # The built-in default is billed Ollama, which an unattended start refuses without a monthly cap.
+    monkeypatch.setattr(live_service, "default_engine", lambda: "fake")
     monkeypatch.setattr(live_service, "start_session",
                         lambda url, **kw: starts.append(url) or {"session_id": "s"})
     assert _check(fid, NOW + 3600)["started_stream_id"] == "abcdefghijk"

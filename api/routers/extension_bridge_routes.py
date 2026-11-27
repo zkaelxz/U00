@@ -19,6 +19,7 @@ bridge's own limit, since the proxy's small default body cap is lifted for
 """
 
 import asyncio
+import contextlib
 import json
 
 from fastapi import APIRouter, Request
@@ -26,13 +27,15 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from services import page_server
+from api import after_import_plan
 from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
-from services import extension_bridge_service
+from services import extension_bridge_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import (grab_last_page_service, live_service, model_readiness_service, quick_video_service,
+from services import (grab_last_page_service, live_service, model_readiness_service, page_run_service,
+                      quick_video_service,
                       sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
 from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
@@ -91,15 +94,26 @@ def _images(payload: dict, single: bool, principal, write=None) -> dict | None:
     return extension_bridge_service.run_images(payload, images, principal=principal)
 
 
-async def _streamed(work) -> StreamingResponse:
+# A caller that asks for it hears a line this often while its pages wait their turn, so a long
+# queue is not mistaken for a dead PC by the phone's read timeout. After the limit with nothing
+# real to send the stream ends, and the caller asks again for what it did not get.
+_HEARTBEAT_SECONDS = 15
+_HEARTBEAT_LIMIT_SECONDS = 20 * 60
+
+
+async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
     """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
     The answer starts only with the first line, so a refusal raised before it (a bad batch, the
-    spending cap, no such title) is re-raised here and becomes the usual error answer."""
+    spending cap, no such title) is re-raised here and becomes the usual error answer. With
+    `heartbeat`, the answer starts after `_HEARTBEAT_SECONDS` at the latest and a refusal after
+    that comes as an error line instead."""
     loop = asyncio.get_running_loop()
     lines: asyncio.Queue = asyncio.Queue()
 
     def put(item):
-        loop.call_soon_threadsafe(lines.put_nowait, item)
+        # A stream that ended at the heartbeat limit may be gone before the worker finishes.
+        with contextlib.suppress(RuntimeError):
+            loop.call_soon_threadsafe(lines.put_nowait, item)
 
     def run():
         try:
@@ -109,15 +123,32 @@ async def _streamed(work) -> StreamingResponse:
         finally:
             put(("end", None))
 
+    async def next_item():
+        """The next queued item, or None when a heartbeat is due."""
+        if not heartbeat:
+            return await lines.get()
+        try:
+            return await asyncio.wait_for(lines.get(), _HEARTBEAT_SECONDS)
+        except asyncio.TimeoutError:
+            return None
+
     asyncio.ensure_future(run_in_threadpool(run))
-    kind, first = await lines.get()
-    if kind == "error":
-        raise first
+    first = await next_item()
+    if first is not None and first[0] == "error":
+        raise first[1]
 
     async def body():
-        item = (kind, first)
-        while item[0] != "end":
-            if item[0] == "line":
+        item = first
+        quiet_since = loop.time()
+        while True:
+            if item is None:
+                if loop.time() - quiet_since > _HEARTBEAT_LIMIT_SECONDS:
+                    return
+                yield b'{"waiting": true}\n'
+            elif item[0] == "end":
+                return
+            elif item[0] == "line":
+                quiet_since = loop.time()
                 yield json.dumps(item[1]).encode("utf-8") + b"\n"
             else:
                 import applog
@@ -126,7 +157,7 @@ async def _streamed(work) -> StreamingResponse:
                 message = (item[1].message if isinstance(item[1], page_server.EndpointError)
                            else "the app failed to answer this request")
                 yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
-            item = await lines.get()
+            item = await next_item()
 
     return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
                              headers=_NO_STORE)
@@ -166,7 +197,8 @@ async def _handle(request: Request, work, uses_engine: bool = False, needs=(), s
             _require_engine_allowed(request)
         payload = await _json_body(request)
         if streamed is not None and payload.get("stream") is True:
-            return await _streamed(lambda write: streamed(payload, write))
+            return await _streamed(lambda write: streamed(payload, write),
+                                   heartbeat=payload.get("heartbeat") is True)
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
@@ -184,6 +216,12 @@ async def _handle(request: Request, work, uses_engine: bool = False, needs=(), s
 async def get_health(request: Request):
     principal = request.state.principal
     return _answer(200, await run_in_threadpool(extension_bridge_service.health_payload, principal))
+
+
+@router.get("/sites", dependencies=[require_device_token()],
+            summary="Device token: the source sites the phone's Grab screen can open")
+async def get_sites():
+    return _answer(200, await run_in_threadpool(extension_bridge_service.sites_payload))
 
 
 @router.post("/page", dependencies=[require_device_token()],
@@ -251,6 +289,53 @@ async def post_report(request: Request):
         payload, principal=principal), needs=("library.read",))
 
 
+@router.post("/title-progress", dependencies=[require_device_token()],
+             summary="Device token: how far the translating of a title the caller saved to has got")
+async def post_title_progress(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _title_progress(payload, principal), needs=("jobs.start",))
+
+
+def _drama_id(payload: dict) -> int:
+    drama_id = payload.get("drama_id")
+    if isinstance(drama_id, bool) or not isinstance(drama_id, int) or not 1 <= drama_id < 2**63:
+        raise page_server.EndpointError(400, "drama_id is required")
+    return drama_id
+
+
+def _title_progress(payload: dict, principal) -> dict:
+    drama_id = _drama_id(payload)
+    try:
+        return page_run_service.phone_progress(principal, drama_id)
+    except NotFoundError as e:
+        raise page_server.EndpointError(404, e.message) from None
+
+
+@router.post("/title-translate", dependencies=[require_device_token()],
+             summary="Device token: queue the translating of a novel title the caller saved chapters to")
+async def post_title_translate(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _title_translate(request, payload, principal),
+                         needs=_ENGINE_WRITE)
+
+
+def _title_translate(request: Request, payload: dict, principal) -> dict:
+    drama_id = _drama_id(payload)
+    try:
+        if page_run_service.after_import_kind(principal, drama_id) != "novel":
+            raise page_server.EndpointError(422, "Only a novel title translates after a phone save.")
+        plan = after_import_plan.novel_plan(request, drama_id)
+        return page_run_service.start_after_import(
+            principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
+            follow_import=False)
+    except ServiceError as e:
+        # 409 is the only answer the phone keeps quiet about (the title is already running or has lines).
+        status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)
+                  else 409 if isinstance(e, ConflictError)
+                  else 503 if isinstance(e, DependencyUnavailableError) else 422)
+        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
+
+
 @router.post("/follow", dependencies=[require_device_token()],
              summary="Device token: watch the series of a Grab page for new chapters")
 async def post_follow(request: Request):
@@ -302,6 +387,31 @@ def _remember_page(payload: dict, principal) -> dict:
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):
     return await _handle(request, extension_bridge_service.cancel_run)
+
+
+@router.post("/quick-reads", dependencies=[require_device_token()],
+             summary="Device token: the Quick read runs the caller has working on the PC")
+async def post_quick_reads(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: {"runs": quick_read_runs.list_runs(principal=principal)})
+
+
+@router.post("/quick-reads/drop", dependencies=[require_device_token()],
+             summary="Device token: drop one Quick read run (run_id) or all of the caller's (no run_id)")
+async def post_quick_reads_drop(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _drop_quick_reads(payload, principal))
+
+
+def _drop_quick_reads(payload: dict, principal) -> dict:
+    run_id = payload.get("run_id")
+    if run_id is None:
+        return quick_read_runs.drop_all(principal=principal)
+    try:
+        dropped = quick_read_runs.drop_run(str(run_id), principal=principal)
+    except NotFoundError as e:
+        raise page_server.EndpointError(404, e.message) from None
+    return {"dropped_runs": 1, "dropped_pages": dropped["dropped_pages"]}
 
 
 _VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),

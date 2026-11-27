@@ -37,7 +37,7 @@ from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputEr
 _DEFAULT_TUNING = {
     "whisper_size": whisper_models.DEFAULT_WHISPER_SIZE,
     "beam_size": 5,
-    "min_silence_ms": 300,
+    "min_silence_ms": 1000,
     "vad_threshold": 0.5,
     "hallucination_silence_sec": core_module.DEFAULT_HALLUCINATION_SILENCE_SEC,
     "min_pause_sec": segment_splitting.MIN_WORD_GAP_SECONDS,
@@ -338,7 +338,7 @@ def apply_run_overrides(drama: dict, overrides) -> dict:
 
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.
 # A field a Lab run leaves out takes what a title with nothing saved uses, never
-# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
+# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 1000).
 LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
                      "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
                      "separate_vocals_first", "decode_randomness")
@@ -360,6 +360,7 @@ _LAB_FLAG_FIELDS = ("whisper_repeat_guard", "difficult_audio", "separate_vocals_
 
 def lab_option_defaults() -> dict:
     """What a title with no saved options transcribes with, for the Lab's option form."""
+    timing = timing_settings_service.values()  # once: each call reads every setting
     return {
         "beam_size": _DEFAULT_TUNING["beam_size"],
         "min_silence_ms": _DEFAULT_TUNING["min_silence_ms"],
@@ -374,7 +375,7 @@ def lab_option_defaults() -> dict:
         "speech_pad_ms": WHISPER_DEFAULT_SPEECH_PAD_MS,
         "refine_timing": asr_options_service.get_vad_refine_timing(),
         # What a title's run splits at today, Settings included.
-        **{key: timing_settings_service.value(row) for key, row in _SPLIT_ROWS.items()},
+        **{key: timing[row] for key, row in _SPLIT_ROWS.items()},
     }
 
 
@@ -686,7 +687,6 @@ _ADVICE_RULES = (
      and c["language"] in ("", "ja"),
      "Whisper ja-1.5B is meant for anime and games.", lambda c: None),
 )
-ADVICE_RULE_IDS = tuple(rule[0] for rule in _ADVICE_RULES)
 
 
 def asr_advice(language: str, media_type: str, backend: str, model: str, switches: dict,

@@ -254,10 +254,53 @@ def list_profiles() -> list:
     return out
 
 
+def follower_id(principal):
+    """The id a principal tracks series under (0: the PC owner, auth off), or None for a
+    view that tracks nothing (the PC's Guest profile)."""
+    if ownership_service.guest_view(principal):
+        return None
+    uid = ownership_service.user_id(principal)
+    if uid is not None:
+        return uid
+    return 0 if ownership_service.sees_every_job(principal) else None
+
+
+def sees_all_tracked(principal) -> bool:
+    return ownership_service.visible_to_filter(principal) is None
+
+
+def may_change_any_tracked(principal) -> bool:
+    """Changing a series others track is the owner's, or an admin's with the override (an admin
+    away from the PC acts as a member)."""
+    return ownership_service.may_override(principal) and not ownership_service.guest_view(principal)
+
+
+def visible_tracked_keys(principal, writing: bool = False):
+    """{(source, series_id)} the principal may see (`writing`: may change), or None for every
+    series."""
+    if may_change_any_tracked(principal) if writing else sees_all_tracked(principal):
+        return None
+    fid = follower_id(principal)
+    return {k for k, users in store.followers().items() if fid is not None and fid in users}
+
+
+def tracked_row(source: str, series_id: str, principal, writing: bool = True):
+    """The stored row of a tracked series the principal may change (`writing` False: see);
+    404 otherwise, so another member's series reads as not tracked."""
+    keys = visible_tracked_keys(principal, writing)
+    row = next((r for r in store.list_tracked_series()
+                if r["source"] == source and r["series_id"] == series_id), None)
+    if row is None or (keys is not None and (source, series_id) not in keys):
+        raise NotFoundError("That series isn't tracked.")
+    return row
+
+
 def list_tracked(principal=None) -> list:
-    """Every tracked series (household-wide by decision). A linked drama
-    the principal can't see is reported as `drama_id: None`, so a private
-    drama's id doesn't leak."""
+    """The tracked series the principal may see: their own for a member, every one for the
+    owner and admins. A linked drama the principal can't see is reported as `drama_id: None`,
+    so a private drama's id doesn't leak."""
+    keys = visible_tracked_keys(principal)
+
     def linked(drama_id):
         if drama_id is None or ownership_service.can_see_drama(principal, drama_id):
             return drama_id
@@ -270,14 +313,24 @@ def list_tracked(principal=None) -> list:
              "last_check_error": (registry.SOURCE_REMOVED if r["source"] in registry.REMOVED_SOURCES
                                   else scrub(r.get("last_check_error"))),
              "save_cbz": bool(r.get("save_cbz"))}
-            for r in store.list_tracked_series()]
+            for r in store.list_tracked_series()
+            if keys is None or (r["source"], r["series_id"]) in keys]
 
 
-def list_notifications(include_dismissed: bool = False, user_id: int = 0) -> list:
+def notice_follower_filter(principal):
+    """list_notifications' follower_id for this principal: None for every series, -1 for none."""
+    if sees_all_tracked(principal):
+        return None
+    fid = follower_id(principal)
+    return -1 if fid is None else fid
+
+
+def list_notifications(include_dismissed: bool = False, user_id: int = 0, principal=None) -> list:
     return [{"id": r["id"], "source": r["source"], "series_id": r["series_id"],
              "chapter_id": r["chapter_id"], "title": scrub(r.get("title")),
              "created_at": r["created_at"], "dismissed": bool(r["dismissed"])}
-            for r in store.list_notifications(include_dismissed=include_dismissed, user_id=user_id)]
+            for r in store.list_notifications(include_dismissed=include_dismissed, user_id=user_id,
+                                              follower_id=notice_follower_filter(principal))]
 
 
 # ---------------------------------------------------------------------------
@@ -458,19 +511,19 @@ def rollback_profile(domain: str, kind: str, version: int) -> list:
     return next(d for d in list_profiles() if d["domain"] == scrub(domain))["versions"]
 
 
-def dismiss_notification(notification_id: int, user_id: int = 0) -> dict:
-    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True, user_id=user_id)}:
+def dismiss_notification(notification_id: int, user_id: int = 0, principal=None) -> dict:
+    if notification_id not in {n["id"] for n in list_notifications(True, user_id, principal)}:
         raise NotFoundError("No such notification.")
     store.dismiss_notification(notification_id, user_id)
-    return next(n for n in list_notifications(include_dismissed=True, user_id=user_id)
+    return next(n for n in list_notifications(True, user_id, principal)
                 if n["id"] == notification_id)
 
 
-def restore_notification(notification_id: int, user_id: int = 0) -> dict:
-    if notification_id not in {n["id"] for n in store.list_notifications(include_dismissed=True, user_id=user_id)}:
+def restore_notification(notification_id: int, user_id: int = 0, principal=None) -> dict:
+    if notification_id not in {n["id"] for n in list_notifications(True, user_id, principal)}:
         raise NotFoundError("No such notification.")
     store.restore_notification(notification_id, user_id)
-    return next(n for n in list_notifications(include_dismissed=True, user_id=user_id)
+    return next(n for n in list_notifications(True, user_id, principal)
                 if n["id"] == notification_id)
 
 
@@ -489,6 +542,18 @@ def require_link_editable(source: str, series_id: str, principal) -> None:
             return
 
 
+def require_member_tracking_room(principal) -> None:
+    """Refuses a member one more tracked series past MEMBER_TRACKED_LIMIT; the
+    PC owner (no account) is never counted. Call it only for a new series."""
+    from lib.errors import ConflictError
+
+    uid = (principal or {}).get("user_id")
+    if uid is not None and sum(1 for users in store.followers().values() if uid in users
+                               ) >= MEMBER_TRACKED_LIMIT:
+        raise ConflictError(f"You are already tracking {MEMBER_TRACKED_LIMIT} series, the most a member "
+                            "account can. Stop tracking one first.")
+
+
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int | None = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
@@ -496,7 +561,9 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     series (POST /api/sources/{name}/series): its chapters are recorded as
     known, so the first check announces (and auto-imports) nothing old.
     Without one: 409 "Open the series first". The stored URL is that
-    result's scheme+host+path URL; the client's `url` is not used."""
+    result's scheme+host+path URL; the client's `url` is not used.
+    Tracking an already-tracked series only relinks it when `drama_id` is
+    given; its known chapters are left alone."""
     from types import SimpleNamespace
 
     import background_jobs
@@ -510,30 +577,44 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     series_id = (series_id or "").strip()
     if not series_id:
         raise InvalidInputError("series_id is required.")
-    exists = any(r["source"] == source and r["series_id"] == series_id
-                 for r in store.list_tracked_series())
-    if exists:
-        require_link_editable(source, series_id, principal)
+    fid = follower_id(principal)
     if not tracked:
-        if not exists:
-            raise NotFoundError("That series isn't tracked.")
-        store.untrack_series(source, series_id)
+        tracked_row(source, series_id, principal)
+        if fid is not None and fid in store.followers().get((source, series_id), set()):
+            store.unfollow_series(source, series_id, fid)
+        else:
+            # The owner or an admin removing a series only others track.
+            require_link_editable(source, series_id, principal)
+            store.untrack_series(source, series_id)
         return list_tracked(principal)
+    if fid is None:
+        raise NotFoundError("That series isn't tracked.")
     if drama_id is not None and (db.get_drama(drama_id) is None or not
                                  ownership_service.can_edit_drama(principal, drama_id)):
         raise NotFoundError(f"No title with id {drama_id}.")
-    uid = (principal or {}).get("user_id")
-    if not exists and uid is not None and sum(
-            1 for r in store.list_tracked_series() if r.get("linked_by_user_id") == uid
-    ) >= MEMBER_TRACKED_LIMIT:
-        raise ConflictError(f"You are already tracking {MEMBER_TRACKED_LIMIT} series, the most a member "
-                            "account can. Stop tracking one first.")
+    exists = any(r["source"] == source and r["series_id"] == series_id
+                 for r in store.list_tracked_series())
+    if fid not in store.followers().get((source, series_id), set()):
+        require_member_tracking_room(principal)
+    # Asked for an already-tracked series too, so a reply never says whether someone else
+    # tracks a series the caller hasn't opened.
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None
     if (not isinstance(result, dict) or result.get("series_id") != series_id
             or result.get("error")):
         raise ConflictError("Open the series first, so its current chapters can be "
                             "recorded as already known.", details={"reason": "SERIES_NOT_LOADED"})
+    if exists:
+        # Someone already tracks it: the caller follows it too. Re-recording the listed
+        # chapters as known would hide any released since the last check (never announced
+        # or auto-imported), and the upsert would clear the title link when the request
+        # names none.
+        if drama_id is not None:
+            require_link_editable(source, series_id, principal)
+            store.set_tracked_drama(source, series_id, drama_id,
+                                    linked_by_user_id=(principal or {}).get("user_id"))
+        store.follow_series(source, series_id, fid)
+        return list_tracked(principal)
     ids = search.known_chapter_ids(result)
     titles = {str(c.get("chapter_id")): c.get("title") or "" for c in result["chapters"]}
     info = result.get("info") or {}
@@ -542,5 +623,5 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
                        safe_url(info.get("url")), drama_id,
                        known_chapters=[SimpleNamespace(chapter_id=i, title=titles.get(i, ""))
                                        for i in ids],
-                       linked_by_user_id=(principal or {}).get("user_id"))
+                       linked_by_user_id=(principal or {}).get("user_id"), follower_id=fid)
     return list_tracked(principal)

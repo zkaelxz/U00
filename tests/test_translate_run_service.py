@@ -108,13 +108,13 @@ def test_no_secret_leak_and_cap_from_resolved(isolated_db, monkeypatch):
     assert "FAKE1" not in dumped and "FAKE2" not in dumped
     assert cfg["monthly_cap_usd"] == 12.5 and cfg["month_spend"] == 3.0
     assert cfg["cap_applies_by_engine"]["claude"] is True
-    assert cfg["cap_applies_by_engine"]["ollama"] is False
+    assert cfg["cap_applies_by_engine"]["ollama"] is True
     assert "claude" in cfg["bulk_supported_engines"]
 
 
-def test_estimate_relationships(isolated_db, cap, monkeypatch):
+def test_estimate_relationships(isolated_db, cap, monkeypatch, free_engine):
     # A free summary engine, so the ratios below are the translation's alone.
-    patch_setting(monkeypatch, "episode_summary_engine", "ollama")
+    patch_setting(monkeypatch, "episode_summary_engine", free_engine)
     cap(0)
     did = _drama()
     _seed(did, [("你好世界" * 50, ""), ("再见" * 50, "bye")])
@@ -141,17 +141,20 @@ def test_estimate_uses_the_runs_own_batch_size(isolated_db, cap):
     assert small > default >= one
 
 
-def test_free_engines(isolated_db, cap, monkeypatch):
+def test_free_engines(isolated_db, cap, monkeypatch, free_engine):
     patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant the free tier
-    patch_setting(monkeypatch, "episode_summary_engine", "ollama")  # the default Claude summary is paid
+    patch_setting(monkeypatch, "episode_summary_engine", free_engine)  # the default Claude summary is paid
     cap(0)
     did = _drama()
     _seed(did, [("你好" * 20, "")])
-    for name in ("fake", "ollama", "fake_mt"):
+    for name in ("fake", free_engine, "fake_mt"):
         r = svc.estimate_translate_cost(did, name)
         assert r["free"] is True and not r["estimated_usd"] and r["cap_applies"] is False
     g = svc.estimate_translate_cost(did, "gemini", gemini_free_tier=True)
     assert g["free"] is True and g["estimated_usd"] == 0.0 and g["cap_applies"] is False
+    # Ollama runs hosted tags only, so it is billed and the cap applies.
+    o = svc.estimate_translate_cost(did, "ollama")
+    assert o["free"] is False and o["cap_applies"] is True
 
 
 def test_monthly_refusal_and_above_cap(isolated_db, cap):
@@ -496,7 +499,7 @@ def test_estimate_prices_the_source_match_judge_apart_when_it_would_run(isolated
     assert off["estimated_usd"] == pytest.approx(plain["estimated_usd"])
 
 
-def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, monkeypatch):
+def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, monkeypatch, free_engine):
     cap(0)
     did = _drama()
     _seed(did, [("你好世界你好", "")] * 20)
@@ -504,7 +507,7 @@ def test_estimate_leaves_the_judge_out_when_it_would_not_run(isolated_db, cap, m
     present = {"yes": True}
     monkeypatch.setattr(settings_service, "source_match_model_present", lambda: present["yes"])
     assert svc.estimate_translate_cost(did, "claude", bulk=True)["alignment_check_usd"] is None
-    assert svc.estimate_translate_cost(did, "ollama")["alignment_check_usd"] is None  # free on this PC
+    assert svc.estimate_translate_cost(did, free_engine)["alignment_check_usd"] is None  # free on this PC
     present["yes"] = False  # without bge-m3 the check stops before the judge
     assert svc.estimate_translate_cost(did, "claude")["alignment_check_usd"] is None
 
@@ -536,9 +539,10 @@ class TestMemberLimitInTheRunBudget:
         cap(0)    # no monthly cap: the member's room alone
         assert self._caps(member) == [pytest.approx(0.5)]
 
-    def test_free_engines_get_no_budget_and_the_pc_owner_no_member_room(self, member, cap):
+    def test_free_engines_get_no_budget_and_the_pc_owner_no_member_room(self, member, cap, free_engine):
         cap(10.0)
-        assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]
+        assert self._caps(member, engine=free_engine) == [None]
+        assert self._caps(member, engine="ollama", model="qwen3:8b") == [pytest.approx(0.5)]
         assert self._caps(member, engine="ollama", model="gpt-oss:120b-cloud") == [pytest.approx(0.5)]
         assert self._caps(None) == [pytest.approx(10.0)]
 
@@ -549,7 +553,7 @@ class TestMemberLimitInTheRunBudget:
                             lambda name: "gemma4:31b-cloud" if name == "ollama" else None)
         assert self._caps(member, engine="ollama", model=None) == [pytest.approx(0.5)]
 
-    def test_a_used_up_limit_refuses_the_run(self, member, cap):
+    def test_a_used_up_limit_refuses_the_run(self, member, cap, free_engine):
         cap(10.0)
         with db.spending_for(member):
             db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
@@ -558,4 +562,4 @@ class TestMemberLimitInTheRunBudget:
         with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             self._caps(member, engine="ollama", model="gpt-oss:120b-cloud")
         # Free engines keep working once the limit is used up.
-        assert self._caps(member, engine="ollama", model="qwen3:8b") == [None]
+        assert self._caps(member, engine=free_engine) == [None]

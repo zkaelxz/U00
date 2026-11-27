@@ -3,10 +3,11 @@
 ## Stable releases (owner decision, 2026-11-10)
 
 Baihe no longer ships betas. Tag plain versions `v0.x.y` (for example
-`v0.1.1`): the workflow publishes them as a normal GitHub release, and
-Settings → App updates offers them without "Include pre-releases". A tag with
-a `-` (`v0.1.1-beta.2`) is still published as a pre-release and sorts below
-its final version, so installs that ran a beta (the V100 PC was on
+`v0.1.1`): the workflow publishes every tag as a pre-release, and Promote
+Release (after the release check and the phone smoke test) makes it the full
+release that Settings → App updates offers without "Include pre-releases". A
+tag with a `-` (`v0.1.1-beta.2`) stays a pre-release and sorts below its final
+version, so installs that ran a beta (the V100 PC was on
 `0.1.1-beta.2`) update to `0.1.1` through the normal check. Drafts are never
 offered. The "Include pre-releases" switch stays for anyone who wants a
 pre-release by hand.

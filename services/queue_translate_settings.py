@@ -71,7 +71,7 @@ def translate_fields(drama: dict, run_args: dict, holds_paid: bool, holds_edit: 
     models = next((e["models"] for e in translate_service.list_engines() if e["name"] == engine), None)
     offered = {
         "model": [m for m in (models or []) if holds_paid or not _cloud_needs_paid(engine, m)],
-        "style_preset": {k: p["label"] for k, p in translation_guide.STYLE_PRESETS.items()},
+        "style_preset": {k: p["label"] for k, p in translation_guide.PICKER_STYLE_PRESETS.items()},
         "locale": list(settings_service.LOCALE_CHOICES)}
     fields = []
     for key in TRANSLATE_KEYS:

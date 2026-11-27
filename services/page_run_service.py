@@ -6,6 +6,7 @@ glossary scan), never from a client flag, and a title with a run still waiting o
 second one. Every run stops at the glossary review: names are cheaper to fix before a translation.
 """
 
+import threading
 import uuid
 from typing import Optional
 
@@ -18,6 +19,8 @@ _ACTIVE = (q.WAITING, q.RUNNING)
 _STOPPED = (q.FAILED, q.SKIPPED, q.INTERRUPTED, q.CANCELLED)
 _NOVEL = "novel"
 _FILE = "file"
+# The "already running" check and the append are two steps; without this two starts at once both pass the check.
+_after_import_start = threading.Lock()
 
 
 def _glossary_status(drama_id: int, source: str) -> str:
@@ -259,12 +262,32 @@ def after_import_run(principal, drama_id: int) -> dict:
     return _run_view(principal, drama_id, marker)
 
 
+def phone_progress(principal, drama_id: int) -> dict:
+    """What the phone's status line shows for a title it just saved to. Only comic and novel titles
+    have a translate run; any other title reads as idle rather than an error."""
+    try:
+        run = after_import_run(principal, drama_id)
+    except InvalidInputError:
+        return {"state": "idle", "step": None, "kind": None}
+    kind = after_import_kind(principal, drama_id)
+    return {"state": run["state"], "step": run["step"], "kind": kind}
+
+
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
-                       model: Optional[str] = None, names: Optional[dict] = None) -> dict:
+                       model: Optional[str] = None, names: Optional[dict] = None,
+                       follow_import: bool = True) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
-    names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits for the import job, so a failed
-    import stops the rest. The caller checks every engine against the paid-engine permission."""
+    names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits
+    for the import job, so a failed import stops the rest; `follow_import` is False for a phone save,
+    which has no import job. The caller checks every engine against the paid-engine permission."""
+    with _after_import_start:
+        return _start_after_import_locked(principal, drama_id, engine, lines, at_pc=at_pc, model=model,
+                                          names=names, follow_import=follow_import)
+
+
+def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
+                               model: Optional[str], names: Optional[dict], follow_import: bool) -> dict:
     from services import sources_import_service
     kind = after_import_kind(principal, drama_id)
     view = after_import_run(principal, drama_id)
@@ -272,8 +295,7 @@ def start_after_import(principal, drama_id: int, engine: str, lines: Optional[di
         return view
     if any(i["status"] in _ACTIVE for i in _title_items(principal, drama_id)):
         raise ConflictError("This title already has a step waiting in the queue. See the Jobs page.")
-    import_job = sources_import_service.import_job_id(drama_id)
-    steps = [(q.FOLLOW, {"job_id": import_job})]
+    steps = [(q.FOLLOW, {"job_id": sources_import_service.import_job_id(drama_id)})] if follow_import else []
     if kind == "comic":
         steps.append((q.RUN_SCANLATE, {"engine": engine}))
     else:
@@ -313,9 +335,9 @@ def _require_free_or_paid(principal, engine: str, model, what: str) -> None:
     if q._holds(principal, "engines.paid"):
         return
     run_model = model or engine_registry.effective_default_model(engine)
-    cloud = (engine in engine_registry.FREE_ENGINES and engine_cap_applies(engine, False, run_model)
+    cloud = (engine_registry.open_to_all_accounts(engine) and engine_cap_applies(engine, False, run_model)
              and engine_local.cloud_model_needs_paid(run_model))
-    if engine not in engine_registry.FREE_ENGINES or (
+    if not engine_registry.open_to_all_accounts(engine) or (
             cloud and not member_key_service.has_usable_key((principal or {}).get("user_id"))):
         raise ForbiddenError(f"This title {what} with a paid engine, which the account that added it can't use.")
 

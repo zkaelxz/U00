@@ -492,22 +492,6 @@ test('a missing Ollama is muted information until Start is pressed, then an aler
   await expect(note).toHaveAttribute('role', 'alert')
 })
 
-test('a model that may not fit asks "Start anyway?" once, and then starts', async ({ page }) => {
-  const fit = 'translategemma:27b may not fit in graphics memory (need about 17.0 GB, 11.0 GB free). Pick a smaller model, such as translategemma:12b.'
-  const m = await mockLive(page, { ollama: true, ollamaFit: fit })
-  const live = await openLive(page)
-  const note = live.getByTestId('live-ollama-note')
-  await expect(note).toContainText(fit)
-  await expect(note).not.toContainText('Start anyway?')
-  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
-  await live.getByRole('button', { name: 'Start', exact: true }).click()
-  await expect(note).toContainText('Start anyway?')
-  expect(m.posts).toHaveLength(0)
-  await live.getByTestId('live-start-anyway').click()
-  await expect.poll(() => m.posts.length).toBe(1)
-  expect(m.posts[0].body).toMatchObject({ engine: 'ollama', model: 'translategemma:27b' })
-})
-
 test('Stop on a session the server no longer has says it is gone and drops the Stop button', async ({ page }) => {
   const m = await mockLive(page)
   const live = await openLive(page)
@@ -658,4 +642,54 @@ test('watching: stream chips switch sessions, lines scroll in their own box with
   await expect(live.getByTestId('live-status')).toHaveText('Listening · 0 lines')
   await page.screenshot({ path: `${SCREENS}/desktop-watching.png` })
   expect(m.unmocked).toEqual([])
+})
+
+test('Hide controls leaves the picture and the lines, is remembered, and Show controls brings the rest back', async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.message = 'Listening'
+  m.state.cues = [cue(0), cue(1)]
+  await expect(live.getByTestId('live-status')).toHaveText('Listening · 2 lines')
+  await expect(live.getByText('Viewing options')).toBeVisible()
+
+  await live.getByTestId('live-focus-toggle').click()
+  await expect(live.getByText('Viewing options')).toBeHidden()
+  await expect(live.getByTestId('live-status')).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Live', level: 1 })).toBeHidden()
+  await expect(page.locator('iframe[title="Stream video"]')).toHaveCount(1)
+  await expect(live.locator('.live-en').first()).toBeVisible()
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('baihe.pref.live.focus'))).toBe('true')
+
+  // A warning from the stream stays on screen in the focused view.
+  m.state.figures = { reconnect_attempt: 1 }
+  m.state.notes = ['Lost the stream, trying again']
+  await expect(live.getByTestId('live-status')).toBeVisible({ timeout: 15_000 })
+  await expect(live.getByTestId('live-notes')).toBeVisible()
+
+  await live.getByTestId('live-focus-toggle').click()
+  await expect(live.getByText('Viewing options')).toBeVisible()
+  await expect(live.getByTestId('live-status')).toBeVisible()
+  expect(m.unmocked).toEqual([])
+})
+
+test('a stopped session with many lines keeps them in a scroll box instead of stretching the page', async ({ page }) => {
+  const m = await mockLive(page)
+  await mockEmbedHosts(page)
+  const live = await openLive(page)
+  await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=dQw4w9WgXcQ')
+  await live.getByRole('button', { name: 'Start', exact: true }).click()
+  m.state.status = 'running'
+  m.state.cues = Array.from({ length: 60 }, (_, i) => cue(i))
+  await expect(live.getByTestId('live-status')).toContainText('60 lines')
+  m.state.status = 'done'
+  await expect(live.getByRole('button', { name: 'Stop', exact: true })).toHaveCount(0)
+  const box = live.locator('.live-cues-box')
+  const { client, scroll } = await box.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight }))
+  expect(scroll).toBeGreaterThan(client)
+  expect(client).toBeLessThanOrEqual(520)
 })

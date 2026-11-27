@@ -196,7 +196,6 @@ MAX_RICH_CARDS = 300
 RICH_CLIP_TIMEOUT_SECONDS = 15
 RICH_AUDIO_BUDGET_SECONDS = 120
 MEDIA_KINDS = ("original", "narration")
-CAPTION_TRACK_FIELDS = {"Source": "zh", "English": "en", "Bilingual": "bilingual"}
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 
 

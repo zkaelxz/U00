@@ -52,7 +52,6 @@ from lib.errors import (
 
 USAGE_OPERATION = "retry_blocked_line"
 BLOCKED_FLAG = "content_blocked"
-DEFAULT_ENGINE = "ollama"   # local, no cloud moderation
 MAX_REASON_CHARS = 300
 # Jobs that write this drama's line text or flags.
 _CONFLICTING_JOB_PREFIXES = background_jobs.LINE_WRITING_JOB_PREFIXES + ("bulk_translate_",)
@@ -117,7 +116,7 @@ def _log_usage(drama_id: int, engine_name: str, engine) -> None:
                            getattr(engine, "last_usage", None), drama_id=drama_id)
 
 
-def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_ENGINE) -> dict:
+def retry_blocked_line(drama_id: int, line_id: int, engine_name: str | None = None) -> dict:
     """Re-translates one content-blocked line. Returns
     {drama_id, line_id, engine, model, retried, blocked, reason, line}:
     retried=True with the flag cleared, or blocked=True with the engine's
@@ -127,7 +126,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str = DEFAULT_E
         raise ConflictError("This line isn't flagged as blocked by a content filter.")
     if not (line.zh or "").strip():
         raise UnsupportedOperationError("This line has no source text to translate.")
-    engine_name = engine_name or DEFAULT_ENGINE
+    engine_name = engine_name or translate_service.default_hosted_engine()
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _refuse_if_line_job_running(drama_id)

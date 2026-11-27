@@ -30,8 +30,6 @@ from dataclasses import dataclass, field
 from . import ladder, registry, store
 from .models import AccessTier, SourceCapabilities
 
-LOGIN_PROMPT = ("Authentication required — a browser window will open. Log in normally and "
-                "open the chapter you want.")
 
 GENERIC = "generic"   # == generic_import.GENERIC_SOURCE (not imported: generic_import imports us)
 

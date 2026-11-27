@@ -19,34 +19,35 @@ import {
 import type { TitleKind } from './titleKind'
 
 const KINDS: TitleKind[] = ['video', 'audio', 'novel', 'comic', 'subtitle']
-const ALL = Object.keys(EXPORT_BLOCK_TITLES).sort()
 
 const ready: ExportInputs = { kind: 'video', hasSourceVideo: true, hasDub: true, hasNarration: true, ffmpegFound: true, novelNarration: true }
 const unknown: ExportInputs = { kind: 'video', hasSourceVideo: null, hasDub: null, hasNarration: null, ffmpegFound: null, novelNarration: true }
 
 describe('exportBlockOrder', () => {
-  it.each(KINDS)('lists every export exactly once for a %s title', (kind) => {
-    expect([...exportBlockOrder(kind)].sort()).toEqual(ALL)
-  })
-
   it.each([
-    ['video', 'softsub_video'],
-    ['audio', 'audiobook'],
-    ['novel', 'epub'],
-    ['comic', 'subtitles'],
-    ['subtitle', 'subtitles'],
-  ] as const)('a %s title leads with %s', (kind, first) => {
-    expect(exportBlockOrder(kind)[0]).toBe(first)
+    ['video', ['softsub_video', 'burned_video', 'dubbed_video', 'subtitles']],
+    ['audio', ['audiobook', 'subtitles']],
+    ['novel', ['epub', 'audiobook', 'subtitles']],
+    ['comic', []],
+    ['subtitle', ['subtitles']],
+  ] as const)('a %s title lists only the exports that fit it', (kind, expected) => {
+    expect(exportBlockOrder(kind)).toEqual(expected)
   })
 
-  it('puts the video exports, then the subtitle file, for a video title', () => {
-    expect(exportBlockOrder('video').slice(0, 5)).toEqual([
-      'softsub_video', 'burned_video', 'dubbed_video', 'audiobook', 'subtitles',
+  it('adds an export that does not fit the kind once the title has what it works from', () => {
+    expect(exportBlockOrder('audio', { hasSourceVideo: true, hasDub: false, hasNarration: true })).toEqual([
+      'audiobook', 'dubbed_video', 'softsub_video', 'burned_video', 'subtitles',
     ])
+    expect(exportBlockOrder('comic', { hasSourceVideo: true, hasDub: true, hasNarration: true })).toEqual([])
+    expect(exportBlockOrder('subtitle', { hasSourceVideo: false, hasDub: true, hasNarration: true })).toEqual(['subtitles', 'audiobook', 'dubbed_video'])
+    expect(exportBlockOrder('video', { hasNarration: true })).toEqual(['softsub_video', 'burned_video', 'dubbed_video', 'audiobook', 'subtitles'])
   })
 
-  it('keeps the subtitle-only layout: the subtitle file, then the media jobs, then EPUB', () => {
-    expect(exportBlockOrder('subtitle')).toEqual(['subtitles', 'audiobook', 'burned_video', 'softsub_video', 'dubbed_video', 'epub'])
+  it('shows EPUB only on a novel in novel-narration mode', () => {
+    expect(exportBlockOrder('novel', { novelNarration: false })).not.toContain('epub')
+    for (const kind of ['video', 'audio', 'comic', 'subtitle'] as const) {
+      expect(exportBlockOrder(kind, { hasSourceVideo: true, hasDub: true, hasNarration: true, novelNarration: true })).not.toContain('epub')
+    }
   })
 })
 
@@ -112,35 +113,34 @@ describe('noSourceVideo', () => {
 
 describe('openingExportBlock', () => {
   const opens = (kind: TitleKind, simple: boolean, i: ExportInputs) =>
-    openingExportBlock(shownExportBlocks(kind, simple), (id) => exportBlockReason(id, { ...i, kind }))
+    openingExportBlock(shownExportBlocks(kind, simple, i), (id) => exportBlockReason(id, { ...i, kind }))
   const noVideo = { ...ready, hasSourceVideo: false }
 
-  it('shows every block in Full and the two most titles need in Simple, in the kind order', () => {
-    expect(shownExportBlocks('audio', false)).toEqual(exportBlockOrder('audio'))
-    expect(shownExportBlocks('audio', true)).toEqual(['softsub_video', 'subtitles'])
-    expect(shownExportBlocks('subtitle', true)).toEqual(['subtitles', 'softsub_video'])
+  it('shows the fitting blocks in Full and the two most titles need in Simple, in the kind order', () => {
+    expect(shownExportBlocks('video', false)).toEqual(exportBlockOrder('video'))
+    expect(shownExportBlocks('audio', true)).toEqual(['subtitles'])
+    expect(shownExportBlocks('audio', true, { hasSourceVideo: true })).toEqual(['softsub_video', 'subtitles'])
+    expect(shownExportBlocks('subtitle', true)).toEqual(['subtitles'])
   })
 
   it('opens the subtitle file in Simple on an audio title with no source video', () => {
     expect(opens('audio', true, noVideo)).toBe('subtitles')
   })
 
-  it('opens the same block as before when the audio title has a video, or nothing is known yet', () => {
+  it('opens the subtitle-track video in Simple on an audio title with a video, and the subtitle file while nothing is known', () => {
     expect(opens('audio', true, ready)).toBe('softsub_video')
-    expect(opens('audio', true, unknown)).toBe('softsub_video')
+    expect(opens('audio', true, unknown)).toBe('subtitles')
   })
 
   it.each(KINDS)('opens the first block in Full on a %s title when everything can run', (kind) => {
-    expect(opens(kind, false, ready)).toBe(exportBlockOrder(kind)[0])
+    expect(opens(kind, false, ready)).toBe(exportBlockOrder(kind, ready)[0])
   })
 
   it('skips blocks that cannot run in Full, keeping the order', () => {
-    // No narration and no dub: Audiobook and the dub video are skipped for the subtitle-track video.
     expect(opens('audio', false, { ...ready, hasNarration: false, hasDub: false })).toBe('softsub_video')
-    // No video either: the next one that can run is the subtitle file.
     expect(opens('audio', false, { ...noVideo, hasNarration: false })).toBe('subtitles')
     expect(opens('video', false, noVideo)).toBe('audiobook')
-    expect(opens('novel', false, { ...ready, novelNarration: false })).toBe('audiobook')
+    expect(opens('video', false, { ...noVideo, hasNarration: false })).toBe('subtitles')
   })
 
   it('falls back to the first shown block when none can run', () => {

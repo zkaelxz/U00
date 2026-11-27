@@ -27,17 +27,15 @@ def cap_spent(isolated_db, monkeypatch):
     db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
 
 
-def test_the_cap_covers_a_cloud_tag_but_not_a_local_one():
+def test_the_cap_covers_every_ollama_call():
     assert translate_run_service.engine_cap_applies("ollama", False, CLOUD)
     assert translate_run_service.engine_cap_applies("ollama", False, "qwen3-coder:cloud")
-    assert not translate_run_service.engine_cap_applies("ollama", False, "gemma4:12b")
-    assert not translate_run_service.engine_cap_applies("ollama", False, None)
+    assert translate_run_service.engine_cap_applies("ollama", False, None)
 
 
 def test_a_cloud_tag_is_refused_once_the_cap_is_spent(cap_spent):
     with pytest.raises(UnsupportedOperationError):
         translate_run_service.refuse_when_cap_spent("ollama", False, CLOUD)
-    translate_run_service.refuse_when_cap_spent("ollama", False, "gemma4:12b")
 
 
 def test_a_pasted_text_translation_on_a_cloud_tag_stops_at_the_cap(cap_spent):
@@ -58,7 +56,6 @@ def test_the_estimate_for_a_cloud_tag_says_the_cap_applies(isolated_db, monkeypa
     db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
     with pytest.raises(UnsupportedOperationError):
         line_ai_service.refuse_if_over_monthly_cap("ollama", False, CLOUD)
-    line_ai_service.refuse_if_over_monthly_cap("ollama", False, "gemma4:12b")
 
 
 class _Engine:
@@ -150,7 +147,6 @@ def test_an_unattended_run_on_a_cloud_tag_needs_a_cap(isolated_db, monkeypatch):
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0)
     with pytest.raises(UnsupportedOperationError):
         paid_job_service.require_cap_for_unattended("ollama", False, CLOUD)
-    paid_job_service.require_cap_for_unattended("ollama", False, "gemma4:12b")
 
 
 def test_the_retired_gemma4_cloud_tag_stays_priced_for_the_caps():

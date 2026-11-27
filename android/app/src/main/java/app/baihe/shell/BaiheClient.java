@@ -29,6 +29,8 @@ final class BaiheClient {
 
     /** Names this client's page batches so the server can be told to stop working on them. */
     volatile String runId;
+    /** Quick read: the PC joins consecutive strip slices into one picture (its health says it can). */
+    volatile boolean stitch;
     /** Quick read only: the screen width, so the PC need not send back pictures wider than it can show. 0 sends none. */
     volatile int typesetMaxWidth;
     /** How the English lettering looks; null or the default sends nothing, so the PC keeps its own render. */
@@ -143,6 +145,18 @@ final class BaiheClient {
         return call("GET", "/health", null);
     }
 
+    /** The source sites the server can read, from its own source list, as name and front-page address. */
+    List<GrabBookmarks.Mark> sites() throws BridgeException {
+        List<GrabBookmarks.Mark> out = new ArrayList<>();
+        JSONArray sites = call("GET", "/sites", null).optJSONArray("sites");
+        for (int i = 0; sites != null && i < sites.length(); i++) {
+            JSONObject site = sites.optJSONObject(i);
+            String url = site == null ? null : ServerAddress.browsable(site.optString("url"));
+            if (url != null) out.add(new GrabBookmarks.Mark(site.optString("name"), url));
+        }
+        return out;
+    }
+
     /** The title for this page (drama_id and title), found or made by the server's Auto title logic. */
     JSONObject resolveTitle(String pageUrl, List<String> titles, JSONArray chapters) throws BridgeException {
         return resolveTitle(pageUrl, titles, chapters, "comic");
@@ -163,6 +177,24 @@ final class BaiheClient {
             JSONObject answer = call("POST", "/title", body);
             if (answer.optLong("drama_id", 0) <= 0) throw new BridgeException(0, "Baihe did not return a title.");
             return answer;
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it already has lines). */
+    JSONObject titleTranslate(long dramaId) throws BridgeException {
+        try {
+            return call("POST", "/title-translate", new JSONObject().put("drama_id", dramaId));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
+    /** Where the PC's translating of a title this token saved to has got: state, step and kind. */
+    JSONObject titleProgress(long dramaId) throws BridgeException {
+        try {
+            return call("POST", "/title-progress", new JSONObject().put("drama_id", dramaId));
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
@@ -267,6 +299,23 @@ final class BaiheClient {
         }
     }
 
+    /** The Quick read runs this phone's account still has working on the PC. */
+    JSONArray quickReadRuns() throws BridgeException {
+        JSONArray runs = call("POST", "/quick-reads", new JSONObject()).optJSONArray("runs");
+        return runs == null ? new JSONArray() : runs;
+    }
+
+    /** Drops one run (its pages not started are not worked on), or every run when `runId` is null. */
+    void dropQuickRead(String runId) throws BridgeException {
+        try {
+            JSONObject body = new JSONObject();
+            if (runId != null) body.put("run_id", runId);
+            call("POST", "/quick-reads/drop", body);
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Sends a Quick read page the reader found wrong, with what the PC read on it, to the PC's reports. */
     void sendReport(JSONObject body) throws BridgeException {
         call("POST", "/report", body);
@@ -286,6 +335,9 @@ final class BaiheClient {
         java.util.Set<String> delivered = new java.util.HashSet<>();
         PageListener tracking = page -> {
             delivered.add(page.optString("key", ""));
+            // A joined chunk answers for the slices it holds, so a retry must not send them again.
+            org.json.JSONArray merged = page.optJSONArray("merged_keys");
+            if (merged != null) for (int i = 0; i < merged.length(); i++) delivered.add(merged.optString(i, ""));
             onPage.onPage(page);
         };
         List<PageImage> todo = batch;
@@ -321,7 +373,8 @@ final class BaiheClient {
                 answer.remove("pages");
                 return answer;
             }
-            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true);
+            // The heartbeat keeps the read timeout from ending a wait the PC is still working through.
+            JSONObject body = requestBody(pageUrl, batch, 0, false).put("stream", true).put("heartbeat", true);
             return callStream("/pages", body, onPage);
         } catch (JSONException | IOException e) {
             throw new BridgeException(0, "Could not read the pages.");
@@ -448,6 +501,8 @@ final class BaiheClient {
                         .put("stroke", look.outline).put("font", look.fontName()));
             }
             if (redo) body.put("redo", true);
+            // Only pictures the PC downloads itself are strip slices; a screen capture goes up as bytes.
+            if (stitch && asksPc) body.put("stitch", true);
         }
         return body;
     }

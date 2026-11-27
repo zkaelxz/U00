@@ -148,7 +148,7 @@ Related helpers:
 
 - Paid LLM work declares `jobs.start`, and the handler also calls
   `require_engines_allowed(request, engine_names...)`, so a caller without
-  `engines.paid` can use only `engine_backends.engine_registry.FREE_ENGINES`.
+  `engines.paid` can use only `engine_backends.engine_registry.open_to_all_accounts` engines.
   `require_paid_engines` and `holds_paid_engines` cover cloud calls that are
   not translate engines.
 - `is_local_request(request)` is for a handler that must behave

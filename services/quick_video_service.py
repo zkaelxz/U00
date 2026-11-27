@@ -219,7 +219,7 @@ def start(principal, url, profile_id, watch_once, *, holds_paid: bool, at_pc: bo
     if not language:
         raise InvalidInputError(_NO_LANGUAGE)
     engine = preset.get("translation_engine")
-    if engine and engine not in engine_registry.FREE_ENGINES and not holds_paid:
+    if engine and not engine_registry.open_to_all_accounts(engine) and not holds_paid:
         raise ForbiddenError(_PAID)
     if cap_needed(preset):
         raise InvalidInputError(_NO_CAP)

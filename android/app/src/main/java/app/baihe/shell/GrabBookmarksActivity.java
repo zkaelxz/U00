@@ -26,8 +26,9 @@ public class GrabBookmarksActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
-        palette = GrabUi.Palette.of(this);
+        palette = GrabUi.Palette.saved(this);
         recent = getIntent().getBooleanExtra(EXTRA_RECENT, false);
         getWindow().setStatusBarColor(palette.surface);
         getWindow().setNavigationBarColor(palette.surface);
@@ -46,18 +47,6 @@ public class GrabBookmarksActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refresh();
-    }
-
-    @Override
-    protected void onStart() {
-        super.onStart();
-        AppUpdate.screenStarted();
-    }
-
-    @Override
-    protected void onStop() {
-        super.onStop();
-        AppUpdate.screenStopped(this);
     }
 
     private SharedPreferences prefs() {

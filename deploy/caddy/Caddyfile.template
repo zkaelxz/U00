@@ -14,8 +14,9 @@
 #
 # Baihe enforces every refusal below itself (the household listener refuses
 # PC-only routes and every admin write but member-account changes); the blocks here
-# are defence in depth. The only admin routes that pass are the three read-only
-# admin views, GET /api/admin/users, GET /api/admin/audit and a user's device list, and the
+# are defence in depth. The only admin routes that pass are the four read-only
+# admin views, GET /api/admin/users, GET /api/admin/audit, a user's device list and
+# GET /api/diagnostics/resources, and the
 # member-account changes under /api/admin/users/<id>/ (Baihe refuses any of
 # them that targets an admin account, except a name), and deleting a
 # deactivated member.
@@ -55,7 +56,7 @@
 {$BAIHE_DOMAIN} {
 	# Other household requests are small JSON bodies. The largest are a bug
 	# report (screenshot up to 5 MB) and a glossary import (up to 1,000,000
-	# characters). Admin uploads from away are left uncapped here because the
+	# characters). Uploads from away (an admin's, or a member's with the upload right) are left uncapped here because the
 	# app caps them at the PC's Settings upload limit, which Caddy can't read,
 	# before it reads the body (api/remote_uploads.py). The extension's
 	# /api/ext-bridge/page and /pages carry up to 12 base64 images: the app
@@ -153,6 +154,11 @@
 			method POST
 			path /api/diagnostics/bug-reports
 		}
+		# An admin may read the resource monitor (the Library's GPU line) from away.
+		not {
+			method GET HEAD
+			path /api/diagnostics/resources
+		}
 		# Members may bulk translate their own titles from their own device;
 		# the rest of /api/library/admin/* stays PC-only.
 		not {
@@ -176,7 +182,7 @@
 		not {
 			method POST
 			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/job-limit /api/admin/users/*/display-name /api/admin/users/*/devices/*/revoke
-			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create /api/admin/users/*/permissions/media.upload_member
 		}
 		# Delete a deactivated member (owner decision 2026-11-25). A regexp,
 		# since a trailing * would also let /users/<id>/anything through.
@@ -187,7 +193,7 @@
 		not {
 			method DELETE
 			path /api/admin/users/*/ollama-key
-			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create /api/admin/users/*/permissions/media.upload_member
 		}
 	}
 	@pc_only_post {

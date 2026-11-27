@@ -454,11 +454,7 @@ class TestGpuSlot:
         narration_service.start_narration_run(did, engine, model)
         return seen
 
-    def test_an_ollama_run_takes_the_gpu_slot(self, isolated_db, key, monkeypatch):
-        assert self._start(isolated_db, key, monkeypatch, "ollama")["gpu_touching"] is True
 
-    def test_a_cloud_engine_does_not(self, isolated_db, key, monkeypatch):
-        assert self._start(isolated_db, key, monkeypatch, "claude")["gpu_touching"] is False
 
 
 BOOK = ("第1章 开始\n\n他说：你好。\n\n夜很深了。\n\n"
@@ -626,12 +622,12 @@ class TestChapterSelection:
         assert 0 < one["estimated_usd"] < whole["estimated_usd"]
         assert whole["cap_applies"] and not whole["monthly_cap_set"]
 
-    def test_estimate_is_free_without_a_key_or_with_local_ollama(self, isolated_db, monkeypatch):
+    def test_estimate_is_free_without_a_key_and_ollama_is_capped(self, isolated_db, monkeypatch):
         monkeypatch.setattr(settings_service, "resolve_key", lambda *a, **k: None)
         did = _drama(isolated_db, novel=BOOK)
         assert narration_service.estimate_tag_cost(did, "claude")["estimated_usd"] == 0.0
-        local = narration_service.estimate_tag_cost(did, "ollama", "llama3")
-        assert local["estimated_usd"] == 0.0 and not local["cap_applies"]
+        hosted = narration_service.estimate_tag_cost(did, "ollama", "gemma4:31b-cloud")
+        assert hosted["cap_applies"]
 
 
 class TestOneNarrator:
@@ -648,7 +644,7 @@ class TestOneNarrator:
                             lambda job_id, target, *a, **k: launched.append((target, a, k)) or True)
         narration_service.start_narration_run(did, "claude", one_narrator=True)
         target, args, kw = launched[0]
-        assert args[4] is None and kw["one_narrator"] and kw["gpu_touching"] is False
+        assert args[4] is None and kw["one_narrator"]
         results = []
         monkeypatch.setattr(background_jobs, "set_result", lambda job_id, res: results.append(res))
         target(*args, **{k: v for k, v in kw.items() if k in ("fresh", "append", "chapters", "one_narrator")})

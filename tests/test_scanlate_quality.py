@@ -493,6 +493,30 @@ class TestDecorationAndBanners:
         assert not mask[30, 40:100].any()
         assert mask[20:30, 145:155].all()
 
+    def test_a_coloured_dash_beside_coloured_glyphs_is_lettering_not_a_rule(self):
+        roi = np.full((60, 200, 3), 240, np.uint8)
+        cv2.line(roi, (20, 30), (80, 30), (200, 120, 40), 3)              # a glow-blue dash
+        cv2.rectangle(roi, (86, 10), (106, 40), (200, 120, 40), -1)       # its first glyph, beside it
+        mask = np.full((60, 200), 255, np.uint8)
+        scanlate_inpaint.drop_colour_rules(mask, roi)
+        assert mask[29:32, 30:70].all()
+
+    def test_a_coloured_ornament_off_a_rules_line_does_not_save_the_rule(self):
+        roi = np.full((80, 200, 3), 240, np.uint8)
+        cv2.line(roi, (20, 60), (80, 60), (40, 40, 200), 3)
+        cv2.rectangle(roi, (86, 10), (106, 30), (40, 40, 200), -1)       # an ornament above its line
+        mask = np.full((80, 200), 255, np.uint8)
+        scanlate_inpaint.drop_colour_rules(mask, roi)
+        assert not mask[59:62, 30:70].any()
+
+    def test_a_small_end_cap_on_a_rules_line_does_not_save_the_rule(self):
+        roi = np.full((80, 200, 3), 240, np.uint8)
+        cv2.line(roi, (20, 40), (80, 40), (40, 40, 200), 3)
+        cv2.rectangle(roi, (84, 35), (94, 45), (40, 40, 200), -1)         # a 10 px cap on its line
+        mask = np.full((80, 200), 255, np.uint8)
+        scanlate_inpaint.drop_colour_rules(mask, roi)
+        assert not mask[39:42, 30:70].any()
+
     def test_a_black_strip_with_olive_stripes_over_art_counts_as_a_plain_dark_ground(self):
         strip = np.zeros((40, 400, 3), np.uint8)
         strip[::4] = (10, 30, 25)                                          # olive stripe rows
@@ -592,3 +616,18 @@ class TestDarkStripErase:
     def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
         assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
         assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None
+
+
+def test_mid_tone_balloon_with_white_lettering_is_not_read_as_paper_or_art():
+    import numpy as np
+    from scanlate import scanlate_inpaint
+    box = {"x": 0, "y": 0, "w": 100, "h": 100, "kind": "sign"}
+    balloon = np.full((100, 100), 105, np.uint8)
+    balloon[30:60, 20:80] = 255
+    assert scanlate_inpaint._has_light_lettering_on_midtone(balloon)
+    assert not scanlate_inpaint.is_art_mistaken_for_sign(balloon, box)
+    assert (scanlate_inpaint._lettering_mask(balloon) > 0).mean() < 0.5
+    assert not scanlate_inpaint._has_light_lettering_on_midtone(np.full((100, 100), 105, np.uint8))
+    bright_corners = balloon.copy()
+    bright_corners[:, :20] = 255
+    assert not scanlate_inpaint._has_light_lettering_on_midtone(bright_corners)

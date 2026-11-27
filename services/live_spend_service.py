@@ -8,7 +8,7 @@ import threading
 
 import applog
 import background_jobs
-from engine_backends import engine_registry, local
+from engine_backends import engine_registry
 from engine_backends import paid_calls, pricing
 from engine_backends.local import scrub_error_text
 from engine_backends.run_limits import FailureStreak
@@ -59,11 +59,7 @@ class LiveSpendGuard:
         self._budget = budget
         self._streak = FailureStreak()
         self._halted = False
-        # A hosted Ollama model sends the text off this PC, so it is logged
-        # even though it has no per-token price.
-        model = getattr(engine, "model", "") or ""
-        self._metered = (engine_name not in engine_registry.FREE_ENGINES
-                         or local.is_ollama_cloud_model(model))
+        self._metered = engine_name not in engine_registry.FREE_ENGINES
 
     def _halt(self, reason: str, label: str) -> None:
         if not self._halted:

@@ -237,7 +237,7 @@ Legend used in the tables
 - Thresholds that interact: sentence gap < scene gap; long-window search < window; min piece < max line. These need cross-field validation in `set_settings`, which today validates each key alone, so a new hook is needed.
 - Spawned workers: values must be resolved before spawn.
 - Tests that pin today's numbers (for example `tests/test_frontend_limit_parity.py`, `tests/test_sentence_groups.py`, `tests/test_core.py`) must keep passing at the defaults. They are not loosened.
-- `.md`/AGENTS.md are untouched unless a repeated rule changes.
+- `.md` files are untouched unless a repeated rule changes.
 
 **Effort:** about 6–8 focused days in total; Phase 1 alone gives visible value in about 1 day. Per CLAUDE.md, use **one branch per phase**.
 

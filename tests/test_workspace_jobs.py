@@ -911,10 +911,15 @@ class TestFreeEngineVersionLabelling:
         assert version["label"].startswith("[testing: fake]")
         _clear("test_free_label_offline")
 
-    def test_ollama_version_is_labelled(self, isolated_db, monkeypatch):
+    def test_free_engine_version_is_labelled(self, isolated_db, monkeypatch, free_engine):
+        version = self._run(isolated_db, monkeypatch, "test_free_label_echo", object(), free_engine)
+        assert version["label"].startswith(f"[testing: {free_engine}]")
+        _clear("test_free_label_echo")
+
+    def test_ollama_version_is_not_labelled_because_it_is_billed(self, isolated_db, monkeypatch):
         version = self._run(isolated_db, monkeypatch, "test_free_label_ollama",
                              local.OllamaEngine(), "ollama")
-        assert version["label"].startswith("[testing: ollama]")
+        assert not version["label"].startswith("[testing:")
         _clear("test_free_label_ollama")
 
     def test_claude_version_is_not_labelled(self, isolated_db, monkeypatch):
@@ -1040,7 +1045,7 @@ class TestSpendingCapJob:
         assert all(r["en"] for r in saved[:20]) and all(not r["en"] for r in saved[20:])
         _clear(job_id)
 
-    def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch):
+    def test_a_free_engine_ignores_the_monthly_cap(self, isolated_db, monkeypatch, free_engine):
         from services import settings_service
         job_id = "test_translate_free_month_cap"
         _clear(job_id)
@@ -1052,7 +1057,7 @@ class TestSpendingCapJob:
         monkeypatch.setattr(settings_service, "get_monthly_cap_usd", lambda *a, **k: 1.0)
 
         run_translate_job(job_id, did, isolated_db.load_line_objects(did), _CapPricedEngine(),
-                          {"id": did}, "", None, False, "en-US", None, "", "ollama", "audio_drama")
+                          {"id": did}, "", None, False, "en-US", None, "", free_engine, "audio_drama")
 
         assert all(r["en"] for r in isolated_db.load_lines(did))
         _clear(job_id)

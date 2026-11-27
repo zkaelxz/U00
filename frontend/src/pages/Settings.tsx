@@ -77,8 +77,6 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
     'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
   notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
   use_gpu: 'Transcribe on the GPU when there is one (faster).',
-  unload_ollama_before_transcribe:
-    'Ollama keeps its model in GPU memory for a few minutes after translating, which can make transcription run out of memory.',
   bulk_auto_resume:
     'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
 }
@@ -387,7 +385,6 @@ export default function SettingsPage() {
                         onChange={(e) => setGpuMaxParallel(e.target.valueAsNumber)}
                       />
                     </Field>
-                    {toggleField('unload_ollama_before_transcribe')}
                     {toggleField('bulk_auto_resume')}
                   </div>
                   <KeepFreeMemory {...prefProps} />

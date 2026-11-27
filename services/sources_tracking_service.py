@@ -34,8 +34,9 @@ from services import ownership_service
 from engine_backends.shared import safe_url
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_registry_service import (require_link_editable, require_source,
-                                               list_tracked)
+from services.sources_registry_service import (follower_id, require_link_editable,
+                                               require_member_tracking_room, require_source,
+                                               may_change_any_tracked, list_tracked, tracked_row)
 from services import sources_search_service as search
 from services.sources_search_service import clean_series_id
 from services.sources_extension_service import require_not_extension_only
@@ -47,9 +48,10 @@ COMIC_MEDIA_TYPES = ("manhua", "manga", "manhwa")
 NOVEL_MEDIA_TYPES = ("novel",)
 
 
-def start_check_now(local: bool = True) -> dict:
-    """{job_id}. `local` False: no adapter opens a browser. 422 when nothing is tracked; 409 while a check runs."""
-    if not store.list_tracked_series():
+def start_check_now(local: bool = True, principal=None) -> dict:
+    """{job_id}. `local` False: no adapter opens a browser. 422 when the caller tracks nothing;
+    409 while a check runs."""
+    if not list_tracked(principal):
         raise InvalidInputError("No series is tracked yet. Open a series and track it first.")
     status = background_jobs.get_status(CHECK_JOB_ID)
     if status and status.get("status") in ("running", "queued"):
@@ -80,9 +82,7 @@ def set_tracked_drama(source: str, series_id: str, drama_id, principal=None) -> 
     wrong media type. `principal` None is auth off / the PC owner."""
     require_source(source)
     series_id = clean_series_id(series_id)
-    if not any(r["source"] == source and r["series_id"] == series_id
-               for r in store.list_tracked_series()):
-        raise NotFoundError("That series isn't tracked.")
+    tracked_row(source, series_id, principal)
     require_link_editable(source, series_id, principal)
     if drama_id is not None:
         drama = db.get_drama(drama_id)
@@ -102,7 +102,12 @@ def set_tracked_save(source: str, series_id: str, save_cbz: bool, principal=None
     principal can't edit (as relinking it); 400 a source without pages."""
     cls = require_source(source)
     series_id = clean_series_id(series_id)
+    row = tracked_row(source, series_id, principal)
     require_link_editable(source, series_id, principal)
+    if (row.get("save_cbz") and not may_change_any_tracked(principal)
+            and row.get("save_cbz_by_user_id") != (principal or {}).get("user_id")):
+        raise ConflictError("Someone else saves this series as CBZ files, so only they or an "
+                            "admin can change it.")
     if not cls().supports("get_pages"):
         raise UnsupportedOperationError("Only comic sources can save chapters as CBZ files.",
                                         details={"reason": "NOT_SUPPORTED"})
@@ -123,11 +128,11 @@ def _move_plan(source: str, series_id: str, new_source: str, new_series_id: str,
     (the same "open the series first" rule as tracking), and the old series'
     stored chapters, so a dead old site is never contacted."""
     series_id, new_series_id = clean_series_id(series_id), clean_series_id(new_series_id)
-    row = next((r for r in store.list_tracked_series()
-                if r["source"] == source and r["series_id"] == series_id), None)
-    if row is None:
-        raise NotFoundError("That series isn't tracked.")
+    row = tracked_row(source, series_id, principal)
     require_link_editable(source, series_id, principal)
+    if not may_change_any_tracked(principal) and store.followers().get((source, series_id), set()) - {
+            follower_id(principal)}:
+        raise ConflictError("Other people track this series too, so only an admin can move it.")
     require_source(new_source)
     require_not_extension_only(new_source)
     if (source, series_id) == (new_source, new_series_id):
@@ -255,13 +260,24 @@ def _follow_locked(cls, url: str, principal) -> dict:
     kind, ref = parsed
     series_id = clean_series_id(ref if kind == "series" else ref.series_id)
 
+    fid = follower_id(principal)
+    if fid is None:
+        raise InvalidInputError("This view can't follow series.")
+
     def tracked_title():
+        """The title of the series when someone tracks it already; the caller then follows it too."""
         row = next((r for r in store.list_tracked_series()
                     if (r["source"], r["series_id"]) == (name, series_id)), None)
-        return search.scrub(row["title"]) if row else None
+        if row is None:
+            return None
+        if fid not in store.followers().get((name, series_id), set()):
+            require_member_tracking_room(principal)
+        store.follow_series(name, series_id, fid)
+        return search.scrub(row["title"])
 
     if (found := tracked_title()) is not None:
         return {"title": found, "already": True}
+    require_member_tracking_room(principal)
     try:
         search.ladder.check_terms(name, adapter.capabilities())
         info = adapter.get_series(series_id) if adapter.supports("get_series") else None
@@ -275,5 +291,5 @@ def _follow_locked(cls, url: str, principal) -> dict:
     title = search.scrub((getattr(info, "title", "") or "").strip()[:200]) or series_id
     store.track_series(name, series_id, title, safe_url(getattr(info, "url", "")), None,
                        known_chapters=chapters,
-                       linked_by_user_id=(principal or {}).get("user_id"))
+                       linked_by_user_id=(principal or {}).get("user_id"), follower_id=fid)
     return {"title": title, "already": False}

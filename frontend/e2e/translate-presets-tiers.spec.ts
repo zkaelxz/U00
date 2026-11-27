@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { pickStyle } from './pickStyle'
 
 import { withTranslateLines } from './stageLineMocks'
 import { engineOptionLabel } from '../src/api/translate'
@@ -14,7 +15,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
     tierBodies.push(route.request().postDataJSON())
     await route.fulfill({
       json: {
-        drama_id: 1, tier: 'release', label: 'Release -- best quality, checked before export',
+        drama_id: 1, tier: 'release', label: 'Release – best quality, checked before export',
         translation_engine: 'claude', engine_model: 'claude-opus-5-5', reflect: false, auto_qc: true,
       },
     })
@@ -26,7 +27,7 @@ test('applying a tier fills the form and starts nothing', async ({ page }) => {
 
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByLabel('Style', { exact: true }).selectOption('tier:release')
+  await pickStyle(run, /^Release/)
   await expect(run.getByRole('status')).toContainText('Nothing has started')
   await expect(run.getByRole('status')).toContainText('Release recommends Auto QC; run it from the Export stage.')
   expect(tierBodies).toEqual([{ tier: 'release' }])
@@ -83,7 +84,7 @@ test('save as preset asks for a name and confirms before replacing', async ({ pa
 })
 
 test('after a tier, Default runs and saves with the new engine', async ({ page }) => {
-  type Tier = { key: string; translation_engine: string; reflect: boolean }
+  type Tier = { key: string; label: string; translation_engine: string; reflect: boolean }
   type Engine = { name: string; label: string; key_configured: boolean; package_installed?: boolean }
   const config = await (await page.request.get('/api/translate-run/dramas/1/config')).json()
   // A tier whose engine differs from the drama's current default.
@@ -115,7 +116,7 @@ test('after a tier, Default runs and saves with the new engine', async ({ page }
   await withTranslateLines(page)
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
-  await run.getByLabel('Style', { exact: true }).selectOption(`tier:${tier.key}`)
+  await pickStyle(run, tier.label)
   await expect(run.getByRole('status')).toContainText('Nothing has started')
   const engine = run.getByLabel('AI engine', { exact: true })
   await engine.selectOption('')

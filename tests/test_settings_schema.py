@@ -30,6 +30,7 @@ STATE_KEYS = {
     "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",
     "quick_video.runs": "recent Quick video translate runs and the watch-once titles to remove (services/quick_video_service.py)",
+    "backfills.per_line_confidence": "marker that the one-time line-score rescoring has run (services/confidence_backfill_service.py), never shown",
     "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
     "source_update.pending": "the update-and-restart in flight (source_update_service), cleared by the next boot",
     "source_update.last_result": "the last update-and-restart's outcome sentence, rewritten on every update",
@@ -41,6 +42,8 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
+    ("services/account_prefs_service.py", "KEY.format(user_id)"):
+        "account_prefs.<account id>: that account's own saved preferences (theme)",
     ("services/quick_video_service.py", "_own_key(user_id)"):
         "quick_video.profile_id.<account id>: that account's own choice, falling back to the PC's",
     ("services/quick_video_service.py", "_own_key(user_id) if user_id else PROFILE_KEY"):
@@ -413,7 +416,6 @@ ROOT_READERS = {
                           "job scheduling, below the service layer",
     "engine_backends/engine_registry.py": "ollama_cloud_default decides which model a default resolves to, "
                                           "below the service layer",
-    "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
 }
 
 

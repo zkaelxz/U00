@@ -24,6 +24,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+from lib import device_use
+
 def _log(text: str, warning: bool = False) -> None:
     """To the app's log file (applog); a log that can't be written never stops a read."""
     try:
@@ -33,7 +35,9 @@ def _log(text: str, warning: bool = False) -> None:
     except Exception:
         pass
 
-# Only the medium pair has PyTorch weights here; balloons and pages use it.
+# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean stays on the
+# CPU: its ONNX recognizer has no PyTorch weights, and swapping in the PyTorch detector changed
+# which lines were found (watermarks, stray fragments).
 GPU_KEYS = frozenset({"medium"})
 # The helper held 2.25 GB on the V100 while reading Chinese pages (two models, CUDA's own
 # share, a page's working memory); a little over that so it only goes on a card with room.
@@ -61,6 +65,8 @@ class _Helper:
         self.loading = False
         self.ready = False
         self.load_started = 0.0
+        self.slow_logged = False
+        self.key = ""
 
     def alive(self) -> bool:
         return self.child is not None and self.child[0].is_alive()
@@ -73,6 +79,8 @@ _gpu_off_at = 0.0
 # A GPU fault turns the GPU reader off, but for this long only: one fault (a card that was
 # briefly full) otherwise left every later read on the CPU until the app restarted.
 GPU_OFF_SECONDS = 300
+GPU_SLOW_LOAD_SECONDS = 90
+GPU_READ_WAIT_SECONDS = 20
 _gpu_checked_at = None
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
@@ -89,7 +97,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
-    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk()) and _gpu_ready(key):
+    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk()) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
             _gpu_off(reply[1])
@@ -103,10 +111,28 @@ def read(key: str, source, allow_download: bool = True):
             reply = None
     if reply is None:
         reply = _ask(_cpu, ("read", f"{key}:cpu", _params(key), source))
+        device_use.note(f"text reader ({key})", "CPU")
+    else:
+        device_use.note(f"text reader ({key})", "GPU")
     if reply[0] == "error":
         raise RuntimeError(reply[1])
     _, txts, scores, boxes = reply
     return SimpleNamespace(txts=txts, scores=scores, boxes=boxes)
+
+
+def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
+    """Starts the GPU engine's load now, so a first read does not fall back to the CPU while it
+    loads, and waits up to `wait` seconds for it. True once it is ready; False when the GPU
+    is not allowed (the reads stay on the CPU) or is still loading."""
+    if not (_gpu_allowed(key) and _gpu_weights_on_disk()):
+        return False
+    deadline = time.monotonic() + wait
+    while True:
+        if _gpu_ready(key):
+            return True
+        if time.monotonic() >= deadline or not _gpu.alive():
+            return False
+        time.sleep(0.2)
 
 
 def stop() -> None:
@@ -156,12 +182,34 @@ def _gpu_weights_on_disk() -> bool:
         ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL, ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT))
 
 
+def _gpu_ready_or_nearly(key: str) -> bool:
+    """_gpu_ready, but a load that was already under way before this read is waited for (up to
+    GPU_READ_WAIT_SECONDS after it started): the GPU reads a page in about a second where
+    the CPU takes ten, so a few seconds of waiting pays for itself. A load this read starts is
+    not waited for, so a lone read is never held up."""
+    under_way = _gpu.loading and _gpu.alive() and _gpu.key == key
+    if _gpu_ready(key):
+        return True
+    if not under_way:
+        return False
+    deadline = _gpu.load_started + GPU_READ_WAIT_SECONDS
+    while _gpu.loading and _gpu.alive() and time.monotonic() < deadline:
+        time.sleep(0.2)
+        if _gpu_ready(key):
+            return True
+    return False
+
+
 def _gpu_ready(key: str) -> bool:
     """True once the GPU helper has its engine; otherwise starts or checks on its load without
     waiting, so the caller reads on the CPU meanwhile."""
     if inline or multiprocessing.current_process().daemon:
         return True
     with _gpu.lock:
+        if _gpu.key != key and _gpu.child is not None:
+            # An engine is built for one model set; a read for another needs its own load.
+            _end(_gpu.child)
+            _gpu.child, _gpu.loading, _gpu.ready = None, False, False
         if _gpu.ready and _gpu.alive():
             return True
         if not (_gpu.loading and _gpu.alive()):
@@ -169,13 +217,20 @@ def _gpu_ready(key: str) -> bool:
                 _end(_gpu.child)
             child = _start()
             _gpu.child, _gpu.ready, _gpu.load_started = child, False, time.monotonic()
+            _gpu.key = key
+            _gpu.slow_logged = False
             child[1].send(("load", f"{key}:gpu", key, GPU_IDLE_EXIT_SECONDS))
             _gpu.loading = True
+            _log("Text reader: loading the GPU engine; reads use the CPU until it is ready")
             return False
         assert _gpu.child is not None
         conn = _gpu.child[1]
         try:
             if not conn.poll(0):
+                if time.monotonic() - _gpu.load_started > GPU_SLOW_LOAD_SECONDS and not _gpu.slow_logged:
+                    _gpu.slow_logged = True
+                    _log(f"Text reader: the GPU engine is still loading after {GPU_SLOW_LOAD_SECONDS} s "
+                         "(a busy CPU slows it); reads stay on the CPU", warning=True)
                 return False
             reply = conn.recv()
         except (EOFError, OSError):
@@ -228,7 +283,7 @@ def _gpu_allowed(key: str) -> bool:
         return _gpu_skipped("turned off in Settings or held by the GPU guard")
     # Its load or reads already passed the check below (a job's own process keeps its
     # engine in this process instead, where the check would count its own memory).
-    if _gpu.alive() or ((inline or multiprocessing.current_process().daemon)
+    if (_gpu.alive() and _gpu.key == key) or ((inline or multiprocessing.current_process().daemon)
                         and f"{key}:gpu" in _inline_engines()):
         return True
     now = time.monotonic()

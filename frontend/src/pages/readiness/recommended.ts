@@ -45,7 +45,7 @@ export function recommendedRows(r: SetupReadiness): RecommendedRow[] {
       `${QWEN3_MODEL_SIZE} model, plus PyTorch if missing`, [qwen3Need(r)]),
     row('ocr', 'OCR (Tesseract or PaddleOCR)', false, 'Reads burned-in subtitles and text on comic pages.',
       'Tesseract is small; PaddleOCR is about 800 MB', [ocrNeed(r)]),
-    row('ollama', 'Ollama test engine', false, 'A free translator that runs on this PC, for trying things without a paid key.',
+    row('ollama', 'Ollama test engine', false, 'Translates with hosted Gemma 4 31B through the Ollama program; paid, billed per token.',
       'a separate program; models are 1 to 20 GB', [ollamaNeed(r)]),
   )
   return rows

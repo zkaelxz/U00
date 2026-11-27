@@ -3,12 +3,12 @@
 import inspect
 import re
 from pathlib import Path
-from lib.errors import MissingPackageError
+from lib.errors import DependencyUnavailableError, MissingPackageError
 from lib import settings_schema
 from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
-from .local import REMOVED_LOCAL_MODELS, OllamaEngine, cloud_model_needs_paid, is_ollama_cloud_model
+from .local import REMOVED_LOCAL_MODELS, OllamaEngine, OllamaUnavailableError, cloud_model_needs_paid, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -24,11 +24,11 @@ from .openai_compat import DeepSeekEngine, OpenAIEngine
 # -- the export section then lists lines with a factual-detail
 # mismatch before anything is downloaded.
 WORKFLOW_TIERS = {
-    "draft": {"label": "Draft -- fast and cheap", "translation_engine": "deepseek",
+    "draft": {"label": "Draft – fast and cheap", "translation_engine": "deepseek",
               "engine_model": None, "reflect": False, "auto_qc": False},
-    "standard": {"label": "Standard -- balanced", "translation_engine": "claude",
+    "standard": {"label": "Standard – balanced", "translation_engine": "claude",
                  "engine_model": "claude-sonnet-5-5", "reflect": False, "auto_qc": False},
-    "release": {"label": "Release -- best quality, checked before export",
+    "release": {"label": "Release – best quality, checked before export",
                 "translation_engine": "claude", "engine_model": "claude-opus-5-5",
                 "reflect": False, "auto_qc": True},
 }
@@ -106,13 +106,22 @@ def engines_with_capability(tag: str) -> list:
     return [name for name in ENGINES if tag in engine_capabilities(name)]
 
 
-# Engines that are free to use every time, no conditions attached.
+# Engines that are free to use every time, no conditions attached. Empty in
+# the shipped app: Ollama only runs hosted tags, which are billed per token.
 # Gemini isn't here -- it uses the same engine/API for free and paid
 # keys, so whether a given run is "free" depends on the saved
 # "My Gemini key is free-tier" setting (services/settings_service.py
 # get("gemini_free_tier")), not on which engine was picked. See
 # engine_picker_label / estimate_cost_for_engine.
-FREE_ENGINES = {"ollama"}
+FREE_ENGINES: set = set()
+
+
+def open_to_all_accounts(engine_name) -> bool:
+    """Whether an account without engines.paid may name this engine. Ollama is
+    billed but stays open because its default hosted tag is one every account may
+    use (owner decision 2026-11-24); any other hosted tag is still held back by
+    api.auth.require_cloud_model_allowed."""
+    return engine_name in FREE_ENGINES or engine_name == "ollama"
 
 # Engines that run without an API key: a local model or a local server.
 KEYLESS_ENGINES = {"ollama"}
@@ -135,7 +144,7 @@ ENGINE_NOTES = {
     "deepseek": "Paid, cloud, very cheap; strong on Chinese.",
     "gemini": "Paid, cloud, cheap; strong on Chinese/Japanese.",
     "openai": "Paid, cloud; GPT-6 models, billed per token.",
-    "ollama": "Free on this PC with a local model; hosted Gemma 4 31B is paid.",
+    "ollama": "Hosted Gemma 4 31B through Ollama; paid, billed per token.",
 }
 
 # Shown instead of ENGINE_NOTES["gemini"] when the "My Gemini key is
@@ -403,6 +412,10 @@ def get_engine(engine_name: str, api_key: str | None = None, model: str | None =
         if model:
             return cls(api_key, model, **kwargs)
         return cls(api_key, **kwargs)
+    except OllamaUnavailableError as exc:
+        # A saved local tag: the plain refusal (503), not an unexpected 500.
+        raise DependencyUnavailableError(
+            exc.message, details={"reason": exc.reason}) from None
     except ImportError as exc:
         package = _missing_package_name(exc, engine_name)
         _log_import_failure(exc, engine_name)

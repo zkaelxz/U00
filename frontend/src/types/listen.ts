@@ -3,7 +3,6 @@ import type { components } from '../api/generated/schema'
 
 type Schemas = components['schemas']
 
-export type ListenTtsEngine = Schemas['DubTtsEngine']
 export type ListenConfig = Schemas['ListenConfig']
 
 export type ListenRunRequest = Schemas['ListenRunRequest']

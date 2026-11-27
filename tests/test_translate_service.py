@@ -57,25 +57,6 @@ def test_list_engines_ollama_that_does_not_answer_is_not_usable(tmp_path, monkey
     assert engines["ollama"]["package_installed"] is True
 
 
-def test_list_engines_offers_the_models_pulled_on_the_ollama_server(tmp_path, monkeypatch):
-    env_path = _write_env(tmp_path, "")
-    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: True)
-    monkeypatch.setattr(engine_local, "pulled_ollama_models",
-                        lambda base: ["qwen3:4b", engine_local.OLLAMA_DEFAULT_MODEL])
-    models = next(e for e in translate_service.list_engines(env_path, probe_ollama=True)
-                  if e["name"] == "ollama")["models"]
-    assert "qwen3:4b" in models
-    assert models.count(engine_local.OLLAMA_DEFAULT_MODEL) == 1
-    # Not offered when the server reads as down, and not asked without the probe.
-    monkeypatch.setattr(engine_local, "check_ollama_reachable", lambda *a, **k: False)
-    models = next(e for e in translate_service.list_engines(env_path, probe_ollama=True)
-                  if e["name"] == "ollama")["models"]
-    assert "qwen3:4b" not in models
-    monkeypatch.setattr(engine_local, "pulled_ollama_models",
-                        lambda base: (_ for _ in ()).throw(AssertionError("asked")))
-    models = next(e for e in translate_service.list_engines(env_path)
-                  if e["name"] == "ollama")["models"]
-    assert "qwen3:4b" not in models
 
 
 def test_the_probed_engine_list_asks_ollama_once(tmp_path, monkeypatch):
@@ -85,45 +66,18 @@ def test_the_probed_engine_list_asks_ollama_once(tmp_path, monkeypatch):
 
     class Resp:
         status = 200
-        body = json.dumps({"models": [{"name": "qwen3:4b"}]}).encode()
+        body = json.dumps({"models": [{"name": "gemma4:31b-cloud"}]}).encode()
 
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
     monkeypatch.setattr(local, "_ollama_reachability_cache", {})
     monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
     engines = {e["name"]: e for e in translate_service.list_engines(_write_env(tmp_path, ""),
                                                                     probe_ollama=True)}
-    assert engines["ollama"]["key_configured"] is True and "qwen3:4b" in engines["ollama"]["models"]
+    assert engines["ollama"]["key_configured"] is True and "gemma4:31b-cloud" in engines["ollama"]["models"]
     assert calls == ["http://localhost:11434/api/tags"]
 
 
-def test_pulled_ollama_models_reads_tags_caches_and_drops_unsafe_names(monkeypatch):
-    import json
-    from engine_backends import ollama_server as local
-    calls = []
-
-    class Resp:
-        status = 200
-        body = json.dumps({"models": [
-            {"name": "qwen3:4b"}, {"model": "qwen3:4b"}, {"name": "../etc"}, {"name": "has space"},
-            "junk", {"name": "nomic-embed-text:latest", "details": {"family": "nomic-bert"}},
-            {"name": "bge-m3:latest", "details": {"family": "bert", "families": ["bert"]}},
-            {"name": "mxbai-embed-large:latest"}]}).encode()
-
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
-    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
-    monkeypatch.setattr(local.http, "get", lambda url, **kw: calls.append(url) or Resp())
-    assert local.pulled_ollama_models("localhost:11434") == ["qwen3:4b"]
-    assert local.pulled_ollama_models("http://localhost:11434/") == ["qwen3:4b"]
-    assert calls == ["http://localhost:11434/api/tags"]
 
 
-def test_pulled_ollama_models_is_empty_when_the_server_does_not_answer(monkeypatch):
-    from engine_backends import ollama_server as local
-    monkeypatch.setattr(local, "_pulled_models_cache", {})
-    monkeypatch.setattr(local, "_ollama_reachability_cache", {})
-    monkeypatch.setattr(local.http, "get", lambda url, **kw: (_ for _ in ()).throw(OSError("refused")))
-    assert local.pulled_ollama_models("http://127.0.0.1:11434") == []
-    assert local.check_ollama_reachable("http://127.0.0.1:11434") is False
 
 
 def test_list_engines_makes_no_network_call_by_default(tmp_path, monkeypatch):
@@ -374,7 +328,7 @@ class TestOllamaUnavailable:
     def _call(self, isolated_db, monkeypatch):
         monkeypatch.setattr(translate_service.settings_service, "resolve_key",
                             lambda name, *a, **k: self.URL if name == "ollama_url" else "local")
-        return translate_service.translate("你好", "ollama", "zh", "en", model="qwen3:4b")
+        return translate_service.translate("你好", "ollama", "zh", "en", model="gemma4:31b-cloud")
 
     @pytest.mark.parametrize("make, reason", [
         (lambda r: r.ConnectionError(f"HTTPConnectionPool(host='192.168.7.9', port=11434): refused {TestOllamaUnavailable.URL}"), "ollama_unreachable"),
@@ -401,7 +355,7 @@ class TestOllamaUnavailable:
         with pytest.raises(DependencyUnavailableError) as info:
             self._call(isolated_db, monkeypatch)
         assert info.value.details == {"reason": "ollama_model_missing"}
-        assert "qwen3:4b" in info.value.message and "192.168" not in info.value.message
+        assert "gemma4:31b-cloud" in info.value.message and "192.168" not in info.value.message
 
     def test_other_http_errors_are_left_alone(self, isolated_db, monkeypatch):
         import requests
@@ -450,3 +404,32 @@ class TestPasteKeepsEveryLine:
         text = "\n".join(f"line {i}" for i in range(1, 21))
         result = translate_service.estimate(text, "fake", "zh", "en")
         assert result["requests"] == len(engine_standalone.standalone_requests(text, 8)) == 3
+
+
+class TestDefaultHostedEngine:
+    """The engine a feature uses when none was picked: hosted Gemma through
+    Ollama, GPT-6 Luna through OpenAI when Ollama does not answer."""
+
+    def test_ollama_when_it_answers(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: True)
+        assert translate_service.default_hosted_engine() == "ollama"
+
+    def test_openai_when_ollama_is_down_and_a_key_is_saved(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key",
+                            lambda name, *a: "sk-test" if name == "openai" else None)
+        assert translate_service.default_hosted_engine() == "openai"
+
+    def test_ollama_when_neither_is_available(self, monkeypatch):
+        from engine_backends import local
+        monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
+        monkeypatch.setattr(translate_service.settings_service, "resolve_key", lambda name, *a: None)
+        assert translate_service.default_hosted_engine() == "ollama"
+
+
+def test_a_saved_local_ollama_tag_is_refused_with_a_plain_503_not_a_crash():
+    with pytest.raises(DependencyUnavailableError) as exc:
+        engine_registry.get_engine("ollama", "local", "qwen3:8b")
+    assert "no longer supported" in str(exc.value) and exc.value.details["reason"] == "local_model_removed"

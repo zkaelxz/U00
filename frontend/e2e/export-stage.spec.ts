@@ -191,12 +191,10 @@ test('Reset to defaults can be undone', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Reset to defaults' })).toBeVisible()
 })
 
-test('a title that is not novel narration has EPUB disabled with its reason', async ({ page }) => {
+test('a title that is not novel narration has no EPUB block', async ({ page }) => {
   await page.goto('/#/drama/1/export')
-  const epub = exportBlock(page, 'EPUB')
-  await expect(summaryOf(page, 'EPUB')).toContainText('Only for titles in novel-narration mode.')
-  await openExportBlock(page, 'EPUB')
-  await expect(epub.getByRole('button', { name: 'Download EPUB' })).toBeDisabled()
+  await expect(summaryOf(page, 'Subtitle file')).toBeVisible()
+  await expect(exportBlock(page, 'EPUB')).toHaveCount(0)
 })
 
 test('audiobook job can be cancelled', async ({ page }) => {
@@ -344,10 +342,10 @@ test.describe('export blocks fold under their headings', () => {
     await withTracks(page)
     await page.goto('/#/drama/1/export')
     await expect(page.getByText('Audio title')).toBeVisible()
-    await expectOpen(page, { [FIRST_OPEN.audio]: true, 'Video with a subtitle track': false, 'Subtitle file': false, EPUB: false })
+    await expectOpen(page, { [FIRST_OPEN.audio]: true, 'Video with a subtitle track': false, 'Subtitle file': false })
     await page.goto('/#/drama/3/export')
     await expect(page.getByText('Video title')).toBeVisible()
-    await expectOpen(page, { [FIRST_OPEN.video]: true, 'Burned-in video': false, Audiobook: false, 'Subtitle file': false })
+    await expectOpen(page, { [FIRST_OPEN.video]: true, 'Burned-in video': false, 'Subtitle file': false })
     await expect(page.getByRole('button', { name: 'Start subtitle-track video export' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Start audiobook export' })).toBeHidden()
   })
@@ -356,19 +354,23 @@ test.describe('export blocks fold under their headings', () => {
     await page.goto('/#/drama/2/export')
     await expect(page.getByRole('region', { name: 'Export' }).getByText('Novel', { exact: true })).toBeVisible()
     await expect(page.locator('.export-block').first()).toHaveAttribute('aria-label', FIRST_OPEN.novel)
-    // EPUB and Audiobook cannot run on the seeded novel, so the first block that can starts open.
-    await expectOpen(page, { [SEEDED_OPEN.novel]: true, [FIRST_OPEN.novel]: false, Audiobook: false })
+    // Audiobook cannot run on the seeded novel, so the first block that can starts open.
+    await expectOpen(page, { [SEEDED_OPEN.novel]: true, [FIRST_OPEN.novel]: false })
     await asMediaType(page, 'other')
     await page.goto('/#/drama/1/export')
     await expect(page.getByText('Subtitle-only title')).toBeVisible()
-    await expectOpen(page, { [FIRST_OPEN.subtitle]: true, Audiobook: false })
+    await expectOpen(page, { [FIRST_OPEN.subtitle]: true })
   })
 
-  test('every export is reachable for every kind, collapsed rather than removed', async ({ page }) => {
+  test('only the exports that fit the title kind are listed', async ({ page }) => {
     await page.goto('/#/drama/3/export')
-    for (const title of ['Video with a subtitle track', 'Burned-in video', 'Video with the dub audio', 'Audiobook', 'Subtitle file', 'EPUB']) {
+    for (const title of ['Video with a subtitle track', 'Burned-in video', 'Video with the dub audio', 'Subtitle file']) {
       await expect(exportBlock(page, title)).toHaveCount(1)
     }
+    for (const title of ['Audiobook', 'EPUB']) await expect(exportBlock(page, title)).toHaveCount(0)
+    await page.goto('/#/drama/2/export')
+    await expect(exportBlock(page, 'Subtitle file')).toHaveCount(1)
+    await expect(exportBlock(page, 'EPUB')).toHaveCount(0)
   })
 
   test('Enter and Space on the focused heading fold and unfold it', async ({ page }) => {
@@ -399,15 +401,16 @@ test.describe('export blocks fold under their headings', () => {
     await expectOpen(page, { 'Video with a subtitle track': true, Audiobook: false })
     await mockExportReady(page, { hasSourceVideo: false })
     await page.reload()
-    await expectOpen(page, { 'Subtitle file': true, 'Video with a subtitle track': false, Audiobook: false })
+    await expect(exportBlock(page, 'Video with a subtitle track')).toHaveCount(0)
+    await expectOpen(page, { 'Subtitle file': true, Audiobook: false })
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
     await page.reload()
     await expect(exportBlock(page, 'Audiobook')).toHaveCount(0)
-    await expectOpen(page, { 'Subtitle file': true, 'Video with a subtitle track': false })
+    await expectOpen(page, { 'Subtitle file': true })
   })
 
   test('works with storage blocked: the defaults still hold', async ({ page }) => {
-    // Everything is blocked but the title view: Simple would leave Audiobook out of the page, and this test is about the folds.
+    // Everything is blocked but the title view: Simple would leave the video blocks out of the page, and this test is about the folds.
     await page.addInitScript(() => {
       const blocked = () => { throw new Error('blocked') }
       Object.defineProperty(window, 'localStorage', {
@@ -416,8 +419,8 @@ test.describe('export blocks fold under their headings', () => {
     })
     await page.goto('/#/drama/3/export')
     await expectOpen(page, { 'Video with a subtitle track': true })
-    await openExportBlock(page, 'Audiobook')
-    await expectOpen(page, { Audiobook: true, 'Video with a subtitle track': false })
+    await openExportBlock(page, 'Burned-in video')
+    await expectOpen(page, { 'Burned-in video': true, 'Video with a subtitle track': false })
   })
 
   test('a running job and its download link stay visible while the block is folded', async ({ page }) => {

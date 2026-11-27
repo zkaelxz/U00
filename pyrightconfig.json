@@ -83,7 +83,6 @@
     "navigator.py",
     "novel_text.py",
     "ocr.py",
-    "ollama_unload.py",
     "page_capture_checks.py",
     "page_fetch.py",
     "page_fetch_browser.py",

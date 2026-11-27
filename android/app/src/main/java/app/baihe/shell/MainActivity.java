@@ -32,8 +32,7 @@ import java.security.SecureRandom;
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
-    private static final String PAGE_DARK = "page_dark";
-    private static final String PAGE_SEPIA = "page_sepia";
+    private static final String PAGE_LOOK = "page_look";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -53,6 +52,7 @@ public class MainActivity extends Activity {
     /** While the app stays open, a build the PC fetches later is still noticed. */
     private static final long UPDATE_POLL_MS = 5 * 60_000;
     private long updateCheckedAt;
+    private long declinedVersion;
     private boolean updateOffered;
     private View customView;
     /** The Studio | Grab strip, hidden while the app is a small floating window. */
@@ -65,6 +65,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         String crash = CrashLog.takePending(this);
         if (crash == null) crash = CrashLog.takeCaught(this);
@@ -135,6 +136,7 @@ public class MainActivity extends Activity {
                 if (loadFailed) return;
                 autoRetries = 0;
                 if (failureView != null) failureView.setVisibility(View.GONE);
+                syncSepiaFromPage();
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
@@ -227,8 +229,12 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void themeChanged(boolean dark, boolean sepia) {
-                runOnUiThread(() -> followPageTheme(dark, sepia));
+            public void themeChanged(String look) {
+                runOnUiThread(() -> {
+                    followPageTheme(look);
+                    // An older Baihe page only says dark or light, so sepia is read from the page itself.
+                    if (web != null) web.postDelayed(MainActivity.this::syncSepiaFromPage, 300);
+                });
             }
 
             @Override
@@ -349,11 +355,24 @@ public class MainActivity extends Activity {
         return GrabUi.Palette.saved(this);
     }
 
-    private void followPageTheme(boolean dark, boolean sepia) {
+    /**
+     * The server may still serve a Baihe page that predates setLook and reports only dark or light;
+     * the page's own theme attribute tells the bar when that look is sepia.
+     */
+    private void syncSepiaFromPage() {
+        if (web == null) return;
+        web.evaluateJavascript("document.documentElement.getAttribute('data-theme')", value -> {
+            if ("\"sepia\"".equals(value)) followPageTheme("sepia");
+        });
+    }
+
+    private void followPageTheme(String look) {
+        if (!java.util.Arrays.asList("light", "dark", "sepia", "oled").contains(look)) return;
         SharedPreferences p = prefs();
-        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark
-                && p.getBoolean(PAGE_SEPIA, false) == sepia) return;
-        p.edit().putBoolean(PAGE_DARK, dark).putBoolean(PAGE_SEPIA, sepia).apply();
+        if (look.equals(p.getString(PAGE_LOOK, null))) return;
+        p.edit().putString(PAGE_LOOK, look).apply();
+        // Dialogs opened from now on take the new look's colours; one already on screen keeps its own.
+        getTheme().applyStyle(GrabUi.Palette.saved(this).themeRes(), true);
         // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
         if (customView != null || web == null) return;
         setContentView(page());
@@ -600,20 +619,16 @@ public class MainActivity extends Activity {
         // Reopening the app resumes the same process and WebView, so no page load fires again;
         // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
         long now = System.currentTimeMillis();
-        if (updateOffered || AppUpdate.pending != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
+        if (updateOffered || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
         updateCheckedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
-            long offered = AppUpdate.check(address, cookie);
+            // The PC only looks at GitHub when asked, so an unforced ask would hear the old build first.
+            long offered = AppUpdate.check(address, cookie, true);
             // A failed ask (no network, a restarting PC) is tried again at the next chance, not a minute later.
             if (offered == AppUpdate.CHECK_FAILED) updateCheckedAt = 0;
-            if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) return;
-            if (AppUpdate.canUpdateSilently(getApplicationContext())) {
-                File apk = updateFile();
-                if (AppUpdate.download(address, cookie, apk)) AppUpdate.pending = apk;
-            } else {
-                runOnUiThread(() -> offerUpdate(address, cookie));
-            }
+            if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered) || offered == declinedVersion) return;
+            runOnUiThread(() -> offerUpdate(address, cookie, offered));
         }).start();
     }
 
@@ -629,11 +644,8 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
             } else if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) {
                 runOnUiThread(() -> toast("This app is up to date."));
-            } else if (AppUpdate.pending != null) {
-                runOnUiThread(() -> toast("An update is downloaded and installs when you leave the app."));
             } else {
-                // Always asks here, even where updates could go in silently: the person pressed the button.
-                runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie); });
+                runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie, offered); });
             }
         }).start();
     }
@@ -654,7 +666,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void offerUpdate(String address, String cookie) {
+    private void offerUpdate(String address, String cookie, long offered) {
         if (isFinishing() || isDestroyed()) return;
         updateOffered = true;
         new AlertDialog.Builder(this)
@@ -665,7 +677,8 @@ public class MainActivity extends Activity {
                     else runOnUiThread(() -> android.widget.Toast.makeText(this,
                             "Could not download the update. Try again in a minute.", android.widget.Toast.LENGTH_LONG).show());
                 }).start())
-                .setNegativeButton(android.R.string.cancel, null)
+                // Asking again at every return to the app would nag; the Check for updates button still offers it.
+                .setNegativeButton(android.R.string.cancel, (d, w) -> declinedVersion = offered)
                 .setOnDismissListener(d -> updateOffered = false)
                 .show();
     }
@@ -705,14 +718,14 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        AppUpdate.screenStarted();
+        // An update notice posted while the app was away has served its purpose once the app is in front.
+        InstallResult.clear(this);
         AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        AppUpdate.screenStopped(this);
         AlertSchedule.leftApp(this);
     }
 

@@ -100,10 +100,6 @@ def remove(drama_id: int) -> None:
         os.remove(os.path.join(db.drama_dir(drama_id), FILE_NAME))
 
 
-def has_captions(drama_id: int) -> bool:
-    return os.path.isfile(os.path.join(db.drama_dir(drama_id), FILE_NAME))
-
-
 def hint_text(drama_id: int, max_chars: int) -> str:
     """The captions' words as one run of text from the start, for a prompt; "" when the title has none."""
     return " ".join(c.text for c in _read(drama_id))[:max_chars].strip()

@@ -53,12 +53,13 @@ HOUSEHOLD_DEFAULT_PERMISSIONS = (
     "media.stream", "sources.import", "library.create",
 )
 OPT_IN_PERMISSIONS = (
-    "media.import_url", "engines.paid", "extension.send",
+    "media.import_url", "engines.paid", "extension.send", "media.upload_member",
 )
 # What a member account can hold; an admin can give or take each from the People screen.
 MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
 ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
-    "admin.library", "admin.settings", "admin.diagnostics", "admin.users.read", "admin.users",
+    "admin.library", "admin.settings", "admin.diagnostics", "admin.diagnostics.read",
+    "admin.users.read", "admin.users",
 )
 # Every admin permission is view (GET routes only), away write or write. An
 # admin session on the internet-facing household listener keeps view and
@@ -68,7 +69,7 @@ ADMIN_PERMISSIONS = (   # the `admin.*` family; only is_admin users hold these
 # an admin account stays PC-only (_require_pc_for_admin), since a remote
 # session has no second factor and could otherwise lock the owner out. The
 # write families mix reads with writes, so they are write as a whole.
-ADMIN_VIEW_PERMISSIONS = ("admin.users.read",)
+ADMIN_VIEW_PERMISSIONS = ("admin.users.read", "admin.diagnostics.read")
 ADMIN_AWAY_WRITE_PERMISSIONS = ("admin.users",)
 ADMIN_WRITE_PERMISSIONS = ("admin.library", "admin.settings", "admin.diagnostics")
 ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSIONS
@@ -77,6 +78,14 @@ ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSI
 # keeps it. Away from the PC it also needs the PC's remote-uploads switch
 # (api.remote_uploads.away_principal); members never hold it.
 UPLOAD_PERMISSION = "media.upload"
+# The member's own right to upload audio/video into titles they own (owner
+# decision 2026-11-27, "members may upload from their phones, with a size limit"). Off
+# by default and granted per person; it covers only the media upload routes,
+# not covers, subtitles, novel text or comic pages, and is held to the
+# member upload limit setting. An admin
+# holds it through the admin flag but, away from the PC, loses it with
+# media.upload while the remote-uploads switch is off.
+MEMBER_UPLOAD_PERMISSION = "media.upload_member"
 # Updating Baihe from the website (owner decision 2026-10-30): an admin may
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.

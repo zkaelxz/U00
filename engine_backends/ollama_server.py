@@ -80,68 +80,24 @@ def _is_embedding_model(entry: dict) -> bool:
     return any("embed" in n.lower() for n in _entry_names(entry))
 
 
-# {base_url: (checked_at, names)}. Kept as long as the reachability answer it
-# is fetched with, so the two never disagree about whether Ollama is up.
-_pulled_models_cache = {}
-
-
-def pulled_ollama_models(base_url: str) -> list:
-    """The chat models pulled on the Ollama server, so the picker offers what
-    is really there rather than only the built-in tags; [] when it doesn't
-    answer. Only names that are safe as a model id are returned. The same
-    request answers check_ollama_reachable for the next few seconds, so a
-    picker that asks for both makes one request."""
-    import time
-    from .engine_registry import MODEL_ID_RE
-    base_url = settings_schema.normalize_ollama_url(base_url)
-    now = time.time()
-    cached = _pulled_models_cache.get(base_url)
-    if cached and now - cached[0] < OLLAMA_REACHABILITY_CACHE_SECONDS:
-        return list(cached[1])
-    names, reachable = [], True
-    try:
-        for entry in _tag_entries(base_url, timeout=2.5):
-            if _is_embedding_model(entry):
-                continue
-            for name in _entry_names(entry):
-                if MODEL_ID_RE.fullmatch(name) and ".." not in name and name not in names:
-                    names.append(name)
-    except _TagsUnreadable:
-        pass
-    except Exception:
-        reachable = False
-    _pulled_models_cache[base_url] = (now, names)
-    _ollama_reachability_cache[base_url] = (now, reachable)
-    return list(names)
-
-
 def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
-    when the server is down or `model` isn't pulled, so a live session fails
-    at Start rather than on its first chunk."""
-    from .local import OllamaUnavailableError, is_ollama_cloud_model  # local imports this module
+    when the server is down, so a live session fails at Start rather than on
+    its first chunk. A hosted tag needs no pull: the local list only shows it
+    after its first use."""
+    from .local import OllamaUnavailableError, require_hosted_model  # local imports this module
+    require_hosted_model(model)
     try:
-        installed = {n for entry in _tag_entries(base_url) for n in _entry_names(entry)}
+        _tag_entries(base_url)
     except Exception:
         raise OllamaUnavailableError(
             "ollama_unreachable",
             "Ollama isn't running. Start it, or pick another translator in Settings.") from None
-    if is_ollama_cloud_model(model):
-        # The local list only shows a hosted model after its first use, so
-        # absence from it says nothing about whether the tag works.
-        return
-    # Ollama resolves a bare "name" to "name:latest".
-    wanted = model if ":" in model else f"{model}:latest"
-    if wanted not in installed:
-        raise OllamaUnavailableError(
-            "ollama_model_missing",
-            f"Ollama doesn't have the model {model}. Run \"ollama pull {model}\" first, "
-            "or pick another model in Settings.")
 
 
 def model_pulled(base_url: str, model: str) -> bool:
-    """Whether `model` is pulled on the server, embedding models included (pulled_ollama_models
-    leaves those out). False when the server does not answer."""
+    """Whether `model` is pulled on the server (the embedding model, for one). False when the
+    server does not answer."""
     wanted = model if ":" in model else f"{model}:latest"
     try:
         return any(wanted in _entry_names(e) or model in _entry_names(e)

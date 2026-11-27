@@ -31,6 +31,8 @@ page's previous-page context are what a one-at-a-time loop gave.
 
 import contextlib
 import hashlib
+import itertools
+import heapq
 import threading
 import time
 from collections import OrderedDict
@@ -361,3 +363,87 @@ class _PageTurn:
             yield
         finally:
             self._order._translated[self._index].set()
+
+
+class FairLock:
+    """A lock that hands itself to the waiter with the lowest priority, then to the earliest.
+    A plain `threading.Lock` picks any waiter, so with several batches of one Quick read at the
+    door the page the reader is waiting for could be passed over again and again while later
+    pages finished and were held back. Priorities are tuples; without one the thread's own
+    (`set_priority`) or (1, 0) is used, so callers that know nothing of priorities queue in order
+    behind the Quick read pages that are waiting: a reader is waiting on those, and a chapter's
+    pages are few, while a Scanlate job takes the lock again page after page."""
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._held = False
+        self._waiting: list = []
+        self._seq = itertools.count()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1, priority=None) -> bool:
+        """Like threading.Lock.acquire (cancellable_lock polls it with a timeout), plus a priority."""
+        if priority is None:
+            priority = getattr(_priority, "value", None) or (1, 0)
+        ticket = (priority, next(self._seq))
+        asked = time.monotonic()
+        deadline = None if not blocking else (time.monotonic() + timeout if timeout >= 0 else None)
+        with self._cond:
+            heapq.heappush(self._waiting, ticket)
+            try:
+                while self._held or self._waiting[0] != ticket:
+                    remaining = None if deadline is None else deadline - time.monotonic()
+                    if not blocking or (remaining is not None and remaining <= 0):
+                        self._leave(ticket)
+                        return False
+                    self._cond.wait(remaining)
+            except BaseException:
+                self._leave(ticket)   # an interrupted wait must not leave its ticket blocking everyone
+                raise
+            heapq.heappop(self._waiting)
+            self._held = True
+        _waited.value = getattr(_waited, "value", 0.0) + time.monotonic() - asked
+        return True
+
+    def _leave(self, ticket) -> None:
+        self._waiting.remove(ticket)
+        heapq.heapify(self._waiting)
+        self._cond.notify_all()
+
+    def release(self) -> None:
+        with self._cond:
+            self._held = False
+            self._cond.notify_all()
+
+    def locked(self) -> bool:
+        return self._held
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+_priority = threading.local()
+_waited = threading.local()
+
+
+def take_waited() -> float:
+    """Seconds this thread has spent queued for a FairLock since the last call, so a slow page can
+    be told apart as slow work or a long wait."""
+    value = getattr(_waited, "value", 0.0)
+    _waited.value = 0.0
+    return value
+
+
+def set_priority(value) -> None:
+    """This thread's place in every FairLock queue from now on (None clears it)."""
+    _priority.value = value
+
+
+def page_priority(key: str) -> tuple:
+    """Quick read's place for the picture called `key` ("p25"): ahead of callers that name none,
+    and among Quick read pages in page order."""
+    digits = "".join(ch for ch in str(key or "") if ch.isdigit())
+    return (0, int(digits) if digits else 0)

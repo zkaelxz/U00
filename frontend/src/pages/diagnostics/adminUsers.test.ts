@@ -139,7 +139,7 @@ describe('rights toggles', () => {
 
   it('name every member permission in plain words, and fall back to the raw name', () => {
     const member = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use',
-      'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream']
+      'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream', 'media.upload_member']
     for (const p of member) {
       expect(rightName(p)).not.toBe(p)
       expect(rightAbout(p)).toMatch(/\.$/)

@@ -839,7 +839,9 @@ def test_secret_and_path_in_error_are_redacted(client, monkeypatch):
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
     _run(client, did, engine="fake")
     st = wait_for_job(f"scanlate_{did}", timeout=20)
-    assert st["status"] == "done" and "1 failed" in st["message"]
+    # Its only page failed, so the run itself fails, with the reason redacted.
+    assert st["status"] == "error" and "<path>" in st["error"]
+    assert not any(t in st["error"] + st["message"] for t in ("SECRETSECRET", "/home/alex"))
     notes = db.get_page(pid)["run_notes"]
     assert "SECRETSECRET" not in notes and "/home/alex" not in notes and "<path>" in notes
     r = client.get(f"/api/scanlate/dramas/{did}/pages/{pid}")
@@ -1188,7 +1190,8 @@ def test_failed_error_note_write_is_logged(isolated_db, monkeypatch):
     monkeypatch.setattr(run_svc, "_process_page", page_fails)
     monkeypatch.setattr(run_svc.db, "update_page", note_fails)
     monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
-    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    with pytest.raises(RuntimeError):
+        run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
     assert len(seen) == 1 and "page 7" in seen[0] and "disk full" in seen[0]
 
 
@@ -1257,7 +1260,8 @@ def test_stored_page_error_note_is_redacted(isolated_db, monkeypatch):
     monkeypatch.setattr(run_svc, "_process_page", page_fails)
     monkeypatch.setattr(run_svc.db, "update_page", lambda pid, **f: stored.append(f["run_notes"]))
     monkeypatch.setattr(run_svc.db, "get_drama", lambda did: {})
-    run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
+    with pytest.raises(RuntimeError):
+        run_svc._run_job("j", 1, "all", [7], "claude", object(), "auto")
     assert len(stored) == 1 and "This page failed" in stored[0]
     assert "sk-ant-abcdefghijklmnopqrstuvwxyz0123" not in stored[0]
 
@@ -1507,10 +1511,9 @@ def test_read_ahead_on_a_paid_engine_needs_a_monthly_cap(client, monkeypatch):
     assert not started
 
 
-def test_read_ahead_on_ollama_swapped_in_for_a_member_counts_its_hosted_default(client, monkeypatch):
-    """Ollama standing in for a member's paid default runs its own default, which is hosted and
-    billed per token, so the read-ahead needs a cap like a paid engine; the owner's own Ollama
-    default is checked as before."""
+def test_read_ahead_on_ollama_needs_a_cap_swapped_in_or_not(client, monkeypatch):
+    """Ollama runs hosted tags and is billed per token, so a read-ahead on it is held to the
+    cap whether or not it stands in for a member's paid default."""
     from engine_backends import engine_registry
     from services import translate_run_service
     from lib.errors import UnsupportedOperationError
@@ -1522,13 +1525,15 @@ def test_read_ahead_on_ollama_swapped_in_for_a_member_counts_its_hosted_default(
     with pytest.raises(UnsupportedOperationError):
         run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama", engine_swapped=True)
     assert not started
-    run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama")
-    assert started["targets"] == ids
+    with pytest.raises(UnsupportedOperationError):
+        run_svc.start_run(did, read_ahead_from=ids[0], engine="ollama")
+    assert not started
 
 
 def test_read_ahead_leaves_out_pages_that_have_nothing_to_do(client, monkeypatch):
-    """A page whose read text has no English (all skipped or untranslated)
-    never gets a typeset image, so a run for it would only hold the job id."""
+    """A page whose read text is all skipped never gets a typeset image, so a
+    run for it would only hold the job id. A page read but not translated
+    still has its translation to do."""
     from services import translate_run_service
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 5.0)
     started = _read_ahead(monkeypatch)
@@ -1539,7 +1544,7 @@ def test_read_ahead_leaves_out_pages_that_have_nothing_to_do(client, monkeypatch
     db.save_bubbles(ready, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "你好",
                              "translated_text": "Hello"}])
     run_svc.start_run(did, read_ahead_from=unread, engine="claude")
-    assert started["targets"] == [unread, ready]
+    assert started["targets"] == [unread, untranslated, ready]
 
 
 def test_read_ahead_with_nothing_to_do_starts_no_job(client, monkeypatch):
@@ -1550,7 +1555,7 @@ def test_read_ahead_with_nothing_to_do_starts_no_job(client, monkeypatch):
     did = _drama()
     ids = [_page(did, i) for i in range(2)]
     for pid in ids:
-        db.save_bubbles(pid, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "你好"}])
+        db.save_bubbles(pid, [{"x": 1, "y": 1, "w": 9, "h": 9, "source_text": "噪", "skip": True}])
     with pytest.raises(UnsupportedOperationError) as e:
         run_svc.start_run(did, read_ahead_from=ids[0], engine="claude")
     assert e.value.details == {"reason": "NOTHING_TO_READ_AHEAD"}

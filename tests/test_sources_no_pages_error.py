@@ -127,7 +127,7 @@ def test_pages_the_adapter_serves_are_written_as_a_chapter(monkeypatch):
 
     def write(drama_id, items, job_id=None, chapter=None):
         written["bytes"] = [content() for _, content in items]
-        return len(written["bytes"]), []
+        return len(written["bytes"]), [], 0
     monkeypatch.setattr(imp.extraction, "write_pages", write)
     adapter = _Adapter(pages=[PageRef("kuaikan", "1003", 0, "https://i/1.jpg"),
                               PageRef("kuaikan", "1003", 1, "https://i/2.jpg")])

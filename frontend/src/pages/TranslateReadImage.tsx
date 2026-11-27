@@ -348,7 +348,7 @@ export function TranslateReadImage({
           .
         </p>
       )}
-      {!allowed && <p className="translate-warning">Reading pictures isn't allowed for this account. Ask the PC owner.</p>}
+      {!allowed && <p className="translate-warning">Reading pictures isn't allowed for this account. Ask the PC owner to allow it.</p>}
       {allowed && noKey && selected && (
         <p className="translate-warning">No key for that engine. Add a key in Settings or pick another.</p>
       )}

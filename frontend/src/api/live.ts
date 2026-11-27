@@ -205,17 +205,9 @@ const sessionPath = (id: string) => {
 
 /** No model asks about the one Start runs when none is chosen: the server decides, so the answer can't drift from it. */
 export const getLiveOptions = (f?: Fetch) => getJson<LiveFormOptions>('/api/live/options', f)
-/** Also says whether the model fits in graphics memory, beside Whisper when the GPU is on. */
-export const checkOllama = (model: string, f?: Fetch, gpu?: { whisperSize: string, useGpu: boolean }) => {
-  const q = new URLSearchParams()
-  if (model) q.set('model', model)
-  if (gpu?.useGpu) {
-    q.set('whisper_size', gpu.whisperSize)
-    q.set('use_gpu', 'true')
-  }
-  const qs = q.toString()
-  return getJson<LiveOllamaCheck>(qs ? `/api/live/ollama-check?${qs}` : '/api/live/ollama-check', f)
-}
+/** Whether Ollama answers, so the hosted model can be reached. */
+export const checkOllama = (model: string, f?: Fetch) =>
+  getJson<LiveOllamaCheck>(model ? `/api/live/ollama-check?${new URLSearchParams({ model })}` : '/api/live/ollama-check', f)
 export const startLive = (body: LiveSessionStart, f?: Fetch) =>
   postJson<LiveSessionStarted>('/api/live/sessions', body, f)
 /** `everyone`: an admin or the PC owner also lists other accounts' sessions. */
@@ -434,12 +426,15 @@ export function statusTone(s: Partial<Pick<LiveSessionStatus, 'status' | 'stop_r
   return s.stop_reason || (s.status === 'running' && (s.reconnect_attempt ?? 0) > 0) ? 'warn' : 'muted'
 }
 
-/** The caption lag and the lines left untranslated, or null before a chunk is measured. */
-export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured'>>): string | null {
+/** The caption lag, the lines left untranslated and the chunk joins that fell back to the time rule, or null before a chunk is measured. */
+export function lagLine(s: Partial<Pick<LiveSessionStatus, 'lag_seconds' | 'translations_skipped' | 'chunks_measured' | 'overlap_matched' | 'overlap_fallback'>>): string | null {
   if (!s.chunks_measured) return null
-  const lag = `Captions about ${Math.round(s.lag_seconds ?? 0)} s behind the stream.`
+  let line = `Captions about ${Math.round(s.lag_seconds ?? 0)} s behind the stream.`
   const skipped = s.translations_skipped ?? 0
-  return skipped ? `${lag} ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.` : lag
+  if (skipped) line += ` ${skipped} line${skipped === 1 ? '' : 's'} shown untranslated to keep up.`
+  const fallback = s.overlap_fallback ?? 0
+  if (fallback) line += ` ${fallback} of ${fallback + (s.overlap_matched ?? 0)} chunk joins used the rougher rule.`
+  return line
 }
 
 /** One line for the Advanced summary: the values Start would send (a cleared field reads as its default, overlap capped at half the chunk). */
@@ -450,7 +445,7 @@ export function advancedSummary(form: LiveForm, opts: LiveFormOptions = LIVE_FOR
 
 // A 403 on start: from another device this needs a permission the owner grants.
 export const LIVE_FORBIDDEN =
-  "This account can't start live capture. It needs the “import from a link” permission, and a paid engine also needs “paid engines”. Ask the PC owner, or pick a free engine."
+  "This account can't start live capture. It needs the “import from a link” permission, and a paid engine also needs “paid engines”. Ask the PC owner, or pick Ollama."
 // The server's text for a missing permission. Any other 403 names its own reason (the delayed
 // player is PC-only, a cloud model needs a key), which this account's permissions won't fix.
 const MISSING_PERMISSION = 'Not allowed.'

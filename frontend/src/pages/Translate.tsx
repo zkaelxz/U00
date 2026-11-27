@@ -41,7 +41,6 @@ import {
   shownEngine,
   pickLanguage,
   pickModel,
-  showLocalOnlyNote,
   swapDirection,
   visibleHistory,
 } from './translatePage'
@@ -198,13 +197,6 @@ export default function TranslatePage() {
 
   return (
     <PageShell width="standard" title="Text" label="Text" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
-      {!auto && showLocalOnlyNote(engines, engine) && (
-        <p className="translate-note" role="note" data-testid="local-only-note">
-          No cloud translator is set up. Text translation is using Ollama on this PC. Start Ollama, or {canAddKey
-            ? <>add a key in <a href="#/settings">Settings</a></>
-            : 'ask the PC owner to add a key'}.
-        </p>
-      )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Card className="translate-card" as="div">
         <form onSubmit={submit} className="translate-form">
@@ -335,7 +327,7 @@ export default function TranslatePage() {
               )}
               {!canTranslate && (
                 <p id="translate-needs-permission" className="translate-warning">
-                  Text translation isn't allowed for this account. Ask the PC owner.
+                  Text translation isn't allowed for this account. Ask the PC owner to allow it.
                 </p>
               )}
               {canTranslate && noKey && selected && (
@@ -349,7 +341,7 @@ export default function TranslatePage() {
                   ) : (
                     <>
                       Still needed: an API key for {engineShortName(selected)}.{' '}
-                      {canAddKey ? <a href="#/settings">Add a key in Settings</a> : 'Ask the PC owner to add it.'}
+                      {canAddKey ? <a href="#/settings">Add a key in Settings</a> : 'Ask the PC owner to add a key.'}
                     </>
                   )}
                 </p>

@@ -44,7 +44,7 @@ RESULT_ALLOWED_KEYS = (
     "failed_reason", "detail", "errors", "lines_replaced", "cap_reached", "translated_count",
     "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
     "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
-    "coverage_warning", "ollama_notice", "speaker_count_hint", "backend_fallback", "stage_summary", "diarize_skipped_reason",
+    "coverage_warning", "speaker_count_hint", "backend_fallback", "stage_summary", "diarize_skipped_reason",
     "asr_backend", "alignment_method", "diarize_started", "flagged_count",
     "tagged", "note_count", "partial", "char_count", "image_count",
     "status", "stage", "last_error", "line_id", "candidate_count",
@@ -559,8 +559,6 @@ def _warning_parts(result: dict) -> list:
                      f"({result['forced_align_error']}).")
     if result.get("coverage_warning"):
         parts.append(str(result["coverage_warning"]))
-    if result.get("ollama_notice"):
-        parts.append(str(result["ollama_notice"]))
     skipped_speakers = speaker_skip_text(result)
     if skipped_speakers:
         parts.append(skipped_speakers)

@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
-from services import page_server
+from services import extension_bridge_service, page_server
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
@@ -710,3 +710,279 @@ class TestLastPage:
         assert _client().post(f"{BASE}/last-pages", json={}).status_code == 401
         _, token = _member("a@example.com")
         assert _client().post(f"{BASE}/last-page", headers=_auth(token), json={"url": "file:///x"}).status_code == 422
+
+
+class TestSites:
+    def test_lists_switched_on_sources_with_a_front_page(self, isolated_db):
+        from sources import registry
+        _, token = _member("a@example.com")
+        r = _client().get(f"{BASE}/sites", headers=_auth(token))
+        assert r.status_code == 200
+        sites = r.json()["sites"]
+        assert sites and all(s["url"].startswith("https://") for s in sites)
+        assert {s["kind"] for s in sites} <= {"comic", "novel", "video"}
+        listed = {s["name"] for s in sites}
+        registry.set_enabled("rawkuma", False)
+        after = {s["name"] for s in _client().get(f"{BASE}/sites", headers=_auth(token)).json()["sites"]}
+        assert listed - after == {"Rawkuma"}
+
+    def test_needs_a_device_token(self, isolated_db):
+        assert _client().get(f"{BASE}/sites").status_code == 401
+
+
+class TestStreamedAnswersHeartbeat:
+    """A caller that asks hears "waiting" lines while its pages queue, so a long wait is not a timeout."""
+
+    @staticmethod
+    async def _lines(work, heartbeat):
+        from api.routers import extension_bridge_routes as routes
+        response = await routes._streamed(work, heartbeat=heartbeat)
+        return [chunk async for chunk in response.body_iterator]
+
+    def test_a_slow_first_page_is_preceded_by_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.3)
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[0] == b'{"waiting": true}\n'
+        assert lines[-2:] == [b'{"page": {"key": "p0"}}\n', b'{"done": {}}\n']
+
+    def test_without_the_request_there_are_no_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            write({"done": {}})
+
+        assert asyncio.run(self._lines(work, False)) == [b'{"done": {}}\n']
+
+    def test_a_refusal_after_the_answer_started_comes_as_an_error_line(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            raise page_server.EndpointError(429, "limit spent")
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[-1] == b'{"error": "limit spent", "status": 429}\n'
+
+    def test_a_stream_with_nothing_real_to_send_ends_at_the_limit(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.02)
+        monkeypatch.setattr(routes, "_HEARTBEAT_LIMIT_SECONDS", 0.1)
+
+        def work(write):
+            time.sleep(0.5)
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines and set(lines) == {b'{"waiting": true}\n'}
+
+
+class TestQuickReadRunRoutes:
+    """The phone lists and drops its Quick read runs through the bridge."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        from services import quick_read_runs
+        monkeypatch.setattr(quick_read_runs, "_runs", {})
+        monkeypatch.setattr(extension_bridge_service, "_cancelled_runs", {})
+        self.runs = quick_read_runs
+
+    def test_list_then_drop_one_of_my_runs_but_not_someone_elses(self, isolated_db):
+        me, token = _member("me@example.com")
+        other, _ = _member("other@example.com")
+        cancel = extension_bridge_service.mark_cancelled
+        self.runs.begin("run-aaaaaaaa", me["id"], "https://site.example/a/b", 4, cancel)
+        self.runs.begin("run-bbbbbbbb", other["id"], "https://site.example/a/c", 2, cancel)
+        client = _client()
+        listed = client.post(f"{BASE}/quick-reads", headers=_auth(token), json={}).json()
+        assert [r["run_id"] for r in listed["runs"]] == ["run-aaaaaaaa"]
+        assert client.post(f"{BASE}/quick-reads/drop", headers=_auth(token),
+                           json={"run_id": "run-bbbbbbbb"}).status_code == 404
+        dropped = client.post(f"{BASE}/quick-reads/drop", headers=_auth(token), json={"run_id": "run-aaaaaaaa"})
+        assert dropped.json() == {"dropped_runs": 1, "dropped_pages": 4}
+        assert extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        assert not extension_bridge_service._run_cancelled("run-bbbbbbbb")
+
+
+class TestPageWithoutRedrawKeepsItsPicture:
+    def _png_bytes(self):
+        import io
+        Image = pytest.importorskip("PIL.Image")
+        buffer = io.BytesIO()
+        Image.new("RGB", (40, 60), (200, 200, 200)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def _job(self, **kw):
+        return {"store": False, "typeset": True, "typeset_max_width": 30, **kw}
+
+    def test_a_page_with_nothing_to_redraw_comes_back_as_the_original(self):
+        result = {"regions": []}
+        extension_bridge_service._show_original_when_not_redrawn(
+            result, {"content": self._png_bytes()}, self._job())
+        assert result["typeset_image"].startswith("data:image/jpeg;base64,")
+
+    def test_a_redrawn_page_and_a_saved_page_are_left_alone(self):
+        redrawn = {"typeset_image": "data:image/jpeg;base64,AAAA"}
+        extension_bridge_service._show_original_when_not_redrawn(redrawn, {"content": self._png_bytes()}, self._job())
+        assert redrawn["typeset_image"] == "data:image/jpeg;base64,AAAA"
+        saved = {}
+        extension_bridge_service._show_original_when_not_redrawn(saved, {"content": self._png_bytes()}, self._job(store=True))
+        assert "typeset_image" not in saved
+
+    def test_a_picture_pillow_cannot_open_is_ignored(self):
+        result = {}
+        extension_bridge_service._show_original_when_not_redrawn(result, {"content": b"not a picture"}, self._job())
+        assert "typeset_image" not in result
+
+
+class TestCacheAnsweredRepeatsInARun:
+    def test_one_address_listed_twice_is_shown_once_even_with_no_bytes(self):
+        pages = [{"key": "a", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "b", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "c", "content": None, "fetch_url": "https://img.example/2.jpg"}]
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(pages, "run-urlrepeat")
+        assert [p["key"] for p in kept] == ["a", "c"]
+        assert [p["key"] for p in repeats] == ["b"]
+
+    def test_a_page_with_no_bytes_and_no_address_is_kept(self):
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(
+            [{"key": "a", "content": None}, {"key": "b", "content": None}], "run-nourl")
+        assert len(kept) == 2 and not repeats
+
+
+class TestRepeatMeetsCacheAnsweredCopy:
+    def test_a_copy_with_bytes_and_a_cache_answered_copy_are_one_picture(self):
+        first = {"key": "a", "content": b"pic", "fetch_url": "https://img.example/9.jpg"}
+        again = {"key": "b", "content": None, "fetch_url": "https://img.example/9.jpg"}
+        kept, _ = extension_bridge_service._drop_repeats_in_run([first], "run-meet")
+        kept2, repeats = extension_bridge_service._drop_repeats_in_run([again], "run-meet")
+        assert kept and not kept2 and [p["key"] for p in repeats] == ["b"]
+
+
+class TestTitleProgress:
+    def test_a_token_sees_only_its_own_titles_run(self, isolated_db):
+        from services import page_run_service
+        mine, token = _member("a@example.com")
+        other, _ = _member("b@example.com")
+        own = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=mine["id"])
+        theirs = db.create_drama(title_en="Other", media_type="manhua", owner_user_id=other["id"])
+        page_run_service.start_after_import(
+            dict(user_id=mine["id"], is_admin=False, permissions=auth_service.effective_permissions(mine["id"])),
+            own, "gemini", None, at_pc=False)
+        r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": own})
+        assert r.status_code == 200
+        assert r.json()["state"] in ("waiting", "running") and r.json()["kind"] == "comic"
+        assert set(r.json()) == {"state", "step", "kind"}
+        assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_a_title_with_no_run_or_no_translate_run_is_idle(self, isolated_db):
+        u, token = _member("a@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        video = db.create_drama(title_en="Clip", media_type="drama", owner_user_id=u["id"])
+        for did in (comic, video):
+            r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": did})
+            assert r.status_code == 200 and r.json()["state"] == "idle"
+
+    def test_it_needs_a_token_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-progress", json={"drama_id": 1}).status_code == 401
+        _, token = _member("a@example.com")
+        for bad in ({}, {"drama_id": "1"}, {"drama_id": True}, {"drama_id": 0}):
+            assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json=bad).status_code == 400
+
+
+class TestTitleTranslate:
+    def _phone(self, email, perms=("jobs.start", "lines.edit")):
+        u, _ = _member(email)
+        for p in perms:
+            auth_service.grant_permission(u["id"], p)
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        return u, token
+
+    def test_queues_a_novel_run_without_an_import_step(self, isolated_db, monkeypatch):
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 200, r.text
+        assert r.json()["state"] in ("waiting", "running")
+        steps = [i["step"] for i in page_run_service._title_items({"user_id": u["id"], "is_admin": False,
+                                                                   "permissions": []}, did)]
+        assert "follow" not in steps and "run_translate" in steps
+
+    def test_refuses_a_comic_and_someone_elses_title(self, isolated_db):
+        u, token = self._phone("a@example.com")
+        other, _ = _member("b@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        theirs = db.create_drama(title_en="Theirs", media_type="novel", owner_user_id=other["id"])
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": comic}).status_code == 422
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_needs_a_token_jobs_start_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-translate", json={"drama_id": 1}).status_code == 401
+        u, token = self._phone("a@example.com", perms=("lines.edit",))
+        auth_service.revoke_permission(u["id"], "jobs.start")
+        token = svc.create_token(dict(user_id=u["id"], is_admin=False,
+                                      permissions=auth_service.effective_permissions(u["id"])), "Phone")["token"]
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": 1}).status_code == 403
+        _, ok = self._phone("c@example.com")
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(ok), json={}).status_code == 400
+
+    def test_a_paid_engine_with_no_cap_is_refused_out_loud_and_lines_already_made_is_a_conflict(
+            self, isolated_db, monkeypatch):
+        from lib.errors import UnsupportedOperationError
+        from services import paid_job_service
+        u, token = self._phone("a@example.com")
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+
+        def no_cap(*a, **k):
+            raise UnsupportedOperationError("Set a monthly spending limit first.")
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", no_cap)
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 422 and "spending limit" in r.text
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 200
+        again = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert again.status_code == 200 and again.json()["state"] in ("waiting", "running")
+
+    def test_two_starts_at_once_queue_one_chain(self, isolated_db, monkeypatch):
+        import threading
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, _ = self._phone("a@example.com")
+        principal = dict(user_id=u["id"], is_admin=False,
+                         permissions=auth_service.effective_permissions(u["id"]))
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        outcomes = []
+
+        def start():
+            try:
+                page_run_service.start_after_import(principal, did, "gemini", {}, at_pc=False, follow_import=False)
+                outcomes.append("ok")
+            except Exception as e:
+                outcomes.append(type(e).__name__)
+        threads = [threading.Thread(target=start) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        chains = {i["chain"] for i in page_run_service._title_items(principal, did)}
+        assert len(chains) == 1, outcomes

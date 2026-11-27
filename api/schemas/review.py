@@ -851,7 +851,8 @@ class BlockedRetryRequest(BaseModel):
     model (the engine's default) and Gemini free tier come from the PC's
     saved settings, so no model id or path can be passed through."""
     model_config = ConfigDict(extra="forbid")
-    engine: str = Field("ollama", min_length=1, max_length=40)
+    # None: the default hosted engine (Ollama's hosted Gemma, else OpenAI).
+    engine: Optional[str] = Field(None, min_length=1, max_length=40)
 
 
 class BlockedRetryResult(BaseModel):

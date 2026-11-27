@@ -50,7 +50,7 @@ def task_chat(monkeypatch):
     return install
 
 
-def _engine(model="gemma4:12b"):
+def _engine(model="gemma4:31b-cloud"):
     return local.OllamaEngine(model=model)
 
 
@@ -134,13 +134,6 @@ class TestThinking:
         llm_tasks.call_llm_json(_engine(), "p", fallback="{}")
         assert fake.bodies[0]["think"] is False
 
-    def test_a_model_that_cannot_think_is_asked_again_without_the_field(self, task_chat):
-        resp = requests.Response()
-        resp.status_code = 400
-        resp._content = b'"llama3.1" does not support thinking'
-        fake = task_chat(requests.HTTPError("400", response=resp), _reply("{}"))
-        assert llm_tasks.call_llm_json(_engine("llama3.1"), "p", fallback="{}") == "{}"
-        assert ["think" in b for b in fake.bodies] == [True, False]
 
     @pytest.mark.parametrize("content", [
         "<think>I should say hi</think>Hello there.",
@@ -209,44 +202,8 @@ class TestContextWindow:
         assert local.estimate_ollama_prompt_tokens("你" * 10_000) >= 10_000
 
 
-class TestTimeouts:
-    @pytest.mark.parametrize("model,slow", [
-        ("gemma4:26b", True), ("gemma4:31b", True), ("qwen3:32b", True),
-        ("qwen3:30b-a3b", True), ("hf.co/x/Qwen2.5-32B-Instruct-GGUF:Q4_K_M", True),
-        ("gemma4:12b", False), ("translategemma:12b", False), ("gemma4:e4b", False), ("llama3.1", False),
-        ("gemma4:31b-cloud", False),
-    ])
-    def test_timeout_follows_model_size(self, model, slow):
-        expected = local.OLLAMA_SLOW_MODEL_CHAT_TIMEOUT if slow else local.OLLAMA_CHAT_TIMEOUT
-        assert local.ollama_chat_timeout(model) == expected
 
-    def test_a_cold_model_gets_time_to_load_on_its_first_request_only(self, monkeypatch):
-        from tests.http_fakes import StreamedBody, patch_post
-        timeouts = []
 
-        class Ok(StreamedBody):
-            def raise_for_status(self):
-                pass
-
-            def json(self):
-                return _reply("{}")
-
-        def fake_post(url, json=None, timeout=None, stream=None):
-            timeouts.append(timeout)
-            return Ok()
-        patch_post(monkeypatch, fake_post)
-        payload = {"model": "gemma4:12b", "options": {"num_ctx": 16384}}
-        local._ollama_chat("http://localhost:11434", payload)
-        local._ollama_chat("http://localhost:11434", payload)
-        local._ollama_chat("http://localhost:11434", {**payload, "options": {"num_ctx": 32768}})
-        base = local.OLLAMA_CHAT_TIMEOUT
-        assert timeouts == [base + local.OLLAMA_COLD_LOAD_SECONDS, base,
-                            base + local.OLLAMA_COLD_LOAD_SECONDS]
-
-    def test_the_deadline_leaves_room_for_a_cold_load(self):
-        scope = llm_tasks._BoundedScope("jo", lambda: False, None, False)
-        assert llm_tasks._deadline_for(scope, _engine()) > (
-            local.OLLAMA_CHAT_TIMEOUT + local.OLLAMA_COLD_LOAD_SECONDS)
 
 
 # --- Part B: translation with a weak model ----------------------------------
@@ -527,7 +484,7 @@ class TestLineCutAtAQuote:
         chat = _Chat(_reply('{"1": "I\'m curious about ", "2": "Oh, "}'),
                      _reply('{"1": "I\'m curious. \\u201cL\'s World.\\u201d", "2": "Oh, L\'s World."}'))
         monkeypatch.setattr(local, "_ollama_chat", chat)
-        out = _engine("translategemma:12b").translate_batch(["気になる。エルの世界。", "エルの世界ね。"], {})
+        out = _engine("gemma4:31b-cloud").translate_batch(["気になる。エルの世界。", "エルの世界ね。"], {})
         assert out == ["I'm curious. \u201cL's World.\u201d", "Oh, L's World."]
         assert len(chat.bodies) == 2
 

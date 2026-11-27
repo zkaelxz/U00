@@ -5,6 +5,7 @@ import os
 import threading
 
 import model_pins
+from lib import device_use
 
 _LAMA_ML_REPO = "mayocream/lama-manga"
 _LAMA_ML_FILE = "lama-manga.safetensors"
@@ -224,13 +225,12 @@ _lama_gpu_broken: list = []
 # only goes to the GPU when it clearly fits beside whatever else is loaded there.
 _GPU_FIRST_LOAD_MB = 800
 _GPU_MB_PER_MEGAPIXEL = 3000
-_GPU_MAX_PIXELS = 1_000_000
 
 
 def _lama_on_gpu(generator, pixels: int, torch):
     """The generator's GPU copy when a region of `pixels` fits on a free enough GPU and
     Settings allows GPU use, else None (the region runs on the CPU)."""
-    if _lama_gpu_broken or pixels > _GPU_MAX_PIXELS or not torch.cuda.is_available():
+    if _lama_gpu_broken or not torch.cuda.is_available():
         return None
     import vram
     import stored_settings
@@ -256,7 +256,13 @@ def _generate(generator, tensor, torch):
         try:
             gpu = _lama_on_gpu(generator, tensor.shape[-2] * tensor.shape[-1], torch)
             if gpu is not None:
-                return gpu(tensor.to("cuda"))[0].cpu()
+                device_use.note("eraser (LaMa)", "GPU")
+                out = gpu(tensor.to("cuda"))[0].cpu()
+                if tensor.shape[-2] * tensor.shape[-1] > 1_000_000:
+                    # A big region leaves gigabytes in torch's cache, which the text reader and
+                    # the detector would otherwise be refused for until the idle release.
+                    torch.cuda.empty_cache()
+                return out
         except Exception as exc:
             # A GPU that filled up meanwhile costs only this region; any other fault (a
             # broken driver, a failed copy) would repeat on every region, so the CPU is kept.
@@ -267,6 +273,7 @@ def _generate(generator, tensor, torch):
                 torch.cuda.empty_cache()
             except Exception:
                 pass
+        device_use.note("eraser (LaMa)", "CPU")
         return generator(tensor)[0]
 
 

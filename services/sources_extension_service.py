@@ -16,8 +16,6 @@ from sources import extension_marker, registry
 
 EXTENSION_ONLY_MESSAGE = ("This site only works through the browser extension. Open the chapter "
                           "in Chrome and use the extension.")
-# Shown on the tracked-series line after a scheduled check passes the series by.
-SKIPPED_STATUS = "extension only: skipped"
 # The app page holding the extension's help (Settings > Browser extension).
 HELP_ROUTE = "settings"
 # Sites behind a Cloudflare challenge that a plain fetch can't pass. Baihe does not try to get

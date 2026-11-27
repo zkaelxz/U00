@@ -88,6 +88,16 @@ class TestFindArtCaptions:
         found = art.find_art_captions("p.png", "ko", [], image=_COLOUR_PAGE.copy(), backend="rapidocr")
         assert [c["source_text"] for c in found] == ["구글검색 뉴토끼"]
 
+    def test_the_paddle_stamp_search_can_be_left_out(self, monkeypatch):
+        def never(*a, **k):
+            raise AssertionError("paddle must not run")
+        monkeypatch.setattr(ocr, "paddle_lines", never)
+        monkeypatch.setattr(ocr, "rapidocr_lines", lambda page, lang, scale: [
+            ("保留的字", 0.9, (10, 10, 200, 60))])
+        found = art.find_art_captions("p.png", "zh", [], image=_COLOUR_PAGE.copy(),
+                                      backend="rapidocr", find_stamps=False)
+        assert [c["source_text"] for c in found] == ["保留的字"]
+
     def test_without_paddle_installed_the_rapidocr_lines_are_still_used(self, monkeypatch):
         def missing(*a, **k):
             raise ImportError("paddleocr")
@@ -666,3 +676,23 @@ def test_a_black_strip_with_white_lettering_is_not_taken_for_heavy_black_letteri
     page = np.full((300, 200, 3), 170, np.uint8)
     page[20:280, 80:120] = 0
     assert scanlate_inpaint._heavy_dark_lettering(page, 80, 20, 40, 260) is None
+
+
+def test_a_caption_is_repainted_with_art_round_it_and_only_its_lettering_changes(monkeypatch):
+    seen = {}
+
+    def model(roi, mask, **kwargs):
+        seen["shape"], seen["masked"] = roi.shape[:2], int((mask > 0).sum())
+        return np.full_like(roi, 255)
+
+    monkeypatch.setattr(scanlate_lama, "_run_ml_inpaint", model)
+    monkeypatch.setattr(scanlate_inpaint, "_resolve_inpaint_backend", lambda backend: "ml")
+    page = np.full((400, 600, 3), (200, 150, 120), np.uint8)
+    cv2.putText(page, "TITLE", (120, 220), cv2.FONT_HERSHEY_SIMPLEX, 3, (255, 255, 255), 10)
+    before = page.copy()
+    art.paint_out_captions(page, [{"x": 100, "y": 130, "w": 400, "h": 140}])
+    changed = (page != before).any(axis=2)
+    ys, xs = np.nonzero(changed)
+    assert seen["masked"] and seen["shape"][0] > ys.max() - ys.min() + 1
+    assert seen["shape"][1] > xs.max() - xs.min() + 1
+    assert changed.sum() <= seen["masked"]

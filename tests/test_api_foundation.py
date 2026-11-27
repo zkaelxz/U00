@@ -399,7 +399,7 @@ class TestSettingsEndpoint:
 
     def test_overview_contract_shape(self, local_client, isolated_db):
         body = local_client.get("/api/settings").json()
-        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "unload_ollama_before_transcribe", "notify_on_completion",
+        assert set(body) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
@@ -875,7 +875,7 @@ class TestTranscribeConfigEndpoints:
             "whisper_model_cached": body["whisper_model_cached"], "measured_speed": None, "measured_speed_runs": 0,
             "measured_stage_seconds": {}, "measured_diarize_speed": None, "measured_diarize_runs": 0,
             "whisper_installed": body["whisper_installed"], "gpu_runtime": body["gpu_runtime"], "use_gpu": body["use_gpu"],
-            "beam_size": 5, "min_silence_ms": 300, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
+            "beam_size": 5, "min_silence_ms": 1000, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
             "realign_long_segments": False, "whisper_fast_mode": False,
@@ -1005,8 +1005,11 @@ def test_only_the_facades_import_their_split_modules():
             if not name.endswith(".py") or rel in split_files or path == os.path.abspath(__file__):
                 continue
             with open(path, encoding="utf-8") as fh:
-                tree = ast.parse(fh.read())
-            for node in ast.walk(tree):
+                source = fh.read()
+            # Parsing every file in the tree took ~9 s; an import of a split module has to spell its last part.
+            if not any(m.rsplit(".", 1)[1] in source for m in allowed):
+                continue
+            for node in ast.walk(ast.parse(source)):
                 imported = []
                 if isinstance(node, ast.ImportFrom):
                     imported = [node.module or ""] + [f"{node.module}.{a.name}" for a in node.names]

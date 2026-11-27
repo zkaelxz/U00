@@ -1051,18 +1051,18 @@ def test_a_failed_ask_names_the_engine_and_why(client, drama, monkeypatch):
     assert r.json()["error"]["message"] == "Claude took too long to answer. Try again."
 
 
-def test_a_local_ollama_ask_is_not_held_to_a_spent_cap(client, drama, monkeypatch):
+def test_a_free_engine_ask_is_not_held_to_a_spent_cap(client, drama, monkeypatch, free_engine):
     import qa
     from services import translate_run_service
 
     class Local(_PaidFake):
-        name = "ollama"
-        model = "gemma4:12b"
+        name = free_engine
+        model = "echo"
     _paid(monkeypatch, Local())
     monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
     db.log_usage(None, "claude", "claude-sonnet-5-5", "other", 1, 1, 5.0)
     monkeypatch.setattr(qa, "ask_about_drama", lambda *a, **k: "answer")
-    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": "ollama"})
+    r = client.post(f"{BASE}/{drama}/ask", json={"question": "Q?", "engine": free_engine})
     assert r.status_code == 200 and r.json()["answer"] == "answer"
 
 

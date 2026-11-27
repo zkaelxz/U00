@@ -132,15 +132,6 @@ class TestEveryRequestIsLogged:
 
 
 class TestFreeEnginesLeaveNoEmptyRows:
-    def test_a_free_engine_that_reports_no_tokens_is_not_logged(self, isolated_db, monkeypatch):
-        class Free(_Billed):
-            name = "ollama"
-            model = "translategemma:12b"
-        engine = Free(tokens=(0, 0))
-        monkeypatch.setattr(translate_service, "resolve_api_key", lambda name, env_path=None: "local")
-        monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
-        translate_service.translate(TEXT, "ollama", "zh", "en")
-        assert _rows() == []
 
     def test_a_failed_paid_request_with_no_tokens_is_still_logged(self, paid):
         paid.tokens = (0, 0)
@@ -151,9 +142,9 @@ class TestFreeEnginesLeaveNoEmptyRows:
 class TestUsageMeterIsTransparent:
     def test_a_slow_ollama_model_keeps_its_long_timeout_behind_the_meter(self):
         from engine_backends.local import OllamaEngine, ollama_max_request_seconds
-        engine = OllamaEngine(model="gemma4:31b")
+        engine = OllamaEngine(model="gemma4:31b-cloud")
         meter = translate_service._UsageMeter(engine, "ollama")
-        assert llm_tasks._request_timeout_for(meter) == ollama_max_request_seconds("gemma4:31b")
+        assert llm_tasks._request_timeout_for(meter) == ollama_max_request_seconds("gemma4:31b-cloud")
         assert llm_tasks._request_timeout_for(meter) == llm_tasks._request_timeout_for(engine)
 
 
@@ -181,9 +172,9 @@ class TestEstimate:
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0001)
         assert translate_service.estimate(TEXT, "claude", "zh", "en")["fits_cap"] is False
 
-    def test_a_free_engine_costs_nothing_and_has_no_cap(self, isolated_db, monkeypatch):
+    def test_a_free_engine_costs_nothing_and_has_no_cap(self, isolated_db, monkeypatch, free_engine):
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
-        est = translate_service.estimate(TEXT, "ollama", "zh", "en")
+        est = translate_service.estimate(TEXT, free_engine, "zh", "en")
         assert est["estimated_usd"] == 0 and est["cap_applies"] is False
         assert est["cap_left_usd"] is None
 

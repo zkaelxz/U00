@@ -18,7 +18,6 @@ from typing import Optional
 import env_reader
 from jobs import job_settings
 import memory_headroom
-import ollama_unload
 import stored_settings
 from lib import settings_schema
 from lib.errors import InvalidInputError
@@ -166,7 +165,6 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
         "gpu_max_parallel": job_settings.get_gpu_max_parallel(),
-        "unload_ollama_before_transcribe": ollama_unload.is_enabled(),
         "notify_on_completion": job_settings.get_notify_on_completion(),
         "use_gpu": get("use_gpu"),
         "gemini_free_tier": get("gemini_free_tier"),
@@ -225,7 +223,6 @@ def _set_remote_uploads(enabled: bool) -> None:
 _WRITABLE_SETTINGS = {
     "remote_uploads": _set_remote_uploads,
     "gpu_limit_enabled": job_settings.set_gpu_limit_enabled,
-    "unload_ollama_before_transcribe": ollama_unload.set_enabled,
     "notify_on_completion": job_settings.set_notify_on_completion,
 }
 

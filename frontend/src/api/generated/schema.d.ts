@@ -657,6 +657,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save some of my preferences */
+        put: operations["put_preferences_api_auth_preferences_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/sessions": {
         parameters: {
             query?: never;
@@ -3647,6 +3664,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/dramas/covers/backfill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make covers, in the background, for titles that have none (a video frame or comic page one) */
+        post: operations["post_cover_backfill_api_dramas_covers_backfill_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/dramas/duplicates": {
         parameters: {
             query?: never;
@@ -4435,6 +4469,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/quick-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the Quick read runs the caller has working on the PC */
+        post: operations["post_quick_reads_api_ext_bridge_quick_reads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/quick-reads/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: drop one Quick read run (run_id) or all of the caller's (no run_id) */
+        post: operations["post_quick_reads_drop_api_ext_bridge_quick_reads_drop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/report": {
         parameters: {
             query?: never;
@@ -4446,6 +4514,23 @@ export interface paths {
         put?: never;
         /** Device token: send a Quick read page that came out wrong to the PC's reports */
         post: operations["post_report_api_ext_bridge_report_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/sites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Device token: the source sites the phone's Grab screen can open */
+        get: operations["get_sites_api_ext_bridge_sites_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4480,6 +4565,40 @@ export interface paths {
         put?: never;
         /** Device token: find or create the title for a page */
         post: operations["post_title_api_ext_bridge_title_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/title-progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: how far the translating of a title the caller saved to has got */
+        post: operations["post_title_progress_api_ext_bridge_title_progress_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/title-translate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: queue the translating of a novel title the caller saved chapters to */
+        post: operations["post_title_translate_api_ext_bridge_title_translate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5497,6 +5616,57 @@ export interface paths {
         get: operations["queue_summary_api_jobs_queue_summary_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quick read runs still working (site, chapter, pages left), for the Jobs tab */
+        get: operations["list_quick_reads_api_jobs_quick_reads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads/drop-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop every Quick read run the caller may see: queued pages are not worked on */
+        post: operations["drop_all_quick_reads_api_jobs_quick_reads_drop_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads/{run_id}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop one Quick read run */
+        post: operations["drop_quick_read_api_jobs_quick_reads__run_id__drop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13838,6 +14008,16 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AccountPreferences
+         * @description Each field is absent until the person has chosen one on some device.
+         */
+        AccountPreferences: {
+            /** Live Focus */
+            live_focus?: boolean | null;
+            /** Theme */
+            theme?: ("system" | "light" | "dark" | "sepia" | "oled") | null;
+        };
         /** ActivityItem */
         ActivityItem: {
             /** Ended At */
@@ -16773,11 +16953,8 @@ export interface components {
          *     saved settings, so no model id or path can be passed through.
          */
         BlockedRetryRequest: {
-            /**
-             * Engine
-             * @default ollama
-             */
-            engine?: string;
+            /** Engine */
+            engine?: string | null;
         };
         /** BlockedRetryResult */
         BlockedRetryResult: {
@@ -23933,11 +24110,6 @@ export interface components {
         };
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
-            /**
-             * Gpu Fit
-             * @default false
-             */
-            gpu_fit: boolean;
             /** Message */
             message: string | null;
             /** Model */
@@ -24081,6 +24253,16 @@ export interface components {
              * @default []
              */
             notes: string[];
+            /**
+             * Overlap Fallback
+             * @default 0
+             */
+            overlap_fallback: number;
+            /**
+             * Overlap Matched
+             * @default 0
+             */
+            overlap_matched: number;
             /**
              * Player Ready
              * @default false
@@ -24236,6 +24418,7 @@ export interface components {
             paid_limit_reached: boolean;
             /** Permissions */
             permissions: string[];
+            preferences: components["schemas"]["AccountPreferences"] | null;
             /** Sign In Configured */
             sign_in_configured: boolean;
             /** Signed In */
@@ -26636,6 +26819,35 @@ export interface components {
             step: "transcribe" | "translate" | "export";
             /** Title */
             title: string;
+        };
+        /** QuickReadDropResult */
+        QuickReadDropResult: {
+            /** Dropped Pages */
+            dropped_pages: number;
+            /** Dropped Runs */
+            dropped_runs: number;
+        };
+        /** QuickReadRun */
+        QuickReadRun: {
+            /** Chapter */
+            chapter: string;
+            /** Pages Left */
+            pages_left: number;
+            /** Pages Received */
+            pages_received: number;
+            /** Run Id */
+            run_id: string;
+            /** Running Seconds */
+            running_seconds: number;
+            /** Site */
+            site: string;
+        };
+        /** QuickReadRunList */
+        QuickReadRunList: {
+            /** Count */
+            count: number;
+            /** Items */
+            items: components["schemas"]["QuickReadRun"][];
         };
         /** QuickVideoProfile */
         QuickVideoProfile: {
@@ -30205,11 +30417,6 @@ export interface components {
              */
             remote_uploads: boolean;
             /**
-             * Unload Ollama Before Transcribe
-             * @default true
-             */
-            unload_ollama_before_transcribe: boolean;
-            /**
              * Upload Max Mb From Env
              * @default false
              */
@@ -30329,6 +30536,11 @@ export interface components {
              * @default 20480
              */
             max_upload_mb: number;
+            /**
+             * Member Upload Mb
+             * @default 1024
+             */
+            member_upload_mb: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number | null;
             /**
@@ -30718,6 +30930,8 @@ export interface components {
             lncrawl_cmd?: string | null;
             /** Max Upload Mb */
             max_upload_mb?: number | null;
+            /** Member Upload Mb */
+            member_upload_mb?: number | null;
             /** Monthly Cap Usd */
             monthly_cap_usd?: number | null;
             /** Narration Pace */
@@ -30832,8 +31046,6 @@ export interface components {
             translate_alignment_check?: boolean | null;
             /** Translate Reply Guard */
             translate_reply_guard?: string | null;
-            /** Unload Ollama Before Transcribe */
-            unload_ollama_before_transcribe?: boolean | null;
             /** Use Gpu */
             use_gpu?: boolean | null;
             /** Whisper Model Path */
@@ -36890,6 +37102,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberKeyStatus"];
+                };
+            };
+        };
+    };
+    put_preferences_api_auth_preferences_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AccountPreferences"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountPreferences"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -45020,7 +45265,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DramaDetail"];
                 };
             };
             /** @description Not Found */
@@ -45201,6 +45446,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_cover_backfill_api_dramas_covers_backfill_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobStarted"];
                 };
             };
         };
@@ -47270,7 +47535,67 @@ export interface operations {
             };
         };
     };
+    post_quick_reads_api_ext_bridge_quick_reads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_quick_reads_drop_api_ext_bridge_quick_reads_drop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     post_report_api_ext_bridge_report_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    get_sites_api_ext_bridge_sites_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -47311,6 +47636,46 @@ export interface operations {
         };
     };
     post_title_api_ext_bridge_title_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_title_progress_api_ext_bridge_title_progress_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_title_translate_api_ext_bridge_title_translate_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -50481,6 +50846,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobQueueSummary"];
+                };
+            };
+        };
+    };
+    list_quick_reads_api_jobs_quick_reads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadRunList"];
+                };
+            };
+        };
+    };
+    drop_all_quick_reads_api_jobs_quick_reads_drop_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadDropResult"];
+                };
+            };
+        };
+    };
+    drop_quick_read_api_jobs_quick_reads__run_id__drop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadDropResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -54305,8 +54750,6 @@ export interface operations {
         parameters: {
             query?: {
                 model?: string;
-                whisper_size?: string;
-                use_gpu?: boolean;
             };
             header?: never;
             path?: never;

@@ -77,7 +77,7 @@ The owner wants better transcription and translation accuracy, and evidence for 
 |---|---|---|---|
 | Whisper model | large-v3 | large-v3, turbo; Japanese adds kotoba-v2 and anime-whisper | turbo matched large-v3 on streamer audio |
 | `beam_size` | 5 (1 when speed matters) | 1, 3, 5 | Beam 1 was 7-35% faster at about the same accuracy, except large-v3 Japanese (+1.5 CER) |
-| `min_silence_ms` | 300 | 200, 300, 500, 800 | 300 was best on FLEURS |
+| `min_silence_ms` | 1000 (with a 20 s speech cap) | 300, 500, 800, 1000 | 300 was best on FLEURS single sentences; on long gold clips 1000 + 20 s cap was 18% faster at +0.006 mean accuracy |
 | `vad_threshold` | 0.5; 0.35 (Sensitive preset) for whispered or ASMR audio | 0.35, 0.45, 0.5, 0.6 | 0.7 was 3.2 points worse |
 | Initial prompt | short, series glossary names only | off, names, names plus novel excerpt | Unrelated names added 4.6 CER on bad audio |
 | `hallucination_silence_sec` | 0 | 0, 1, 2 | Never swept |

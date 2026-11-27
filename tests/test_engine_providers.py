@@ -568,7 +568,7 @@ class TestOllamaModelInstalledCheck:
         calls = self._serve(monkeypatch,
                             self.Resp(308, headers={"Location": "http://proxy.local/api/tags"}),
                             self.Resp(200))
-        engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+        engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
         assert calls[-1] == "http://proxy.local/api/tags"
 
     # 300 and 304 are redirect-class statuses lib/http does not follow, so they
@@ -577,14 +577,14 @@ class TestOllamaModelInstalledCheck:
     def test_a_non_2xx_final_answer_means_unreachable(self, monkeypatch, status):
         self._serve(monkeypatch, self.Resp(status))
         with pytest.raises(engine_local.OllamaUnavailableError) as exc:
-            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
         assert exc.value.reason == "ollama_unreachable"
 
     def test_an_unsettled_redirect_means_unreachable(self, monkeypatch):
         loop = self.Resp(308, headers={"Location": "http://localhost:11434/api/tags"})
         monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: loop)
         with pytest.raises(engine_local.OllamaUnavailableError):
-            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b")
+            engine_local.check_ollama_model_installed("http://localhost:11434", "m:1b-cloud")
 
 
 class TestOllamaReachability:
@@ -711,8 +711,8 @@ class TestFreeEngineLabelling:
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
-    def test_free_engines_set_matches_the_roadmap_table(self):
-        assert engine_registry.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
+    def test_no_engine_is_free_now_that_ollama_is_billed(self):
+        assert engine_registry.FREE_ENGINES == {"fake", "fake_mt"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -728,10 +728,10 @@ class TestFreeEngineLabelling:
         for name in ("claude", "deepseek", "openai"):
             assert engine_registry.ENGINE_NOTES[name].startswith("Paid")
 
-    def test_ollama_note_says_local_is_free_and_hosted_gemma_4_is_paid(self):
+    def test_ollama_note_says_it_is_hosted_and_paid(self):
         note = engine_registry.ENGINE_NOTES["ollama"]
-        assert "local" in note and "Gemma 4" in note and "paid" in note and "Free" in note
-        assert "testing" not in note and "lower quality" not in note
+        assert "Gemma 4" in note and "paid" in note and "free" not in note.lower()
+        assert engine_registry.open_to_all_accounts("ollama")
 
     def test_every_note_fits_the_narrow_dropdown(self):
         for name in engine_registry.ENGINES:
@@ -797,8 +797,8 @@ class TestGetEngineOllamaBaseUrlPassthrough:
         assert engine.base_url == "http://localhost:11434"
 
     def test_base_url_reaches_ollama_even_with_an_explicit_model(self):
-        engine = engine_registry.get_engine("ollama", None, "qwen2.5:14b", base_url="http://gpu-box:11434")
-        assert engine.model == "qwen2.5:14b"
+        engine = engine_registry.get_engine("ollama", None, "gemma4:31b-cloud", base_url="http://gpu-box:11434")
+        assert engine.model == "gemma4:31b-cloud"
         assert engine.base_url == "http://gpu-box:11434"
 
     def test_base_url_kwarg_is_ignored_for_non_ollama_engines(self):

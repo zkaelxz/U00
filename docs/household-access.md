@@ -102,7 +102,7 @@ The manual flow, for a copy of Baihe that isn't the installed service, or to try
 
 ### Before you start (prerequisites)
 
-1. **Two-port setup** ("Migrating from single-port sign-in" in the decision doc): `BAIHE_API_AUTH=off`, `BAIHE_API_HOUSEHOLD_PORT=8610` (or any free loopback port other than 8600, 8601 and 8756). `BAIHE_API_*` values are read from the environment, not `.env`, so set it with `setx BAIHE_API_HOUSEHOLD_PORT 8610` and restart Baihe.
+1. **Two-port setup** ("Migrating from single-port sign-in" in `remote-access-listeners.md`): `BAIHE_API_AUTH=off`, `BAIHE_API_HOUSEHOLD_PORT=8610` (or any free loopback port other than 8600, 8601 and 8756). `BAIHE_API_*` values are read from the environment, not `.env`, so set it with `setx BAIHE_API_HOUSEHOLD_PORT 8610` and restart Baihe.
 2. **Sign-in configured:** `BAIHE_GOOGLE_CLIENT_ID`, `BAIHE_GOOGLE_CLIENT_SECRET` and `BAIHE_PUBLIC_URL=https://baihe.<your-domain>` (environment or `.env`). Allowlist people at the PC: `python -m api grant-admin <you>`, then `python -m api add-user <email>` for each member.
 3. **Hardening (work packages WP2 and WP3), merged:** the Host allowlist, the app's security headers, refusing to start the household listener without sign-in configured (WP2, #539), per-device sign-out (WP3, #543), and on the household listener an admin keeps viewing but loses every admin write and override (all merged; since 2026-10-30 it keeps managing member accounts). The certificate, DNS and listener health banner is built (see step 8 of the setup).
 
@@ -110,7 +110,7 @@ The manual flow, for a copy of Baihe that isn't the installed service, or to try
 
 These need your accounts or an administrator prompt on the PC. None of them opens anything to the internet.
 
-1. **Domain and dynamic DNS.** Pick a name such as `baihe.<your-domain>`. Create an A record (and AAAA if your ISP gives the PC a public IPv6 address) pointing at your home IP, and set up a dynamic DNS updater (the router's built-in client or your DNS provider's) so the record follows IP changes. Use the public record only: don't add a LAN DNS entry pointing the name at the PC's private address (split DNS); the planned PC shell refuses a name that resolves to a private address.
+1. **Domain and dynamic DNS.** Pick a name such as `baihe.<your-domain>`. Create an A record (and AAAA if your ISP gives the PC a public IPv6 address) pointing at your home IP, and set up a dynamic DNS updater (the router's built-in client or your DNS provider's) so the record follows IP changes. Use the public record only: don't add a LAN DNS entry pointing the name at the PC's private address (split DNS).
 2. **Google OAuth client.** In Google Cloud Console: OAuth consent screen (External, Testing; add each household member as a test user), then Credentials > Create OAuth client ID > Web application, with the authorised redirect URI `https://baihe.<your-domain>/api/auth/callback`. Put the client id and secret in `.env` yourself; never paste the secret into a chat, issue or PR.
 3. **Caddy with the rate-limit module.** (The Windows installer bundles one, off until you run `enable-remote`, or "Turn remote access on" in the Start-menu item "Baihe Studio service"; see `docs/windows-installer-design.md` section 11. It never adds the firewall rule or touches the router or DNS: it prints the `netsh advfirewall firewall add rule` command for you to run yourself.) Download Caddy for Windows from caddyserver.com/download with the package `github.com/mholt/caddy-ratelimit` added (or build it with `xcaddy build --with github.com/mholt/caddy-ratelimit`). A plain Caddy refuses to load the template. Put it at, for example, `C:\caddy\caddy.exe`. If your DNS provider has a Caddy module, you can add it too and get the real certificate by DNS challenge without forwarding any port (not in the template).
 4. **Keep the PC awake:** Windows power settings, sleep "Never".
@@ -136,7 +136,7 @@ which sends the request to Caddy on this PC and checks it against Caddy's local 
 - [ ] `/api/health` answers; `/api/library/dramas` without signing in answers 401.
 - [ ] `http://127.0.0.1:2019/config/` doesn't connect (Caddy's admin API is off).
 
-### Going live (only after WP2 has landed and the LAN checklist passes)
+### Going live (only after the LAN checklist passes)
 
 1. **Windows firewall rule**, in an administrator PowerShell, for Caddy only:
    `New-NetFirewallRule -DisplayName "Caddy for Baihe" -Direction Inbound -Program "C:\caddy\caddy.exe" -Protocol TCP -LocalPort 443 -Action Allow`

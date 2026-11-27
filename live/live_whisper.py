@@ -20,7 +20,6 @@ import traceback
 
 import background_jobs
 from jobs import job_runner
-import ollama_unload
 
 # A chunk should take well under its own length; this is generous so a busy GPU
 # or a slow CPU is warned about long before a chunk is given up on.
@@ -182,10 +181,9 @@ class WhisperRunner:
     segment. `clock`, `poll` and `grace` are injectable so tests need no sleeps."""
 
     def __init__(self, should_stop, note, clock=None, poll: float | None = None, grace: float | None = None,
-                 unload: "ollama_unload.JobScope | None" = None, gpu: bool = False):
+                 gpu: bool = False):
         self._should_stop = should_stop
         self._note = note
-        self.unload = unload or ollama_unload.JobScope(False)
         self._clock = clock or time.monotonic
         self._poll = POLL_SECONDS if poll is None else poll
         self._grace = grace
@@ -239,8 +237,7 @@ class WhisperRunner:
 
         def work():
             try:
-                with ollama_unload.job_scope(self.unload):
-                    box["value"] = call(progress)
+                box["value"] = call(progress)
             except _Abandoned:
                 pass
             except BaseException as exc:
@@ -295,14 +292,6 @@ class WhisperRunner:
     def timing(self, path: str, audio_seconds: float) -> "ChunkTiming":
         return ChunkTiming(path, audio_seconds, self._gpu)
 
-    def flush_ollama_notice(self) -> None:
-        text = self.unload.take_notice()
-        if text:
-            self._note(text)
-
-    def mark_model_ready(self):
-        self.unload.model_ready = True
-
     def _abandon(self, entry: dict, abandoned: threading.Event, why: str) -> None:
         worker = entry["worker"]
         abandoned.set()
@@ -343,15 +332,6 @@ def speed_text(took, audio) -> str:
     else:
         speed = f"about {1 / max(ratio, 0.01):.0f}x faster than real time"
     return f"{audio:.0f} s of audio in {took:.1f} s ({speed})"
-
-
-def unload_scope_for(engine, use_gpu: bool, whisper_size: str) -> "ollama_unload.JobScope":
-    """Only a local Ollama holds VRAM Whisper could need; a hosted engine, and an
-    Ollama cloud model (which runs elsewhere), never get it freed."""
-    model = str(getattr(engine, "model", "") or "")
-    local = (bool(use_gpu) and getattr(engine, "name", "") == "ollama"
-             and not model.endswith(("-cloud", ":cloud")))
-    return ollama_unload.JobScope(local, min_free_mb=vram_needed_mb(whisper_size))
 
 
 def model_cached() -> bool:

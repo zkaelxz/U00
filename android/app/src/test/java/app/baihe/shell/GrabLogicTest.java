@@ -139,7 +139,7 @@ public class GrabLogicTest {
 
             public void onText(String text) {}
 
-            public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth) {
+            public void onSnap(String id, String key, double left, double top, double width, double height, double viewWidth, boolean accept) {
                 asked.add("snap " + id + " " + key);
             }
 
@@ -148,13 +148,13 @@ public class GrabLogicTest {
             }
         });
         bridge.start("secret");
-        bridge.snap("secret", "s1", "p1", 0, 0, 400, 800, 412);
+        bridge.snap("secret", "s1", "p1", 0, 0, 400, 800, 412, false);
         assertTrue(asked.isEmpty());
         bridge.begin("secret", "{\"titles\":[\"T\"],\"count\":2}");
-        bridge.snap("wrong", "s2", "p1", 0, 0, 400, 800, 412);
-        bridge.snap("secret", "x'); steal();//", "p1", 0, 0, 400, 800, 412);
-        bridge.snap("secret", "s3", "p1", 0, 0, 400, 800, 0);
-        bridge.snap("secret", "s4", "p1", 0, 0, 400, 800, 412);
+        bridge.snap("wrong", "s2", "p1", 0, 0, 400, 800, 412, false);
+        bridge.snap("secret", "x'); steal();//", "p1", 0, 0, 400, 800, 412, false);
+        bridge.snap("secret", "s3", "p1", 0, 0, 400, 800, 0, false);
+        bridge.snap("secret", "s4", "p1", 0, 0, 400, 800, 412, false);
         bridge.stitch("secret", "s5", "p7");
         bridge.stitch("secret", "s6", "p7'); x(");
         bridge.stitch("wrong", "s7", "p7");
@@ -178,6 +178,19 @@ public class GrabLogicTest {
         strips.add("p5", "e");
         strips.clear();
         assertTrue(strips.take("p5").isEmpty());
+    }
+
+    @Test
+    public void aPageNotDrawnYetIsToldFromARealOne() {
+        int[] flat = new int[256];
+        java.util.Arrays.fill(flat, 255);
+        assertTrue(StripCheck.looksBlank(flat));
+        flat[100] = 249;
+        assertTrue(StripCheck.looksBlank(flat));
+        flat[101] = 120;
+        assertFalse(StripCheck.looksBlank(flat));
+        assertFalse(StripCheck.looksBlank(new int[0]));
+        assertFalse(StripCheck.looksBlank(null));
     }
 
     @Test

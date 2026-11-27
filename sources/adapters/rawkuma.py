@@ -28,7 +28,7 @@ import re
 from html import unescape
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class
+from ..base import SourceAdapter, layout_changed_class, https_only
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
                       PageRef, SearchResult, SeriesInfo, SourceError)
@@ -64,11 +64,6 @@ def _safe_slug(value, what: str) -> str:
 
 def _text(fragment: str) -> str:
     return unescape(_TAGS.sub("", fragment)).strip()
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 def _number_key(label: str) -> float:
@@ -131,7 +126,7 @@ class RawkumaSource(SourceAdapter):
             seen.add(slug)
             img = _CARD_IMG.search(body)
             out.append(SearchResult(self.name, slug, _text(title_m.group(1)),
-                                    f"{BASE_URL}/manga/{slug}/", _https(img.group(1)) if img else ""))
+                                    f"{BASE_URL}/manga/{slug}/", https_only(img.group(1)) if img else ""))
         return out
 
     def _series_html(self, series_id: str) -> str:
@@ -154,7 +149,7 @@ class RawkumaSource(SourceAdapter):
         done = str(ld.get("isCompleted")).lower() == "true"
         return SeriesInfo(
             self.name, series_id, unescape(str(ld["name"])), f"{BASE_URL}/manga/{series_id}/",
-            _https(cover), authors=authors, description=unescape(str(ld.get("description") or "")),
+            https_only(cover), authors=authors, description=unescape(str(ld.get("description") or "")),
             genres=genres,
             status="completed" if done else "ongoing",
             content_type=ContentType.MANGA.value, language="ja")

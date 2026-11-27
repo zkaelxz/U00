@@ -31,7 +31,6 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
-from engine_backends import local as engine_local
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -52,6 +51,8 @@ QUEUE_VERSION = 1
 MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
 MAX_ITEMS_PER_MEMBER = 100
+# Members together can't either: the rest of the list is always the PC owner's (and admins' at the PC).
+MAX_MEMBER_ITEMS = 150
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
@@ -86,6 +87,15 @@ _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it
 _NOT_STARTED = "Not started: Baihe stopped before it ran. Press Retry to run it."
 _WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
                     "starts when one of them ends.")
+_WAITING_FOR_DISK = "Waiting: this PC is almost out of disk space; it starts once space is freed."
+_WAITING_FOR_TOMORROW = ("Waiting: today's job limit for the account that added it is used up; "
+                         "it starts again tomorrow, or when the PC owner raises the limit.")
+# How long an account's items rest after its daily limit refused one: the limit lasts until
+# midnight, so trying every tick would only repeat the refusal, but the owner may raise it sooner.
+DAILY_LIMIT_RETRY_SECONDS = 15 * 60
+# The same for every member's items while the drive is nearly full: each refused try rewrites the
+# queue document, and space comes back in minutes, not in one 5 s tick.
+DISK_LOW_RETRY_SECONDS = 60
 # Marks the document as this process's. A document without it came from an
 # earlier run or a restored backup, and is settled before anything reads it,
 # so neither can resume work on its own.
@@ -153,6 +163,8 @@ def _clean_item(raw) -> Optional[dict]:
             "now": bool(raw.get("now")),
             # A waiting item its adder paused: the queue skips it until it is resumed.
             "held": bool(raw.get("held")),
+            # Not tried again before this time: its account's daily job limit is used up.
+            "not_before": raw["not_before"] if type(raw.get("not_before")) in (int, float) else None,
             "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
@@ -419,9 +431,9 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     if drama is None or not _owns_title(principal, drama_id):
         raise NotFoundError("Title not found.")
     if step == "translate" and not holds_paid \
-            and _translate_engine(drama) not in engine_registry.FREE_ENGINES:
+            and not engine_registry.open_to_all_accounts(_translate_engine(drama)):
         raise ForbiddenError("This title translates with a paid engine, which your account "
-                             "can't use. Ask the owner, or pick a free engine for the title.")
+                             "can't use. Ask the owner, or pick Ollama for the title.")
     if step == "translate":
         settings = check_translate_settings(drama, _translate_engine(drama), settings, holds_paid)
     elif step == "export":
@@ -466,6 +478,10 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 1 for i in doc["items"] if i["user_id"] == uid) + len(entries) > MAX_ITEMS_PER_MEMBER:
             raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
                                 "queue. Clear your finished items first.")
+        if not _overrides(principal) and sum(
+                1 for i in doc["items"] if not i["override"]) + len(entries) > MAX_MEMBER_ITEMS:
+            raise ConflictError(f"Members can have at most {MAX_MEMBER_ITEMS} items in the queue "
+                                "together. Clear your finished items, or ask the PC owner to clear some.")
         for n, (step, settings) in enumerate(entries):
             doc["items"].append({
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
@@ -641,7 +657,7 @@ def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
         item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, at_pc=item["at_pc"] and at_pc)
+                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
 
@@ -771,7 +787,7 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
                      auto_series: Optional[int] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
-    if args["engine"] not in engine_registry.FREE_ENGINES and not holds_paid:
+    if not engine_registry.open_to_all_accounts(args["engine"]) and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
     # Checked again at start: the adder's permission and the title's engine may have changed since.
@@ -779,10 +795,7 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     if settings and not _holds(principal, "lines.edit"):
         raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
     saved = _queued_model_and_batch(drama, args["engine"])
-    run_model = settings.get("model", saved[0]) or engine_registry.effective_default_model(args["engine"])
-    # An Ollama cloud tag is billed like a paid engine, so the series ceiling covers it too.
-    paid = args["engine"] not in engine_registry.FREE_ENGINES or (
-        args["engine"] == "ollama" and engine_local.is_ollama_cloud_model(run_model))
+    paid = args["engine"] not in engine_registry.FREE_ENGINES
     # Raises when the series switch is off or its ceiling is spent. The run gets what is left as its own
     # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
     left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None
@@ -954,28 +967,24 @@ def _announce_stop(item: dict) -> None:
 
 def _may_overlap(running: list, candidate: dict) -> bool:
     """Whether `candidate` may start beside the running items. Only a transcription (the PC's GPU
-    and CPU) beside one translation on an engine that never touches this PC's GPU, so the two
-    don't compete for the same hardware, and never two runs of one title."""
+    and CPU) beside one translation, which runs on a hosted engine and never touches this PC's
+    GPU, and never two runs of one title."""
     if len(running) != 1 or candidate["step"] != "transcribe":
         return False
     other = running[0]
     if other["step"] != "translate" or other["drama_id"] == candidate["drama_id"] or other["job_id"] is None:
         return False
-    drama = db.get_drama(other["drama_id"])
-    if drama is None:
-        return False
-    engine = _translate_engine(drama)
-    model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
-    if engine_local.ollama_touches_local_gpu(engine, model):
-        return False
-    return True
+    return db.get_drama(other["drama_id"]) is not None
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:
     """Starts the first waiting item not in `deferred`. An item whose adder
-    is at their running cap (jobs/user_caps.py) goes back to waiting with a
-    reason and the next one is tried, so one member's own jobs never hold up
-    the line; the next tick tries it again."""
+    is at their running cap (jobs/user_caps.py), or that a nearly full drive
+    holds back, goes back to waiting with a reason and the next one is tried,
+    so one member's own jobs never hold up the line; the next tick tries it
+    again. An adder past their daily job limit has all their waiting items
+    rest for DAILY_LIMIT_RETRY_SECONDS, and a nearly full drive rests every
+    member's waiting items for DISK_LOW_RETRY_SECONDS."""
     from jobs import job_launch
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         return     # a restore or cleanup holds the library: wait rather than skip everything
@@ -986,10 +995,12 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
                    and not i.get("held") and i["chain"] not in held_chains]
+        # Resting items still count as waiting below, so the queue doesn't go idle and forget them.
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
-        item = next((i for i in waiting if i["now"]), None)
+        item = next((i for i in ready if i["now"]), None)
         if item is None and doc["state"] == ACTIVE:
-            item = next(iter(waiting), None)
+            item = next(iter(ready), None)
         if item is None:
             if not running and not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
@@ -1001,11 +1012,20 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         claimed = dict(item)
         _save(doc)
     status, reason, job_id = RUNNING, "", None
+    # (whose waiting items share the refusal, for how many seconds), or None
+    wait_reason, rest = _WAITING_FOR_CAP, None
     try:
         with user_caps.refuse_at_cap():
             job_id = _start_item(claimed)
         if job_id is None:
             status = DONE
+    except user_caps.DailyLimitError:
+        status, wait_reason = WAITING, _WAITING_FOR_TOMORROW
+        rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
+    except user_caps.DiskLowError:
+        status, wait_reason = WAITING, _WAITING_FOR_DISK
+        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
+        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:
@@ -1023,7 +1043,14 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             if status == RUNNING:
                 item["job_id"] = job_id
             elif status == WAITING:
-                item.update(status=WAITING, reason=_WAITING_FOR_CAP, started_at=None)
+                item.update(status=WAITING, reason=wait_reason, started_at=None)
+                if rest is not None:
+                    shares, seconds = rest
+                    for other in doc["items"]:
+                        # A shorter disk rest must not cut short (or relabel) a daily-limit rest.
+                        if (other["status"] == WAITING and shares(other)
+                                and (other.get("not_before") or 0) < now + seconds):
+                            other.update(reason=wait_reason, not_before=now + seconds)
             elif status == INTERRUPTED:
                 _finish(item, status, _INTERRUPTED, _clock())
             else:

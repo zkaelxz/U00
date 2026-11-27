@@ -55,7 +55,7 @@ from jobs import job_launch
 import benchmark
 import db
 import diagnostics
-from engine_backends import engine_registry, pricing, local
+from engine_backends import engine_registry, pricing
 from core import SOURCE_LANGUAGES
 from engine_backends import llm_tasks, paid_calls
 from engine_backends.run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_var
@@ -521,8 +521,7 @@ def start_run(stage: str, configs: list, tier: str | None = None, set_name: str 
         started = job_launch.start_job(
             JOB_ID, _run_job, JOB_ID, stage, plan, [c["id"] for c in cases], use_gpu, max_cost_usd, judge,
             gpu_touching=vision.needs_gpu(stage, checked) or any(
-                c.get("transcribe") or local.ollama_touches_local_gpu(c["engine"], c["model"])
-                for c in checked),
+                c.get("transcribe") for c in checked),
             description="Benchmark run", line_fields=())
     if not started:
         # Nothing ran: leave no rows behind.

@@ -237,16 +237,6 @@ describe('requests', () => {
     ])
   })
 
-  it('names Whisper only when the GPU is on; the server checks the model alone otherwise', async () => {
-    const f = ok({ ok: true, model: 'm', message: null })
-    await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: true })
-    await checkOllama('translategemma:27b', f, { whisperSize: 'large-v3', useGpu: false })
-    expect(f.mock.calls.map((c) => (c as unknown as [string])[0])).toEqual([
-      '/api/live/ollama-check?model=translategemma%3A27b&whisper_size=large-v3&use_gpu=true',
-      '/api/live/ollama-check?model=translategemma%3A27b',
-    ])
-  })
-
   it('polls with after and stops by id; a malformed id never reaches the network', async () => {
     const f = ok({})
     await getLive(SID, 7.9, f)
@@ -336,6 +326,13 @@ describe('lagLine', () => {
       .toBe('Captions about 27 s behind the stream. 1 line shown untranslated to keep up.')
     expect(lagLine({ ...base, chunks_measured: 3, lag_seconds: 9, translations_skipped: 5 }))
       .toBe('Captions about 9 s behind the stream. 5 lines shown untranslated to keep up.')
+  })
+
+  it('counts the chunk joins that used the rougher rule, and stays quiet when none did', () => {
+    expect(lagLine({ ...base, chunks_measured: 4, lag_seconds: 20, overlap_matched: 9, overlap_fallback: 0 }))
+      .toBe('Captions about 20 s behind the stream.')
+    expect(lagLine({ ...base, chunks_measured: 4, lag_seconds: 20, overlap_matched: 9, overlap_fallback: 3 }))
+      .toBe('Captions about 20 s behind the stream. 3 of 12 chunk joins used the rougher rule.')
   })
 })
 

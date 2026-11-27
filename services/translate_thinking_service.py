@@ -13,13 +13,7 @@ A run is handed its own value explicitly, so the request, the job and the
 provenance record agree; the choice is saved only once the run is accepted,
 so a refused request leaves it alone.
 """
-import logging
-
-import db
 from engine_backends import thinking as thinking_switch
-from services import translate_run_service
-
-log = logging.getLogger(__name__)
 
 SWITCH_ENGINES = thinking_switch.NO_THINKING_ENGINES
 
@@ -30,17 +24,6 @@ def has_switch(engine_name) -> bool:
 
 def get_title_choice(drama_id: int) -> bool:
     return thinking_switch.title_thinking({"id": drama_id})
-
-
-def save_title_choice(drama_id: int, thinking) -> None:
-    """Remembers an explicit choice (None = not asked, nothing changes).
-    Never raises: a run must not fail because its preference could not be written."""
-    if thinking is None or not db.get_drama(drama_id):
-        return
-    try:
-        translate_run_service.save_style_toggles(drama_id, thinking=thinking)
-    except Exception:
-        log.warning("Could not save the thinking choice for drama %s", drama_id, exc_info=True)
 
 
 def may_remember(holds_paid: bool, thinking) -> bool:

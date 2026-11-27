@@ -92,10 +92,6 @@ def test_service_save_preset_invalid(isolated_db, kw):
     assert db.list_presets() == []
 
 
-def test_service_save_preset_accepts_a_pulled_ollama_model(isolated_db):
-    p = translate_preset_service.save_translate_preset(
-        "Local", "ollama", engine_model="my-own/qwen3:14b-q4")["preset"]
-    assert p["engine_model"] == "my-own/qwen3:14b-q4"
 
 
 @pytest.mark.parametrize("bad", ["../x", "/abs", "has space", "a/../b", "", "x" * 101])
@@ -297,4 +293,4 @@ def test_config_style_presets_carry_guidance(client, isolated_db):
     did = db.create_drama(title_zh="D")
     presets = client.get(f"/api/translate-run/dramas/{did}/config").json()["style_presets"]
     assert {p["key"]: p["guidance"] for p in presets} == {
-        k: v["guidance"] for k, v in translation_guide.STYLE_PRESETS.items()}
+        k: v["guidance"] for k, v in translation_guide.PICKER_STYLE_PRESETS.items()}

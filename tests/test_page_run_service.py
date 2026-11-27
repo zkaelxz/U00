@@ -385,11 +385,11 @@ def test_a_queued_cloud_step_runs_on_the_adders_own_ollama_key(isolated_db, monk
 
 def test_a_queued_names_step_is_held_to_the_titles_picked_cloud_model(isolated_db, monkeypatch):
     """The names step runs on the title's Translate model; a cloud tag there needs
-    engines.paid (or the adder's own key) even though Ollama itself is free."""
+    engines.paid (or the adder's own key) even though Ollama itself is open to every account."""
     started = []
     monkeypatch.setattr(glossary_extract_service, "start_lines_glossary_run",
                         lambda did, **kw: started.append(kw) or {"job_id": "j"})
-    did = _bare("Names", translate_start_json='{"engine_model": "gpt-oss:120b-cloud"}')
+    did = _bare("Names", engine="ollama", translate_start_json='{"engine_model": "gpt-oss:120b-cloud"}')
     free_member = {"user_id": 7, "permissions": ("lines.edit", "jobs.start")}
     with pytest.raises(ForbiddenError):
         runs.start_step(free_member, db.get_drama(did), q.NAMES, {})

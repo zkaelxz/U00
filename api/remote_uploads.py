@@ -1,9 +1,11 @@
 """
 api/remote_uploads.py -- uploads from away from the PC (owner decision
-2026-10-21): only an admin may, only while the PC's remote-uploads switch is
-on (settings_service.remote_uploads_on), and the Settings upload limit
-applies before the body is read. The upload routes declare
-`media.upload`; deletes and the routes that make the PC fetch or run
+2026-10-21): an admin may only while the PC's remote-uploads switch is
+on (settings_service.remote_uploads_on); a member may send audio/video into
+their own titles only with the opt-in `media.upload_member` right (owner
+decision 2026-11-27), held to the smaller member limit. The Settings upload
+limit applies before the body is read. The upload routes declare
+`media.upload` (`media.upload_member` for the two media routes); deletes and the routes that make the PC fetch or run
 something stay local_only(). Rules: docs/remote-access-permissions-core.md.
 """
 
@@ -19,6 +21,7 @@ from services import auth_service
 log = logging.getLogger(__name__)
 
 UPLOAD_PERMISSION = auth_service.UPLOAD_PERMISSION
+MEMBER_UPLOAD_PERMISSION = auth_service.MEMBER_UPLOAD_PERMISSION
 # Room for the multipart framing and the small form fields next to the file.
 _FORM_OVERHEAD = 1024 * 1024
 
@@ -36,18 +39,30 @@ def away_principal(request: Request, principal):
     from services import settings_service
     if settings_service.remote_uploads_on():
         return principal
+    # An admin holds the member upload right through the admin flag, so it goes with
+    # media.upload; a member's own grant is not behind the switch.
     return dict(principal, permissions=[p for p in principal["permissions"]
-                                        if p != UPLOAD_PERMISSION])
+                                        if p not in (UPLOAD_PERMISSION, MEMBER_UPLOAD_PERMISSION)])
 
 
-def upload_matchers(app) -> list:
-    """(compiled path regex, methods) for every route that needs media.upload."""
+def _matchers(app, permissions) -> list:
     from starlette.routing import compile_path
     from api.auth import iter_route_declarations
     return [(compile_path(path)[0], methods)
             for _r, path, methods, decls in iter_route_declarations(app)
-            if any(kind == "permission" and UPLOAD_PERMISSION in label.split(" + ")
+            if any(kind == "permission" and set(permissions) & set(label.split(" + "))
                    for kind, label in decls)]
+
+
+def upload_matchers(app) -> list:
+    """(compiled path regex, methods) for every route that needs media.upload
+    or the member upload right."""
+    return _matchers(app, (UPLOAD_PERMISSION, MEMBER_UPLOAD_PERMISSION))
+
+
+def member_upload_matchers(app) -> list:
+    """The upload routes a member holding the member upload right may use."""
+    return _matchers(app, (MEMBER_UPLOAD_PERMISSION,))
 
 
 class TempRoom:
@@ -76,7 +91,7 @@ class TempRoom:
 temp_room = TempRoom()
 
 
-def capped_upload(request: Request, receive):
+def capped_upload(request: Request, receive, principal=None):
     """(refusal or None, receive). Some upload routes take the file as a
     FastAPI File(), which spools the whole body to disk before the handler
     checks its size, so a chunked body or a missing Content-Length is
@@ -88,10 +103,10 @@ def capped_upload(request: Request, receive):
     from lib.capped_request import check_content_length
     from lib.errors import InvalidInputError
     from services import media_upload_service
-    limit = media_upload_service.max_upload_bytes() + _FORM_OVERHEAD
+    limit = media_upload_service.upload_limit_bytes(principal=principal) + _FORM_OVERHEAD
     try:
         check_content_length(request, limit, "the upload", media_upload_service.too_large_message(
-            limit - _FORM_OVERHEAD))
+            limit - _FORM_OVERHEAD, media_upload_service.is_member_caller(principal)))
     except InvalidInputError as exc:
         return _json_refusal(422, exc.code, exc.message), receive
     except StarletteHTTPException as exc:
@@ -115,13 +130,15 @@ class RemoteUploadGate:
     (which has already refused a request with no valid session or CSRF
     token). For an upload route reached from away from the PC it refuses,
     before the body is read, a caller who may not upload here (403: a
-    member, or an admin while the switch is off), then applies
+    member without the right, or an admin while the switch is off), then applies
     capped_upload and temp_room. At the PC it does nothing."""
 
-    def __init__(self, app, upload_fn):
+    def __init__(self, app, upload_fn, member_upload_fn=None):
         self.app = app
         self._upload_fn = upload_fn
+        self._member_upload_fn = member_upload_fn or (lambda: [])
         self._upload = None
+        self._member_upload = None
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http" or not self._is_upload(scope):
@@ -137,9 +154,10 @@ class RemoteUploadGate:
         except (UnauthenticatedError, ForbiddenError) as exc:
             status = 401 if isinstance(exc, UnauthenticatedError) else 403
             return await _json_refusal(status, exc.code, exc.message)(scope, receive, send)
-        if UPLOAD_PERMISSION not in principal["permissions"]:
+        needed = MEMBER_UPLOAD_PERMISSION if self._is_member_route(scope) else UPLOAD_PERMISSION
+        if needed not in principal["permissions"]:
             return await _json_refusal(403, "forbidden", _GENERIC_403)(scope, receive, send)
-        refusal, receive = capped_upload(request, receive)
+        refusal, receive = capped_upload(request, receive, principal)
         if refusal is not None:
             return await refusal(scope, receive, send)
         # capped_upload checked it is a number; never negative, or it would free others' room.
@@ -176,6 +194,12 @@ class RemoteUploadGate:
                                     "upload.away", f"{scope.get('method', '')} {scope.get('path', '')}")
         except Exception:
             log.warning("could not write the away-upload audit row", exc_info=True)
+
+    def _is_member_route(self, scope) -> bool:
+        if self._member_upload is None:
+            self._member_upload = self._member_upload_fn()
+        path, method = scope.get("path", ""), scope.get("method", "")
+        return any(rx.match(path) and method in methods for rx, methods in self._member_upload)
 
     def _is_upload(self, scope) -> bool:
         if self._upload is None:

@@ -20,50 +20,53 @@ final class GrabUi {
 
     enum Kind { BUSY, INFO, OK, BAD }
 
-    /** The same dark and light tokens as the app's stylesheet (frontend/src/index.css). */
+    /** The same four looks as the app's stylesheet (frontend/src/index.css): light, dark, sepia and OLED. */
     static final class Palette {
         final int bg, surface, field, fieldEdge, border, text, muted, accent, onAccent, bad, ok;
         final boolean dark;
+        /** One of light, dark, sepia, oled: what Baihe's page calls its look. */
+        final String look;
 
         Palette(boolean dark) {
-            this(dark, false);
+            this(dark ? "dark" : "light");
         }
 
-        /** Sepia is a light look with Baihe's paper colours (frontend index.css), so the native bars match the page. */
-        Palette(boolean dark, boolean sepia) {
-            this.dark = dark;
-            if (sepia && !dark) {
-                bg = 0xFFEFE4CB;
-                surface = 0xFFEBE0C6;
-                field = 0xFFF6EED8;
-                fieldEdge = 0xFF8C7D5C;
-                border = 0xFFCDBF9D;
-                text = 0xFF3B3220;
-                muted = 0xFF5F5238;
-                accent = 0xFF8A4A1F;
-                onAccent = 0xFFFFFFFF;
-                bad = 0xFF9C1F18;
-                ok = 0xFF175C2D;
-                return;
+        Palette(String look) {
+            this.look = look;
+            dark = "dark".equals(look) || "oled".equals(look);
+            boolean sepia = "sepia".equals(look);
+            boolean oled = "oled".equals(look);
+            bg = oled ? 0xFF000000 : sepia ? 0xFFEFE4CB : dark ? 0xFF0D1220 : 0xFFF3F6FC;
+            surface = oled ? 0xFF0B0B0B : sepia ? 0xFFEBE0C6 : dark ? 0xFF161B2E : 0xFFFFFFFF;
+            field = oled ? 0xFF0B0B0B : sepia ? 0xFFF6EED8 : dark ? 0xFF111729 : 0xFFFFFFFF;
+            fieldEdge = oled ? 0xFF707070 : sepia ? 0xFF8C7D5C : dark ? 0xFF6B7694 : 0xFF7D889E;
+            border = oled ? 0xFF262626 : sepia ? 0xFFCDBF9D : dark ? 0xFF2A3350 : 0xFFDDE3EF;
+            text = oled ? 0xFFECECEC : sepia ? 0xFF3B3220 : dark ? 0xFFEEF1FA : 0xFF17202F;
+            muted = oled ? 0xFFA0A0A0 : sepia ? 0xFF5F5238 : dark ? 0xFFA8B2CC : 0xFF44526B;
+            accent = sepia ? 0xFF8A4A1F : dark ? 0xFF8EC5FF : 0xFF1D6FD1;
+            onAccent = sepia ? 0xFFFFFFFF : dark ? 0xFF08111F : 0xFFFFFFFF;
+            bad = sepia ? 0xFF9C1F18 : dark ? 0xFFEF7B73 : 0xFFB3261E;
+            ok = sepia ? 0xFF175C2D : dark ? 0xFF5FC08C : 0xFF1A6E44;
+        }
+
+        /** The activity theme with this look's dialog colours, so every AlertDialog matches the page too. */
+        int themeRes() {
+            switch (look) {
+                case "sepia": return R.style.Baihe_Sepia;
+                case "oled": return R.style.Baihe_Oled;
+                case "dark": return R.style.Baihe_Dark;
+                default: return R.style.Baihe_Light;
             }
-            bg = dark ? 0xFF0D1220 : 0xFFF3F6FC;
-            surface = dark ? 0xFF161B2E : 0xFFFFFFFF;
-            field = dark ? 0xFF111729 : 0xFFFFFFFF;
-            fieldEdge = dark ? 0xFF6B7694 : 0xFF7D889E;
-            border = dark ? 0xFF2A3350 : 0xFFDDE3EF;
-            text = dark ? 0xFFEEF1FA : 0xFF17202F;
-            muted = dark ? 0xFFA8B2CC : 0xFF44526B;
-            accent = dark ? 0xFF8EC5FF : 0xFF1D6FD1;
-            onAccent = dark ? 0xFF08111F : 0xFFFFFFFF;
-            bad = dark ? 0xFFEF7B73 : 0xFFB3261E;
-            ok = dark ? 0xFF5FC08C : 0xFF1A6E44;
         }
 
-        /** The look Baihe's page last reported, else the phone's own setting; shared so every screen's bar agrees. */
+        /** The look Baihe's page last reported, else the phone's own setting; shared so every screen agrees. */
         static Palette saved(Context context) {
             android.content.SharedPreferences p = context.getSharedPreferences("baihe", Context.MODE_PRIVATE);
-            if (!p.contains("page_dark")) return of(context);
-            return new Palette(p.getBoolean("page_dark", false), p.getBoolean("page_sepia", false));
+            String look = p.getString("page_look", null);
+            if (look != null) return new Palette(look);
+            // Saved by an older app build, which knew only dark or light.
+            if (p.contains("page_dark")) return new Palette(p.getBoolean("page_dark", false));
+            return of(context);
         }
 
         static Palette of(Context context) {
@@ -195,13 +198,27 @@ final class GrabUi {
             setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
             // A tap opens a long message in full, a second tap dismisses it.
             setOnClickListener(v -> {
+                if (tap != null) {
+                    tap.run();
+                    return;
+                }
                 if (text.getMaxLines() == 3) text.setMaxLines(Integer.MAX_VALUE);
                 else setVisibility(GONE);
             });
             setVisibility(GONE);
         }
 
+        /** What a tap does instead of opening the message in full; cleared by the next plain show. */
+        private Runnable tap;
+
+        /** Shows a message whose tap goes somewhere (the reader), rather than expanding it. */
+        void showTappable(String message, Kind kind, Runnable onTap) {
+            show(message, kind);
+            tap = onTap;
+        }
+
         void show(String message, Kind kind) {
+            tap = null;
             removeCallbacks(hide);
             if (message == null || message.isEmpty()) {
                 setVisibility(GONE);

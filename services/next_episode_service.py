@@ -5,8 +5,8 @@ from typing import Optional
 
 import db
 from lib.errors import ConflictError, NotFoundError
-from engine_backends import engine_registry, local as engine_local
-from services import ownership_service, queue_service, queue_translate_settings, title_copy_service
+from engine_backends import engine_registry
+from services import ownership_service, queue_service, title_copy_service
 
 READY, WORKING, IDLE, NO_MEDIA = "ready", "working", "idle", "no_media"
 
@@ -51,12 +51,8 @@ def _state(principal, drama: dict) -> str:
 
 
 def _is_free(drama: dict) -> bool:
-    """Free the way the queue prices a run: an Ollama cloud tag is billed like a paid engine."""
-    engine = queue_service._translate_engine(drama)
-    if engine not in engine_registry.FREE_ENGINES:
-        return False
-    model = queue_translate_settings._queued_model_and_batch(drama, engine)[0] or engine_registry.effective_default_model(engine)
-    return not (engine == "ollama" and engine_local.is_ollama_cloud_model(model))
+    """Free the way the queue prices a run."""
+    return queue_service._translate_engine(drama) in engine_registry.FREE_ENGINES
 
 
 def get_next(principal, drama_id: int) -> dict:

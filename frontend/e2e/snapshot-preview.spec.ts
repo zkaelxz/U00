@@ -26,7 +26,7 @@ test('without permission to read lines: TM and the preview show a plain note, th
   await page.route('**/api/review/dramas/3/tm-suggestions*', (route) => route.fulfill(forbidden))
   await mockSnapshot(page)
   await page.route('**/api/review/dramas/3/history/7', (route) => route.fulfill(forbidden))
-  const note = 'Seeing line text needs permission to read lines. Ask the PC owner.'
+  const note = 'Seeing line text needs permission to read lines. Ask the PC owner to allow it.'
   const list = page.getByTestId('history-list')
   await expect(list).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Translation memory suggestions' })).toBeVisible()

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { pickStyle } from './pickStyle'
 import { openFold } from './foldHelpers'
 
 // Parity X03/X04 on the Translate stage and L18/L19 in the Library. The preset
@@ -16,7 +17,7 @@ test('the style guidance follows the chosen style', async ({ page }) => {
   await page.getByText('What this style asks for').click()
   const first = await guidance.innerText()
   expect(first.length).toBeGreaterThan(20)
-  await page.getByLabel('Style', { exact: true }).selectOption('subtitle')
+  await pickStyle(page.locator('body'), /^Subtitles/)
   await expect(guidance).toContainText('subtitles')
   expect(await guidance.innerText()).not.toBe(first)
 })
@@ -34,11 +35,11 @@ test('applying a saved preset fills the form and starts nothing', async ({ page 
   let runs = 0
   page.on('request', (r) => r.url().includes('/translate-run/dramas/1/run') && runs++)
   await page.goto('/#/drama/1/translate')
-  await page.getByLabel('Style', { exact: true }).selectOption('preset:7')
+  await pickStyle(page.locator('body'), 'Wuxia preset')
   await expect(page.getByRole('status').filter({ hasText: 'Applied profile "Wuxia preset"' })).toBeVisible()
   expect(bodies).toEqual([{ preset_id: 7 }])
   await expect(page.getByLabel('AI engine', { exact: true })).toHaveValue('claude')
-  await expect(page.getByLabel('Style', { exact: true })).toHaveValue('subtitle')
+  await expect(page.getByLabel('Style', { exact: true })).toContainText('Subtitles')
   await expect(page.getByLabel('English variant', { exact: true })).toHaveValue('en-GB')
   expect(runs).toBe(0)
 })

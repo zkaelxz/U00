@@ -30,22 +30,16 @@ pytestmark = pytest.mark.usefixtures("local_ollama_default")
 
 class TestTimeEstimates:
     def test_reading_time_counts_words(self):
-        lines = [Line(idx=0, start=0, end=1, zh="a", en="one two three four five")]
-        assert sc.estimate_reading_time(lines)["word_count"] == 5
+        assert sc.reading_time(5)["word_count"] == 5
 
     def test_reading_time_scales_with_wpm(self):
-        lines = [Line(idx=i, start=0, end=1, zh="a", en="w " * 100) for i in range(10)]
-        slow = sc.estimate_reading_time(lines, wpm=100)["minutes"]
-        fast = sc.estimate_reading_time(lines, wpm=400)["minutes"]
-        assert slow > fast
+        assert sc.reading_time(1000, wpm=100)["minutes"] > sc.reading_time(1000, wpm=400)["minutes"]
 
-    def test_listening_time_uses_last_timestamp(self):
-        lines = [Line(idx=0, start=0, end=90.0, zh="a", en="b")]
-        assert sc.estimate_listening_time(lines)["seconds"] == 90.0
+    def test_listening_time_is_seconds_and_display(self):
+        assert sc.listening_time(90.0)["seconds"] == 90.0
 
-    def test_empty_lines_no_crash(self):
-        assert sc.estimate_listening_time([])["seconds"] == 0
-        assert sc.estimate_reading_time([])["word_count"] == 0
+    def test_zero_words_no_crash(self):
+        assert sc.reading_time(0)["word_count"] == 0
 
     def test_percent_complete(self):
         assert sc.compute_percent_complete(9, 10) == 100.0
@@ -733,14 +727,6 @@ class TestBulkSeriesTranslate:
                  models={"claude": "claude-opus-4"})
         assert seen["model"] == "claude-opus-4"
 
-    def test_an_ollama_drama_is_gpu_touching(self, isolated_db, monkeypatch):
-        """Step 25d item 1: this never set gpu_touching=True for an Ollama
-        engine, risking it running outside Step 5c's GPU-job guard."""
-        d1 = self._drama(isolated_db, n=1, engine="ollama")
-        self._run([d1], monkeypatch)
-        job = background_jobs.get_status(f"translate_{d1}")
-        assert job is not None and job.get("gpu_touching") is True
-        background_jobs.clear_job(f"translate_{d1}")
 
     def test_combined_progress_message_names_the_current_drama(self, isolated_db, monkeypatch):
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)

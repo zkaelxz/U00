@@ -647,6 +647,20 @@ def load_lines(drama_id: int, with_words: bool = False, ids=None):
     return [dict(r) for r in rows]
 
 
+def drama_ids_with_lines() -> list:
+    with contextlib.closing(db.get_conn()) as conn:
+        return [r[0] for r in conn.execute("SELECT DISTINCT drama_id FROM lines ORDER BY drama_id")]
+
+
+def set_line_confidences(scores: dict) -> None:
+    """Sets `confidence` on lines named by id, as {id: (new, expected current)}; a line whose
+    score changed since it was read (a re-run of its transcription) is left alone."""
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.executemany("UPDATE lines SET confidence = ? WHERE id = ? AND confidence IS ?",
+                         [(new, line_id, old) for line_id, (new, old) in scores.items()])
+        conn.commit()
+
+
 def load_line_page(drama_id: int, offset: int, limit: int):
     """(line count, rows of lines offset..offset+limit in line order), as
     load_lines would give them: a Reader page turn on a long title must not
@@ -719,6 +733,12 @@ def load_line_ids(drama_id: int) -> set:
         ids = {r["id"] for r in conn.execute(
             "SELECT id FROM lines WHERE drama_id = ?", (drama_id,)).fetchall()}
     return ids
+
+
+def has_lines(drama_id: int) -> bool:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute(
+            "SELECT 1 FROM lines WHERE drama_id = ? LIMIT 1", (drama_id,)).fetchone() is not None
 
 
 def line_ids_exist(drama_id: int, line_ids) -> int:

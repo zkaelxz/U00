@@ -276,6 +276,16 @@ def _ocr_reads_in_this_process():
     ocr_worker._params_cache.clear()
 
 
+@pytest.fixture
+def free_engine():
+    """The name of an engine that costs nothing and needs no key. Ollama runs hosted
+    tags only and is billed, so tests that need "a free engine" use Echo, which is
+    switched off again after the test."""
+    from engine_backends import echo
+    echo.set_enabled(True)
+    return echo.ENGINE_ID
+
+
 @pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide
@@ -709,26 +719,6 @@ def _workers_do_not_leave_the_test_session(request):
         yield
     finally:
         process_worker.start_own_process_group = original
-
-
-@pytest.fixture(autouse=True)
-def _no_ollama_unload_requests(request):
-    """A GPU model load asks a local Ollama to free its memory; no test but
-    test_ollama_unload.py (which fakes the HTTP calls) may reach one.
-
-    Patched and restored by hand, not through `monkeypatch`, for the reason
-    given on _testclient_defaults_to_loopback."""
-    import ollama_unload
-    original = ollama_unload.prepare_gpu_for_transcription
-    if not request.module.__name__.endswith("test_ollama_unload"):
-        def stub(use_gpu):
-            return None
-        stub.real = original   # for tests of a caller's own unload policy
-        ollama_unload.prepare_gpu_for_transcription = stub
-    try:
-        yield
-    finally:
-        ollama_unload.prepare_gpu_for_transcription = original
 
 
 @pytest.fixture(autouse=True)

@@ -357,6 +357,7 @@ def init_db():
         import member_keys     # owns its table; imports db, so not at the top
         member_keys.create_tables(conn)
         _migrate_off_removed_test_engine(conn)
+        _migrate_min_silence_to_new_default(conn)
         stamp = running or _checkout_stamp(conn)
         if stamp:
             conn.execute("""
@@ -388,7 +389,7 @@ from db.schema_system import (  # noqa: E402,F401
 from db.migrations import (  # noqa: E402,F401
     _grant_library_create_to_members, _grant_lines_read_for_reader_page, _migrate_auth_session_columns, _migrate_bulk_job_columns,
     _add_topic_chapters_column, _add_glossary_inbox_column, _add_media_hash_column, _migrate_chapter_marks_per_account, _migrate_profiles_per_account, _migrate_drama_columns, _migrate_gpu_lock_slots, _migrate_job_records_columns,
-    _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine,
+    _create_line_ref_indexes, _migrate_line_columns, _migrate_line_refs_to_ids, _migrate_off_removed_test_engine, _migrate_min_silence_to_new_default,
     _migrate_ownership_columns, _migrate_progress_view_prefs, _migrate_scanlate_columns,
     _migrate_series_and_character_columns, _migrate_step26e_profiles,
     _migrate_vocab_and_style_columns)
@@ -508,7 +509,7 @@ from db.lines import (  # noqa: E402,F401
     line_value, update_line_fields_if, update_lines_fields_if_many, save_lines,
     FULL_SYNC, UndeclaredLineWrite, adopt_job_scope, check_line_fields, current_job_scope, job_line_fields,
     line_ids_with_refs, load_lines, load_line_page, line_reading_stats, line_text_stamp,
-    load_line_objects, load_line_ids, line_ids_exist,
+    load_line_objects, load_line_ids, has_lines, line_ids_exist, drama_ids_with_lines, set_line_confidences,
     LineText, load_line_texts, settle_copied_marks, list_marked_lines)
 
 
@@ -748,6 +749,7 @@ from db.job_records import (  # noqa: F401
     list_job_records,
     list_job_record_fingerprints,
     count_active_job_records,
+    fresh_active_job_ids,
     get_job_record,
     delete_job_record,
     delete_finished_job_record,

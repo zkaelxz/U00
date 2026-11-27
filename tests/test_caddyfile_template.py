@@ -262,7 +262,7 @@ def test_admin_paths_refused_for_any_method(path):
 
 
 ADMIN_VIEWS = [("GET", "/api/admin/users"), ("GET", "/api/admin/audit"),
-               ("GET", "/api/admin/users/{user_id}/devices")]
+               ("GET", "/api/admin/users/{user_id}/devices"), ("GET", "/api/diagnostics/resources")]
 # Member-account changes an admin may make from away (owner decision
 # 2026-10-30); the app refuses any that target an admin account, except
 # a name (owner decision 2026-11-25), as it lets an admin delete a deactivated member.
@@ -527,7 +527,7 @@ def kind_in(decls, wanted):
     return any(kind == wanted for kind, _perm in decls)
 
 
-def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
+def test_only_upload_routes_skip_the_body_size_limit(routes):
     """The app caps an upload from away at the PC's Settings limit before it
     reads the body, so only those routes go past the proxy's 8 MB cap. The
     extension's page routes do too: a 12-page batch is larger, and the route
@@ -538,7 +538,7 @@ def test_only_admin_upload_routes_skip_the_body_size_limit(routes):
     upload_matcher = _conditions(block)
     uploads = 0
     for path, methods, decls in routes:
-        upload = any(kind == "permission" and "media.upload" in perm.split(" + ")
+        upload = any(kind == "permission" and {"media.upload", "media.upload_member"} & set(perm.split(" + "))
                      for kind, perm in decls) or (
             kind_in(decls, "device_token") and path in EXTENSION_PAGE_ROUTES) or (
             path == PICTURE_READ_ROUTE)

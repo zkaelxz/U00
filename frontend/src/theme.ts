@@ -92,12 +92,25 @@ export function watchShellTheme(): void {
   globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => reportShellTheme(getThemePref()))
 }
 
-/** Save, apply and announce a new choice. */
-export function setThemePref(pref: ThemePref): void {
+// Set while an account is signed in, so a choice made here is also saved on the server.
+let accountSync: ((pref: ThemePref) => void) | null = null
+
+export function setAccountThemeSync(sync: ((pref: ThemePref) => void) | null): void {
+  accountSync = sync
+}
+
+/** Save, apply and announce a choice that came from the account, without sending it back. */
+export function applyAccountTheme(pref: ThemePref): void {
   saveTheme(pref)
   applyTheme(pref)
   reportShellTheme(pref)
   emit(pref)
+}
+
+/** Save, apply and announce a new choice, and keep it on the account when one is signed in. */
+export function setThemePref(pref: ThemePref): void {
+  applyAccountTheme(pref)
+  accountSync?.(pref)
 }
 
 function subscribe(listener: () => void): () => void {

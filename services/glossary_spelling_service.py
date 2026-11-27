@@ -212,7 +212,6 @@ def start_spelling_suggestions(drama_id: int, term_id: int, english: str,
     started = extract._start_extraction_job(
         job_id, _run_job, drama_id, engine, engine_name, term["term_original"],
         list(term["aliases"]), english, drama.get("source_language") or "zh", other_terms,
-        gpu_touching=extract.touches_gpu(engine_name, engine),
         description=f"Suggest spellings (title #{drama_id})")
     if not started:
         raise ConflictError("Spelling suggestions are already running for this title.")

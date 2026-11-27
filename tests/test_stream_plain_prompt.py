@@ -56,13 +56,6 @@ def test_non_stream_titles_ignore_the_setting(isolated_db):
     assert not workspace_job_service.plain_stream_prompt({"content_mode": "video_drama"}, "ollama", GEMMA)
 
 
-def test_only_gemma4_runs_use_it(isolated_db):
-    settings_service.set_settings({"stream_plain_prompt": True})
-    for engine, model in (("ollama", "translategemma:27b"), ("openai", None), ("claude", None)):
-        _t, guidelines, _n = _style(isolated_db, engine_name=engine, model=model)
-        assert not stream_recipe.is_active(guidelines)
-    _t, none_given, _n = _style(isolated_db, engine_name=None, model=None)
-    assert not stream_recipe.is_active(none_given)
 
 
 def test_glossary_keeps_names_and_ruled_slang_but_not_ordinary_words(isolated_db):
@@ -81,11 +74,6 @@ def test_brief_prompt_asks_only_for_register_and_who_talks_to_whom():
     assert "recurring names and terms" not in prompt
 
 
-def test_plain_stream_defaults_are_no_context_and_ten_line_batches():
-    opts = engine_registry.default_translate_options("ollama", GEMMA, plain_stream=True)
-    assert (opts["context_window"], opts["context_window_ahead"], opts["batch_size"]) == (0, 0, 10)
-    assert engine_registry.default_translate_options("ollama", GEMMA)["batch_size"] == 90
-    assert engine_registry.is_gemma4("ollama", GEMMA) and not engine_registry.is_gemma4("ollama", "translategemma:27b")
 
 
 def test_the_brief_is_written_with_the_plain_prompt_only_for_a_plain_run(isolated_db, monkeypatch):
@@ -162,13 +150,6 @@ def test_switched_off_keeps_the_remembered_values(isolated_db):
     assert (opts.context_window, opts.context_window_ahead, opts.batch_size) == (10, 6, 30)
 
 
-def test_other_engines_and_non_stream_titles_keep_the_remembered_values(isolated_db):
-    _did, stream = _stream_title(isolated_db, OLD_DEFAULTS)
-    other = _resolve(stream, engine="ollama", model="translategemma:27b")
-    assert (other.context_window, other.context_window_ahead) == (10, 6)
-    did = db.create_drama(title_en="V", content_mode="video_drama", translate_start_json=OLD_DEFAULTS)
-    video = _resolve(db.get_drama(did))
-    assert (video.context_window, video.context_window_ahead, video.batch_size) == (10, 6, 30)
 
 
 def test_translate_form_start_drops_untouched_old_defaults(isolated_db):

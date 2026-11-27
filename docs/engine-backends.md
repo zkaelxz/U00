@@ -124,7 +124,11 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   hand: `ENV_NAMES` in `services/settings_service.py` against `SECRET_ENGINES`
   in `frontend/src/pages/settingsKeys.ts`, and `tests/test_engine_key_lists.py`
   fails if they drift.
-- **Free vs paid.** `FREE_ENGINES = {"ollama"}` is free every time.
+- **Free vs paid.** `FREE_ENGINES` is empty: Ollama runs hosted tags only and
+  they are billed per token (`pricing.py`), so cost, cap, queue and auto-start
+  treat it as paid. `engine_registry.open_to_all_accounts` is the separate
+  access question: Ollama stays open to accounts without `engines.paid` for
+  the tags in `local.MEMBER_CLOUD_MODELS` (owner decision 2026-11-24).
   Gemini is not in it because free or paid depends on the key; the per-run
   "Gemini free tier" setting decides, and `engine_picker_label` swaps in
   `GEMINI_FREE_TIER_NOTE`. `KEYLESS_ENGINES` (the same one) skips key checks.
@@ -146,8 +150,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     account): the subtitle text is processed on Ollama's servers and billed per token
     (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count it; the retired `gemma4:cloud` tag stays priced there for settings that still name it).
     A hosted tag with no price row is costed at the dearest priced cloud rate, never $0.
-    It is never a default or fallback, is skipped by the GPU/headroom checks
-    (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
+    The engine serves only hosted tags (`require_hosted_model` refuses any other, so a saved local tag stops with a plain message), so it never takes the GPU queue slot or the memory checks, and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. A signed-in member who saved their own Ollama key has their cloud calls
     sent to `https://ollama.com/api/chat` instead, with `Authorization: Bearer <key>`, no
     redirects, and the tag without its cloud suffix (`direct_cloud_model`); the key comes from
@@ -168,7 +171,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     250/day; Flash-Lite 15/min and 1000/day; 250,000 tokens/min shared across
     models. Pro isn't available. The free-tier note drops these numbers. Google may use the text to improve its
     products, and people may read it.
-  Callers without `engines.paid` are limited to `FREE_ENGINES`
+  Callers without `engines.paid` are limited to `open_to_all_accounts` engines
   (`translate_run_service`, `discover_lookup_service`).
 - **Capabilities.** `ENGINE_CAPABILITIES` tags (`translate`, `instructions`,
   `long_context`, `local`, `cheap`, `grounded_search`) feed
@@ -200,7 +203,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
   monthly_cap, month_spend)` returns the tighter of the per-job cap and what is
   left of the monthly cap, or a refusal when the month is already spent.
 - A cap applies only to `translate_run_service._CAP_ENGINES` (`claude`,
-  `deepseek`, `gemini`, `openai`) and not to free-tier Gemini
+  `deepseek`, `gemini`, `openai`, `ollama`) and not to free-tier Gemini
   (`engine_cap_applies`). With a `FallbackEngine`, each engine has its own cap
   and spend.
 - `bulk/bulk_translate.py` submits whole-drama batches (`bulk/bulk_apply.py` applies the results,
@@ -390,10 +393,10 @@ backward. 0 disables this.
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
 7. **Ollama models and reasoning.** `OLLAMA_DEFAULT_MODEL` is the hosted `gemma4:31b-cloud`; `OLLAMA_MODELS`
-   (the local picker list) is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
-   resolve to the default through `engine_registry.drop_removed_model`; the API also accepts any tag typed by hand, and a title
-   or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
-   (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
+   resolve to the default through `engine_registry.drop_removed_model`; the API accepts a hosted tag typed by hand
+   and refuses a local one. When nothing picked an engine, `translate_service.default_hosted_engine` uses
+   Ollama's hosted Gemma, or OpenAI (GPT-6 Luna) when Ollama does not answer and an OpenAI key is saved.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
 8. **Thinking on translation runs.** Off by default for every run (Workspace,
@@ -441,7 +444,7 @@ flag on the Whisper path in `transcribe_service`.
 
 A title saved with a removed backend (`REMOVED_ASR_BACKENDS`: `moss_td`) runs and
 displays as the backend a title with no saved choice gets
-(`asr_options_service.stored_asr_backend`: `qwen3_asr_long` or `whisper`, see
+(`asr_options_service.stored_asr_backend`: always `whisper`, see
 below), with `removed_asr_backend_notice()` shown in the Transcribe stage. The saved value is not rewritten.
 
 Alignment is a separate choice (`alignment_method`): `whisper_diff` (the

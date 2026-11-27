@@ -47,7 +47,7 @@ test('Needs AI help: nothing is sent until Confirm; it shows engine, 1 AI call a
   await expect(recover.getByText(NEEDS_AI)).toBeVisible()
   await expect(recover.getByTestId('ai-recover-summary')).toHaveText('Claude · 1 AI call · may use paid credits')
   await recover.getByRole('combobox', { name: 'AI engine' }).selectOption('ollama')
-  await expect(recover.getByTestId('ai-recover-summary')).toHaveText('Ollama (on this PC) · 1 AI call · free engine')
+  await expect(recover.getByTestId('ai-recover-summary')).toHaveText('Ollama (on this PC) · 1 AI call · may use paid credits')
   await recover.getByRole('combobox', { name: 'AI engine' }).selectOption('claude')
   expect(posted(s, recoverPath)).toHaveLength(0)
 

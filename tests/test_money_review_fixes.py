@@ -162,16 +162,16 @@ class TestExtensionTextCapture:
         assert extension.calls == 0
         assert any("monthly cap" in n[1] for n in out["notes"])
 
-    def test_a_free_engine_is_unchanged(self, isolated_db, monkeypatch):
+    def test_a_free_engine_is_unchanged(self, isolated_db, monkeypatch, free_engine):
         class Free(_Paid):
-            name = "ollama"
-            model = "translategemma:12b"
+            name = free_engine
+            model = "echo"
         engine = Free()
         page_server.set_config_provider(None)
-        page_server.set_translation_config(engine="ollama", api_key="local")
+        page_server.set_translation_config(engine=free_engine, api_key="local")
         monkeypatch.setattr(page_server, "_build_engine", lambda config: engine)
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.0001)
         db.log_usage(None, "claude", "claude-sonnet-5-5", "x", 1, 1, 5.0)
         out = page_server.translate_text_block("你好", "zh", "en", store=False)
         assert out["translated_text"] == "EN:你好" and not out["notes"]
-        assert [r["engine"] for r in _rows()] == ["claude", "ollama"]
+        assert [r["engine"] for r in _rows()] == ["claude", free_engine]

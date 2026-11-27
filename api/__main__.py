@@ -56,6 +56,8 @@ def _open_library(db):
         if not sqlite_check.damaged(db.DB_PATH):
             raise
         _refuse_to_start(db.DAMAGED_LIBRARY_MESSAGE)
+    from services import confidence_backfill_service
+    confidence_backfill_service.run_once()
     db.pack_old_translation_versions()
     from db import compact
     compact.compact_if_worthwhile(notify=lambda m: print(f"NOTE: {m}", flush=True))
@@ -139,9 +141,11 @@ def _serve():
     # window holds) can't keep a clean stop past the launcher's grace period.
     # No access log with sign-in on: the callback's request line carries the
     # Google code and state in its query string.
-    server = uvicorn.Server(uvicorn.Config("api.server:app", host=settings.host,
-                                           port=settings.port, timeout_graceful_shutdown=3,
-                                           access_log=not settings.auth_enabled))
+    from api import steady_listener
+    server = steady_listener.SteadyServer(uvicorn.Config("api.server:app", host=settings.host,
+                                                         port=settings.port, timeout_graceful_shutdown=3,
+                                                         access_log=not settings.auth_enabled,
+                                                         loop=steady_listener.LOOP))
     shutdown_service.register_stopper(lambda: setattr(server, "should_exit", True))
     try:
         server.run()
@@ -203,9 +207,9 @@ def _quiet_server(config):
     servers each installing (and on exit restoring and re-raising) their
     own handlers would stop only one of them on Ctrl+C."""
     import contextlib
-    import uvicorn
+    from api.steady_listener import SteadyServer
 
-    class QuietServer(uvicorn.Server):
+    class QuietServer(SteadyServer):
         @contextlib.contextmanager
         def capture_signals(self):
             yield
@@ -247,8 +251,9 @@ def _run_servers(servers) -> bool:
     previous = {}
     if threading.current_thread() is threading.main_thread():
         previous = {sig: signal.signal(sig, on_signal) for sig in handled}
+    from api import steady_listener
     try:
-        asyncio.run(run_all())
+        asyncio.run(run_all(), loop_factory=steady_listener.new_event_loop)
     except KeyboardInterrupt:
         pass
     finally:

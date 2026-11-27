@@ -37,6 +37,7 @@ import { ModelSelect } from '../components/ModelSelect'
 import { Section } from '../components/Section'
 import { Toggle } from '../components/Toggle'
 import { useLivePrefs } from './live/useLivePrefs'
+import { useLiveFocus } from './live/useLiveFocus'
 import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useReadiness } from '../hooks/useReadiness'
@@ -120,6 +121,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const { titles, seriesList, engines, enginesFailed } = useLiveChoices()
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [focus, setFocus] = useLiveFocus()
   const { session, stopping, joined, began, stop, adoptRunning, showEveryone, clearLines, switchTo } = useLiveSession(setError)
 
   // A remembered title or series that was deleted or hidden is not sent.
@@ -148,7 +150,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
-  const ollama = useOllamaCheck(engine === 'ollama' ? model : null, useGpu ? form.whisper_size : null)
+  const ollama = useOllamaCheck(engine === 'ollama' ? model : null)
   // Until Start is pressed a missing Ollama is only information; it becomes an alert when it blocks a start.
   const [startPressed, setStartPressed] = useState(false)
   const developerMode = useDeveloperMode()
@@ -169,12 +171,10 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
       : liveBlockers(needs).length ? 'Still needed: what is listed under Start.'
         : sizeReason ? `Still needed: a Whisper model that is ready. ${sizeReason}` : null)
 
-  async function start(e?: React.FormEvent, anyway = false) {
+  async function start(e?: React.FormEvent) {
     e?.preventDefault()
     setStartPressed(true)
     if (blocker || busy || active) return
-    if (anyway) ollama.accept()
-    else if (ollama.holdStart()) return
     setBusy(true)
     setError(null)
     try {
@@ -190,7 +190,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   }
 
   return (
-    <PageShell width="standard" title="Live" label="Live" className={active ? 'live-page live-wide' : 'live-page'}>
+    <PageShell width="standard" title="Live" label="Live" className={active ? (focus ? 'live-page live-wide live-focus' : 'live-page live-wide') : 'live-page'}>
       <div className="panel">
         {!active && <CheckAllChannels follows={follows} />}
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
@@ -222,7 +222,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             </Field>
           )}
           {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
-          {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
+          {ollama.note && <OllamaNote check={ollama} alert={startPressed} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">
           <div className="field-row">
@@ -353,7 +353,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
           )}
         </form>
-        <ShowEveryone onChange={showEveryone} />
+        {!(active && focus) && <ShowEveryone onChange={showEveryone} />}
         {error && (
           <p className="error live-error" role="alert">
             {error}
@@ -363,7 +363,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
 
         {session && (
           <LiveWatch session={session} stopping={stopping} joined={joined} onStop={() => void stop()} onClear={clearLines}
-            onSwitch={switchTo} language={form.source_language} segmentSeconds={form.segment_seconds} />
+            onSwitch={switchTo} focus={focus} onFocus={setFocus} language={form.source_language} segmentSeconds={form.segment_seconds} />
         )}
       </div>
     </PageShell>

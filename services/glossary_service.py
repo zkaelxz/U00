@@ -437,7 +437,7 @@ def get_catalogues() -> dict:
     workflow tiers expose only key/label/engine/model/flags)."""
     return {
         "style_presets": [{"key": k, "label": v["label"]}
-                          for k, v in tguide.STYLE_PRESETS.items()],
+                          for k, v in tguide.PICKER_STYLE_PRESETS.items()],
         "term_categories": [{"key": k, "label": v} for k, v in TERM_CATEGORIES.items()],
         "term_policies": [{"key": k, "label": v["label"], "example": v.get("example", "")}
                           for k, v in TERM_POLICIES.items()],
