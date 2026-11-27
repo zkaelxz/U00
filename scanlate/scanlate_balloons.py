@@ -78,6 +78,9 @@ def classify_text_regions(image_path: str, boxes, image=None):
             # share can't tell it from a sign; its outline can.
             kind = "bubble"
             conf = 0.6
+        elif _is_dark_balloon(roi):
+            kind = "bubble"
+            conf = 0.6
         elif mean_val < 140 and fill_uniformity < 0.4:
             # Dark and busy -- lettering laid over artwork.
             kind = "sfx"
@@ -95,6 +98,18 @@ def classify_text_regions(image_path: str, boxes, image=None):
 
         out.append(dict(b, kind=kind, kind_confidence=conf))
     return out
+
+
+def _is_dark_balloon(roi) -> bool:
+    """True for a flat dark body with a minority of light lettering. Its light share is below
+    CLASSIFY_MIN_LIGHT_SHARE, so it was taken for lettering on art (a sound effect or sign)."""
+    t = scanlate_tuning
+    dark = roi[roi < t.CLASSIFY_DARK_GRAY]
+    if dark.size < t.CLASSIFY_DARK_BALLOON_MIN_SHARE * roi.size:
+        return False
+    low, high = t.CLASSIFY_DARK_BALLOON_LIGHT_SHARE
+    light = float((roi > t.CLASSIFY_LIGHT_LEVEL).mean())
+    return low <= light <= high and float(dark.std()) < t.CLASSIFY_DARK_BALLOON_MAX_SPREAD
 
 
 def _holds_balloon_interior(roi) -> bool:

@@ -188,7 +188,10 @@ def _letter_ink(gray, box: dict):
     roi = gray[y:min(h, y + inner["h"]), x:min(w, x + inner["w"])]
     if not roi.size:
         return None
-    ink = ((roi < 128) if roi.mean() >= 128 else (roi > 128)).astype(np.uint8)
+    # A dark balloon with a pale margin averages a little above 128, so its share of dark pixels
+    # decides too.
+    light_ink = roi.mean() < 128 or float((roi < _SPLIT_DARK_GRAY).mean()) >= _SPLIT_DARK_SHARE
+    ink = ((roi > 128) if light_ink else (roi < 128)).astype(np.uint8)
     n, labels, stats, _ = cv2.connectedComponentsWithStats(ink, connectivity=8)
     rh, rw = ink.shape
     keep = [i for i in range(1, n)
@@ -203,6 +206,8 @@ _SPLIT_GLYPH_MIN_PX = 8
 _SPLIT_JOIN_SPAN = 0.12          # lettering closer than this is one block
 _SPLIT_MIN_GLYPHS = 4
 _SPLIT_MIN_BOX_SIDE = 300
+_SPLIT_DARK_GRAY = 120
+_SPLIT_DARK_SHARE = 0.5
 _SPLIT_PAD_SPAN = 0.08
 _SPLIT_ROW_GAP = 1.5             # of the taller mark's height, between letters of a line
 
@@ -229,8 +234,9 @@ def split_separate_lettering(gray, box: dict) -> list:
     # The probe is CJK because vertical lettering is only ever CJK.
     if _holds_balloon_interior(roi) and estimate_text_orientation(gray, box, "zh") == "vertical":
         return [box]
-    if float(np.median(roi)) < 100:
-        # Light lettering on dark art (a glowing caption) is one caption, not
+    if float(np.median(roi)) < 100 or float((roi < _SPLIT_DARK_GRAY).mean()) >= _SPLIT_DARK_SHARE:
+        # A dark balloon with a pale margin round it has a median a little above 100, so the
+        # share of dark pixels is read too. Light lettering on dark art (a glowing caption) is one caption, not
         # frames drawn side by side. The dark gaps between its letters were
         # taken for glyphs, and the pieces each covered only part of it, so
         # the rest of the source showed round the English.
