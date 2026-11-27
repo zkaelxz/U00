@@ -29,6 +29,11 @@ def _acting_user_id():
     return acting.acting_user_id()
 
 
+def _acting_device():
+    from lib import acting
+    return acting.acting_device()
+
+
 def _with_member_key(target):
     """`target` as a job runs it, carrying the key of whoever starts it: the
     member of this request, or the key the starting job itself carries. A
@@ -274,6 +279,7 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id = _acting_user_id()
+    origin_device = _acting_device()
     target = _with_member_key(target)
     if model_offline.active():
         target = model_offline.for_thread(target)
@@ -284,7 +290,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         if status is None:
             return False
         _jobs[job_id] = _new_entry(status, "thread", gpu_touching, description, owner_user_id,
-                                   run_settings, line_fields=line_fields, daily_day=counted_day)
+                                   run_settings, line_fields=line_fields, daily_day=counted_day,
+                                   origin_device=origin_device)
         _new_run_locked(job_id)
         if status == "queued":
             queued = {"job_id": job_id, "target": target, "args": args,

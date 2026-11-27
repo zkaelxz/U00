@@ -39,3 +39,16 @@ def acting_user_id():
     auth off, a background thread)."""
     principal = acting_principal()
     return None if principal is None else principal.get("user_id")
+
+
+def acting_device():
+    """A coarse name for the device this request came from ("Chrome on
+    Android", "Browser extension"), or None when unknown: the local owner on
+    the PC itself, auth off, a background thread."""
+    principal = acting_principal()
+    if not principal:
+        return None
+    if principal.get("device_token_id") is not None:
+        return "Browser extension"
+    label = principal.get("device_label")
+    return label if label and label != "Unknown device" else None

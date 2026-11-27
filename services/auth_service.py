@@ -839,7 +839,7 @@ def _lookup(token, now: float):
 
 def resolve_session(token, now: float | None = None,
                     touch: bool = True) -> dict[str, Any] | None:
-    """Live session -> {session_id, user_id, email, is_admin, permissions};
+    """Live session -> {session_id, user_id, email, is_admin, device_label, permissions};
     otherwise None (expired, revoked, unknown, or inactive user).
     touch=False re-checks without counting as activity (the SSE stream's
     periodic re-checks must not keep an idle session alive)."""
@@ -855,6 +855,7 @@ def resolve_session(token, now: float | None = None,
             # Acting on items only an admin can see; api.auth.listener_principal
             # clears it on the household listener.
             "admin_override": bool(user["is_admin"]),
+            "device_label": sess.get("device_label") or "",
             "permissions": working_permissions(user["id"])}
 
 

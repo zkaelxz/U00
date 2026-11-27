@@ -1672,3 +1672,32 @@ def test_a_finished_job_opens_the_title_it_finished(env, job_hook, no_timer):
     assert _finish_job("open_novel", {}, f"Translation (drama #{novel})")["target"] == {"page": "title", "drama_id": novel}
     assert _finish_job("open_narrated", {}, f"Translation (drama #{narrated})")["target"] == {"page": "title", "drama_id": narrated}
     assert "target" not in _finish_job("open_none", {}, "Housekeeping")
+
+
+def test_job_card_footer_names_the_requesting_device_else_the_pc(monkeypatch):
+    import json
+    import background_jobs
+    from lib import acting
+    monkeypatch.setattr(ns.socket, "gethostname", lambda: "DESKTOP-EXAMPLE")
+    jobs = {"j1": {"started_at": 1.0, "finished_at": 5.0, "origin_device": "Chrome on Android"},
+            "j2": {"started_at": 1.0, "finished_at": 5.0}}
+    monkeypatch.setattr(background_jobs, "get_status", jobs.get)
+
+    def footer(job_id):
+        card = ns._job_embed("Live capture", "done", False, None, job_id, None)
+        return json.loads(ns._payload("discord", "x", card)[0])["embeds"][0]["footer"]["text"]
+
+    assert footer("j1") == "Sent from Chrome on Android"
+    assert footer("j2") == "Sent from DESKTOP-EXAMPLE"
+
+    token = acting.bind_request()
+    try:
+        assert acting.acting_device() is None
+        acting.note_acting_principal({"device_label": "Safari on iPhone"})
+        assert acting.acting_device() == "Safari on iPhone"
+        acting.note_acting_principal({"device_label": "Unknown device"})
+        assert acting.acting_device() is None
+        acting.note_acting_principal({"device_token_id": 3, "device_label": ""})
+        assert acting.acting_device() == "Browser extension"
+    finally:
+        acting.unbind_request(token)
