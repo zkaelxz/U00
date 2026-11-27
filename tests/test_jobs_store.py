@@ -988,3 +988,19 @@ class TestFreshActive:
         monkeypatch.setattr(time, "time", lambda: real + job_table.STALE_JOB_SECONDS + 60)
         assert job_store.fresh_active(prefix="source_import_") is False
         assert job_store.fresh_active() is False
+
+
+def test_fresh_active_reads_rows_by_key_not_the_whole_table(isolated_db, monkeypatch):
+    import time
+    from jobs import job_store
+    db.save_job_record("dub_7", "running")
+    db.save_job_record("dub_8", "finished")
+    monkeypatch.setattr(db, "list_job_records", lambda *a: pytest.fail("scanned the table"))
+    ids = [f"job_{i}" for i in range(60)]
+    assert job_store.fresh_active(job_ids=[*ids, "dub_7"])
+    assert not job_store.fresh_active(job_ids=[*ids, "dub_8"])
+    assert job_store.fresh_active(prefix="dub_")
+    assert not job_store.fresh_active(job_ids=[*ids, "dub_7"], exclude="dub_7")
+    with db.get_conn() as conn:
+        conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'dub_7'", (time.time() - 10**6,))
+    assert not job_store.fresh_active(job_ids=[*ids, "dub_7"])

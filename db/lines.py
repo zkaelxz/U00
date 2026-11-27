@@ -721,6 +721,12 @@ def load_line_ids(drama_id: int) -> set:
     return ids
 
 
+def has_lines(drama_id: int) -> bool:
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute(
+            "SELECT 1 FROM lines WHERE drama_id = ? LIMIT 1", (drama_id,)).fetchone() is not None
+
+
 def line_ids_exist(drama_id: int, line_ids) -> int:
     """How many of line_ids are still lines of this drama."""
     ids = [i for i in line_ids if i is not None]
