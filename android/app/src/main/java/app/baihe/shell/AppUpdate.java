@@ -7,7 +7,6 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
-import android.os.Build;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -50,38 +49,8 @@ final class AppUpdate {
     /** Returned by {@link #check} when the server could not be asked, so the caller tries again sooner. */
     static final long CHECK_FAILED = -1;
 
-    /** A silently downloaded build, installed once every screen of the app is in the background. */
-    static volatile File pending;
-    private static int screensStarted;
-
-    /** One of the app's screens came to the front. */
-    static synchronized void screenStarted() {
-        screensStarted++;
-    }
-
-    /**
-     * One of the app's screens went out of view. Switching between Studio and Grab stops one screen
-     * while the other starts, and installing then would restart the app in the middle of a grab, so
-     * the install waits until no screen is left in front.
-     */
-    static void screenStopped(Context context) {
-        File apk;
-        synchronized (AppUpdate.class) {
-            if (screensStarted > 0) screensStarted--;
-            if (screensStarted > 0 || pending == null) return;
-            apk = pending;
-            pending = null;
-        }
-        Context app = context.getApplicationContext();
-        new Thread(() -> install(app, apk)).start();
-    }
-
-    /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked. */
-    static long check(String address, String cookie) {
-        return check(address, cookie, false);
-    }
-
-    /** {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
+    /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked.
+     * {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
     static long check(String address, String cookie, boolean refresh) {
         try {
             HttpURLConnection conn = open(address + "/api/app/android" + (refresh ? "?refresh=true" : ""), cookie);
@@ -135,35 +104,14 @@ final class AppUpdate {
     }
 
     /**
-     * Whether Android lets this app update itself with no prompt: from Android 12, once the
-     * app installed itself (the first install came from a browser or file manager, so the
-     * first update still asks).
-     */
-    static boolean canUpdateSilently(Context context) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false;
-        try {
-            String by = context.getPackageManager()
-                    .getInstallSourceInfo(context.getPackageName()).getInstallingPackageName();
-            return context.getPackageName().equals(by);
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
-    /**
      * Hands the saved APK to Android's installer, which asks the user to confirm (and, the
-     * first time, to allow installs from Baihe) unless it can update silently. Returns false
-     * if the session could not start.
+     * first time, to allow installs from Baihe). Returns false if the session could not start.
      */
     static boolean install(Context context, File apk) {
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         try {
             PackageInstaller.SessionParams params =
                     new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                // Android still asks when it must (the first self-install); later ones go through.
-                params.setRequireUserAction(PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED);
-            }
             int id = installer.createSession(params);
             try (PackageInstaller.Session session = installer.openSession(id);
                  InputStream in = new FileInputStream(apk);
