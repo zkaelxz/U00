@@ -403,15 +403,15 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
   await expect(ext.getByTestId('extension-note')).toBeVisible()
 
   // Off: only the switch and the note; the engine picker and token appear once on.
-  await expect(ext.getByRole('button', { name: 'Show extension token' })).toHaveCount(0)
+  await expect(ext.getByRole('button', { name: 'Show local extension key' })).toHaveCount(0)
   await ext.getByRole('switch', { name: 'Extension bridge' }).click()
   await expect(ext.getByRole('switch', { name: 'Extension bridge' })).toBeChecked()
   expect(toggles).toEqual([{ enabled: true }])
 
-  await ext.getByRole('button', { name: 'Show extension token' }).click()
+  await ext.getByRole('button', { name: 'Show local extension key' }).click()
   expect(tokenPosts).toBe(0)
-  await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
-  const input = ext.getByLabel('Extension token', { exact: true })
+  await ext.getByRole('button', { name: 'Confirm show local extension key' }).click()
+  const input = ext.getByLabel('Local extension key', { exact: true })
   await expect(input).toHaveValue('tok-e2e-123')
   await expect(input).toHaveAttribute('readonly', '')
   const stored = await page.evaluate(() =>
@@ -419,7 +419,7 @@ test('extension: summary, two-step token reveal, never stored, Hide clears it', 
   expect(stored).not.toContain('tok-e2e-123')
 
   await ext.getByRole('button', { name: 'Hide' }).click()
-  await expect(ext.getByLabel('Extension token', { exact: true })).toHaveCount(0)
+  await expect(ext.getByLabel('Local extension key', { exact: true })).toHaveCount(0)
   await expect(ext.getByTestId('token-announce')).toHaveText('Token hidden.')
   await expect(page.locator('body')).not.toContainText('tok-e2e-123')
   expect(unmocked).toEqual([])

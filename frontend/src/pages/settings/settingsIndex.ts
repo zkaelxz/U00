@@ -126,7 +126,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('phone-app', 'Phone app', 'android alerts notifications notify phone tap open finished live channel clipboard link offer'),
   e('customize-menu', 'Menu items', 'customize menu navigation hide pages order'),
   e('devices', 'Signed-in devices', 'sessions sign out'),
-  e('extension-devices', 'Extension tokens per computer', 'browser extension devices token pair'),
+  e('extension-devices', 'Remote access keys', 'browser extension devices token pair extension tokens grab phone'),
   e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),

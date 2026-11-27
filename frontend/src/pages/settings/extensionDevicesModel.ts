@@ -1,4 +1,4 @@
-// Pure helpers for Settings > Extension tokens per computer
+// Pure helpers for Settings > Remote access keys
 // (ExtensionDevicesCard.tsx). The server decides everything (own tokens
 // only, 404 for anything else, 403 without extension.send or for an admin
 // account away from the PC); these only decide what to show and word it.
@@ -23,7 +23,7 @@ export const ADMIN_TOKENS_PC_ONLY =
 // The household bridge (/api/ext-bridge/*) checks every request's token
 // against this list, so revoking one cuts that computer off at once.
 export const DEVICES_NOTE =
-  "Each token lets one computer's browser extension send pages to Baihe through your household address. Revoking a token stops that computer at once; a token also stops working when it expires or when its owner loses the extension permission or the account."
+  "For Baihe Grab on phones and the browser extension on other computers. Each token lets one device's app or extension send pages to Baihe through your household address. Revoking a token stops that computer at once; a token also stops working when it expires or when its owner loses the extension permission or the account."
 export const ADMIN_DEVICE_NOTE =
   "An admin account can't add a computer from away, and you have no account at the main PC, so add it here. The computer acts as the admin account with ordinary member rights, never admin rights, and you can revoke it at any time."
 export const NO_SEND_PERMISSION =

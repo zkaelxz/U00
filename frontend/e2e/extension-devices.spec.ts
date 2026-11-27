@@ -4,9 +4,9 @@ import { ME } from './authMocks'
 import { NEW_TOKEN, mockExtensionDevices } from './extensionDevicesMocks'
 import { openSettingsGroups } from './settingsNav'
 
-// Settings > Extension tokens per computer (desktop). Every device-token call is mocked.
+// Settings > Remote access keys (desktop). Every device-token call is mocked.
 
-const TITLE = 'Extension tokens per computer'
+const TITLE = 'Remote access keys'
 const member = { ...ME.signedIn, permissions: [...ME.signedIn.permissions, 'extension.send'] }
 
 test('adds a device, shows its token once with a copy button, then hides it for good', async ({ page, context, baseURL }) => {
