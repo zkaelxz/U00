@@ -17,7 +17,7 @@ import re
 # https://docs.claude.com for the current list and update both this and
 # PRICING_PER_MILLION_TOKENS below.
 CLAUDE_MODELS = {
-    "claude-sonnet-5-5": "Sonnet 5.5 – balanced quality and cost (recommended default)",
+    "claude-sonnet-5-5": "Sonnet 5.5 -- balanced quality and cost (recommended default)",
     "claude-opus-5-5": "Opus 5.5 -- highest quality",
     # Kept selectable so a saved preset, title or promoted benchmark model that
     # names one of these still runs instead of being refused as "not offered".
