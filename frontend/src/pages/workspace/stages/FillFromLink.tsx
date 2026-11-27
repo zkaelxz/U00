@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { probeLink, probeTitleLink, type LinkDetailFields, type MediaLinkProbe } from '../../../api/linkDetails'
 import { suggestMetadata } from '../../../api/metadata'
@@ -26,23 +26,33 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const url = link.trim()
+  // Replies are only for the newest request; a new link, another title or leaving the stage retires any in flight.
+  const request = useRef(0)
+  useEffect(() => {
+    request.current++
+    setBusy(false)
+    return () => { request.current++ }
+  }, [url, dramaId])
   if (pc === 'remote') return null
 
   const values = aiValues ?? (probe ? linkValues(probe) : null)
   const rows: LinkRow[] = values ? linkRows(values, current) : []
 
   const read = () => {
+    const mine = ++request.current
     setBusy(true)
     setError(null)
     setAiValues(null)
     const asked = url === savedLink.trim() ? probeTitleLink(dramaId).then((r) => r.link) : probeLink(url)
     asked.then(
       (p) => {
+        if (mine !== request.current) return
         setBusy(false)
         setProbe(p)
         setTicked(defaultTicks(linkRows(linkValues(p), current)))
       },
       (e: unknown) => {
+        if (mine !== request.current) return
         setBusy(false)
         setError(e)
       },
@@ -51,15 +61,18 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
 
   // The second, explicit press for any other page: the paid AI listing read.
   const readWithAi = () => {
+    const mine = ++request.current
     setBusy(true)
     suggestMetadata(dramaId, { url }).then(
       (r) => {
+        if (mine !== request.current) return
         setBusy(false)
         const next = { title_zh: r.suggestion.title_zh ?? '', author: r.suggestion.author ?? '' }
         setAiValues(next)
         setTicked(defaultTicks(linkRows(next, current)))
       },
       (e: unknown) => {
+        if (mine !== request.current) return
         setBusy(false)
         setError(e)
       },
