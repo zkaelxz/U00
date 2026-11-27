@@ -125,10 +125,10 @@ For an installed copy (Setup .exe) that serves household users. "Data folder" is
   4. The PC's clock is correct.
 - User-only steps: router changes and the DNS account are yours to do by hand. Nothing here opens a router port for you.
 
-## 5. Compare local and hosted translation (Benchmark lab)
-1. Install a local model: `ollama pull <model>` (Ollama must be running).
+## 5. Compare two hosted engines (Benchmark lab)
+1. Sign in to Ollama (its hosted Gemma is the default) and add a second engine key, for example OpenAI.
 2. Diagnostics -> Benchmark Lab -> "Golden sets": use "Import golden set" or "Add one case" (source text plus a reference translation, so it can be scored). Put both runs on the same set.
-3. "Run a benchmark": Stage = translation; pick the golden set; under "Engines to compare" use "Add engine" for Ollama (your model) and the hosted engine.
+3. "Run a benchmark": Stage = translation; pick the golden set; under "Engines to compare" use "Add engine" for each engine to compare (for example Ollama's hosted Gemma and OpenAI).
 4. Press "Estimate cost" first. Paid engines are capped by the monthly cap and stop at it.
 5. Press "Start arena". When done, tick the runs in the recent-runs list and press "Compare" to see scores side by side (Model Arena).
 6. Use the winner: pick that engine on the drama's Translate page. (Not verified: whether the drama remembers it as its own setting.)
