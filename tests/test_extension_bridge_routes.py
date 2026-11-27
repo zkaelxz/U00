@@ -151,6 +151,21 @@ class TestSending:
         r = _client().post(f"{BASE}/page", headers=_auth(token), json={"images": [img, img]})
         assert r.status_code == 400
 
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_a_batch_the_page_filter_rejects_carries_its_code(self, isolated_db, stream):
+        Image = pytest.importorskip("PIL.Image")
+        _, token = _member("a@example.com")
+        icons = []
+        for i in range(3):
+            buf = io.BytesIO()
+            Image.new("RGB", (40, 40 + i), (10 * i, 20, 30)).save(buf, format="PNG")
+            icons.append({"key": f"i{i}", "content_type": "image/png",
+                          "data": base64.b64encode(buf.getvalue()).decode("ascii")})
+        r = _client().post(f"{BASE}/pages", headers=_auth(token),
+                           json={"images": icons, "store": False, "stream": stream})
+        assert r.status_code == 422
+        assert r.json()["code"] == extension_bridge_service.NO_PAGES_CODE
+
     def test_an_oversized_body_is_refused_by_its_length(self, isolated_db):
         _, token = _member("a@example.com")
         r = _client().post(f"{BASE}/pages", headers={

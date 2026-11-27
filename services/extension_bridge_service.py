@@ -670,7 +670,7 @@ def _translate_one(image: dict, job: dict, turn):
         return "page", {**cached, "key": image["key"], "url": image["url"],
                         **({"merged_keys": image["merged_keys"]} if image.get("merged_keys") else {})}
     try:
-        if page_capture_checks.looks_blank(image["content"]):
+        if job["flat_pages"].undrawn(image):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")
         result = page_server.translate_image(
             image["content"], image["content_type"], drama_id=job["drama_id"],
@@ -786,6 +786,10 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
     return outcomes
 
 
+# Sent with the 422 for a batch the page filter rejected whole; the phone keys on it (GrabActivity).
+NO_PAGES_CODE = "no_comic_pages"
+
+
 def _comic_language(raw) -> str:
     """The page language the sender named, when it is one comic reading handles; else "" so the
     title, the source or the page's own text decides (services/page_server)."""
@@ -827,7 +831,9 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         kept_ids = {id(i) for i in kept}
         decoded = [i for i in decoded if i["content"] is None or id(i) in kept_ids]
         if not decoded and not unfetched:
-            raise page_server.EndpointError(422, "none of those images look like comic pages")
+            # The code tells this apart from an older Baihe's refusal of picture addresses, which turns
+            # PC download off on the phone for the rest of the chapter.
+            raise page_server.EndpointError(422, "none of those images look like comic pages", code=NO_PAGES_CODE)
     # Only a Quick read: a saved send already reuses a stored page with the same bytes, and a
     # Redo asks for the same picture again on purpose.
     if not store and not job["redo"]:
@@ -839,6 +845,8 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
     if not store and not job["redo"] and payload.get("stitch") is True and len(decoded) > 1:
         decoded = quick_read_stitch.stitch(decoded, page_server.MAX_IMAGE_BYTES)
     job["single"] = len(decoded) == 1
+    # A saved page is kept for good, so a saved send refuses every flat page as before.
+    job["flat_pages"] = page_capture_checks.FlatPages(decoded, keep_plain=not store)
     if not store:
         quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled,
                               device=(principal or {}).get("device_token_id"))

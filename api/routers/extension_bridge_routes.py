@@ -52,7 +52,7 @@ def _answer(status: int, payload: dict) -> JSONResponse:
 
 
 def _refusal(error: page_server.EndpointError) -> JSONResponse:
-    return _answer(error.status, {"error": error.message})
+    return _answer(error.status, error.answer())
 
 
 async def _json_body(request: Request) -> dict:
@@ -153,10 +153,9 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
             else:
                 import applog
                 applog.get_logger().warning("Extension bridge stream failed", exc_info=item[1])
-                status = item[1].status if isinstance(item[1], page_server.EndpointError) else 500
-                message = (item[1].message if isinstance(item[1], page_server.EndpointError)
-                           else "the app failed to answer this request")
-                yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
+                refusal = (item[1] if isinstance(item[1], page_server.EndpointError)
+                           else page_server.EndpointError(500, "the app failed to answer this request"))
+                yield json.dumps({**refusal.answer(), "status": refusal.status}).encode("utf-8") + b"\n"
             item = await next_item()
 
     return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,

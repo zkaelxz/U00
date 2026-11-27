@@ -335,19 +335,31 @@ public class QuickReadActivity extends Activity {
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
                 client.textStyle = GrabActivity.textStyle(prefs);
                 byte[][] fresh = {null};
+                org.json.JSONObject[] read = {null};
                 client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
                     try {
                         java.util.List<byte[]> jpegs = QuickRead.typesetPages(new org.json.JSONObject().put("pages",
                                 new org.json.JSONArray().put(answer)));
                         if (!jpegs.isEmpty()) fresh[0] = jpegs.get(0);
+                        read[0] = answer;
                     } catch (org.json.JSONException ignored) {
                         // No redraw came back; the check below reports it.
                     }
                 });
                 if (fresh[0] == null) throw new BaiheClient.BridgeException(0, "The PC could not redo this page.");
+                // Some lettering never translates (a sound effect, a refusal), so a redo only has to be
+                // no worse than the page it replaces; an old page with nothing to judge by is replaced.
+                int before = QuickRead.gaps(info);
+                int after = QuickRead.gaps(read[0]);
+                if (before >= 0 && after > before) {
+                    throw new BaiheClient.BridgeException(0, "Kept the old page: the new read had more untranslated lines or warnings.");
+                }
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(page)) {
                     out.write(fresh[0]);
                 }
+                // The sidecar then describes the page now shown, for a report and the next Redo.
+                QuickReadActivity.writeReportText(this, page.getName(), PageReport.meta(read[0],
+                        info.optString("image_url"), info.optString("page_url"), info.optString("chapter")));
             } catch (BaiheClient.BridgeException e) {
                 message = e.getMessage();
             } catch (Exception e) {

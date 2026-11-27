@@ -73,14 +73,16 @@ def pipeline(isolated_db, monkeypatch):
 
     # A page held up before its read (here: in the blank check) must still be read first.
     first = bridge._decode_images(_images(1))[0]["content"]
-    real_blank = bridge.page_capture_checks.looks_blank
+    real_flat = bridge.page_capture_checks.flat_colour
 
-    def looks_blank(content):
+    def flat_colour(content):
         if content == first and state["hold_first"]:
+            state["held"] = True   # so a run that skips this per-page check fails the tests below
             time.sleep(0.3)
-        return real_blank(content)
+        return real_flat(content)
     state["hold_first"] = False
-    monkeypatch.setattr(bridge.page_capture_checks, "looks_blank", looks_blank)
+    state["held"] = False
+    monkeypatch.setattr(bridge.page_capture_checks, "flat_colour", flat_colour)
     monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect_and_ocr_page)
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate_page_bubbles)
     bridge._cancelled_runs.clear()
@@ -110,6 +112,7 @@ def test_saved_pages_still_read_and_translate_in_page_order_with_the_page_before
     assert translations == ["p0", "p1", "p2", "p3"]
     assert pipeline["contexts"] == {"p0": "", "p1": "after p0", "p2": "after p1", "p3": "after p2"}
     assert pipeline["most_translating"] == 1
+    assert pipeline["held"]
 
 
 def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipeline):
@@ -123,6 +126,7 @@ def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipelin
     # first, so the second cannot have the first page's summary.
     assert pipeline["most_translating"] >= 2
     assert pipeline["contexts"]["p1"] != "after p0"
+    assert pipeline["held"]
 
 
 def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
@@ -134,6 +138,7 @@ def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
     assert [p["key"] for p in answer["pages"]] == ["k0", "k1", "k2"]
     assert [p["id"] for p in db.list_pages(drama)] == ids
     assert [b["source_text"] for i in ids for b in db.load_bubbles(i)] == ["p0", "p1", "p2"]
+    assert pipeline["held"]
 
 
 def test_a_failure_every_page_would_repeat_stops_before_the_next_page_is_read(pipeline):
