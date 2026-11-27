@@ -67,7 +67,7 @@ def _with_progress(dramas: list, principal=None) -> list:
     title stands without opening it."""
     counts = db.line_progress_by_drama() if dramas else {}
     pages = db.page_progress_by_drama() if dramas else {}
-    new = _new_chapter_counts(ownership_service.user_id(principal) or 0) if dramas else {}
+    new = _new_chapter_counts(principal) if dramas else {}
     reading = db.reading_marks_by_drama(ownership_service.user_id(principal) or 0) if dramas else {}
     filenames = db.page_filenames_by_drama() if dramas else {}
     return [{**d, "read_percent": reading.get(d["id"], (0.0, ()))[0],
@@ -90,11 +90,13 @@ def _unread_chapters(drama_id: int, filenames, read_ids) -> int:
     return sum(1 for g in groups if g["known"] and g["id"] not in read_ids)
 
 
-def _new_chapter_counts(user_id: int = 0) -> dict:
+def _new_chapter_counts(principal) -> dict:
+    from services.sources_registry_service import notice_follower_filter
     # sources.db is a separate file that can be locked or unreadable (e.g.
     # during a restore); the Library list must still load without the badge.
     try:
-        return sources_store.new_chapter_counts_by_drama(user_id)
+        return sources_store.new_chapter_counts_by_drama(ownership_service.user_id(principal) or 0,
+                                                         follower_id=notice_follower_filter(principal))
     except sqlite3.Error:
         return {}
 

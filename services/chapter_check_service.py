@@ -48,8 +48,8 @@ def run_check_cycle(job_id: str | None = None, adapter_factory=None, scheduled: 
         store.release_check_cycle(token)
 
 
-# One generic text for every skipped auto-import: tracked series are listed
-# household-wide, so it must not say whether the drama was deleted, went
+# One generic text for every skipped auto-import: several people can track
+# one series, so it must not say whether the drama was deleted, went
 # private or its linker lost access.
 LINK_UNAVAILABLE = "Auto-import skipped: the linked drama is not available."
 MEMBER_NO_BROWSER = ("{source} needs the PC owner's browser, which Baihe never uses for a series "
@@ -75,14 +75,16 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
     factory = adapter_factory or (lambda name: registry.get_adapter(name))
     rows = store.list_tracked_series()
     extension_only = extension_marker.marked_sources()
-    summary = {"checked": 0, "new": 0, "errors": {}, "queued": [], "saved": []}
+    # by_series: [source, series_id, new] per checked series, so each viewer's view of the
+    # result can be cut down to the series they track (it never leaves the server).
+    summary = {"checked": 0, "new": 0, "errors": {}, "queued": [], "saved": [], "by_series": []}
     auto_queue = bool(store.get_setting("auto_queue_new_chapters"))
     for i, row in enumerate(rows, start=1):
         if job_id:
             if background_jobs.is_cancel_requested(job_id):
                 break
             background_jobs.update_progress(job_id, (i - 1) / max(len(rows), 1),
-                                            f"Checking {row['title']} ({i}/{len(rows)})")
+                                            "Checking tracked series")
         if row["source"] in registry.REMOVED_SOURCES:
             summary["errors"][row["title"]] = registry.SOURCE_REMOVED
             store.mark_checked(row["source"], row["series_id"], error=registry.SOURCE_REMOVED)
@@ -107,6 +109,7 @@ def _run_claimed_cycle(job_id, adapter_factory, allow_browser: bool = True) -> d
             continue
         summary["checked"] += 1
         summary["new"] += len(new)
+        summary["by_series"].append([row["source"], row["series_id"], len(new)])
         # The browser's signed-in profile is the PC owner's. Pages and audio
         # fetched for a series a member tracked, linked or saves are read as
         # an anonymous visitor, so the owner's sign-in never reaches them.

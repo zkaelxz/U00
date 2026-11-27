@@ -23,12 +23,13 @@ _KEEP_LINK_OWNER = ("linked_by_user_id=CASE WHEN tracked_series.drama_id IS excl
 
 
 def track_series(source: str, series_id: str, title: str, url: str = "",
-                 drama_id: int | None = None, known_chapters=(), linked_by_user_id: int | None = None):
+                 drama_id: int | None = None, known_chapters=(), linked_by_user_id: int | None = None,
+                 follower_id: int | None = None):
     """Starts tracking a series. The chapters it already has are recorded
     as known, so the first check doesn't announce the whole back catalog
     as "new". `linked_by_user_id`: the user who set the drama link (None =
     auth off / the PC owner); the scheduled check imports only while that
-    user can still edit the drama."""
+    user can still edit the drama. `follower_id`: who tracks it (default the linker, 0 the PC)."""
     now = time.time()
     with connect() as conn:
         conn.execute("INSERT INTO tracked_series(source, series_id, title, url, drama_id, "
@@ -36,6 +37,9 @@ def track_series(source: str, series_id: str, title: str, url: str = "",
                      "ON CONFLICT(source, series_id) DO UPDATE SET title=excluded.title, "
                      "url=excluded.url, " + _KEEP_LINK_OWNER + ", drama_id=excluded.drama_id",
                      (source, series_id, title, url, drama_id, now, linked_by_user_id))
+        conn.execute("INSERT OR IGNORE INTO tracked_series_followers(source, series_id, user_id) "
+                     "VALUES(?, ?, ?)", (source, series_id,
+                                         follower_id if follower_id is not None else linked_by_user_id or 0))
         conn.executemany("INSERT OR IGNORE INTO known_chapters(source, series_id, chapter_id, title, "
                          "first_seen) VALUES(?, ?, ?, ?, ?)",
                          [(source, series_id, c.chapter_id, c.title, now) for c in known_chapters])
@@ -212,12 +216,54 @@ def set_save_pending(source: str, series_id: str, chapter_ids) -> None:
                      (json.dumps(ids), source, series_id))
 
 
+_SERIES_TABLES = ("tracked_series", "known_chapters", "chapter_poll_validators",
+                  "tracked_series_followers")
+
+
 def untrack_series(source: str, series_id: str):
     with connect() as conn:
-        conn.execute("DELETE FROM tracked_series WHERE source=? AND series_id=?", (source, series_id))
-        conn.execute("DELETE FROM known_chapters WHERE source=? AND series_id=?", (source, series_id))
-        conn.execute("DELETE FROM chapter_poll_validators WHERE source=? AND series_id=?",
-                     (source, series_id))
+        for table in _SERIES_TABLES:
+            conn.execute(f"DELETE FROM {table} WHERE source=? AND series_id=?", (source, series_id))
+
+
+def follow_series(source: str, series_id: str, user_id: int) -> bool:
+    """Adds a follower to a tracked series; False if it isn't tracked."""
+    with connect() as conn:
+        conn.execute("INSERT OR IGNORE INTO tracked_series_followers(source, series_id, user_id) "
+                     "SELECT source, series_id, ? FROM tracked_series WHERE source=? AND series_id=?",
+                     (user_id, source, series_id))
+        return conn.execute("SELECT 1 FROM tracked_series_followers WHERE source=? AND series_id=? "
+                            "AND user_id=?", (source, series_id, user_id)).fetchone() is not None
+
+
+def unfollow_series(source: str, series_id: str, user_id: int) -> bool:
+    """Removes one follower; the series itself goes with its last follower. True when it went."""
+    conn = connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute("DELETE FROM tracked_series_followers WHERE source=? AND series_id=? AND user_id=?",
+                     (source, series_id, user_id))
+        gone = conn.execute("SELECT 1 FROM tracked_series_followers WHERE source=? AND series_id=?",
+                            (source, series_id)).fetchone() is None
+        if gone:
+            for table in _SERIES_TABLES:
+                conn.execute(f"DELETE FROM {table} WHERE source=? AND series_id=?", (source, series_id))
+        conn.commit()
+        return gone
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def followers() -> dict:
+    """{(source, series_id): {user_id, ...}} for every tracked series (0 is the PC)."""
+    out: dict = {}
+    with connect() as conn:
+        for r in conn.execute("SELECT source, series_id, user_id FROM tracked_series_followers"):
+            out.setdefault((r["source"], r["series_id"]), set()).add(r["user_id"])
+    return out
 
 
 def known_chapters(source: str, series_id: str) -> list:
@@ -294,9 +340,12 @@ def move_tracked_series(source: str, series_id: str, new_source: str, new_series
                          "chapter_id, drama_id, imported_at) VALUES(?, ?, ?, ?, ?)",
                          [(new_source, new_series_id, str(n), drama_id, now)
                           for o, n, _ in done if o in imported])
+        conn.execute("INSERT OR IGNORE INTO tracked_series_followers(source, series_id, user_id) "
+                     "SELECT ?, ?, user_id FROM tracked_series_followers WHERE source=? AND series_id=?",
+                     (new_source, new_series_id, source, series_id))
         conn.execute("UPDATE chapter_notifications SET dismissed=1 WHERE source=? AND series_id=?",
                      (source, series_id))
-        for table in ("tracked_series", "known_chapters", "chapter_poll_validators"):
+        for table in _SERIES_TABLES:
             conn.execute(f"DELETE FROM {table} WHERE source=? AND series_id=?", (source, series_id))
         conn.commit()
         return None
@@ -430,29 +479,42 @@ _OWN_DISMISSAL = ("EXISTS (SELECT 1 FROM chapter_notification_dismissals d "
                   "WHERE d.notification_id = n.id AND d.user_id = ?)")
 
 
-def list_notifications(include_dismissed: bool = False, user_id: int = 0) -> list:
+_FOLLOWED = ("EXISTS (SELECT 1 FROM tracked_series_followers f WHERE f.source = {t}.source "
+             "AND f.series_id = {t}.series_id AND f.user_id = ?)")
+
+
+def list_notifications(include_dismissed: bool = False, user_id: int = 0,
+                       follower_id: int | None = None) -> list:
     """The new-chapter notices as `user_id` (0: the PC itself) sees them: `dismissed` is true when
-    the notice was dismissed for everyone or by this account."""
+    the notice was dismissed for everyone or by this account. `follower_id`: only the series that
+    account tracks (None: every series)."""
     q = ("SELECT n.id, n.source, n.series_id, n.chapter_id, n.title, n.created_at, "
-         f"(n.dismissed != 0 OR {_OWN_DISMISSAL}) AS dismissed FROM chapter_notifications n")
+         f"(n.dismissed != 0 OR {_OWN_DISMISSAL}) AS dismissed FROM chapter_notifications n WHERE 1")
     args = [user_id]
     if not include_dismissed:
-        q += f" WHERE n.dismissed = 0 AND NOT {_OWN_DISMISSAL}"
+        q += f" AND n.dismissed = 0 AND NOT {_OWN_DISMISSAL}"
         args.append(user_id)
+    if follower_id is not None:
+        q += " AND " + _FOLLOWED.format(t="n")
+        args.append(follower_id)
     q += " ORDER BY n.id DESC"
     with connect() as conn:
         return [dict(r) for r in conn.execute(q, args)]
 
 
-def new_chapter_counts_by_drama(user_id: int = 0) -> dict:
+def new_chapter_counts_by_drama(user_id: int = 0, follower_id: int | None = None) -> dict:
     """{drama_id: new-chapter notifications this account has not dismissed} for tracked series
-    linked to a title, in one query, for the Library's unread badge."""
+    linked to a title, in one query, for the Library's unread badge. `follower_id` as in
+    list_notifications."""
+    q = ("SELECT t.drama_id AS drama_id, COUNT(*) AS n FROM chapter_notifications n "
+         "JOIN tracked_series t ON t.source=n.source AND t.series_id=n.series_id "
+         f"WHERE n.dismissed=0 AND NOT {_OWN_DISMISSAL} AND t.drama_id IS NOT NULL")
+    args = [user_id]
+    if follower_id is not None:
+        q += " AND " + _FOLLOWED.format(t="t")
+        args.append(follower_id)
     with connect() as conn:
-        rows = conn.execute(
-            "SELECT t.drama_id AS drama_id, COUNT(*) AS n FROM chapter_notifications n "
-            "JOIN tracked_series t ON t.source=n.source AND t.series_id=n.series_id "
-            f"WHERE n.dismissed=0 AND NOT {_OWN_DISMISSAL} AND t.drama_id IS NOT NULL "
-            "GROUP BY t.drama_id", (user_id,))
+        rows = conn.execute(q + " GROUP BY t.drama_id", args)
         return {r["drama_id"]: r["n"] for r in rows}
 
 

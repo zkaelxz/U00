@@ -395,8 +395,28 @@ def match_source_owners(sources_path: str, mapping: dict) -> None:
     try:
         remap_owners(conn, mapping, _SOURCES_ACCOUNT_ID_COLUMNS)
         _match_dismissal_accounts(conn, mapping)
+        _match_follower_accounts(conn, mapping)
     finally:
         conn.close()
+
+
+def _match_follower_accounts(conn, mapping: dict) -> None:
+    """Who tracks each series goes to the live account `mapping` names, or to the PC (0) for an
+    account it doesn't name, like the series' other account columns."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'tracked_series_followers'").fetchone():
+        return
+    conn.execute("CREATE TEMP TABLE follower_map (old INTEGER PRIMARY KEY, new INTEGER)")
+    try:
+        conn.executemany("INSERT INTO temp.follower_map (old, new) VALUES (?, ?)",
+                         [(old, new) for old, new in mapping.items() if old > 0 and new > 0])
+        conn.execute("DELETE FROM main.tracked_series_followers WHERE user_id < 0")
+        # Through negative ids, so a swap (1 -> 2, 2 -> 1) can't collide on the primary key.
+        conn.execute("UPDATE OR REPLACE main.tracked_series_followers SET user_id = "
+                     "-COALESCE((SELECT new FROM temp.follower_map WHERE old = user_id), 0) WHERE user_id > 0")
+        conn.execute("UPDATE OR REPLACE main.tracked_series_followers SET user_id = -user_id WHERE user_id < 0")
+        conn.commit()
+    finally:
+        conn.execute("DROP TABLE temp.follower_map")
 
 
 def _match_dismissal_accounts(conn, mapping: dict) -> None:

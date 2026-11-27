@@ -2,7 +2,7 @@
 (PATCH .../pages/{page_id}/regions/{region_id}), a new box (POST
 .../pages/{page_id}/regions; DELETE of one takes only a query rev) and its
 undo (POST .../pages/{page_id}/undo) under /api/scanlate. All answer with
-the page detail (api.scanlate_schemas.ScanlatePageDetail)."""
+the page detail (api.schemas.scanlate.ScanlatePageDetail)."""
 
 from typing import Optional
 

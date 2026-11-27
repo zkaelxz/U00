@@ -32,7 +32,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from api.auth import engine_for_caller, is_at_pc, require_engines_allowed, require_permission
-from api.scanlate_schemas import (ScanlateRegionRedoRequest, ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
+from api.schemas.scanlate import (ScanlateRegionRedoRequest, ScanlateConfig, ScanlateExportRequest, ScanlateJobStarted,
                                   ScanlatePageDetail, ScanlateRenderRequest, ScanlateRunNotes,
                                   ScanlateRunRequest, ScanlateUploadResult)
 from api.schemas import (ComicRegionCreateRequest, ComicRegionEditRequest,
