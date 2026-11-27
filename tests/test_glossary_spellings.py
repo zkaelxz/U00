@@ -22,7 +22,7 @@ from lib.errors import ConflictError, InvalidInputError, NotFoundError, Unsuppor
 from tests.job_helpers import wait_for_job
 
 SECRET = "sk-ant-api03-SECRETSECRETSECRETSECRET"
-LINES = ["ナローさんこんにちは", "ナロチが来た", "ナロチも来た", "ナローが笑った", "関係ない話"]
+LINES = ["ヤソーさんこんにちは", "ヤソチが来た", "ヤソチも来た", "ヤソーが笑った", "関係ない話"]
 
 
 class _Engine:
@@ -73,7 +73,7 @@ def _title(db, lines=LINES, ens=None, aliases="", translation="Yaro", language="
     db.save_lines(did, [core.Line(idx=i, start=float(i), end=i + 1.0, zh=z,
                                   en=(ens[i] if ens else ""))
                         for i, z in enumerate(lines)])
-    db.upsert_glossary_term(sid, "ナロー", translation)
+    db.upsert_glossary_term(sid, "ヤソー", translation)
     term = db.list_glossary_terms(sid)[0]
     if aliases:
         glossary_service.upsert_glossary_term(
@@ -93,7 +93,7 @@ class TestParse:
         ('```json\n["a1"]\n```', ["a1"]),
         ('{"spellings": ["a1", {"spelling": "b2"}, 5, "a1"]}', ["a1", "b2"]),
         ("[]", []),
-        ("Sure! Here are some: ナロチ, ナロウ", None),
+        ("Sure! Here are some: ヤソチ, ヤソウ", None),
         ("", None), ('{"x": 1}', None), ("42", None)])
     def test_strict(self, text, expected):
         assert sp.parse_spellings(text) == expected
@@ -102,30 +102,30 @@ class TestParse:
 class TestSuggest:
     def test_only_spellings_in_the_transcript_are_shown(self, isolated_db, engine, reply):
         did, _, tid = _title(isolated_db)
-        reply["text"] = '["ナロチ", "ナロウ", "ナロー", "ヤ"]'
+        reply["text"] = '["ヤソチ", "ヤソウ", "ヤソー", "ヤ"]'
         st = _run(did, tid)
         assert st["status"] == "done" and st["result"]["unusable"] is False
-        # ナロウ never occurs, the term itself and a one-character guess are dropped
-        assert [(p["text"], p["count"]) for p in st["result"]["proposals"]] == [("ナロチ", 2)]
+        # ヤソウ never occurs, the term itself and a one-character guess are dropped
+        assert [(p["text"], p["count"]) for p in st["result"]["proposals"]] == [("ヤソチ", 2)]
         p = st["result"]["proposals"][0]
         assert p["is_alias"] is False and len(p["examples"]) == 2
-        assert p["examples"][0]["line_idx"] == 1 and "ナロチ" in p["examples"][0]["snippet"]
+        assert p["examples"][0]["line_idx"] == 1 and "ヤソチ" in p["examples"][0]["snippet"]
         assert "Yaro" in reply["calls"][0]["prompt"] and len(reply["calls"]) == 1
 
     def test_nothing_is_saved(self, isolated_db, engine, reply):
         did, sid, tid = _title(isolated_db)
-        reply["text"] = '["ナロチ"]'
+        reply["text"] = '["ヤソチ"]'
         before = isolated_db.list_glossary_terms(sid)
         _run(did, tid)
         assert isolated_db.list_glossary_terms(sid) == before
         assert [ln.zh for ln in isolated_db.load_line_objects(did)] == LINES
 
     def test_existing_alias_is_marked(self, isolated_db, engine, reply):
-        did, _, tid = _title(isolated_db, aliases="ナロチ")
-        reply["text"] = '["ナロチ"]'
+        did, _, tid = _title(isolated_db, aliases="ヤソチ")
+        reply["text"] = '["ヤソチ"]'
         assert _run(did, tid)["result"]["proposals"][0]["is_alias"] is True
 
-    @pytest.mark.parametrize("text", ["I think ナロチ is likely.", "", "{not json", "null"])
+    @pytest.mark.parametrize("text", ["I think ヤソチ is likely.", "", "{not json", "null"])
     def test_unusable_reply_writes_nothing_and_says_so(self, isolated_db, engine, reply, text):
         did, sid, tid = _title(isolated_db)
         reply["text"] = text
@@ -138,7 +138,7 @@ class TestSuggest:
 
     def test_no_match_has_a_plain_message(self, isolated_db, engine, reply):
         did, _, tid = _title(isolated_db)
-        reply["text"] = '["ナロウ"]'
+        reply["text"] = '["ヤソウ"]'
         st = _run(did, tid)
         assert st["result"]["proposals"] == [] and st["message"] == sp.NO_MATCH_MESSAGE
 
@@ -152,36 +152,36 @@ class TestSuggest:
         assert all(int(p["text"][2:]) < sp.MAX_MODEL_SPELLINGS for p in st["result"]["proposals"][:1])
 
     def test_latin_spelling_is_not_counted_inside_a_longer_word(self, isolated_db, engine, reply):
-        did, _, tid = _title(isolated_db, lines=["Naloch said hi", "then Nalo left", "Nalo again"],
+        did, _, tid = _title(isolated_db, lines=["Yasoch said hi", "then Yaso left", "Yaso again"],
                              language="zh")
-        reply["text"] = '["Nalo", "Naloch"]'
+        reply["text"] = '["Yaso", "Yasoch"]'
         got = {p["text"]: p["count"] for p in _run(did, tid)["result"]["proposals"]}
-        assert got == {"Nalo": 2, "Naloch": 1}
+        assert got == {"Yaso": 2, "Yasoch": 1}
 
     def test_half_width_guess_cannot_collapse_to_one_character(self, isolated_db, engine, reply):
         # NFKC turns half-width ｶﾞ (two code points) into the single ガ, which would match nearly every line
-        did, _, tid = _title(isolated_db, lines=["ガガ", "ガ来た", "ナロチが来た", "ナロチも来た"])
-        reply["text"] = '["ｶﾞ", "ナロチ"]'
-        assert [p["text"] for p in _run(did, tid)["result"]["proposals"]] == ["ナロチ"]
+        did, _, tid = _title(isolated_db, lines=["ガガ", "ガ来た", "ヤソチが来た", "ヤソチも来た"])
+        reply["text"] = '["ｶﾞ", "ヤソチ"]'
+        assert [p["text"] for p in _run(did, tid)["result"]["proposals"]] == ["ヤソチ"]
 
     def test_full_width_latin_keeps_the_word_boundary(self, isolated_db, engine, reply):
-        did, _, tid = _title(isolated_db, lines=["Naloch said hi", "then Nalo left"], language="zh")
-        reply["text"] = '["Ｎａｌｏ"]'
+        did, _, tid = _title(isolated_db, lines=["Yasoch said hi", "then Yaso left"], language="zh")
+        reply["text"] = '["Ｙａｓｏ"]'
         got = {p["text"]: p["count"] for p in _run(did, tid)["result"]["proposals"]}
-        assert got == {"Nalo": 1}
+        assert got == {"Yaso": 1}
 
     def test_full_width_spelling_equal_to_the_term_is_not_offered(self, isolated_db, engine, reply):
-        did, _, tid = _title(isolated_db, lines=["Ｎａｌｏ", "Nalo"], language="zh")
-        glossary_service.upsert_glossary_term(did, {"id": tid, "term_original": "Nalo"})
-        reply["text"] = '["Ｎａｌｏ"]'
+        did, _, tid = _title(isolated_db, lines=["Ｙａｓｏ", "Yaso"], language="zh")
+        glossary_service.upsert_glossary_term(did, {"id": tid, "term_original": "Yaso"})
+        reply["text"] = '["Ｙａｓｏ"]'
         assert _run(did, tid)["result"]["proposals"] == []
 
     def test_offered_text_is_the_form_the_transcript_uses(self, isolated_db, engine, reply):
-        # Alias matching in translation is a literal substring, so the model's "nalo" must not be returned
-        did, _, tid = _title(isolated_db, lines=["NALO said", "NALO again", "Nalo left"], language="zh")
-        reply["text"] = '["nalo", "Nalo"]'
+        # Alias matching in translation is a literal substring, so the model's "yaso" must not be returned
+        did, _, tid = _title(isolated_db, lines=["YASO said", "YASO again", "Yaso left"], language="zh")
+        reply["text"] = '["yaso", "Yaso"]'
         got = _run(did, tid)["result"]["proposals"]
-        assert [(p["text"], p["count"]) for p in got] == [("NALO", 3)]
+        assert [(p["text"], p["count"]) for p in got] == [("YASO", 3)]
 
     def test_usage_is_logged(self, isolated_db, engine, reply, monkeypatch):
         did, _, tid = _title(isolated_db)
@@ -194,7 +194,7 @@ class TestSuggest:
 
     def test_cancel_is_honoured_and_nothing_is_published(self, isolated_db, engine, reply):
         did, _, tid = _title(isolated_db)
-        reply["text"] = '["ナロチ"]'
+        reply["text"] = '["ヤソチ"]'
         reply["hook"] = lambda: background_jobs.request_cancel(sp.spelling_job_id(did))
         out = sp.start_spelling_suggestions(did, tid, "Yaro")
         st = wait_for_job(out["job_id"], timeout=6.0)
@@ -242,7 +242,7 @@ class TestConsistency:
     ENS = ["Yaro, hello", "Yaroch came", "Yaro came too", "Yarou laughed", ""]
 
     def test_lists_lines_where_the_english_differs(self, isolated_db):
-        did, _, tid = _title(isolated_db, ens=self.ENS, aliases="ナロチ")
+        did, _, tid = _title(isolated_db, ens=self.ENS, aliases="ヤソチ")
         out = sp.check_name_consistency(did, tid)
         assert out["available"] and out["english"] == "Yaro"
         assert out["lines_with_name"] == 4 and out["consistent"] == 2 and out["untranslated"] == 0
@@ -251,12 +251,12 @@ class TestConsistency:
         assert out["other_words"] == []
 
     def test_other_words_hint_at_the_other_rendering(self, isolated_db):
-        did, _, tid = _title(isolated_db, aliases="ナロチ",
-                             ens=["Hello Yaro", "Then Nalou left", "See Nalou", "Hi", ""])
-        assert sp.check_name_consistency(did, tid)["other_words"] == ["Nalou"]
+        did, _, tid = _title(isolated_db, aliases="ヤソチ",
+                             ens=["Hello Yaro", "Then Yasou left", "See Yasou", "Hi", ""])
+        assert sp.check_name_consistency(did, tid)["other_words"] == ["Yasou"]
 
     def test_typed_english_overrides_and_nothing_changes(self, isolated_db):
-        did, sid, tid = _title(isolated_db, ens=self.ENS, aliases="ナロチ")
+        did, sid, tid = _title(isolated_db, ens=self.ENS, aliases="ヤソチ")
         before = isolated_db.list_glossary_terms(sid)
         out = sp.check_name_consistency(did, tid, "Yaroch")
         assert out["english"] == "Yaroch" and out["consistent"] == 1
@@ -273,7 +273,7 @@ class TestConsistency:
         monkeypatch.setattr(sp, "SCAN_MAX_LINES", 2)
         out = sp.check_name_consistency(did, tid)
         assert out["truncated"] is True and out["lines_scanned"] == 2
-        assert out["lines_with_name"] == 1   # only line 0 mentions ナロー within the first two lines
+        assert out["lines_with_name"] == 1   # only line 0 mentions ヤソー within the first two lines
 
     def test_scan_stops_at_the_character_budget(self, isolated_db, monkeypatch):
         did, _, tid = _title(isolated_db, ens=self.ENS)
@@ -286,7 +286,7 @@ class TestConsistency:
         assert out["truncated"] is False and out["lines_scanned"] == 5
 
     def test_untranslated_lines_are_counted_not_listed(self, isolated_db):
-        did, _, tid = _title(isolated_db, ens=["", "", "", "", ""], aliases="ナロチ")
+        did, _, tid = _title(isolated_db, ens=["", "", "", "", ""], aliases="ヤソチ")
         out = sp.check_name_consistency(did, tid)
         assert out["untranslated"] == 4 and out["differing"] == []
 
@@ -328,7 +328,7 @@ class TestRoutes:
     def test_start_status_and_cancel_shapes(self, local, isolated_db, engine, reply):
         did, _, tid = _title(isolated_db)
         assert local.get(_url(did)).json()["status"] == "idle"
-        reply["text"] = '["ナロチ"]'
+        reply["text"] = '["ヤソチ"]'
         r = local.post(_url(did), json={"term_id": tid, "english": "Yaro"})
         assert r.status_code == 200, r.text
         assert r.json() == {"job_id": f"spelling_suggest_{did}", "engine": "claude"}
@@ -336,7 +336,7 @@ class TestRoutes:
         body = local.get(_url(did))
         assert body.status_code == 200 and SECRET not in body.text
         b = body.json()
-        assert b["status"] == "done" and b["result"]["proposals"][0]["text"] == "ナロチ"
+        assert b["status"] == "done" and b["result"]["proposals"][0]["text"] == "ヤソチ"
         assert set(b["result"]["proposals"][0]) == {"text", "count", "is_alias", "is_term", "examples"}
         stale = local.post(_url(did, "/cancel"), json={"run_id": "nope"})
         assert stale.status_code == 409

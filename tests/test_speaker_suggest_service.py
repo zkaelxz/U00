@@ -27,48 +27,48 @@ def _guesses(result):
 
 
 def test_neighbours_that_agree_come_first(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1), _line(2, "Maple")])
-    assert _guesses(svc.suggest_speakers(did, [ids[1]])) == {ids[1]: [("Maple", ["above", "below"])]}
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1), _line(2, "Anvil")])
+    assert _guesses(svc.suggest_speakers(did, [ids[1]])) == {ids[1]: [("Anvil", ["above", "below"])]}
 
 
 def test_nearest_labelled_lines_skip_other_blanks(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1), _line(2), _line(3, "Cray")])
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1), _line(2), _line(3, "Cray")])
     g = _guesses(svc.suggest_speakers(did, [ids[1], ids[2]]))
-    assert g[ids[1]] == [("Maple", ["above"]), ("Cray", ["below"])]
+    assert g[ids[1]] == [("Anvil", ["above"]), ("Cray", ["below"])]
     assert g[ids[2]] == g[ids[1]]
 
 
 def test_voice_pick_is_named_after_the_speaker_on_that_voices_lines(isolated_db):
     # The saved turns keep detection's own labels; the lines were renamed since.
     turns = [_turn(0, "SPEAKER_00"), _turn(1, "SPEAKER_01"), _turn(2, "SPEAKER_01"), _turn(3, "SPEAKER_00")]
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1), _line(2, "Cray"), _line(3, "Maple")], turns)
-    # Cray has two clues (below and voice), Maple one, so Cray leads.
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1), _line(2, "Cray"), _line(3, "Anvil")], turns)
+    # Cray has two clues (below and voice), Anvil one, so Cray leads.
     assert _guesses(svc.suggest_speakers(did, [ids[1]]))[ids[1]] == [
-        ("Cray", ["below", "voice"]), ("Maple", ["above"])]
+        ("Cray", ["below", "voice"]), ("Anvil", ["above"])]
 
 
 def test_a_turn_spanning_several_lines_still_gives_the_later_line_its_voice(isolated_db):
     # The long turn starts two lines before #2, so a lookup by start time alone would miss it.
     turns = [{"start": 0.0, "end": 5.5, "speaker": "SPEAKER_00"}, _turn(3, "SPEAKER_01")]
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1), _line(2), _line(3, "Cray")], turns)
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1), _line(2), _line(3, "Cray")], turns)
     assert _guesses(svc.suggest_speakers(did, [ids[2]]))[ids[2]] == [
-        ("Maple", ["above", "voice"]), ("Cray", ["below"])]
+        ("Anvil", ["above", "voice"]), ("Cray", ["below"])]
 
 
 def test_a_sound_cue_is_not_the_line_above(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1, "Cray", sfx=True), _line(2)])
-    assert _guesses(svc.suggest_speakers(did, [ids[2]]))[ids[2]] == [("Maple", ["above"])]
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1, "Cray", sfx=True), _line(2)])
+    assert _guesses(svc.suggest_speakers(did, [ids[2]]))[ids[2]] == [("Anvil", ["above"])]
 
 
 def test_voice_with_no_named_lines_offers_nothing_for_it(isolated_db):
     turns = [_turn(0, "SPEAKER_00"), _turn(1, "SPEAKER_05")]
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1)], turns)
-    assert _guesses(svc.suggest_speakers(did, [ids[1]]))[ids[1]] == [("Maple", ["above"])]
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1)], turns)
+    assert _guesses(svc.suggest_speakers(did, [ids[1]]))[ids[1]] == [("Anvil", ["above"])]
 
 
 def test_lines_that_need_no_speaker_get_no_guess(isolated_db):
     did, ids = _seed(isolated_db, [
-        _line(0, "Maple"), _line(1, speaker_manual=True), _line(2, sfx=True), _line(3, "Cray")])
+        _line(0, "Anvil"), _line(1, speaker_manual=True), _line(2, sfx=True), _line(3, "Cray")])
     assert svc.suggest_speakers(did, [ids[0], ids[1], ids[2], ids[3]]) == {"lines": []}
 
 
@@ -78,13 +78,13 @@ def test_title_with_no_speakers_has_no_guesses(isolated_db):
 
 
 def test_other_titles_lines_are_left_out(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1)])
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1)])
     _, other_ids = _seed(isolated_db, [_line(0, "Cray"), _line(1)])
     assert svc.suggest_speakers(did, [other_ids[1]]) == {"lines": []}
 
 
 def test_writes_nothing(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1)])
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1)])
     before = [ln._asdict() for ln in isolated_db.load_line_texts(did)]
     svc.suggest_speakers(did, [ids[1]])
     assert [ln._asdict() for ln in isolated_db.load_line_texts(did)] == before
@@ -103,6 +103,6 @@ def test_unknown_title(isolated_db):
 
 
 def test_corrupt_turns_are_ignored(isolated_db):
-    did, ids = _seed(isolated_db, [_line(0, "Maple"), _line(1)],
+    did, ids = _seed(isolated_db, [_line(0, "Anvil"), _line(1)],
                      [{"start": "x", "end": 1, "speaker": "S"}, {"start": 3, "end": 2, "speaker": "S"}, {"end": 1}])
-    assert _guesses(svc.suggest_speakers(did, [ids[1]]))[ids[1]] == [("Maple", ["above"])]
+    assert _guesses(svc.suggest_speakers(did, [ids[1]]))[ids[1]] == [("Anvil", ["above"])]

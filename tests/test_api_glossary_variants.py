@@ -19,8 +19,8 @@ from services import auth_service
 def _title():
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="ko")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="Naloch said hi", en=""),
-                        Line(idx=1, start=1, end=2, zh="then Nalou left", en="")])
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="Yasoch said hi", en=""),
+                        Line(idx=1, start=1, end=2, zh="then Yasou left", en="")])
     return did
 
 
@@ -50,13 +50,13 @@ def remote(isolated_db):
 
 def test_reading_the_lines_permission_is_enough(remote):
     did = _title()
-    url = f"/api/glossary/dramas/{did}/variants?term=Nalo"
+    url = f"/api/glossary/dramas/{did}/variants?term=Yaso"
     assert remote.get(url).status_code == 401
     assert remote.get(url, headers=_session()).status_code == 403
     headers = _session("lines.read")
     body = remote.get(url, headers=headers).json()
     assert body["available"] is True
-    assert {c["text"] for c in body["candidates"]} == {"Naloch", "Nalou"}
+    assert {c["text"] for c in body["candidates"]} == {"Yasoch", "Yasou"}
     assert set(body["candidates"][0]) == {"text", "count", "score", "is_alias", "is_term", "examples"}
     clusters = remote.get(f"/api/glossary/dramas/{did}/name-clusters", headers=headers)
     assert clusters.status_code == 200 and set(clusters.json()) == {
@@ -67,7 +67,7 @@ def test_snippets_are_line_text_so_library_read_alone_is_refused(remote):
     # Both routes return source line text, which every other route gates with lines.read.
     did = _title()
     headers = _session(keep=("library.read",))
-    assert remote.get(f"/api/glossary/dramas/{did}/variants?term=Nalo", headers=headers).status_code == 403
+    assert remote.get(f"/api/glossary/dramas/{did}/variants?term=Yaso", headers=headers).status_code == 403
     assert remote.get(f"/api/glossary/dramas/{did}/name-clusters", headers=headers).status_code == 403
 
 
@@ -79,7 +79,7 @@ def test_clusters_need_the_same_permission(remote):
 def test_errors_use_the_standard_shape(remote):
     headers = _session("lines.read")
     did = _title()
-    assert remote.get("/api/glossary/dramas/9999/variants?term=Nalo", headers=headers).status_code == 404
+    assert remote.get("/api/glossary/dramas/9999/variants?term=Yaso", headers=headers).status_code == 404
     assert remote.get("/api/glossary/dramas/9999/name-clusters", headers=headers).status_code == 404
     assert remote.get(f"/api/glossary/dramas/{did}/variants", headers=headers).status_code == 422
     assert remote.get(f"/api/glossary/dramas/{did}/variants?term=", headers=headers).status_code == 422
@@ -91,10 +91,10 @@ def test_errors_use_the_standard_shape(remote):
 def test_name_fixes_routes_need_read_to_preview_and_edit_to_apply(remote):
     did = _title()
     sid = db.get_drama(did)["series_id"]
-    db.upsert_glossary_term(sid, "Naloch", "X")
+    db.upsert_glossary_term(sid, "Yasoch", "X")
     term_id = db.list_glossary_terms(sid)[0]["id"]
     url = f"/api/glossary/dramas/{did}/name-fixes"
-    body = {"fixes": [{"term_id": term_id, "spelling": "Nalou"}]}
+    body = {"fixes": [{"term_id": term_id, "spelling": "Yasou"}]}
     reader = _session("lines.read", drop=("lines.edit",))
     assert remote.get(url).status_code == 401
     assert remote.get(url, headers=reader).status_code == 200

@@ -145,16 +145,16 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
   })
   await page.route('**/api/library/home', (r) => r.fulfill({ json: {
     ready: [
-      { ...title(11, 'Birch: karaoke night with a rather long title'), read_percent: 0, length_seconds: 7500, page_count: 0 },
-      { ...title(12, 'Maple: game night'), read_percent: 0, length_seconds: 2700, page_count: 0, watched_seconds: 4360, watched_at: '2026-11-25T09:00:00' },
+      { ...title(11, 'Chime: karaoke night with a rather long title'), read_percent: 0, length_seconds: 7500, page_count: 0 },
+      { ...title(12, 'Anvil: game night'), read_percent: 0, length_seconds: 2700, page_count: 0, watched_seconds: 4360, watched_at: '2026-11-25T09:00:00' },
       { ...title(13, 'A comic', 'manhua'), read_percent: 0, length_seconds: null, page_count: 24 },
     ],
     ready_count: 12,
     needs_you: [
-      { ...title(14, 'Cedar collab'), kind: 'failed', step: 'translate', reason: 'The Claude key was refused.', risk_count: null, series_id: null, hold_kind: null },
+      { ...title(14, 'Urchin collab'), kind: 'failed', step: 'translate', reason: 'The Claude key was refused.', risk_count: null, series_id: null, hold_kind: null },
     ],
     needs_you_count: 1,
-    running: [{ ...title(16, 'Birch: zatsudan'), step: 'transcribe', status: 'running', job_id: null, started_at: null }],
+    running: [{ ...title(16, 'Chime: zatsudan'), step: 'transcribe', status: 'running', job_id: null, started_at: null }],
     running_count: 2,
     can_control_queue: true,
   } }))
@@ -182,7 +182,7 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
   const needs = page.getByRole('region', { name: 'Needs you' })
   await expect(needs.getByRole('link', { name: 'Fix the key' })).toHaveAttribute('href', /settings/)
   await expect(needs.getByRole('listitem').first()).toContainText('Translating stopped')
-  await expect(page.getByTestId('home-running')).toContainText('Transcribing Birch: zatsudan')
+  await expect(page.getByTestId('home-running')).toContainText('Transcribing Chime: zatsudan')
   await expect(page.getByTestId('home-running')).toContainText('1 more is waiting its turn')
 
   await expectNoSidewaysScroll(page)

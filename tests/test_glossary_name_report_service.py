@@ -43,9 +43,9 @@ def _title(name, texts, language="ko", owner=None, private=0, terms=()):
 
 
 def _three_titles():
-    a = _title("Alpha Stream", ["Nalo said hi", "then Nalo left", "later Nalo ran"])
-    b = _title("Beta Stream", ["Naloch said hi", "then Naloch left", "nothing here"])
-    c = _title("Gamma Stream", ["Nalou said hi", "then Nalou left", "and Nalo ran"])
+    a = _title("Alpha Stream", ["Yaso said hi", "then Yaso left", "later Yaso ran"])
+    b = _title("Beta Stream", ["Yasoch said hi", "then Yasoch left", "nothing here"])
+    c = _title("Gamma Stream", ["Yasou said hi", "then Yasou left", "and Yaso ran"])
     return a, b, c
 
 
@@ -61,24 +61,24 @@ def test_one_name_heard_differently_in_three_titles_is_one_group(isolated_db):
     a, b, c = _three_titles()
     result = _scan()
     assert result["titles_scanned"] == 3 and result["truncated"] is False
-    group = _group_with(result, "Naloch")
-    assert {v["text"]: v["count"] for v in group["variants"]} == {"Nalo": 4, "Naloch": 2, "Nalou": 2}
+    group = _group_with(result, "Yasoch")
+    assert {v["text"]: v["count"] for v in group["variants"]} == {"Yaso": 4, "Yasoch": 2, "Yasou": 2}
     assert group["total"] == 8 and group["titles_total"] == 3
     per_title = {t["drama_id"]: t for t in group["titles"]}
     assert set(per_title) == {a, b, c}
     assert per_title[a]["title"] == "Alpha Stream" and per_title[a]["count"] == 3
     assert per_title[c]["count"] == 3
-    assert group["canonical"] == "Nalo"
+    assert group["canonical"] == "Yaso"
     assert 1 <= len(group["examples"]) <= report.MAX_GROUP_EXAMPLES
     assert {e["drama_id"] for e in group["examples"]} <= {a, b, c}
     assert "mark" not in group and len(result["groups"]) == 1   # marks are applied on read, not by the scan
 
 
 def test_examples_are_short_snippets_not_transcripts(isolated_db):
-    long_line = "x" * 300 + " Nalo " + "y" * 300
-    _title("Long", [long_line, long_line + " Nalo", "Nalo again"])
-    _title("Other", ["Naloch here", "Naloch there"])
-    group = _group_with(_scan(), "Nalo")
+    long_line = "x" * 300 + " Yaso " + "y" * 300
+    _title("Long", [long_line, long_line + " Yaso", "Yaso again"])
+    _title("Other", ["Yasoch here", "Yasoch there"])
+    group = _group_with(_scan(), "Yaso")
     assert group["examples"]
     assert all(len(e["snippet"]) <= report.MAX_SNIPPET_CHARS for e in group["examples"])
     assert len(json.dumps(group)) < 3000
@@ -91,12 +91,12 @@ def test_a_name_in_one_title_with_one_spelling_is_left_to_the_per_title_tool(iso
 
 
 def test_a_member_never_sees_another_members_title_or_lines(isolated_db):
-    _title("Shared Stream", ["Nalo said hi", "then Nalo left"])
-    _title("Ada Private", ["Naloch said hi", "then Naloch left"], owner=11, private=1)
-    _title("Ben Private", ["Nalou said hi", "then Nalou left", "Secretname Secretname"], owner=12, private=1)
+    _title("Shared Stream", ["Yaso said hi", "then Yaso left"])
+    _title("Ada Private", ["Yasoch said hi", "then Yasoch left"], owner=11, private=1)
+    _title("Ben Private", ["Yasou said hi", "then Yasou left", "Secretname Secretname"], owner=12, private=1)
     ada = _scan(ownership_service.visible_to_filter(ADA))
     text = json.dumps(ada)
-    assert "Ben Private" not in text and "Nalou" not in text and "Secretname" not in text
+    assert "Ben Private" not in text and "Yasou" not in text and "Secretname" not in text
     assert {t["title"] for g in ada["groups"] for t in g["titles"]} == {"Shared Stream", "Ada Private"}
     assert ada["titles_total"] == 2
     for principal in (None, LOCAL, ADMIN):
@@ -107,7 +107,7 @@ def test_a_member_never_sees_another_members_title_or_lines(isolated_db):
 
 def test_caps_are_respected(isolated_db, monkeypatch):
     for i in range(5):
-        _title(f"Stream {i}", [f"Nalo{'ch' if i % 2 else ''} said hi", f"then Nalo{'ch' if i % 2 else ''} left"])
+        _title(f"Stream {i}", [f"Yaso{'ch' if i % 2 else ''} said hi", f"then Yaso{'ch' if i % 2 else ''} left"])
     monkeypatch.setattr(report, "MAX_TITLES_SCANNED", 3)
     result = _scan()
     assert result["titles_total"] == 5 and result["titles_scanned"] == 3 and result["truncated"] is True
@@ -146,21 +146,21 @@ def test_the_scan_writes_nothing(isolated_db):
 
 
 def test_a_partly_covered_cluster_reports_the_english(isolated_db):
-    a = _title("Alpha Stream", ["Nalo said hi", "then Nalo left", "Naloch ran", "Naloch sat"],
-               terms=[("Nalo", "Yarrow", [])])
-    b = _title("Beta Stream", ["Nalou said hi", "then Nalou left"])
-    group = _group_with(_scan(), "Naloch")
+    a = _title("Alpha Stream", ["Yaso said hi", "then Yaso left", "Yasoch ran", "Yasoch sat"],
+               terms=[("Yaso", "Yarrow", [])])
+    b = _title("Beta Stream", ["Yasou said hi", "then Yasou left"])
+    group = _group_with(_scan(), "Yasoch")
     entry = next(t for t in group["titles"] if t["drama_id"] == a)
     other = next(t for t in group["titles"] if t["drama_id"] == b)
     assert other["in_glossary"] is False and other["glossary_english"] is None
-    assert entry["in_glossary"] is True and entry["glossary_term"] == "Nalo"
+    assert entry["in_glossary"] is True and entry["glossary_term"] == "Yaso"
     assert entry["glossary_english"] == "Yarrow"
-    assert group["canonical"] == "Nalo"   # a name a glossary already holds is offered first
+    assert group["canonical"] == "Yaso"   # a name a glossary already holds is offered first
 
 
 def test_an_unavailable_language_is_counted_not_fatal(isolated_db, monkeypatch):
     _three_titles()
-    _title("Needs Library", ["ナロ", "ナロ"], language="ja")
+    _title("Needs Library", ["ヤソ", "ヤソ"], language="ja")
     monkeypatch.setattr(report.ph, "availability",
                         lambda lang: {"available": lang != "ja", "package": "pykakasi",
                                       "hint": "Japanese needs pykakasi."})
@@ -188,10 +188,10 @@ def test_a_title_that_fails_is_skipped_without_its_error(isolated_db, monkeypatc
 
 def test_marks_persist_and_hide_the_group_from_the_unresolved_list(isolated_db):
     _three_titles()
-    key = _group_with(_scan(), "Nalo")["key"]
+    key = _group_with(_scan(), "Yaso")["key"]
     assert report.set_mark(ADA, key, "wrong", _scan()) == {"key": key, "mark": "wrong"}
     again = report.apply_marks(ADA, _scan())
-    group = _group_with(again, "Naloch")
+    group = _group_with(again, "Yasoch")
     assert group["mark"] == "wrong"
     assert again["counts"] == {"unresolved": 0, "right": 0, "wrong": 1, "skip": 0}
     # A different person's marks are their own.
@@ -231,11 +231,11 @@ def test_export_lists_only_unresolved_groups_with_names_counts_and_examples(isol
     _three_titles()
     _title("Delta", ["Mirel one", "Mirel two", "Mirelle three", "Mirelle four"])
     result = _scan()
-    resolved = _group_with(result, "Naloch")
+    resolved = _group_with(result, "Yasoch")
     report.set_mark(LOCAL, resolved["key"], "wrong", result)
     text = report.export_markdown(report.apply_marks(LOCAL, result))
     assert text.startswith("# Name check across titles")
-    assert "Mirel" in text and "Mirelle" in text and "Naloch" not in text
+    assert "Mirel" in text and "Mirelle" in text and "Yasoch" not in text
     assert "Alpha Stream" not in text and "Delta" not in text    # counts only; no title names
     assert "Mirel one" in text                                    # an example line
     assert text.count("\n- ") >= 2
@@ -364,8 +364,8 @@ def test_a_failed_scan_shows_a_fixed_message_not_the_error(isolated_db, monkeypa
 
 
 def test_a_scan_started_for_a_member_scans_only_what_they_could_see(isolated_db):
-    _title("Shared", ["Nalo said hi", "then Nalo left"])
-    _title("Ben Private", ["Naloch said hi", "then Naloch left"], owner=12, private=1)
+    _title("Shared", ["Yaso said hi", "then Yaso left"])
+    _title("Ben Private", ["Yasoch said hi", "then Yasoch left"], owner=12, private=1)
     report.start_scan(ADA)
     _wait(report.job_id_for(ADA))
     result = report.get_report(ADA)["result"]
@@ -380,21 +380,21 @@ def _make_private(drama_id, owner):
 
 
 def test_a_title_made_private_after_the_scan_vanishes_from_the_members_report_and_export(isolated_db):
-    _title("Alpha Stream", ["Nalo said hi", "then Nalo left"], owner=11, private=0)
-    beta = _title("Beta Stream", ["Naloch said hi", "then Naloch left", "Mirel one", "Mirelle two"], owner=11, private=0)
-    _title("Gamma Stream", ["Nalou said hi", "then Nalou left"], owner=11, private=0)
+    _title("Alpha Stream", ["Yaso said hi", "then Yaso left"], owner=11, private=0)
+    beta = _title("Beta Stream", ["Yasoch said hi", "then Yasoch left", "Mirel one", "Mirelle two"], owner=11, private=0)
+    _title("Gamma Stream", ["Yasou said hi", "then Yasou left"], owner=11, private=0)
     _title("Delta Stream", ["Mirel here", "Mirelle there"], owner=11, private=0)
     report.start_scan(BEN)
     _wait(report.job_id_for(BEN))
     before = json.dumps(report.get_report(BEN)["result"])
-    assert "Beta Stream" in before and "Naloch" in before
+    assert "Beta Stream" in before and "Yasoch" in before
     _make_private(beta, owner=11)
     after = report.get_report(BEN)["result"]
     text = json.dumps(after) + report.export_report(BEN)
-    assert "Beta Stream" not in text and "Naloch" not in text and "then Naloch left" not in text
-    nalo = _group_with(after, "Nalo")
-    assert {v["text"] for v in nalo["variants"]} == {"Nalo", "Nalou"}
-    assert nalo["titles_total"] == 2 and nalo["total"] == 4
+    assert "Beta Stream" not in text and "Yasoch" not in text and "then Yasoch left" not in text
+    yaso = _group_with(after, "Yaso")
+    assert {v["text"] for v in yaso["variants"]} == {"Yaso", "Yasou"}
+    assert yaso["titles_total"] == 2 and yaso["total"] == 4
     assert after["counts"]["unresolved"] == len(after["groups"])
     # The owner of the title still sees it.
     visible = report.scan_titles(ownership_service.visible_to_filter(ADA))
@@ -402,26 +402,26 @@ def test_a_title_made_private_after_the_scan_vanishes_from_the_members_report_an
 
 
 def test_a_group_left_with_no_visible_title_is_dropped_and_the_counts_follow(isolated_db):
-    _title("Alpha Stream", ["Nalo said hi", "then Nalo left"], owner=11, private=0)
-    _title("Gamma Stream", ["Nalou said hi", "then Nalou left"], owner=11, private=0)
+    _title("Alpha Stream", ["Yaso said hi", "then Yaso left"], owner=11, private=0)
+    _title("Gamma Stream", ["Yasou said hi", "then Yasou left"], owner=11, private=0)
     solo1 = _title("Solo One", ["Mirel one", "Mirelle two"], owner=11, private=0)
     report.start_scan(BEN)
     _wait(report.job_id_for(BEN))
     assert report.get_report(BEN)["result"]["counts"]["unresolved"] == 2
     _make_private(solo1, owner=11)
     after = report.get_report(BEN)["result"]
-    assert [g["canonical"] for g in after["groups"]] == ["Nalo"] and "Mirel" not in json.dumps(after)
+    assert [g["canonical"] for g in after["groups"]] == ["Yaso"] and "Mirel" not in json.dumps(after)
     assert after["counts"]["unresolved"] == 1
 
 
 def test_marking_works_on_the_view_the_member_can_still_see(isolated_db):
-    _title("Alpha Stream", ["Nalo said hi", "then Nalo left"], owner=11, private=0)
-    beta = _title("Beta Stream", ["Naloch said hi", "then Naloch left"], owner=11, private=0)
+    _title("Alpha Stream", ["Yaso said hi", "then Yaso left"], owner=11, private=0)
+    beta = _title("Beta Stream", ["Yasoch said hi", "then Yasoch left"], owner=11, private=0)
     report.start_scan(BEN)
     _wait(report.job_id_for(BEN))
     _make_private(beta, owner=11)
     group = report.get_report(BEN)["result"]["groups"][0]
-    assert group["titles_total"] == 1 and [v["text"] for v in group["variants"]] == ["Nalo"]
+    assert group["titles_total"] == 1 and [v["text"] for v in group["variants"]] == ["Yaso"]
     assert report.set_mark(BEN, group["key"], "skip")["mark"] == "skip"
 
 

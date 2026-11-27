@@ -12,12 +12,12 @@ test.beforeEach(async ({ page }) => {
 
 test('similar spellings and possible names fit a phone', async ({ page }) => {
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({
-    json: [{ id: 11, term_original: 'ナロ', term_translation: 'Nalo', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }],
+    json: [{ id: 11, term_original: 'ヤソ', term_translation: 'Yaso', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }],
   }))
   await page.route('**/api/glossary/dramas/1/variants?*', (route) => route.fulfill({
     json: {
-      term: 'ナロ', available: true, reason: '', lines_scanned: 10, truncated: false,
-      candidates: [{ text: 'ナロック', count: 3, score: 0.83, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ナロックはどこだ、ここにいるのか' }] }],
+      term: 'ヤソ', available: true, reason: '', lines_scanned: 10, truncated: false,
+      candidates: [{ text: 'ヤソック', count: 3, score: 0.83, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ヤソックはどこだ、ここにいるのか' }] }],
     },
   }))
   await page.route('**/api/glossary/dramas/1/name-clusters', (route) => route.fulfill({
@@ -36,9 +36,9 @@ test('similar spellings and possible names fit a phone', async ({ page }) => {
   await gotoTranslate(page, 'glossary')
   const glossary = page.getByRole('region', { name: 'Glossary' })
   await expectPickedTab(glossary, 'Glossary', 'Terms')
-  await glossary.getByRole('button', { name: 'Find similar spellings of ナロ' }).click()
-  const panel = glossary.getByRole('region', { name: 'Similar spellings of ナロ' })
-  await panel.getByRole('button', { name: 'Add ナロック as alias' }).click()
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
+  const panel = glossary.getByRole('region', { name: 'Similar spellings of ヤソ' })
+  await panel.getByRole('button', { name: 'Add ヤソック as alias' }).click()
   await expect(panel.getByRole('button', { name: 'Yes, add alias' })).toBeVisible()
   await glossary.getByRole('button', { name: 'Find possible names' }).click()
   await expect(glossary.getByRole('region', { name: 'Possible names' })).toContainText('ミカ · ミッカ')

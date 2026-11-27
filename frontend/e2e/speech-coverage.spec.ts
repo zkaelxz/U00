@@ -56,7 +56,7 @@ test('without permission to read lines: a plain note, no error banner', async ({
 test('Transcribe says how many words may be mis-heard and links to Review', async ({ page }) => {
   await page.route('**/api/misheard/dramas/1', (route) => route.fulfill({ json: {
     available: true, reason: '', lines_scanned: 9, truncated: false, kept_count: 0, suggestions: [
-      { heard: '納羅赫', suggested: '納洛赫', source: 'glossary', heard_count: 1, suggested_count: 5, line_count: 1, lines: [] },
+      { heard: '達羅赫', suggested: '達洛赫', source: 'glossary', heard_count: 1, suggested_count: 5, line_count: 1, lines: [] },
       { heard: '甲乙', suggested: '甲丙', source: 'name', heard_count: 1, suggested_count: 4, line_count: 1, lines: [] },
     ],
   } }))

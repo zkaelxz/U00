@@ -257,18 +257,18 @@ describe('taking a suggested speaker', () => {
     const entries = [{ id: 1, speaker: '' }]
     let finish: (v: unknown) => void = () => {}
     api.setLineSpeaker.mockReturnValue(new Promise((r) => { finish = r }))
-    const first = ctl.actions.acceptSpeaker(1, 'Maple')
+    const first = ctl.actions.acceptSpeaker(1, 'Anvil')
     expect(await ctl.actions.acceptSpeaker(1, 'Cray')).toBe(false)
     finish({ updated: 1, undo: entries })
     expect(await first).toBe(true)
     expect(api.setLineSpeaker).toHaveBeenCalledTimes(1)
-    expect(setSpeakerUndo).toHaveBeenCalledWith({ lineNumber: 1, speaker: 'Maple', entries })
+    expect(setSpeakerUndo).toHaveBeenCalledWith({ lineNumber: 1, speaker: 'Anvil', entries })
   })
 
   it('keeps the last Undo when a save changed nothing', async () => {
     const { ctl, setSpeakerUndo } = setup([line(1)])
     api.setLineSpeaker.mockResolvedValue({ updated: 0, undo: [] })
-    expect(await ctl.actions.acceptSpeaker(1, 'Maple')).toBe(true)
+    expect(await ctl.actions.acceptSpeaker(1, 'Anvil')).toBe(true)
     expect(setSpeakerUndo).not.toHaveBeenCalled()
   })
 })

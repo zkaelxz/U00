@@ -11,13 +11,13 @@ test.beforeEach(async ({ page }) => {
 test('the name check fits a phone', async ({ page }) => {
   const long = 'Ａ very long invented title name that would push a row wider than a phone if it could not wrap'
   const group = {
-    key: 'nalo', canonical: 'Nalo', total: 6, titles_total: 2, mark: null,
-    variants: [{ text: 'Nalo', count: 4 }, { text: 'Naloch', count: 2 }, { text: 'Naloooooooooooooooooooooch', count: 1 }],
+    key: 'yaso', canonical: 'Yaso', total: 6, titles_total: 2, mark: null,
+    variants: [{ text: 'Yaso', count: 4 }, { text: 'Yasoch', count: 2 }, { text: 'Yasoooooooooooooooooooooch', count: 1 }],
     titles: [
-      { drama_id: 1, title: long, count: 4, in_glossary: true, glossary_term: 'Nalo', glossary_english: 'Yarrow' },
+      { drama_id: 1, title: long, count: 4, in_glossary: true, glossary_term: 'Yaso', glossary_english: 'Yarrow' },
       { drama_id: 2, title: 'Beta Stream', count: 2, in_glossary: false, glossary_term: null, glossary_english: null },
     ],
-    examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Naloch left through the door without a word' }],
+    examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Yasoch left through the door without a word' }],
   }
   await page.route('**/api/glossary/dramas/1/terms', (route) => route.fulfill({ json: [] }))
   await page.route('**/api/glossary/name-report', (route) => route.fulfill({ json: {
@@ -30,14 +30,14 @@ test('the name check fits a phone', async ({ page }) => {
   await glossaryTab(page, 'Names')
   await glossary.getByRole('button', { name: 'Check names across all titles' }).click()
   const panel = glossary.getByRole('region', { name: 'Name check across all titles' })
-  await expect(panel.getByRole('listitem', { name: 'Name Nalo' })).toBeVisible()
+  await expect(panel.getByRole('listitem', { name: 'Name Yaso' })).toBeVisible()
 
   const { scroll, client } = await page.evaluate(() => ({
     scroll: document.documentElement.scrollWidth,
     client: document.documentElement.clientWidth,
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
-  for (const name of ['Mark Nalo right', 'Mark Nalo wrong', 'Mark Nalo skip', 'Check again', 'Copy report']) {
+  for (const name of ['Mark Yaso right', 'Mark Yaso wrong', 'Mark Yaso skip', 'Check again', 'Copy report']) {
     expect(await hitHeight(panel.getByRole('button', { name, exact: true }).first()), `${name} touch target`)
       .toBeGreaterThanOrEqual(44)
   }

@@ -140,14 +140,14 @@ class TestSoloTurns:
         assert main is None
 
     def test_enrolled_voice_keeps_matching_clusters_and_drops_the_rest(self):
-        chars = [_char(7, "Cedar", [1.0, 0.0])]
+        chars = [_char(7, "Urchin", [1.0, 0.0])]
         embeddings = {"A": [0.9, 0.1], "B": [0.0, 1.0], "C": [1.0, 0.0]}
         turns, main = vid.solo_turns(self.TURNS, embeddings, chars)
         assert [(t["start"], t["speaker"]) for t in turns] == [(0.0, "A"), (14.0, "A")]
         assert main["id"] == 7
 
     def test_enrolled_voice_matching_nothing_leaves_every_line_blank(self):
-        chars = [_char(7, "Cedar", [1.0, 0.0])]
+        chars = [_char(7, "Urchin", [1.0, 0.0])]
         turns, main = vid.solo_turns(
             self.TURNS, {"A": [0.0, 1.0], "B": [0.0, 1.0], "C": [0.0, 1.0]}, chars)
         assert turns == [] and main is None

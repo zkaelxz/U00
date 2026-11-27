@@ -140,7 +140,7 @@ export function defaultsPreviewText(p: SeriesDefaultsPreview): string {
 
 export const MAX_STREAMER_NAME = 100
 
-// How the server compares streamer names (series_service.term_key): "Birch" and "ｂｉｒｃｈ" are one folder.
+// How the server compares streamer names (series_service.term_key): "Chime" and "ｃｈｉｍｅ" are one folder.
 const streamerKey = (name: string | null | undefined): string => (name ?? '').normalize('NFKC').trim().toLowerCase()
 
 export interface StreamerFolder {

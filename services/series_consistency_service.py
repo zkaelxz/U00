@@ -6,7 +6,7 @@ Read-only and deterministic (no engine, no network). A line where the source hol
 or alias counts as the glossary rendering when its English has the required word
 (glossary_check.missing_terms: the same test the translate run uses). Otherwise the
 rendering is the capitalised name the line uses most across the series for that term, so
-"Nalo" vs "Naloch" shows up as a drift without anyone reading every episode. That is a
+"Yaso" vs "Yasoch" shows up as a drift without anyone reading every episode. That is a
 heuristic: a line with no capitalised name is listed as "unnamed" and never flagged, since
 a pronoun is a legitimate rendering.
 

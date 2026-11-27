@@ -4,7 +4,7 @@ import { withExportLines } from './stageLineMocks'
 
 // Glossary tabs and scan-resume specs: drama 1 reported as in series 7, terms, novel status and
 // both extraction runs mocked, so no engine is ever called.
-export const TERM = { id: 11, term_original: 'ナロ', term_translation: 'Nalo', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }
+export const TERM = { id: 11, term_original: 'ヤソ', term_translation: 'Yaso', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }
 
 export const prop = (term: string, en: string) => ({
   term, suggested_translation: en, category: 'person_name', policy: 'keep_pinyin', reason: 'Recurring name',

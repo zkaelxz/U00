@@ -12,14 +12,14 @@ test.beforeEach(async ({ page }) => {
 // nothing is saved except through the mocked term route.
 
 const TERMS = [
-  { id: 11, term_original: 'ナロ', term_translation: 'Nalo', notes: '', category: null, policy: null, enforce_exact: false, aliases: ['ナロー'], banned_translations: [] },
+  { id: 11, term_original: 'ヤソ', term_translation: 'Yaso', notes: '', category: null, policy: null, enforce_exact: false, aliases: ['ヤソー'], banned_translations: [] },
 ]
 
 const VARIANTS = {
-  term: 'ナロ', available: true, reason: '', lines_scanned: 120, truncated: false,
+  term: 'ヤソ', available: true, reason: '', lines_scanned: 120, truncated: false,
   candidates: [
-    { text: 'ナロー', count: 2, score: 1, is_alias: true, is_term: false, examples: [{ line_idx: 0, snippet: 'ナローが来た' }] },
-    { text: 'ナロック', count: 1, score: 0.83, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ナロックはどこだ' }] },
+    { text: 'ヤソー', count: 2, score: 1, is_alias: true, is_term: false, examples: [{ line_idx: 0, snippet: 'ヤソーが来た' }] },
+    { text: 'ヤソック', count: 1, score: 0.83, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ヤソックはどこだ' }] },
   ],
 }
 
@@ -37,26 +37,26 @@ test('lists similar spellings and adds one as an alias only after confirming', a
   await page.route('**/api/glossary/dramas/1/terms', (route) => {
     if (route.request().method() === 'POST') {
       saved.push(route.request().postDataJSON())
-      return route.fulfill({ json: { ...TERMS[0], aliases: ['ナロー', 'ナロック'] } })
+      return route.fulfill({ json: { ...TERMS[0], aliases: ['ヤソー', 'ヤソック'] } })
     }
     return route.fulfill({ json: TERMS })
   })
   const glossary = await openGlossary(page, false)
-  await glossary.getByRole('button', { name: 'Find similar spellings of ナロ' }).click()
-  const panel = glossary.getByRole('region', { name: 'Similar spellings of ナロ' })
-  await expect(panel).toContainText('ナロック')
-  await expect(panel).toContainText('#5 ナロックはどこだ')
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
+  const panel = glossary.getByRole('region', { name: 'Similar spellings of ヤソ' })
+  await expect(panel).toContainText('ヤソック')
+  await expect(panel).toContainText('#5 ヤソックはどこだ')
   await expect(panel.getByText('Already an alias of this term.')).toBeVisible()
 
-  await panel.getByRole('button', { name: 'Add ナロック as alias' }).click()
+  await panel.getByRole('button', { name: 'Add ヤソック as alias' }).click()
   expect(saved).toHaveLength(0)
   await panel.getByRole('button', { name: 'Cancel' }).click()
   expect(saved).toHaveLength(0)
 
-  await panel.getByRole('button', { name: 'Add ナロック as alias' }).click()
+  await panel.getByRole('button', { name: 'Add ヤソック as alias' }).click()
   await panel.getByRole('button', { name: 'Yes, add alias' }).click()
   await expect(panel.getByText('Added as an alias.')).toBeVisible()
-  expect(saved).toEqual([{ id: 11, aliases: ['ナロー', 'ナロック'] }])
+  expect(saved).toEqual([{ id: 11, aliases: ['ヤソー', 'ヤソック'] }])
 })
 
 test('says what to install when the reading library is missing', async ({ page }) => {
@@ -67,8 +67,8 @@ test('says what to install when the reading library is missing', async ({ page }
     json: { available: false, reason: 'Japanese kanji readings need the pykakasi package (pip install pykakasi).', lines_scanned: 0, truncated: false, clusters: [], known_vtuber_names: [] },
   }))
   const glossary = await openGlossary(page)
-  await glossary.getByRole('button', { name: 'Find similar spellings of ナロ' }).click()
-  await expect(glossary.getByRole('region', { name: 'Similar spellings of ナロ' })).toContainText('pykakasi')
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
+  await expect(glossary.getByRole('region', { name: 'Similar spellings of ヤソ' })).toContainText('pykakasi')
   await glossary.getByRole('button', { name: 'Find possible names' }).click()
   await expect(glossary.getByRole('region', { name: 'Possible names' })).toContainText('pykakasi')
 })
@@ -103,8 +103,8 @@ test('empty results say so for both scans', async ({ page }) => {
     json: { available: true, reason: '', lines_scanned: 50, truncated: false, clusters: [], known_vtuber_names: [] },
   }))
   const glossary = await openGlossary(page)
-  await glossary.getByRole('button', { name: 'Find similar spellings of ナロ' }).click()
-  await expect(glossary.getByRole('region', { name: 'Similar spellings of ナロ' })).toContainText('No other spellings found in 120 lines.')
+  await glossary.getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
+  await expect(glossary.getByRole('region', { name: 'Similar spellings of ヤソ' })).toContainText('No other spellings found in 120 lines.')
   await glossary.getByRole('button', { name: 'Find possible names' }).click()
   await expect(glossary.getByRole('region', { name: 'Possible names' })).toContainText('No recurring names found yet.')
 })

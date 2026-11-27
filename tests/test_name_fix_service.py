@@ -17,16 +17,16 @@ def _texts(did):
 
 
 def test_confirmed_alias_is_rewritten_and_term_kept(isolated_db):
-    did, _ = _title(["ナローが来た", "ナロ、行こう", "関係ない"], [("ナロ", ["ナロー"])])
+    did, _ = _title(["ヤソーが来た", "ヤソ、行こう", "関係ない"], [("ヤソ", ["ヤソー"])])
     out = nf.apply_known_aliases(did)
     assert out == {"lines_changed": 1, "replacements": 1}
-    assert _texts(did) == ["ナロが来た", "ナロ、行こう", "関係ない"]
+    assert _texts(did) == ["ヤソが来た", "ヤソ、行こう", "関係ない"]
 
 
 def test_longer_term_containing_alias_is_not_mangled(isolated_db):
-    did, _ = _title(["ナローが来た"], [("ナロ", ["ロ"]), ("ナロー", [])])
+    did, _ = _title(["ヤソーが来た"], [("ヤソ", ["ロ"]), ("ヤソー", [])])
     assert nf.apply_known_aliases(did)["lines_changed"] == 0
-    assert _texts(did) == ["ナローが来た"]
+    assert _texts(did) == ["ヤソーが来た"]
 
 
 def test_ambiguous_alias_and_short_alias_are_left_alone(isolated_db):
@@ -35,13 +35,13 @@ def test_ambiguous_alias_and_short_alias_are_left_alone(isolated_db):
 
 
 def test_latin_alias_needs_word_boundary(isolated_db):
-    did, _ = _title(["Nalo is here", "Nalodeen is here"], [("Naloch", ["Nalo"])])
+    did, _ = _title(["Yaso is here", "Yasodeen is here"], [("Yasoch", ["Yaso"])])
     nf.apply_known_aliases(did)
-    assert _texts(did) == ["Naloch is here", "Nalodeen is here"]
+    assert _texts(did) == ["Yasoch is here", "Yasodeen is here"]
 
 
 def test_other_line_fields_survive(isolated_db):
-    did, _ = _title(["ナローが来た"], [("ナロ", ["ナロー"])])
+    did, _ = _title(["ヤソーが来た"], [("ヤソ", ["ヤソー"])])
     ln = db.load_line_objects(did)[0]
     ln.en = "He came"
     db.save_lines(did, [ln], fields=("en",))
@@ -50,32 +50,32 @@ def test_other_line_fields_survive(isolated_db):
 
 
 def test_apply_fixes_remembers_alias_for_later_titles(isolated_db):
-    did, sid = _title(["ナローが来た"], [("ナロ", [])])
+    did, sid = _title(["ヤソーが来た"], [("ヤソ", [])])
     term_id = db.list_glossary_terms(sid)[0]["id"]
-    out = nf.apply_fixes(did, [{"term_id": term_id, "spelling": "ナロー"}])
+    out = nf.apply_fixes(did, [{"term_id": term_id, "spelling": "ヤソー"}])
     assert out["aliases_added"] == 1 and out["lines_changed"] == 1
     # A second title of the same creator (series) is fixed with no further input.
     did2 = db.create_drama(title_en="T2", series_id=sid, source_language="ja")
-    db.save_lines(did2, [Line(idx=0, start=0, end=1, zh="ナローだ", en="")])
+    db.save_lines(did2, [Line(idx=0, start=0, end=1, zh="ヤソーだ", en="")])
     assert nf.after_transcription(did2)["lines_changed"] == 1
-    assert _texts(did2) == ["ナロだ"]
+    assert _texts(did2) == ["ヤソだ"]
     # A confirmed fix is logged; the pass after a transcription rewrites new lines, not
     # corrections, so it logs nothing.
     assert [(r["path"], r["before_zh"], r["after_zh"]) for r in db.list_source_edits(did)] == [
-        ("name_fix", "ナローが来た", "ナロが来た")]
+        ("name_fix", "ヤソーが来た", "ヤソが来た")]
     assert db.list_source_edits(did2) == []
 
 
 def test_apply_fixes_rejects_bad_input_and_writes_nothing(isolated_db):
     import pytest
     from lib.errors import InvalidInputError, NotFoundError
-    did, sid = _title(["ナローが来た"], [("ナロ", []), ("ミカ", [])])
+    did, sid = _title(["ヤソーが来た"], [("ヤソ", []), ("ミカ", [])])
     ids = {t["term_original"]: t["id"] for t in db.list_glossary_terms(sid)}
     with pytest.raises(InvalidInputError):
-        nf.apply_fixes(did, [{"term_id": ids["ナロ"], "spelling": "ナローx"}, {"term_id": ids["ナロ"], "spelling": "ミカ"}])
+        nf.apply_fixes(did, [{"term_id": ids["ヤソ"], "spelling": "ヤソーx"}, {"term_id": ids["ヤソ"], "spelling": "ミカ"}])
     with pytest.raises(NotFoundError):
-        nf.apply_fixes(did, [{"term_id": 99999, "spelling": "ナロー"}])
-    assert _texts(did) == ["ナローが来た"]
+        nf.apply_fixes(did, [{"term_id": 99999, "spelling": "ヤソー"}])
+    assert _texts(did) == ["ヤソーが来た"]
     assert not db.list_glossary_terms(sid)[0]["aliases"]
 
 
@@ -87,20 +87,20 @@ def test_after_transcription_swallows_failures(isolated_db, monkeypatch):
 def test_alias_inside_a_novel_chapter_title_line_is_left_alone(isolated_db):
     from sources import pipeline
     from sources.models import ChapterInfo
-    did, sid = _title([], [("ナロ", ["ナロー"])])
-    for n, (title, body) in enumerate([("ナロー来る", "ナローが来た"), ("次", "終わり")], 1):
+    did, sid = _title([], [("ヤソ", ["ヤソー"])])
+    for n, (title, body) in enumerate([("ヤソー来る", "ヤソーが来た"), ("次", "終わり")], 1):
         ch = ChapterInfo(source="xbanxia", series_id="s1", chapter_id=f"c{n}", title=title)
         assert pipeline._append_chapter_text("xbanxia", ch, did, body) == ""
         pipeline._clear_in_flight("xbanxia", ch, did)
     db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=t, en="") for i, t in
-                        enumerate(["ナロー来る", "ナローが来た", "次", "終わり"])])
+                        enumerate(["ヤソー来る", "ヤソーが来た", "次", "終わり"])])
     out = nf.apply_known_aliases(did)
     assert out == {"lines_changed": 1, "replacements": 1}
-    assert _texts(did) == ["ナロー来る", "ナロが来た", "次", "終わり"]
+    assert _texts(did) == ["ヤソー来る", "ヤソが来た", "次", "終わり"]
 
 
 def test_a_line_edited_since_it_was_read_is_kept(isolated_db, monkeypatch):
-    did, _ = _title(["ナローが来た"], [("ナロ", ["ナロー"])])
+    did, _ = _title(["ヤソーが来た"], [("ヤソ", ["ヤソー"])])
     real = db.load_line_objects
 
     def load_then_edit(drama_id):

@@ -30,8 +30,8 @@ def _title(name, texts, owner=None, private=0):
 
 
 def _titles(owner=None, private=0):
-    _title("Alpha Stream", ["Nalo said hi", "then Nalo left"], owner, private)
-    _title("Beta Stream", ["Naloch said hi", "then Naloch left"], owner, private)
+    _title("Alpha Stream", ["Yaso said hi", "then Yaso left"], owner, private)
+    _title("Beta Stream", ["Yasoch said hi", "then Yasoch left"], owner, private)
 
 
 _emails = itertools.count()
@@ -104,13 +104,13 @@ def test_scan_mark_export_flow(local):
     body = _wait(local)
     assert body["status"] == "done"
     group = body["result"]["groups"][0]
-    assert {v["text"] for v in group["variants"]} == {"Nalo", "Naloch"} and group["titles_total"] == 2
+    assert {v["text"] for v in group["variants"]} == {"Yaso", "Yasoch"} and group["titles_total"] == 2
     assert set(group) == {"key", "canonical", "total", "variants", "titles_total", "titles", "examples", "mark"}
     assert body["result"]["counts"]["unresolved"] == 1
 
     export = local.get(BASE + "/export.md")
     assert export.status_code == 200 and export.headers["content-type"].startswith("text/markdown")
-    assert "Naloch" in export.text and "Alpha Stream" not in export.text
+    assert "Yasoch" in export.text and "Alpha Stream" not in export.text
 
     marked = local.post(BASE + "/marks", json={"key": group["key"], "mark": "wrong"})
     assert marked.json() == {"key": group["key"], "mark": "wrong"}
@@ -138,10 +138,10 @@ def test_a_second_start_while_one_runs_is_a_conflict(local, monkeypatch):
 
 
 def test_a_member_sees_only_their_titles_and_their_own_report(remote):
-    _title("Shared Stream", ["Nalo said hi", "then Nalo left"])
-    _title("Ada Private", ["Naloch said hi", "then Naloch left"], owner=None, private=0)
+    _title("Shared Stream", ["Yaso said hi", "then Yaso left"])
+    _title("Ada Private", ["Yasoch said hi", "then Yasoch left"], owner=None, private=0)
     ada_id, ada = _session("lines.read", "jobs.start", "lines.edit")
-    _title("Ada Own", ["Nalou said hi", "then Nalou left"], owner=ada_id, private=1)
+    _title("Ada Own", ["Yasou said hi", "then Yasou left"], owner=ada_id, private=1)
     _title("Other Private", ["Secretname Secretname"], owner=ada_id + 100, private=1)
     ben_id, ben = _session("lines.read", "jobs.start")
     assert remote.post(BASE, headers=ada).status_code == 200

@@ -4,12 +4,12 @@ import { speakerOptions } from './speakerOptions'
 
 describe('speakerOptions', () => {
   it('lists the title speakers as they are', () => {
-    expect(speakerOptions(['Maple', 'Cedar'], 'Maple')).toEqual(['Maple', 'Cedar'])
+    expect(speakerOptions(['Anvil', 'Urchin'], 'Anvil')).toEqual(['Anvil', 'Urchin'])
   })
   it('keeps a value no line carries so the draft is not changed', () => {
-    expect(speakerOptions(['Maple'], 'Mei')).toEqual(['Maple', 'Mei'])
+    expect(speakerOptions(['Anvil'], 'Mei')).toEqual(['Anvil', 'Mei'])
   })
   it('adds nothing for an empty value', () => {
-    expect(speakerOptions(['Maple'], '')).toEqual(['Maple'])
+    expect(speakerOptions(['Anvil'], '')).toEqual(['Anvil'])
   })
 })

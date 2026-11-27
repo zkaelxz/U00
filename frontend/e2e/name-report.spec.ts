@@ -9,13 +9,13 @@ import { gotoTranslate } from './translateTabs'
 const BASE = '**/api/glossary/name-report'
 
 const GROUP = {
-  key: 'nalo', canonical: 'Nalo', total: 6, titles_total: 2, mark: null as string | null,
-  variants: [{ text: 'Nalo', count: 4 }, { text: 'Naloch', count: 2 }],
+  key: 'yaso', canonical: 'Yaso', total: 6, titles_total: 2, mark: null as string | null,
+  variants: [{ text: 'Yaso', count: 4 }, { text: 'Yasoch', count: 2 }],
   titles: [
-    { drama_id: 1, title: 'Alpha Stream', count: 4, in_glossary: true, glossary_term: 'Nalo', glossary_english: 'Yarrow' },
+    { drama_id: 1, title: 'Alpha Stream', count: 4, in_glossary: true, glossary_term: 'Yaso', glossary_english: 'Yarrow' },
     { drama_id: 2, title: 'Beta Stream', count: 2, in_glossary: false, glossary_term: null, glossary_english: null },
   ],
-  examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Naloch left' }],
+  examples: [{ drama_id: 2, line_idx: 4, snippet: 'then Yasoch left' }],
 }
 const OTHER = { ...GROUP, key: 'mirel', canonical: 'Mirel', total: 3, titles_total: 1, titles: [GROUP.titles[1]],
   variants: [{ text: 'Mirel', count: 2 }, { text: 'Mirelle', count: 1 }], examples: [] }
@@ -62,10 +62,10 @@ test('runs the check and lists the groups with counts, titles and examples', asy
   await expect(panel).toContainText('No check has been run yet')
   await expect(panel.getByRole('button', { name: 'Copy report' })).toBeDisabled()
   await panel.getByRole('button', { name: 'Check names' }).click()
-  const nalo = panel.getByRole('listitem', { name: 'Name Nalo' })
-  await expect(nalo).toContainText('2 titles · 6 mentions')
-  await expect(nalo).toContainText('in glossary as “Nalo” → “Yarrow”')
-  await expect(nalo).toContainText('Beta Stream #5: then Naloch left')
+  const yaso = panel.getByRole('listitem', { name: 'Name Yaso' })
+  await expect(yaso).toContainText('2 titles · 6 mentions')
+  await expect(yaso).toContainText('in glossary as “Yaso” → “Yarrow”')
+  await expect(yaso).toContainText('Beta Stream #5: then Yasoch left')
   await expect(panel.getByRole('button', { name: /To check/ })).toContainText('2')
   await expect(panel.getByRole('button', { name: 'Check again' })).toBeVisible()
 })
@@ -87,7 +87,7 @@ test('marking a group wrong hides it from To check and keeps it under Wrong unti
 })
 
 test('a group marked right is added to the chosen glossaries only after a confirm, through the term routes', async ({ page }) => {
-  await mockScan(page, { nalo: 'right' })
+  await mockScan(page, { yaso: 'right' })
   const saved: Array<{ id: number; body: unknown }> = []
   await page.route('**/api/glossary/dramas/2/terms', (route) => {
     if (route.request().method() === 'POST') { saved.push({ id: 2, body: route.request().postDataJSON() }); return route.fulfill({ json: {} }) }
@@ -97,12 +97,12 @@ test('a group marked right is added to the chosen glossaries only after a confir
   // Registered after the panel opens: openPanel's own empty-glossary mock for title 1 would win otherwise.
   await page.route('**/api/glossary/dramas/1/terms', (route) => {
     if (route.request().method() === 'POST') { saved.push({ id: 1, body: route.request().postDataJSON() }); return route.fulfill({ json: {} }) }
-    return route.fulfill({ json: [{ id: 11, term_original: 'Nalo', term_translation: 'Yarrow', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }] })
+    return route.fulfill({ json: [{ id: 11, term_original: 'Yaso', term_translation: 'Yarrow', notes: '', category: null, policy: null, enforce_exact: false, aliases: [], banned_translations: [] }] })
   })
   await panel.getByRole('button', { name: /Right/ }).click()
-  const nalo = panel.getByRole('listitem', { name: 'Name Nalo' })
-  await nalo.getByRole('button', { name: 'Apply to titles…' }).click()
-  const form = nalo.getByRole('group', { name: 'Apply Nalo to titles' })
+  const yaso = panel.getByRole('listitem', { name: 'Name Yaso' })
+  await yaso.getByRole('button', { name: 'Apply to titles…' }).click()
+  const form = yaso.getByRole('group', { name: 'Apply Yaso to titles' })
   await form.getByRole('button', { name: 'Add to 2 titles…' }).click()
   await expect(form.getByRole('alert')).toContainText('Add to 2 glossaries?')
   expect(saved).toEqual([])
@@ -113,8 +113,8 @@ test('a group marked right is added to the chosen glossaries only after a confir
   await expect(form.getByLabel('Results')).toContainText('Alpha Stream: Aliases added.')
   await expect(form.getByLabel('Results')).toContainText('Beta Stream: Term added.')
   expect(saved).toEqual([
-    { id: 1, body: { id: 11, aliases: ['Naloch'] } },
-    { id: 2, body: { term_original: 'Nalo', term_translation: 'Yarrow', aliases: ['Naloch'] } },
+    { id: 1, body: { id: 11, aliases: ['Yasoch'] } },
+    { id: 2, body: { term_original: 'Yaso', term_translation: 'Yarrow', aliases: ['Yasoch'] } },
   ])
 })
 
@@ -122,20 +122,20 @@ test('Apply is disabled with a reason until the group is marked right', async ({
   await mockScan(page, { })
   const panel = await openPanel(page)
   await panel.getByRole('button', { name: 'Check names' }).click()
-  const nalo = panel.getByRole('listitem', { name: 'Name Nalo' })
-  await expect(nalo.getByRole('button', { name: 'Apply to titles…' })).toBeDisabled()
-  await expect(nalo).toContainText('Mark it Right first.')
+  const yaso = panel.getByRole('listitem', { name: 'Name Yaso' })
+  await expect(yaso.getByRole('button', { name: 'Apply to titles…' })).toBeDisabled()
+  await expect(yaso).toContainText('Mark it Right first.')
 })
 
 test('Copy report copies the unresolved names from the export route', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await mockScan(page, { })
-  await page.route(`${BASE}/export.md`, (route) => route.fulfill({ contentType: 'text/markdown', body: '# Name check across titles\n\n## 1. Nalo\n' }))
+  await page.route(`${BASE}/export.md`, (route) => route.fulfill({ contentType: 'text/markdown', body: '# Name check across titles\n\n## 1. Yaso\n' }))
   const panel = await openPanel(page)
   await panel.getByRole('button', { name: 'Check names' }).click()
   await panel.getByRole('button', { name: 'Copy report' }).click()
   await expect(panel.getByText('Copied the unresolved names.')).toBeVisible()
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('## 1. Nalo')
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('## 1. Yaso')
 })
 
 test('shows progress and can cancel a running check', async ({ page }) => {

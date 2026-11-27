@@ -143,8 +143,8 @@ test('the review option on at load still opens the held scan by itself', async (
 const SPELLING_DONE = {
   job_id: 'spelling_suggest_1', status: 'done', progress: 1, message: '', run_id: 'sp-1',
   result: {
-    term: 'ナロ', english: 'Yaro', lines_scanned: 40, truncated: false, unusable: false,
-    proposals: [{ text: 'ナロック', count: 2, score: 0.8, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ナロックはどこだ' }] }],
+    term: 'ヤソ', english: 'Yaro', lines_scanned: 40, truncated: false, unusable: false,
+    proposals: [{ text: 'ヤソック', count: 2, score: 0.8, is_alias: false, is_term: false, examples: [{ line_idx: 4, snippet: 'ヤソックはどこだ' }] }],
   },
 }
 
@@ -159,11 +159,11 @@ test('Suggest spellings comes back with its result and the English name after le
     return route.fulfill({ json: ran ? SPELLING_DONE : { job_id: '', status: 'idle', progress: 0, message: '', run_id: null, result: null } })
   })
   await gotoTranslate(page, 'glossary')
-  await glossary(page).getByRole('button', { name: 'Suggest spellings of ナロ' }).click()
-  const panel = glossary(page).getByRole('region', { name: 'Suggest spellings of ナロ' })
+  await glossary(page).getByRole('button', { name: 'Suggest spellings of ヤソ' }).click()
+  const panel = glossary(page).getByRole('region', { name: 'Suggest spellings of ヤソ' })
   await panel.getByRole('textbox', { name: 'Name in English' }).fill('Yaro')
   await panel.getByRole('button', { name: 'Suggest spellings', exact: true }).click()
-  await expect(panel).toContainText('ナロック')
+  await expect(panel).toContainText('ヤソック')
 
   for (const leave of ['reload', 'away'] as const) {
     if (leave === 'reload') await page.reload()
@@ -173,8 +173,8 @@ test('Suggest spellings comes back with its result and the English name after le
       await page.goto('/#/drama/1/translate')
     }
     await glossaryTab(page, 'Names')
-    const again = glossary(page).getByRole('region', { name: 'Suggest spellings of ナロ' })
-    await expect(again).toContainText('ナロック')
+    const again = glossary(page).getByRole('region', { name: 'Suggest spellings of ヤソ' })
+    await expect(again).toContainText('ヤソック')
     await expect(again.getByRole('textbox', { name: 'Name in English' })).toHaveValue('Yaro')
   }
 })
@@ -184,7 +184,7 @@ test('Suggest spellings reopens from the server alone, with no memory in the bro
   await page.route('**/api/glossary/dramas/1/spelling-suggestions', (route) => route.fulfill({ json: SPELLING_DONE }))
   await page.goto('/#/drama/1/translate')
   await glossaryTab(page, 'Names')
-  await expect(glossary(page).getByRole('region', { name: 'Suggest spellings of ナロ' })).toContainText('ナロック')
+  await expect(glossary(page).getByRole('region', { name: 'Suggest spellings of ヤソ' })).toContainText('ヤソック')
 })
 
 test('an idle spelling status opens nothing', async ({ page }) => {
@@ -194,7 +194,7 @@ test('an idle spelling status opens nothing', async ({ page }) => {
   )
   await page.goto('/#/drama/1/translate')
   await glossaryTab(page, 'Names')
-  await expect(glossary(page).getByRole('region', { name: 'Suggest spellings of ナロ' })).toHaveCount(0)
+  await expect(glossary(page).getByRole('region', { name: 'Suggest spellings of ヤソ' })).toHaveCount(0)
 })
 
 test('the all-titles name check stays open across a reload', async ({ page }) => {

@@ -88,9 +88,9 @@ test('Instructions: the first card is open the first time and the rest closed', 
 
 test('a row action on Terms opens its panel on Names', async ({ page }) => {
   await open(page)
-  await region(page).getByRole('button', { name: 'Find similar spellings of ナロ' }).click()
+  await region(page).getByRole('button', { name: 'Find similar spellings of ヤソ' }).click()
   await expect(region(page).getByRole('tab', { name: 'Names', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(region(page).getByRole('region', { name: 'Similar spellings of ナロ' })).toBeVisible()
+  await expect(region(page).getByRole('region', { name: 'Similar spellings of ヤソ' })).toBeVisible()
 })
 
 test('tabs with nothing to act on say why', async ({ page }) => {

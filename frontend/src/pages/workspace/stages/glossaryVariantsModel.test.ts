@@ -4,12 +4,12 @@ import type { GlossaryNameCluster } from '../../../types/translateStage'
 import { aliasBlocker, aliasesWith, clusterBlocker, clusterTermBody, matchLabel, sourceLabel } from './glossaryVariantsModel'
 
 const cluster = (over: Partial<GlossaryNameCluster> = {}): GlossaryNameCluster => ({
-  suggested_original: 'ナロー',
+  suggested_original: 'ヤソー',
   existing_term: null,
   total: 5,
   spellings: [
-    { text: 'ナロー', count: 3, sources: ['katakana'], is_alias: false, is_term: false },
-    { text: 'ナロウ', count: 2, sources: ['katakana'], is_alias: false, is_term: false },
+    { text: 'ヤソー', count: 3, sources: ['katakana'], is_alias: false, is_term: false },
+    { text: 'ヤソウ', count: 2, sources: ['katakana'], is_alias: false, is_term: false },
   ],
   examples: [],
   ...over,
@@ -23,11 +23,11 @@ describe('glossary variants model', () => {
   })
 
   it('appends an alias once, without touching the input', () => {
-    const before = ['ナロ']
-    expect(aliasesWith(before, ' ナロー ')).toEqual(['ナロ', 'ナロー'])
-    expect(aliasesWith(['ナロー'], 'ナロー')).toEqual(['ナロー'])
-    expect(aliasesWith(before, '  ')).toEqual(['ナロ'])
-    expect(before).toEqual(['ナロ'])
+    const before = ['ヤソ']
+    expect(aliasesWith(before, ' ヤソー ')).toEqual(['ヤソ', 'ヤソー'])
+    expect(aliasesWith(['ヤソー'], 'ヤソー')).toEqual(['ヤソー'])
+    expect(aliasesWith(before, '  ')).toEqual(['ヤソ'])
+    expect(before).toEqual(['ヤソ'])
   })
 
   it('says why a candidate is not offered as new', () => {
@@ -37,17 +37,17 @@ describe('glossary variants model', () => {
   })
 
   it('needs a series, a new name and an English name before creating', () => {
-    expect(clusterBlocker(cluster(), 'Nalo', false)).toMatch(/series/)
-    expect(clusterBlocker(cluster({ existing_term: 'ナロ' }), 'Nalo', true)).toMatch(/ナロ/)
+    expect(clusterBlocker(cluster(), 'Yaso', false)).toMatch(/series/)
+    expect(clusterBlocker(cluster({ existing_term: 'ヤソ' }), 'Yaso', true)).toMatch(/ヤソ/)
     expect(clusterBlocker(cluster(), '  ', true)).toMatch(/English/)
-    expect(clusterBlocker(cluster(), 'Nalo', true)).toBeNull()
+    expect(clusterBlocker(cluster(), 'Yaso', true)).toBeNull()
   })
 
   it('builds the term from the cluster: other spellings become aliases', () => {
-    expect(clusterTermBody(cluster(), ' Nalo ')).toEqual({
-      term_original: 'ナロー',
-      term_translation: 'Nalo',
-      aliases: ['ナロウ'],
+    expect(clusterTermBody(cluster(), ' Yaso ')).toEqual({
+      term_original: 'ヤソー',
+      term_translation: 'Yaso',
+      aliases: ['ヤソウ'],
     })
   })
 

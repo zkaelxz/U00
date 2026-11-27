@@ -1,6 +1,6 @@
 """
 glossary_phonetic.py -- sound-alike keys for names, so the glossary can find the
-different ways ASR wrote one person ("Nalo" / "Naloch" / ナロー / ナロック).
+different ways ASR wrote one person ("Yaso" / "Yasoch" / ヤソー / ヤソック).
 
 Pure and offline. Every script is reduced to one small roman alphabet
 (k t p s c h n m l y w + a e i o u) so that kana, pinyin, Hangul and Latin spellings
@@ -29,7 +29,7 @@ SIMILARITY_THRESHOLD = {"ja": 0.2, "zh": 0.2, "ko": 0.2, "latin": 0.2}
 # letters is a different name, not a spelling variant.
 MIN_FUZZY_KEY_LEN = 3
 # Extra or missing letters at the END of a name cost this much instead of 1: ASR
-# often adds or drops a trailing sound (ナロ / ナロック, Nalo / Naloch).
+# often adds or drops a trailing sound (ヤソ / ヤソック, Yaso / Yasoch).
 TAIL_EDIT_COST = 0.5
 # No name sounds longer than this; longer keys (a pasted sentence, a 200-letter alias) only
 # match an identical key, which also bounds the cost of one comparison.

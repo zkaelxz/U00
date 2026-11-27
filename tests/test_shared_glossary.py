@@ -25,19 +25,19 @@ def _group_with(name="Streamer", terms=()):
 
 def test_series_term_wins_and_origin_is_labelled(isolated_db):
     sid = db.get_or_create_series("Show")
-    gid = _group_with(terms=[("草", "lol", {}), ("ナロ", "Yaro", {})])
+    gid = _group_with(terms=[("草", "lol", {}), ("ヤソ", "Yaro", {})])
     db.upsert_glossary_term(sid, "草", "grass")
     svc.set_series_group(LOCAL, sid, gid)
     by_original = {t["term_original"]: t for t in db.list_effective_glossary_terms(sid)}
     assert by_original["草"]["term_translation"] == "grass" and by_original["草"]["origin"] == "series"
-    assert by_original["ナロ"]["origin"] == "shared" and by_original["ナロ"]["origin_name"] == "Streamer"
-    assert by_original["ナロ"]["id"] < 0
+    assert by_original["ヤソ"]["origin"] == "shared" and by_original["ヤソ"]["origin_name"] == "Streamer"
+    assert by_original["ヤソ"]["id"] < 0
 
 
 def test_leaving_and_deleting_a_group_keep_own_terms(isolated_db):
     sid = db.get_or_create_series("Show")
     other = db.get_or_create_series("Other")
-    gid = _group_with(terms=[("ナロ", "Yaro", {})])
+    gid = _group_with(terms=[("ヤソ", "Yaro", {})])
     db.upsert_glossary_term(sid, "own", "mine")
     svc.set_series_group(LOCAL, sid, gid)
     svc.set_series_group(LOCAL, other, gid)
@@ -59,12 +59,12 @@ def test_series_without_group_reads_only_its_own_terms(isolated_db):
 def test_translation_prompt_inputs_name_fix_and_own_listing(isolated_db):
     sid = db.get_or_create_series("Show")
     did = db.create_drama(title_en="T", series_id=sid, source_language="ja")
-    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="ナローが来た", en="")])
-    gid = _group_with(terms=[("ナロ", "Yaro", {"aliases": ["ナロー"]})])
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="ヤソーが来た", en="")])
+    gid = _group_with(terms=[("ヤソ", "Yaro", {"aliases": ["ヤソー"]})])
     svc.set_series_group(LOCAL, sid, gid)
     glossary_terms, _style, _names = workspace_job_service.build_run_style_context(
         did, db.get_drama(did), db.load_line_objects(did), "audio_drama", False)
-    assert "ナロ" in [t["term_original"] for t in glossary_terms]
+    assert "ヤソ" in [t["term_original"] for t in glossary_terms]
     assert name_fix_service.apply_known_aliases(did)["lines_changed"] == 1
     # The title's own glossary tab still lists and edits only the series' terms.
     assert glossary_service.list_glossary_terms(did) == []

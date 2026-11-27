@@ -11,7 +11,7 @@ import org.junit.Test;
 
 public class AlertFeedTest {
     private static final String LIST = "{\"items\":["
-            + "{\"id\":30,\"at\":300.0,\"kind\":\"live\",\"text\":\"Birch is live\",\"target\":{\"page\":\"live\",\"follow_id\":4}},"
+            + "{\"id\":30,\"at\":300.0,\"kind\":\"live\",\"text\":\"Chime is live\",\"target\":{\"page\":\"live\",\"follow_id\":4}},"
             + "{\"id\":20,\"at\":200.0,\"kind\":\"job_done\",\"text\":\"Finished: Translation - Moonlit\",\"target\":{\"page\":\"watch\",\"drama_id\":7}},"
             + "{\"id\":15,\"at\":150.0,\"kind\":\"resource\",\"text\":\"GPU hot\"},"
             + "{\"id\":10,\"at\":100.0,\"kind\":\"job_failed\",\"text\":\"Failed: Export\"}]}";

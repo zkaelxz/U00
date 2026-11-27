@@ -17,7 +17,7 @@ def _cluster(term, *others, existing=None):
 def title(isolated_db, monkeypatch):
     sid = db.get_or_create_series("S")
     did = db.create_drama(title_en="T", series_id=sid, source_language="ja")
-    found = {"clusters": [_cluster("ナロ", "ナロー"), _cluster("ミカ"), _cluster("サク", existing="咲")]}
+    found = {"clusters": [_cluster("ヤソ", "ヤソー"), _cluster("ミカ"), _cluster("サク", existing="咲")]}
     monkeypatch.setattr(glossary_variants_service, "discover_names", lambda _id: found)
     return did, sid
 
@@ -25,16 +25,16 @@ def title(isolated_db, monkeypatch):
 def test_refresh_keeps_only_unknown_names(title):
     did, _ = title
     out = inbox.refresh(did)
-    assert [c["suggested_original"] for c in out["items"]] == ["ナロ", "ミカ"] and out["count"] == 2
+    assert [c["suggested_original"] for c in out["items"]] == ["ヤソ", "ミカ"] and out["count"] == 2
     assert inbox.get_inbox(did)["count"] == 2
 
 
 def test_accept_saves_a_term_with_the_other_spellings_as_aliases(title):
     did, sid = title
     inbox.refresh(did)
-    out = inbox.accept(did, "ナロ", "Yaro")
-    term = next(t for t in db.list_glossary_terms(sid) if t["term_original"] == "ナロ")
-    assert term["term_translation"] == "Yaro" and term["aliases"] == "ナロー"
+    out = inbox.accept(did, "ヤソ", "Yaro")
+    term = next(t for t in db.list_glossary_terms(sid) if t["term_original"] == "ヤソ")
+    assert term["term_translation"] == "Yaro" and term["aliases"] == "ヤソー"
     assert [c["suggested_original"] for c in out["items"]] == ["ミカ"]
 
 
@@ -42,7 +42,7 @@ def test_ignored_names_stay_gone_after_the_next_refresh(title):
     did, _ = title
     inbox.refresh(did)
     inbox.reject(did, "ミカ")
-    assert [c["suggested_original"] for c in inbox.refresh(did)["items"]] == ["ナロ"]
+    assert [c["suggested_original"] for c in inbox.refresh(did)["items"]] == ["ヤソ"]
 
 
 def test_unknown_name_is_not_found(title):
@@ -62,11 +62,11 @@ def test_add_refuses_a_name_the_glossary_learned_meanwhile(title):
     from lib.errors import ConflictError
     did, sid = title
     inbox.refresh(did)
-    db.upsert_glossary_term(sid, "ナロ", "Yaro", aliases="ナロー|ナロ君")
+    db.upsert_glossary_term(sid, "ヤソ", "Yaro", aliases="ヤソー|ヤソ君")
     with pytest.raises(ConflictError):
-        inbox.accept(did, "ナロ", "Other")
-    term = next(t for t in db.list_glossary_terms(sid) if t["term_original"] == "ナロ")
-    assert term["term_translation"] == "Yaro" and "ナロ君" in term["aliases"]
+        inbox.accept(did, "ヤソ", "Other")
+    term = next(t for t in db.list_glossary_terms(sid) if t["term_original"] == "ヤソ")
+    assert term["term_translation"] == "Yaro" and "ヤソ君" in term["aliases"]
     assert [c["suggested_original"] for c in inbox.get_inbox(did)["items"]] == ["ミカ"]
 
 
@@ -79,6 +79,6 @@ def test_malformed_stored_entries_are_dropped(title):
 def test_restore_puts_an_ignored_name_back(title):
     did, _ = title
     inbox.refresh(did)
-    inbox.reject(did, "ナロ")
-    out = inbox.restore(did, ["ナロ", "ナロー"])
-    assert [c["suggested_original"] for c in out["items"]] == ["ナロ", "ミカ"]
+    inbox.reject(did, "ヤソ")
+    out = inbox.restore(did, ["ヤソ", "ヤソー"])
+    assert [c["suggested_original"] for c in out["items"]] == ["ヤソ", "ミカ"]

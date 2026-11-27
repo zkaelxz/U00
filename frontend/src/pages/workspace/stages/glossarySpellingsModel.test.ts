@@ -5,7 +5,7 @@ import { consistencySummary, spellingsEmptyText, statusForTerm } from './glossar
 
 const done = (over: Partial<SpellingSuggestStatus['result'] & object> = {}): SpellingSuggestStatus => ({
   job_id: 'j', status: 'done', progress: 1, message: '', run_id: 'r',
-  result: { term: 'ナロ', english: 'Nalo', proposals: [], unusable: false, lines_scanned: 10, truncated: false, ...over },
+  result: { term: 'ヤソ', english: 'Yaso', proposals: [], unusable: false, lines_scanned: 10, truncated: false, ...over },
 })
 
 describe('spellingsEmptyText', () => {
@@ -18,21 +18,21 @@ describe('spellingsEmptyText', () => {
   it('is null while running, idle or when proposals exist', () => {
     expect(spellingsEmptyText(null)).toBeNull()
     expect(spellingsEmptyText({ ...done(), status: 'running', result: null })).toBeNull()
-    const p = { text: 'ナロチ', count: 2, is_alias: false, is_term: false, examples: [] }
+    const p = { text: 'ヤソチ', count: 2, is_alias: false, is_term: false, examples: [] }
     expect(spellingsEmptyText(done({ proposals: [p] }))).toBeNull()
   })
 })
 
 describe('statusForTerm', () => {
   it('hides another term’s finished result', () => {
-    expect(statusForTerm(done(), 'ナロ')).not.toBeNull()
-    expect(statusForTerm(done({ term: 'Other' }), 'ナロ')).toBeNull()
+    expect(statusForTerm(done(), 'ヤソ')).not.toBeNull()
+    expect(statusForTerm(done({ term: 'Other' }), 'ヤソ')).toBeNull()
   })
 })
 
 describe('consistencySummary', () => {
   const base: NameConsistency = {
-    term: 'ナロ', english: 'Nalo', available: true, reason: '', lines_with_name: 4, untranslated: 1,
+    term: 'ヤソ', english: 'Yaso', available: true, reason: '', lines_with_name: 4, untranslated: 1,
     consistent: 3, differing: [], other_words: [], lines_scanned: 4, truncated: false, more_rows: false,
   }
   it('covers each state', () => {

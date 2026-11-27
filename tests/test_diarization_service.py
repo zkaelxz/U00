@@ -686,7 +686,7 @@ class TestSoloSeries:
         did, _ = _drama_with_audio(db, series_id=series)
         db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="a", en=""),
                             Line(idx=1, start=3.0, end=5.0, zh="b", en="")])
-        char = db.insert_series_character(series, "Cedar")
+        char = db.insert_series_character(series, "Urchin")
         if fingerprint:
             db.update_series_character_voice_fingerprint(char, fingerprint)
         return did, char
@@ -711,7 +711,7 @@ class TestSoloSeries:
         diarization_service.apply_diarization_result(did, result)
         assert self._speakers(isolated_db, did) == [None, "SPEAKER_01"]
         row = next(c for c in isolated_db.list_characters(did) if c["speaker_label"] == "SPEAKER_01")
-        assert (row["character_name"], row["series_character_id"]) == ("Cedar", char)
+        assert (row["character_name"], row["series_character_id"]) == ("Urchin", char)
 
     @pytest.mark.parametrize("mode,expected", [("auto", [None, None]),
                                                ("solo", ["SPEAKER_01", "SPEAKER_01"])])

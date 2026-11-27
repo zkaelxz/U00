@@ -100,8 +100,8 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await page.route('**/api/source-suspect/dramas/3', (route) => route.fulfill({ json: { count: 0, items: [] } }))
       await page.route('**/api/misheard/dramas/3', (route) => route.fulfill({ json: {
         available: true, reason: '', lines_scanned: 3, truncated: false, suggestions: [{
-          heard: '納羅赫', suggested: '納洛赫', source: 'glossary', heard_count: 2, suggested_count: 12, line_count: 2, term_id: 9,
-          lines: [{ idx: 0, line_id: 1, zh: '納羅赫來了', start: 2, end: 4 }, { idx: 1, line_id: 2, zh: '納羅赫說話', start: 4, end: 6 }],
+          heard: '達羅赫', suggested: '達洛赫', source: 'glossary', heard_count: 2, suggested_count: 12, line_count: 2, term_id: 9,
+          lines: [{ idx: 0, line_id: 1, zh: '達羅赫來了', start: 2, end: 4 }, { idx: 1, line_id: 2, zh: '達羅赫說話', start: 4, end: 6 }],
         }],
       } }))
       const remembers: string[] = []
@@ -124,7 +124,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await expect(chip).toContainText('1')
       await chip.click()
       const group = page.getByRole('group', { name: 'May be mis-heard' })
-      await expect(group).toContainText('Maybe 納洛赫?')
+      await expect(group).toContainText('Maybe 達洛赫?')
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
       await group.getByRole('button', { name: 'Use here' }).first().click()
       await expect.poll(() => applies.length).toBe(1)
@@ -132,13 +132,13 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       await expect.poll(() => applies.length).toBe(2)
       await group.getByRole('button', { name: 'Keep as heard' }).click()
       await expect.poll(() => keeps.length).toBe(1)
-      expect(JSON.parse(keeps[0])).toEqual({ heard: '納羅赫', suggested: '納洛赫' })
+      expect(JSON.parse(keeps[0])).toEqual({ heard: '達羅赫', suggested: '達洛赫' })
       await group.getByRole('button', { name: 'Use everywhere and remember this spelling' }).click()
       await expect.poll(() => remembers.length).toBe(1)
-      expect(JSON.parse(remembers[0])).toEqual({ heard: '納羅赫', suggested: '納洛赫', term_id: 9 })
+      expect(JSON.parse(remembers[0])).toEqual({ heard: '達羅赫', suggested: '達洛赫', term_id: 9 })
       expect(applies.map((a) => JSON.parse(a))).toEqual([
-        { heard: '納羅赫', suggested: '納洛赫', line_id: 1, expected_zh: '納羅赫來了' },
-        { heard: '納羅赫', suggested: '納洛赫' },
+        { heard: '達羅赫', suggested: '達洛赫', line_id: 1, expected_zh: '達羅赫來了' },
+        { heard: '達羅赫', suggested: '達洛赫' },
       ])
     })
   }

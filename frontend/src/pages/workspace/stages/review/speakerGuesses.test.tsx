@@ -12,7 +12,7 @@ const line = (over: Partial<ReviewLine>) =>
 describe('needsSpeaker', () => {
   it('is a line with words and no speaker nobody chose', () => {
     expect(needsSpeaker(line({}))).toBe(true)
-    expect(needsSpeaker(line({ speaker: 'Maple' }))).toBe(false)
+    expect(needsSpeaker(line({ speaker: 'Anvil' }))).toBe(false)
     expect(needsSpeaker(line({ speaker_manual: true }))).toBe(false)
     expect(needsSpeaker(line({ sfx: true }))).toBe(false)
     expect(needsSpeaker(line({ zh: ' ', en: '' }))).toBe(false)
@@ -29,7 +29,7 @@ describe('needsSpeaker', () => {
 
 describe('SpeakerGuesses', () => {
   const guesses = [
-    { speaker: 'Birch', reasons: ['above', 'below'] as const },
+    { speaker: 'Chime', reasons: ['above', 'below'] as const },
     { speaker: 'Oumua', reasons: ['voice'] as const },
   ].map((g) => ({ ...g, reasons: [...g.reasons] }))
 
@@ -41,7 +41,7 @@ describe('SpeakerGuesses', () => {
   it('is one button per speaker, with the keys only when asked', () => {
     const html = renderToStaticMarkup(<SpeakerGuesses guesses={guesses} lineNumber={12} showKeys tabbable onAccept={() => {}} />)
     expect(html).toContain('aria-label="Suggested speaker for line 12"')
-    expect(html).toContain('aria-label="Birch: Same as the line above and the line below"')
+    expect(html).toContain('aria-label="Chime: Same as the line above and the line below"')
     expect(html).toContain('aria-label="Oumua: From what speaker detection heard"')
     expect(html).toContain('<kbd aria-hidden="true">2</kbd>')
     const plain = renderToStaticMarkup(<SpeakerGuesses guesses={guesses} lineNumber={12} showKeys={false} tabbable={false} onAccept={() => {}} />)

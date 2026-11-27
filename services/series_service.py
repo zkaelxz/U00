@@ -282,7 +282,7 @@ MAX_STREAMER_LEN = 100
 def set_streamer(principal, series_id, streamer) -> dict:
     """Files a series under a streamer name, or clears it with an empty one.
     A name that matches one already on a series the caller can see (ignoring
-    case and width) takes that spelling, so "birch" and "Birch" stay one
+    case and width) takes that spelling, so "chime" and "Chime" stay one
     folder in the Library; a hidden series' spelling is never revealed.
     Re-spelling a series' own streamer (only case or width changes) is
     stored as typed, or a shared streamer's spelling could never change."""

@@ -32,7 +32,7 @@ MAX_PREVIEW_ROWS = 100
 
 def _replacement_map(terms: List[dict]) -> Dict[str, str]:
     """spelling -> text it becomes. Every term maps to itself so a longer term or alias
-    that contains a shorter alias wins ("ナロー" is not turned into "ナローー")."""
+    that contains a shorter alias wins ("ヤソー" is not turned into "ヤソーー")."""
     mapping = {t["term_original"]: t["term_original"] for t in terms}
     claimed: Dict[str, str] = {}
     for t in terms:
@@ -49,7 +49,7 @@ def _replacement_map(terms: List[dict]) -> Dict[str, str]:
 
 def _compile(mapping: Dict[str, str]):
     ordered = sorted(mapping, key=len, reverse=True)
-    # A Latin spelling must not match inside a longer word ("Nalo" in "Nalodeen").
+    # A Latin spelling must not match inside a longer word ("Yaso" in "Yasodeen").
     parts = [(r"(?<![A-Za-z])" + re.escape(s) + r"(?![A-Za-z])") if s.isascii() else re.escape(s)
              for s in ordered]
     return re.compile("|".join(parts))

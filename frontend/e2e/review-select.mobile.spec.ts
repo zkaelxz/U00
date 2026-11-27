@@ -143,14 +143,14 @@ test('phone: the speaker name is a 44px button whose list stays on screen, and p
   const code = `import db
 db.configure_library_dir(${JSON.stringify(libraryDir)})
 from core import Line
-db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', speaker='Maple' if i % 2 else 'Yamizuki Fuyu') for i in range(6)])
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句', en=f'Line {i}', speaker='Anvil' if i % 2 else 'Yamizuki Fuyu') for i in range(6)])
 `
   execFileSync(process.env.PYTHON ?? 'python', ['-c', code], { cwd: repoRoot })
   for (const width of [390, 320] as const) {
     await page.setViewportSize({ width, height: 844 })
     await page.goto('/#/drama/3/review')
     await expect(page.locator('.review-line:not(.review-skeleton)')).toHaveCount(6)
-    const name = page.getByRole('button', { name: /Speaker of line 2: Maple/ })
+    const name = page.getByRole('button', { name: /Speaker of line 2: Anvil/ })
     expect((await name.boundingBox())!.height, `the name button at ${width}px`).toBeGreaterThanOrEqual(44)
     await name.tap()
     const list = page.getByRole('group', { name: 'Choose a speaker' })
@@ -161,7 +161,7 @@ db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `sideways scroll at ${width}px`).toBeLessThanOrEqual(0)
     await page.keyboard.press('Escape')
   }
-  await page.getByRole('button', { name: /Speaker of line 2: Maple/ }).tap()
+  await page.getByRole('button', { name: /Speaker of line 2: Anvil/ }).tap()
   await page.getByRole('group', { name: 'Choose a speaker' }).getByRole('button', { name: 'Yamizuki Fuyu' }).tap()
   await expect(page.getByRole('button', { name: /Speaker of line 2: Yamizuki Fuyu/ })).toBeVisible()
 })

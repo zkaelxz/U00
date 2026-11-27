@@ -116,7 +116,7 @@ def parse_spellings(reply) -> Optional[List[str]]:
 def _pattern(key: str) -> re.Pattern:
     """`key` is already NFKC-normalised: it is searched in NFKC-normalised lines."""
     escaped = re.escape(key)
-    # A Latin spelling must not count inside a longer word (Nalo inside Naloch).
+    # A Latin spelling must not count inside a longer word (Yaso inside Yasoch).
     if re.fullmatch(r"[A-Za-z' -]+", key):
         escaped = rf"(?<![A-Za-z]){escaped}(?![A-Za-z])"
     return re.compile(escaped, re.IGNORECASE)
@@ -131,7 +131,7 @@ def verify_spellings(spellings: List[str], lines, term_text: str, aliases: List[
     half-width ｶﾞ is two code points but one character after normalising, and would
     match nearly every line. The text offered is the form the transcript uses (the most
     common one), not the model's: alias matching in translation is a literal, case-sensitive
-    substring, so "nalo" saved as an alias would not match "NALO"."""
+    substring, so "yaso" saved as an alias would not match "YASO"."""
     alias_set = {_norm(a) for a in aliases}
     term_key = _norm(term_text)
     normalized = [(idx, unicodedata.normalize("NFKC", text)) for idx, text in lines]
