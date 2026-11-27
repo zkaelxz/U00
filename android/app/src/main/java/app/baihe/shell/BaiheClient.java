@@ -143,6 +143,18 @@ final class BaiheClient {
         return call("GET", "/health", null);
     }
 
+    /** The source sites the server can read, from its own source list, as name and front-page address. */
+    List<GrabBookmarks.Mark> sites() throws BridgeException {
+        List<GrabBookmarks.Mark> out = new ArrayList<>();
+        JSONArray sites = call("GET", "/sites", null).optJSONArray("sites");
+        for (int i = 0; sites != null && i < sites.length(); i++) {
+            JSONObject site = sites.optJSONObject(i);
+            String url = site == null ? null : ServerAddress.browsable(site.optString("url"));
+            if (url != null) out.add(new GrabBookmarks.Mark(site.optString("name"), url));
+        }
+        return out;
+    }
+
     /** The title for this page (drama_id and title), found or made by the server's Auto title logic. */
     JSONObject resolveTitle(String pageUrl, List<String> titles, JSONArray chapters) throws BridgeException {
         return resolveTitle(pageUrl, titles, chapters, "comic");
