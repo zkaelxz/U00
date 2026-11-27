@@ -45,7 +45,7 @@ export function CoverGrid({ items, selectedId, onSelect, selectMode, checked, on
         }
         return (
           <li key={d.id} className={d.id === selectedId ? 'cover-cell selected' : 'cover-cell'}>
-            <a className="cover-link" href={workspaceHref(d.id)} title={title} aria-label={title}>{cover}</a>
+            <a className="cover-link" href={workspaceHref(d.id)} tabIndex={-1} aria-hidden="true">{cover}</a>
             <a className="cover-title" href={workspaceHref(d.id)} title={title}>{title}</a>
             {d.media_type && <span className="cover-sub">{mediaTypeLabel(d.media_type)}</span>}
             {bar}

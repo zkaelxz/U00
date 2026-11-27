@@ -30,4 +30,5 @@ a.cover-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .cover-grid .card-check input { width: 22px; height: 22px; margin: 0; }
 @media (max-width: 640px) {
   .cover-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
+  .cover-grid .card-check { top: var(--space-3); left: var(--space-3); width: 56px; height: 56px; }
 }
