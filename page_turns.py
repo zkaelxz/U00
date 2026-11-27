@@ -385,6 +385,7 @@ class FairLock:
         if priority is None:
             priority = getattr(_priority, "value", None) or (1, 0)
         ticket = (priority, next(self._seq))
+        asked = time.monotonic()
         deadline = None if not blocking else (time.monotonic() + timeout if timeout >= 0 else None)
         with self._cond:
             heapq.heappush(self._waiting, ticket)
@@ -400,6 +401,7 @@ class FairLock:
                 raise
             heapq.heappop(self._waiting)
             self._held = True
+        _waited.value = getattr(_waited, "value", 0.0) + time.monotonic() - asked
         return True
 
     def _leave(self, ticket) -> None:
@@ -424,6 +426,15 @@ class FairLock:
 
 
 _priority = threading.local()
+_waited = threading.local()
+
+
+def take_waited() -> float:
+    """Seconds this thread has spent queued for a FairLock since the last call, so a slow page can
+    be told apart as slow work or a long wait."""
+    value = getattr(_waited, "value", 0.0)
+    _waited.value = 0.0
+    return value
 
 
 def set_priority(value) -> None:

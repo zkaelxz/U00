@@ -88,3 +88,24 @@ class TestFairLock:
         for t in threads:
             t.join(5)
         assert order == ["quick", "plain"]
+
+
+def test_time_spent_queued_for_a_fair_lock_is_counted_once():
+    import threading
+    import time
+    lock = page_turns.FairLock()
+    page_turns.take_waited()
+    lock.acquire()
+    done = []
+
+    def waiter():
+        with lock:
+            done.append(page_turns.take_waited())
+
+    thread = threading.Thread(target=waiter)
+    thread.start()
+    time.sleep(0.2)
+    lock.release()
+    thread.join()
+    assert done and done[0] >= 0.15
+    assert page_turns.take_waited() < 0.05   # this thread never queued; the wait was the other thread's

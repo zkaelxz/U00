@@ -628,7 +628,8 @@ def _log_page_time(result: dict, job: dict, started: float) -> None:
                       ", from cache" if result.get("cached") else "", time.monotonic() - started,
                       seconds.get("read", "-"), seconds.get("translate", "-"),
                       seconds.get("typeset", "-"), len(result.get("regions") or []),
-                      f"; devices: {devices}" if devices else "")
+                      (f"; waited {seconds['waited']}s for the models" if seconds.get("waited") else "")
+                      + (f"; devices: {devices}" if devices else ""))
 
 
 def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> None:
@@ -654,6 +655,7 @@ def _translate_one(image: dict, job: dict, turn):
     # Pages of one chapter arrive in several requests at once; the locks serve the earliest page first
     # so the one the reader waits on is not passed over by later ones.
     page_turns.set_priority(None if job["store"] else page_turns.page_priority(image["key"]))
+    page_turns.take_waited()
     cached = image.get("cached_result")
     cache_key = None
     if cached is None:
@@ -691,6 +693,8 @@ def _translate_one(image: dict, job: dict, turn):
         _typeset_stored_page(result, job["drama_id"], member=job["member"])
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
+    result.setdefault("seconds", {}).update(waited=round(page_turns.take_waited(), 2),
+                                            total=round(time.monotonic() - started, 2))
     _show_original_when_not_redrawn(result, image, job)
     if not job["store"] and quick_read_keep.enabled():
         quick_read_keep.save(cache_key or image["key"], image["content"], image["content_type"],
