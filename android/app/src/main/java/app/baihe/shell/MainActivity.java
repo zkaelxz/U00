@@ -41,6 +41,10 @@ public class MainActivity extends Activity {
     private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
+    /** Covers the WebView when the page could not load, so Android's raw error page is never shown. */
+    private View failureView;
+    private boolean loadFailed;
+    private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
     private static final long UPDATE_RECHECK_MS = 60_000;
     /** While the app stays open, a build the PC fetches later is still noticed. */
@@ -113,10 +117,21 @@ public class MainActivity extends Activity {
                 // A page that reloads while its reader hid the strip never runs the cleanup that shows it again.
                 barsHidden = false;
                 showStrip();
+                loadFailed = false;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (!LoadFailure.coversPage(request.isForMainFrame(), error.getErrorCode())) return;
+                loadFailed = true;
+                showLoadFailure(request.getUrl().toString());
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (loadFailed) return;
+                autoRetries = 0;
+                if (failureView != null) failureView.setVisibility(View.GONE);
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
@@ -261,8 +276,63 @@ public class MainActivity extends Activity {
         showStrip();
         ViewGroup parent = (ViewGroup) web.getParent();
         if (parent != null) parent.removeView(web);
-        root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        // A WebView paints black until its first page does; the app's own colour hides that flash.
+        web.setBackgroundColor(palette.surface);
+        android.widget.FrameLayout body = new android.widget.FrameLayout(this);
+        body.addView(web, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        failureView = failureScreen(palette);
+        body.addView(failureView, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    private View failureScreen(GrabUi.Palette palette) {
+        TextView message = new TextView(this);
+        message.setText("Can't reach Baihe right now.\nYour PC may be restarting or the connection dropped.");
+        message.setTextColor(palette.text);
+        message.setTextSize(16);
+        message.setGravity(android.view.Gravity.CENTER);
+        Button retry = new Button(this);
+        retry.setText("Retry");
+        retry.setOnClickListener(v -> {
+            autoRetries = 0;
+            retryLoad();
+        });
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(android.view.Gravity.CENTER);
+        box.setPadding(48, 48, 48, 48);
+        box.setBackgroundColor(palette.surface);
+        box.addView(message);
+        box.addView(retry);
+        // Opaque and tappable so the WebView's own error page behind it can't be seen or touched.
+        box.setClickable(true);
+        box.setVisibility(View.GONE);
+        return box;
+    }
+
+    /** Covers the error page at once, then tries again quietly a couple of times before leaving it to the person. */
+    private void showLoadFailure(String url) {
+        if (failureView == null) return;
+        failureView.setVisibility(View.VISIBLE);
+        long delay = LoadFailure.retryDelayMs(autoRetries);
+        if (delay < 0) return;
+        autoRetries++;
+        web.postDelayed(() -> {
+            if (loadFailed && !isFinishing() && !isDestroyed()) retryLoad();
+        }, delay);
+    }
+
+    private void retryLoad() {
+        String address = savedAddress();
+        if (address == null || web == null) return;
+        loadFailed = false;
+        // The failed address may be an alert route or a shared link; the web view still holds it.
+        String failed = web.getUrl();
+        web.loadUrl(failed == null || failed.startsWith("data:") || !ServerAddress.sameOrigin(address, failed)
+                ? address : failed);
     }
 
     /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
