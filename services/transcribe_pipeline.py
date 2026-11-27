@@ -58,6 +58,8 @@ RUNNING_MAX = 0.99
 # (a fraction of that slice's end), so its per-segment progress has room to move.
 REALIGN_START = 0.9
 QWEN_SPLIT = 0.85
+# Carries a segment's mean word probability through the split to each piece cut from it.
+_SEGMENT_WORD_PROB = "_segment_word_prob"
 
 
 # Fixed sentences, never the ImportError text: that names a module and reads
@@ -674,8 +676,11 @@ class _PipelineRun:
 
     def _split_into_lines(self):
         o, tuning = self.o, self.tuning
+        # Each sentence cut from a segment is scored from its own words against the segment's.
+        tagged = [{**seg, _SEGMENT_WORD_PROB: segment_splitting.mean_word_probability(seg.get("words"))}
+                  for seg in self.segments or ()]
         pieces = [s for s in long_line_split.split_long_segments(
-            self.segments, min_pause=o.min_pause_sec,
+            tagged, min_pause=o.min_pause_sec,
             max_seconds=tuning.max_seconds, max_cjk_chars=tuning.max_cjk_chars,
             floors=tuning.floors,
             rules=asr_backend.sentence_split_rules(tuning) if self.sentence_lines else None)
@@ -691,7 +696,9 @@ class _PipelineRun:
         return [Line(idx=i, start=seg["start"], end=seg["end"], zh=seg["text"],
                      speaker=seg.get("speaker") or None, flag=seg.get("flag"),
                      flag_note=seg.get("flag_note") or "", lang=seg.get("lang"),
-                     confidence=_usable_confidence(seg.get("confidence")),
+                     confidence=segment_splitting.scaled_line_confidence(
+                         _usable_confidence(seg.get("confidence")), seg.get("words"),
+                         seg.get(_SEGMENT_WORD_PROB)),
                      word_timings=segment_splitting.encode_line_words(seg["text"],
                                                                 seg.get("words")))
                 for i, seg in enumerate(pieces)]
