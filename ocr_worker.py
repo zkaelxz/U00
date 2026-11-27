@@ -182,10 +182,24 @@ def _gpu_ready(key: str) -> bool:
             _gpu.load_started = 0.0
             return True
     if reply[0] == "gpu_later":
+        _gpu_skipped("the GPU engine found no room while loading")
         _gpu_retry_later()
     else:
         _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load")
         _stop_helper(_gpu)
+    return False
+
+
+_last_gpu_skip = None
+
+
+def _gpu_skipped(reason: str) -> bool:
+    """False, after logging why reads stay on the CPU the first time that reason is seen: a
+    run on the CPU is ten times slower and was otherwise silent."""
+    global _last_gpu_skip
+    if reason != _last_gpu_skip:
+        _last_gpu_skip = reason
+        _log(f"Text reader: not using the GPU: {reason}")
     return False
 
 
@@ -202,7 +216,7 @@ def _gpu_allowed(key: str) -> bool:
     if refused:
         if _gpu.alive():
             _stop_helper(_gpu)     # Settings or the guard turned it off: give the memory back now
-        return False
+        return _gpu_skipped("turned off in Settings or held by the GPU guard")
     # Its load or reads already passed the check below (a job's own process keeps its
     # engine in this process instead, where the check would count its own memory).
     if _gpu.alive() or ((inline or multiprocessing.current_process().daemon)
@@ -216,11 +230,11 @@ def _gpu_allowed(key: str) -> bool:
         import vram
         free = vram.free_vram_mb()
         if free is None:
-            return False     # no readable NVIDIA card
+            return _gpu_skipped("no readable NVIDIA card")
         # Also honours Settings > Keep free memory for the GPU.
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
-    except Exception:
-        return False
+    except Exception as exc:
+        return _gpu_skipped(f"not enough free GPU memory ({type(exc).__name__}: {exc})")
     _gpu_checked_at = None
     return True
 

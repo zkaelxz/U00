@@ -691,9 +691,16 @@ def _detect_stage(drama_id: int, drama: dict, page_id: int, mode: str, detect_kw
             progress = (background_jobs.get_status(jid) or {}).get("progress")
             background_jobs.update_progress(jid, progress or 0.0, _WAITING_NOTE)
 
+    queued = time.monotonic()
     with cancellable_lock.hold(pages_svc.pipeline_lock(), check_while_waiting):
+        read_started = time.monotonic()
         bubbles, detect_notes = scanlate.detect_and_ocr_page(src, lang, page_id=page_id,
                                                              **detect_kwargs)
+    # A slow read is otherwise invisible: the page note's detect time is the wait for a read
+    # that already ran ahead, and the lock wait cannot be told apart from the read itself.
+    from applog import get_logger
+    get_logger().info("Comic read: page %s waited %.1fs for the reader and read %d regions in %.1fs",
+                      page_id, read_started - queued, len(bubbles), time.monotonic() - read_started)
     if bubbles and not any((b.get("source_text") or "").strip() for b in bubbles):
         ocr_errored = any(level == "error" for level, _ in detect_notes)
         raise OcrReadFailed(_OCR_ERRORED if ocr_errored else _OCR_NO_TEXT)
@@ -1126,9 +1133,10 @@ def _run_job(*args, **kwargs):
     try:
         return _run_job_pages(*args, **kwargs)
     finally:
-        # The run's OCR models would otherwise sit on the GPU until the app exits.
+        # The run's OCR models would otherwise sit on the GPU until the app exits. The text
+        # reader's helpers go idle on their own, and keeping them saves the next run a cold start.
         import ocr
-        ocr.release_models()
+        ocr.release_models(keep_text_reader=True)
 
 
 def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
