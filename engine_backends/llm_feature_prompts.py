@@ -7,6 +7,7 @@ because tests patch `engine_backends.llm_tasks.call_llm_json`. This module impor
 nothing from llm_tasks, so it can be imported on its own.
 """
 
+import functools
 import re
 
 from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
@@ -135,13 +136,50 @@ def glossary_term_forms(term: dict) -> list:
     return [term.get("term_original", "")] + aliases
 
 
-def matching_glossary_terms(zh: str, glossary_terms) -> list:
+def script_folded(text: str) -> str:
+    """text in Simplified characters, so a term typed in one Chinese script is found in
+    lines written in the other. Unchanged when OpenCC is missing, or when converting would
+    change the length: callers read match positions in the original text."""
+    try:
+        import segment
+        folded = segment.opencc_t2s().convert(text)
+    except ImportError:
+        return text
+    return folded if len(folded) == len(text) else text
+
+
+@functools.lru_cache(maxsize=4096)
+def _folded_form(form: str) -> str:
+    return script_folded(form)
+
+
+def folded_forms(term: dict) -> list:
+    """The term's forms as script_folded would write them. One character stays
+    exact: alone, it folds into too many other words (乾, 幹 and 干 all become 干)."""
+    return [_folded_form(f) for f in glossary_term_forms(term) if len(f) >= 2]
+
+
+def term_in_text(text: str, term: dict, cross_script: bool = True, folded_text: str | None = None) -> bool:
+    """Whether text holds the term or one of its aliases. folded_text is
+    script_folded(text), passed in when many terms are checked against one text."""
+    if any(f and f in text for f in glossary_term_forms(term)):
+        return True
+    if not cross_script:
+        return False
+    folded = script_folded(text) if folded_text is None else folded_text
+    return any(f in folded for f in folded_forms(term))
+
+
+def matching_glossary_terms(zh: str, glossary_terms, cross_script: bool = True) -> list:
     """Glossary entries whose source term (or a recorded alias)
-    literally appears in zh -- the same "in play for this line" heuristic
+    appears in zh -- the same "in play for this line" heuristic
     line_tools.explain_translation already used, factored out so the
     "what happened here?" view can show the same real, non-fabricated
     match set instead of re-deriving it differently."""
-    return [t for t in (glossary_terms or []) if any(f and f in zh for f in glossary_term_forms(t))]
+    if not glossary_terms:
+        return []
+    folded = script_folded(zh) if cross_script else zh
+    return [t for t in glossary_terms if term_in_text(zh, t, cross_script, folded)]
 
 
 def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:
