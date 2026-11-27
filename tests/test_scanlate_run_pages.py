@@ -576,3 +576,76 @@ def test_start_run_pages_needs_a_confirm_and_pages_of_this_title(isolated_db, mo
         run_svc.start_run(did, mode="all", page_ids=[pid], confirm=True)
     with pytest.raises(InvalidInputError):
         run_svc.start_run(did, mode="missing", keep_text=True)
+
+
+def _run_missing(did, pids, engine):
+    run_svc._run_job("j", did, "missing", pids, "mt", engine, "auto")
+
+
+def test_a_missing_run_translates_a_page_whose_ocr_text_has_no_english(harness):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = _page(did, 0)
+    db.save_bubbles(pid, [_region("你好")])
+    assert run_svc._missing_run_has_work(did, pid)
+    _run_missing(did, [pid], _MT())
+    assert _texts(pid) == {"你好": "Hello"}
+    assert [p for p, _ in harness] == [pid]
+
+
+def test_regions_left_untranslated_on_purpose_do_not_make_a_page_missing_work(harness, monkeypatch):
+    patch_setting(monkeypatch, "scanlate_sfx_gloss", False)
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = _page(did, 0)
+    db.save_bubbles(pid, [_region("ドン", kind="sfx"), _region("SCHOOL CHILD", skip=True, y=50)])
+    db.update_page(pid, rendered_filename="pages/typeset.png")
+    assert not run_svc._missing_run_has_work(did, pid)
+    engine = _MT()
+    _run_missing(did, [pid], engine)
+    assert engine.calls == []
+
+
+def test_a_page_with_some_english_is_left_alone_by_a_missing_run(harness):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = _page(did, 0)
+    db.save_bubbles(pid, [_region("你好", translated_text="Hand typed"), _region("世界", y=50)])
+    db.update_page(pid, rendered_filename="pages/typeset.png")
+    assert not run_svc._missing_run_has_work(did, pid)
+
+
+def test_a_run_where_every_page_fails_ends_as_failed_without_the_key(harness, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    p1, p2 = _page(did, 0), _page(did, 1)
+
+    def detect(*a, **k):
+        raise RuntimeError("boom sk-abcdefghijklmnop1234")
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    with pytest.raises(RuntimeError) as err:
+        run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto")
+    assert "boom" in str(err.value) and "sk-abcdefghijklmnop1234" not in str(err.value)
+
+
+def test_a_run_with_one_failed_page_and_one_good_page_still_finishes(harness, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    p1, p2 = _page(did, 0), _page(did, 1)
+
+    def detect(path, lang, page_id=None, **kw):
+        if page_id == p1:
+            raise RuntimeError("boom")
+        return [_region("你好")], []
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", detect)
+    run_svc._run_job("j", did, "all", [p1, p2], "mt", _MT(), "auto")
+    assert _texts(p2) == {"你好": "Hello"}
+
+
+def test_a_page_the_engine_answered_blank_is_not_paid_for_again(harness):
+    class Blank(_MT):
+        def translate_batch(self, lines, context):
+            self.calls.extend(lines)
+            return ["" for _ in lines]
+    did = db.create_drama(title_en="Comic", source_language="zh")
+    pid = _page(did, 0)
+    db.save_bubbles(pid, [_region("你好")])
+    _run_missing(did, [pid], Blank())
+    engine = Blank()
+    _run_missing(did, [pid], engine)
+    assert engine.calls == []
