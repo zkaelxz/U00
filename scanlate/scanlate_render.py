@@ -100,6 +100,13 @@ def _caption_styles(page, captions: list) -> list:
     return [dict(s, fill=chosen_color(b)) if chosen_color(b) else s for b, s in zip(captions, styles)]
 
 
+def _letter_rooms(page, regions: list) -> list:
+    """Each region's box cut between its rules; a balloon's own shape bounds its text, and the
+    coloured rings of a glow bubble would read as rules and cut it to a strip."""
+    return [scanlate_art_text.between_rules(page, b)
+            if (b.get("kind") or "bubble") not in SHAPE_FITTED_KINDS else b for b in regions]
+
+
 def _in_rooms(regions: list, rooms: list) -> list:
     """`regions` with each one's box replaced by its room. The rooms are read before the erase:
     a credit line sits between two red rules and its English belongs there, not across a rule."""
@@ -176,7 +183,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         to_render, art_signs = _split_art_signs(page, to_render)
         caption_styles = _caption_styles(page, captions)
         caption_rooms = [scanlate_art_text.clear_of_decoration(page, b) for b in captions]
-        letter_rooms = [scanlate_art_text.between_rules(page, b) for b in to_render]
+        letter_rooms = _letter_rooms(page, to_render)
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
         angles, lines = _tilts_and_lines(page, to_render)

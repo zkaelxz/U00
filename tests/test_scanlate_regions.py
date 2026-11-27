@@ -623,6 +623,17 @@ class TestWordySfxBecomesSign:
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
         assert region["kind"] == "sign"
 
+    @pytest.mark.parametrize("text", ["하지만언니가\n이렇게우니까", "아주 슬픈 일인가 봐", "왜냐하면", "어쩐지", "울고있지?"])
+    def test_glowing_korean_narration_taken_for_an_effect_is_a_sign(self, text):
+        region = {"kind": "sfx", "source_text": text}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 1
+        assert region["kind"] == "sign"
+
+    @pytest.mark.parametrize("text", ["쿵", "두근두근", "크아아악!!", "쿵 쿵", "우르르", "콰아앙"])
+    def test_a_korean_sound_effect_stays(self, text):
+        region = {"kind": "sfx", "source_text": text}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
+
     def test_a_kanji_sound_effect_without_hiragana_stays(self):
         region = {"kind": "sfx", "source_text": "斬"}
         assert scanlate_regions.reclassify_wordy_sfx([region]) == 0
@@ -972,3 +983,10 @@ def test_centred_caption_box_is_left_alone():
     page = _caption_page(stamp=False)
     box = {"x": 0, "y": 20, "w": 460, "h": 160}
     assert scanlate_regions.trim_to_lettering(page, box) == box
+
+
+class TestKoreanEffectsStayEffects:
+    @pytest.mark.parametrize("text", ["와다다다", "우다다다", "쿵 쾅", "우르릉 쾅", "쿠구구"])
+    def test_repeated_syllable_and_two_word_effects_stay(self, text):
+        region = {"kind": "sfx", "source_text": text}
+        assert scanlate_regions.reclassify_wordy_sfx([region]) == 0

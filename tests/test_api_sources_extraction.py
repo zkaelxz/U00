@@ -670,7 +670,7 @@ def test_comic_review_roles_order_thumbnails_and_import(client, env, comic):
     wait_for_job(f"sourceimport_{did}", missing_ok=True)
     res = client.get(f"/api/sources/jobs/sourceimport_{did}/result").json()["result"]
     assert res == {"kind": "review_import", "content_type": "comic", "pages_added": 2,
-                   "skipped": [], "skipped_count": 0}
+                   "skipped": [], "skipped_count": 0, "already_present": 0}
     import hashlib
     import os
     pages = db.list_pages(did)
@@ -1111,6 +1111,53 @@ def test_direct_import_writes_one_page_at_a_time(client, env, comic, monkeypatch
     assert [n for n, _left in held] == [1, 1, 1, 1]
     assert [left for _n, left in held] == [3, 2, 1, 0]
     assert all(not c.content for c in box["images"])
+
+
+def _page_shades(did):
+    import os
+    from PIL import Image
+    shades = []
+    for p in db.list_pages(did):
+        with Image.open(os.path.join(db.drama_dir(did), p["filename"])) as im:
+            shades.append(im.convert("L").getpixel((0, 0)))
+    return shades
+
+
+def test_retry_after_a_cancel_adds_only_the_missing_pages_in_order(client, env, comic, monkeypatch):
+    from sources import pipeline
+    env["fetch"].pages[COMIC_URL] = comic_page_html(6)
+    did = _comic_drama()
+    job = f"sourceimport_{did}"
+    real_add = pipeline.add_page_images
+    calls = []
+
+    def cancel_after_two(drama_id, pages, **kw):
+        n = real_add(drama_id, pages, **kw)
+        calls.append(n)
+        if len(calls) == 2:
+            background_jobs.request_cancel(job)
+        return n
+    monkeypatch.setattr(pipeline, "add_page_images", cancel_after_two)
+    assert client.post("/api/sources/url/import-comic",
+                       json={"url": COMIC_URL, "drama_id": did}).status_code == 200
+    wait_for_job(job, missing_ok=True)
+    assert background_jobs.get_status(job)["status"] == "cancelled"
+    assert len(db.list_pages(did)) == 2
+    monkeypatch.setattr(pipeline, "add_page_images", real_add)
+    res = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    res = res.json()["result"]
+    assert res["pages_added"] == 4 and res["already_present"] == 2
+    assert _page_shades(did) == [20 * i for i in range(1, 7)]
+
+
+def test_reimporting_a_complete_chapter_adds_nothing(client, env, comic):
+    did = _comic_drama()
+    first = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    assert first.json()["result"]["pages_added"] == 3
+    again = _run(client, "/api/sources/url/import-comic", {"url": COMIC_URL, "drama_id": did}, did)
+    res = again.json()["result"]
+    assert res["pages_added"] == 0 and res["already_present"] == 3
+    assert _page_shades(did) == [20, 40, 60]
 
 
 def test_review_import_reads_one_image_at_a_time(client, env, comic, monkeypatch):
