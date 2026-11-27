@@ -573,8 +573,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         # batched pipeline needs its chunks.
         "language": language, "vad_filter": not (_skips_detector(language, difficult_audio) and not fast_mode),
         "beam_size": beam_size,
-        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms, "threshold": vad_threshold,
-                           "max_speech_duration_s": VAD_MAX_SPEECH_S},
+        "vad_parameters": {"min_silence_duration_ms": min_silence_duration_ms, "threshold": vad_threshold, "max_speech_duration_s": VAD_MAX_SPEECH_S},
         "word_timestamps": whisper_models.supports_word_timestamps(model_size),
         **decode_kwargs(sensitivity_preset, WHISPER_ANTI_LOOP_KWARGS, WHISPER_REPEAT_GUARD_KWARGS, repeat_guard), **_decode_randomness_kwargs(decode_randomness),
     }
