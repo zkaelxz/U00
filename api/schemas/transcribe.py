@@ -451,6 +451,9 @@ class LiveSessionStatus(BaseModel):
     translations_skipped: int = 0   # lines shown untranslated to keep up
     translate_queue: int = 0
     chunks_measured: int = 0
+    # Chunk joins done by the exact text match, and by the rougher time rule when the two hearings of the overlap disagreed.
+    overlap_matched: int = 0
+    overlap_fallback: int = 0
     # Which try at reconnecting a broken stream is under way; 0 while connected.
     reconnect_attempt: int = 0
     # Whether this session records a delayed copy, and once its playlists have segments to play.
