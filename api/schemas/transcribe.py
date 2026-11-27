@@ -406,8 +406,6 @@ class LiveOllamaCheck(BaseModel):
     ok: bool
     model: str
     message: Optional[str] = None
-    # The message only warns that the model may not fit in graphics memory; Start still goes ahead.
-    gpu_fit: bool = False
 
 
 class LiveSessionStarted(BaseModel):

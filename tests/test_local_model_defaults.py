@@ -22,25 +22,8 @@ class TestOllamaDefaults:
         assert engine_registry.builtin_default_model("ollama") == "gemma4:31b-cloud"
         assert not engine_local.OLLAMA_MODELS
 
-    def test_removed_translategemma_tags_run_on_the_default_and_other_saved_tags_still_build(self):
-        assert engine_registry.get_engine("ollama").model == "gemma4:31b-cloud"
-        for tag in engine_local.REMOVED_LOCAL_MODELS:
-            assert engine_registry.get_engine("ollama", None, tag).model == "gemma4:31b-cloud"
-        assert engine_registry.get_engine("ollama", None, "qwen2.5:14b").model == "qwen2.5:14b"
 
-    def test_a_saved_qwen_tag_still_passes_the_run_option_check(self):
-        from services import translate_run_service as svc
-        svc._require_offered_model("ollama", "qwen2.5:14b")
 
-    def test_a_saved_qwen_tag_is_kept_by_a_preset(self, isolated_db):
-        from services import translate_preset_service as svc
-        saved = svc.save_translate_preset("Qwen preset", "ollama", engine_model="qwen2.5:14b")
-        did = isolated_db.create_drama(title_zh="D")
-        applied = svc.apply_translate_preset(did, saved["preset"]["id"])
-        assert applied["translation_engine"] == "ollama"
-        assert applied["engine_model"] == "qwen2.5:14b"
-        row = next(p for p in isolated_db.list_presets() if p["id"] == saved["preset"]["id"])
-        assert row["engine_model"] == "qwen2.5:14b"
 
     def test_translate_requests_have_a_timeout_and_use_the_default_model(self, monkeypatch):
         seen = {}
@@ -138,56 +121,17 @@ class _OllamaReply(StreamedBody):
 
 
 class TestGemma4Models:
-    def test_local_gemma4_is_not_offered_but_a_saved_tag_still_builds(self):
-        # Ollama 0.24.0 cannot load the gemma4 architecture, so the picker no longer offers it.
-        for tag in GEMMA_TAGS:
-            assert tag not in engine_local.OLLAMA_MODELS
-            assert engine_registry.get_engine("ollama", None, tag).model == tag
 
     def test_picker_choices(self):
         assert list(engine_local.OLLAMA_MODELS) == []
         assert list(engine_local.OLLAMA_CLOUD_MODELS) == ["gemma4:31b-cloud"]
 
-    def test_request_shape_is_the_same_as_for_a_hand_typed_qwen_tag(self, monkeypatch):
-        sent = []
 
-        def fake_post(url, json=None, timeout=None, stream=None):
-            sent.append((json, timeout))
-            return _OllamaReply({"content": '{"1": "Hello."}'})
-        monkeypatch.setattr("requests.post", fake_post)
-        for model in ("qwen2.5:14b", "gemma4:12b"):
-            engine_local.OllamaEngine(model=model).translate_batch(["你好"], {})
-        (qwen, _), (gemma, _) = sent
-        from engine_backends.local import id_keyed_schema
-        assert gemma["format"] == qwen["format"] == id_keyed_schema([1])
-        assert gemma["options"] == qwen["options"] and gemma["stream"] is False
-        assert [m["role"] for m in gemma["messages"]] == ["system", "user"]
-
-    @pytest.mark.parametrize("message", [
-        {"content": '{"1": "Hello."}', "thinking": 'reasoning {"1": "wrong"}'},
-        {"content": '<think>try {"1": "wrong"}</think>\n{"1": "Hello."}'},
-    ])
-    def test_reasoning_never_reaches_the_subtitle(self, monkeypatch, message):
-        monkeypatch.setattr("requests.post", lambda *a, **k: _OllamaReply(message))
-        assert engine_local.OllamaEngine(model="gemma4:12b").translate_batch(["你好"], {}) == ["Hello."]
 
     def test_a_reply_cut_off_mid_thinking_has_no_answer(self):
         from engine_backends.local import strip_ollama_thinking
         assert strip_ollama_thinking('<think>still going {"1": "x"}') == ""
 
-    @pytest.mark.parametrize("model, expected", [
-        ("qwen2.5:14b", 300), ("gemma4:12b", 300),
-        ("gemma4:26b", 900), ("gemma4:31b", 900),
-    ])
-    def test_cpu_split_models_get_a_longer_but_finite_timeout(self, monkeypatch, model, expected):
-        seen = {}
-
-        def fake_post(url, json=None, timeout=None, stream=None):
-            seen["timeout"] = timeout
-            return _OllamaReply({"content": "{}"})
-        monkeypatch.setattr("requests.post", fake_post)
-        engine_local.OllamaEngine(model=model).translate_batch(["你好"], {})
-        assert seen["timeout"] == expected
 
     @pytest.mark.parametrize("tag", GEMMA_TAGS)
     def test_missing_model_message_gives_the_pull_command(self, monkeypatch, tag):

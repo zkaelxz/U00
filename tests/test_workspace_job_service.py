@@ -134,7 +134,7 @@ def test_bulk_cap_engines_match_translate_run(isolated_db, monkeypatch, engine):
 
 
 # A local tag: the Library batch never picks up a remembered cloud tag.
-GEMMA_LOCAL = "gemma4:31b"
+GEMMA_LOCAL = "gemma4:31b-cloud"
 
 
 def _bulk_sizes(seen):
@@ -167,17 +167,6 @@ def test_bulk_gemma_stream_title_keeps_sizes_the_person_chose(isolated_db, monke
     assert _bulk_sizes(seen) == (3, 2, 12)
 
 
-@pytest.mark.parametrize("content_mode,model,expected", [
-    ("novel_narration", GEMMA_LOCAL, (30, 15, 30)),
-    ("streamer_vod", "translategemma:27b", (10, 6, 30))])
-def test_bulk_novel_or_other_model_keeps_the_full_prompt_and_sizes(isolated_db, monkeypatch,
-                                                                   content_mode, model, expected):
-    from engine_backends import stream_recipe
-    seen, _ = _capture_bulk_start(isolated_db, monkeypatch, "ollama", content_mode,
-                                  '{"engine_model": "%s"}' % model)
-    assert not stream_recipe.is_active(seen["args"][10])
-    assert "LEARNED-STYLE" in seen["args"][10]
-    assert _bulk_sizes(seen) == expected
 
 
 def test_bulk_stream_title_with_the_plain_prompt_off_keeps_remembered_sizes(isolated_db, monkeypatch):

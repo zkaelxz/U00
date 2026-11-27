@@ -112,8 +112,7 @@ def get_model_engine_versions(ollama_model: str | None = None) -> list:
         out.append({"name": "Ollama (active tag)", "version": ollama_model,
                     "url": "https://ollama.com/library", "installed": True,
                     "package": None,
-                    "help": "The local Ollama model tag currently selected in Settings for "
-                            "free local translation."})
+                    "help": "The hosted Ollama model tag currently selected in Settings."})
     return out
 
 

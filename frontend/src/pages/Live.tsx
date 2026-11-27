@@ -150,7 +150,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   const startForm: LiveForm = { ...form, engine, model, ...glossary, use_gpu: useGpu }
   // Ollama is the default and runs on this PC: say plainly when it is not
   // there, instead of failing at Start. Nothing switches engine for the user.
-  const ollama = useOllamaCheck(engine === 'ollama' ? model : null, useGpu ? form.whisper_size : null)
+  const ollama = useOllamaCheck(engine === 'ollama' ? model : null)
   // Until Start is pressed a missing Ollama is only information; it becomes an alert when it blocks a start.
   const [startPressed, setStartPressed] = useState(false)
   const developerMode = useDeveloperMode()
@@ -171,12 +171,10 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
       : liveBlockers(needs).length ? 'Still needed: what is listed under Start.'
         : sizeReason ? `Still needed: a Whisper model that is ready. ${sizeReason}` : null)
 
-  async function start(e?: React.FormEvent, anyway = false) {
+  async function start(e?: React.FormEvent) {
     e?.preventDefault()
     setStartPressed(true)
     if (blocker || busy || active) return
-    if (anyway) ollama.accept()
-    else if (ollama.holdStart()) return
     setBusy(true)
     setError(null)
     try {
@@ -224,7 +222,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             </Field>
           )}
           {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
-          {ollama.note && <OllamaNote check={ollama} alert={startPressed && !ollama.fitWarning} onStartAnyway={() => void start(undefined, true)} />}
+          {ollama.note && <OllamaNote check={ollama} alert={startPressed} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">
           <div className="field-row">

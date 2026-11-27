@@ -380,7 +380,7 @@ export function ollamaNeed(r: SetupReadiness | null): Need | null {
     id: 'ollama', label: 'Ollama test engine', action: 'external', packages: [],
     reason: r.ollama_reachable
       ? `Ollama is running but the default model isn't pulled yet. Run "ollama pull ${LIVE_DEFAULT_MODEL}" for it.`
-      : "Ollama isn't running or isn't installed. It is a free local translator for testing.",
+      : "Ollama isn't running or isn't installed. It serves Ollama's hosted Gemma model.",
     link: { href: 'https://ollama.com/download', label: 'Get Ollama' },
   }
 }

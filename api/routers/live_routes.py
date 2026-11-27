@@ -35,7 +35,7 @@ _ERRS = error_responses(404, 422, 503)
              summary="Start a live capture session (yt-dlp + local Whisper + engine)",
              responses=_ERRS)
 def post_session(body: LiveSessionStart, request: Request):
-    require_engines_allowed(request, body.engine or live_service.LIVE_DEFAULT_ENGINE)
+    require_engines_allowed(request, body.engine or live_service.default_engine())
     require_cloud_model_allowed(request, (body.engine, body.model))
     # The recorder downloads video for the whole session and its files are served to the PC only.
     if body.delayed_player and not is_at_pc(request):
@@ -71,10 +71,8 @@ def get_options():
             response_model=LiveOllamaCheck,
             summary="Whether Ollama answers and has the model (no address in the reply)",
             responses=_ERRS)
-def get_ollama_check(model: str = Query(None, max_length=100),
-                     whisper_size: str = Query(None, max_length=100),
-                     use_gpu: bool = Query(False)):
-    return live_service.check_ollama(model, whisper_size, use_gpu)
+def get_ollama_check(model: str = Query(None, max_length=100)):
+    return live_service.check_ollama(model)
 
 
 @router.get("/sessions/{session_id}", dependencies=[require_permission("library.read")],

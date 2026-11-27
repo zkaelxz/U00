@@ -46,7 +46,8 @@ class ScriptedChat:
 
 @pytest.fixture
 def dev_mode(isolated_db):
-    settings_svc.set_settings({"developer_mode": True})
+    # Ollama now serves hosted models only, so it needs consent like every engine.
+    settings_svc.set_settings({"developer_mode": True, "cloud_consent": {"ollama": True}})
 
 
 @pytest.fixture
@@ -420,12 +421,15 @@ def real_build(monkeypatch):
     return built
 
 
-def test_default_engine_is_local(dev_mode, real_build):
+def test_default_engine_is_ollama_and_needs_consent_like_every_engine(dev_mode, real_build):
     out = svc.ask("x", chat=ScriptedChat("fine"))
     assert out["engine"] == "ollama" and real_build == ["ollama"]
     s = settings_svc.get_settings()
-    assert s["default_engine"] == "ollama" and "ollama" in s["local_engines"]
+    assert s["default_engine"] == "ollama"
     assert all(s["cloud_consent"][e] is False for e in ("claude", "deepseek", "gemini"))
+    settings_svc.set_settings({"cloud_consent": {"ollama": False}})
+    with pytest.raises(errors.ConflictError):
+        svc.ask("x", chat=ScriptedChat("fine"))
 
 
 def test_cloud_engine_needs_saved_consent_for_ask_and_changelog(dev_mode, real_build, monkeypatch):
@@ -482,21 +486,10 @@ def test_git_diff_without_a_path_shows_a_modified_tracked_file(tmp_path, monkeyp
 
 
 
-@pytest.mark.parametrize("url,local", [
-    (None, True), ("http://localhost:11434", True), ("http://127.0.0.1:11434", True),
-    ("http://[::1]:11434", True), ("192.168.1.5:11434", False),
-    ("http://ollama.example.com", False), ("http://127.0.0.1.evil.com", False)])
-def test_ollama_is_local_only_on_loopback(isolated_db, monkeypatch, url, local):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: url)
-    assert settings_svc.cloud_consent_given("ollama") is local
-    if not local:
-        with pytest.raises(errors.ConflictError):
-            settings_svc.require_cloud_consent("ollama")
 
 
-def test_ollama_cloud_model_is_not_local_and_needs_consent(isolated_db):
-    assert settings_svc.cloud_consent_given("ollama", "gemma4:12b") is True
+def test_ollama_needs_consent_whatever_the_model(isolated_db):
+    assert settings_svc.cloud_consent_given("ollama") is False
     assert settings_svc.cloud_consent_given("ollama", "gemma4:31b-cloud") is False
     with pytest.raises(errors.ConflictError):
         settings_svc.require_cloud_consent("ollama", "gpt-oss:120b-cloud")
@@ -559,20 +552,6 @@ def test_redact_secrets_strips_github_tokens(tok):
     assert redact_secrets("ghp_short and github_pat_ok") == "ghp_short and github_pat_ok"
 
 
-def test_remote_ollama_consent_is_saved_and_shown(isolated_db, monkeypatch):
-    from services import settings_service
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: "http://10.0.0.2:11434")
-    s = settings_svc.get_settings()
-    assert "ollama" not in s["local_engines"] and s["cloud_consent"]["ollama"] is False
-    with pytest.raises(errors.ConflictError):
-        settings_svc.require_cloud_consent("ollama")
-    s = settings_svc.set_settings({"cloud_consent": {"ollama": True}})
-    assert s["cloud_consent"]["ollama"] is True
-    settings_svc.require_cloud_consent("ollama")
-    # Back on this PC, Ollama is local again and needs no consent entry.
-    monkeypatch.setattr(settings_service, "resolve_key", lambda k, *a, **kw: None)
-    s = settings_svc.get_settings()
-    assert "ollama" in s["local_engines"] and "ollama" not in s["cloud_consent"]
 
 
 # --- tiered escalation: user-triggered, consented, redacted --------------------------
@@ -599,7 +578,7 @@ def test_default_ladder_order_skips_engines_without_keys(isolated_db, keys):
     assert _ladder() == ["ollama", "gemini", "deepseek"]
     tiers = settings_svc.get_settings()["tiers"]
     assert [t["tier"] for t in tiers] == [1, 2, 3]
-    assert tiers[0]["local"] is True and tiers[1]["local"] is False and tiers[1]["consent"] is False
+    assert tiers[0]["local"] is False and tiers[1]["local"] is False and tiers[1]["consent"] is False
 
 
 def test_saved_ladder_order_is_kept_and_skips_missing_keys(isolated_db, keys):
@@ -666,7 +645,7 @@ def test_answer_names_its_tier_and_hands_on_redacted_evidence(dev_mode, real_bui
                         lambda n, kw: [f"ERROR boom key={FAKE_KEY}"])
     chat = ScriptedChat('TOOL: {"id": "t1", "name": "inspect_logs", "args": {}}', "It's the key.")
     out = svc.ask("why?", chat=chat)
-    assert (out["engine"], out["tier"], out["local"], out["next_engine"]) == ("ollama", 1, True, "gemini")
+    assert (out["engine"], out["tier"], out["local"], out["next_engine"]) == ("ollama", 1, False, "gemini")
     assert "RESULT t1 (inspect_logs, ok)" in out["evidence"] and "ERROR boom" in out["evidence"]
     assert FAKE_KEY not in json.dumps(out)
     assert len(out["evidence"]) < diag.MAX_EVIDENCE_CHARS
@@ -768,7 +747,7 @@ def test_api_escalation_consent_and_errors_carry_no_key(isolated_db, real_build,
     import qa
     keys.add("gemini")
     c = _client()
-    c.post("/api/assistant/settings", json={"developer_mode": True, "cloud_consent": {"gemini": True}})
+    c.post("/api/assistant/settings", json={"developer_mode": True, "cloud_consent": {"gemini": True, "ollama": True}})
     real_chat = diag._chat
     monkeypatch.setattr(diag, "_chat", ScriptedChat("fine"))
     body = {"question": "x", "engine": "gemini", "escalate": True}

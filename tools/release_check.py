@@ -371,7 +371,7 @@ class Spend:
 
 
 def run_translation(clip: dict, opts, spend: Spend) -> dict:
-    engine_name = clip.get("engine") or opts.engine
+    engine_name = clip.get("engine") or opts.engine or translate_service.default_hosted_engine()
     sources = read_cues(clip["source_srt"], clip["language"])
     references = read_cues(clip["reference_srt"], clip["language"])
     if len(sources) != len(references):
@@ -557,7 +557,7 @@ def main(argv=None) -> int:
     parser.add_argument("manifest", help="JSON file listing the golden clips (kept outside the repo)")
     parser.add_argument("--previous", metavar="RESULTS.json", help="the JSON of the last run, to flag regressions")
     parser.add_argument("--whisper-model", default="large-v3", help="transcription model (default large-v3)")
-    parser.add_argument("--engine", default="ollama", help="translation engine for clips that name none (default: free local)")
+    parser.add_argument("--engine", default=None, help="translation engine for clips that name none (default: hosted Gemma through Ollama, else OpenAI)")
     parser.add_argument("--repeats", type=int, default=DEFAULT_REPEATS,
                         help=f"run each transcription clip this many times and score the median (default {DEFAULT_REPEATS}; "
                              f"the release gate needs {GATE_MIN_REPEATS} unless the clip has fixed decoding)")

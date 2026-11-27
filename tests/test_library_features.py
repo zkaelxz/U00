@@ -727,14 +727,6 @@ class TestBulkSeriesTranslate:
                  models={"claude": "claude-opus-4"})
         assert seen["model"] == "claude-opus-4"
 
-    def test_an_ollama_drama_is_gpu_touching(self, isolated_db, monkeypatch):
-        """Step 25d item 1: this never set gpu_touching=True for an Ollama
-        engine, risking it running outside Step 5c's GPU-job guard."""
-        d1 = self._drama(isolated_db, n=1, engine="ollama")
-        self._run([d1], monkeypatch)
-        job = background_jobs.get_status(f"translate_{d1}")
-        assert job is not None and job.get("gpu_touching") is True
-        background_jobs.clear_job(f"translate_{d1}")
 
     def test_combined_progress_message_names_the_current_drama(self, isolated_db, monkeypatch):
         import services.workspace_job_service as lt  # was tabs.library_tab (a re-export)

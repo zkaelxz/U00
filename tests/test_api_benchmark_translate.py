@@ -117,7 +117,6 @@ class TestTranslateSweepRoutes:
         assert db.list_benchmark_sessions(10, "translation") == []
 
     def test_an_estimate_on_an_engine_with_a_temperature_knob_reads(self, isolated_db, monkeypatch):
-        monkeypatch.setattr(local, "pulled_ollama_models", lambda url: [])
         monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
         for title in "ABCD":
             _scene(title, 3)

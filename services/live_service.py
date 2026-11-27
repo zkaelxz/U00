@@ -177,16 +177,19 @@ def _num(name, value, lo, hi, cast=float):
 
 
 def _require_offered_model(engine_name: str, model: Optional[str]):
-    """Only models the Live picker offers (the Translate list, which for Ollama
-    also holds the models pulled on the server) are accepted."""
+    """Only models the Live picker offers (the Translate list) are accepted."""
     if not model:
         return
     entry = next((e for e in translate_service.list_engines() if e["name"] == engine_name), None)
     offered = list((entry or {}).get("models") or ())
-    if engine_name == "ollama" and entry is not None and model not in offered:
-        offered += engine_local.pulled_ollama_models(settings_service.ollama_url())
     if entry is None or model not in offered:
         raise InvalidInputError("That model isn't offered for this engine.")
+
+
+def default_engine() -> str:
+    """The engine a Live request without one runs on, so the paid-engine gate
+    checks the engine that will actually run."""
+    return translate_service.default_hosted_engine()
 
 
 def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
@@ -196,10 +199,9 @@ def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
 
 
 def _build_engine(engine_name: Optional[str], model: Optional[str]):
-    # Never the Settings default: that may be a hosted engine, and a Live
-    # request without an engine (API client, extension, stale bundle) must not
-    # send the stream's text off this PC unasked.
-    engine_name = engine_name or LIVE_DEFAULT_ENGINE
+    # Never the Settings default: Live has its own, the hosted Gemma through
+    # Ollama (OpenAI Luna when Ollama does not answer).
+    engine_name = engine_name or translate_service.default_hosted_engine()
     if engine_name not in engine_registry.ENGINES:
         raise InvalidInputError(engine_registry.unknown_engine_message(engine_name))
     _require_offered_model(engine_name, model)
@@ -227,13 +229,10 @@ def _build_engine(engine_name: Optional[str], model: Optional[str]):
     return engine_name, engine
 
 
-def check_ollama(model: Optional[str] = None, whisper_size: Optional[str] = None,
-                 use_gpu: bool = False) -> dict:
-    """{ok, model, message, gpu_fit}: whether Ollama answers and has the model,
-    and whether the model (with Whisper too when use_gpu) fits in graphics
-    memory, so the Live form can say so before Start. gpu_fit marks a message
-    that is only that warning: Start still goes ahead. The message is the plain
-    text the chat call uses and never carries the Ollama address."""
+def check_ollama(model: Optional[str] = None) -> dict:
+    """{ok, model, message}: whether Ollama answers, so the hosted model can be
+    reached. The message is the plain text the chat call uses and never carries
+    the Ollama address."""
     from services import translate_run_service
     # The model Start would run when none is chosen, so the note describes it.
     model = model or live_default_model("ollama")
@@ -243,56 +242,8 @@ def check_ollama(model: Optional[str] = None, whisper_size: Optional[str] = None
         engine_local.check_ollama_model_installed(
             settings_service.ollama_url(), model)
     except engine_local.OllamaUnavailableError as exc:
-        return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message), "gpu_fit": False}
-    # Ollama is its own program and puts the model on the GPU whatever Use GPU
-    # says; Use GPU only moves Whisper there too.
-    room = _gpu_room_note(model, whisper_size if use_gpu else None, bool(use_gpu))
-    return {"ok": room is None, "model": model, "message": room, "gpu_fit": room is not None}
-
-
-_GPU_PAIR_OVERHEAD_MB = 1024
-
-
-def _gpu_room_note(model: str, whisper_size: Optional[str], use_gpu: bool = True) -> Optional[str]:
-    """Why the model (and Whisper, when it runs on the GPU) may not fit in graphics
-    memory, or None. Without it a model that does not fit (a 27B model on a
-    12 GB card) only showed after Start, as lines skipped to keep up. It counts
-    what Start does: with Use GPU, Whisper's load first unloads every Ollama model
-    (when Settings lets it), then the model loads again. It warns with the
-    keep-free reserve at 0 too: a model that spills onto the CPU is too slow for Live."""
-    import memory_headroom
-    import ollama_unload
-    footprint = memory_headroom.ollama_footprint(settings_service.ollama_url(), model)
-    reading = memory_headroom.read_memory_mb("vram", at_load=True)
-    if not footprint or reading is None:
-        return None
-    load_mb, loaded, resident_mb = footprint
-    unloads = use_gpu and ollama_unload.is_enabled()
-    free_mb = reading[1] + (resident_mb if unloads else 0)
-    ollama_mb = load_mb if unloads or not loaded else 0
-    key = memory_headroom.whisper_key(whisper_size or "")
-    # A Whisper an earlier session left loaded in this process already holds its memory.
-    cached = f"{whisper_size}_gpu" in whisper_models._whisper_model_cache
-    whisper_mb = 0 if cached or not whisper_size else (
-        memory_headroom.estimate_mb("whisper", whisper_size) or (0, 0))[0]
-    label = f"{model} and Whisper {key}" if whisper_mb else model
-    # Two programs on the card each hold their own CUDA runtime; on the V100 ja-1.5b
-    # beside TranslateGemma 12B took about 1 GB more than its Whisper estimate.
-    overhead_mb = _GPU_PAIR_OVERHEAD_MB if whisper_mb and ollama_mb else 0
-    need_mb = ollama_mb + whisper_mb + overhead_mb
-    reserved = memory_headroom.reserved_mb("vram")
-    if not need_mb or free_mb - need_mb >= reserved:
-        return None
-    kept = f", {_gb(reserved)} kept free for other programs" if reserved > 0 else ""
-    advice = "Pick a smaller model"
-    if whisper_mb:
-        advice += ", or turn off Use GPU"
-    return (f"{label} may not fit in graphics memory (need about {_gb(need_mb)}, {_gb(free_mb)} free{kept}). "
-            f"{advice}.")
-
-
-def _gb(mb: float) -> str:
-    return f"{max(mb, 0) / 1024:.1f} GB"
+        return {"ok": False, "model": model, "message": shared.redact_secrets(exc.message)}
+    return {"ok": True, "model": model, "message": None}
 
 
 def gpu_available() -> bool:

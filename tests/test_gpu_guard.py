@@ -26,11 +26,8 @@ def _library(isolated_db, monkeypatch):
     # No other GPU program: only the guard holds jobs in these tests.
     monkeypatch.setattr(diagnostics_torch, "external_gpu_is_busy", lambda *_a: False)
     monkeypatch.setattr(diagnostics_torch, "external_gpu_load", lambda: None)
-    import ollama_unload
     import whisper_models
-    calls = {"ollama": 0, "app": 0}
-    monkeypatch.setattr(ollama_unload, "unload_loaded_models",
-                        lambda: calls.__setitem__("ollama", calls["ollama"] + 1) or 1)
+    calls = {"app": 0}
     monkeypatch.setattr(whisper_models, "release_gpu_models",
                         lambda: calls.__setitem__("app", calls["app"] + 1))
     yield calls
@@ -220,22 +217,22 @@ class TestIdleModels:
     def test_short_memory_unloads_when_nothing_runs(self, _library):
         t = time.time()
         gpu_guard.tick(now=t, reading=(500.0, COOL))
-        assert _library == {"ollama": 1, "app": 1}
+        assert _library == {"app": 1}
         gpu_guard.tick(now=t + 20, reading=(500.0, COOL))
-        assert _library["ollama"] == 1   # at most once a minute
+        assert _library["app"] == 1   # at most once a minute
         gpu_guard.tick(now=t + gpu_guard.UNLOAD_EVERY_SECONDS + 1, reading=(500.0, COOL))
-        assert _library["ollama"] == 2
+        assert _library["app"] == 2
 
     def test_nothing_is_unloaded_while_a_job_runs(self, _library):
         release = threading.Event()
         assert job_launch.start_job("busy_a", release.wait, 5, gpu_touching=True)
         gpu_guard.tick(reading=(500.0, COOL))
-        assert _library == {"ollama": 0, "app": 0}
+        assert _library == {"app": 0}
         release.set()
 
     def test_heat_alone_unloads_nothing(self, _library):
         gpu_guard.tick(reading=(FREE, 95.0))
-        assert _library == {"ollama": 0, "app": 0}
+        assert _library == {"app": 0}
 
 
 def _stoppable(job_id, started):

@@ -105,11 +105,10 @@ class TestRoute:
         monkeypatch.setattr(image_text_service, "resolve_api_key", lambda name, env_path=None: None)
         assert _post(client).status_code == 503 and not sent
 
-    def test_a_spent_cap_stops_a_paid_engine_but_not_a_free_one(self, client, sent, monkeypatch):
+    def test_a_spent_cap_stops_a_paid_engine(self, client, sent, monkeypatch):
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 1.0)
         db.log_usage(None, "claude", "claude-sonnet-5-5", "x", 1, 1, 1.0)
         assert _post(client).status_code == 400 and not sent
-        assert _post(client, engine="ollama").status_code == 200
 
     def test_a_picture_that_would_pass_the_cap_is_not_sent(self, client, sent, monkeypatch):
         monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: 0.01)

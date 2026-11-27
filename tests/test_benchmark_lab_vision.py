@@ -83,7 +83,7 @@ class TestConfig:
             svc.check_config("ocr", {"engine": "claude", "model": "claude-made-up-9"})
 
     def test_an_ollama_tag_is_shape_checked(self):
-        assert svc.check_config("ocr", {"engine": "ollama", "model": "gemma4:12b"})["model"] == "gemma4:12b"
+        assert svc.check_config("ocr", {"engine": "ollama", "model": "gemma4:31b-cloud"})["model"] == "gemma4:31b-cloud"
         with pytest.raises(InvalidInputError):
             svc.check_config("ocr", {"engine": "ollama", "model": "../etc/passwd"})
 
@@ -108,10 +108,6 @@ class TestEstimate:
         assert by_engine["tesseract"]["estimated_cost_usd"] == 0 and not by_engine["tesseract"]["cap_applies"]
         assert est["estimated_cost_usd"] == by_engine["claude"]["estimated_cost_usd"]
 
-    def test_a_local_vision_model_is_free(self, reads):
-        _case()
-        (cfg,) = svc.estimate("ocr", [{"engine": "ollama", "model": "gemma4:12b"}])["configs"]
-        assert cfg["estimated_cost_usd"] == 0 and not cfg["cap_applies"]
 
     def test_a_missing_key_refuses_the_run(self, reads, monkeypatch):
         _case()

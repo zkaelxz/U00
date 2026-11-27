@@ -134,7 +134,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('inbox', 'Watch folder', 'inbox drop files folder import automatically audio video'),
   e('extension', 'Browser extension', 'bridge capture'),
 
-  e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel free local-model memory unload ollama graphics'),
+  e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel ollama graphics'),
   e('performance', 'Resume interrupted batches', 'batch resume bulk auto resume startup translation batches'),
   e('performance', 'Keep free memory', 'vram ram graphics reserve other programs pause hot temperature stop jellyfin'),
   e('advanced', 'Offline, paths and limits', 'advanced ocr offline models downloads uploads'),

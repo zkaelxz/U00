@@ -971,21 +971,14 @@ def _announce_stop(item: dict) -> None:
 
 def _may_overlap(running: list, candidate: dict) -> bool:
     """Whether `candidate` may start beside the running items. Only a transcription (the PC's GPU
-    and CPU) beside one translation on an engine that never touches this PC's GPU, so the two
-    don't compete for the same hardware, and never two runs of one title."""
+    and CPU) beside one translation, which runs on a hosted engine and never touches this PC's
+    GPU, and never two runs of one title."""
     if len(running) != 1 or candidate["step"] != "transcribe":
         return False
     other = running[0]
     if other["step"] != "translate" or other["drama_id"] == candidate["drama_id"] or other["job_id"] is None:
         return False
-    drama = db.get_drama(other["drama_id"])
-    if drama is None:
-        return False
-    engine = _translate_engine(drama)
-    model = (other.get("settings") or {}).get("model") or _queued_model_and_batch(drama, engine)[0]
-    if engine_local.ollama_touches_local_gpu(engine, model):
-        return False
-    return True
+    return db.get_drama(other["drama_id"]) is not None
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:

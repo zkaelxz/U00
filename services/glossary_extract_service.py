@@ -71,12 +71,6 @@ def _title_model(drama: dict) -> Optional[str]:
     return model if isinstance(model, str) and model else None
 
 
-def touches_gpu(engine_name: str, engine) -> bool:
-    """A cloud tag must not wait in the GPU queue behind Live and transcription."""
-    from engine_backends.local import ollama_touches_local_gpu
-    return ollama_touches_local_gpu(engine_name, getattr(engine, "model", None))
-
-
 # The default for callers whose gate didn't check a model (tests, internal reruns).
 UNCHECKED = object()
 
@@ -383,7 +377,6 @@ def start_novel_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_novel_glossary_job, drama_id, engine, engine_name, src_text,
         en_text, drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=touches_gpu(engine_name, engine),
         description=f"Glossary from novel (title #{drama_id})", fresh=bool(fresh),
         conventions=split_term_conventions(drama.get("project_instructions"))[1])
     if not started:
@@ -703,7 +696,6 @@ def start_lines_glossary_run(drama_id: int, engine_name: Optional[str] = None,
     started = _start_extraction_job(
         job_id, _run_lines_glossary_job, drama_id, engine, engine_name, source_lines,
         drama.get("source_language") or "zh", db.list_run_glossary_terms(drama),
-        gpu_touching=touches_gpu(engine_name, engine),
         description=f"Glossary from lines (title #{drama_id})")
     if not started:
         raise ConflictError("A glossary extraction is already running for this title.")

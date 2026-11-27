@@ -146,8 +146,7 @@ new engine should call `post_json` rather than `requests` and `resp.json()`.
     account): the subtitle text is processed on Ollama's servers and billed per token
     (priced in `PRICING_PER_MILLION_TOKENS`, so the spend caps count it; the retired `gemma4:cloud` tag stays priced there for settings that still name it).
     A hosted tag with no price row is costed at the dearest priced cloud rate, never $0.
-    It is never a default or fallback, is skipped by the GPU/headroom checks
-    (`ollama_touches_local_gpu`, which also decides whether a job takes the GPU queue slot), and a 429 becomes `OllamaCloudLimitError`, which the normal
+    The engine serves only hosted tags (`require_hosted_model` refuses any other, so a saved local tag stops with a plain message), so it never takes the GPU queue slot or the memory checks, and a 429 becomes `OllamaCloudLimitError`, which the normal
     backoff retries. A signed-in member who saved their own Ollama key has their cloud calls
     sent to `https://ollama.com/api/chat` instead, with `Authorization: Bearer <key>`, no
     redirects, and the tag without its cloud suffix (`direct_cloud_model`); the key comes from
@@ -390,10 +389,10 @@ backward. 0 disables this.
    (floor `OLLAMA_MIN_NUM_CTX = 16384`) because an undersized window truncates
    the prompt from the start, silently dropping instructions and glossary.
 7. **Ollama models and reasoning.** `OLLAMA_DEFAULT_MODEL` is the hosted `gemma4:31b-cloud`; `OLLAMA_MODELS`
-   (the local picker list) is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
-   resolve to the default through `engine_registry.drop_removed_model`; the API also accepts any tag typed by hand, and a title
-   or preset that saved an older tag (Qwen, say) keeps it. Models too big for a 12 GB card
-   (tags such as `gemma4:26b`, `gemma4:31b`) get a longer, still finite, request timeout.
+   is empty, and `REMOVED_LOCAL_MODELS` (TranslateGemma 27B and 12B)
+   resolve to the default through `engine_registry.drop_removed_model`; the API accepts a hosted tag typed by hand
+   and refuses a local one. When nothing picked an engine, `translate_service.default_hosted_engine` uses
+   Ollama's hosted Gemma, or OpenAI (GPT-6 Luna) when Ollama does not answer and an OpenAI key is saved.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
 8. **Thinking on translation runs.** Off by default for every run (Workspace,

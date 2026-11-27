@@ -375,11 +375,6 @@ def test_without_a_member_key_a_cloud_tag_still_uses_the_pcs_sign_in(monkeypatch
     assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
 
 
-def test_a_member_key_never_reaches_a_local_model(monkeypatch):
-    seen = _capture(monkeypatch)
-    local.carry_member_cloud_key(
-        lambda: engine_local.OllamaEngine(model="gemma4:12b").translate_batch(["你好"], {}), KEY)()
-    assert seen[0]["url"].startswith("http://localhost:11434") and seen[0]["headers"] is None
 
 
 def test_direct_model_names_drop_the_app_cloud_suffix():

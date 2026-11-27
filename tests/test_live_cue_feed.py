@@ -240,15 +240,13 @@ class TestSourceScriptKeptInTheReply:
     def _translate(self, monkeypatch, content):
         from engine_backends import local
         from live.live_cue_translation import CueTranslator
-        import memory_headroom
-        monkeypatch.setattr(memory_headroom, "check_ollama", lambda *a, **k: None)
         bodies = []
 
         def chat(base_url, payload):
             bodies.append(payload)
             return {"message": {"content": '{"1": "%s"}' % content}}
         monkeypatch.setattr(local, "_ollama_chat", chat)
-        translated = CueTranslator(local.OllamaEngine(model="translategemma:12b"), "ja").translate(self.LINE)
+        translated = CueTranslator(local.OllamaEngine(model="gemma4:31b-cloud"), "ja").translate(self.LINE)
         return translated, bodies
 
     def test_a_name_left_in_japanese_still_gives_a_caption(self, monkeypatch):

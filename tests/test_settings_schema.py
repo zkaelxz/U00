@@ -415,7 +415,6 @@ ROOT_READERS = {
                           "job scheduling, below the service layer",
     "engine_backends/engine_registry.py": "ollama_cloud_default decides which model a default resolves to, "
                                           "below the service layer",
-    "ollama_unload.py": "unload_ollama_before_transcribe is read where the GPU is about to be used",
 }
 
 

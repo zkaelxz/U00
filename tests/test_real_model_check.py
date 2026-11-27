@@ -316,17 +316,6 @@ def test_translate_passes_and_never_pulls(ollama):
     assert ollama["payload"]["stream"] is False
 
 
-def test_translate_headroom_refusal_halts_the_run_without_chatting(ollama, monkeypatch):
-    import memory_headroom
-
-    def refuse(base_url, model):
-        raise memory_headroom.HeadroomError("Not enough free graphics memory.")
-    monkeypatch.setattr(memory_headroom, "check_ollama", refuse)
-    with pytest.raises(svc._Halt) as halted:
-        _run("translate")
-    assert halted.value.result["status"] == svc.FAIL
-    assert "graphics memory" in halted.value.result["reason"]
-    assert ollama["payload"] is None
 
 
 def test_translate_skips_when_ollama_unreachable(ollama):

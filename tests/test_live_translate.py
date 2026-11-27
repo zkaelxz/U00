@@ -955,8 +955,7 @@ class TestOverlapDedupAgainstRealAudio:
 
 
 class TestTranslatorWarmUp:
-    """Loading Whisper frees a local Ollama's VRAM, so the translation model is
-    loaded again before capture starts, not by the first chunk's request."""
+    """Hosted models need no warm-up request before capture."""
 
     class Recording:
         def __init__(self, name="ollama", model="translategemma:12b", fail=False):
@@ -973,24 +972,7 @@ class TestTranslatorWarmUp:
             monkeypatch, tmp_path, "test_warm_translator", TestOverlapDedupAgainstRealAudio.CHUNKS,
             engine=engine, notes=notes)
 
-    def test_a_local_ollama_model_is_loaded_before_the_first_chunk(self, monkeypatch, tmp_path):
-        engine, notes = self.Recording(), []
-        cues, _, _ = self._run(monkeypatch, tmp_path, engine, notes)
-        assert engine.calls[0] == ["好的"]
-        assert ["好的"] not in engine.calls[1:]
-        assert any(n.startswith("translategemma:12b ready in") for n in notes)
-        assert all(c["translated"] == f"EN:{c['text']}" for c in cues)
 
-    def test_whisper_counts_as_ready_before_the_translator_loads(self, monkeypatch, tmp_path):
-        # Otherwise chunk 0's Whisper call may free Ollama's VRAM again and undo the warm-up.
-        order = []
-        monkeypatch.setattr(live_whisper.WhisperRunner, "mark_model_ready",
-                            lambda self: order.append("whisper ready"))
-        engine = self.Recording()
-        real = engine.translate_batch
-        engine.translate_batch = lambda lines, context: order.append(lines[0]) or real(lines, context)
-        self._run(monkeypatch, tmp_path, engine, [])
-        assert order[:2] == ["whisper ready", "好的"]
 
     def test_a_hosted_engine_or_cloud_model_gets_no_extra_request(self, monkeypatch, tmp_path):
         for engine in (self.Recording(name="claude", model="claude-sonnet-5-5"),
@@ -1000,11 +982,6 @@ class TestTranslatorWarmUp:
             self._run(monkeypatch, sub, engine, [])
             assert ["好的"] not in engine.calls
 
-    def test_a_failed_load_is_noted_and_the_session_goes_on(self, monkeypatch, tmp_path):
-        engine, notes = self.Recording(fail=True), []
-        cues, _, _ = self._run(monkeypatch, tmp_path, engine, notes)
-        assert any("could not be loaded before capture (model does not fit)" in n for n in notes)
-        assert [c["translation"] for c in cues] == ["done"] * len(cues)
 
 
 class TestHeldLinesMidSession:

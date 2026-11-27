@@ -13,7 +13,6 @@ import audio_extract
 import whisper_transcribe
 import whisper_models
 import db
-import ollama_unload
 from line_alignment import join_segment_texts
 from whisper_hallucination import is_stock_phrase
 from services import difficult_audio_service, gpu_process_job
@@ -134,7 +133,7 @@ def _hear_one_line(audio_path, start, end, source_language, whisper_size, beam_s
     if heard.get("failed_reason"):
         result_queue.put(("ok", heard))
         return
-    outcome = {**heard, **ollama_unload.take_notice_result()}
+    outcome = dict(heard)
     if gpu_fallback:
         outcome["gpu_fallback"] = gpu_fallback[0]
     result_queue.put(("ok", outcome))
@@ -220,7 +219,7 @@ def _hear_many_lines(audio_path, windows, whisper_size, beam_size, min_silence_m
         process_worker.report_progress(
             result_queue, 0.05 + 0.95 * (n + 1) / len(windows),
             f"Heard line {n + 1} of {len(windows)}")
-    outcome = {"lines": heard_lines, **ollama_unload.take_notice_result()}
+    outcome = {"lines": heard_lines}
     if gpu_fallback:
         outcome["gpu_fallback"] = gpu_fallback[0]
     result_queue.put(("ok", outcome))

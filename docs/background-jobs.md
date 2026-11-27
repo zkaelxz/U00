@@ -284,8 +284,8 @@ While held:
 - `gpu_slots.acquire(check_external_load=True)` refuses, so new and queued GPU jobs
   wait, first in line showing "Held: low GPU memory (… GB free, … GB kept free)" or
   "Held: the GPU is hot (…)". Needs the GPU limit on: with it off nothing queues.
-- While short and no Baihe job runs, idle models are unloaded (`whisper_models.release_gpu_models`
-  and `ollama_unload.unload_loaded_models`), at most once a minute.
+- While short and no Baihe job runs, idle models are unloaded (`whisper_models.release_gpu_models`),
+  at most once a minute.
 - After `gpu_guard_stop_minutes` (2; 0 = never) of one unbroken hold, or at once when free
   memory is under half the reserve (`CRITICAL_SHARE`: on the V100, four streams left 1.9 GB
   of a 5 GB reserve during the 2-minute wait), and never during the clear minute, every running GPU

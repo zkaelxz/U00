@@ -449,7 +449,7 @@ class TestReadThenTranslate:
 
 class TestTranslationLegIsCapped:
     """A free or local vision engine with a paid translation engine is still a paid arm: the caps govern it."""
-    ARM = {"engine": "ollama", "model": "gemma4:12b", "translate": {"engine": "claude"}}
+    ARM = {"engine": "ollama", "model": "gemma4:31b-cloud", "translate": {"engine": "claude"}}
 
     def test_the_estimate_says_the_cap_applies_and_prices_the_translation(self, reads):
         _case(reads)
@@ -469,11 +469,6 @@ class TestTranslationLegIsCapped:
         (sid,) = _run([self.ARM], max_cost_usd=1e-9)["session_ids"]
         assert Translator.sources == [] and lab.get_run(sid)["run"]["status"] == "stopped_cap"
 
-    def test_a_free_translation_leg_on_a_free_vision_arm_is_uncapped(self, reads):
-        _case(reads)
-        arm = {"engine": "ollama", "model": "gemma4:12b", "translate": {"engine": "ollama", "model": "gemma4:12b"}}
-        (cfg,) = lab.estimate("ocr", [arm])["configs"]
-        assert cfg["cap_applies"] is False
 
 
 class TestLabBugFixes:

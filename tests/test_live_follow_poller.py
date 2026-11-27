@@ -384,7 +384,7 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
         monkeypatch.delitem(engine_registry.ENGINES, "fake")
     elif gate == "default_engine":
         live_follow_store.update(fid, options=json.dumps({"max_minutes": 7}))
-        monkeypatch.setattr(live_service, "LIVE_DEFAULT_ENGINE", "gone")
+        monkeypatch.setattr(live_service, "default_engine", lambda: "gone")
     else:
         from lib.errors import DependencyUnavailableError
         exc = (ConflictError("x") if gate == "conflict" else MissingKeyError("fake") if gate == "key"
