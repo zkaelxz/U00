@@ -29,6 +29,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { nameLang } from '../hanScript'
 import { languageLabel, mediaTypeLabel } from '../labels'
 import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -178,7 +179,7 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
                       : tileText({ title_en: x.title, title_zh: x.titleZh })}
                   </span>
                   <div className="continue-text">
-                    <span className="continue-title">{x.title}</span>
+                    <span className="continue-title" lang={nameLang(x.title, row(x.dramaId) ?? { title_zh: x.titleZh })}>{x.title}</span>
                     <span className="continue-meta">
                       {x.kind === 'read'
                         ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
