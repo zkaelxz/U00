@@ -19,7 +19,7 @@ describe('GroupedPicker', () => {
   it('passes the Field ids to the button and honours disabled', () => {
     const html = renderToStaticMarkup(<GroupedPicker title="Style" value="a" groups={groups} disabled id="f1" aria-describedby="h1" onPick={() => undefined} />)
     expect(html).toContain('id="f1"')
-    expect(html).toContain('aria-describedby="h1"')
+    expect(html).toMatch(/aria-describedby="h1 [^"]+"/)
     expect(html).toContain('disabled=""')
   })
 })

@@ -1,4 +1,4 @@
-.picker-btn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: 44px; text-align: left; font: inherit; }
+.picker-btn { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); width: 100%; min-height: var(--control-h); padding: 8px 12px; text-align: left; font: inherit; color: var(--text); background: var(--field-bg); border: 1px solid var(--field-edge); border-radius: var(--radius); }
 @media (min-width: 641px) { .picker-btn { width: auto; min-width: min(100%, 12rem); } }
 .picker-current { min-width: 0; overflow-wrap: anywhere; }
 .picker-caret { flex: none; color: var(--muted); }

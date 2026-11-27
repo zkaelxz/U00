@@ -1,5 +1,5 @@
 // A themed stand-in for a grouped <select>: Android's own option dialog ignores the app theme.
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Sheet } from './Sheet'
 import './groupedPicker.css'
@@ -20,11 +20,13 @@ type PickerProps = {
 
 export function GroupedPicker({ title, value, groups, disabled, onPick, ...aria }: PickerProps) {
   const [open, setOpen] = useState(false)
-  const current = groups.flatMap((g) => g.options).find((o) => o.value === value)
+  const currentId = useId()
+  const all = groups.flatMap((g) => g.options)
+  const current = all.find((o) => o.value === value) ?? all[0]
   return (
     <>
-      <button type="button" className="picker-btn" disabled={disabled} aria-haspopup="dialog" onClick={() => setOpen(true)} {...aria}>
-        <span className="picker-current">{current?.label ?? ''}</span>
+      <button type="button" className="picker-btn" disabled={disabled} aria-haspopup="dialog" onClick={() => setOpen(true)} {...aria} aria-describedby={[aria['aria-describedby'], currentId].filter(Boolean).join(' ')}>
+        <span id={currentId} className="picker-current">{current?.label ?? ''}</span>
         <span className="picker-caret" aria-hidden="true">▾</span>
       </button>
       <Sheet open={open} title={title} onClose={() => setOpen(false)}>

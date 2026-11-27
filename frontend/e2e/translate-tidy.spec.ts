@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures'
+import { pickStyle } from './pickStyle'
 import type { Page } from '@playwright/test'
 
 import { ME } from './authMocks'
@@ -87,7 +88,9 @@ test('Style is one control and the action row holds Translate and Estimate (the 
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByLabel('Start from…')).toHaveCount(0)
   await expect(run.getByRole('button', { name: 'Apply', exact: true })).toHaveCount(0)
-  await expect(run.getByLabel('Style', { exact: true }).locator('optgroup[label="Start from a tier"]')).toHaveCount(1)
+  await run.getByLabel('Style', { exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Style' }).getByRole('region', { name: 'Start from a tier' })).toHaveCount(1)
+  await page.keyboard.press('Escape')
 
   const translate = await run.getByRole('button', { name: 'Translate 4 lines' }).boundingBox()
   const estimate = await run.getByRole('button', { name: 'Estimate cost' }).boundingBox()
