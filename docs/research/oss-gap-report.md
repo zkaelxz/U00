@@ -1,6 +1,6 @@
 # Open-source gap report: what Baihe is missing or doing worse
 
-Read-only research, 2026-10-08, against `baihe-subtitler` at 68595ce. Question from the owner: across the top ~100 GitHub repos tagged `video-translation`, `video-transcription` and `asr` plus the must-review extras, what is Baihe missing or doing worse? Focus is video translation/dubbing, transcription/subtitles and ASR, with CJK and ASMR relevance first.
+Read-only research, 2026-10-08, against `baihe-subtitler` at bdc796c. Question from the owner: across the top ~100 GitHub repos tagged `video-translation`, `video-transcription` and `asr` plus the must-review extras, what is Baihe missing or doing worse? Focus is video translation/dubbing, transcription/subtitles and ASR, with CJK and ASMR relevance first.
 
 Method: stage 1 read READMEs, licence files and last-commit dates of every kept repo (shallow clones, never run). Stage 2 read the actual pipeline code of about 60 repos, including the five must-review ones. Every Baihe claim below was re-checked against the code at the paths cited. Third-party code was never executed or copied; only ideas are described. "Unverified" means seen in a README or not checked in code.
 
@@ -193,14 +193,14 @@ Licence is the repo's licence file; model weights can differ and were not checke
 - Whether dub output keeps stereo through `build_dub_track`: only the absence of spatial/loudness code was confirmed.
 - GitHub stars were taken from the owner's lists; repos not on those lists show "n/g". Weight licences were not checked. The asr topic list was extended only with page 6 (20 repos, "Load more" unavailable); pages 7+ were not tried, so the list is the top ~120 visible. Of the ~120 video-translation repos, the ~60 zero-to-three-star ones not named by the owner were skipped. The `asmr` topic shows 104 repos but only 60 loaded.
 - creator tools whose core is obfuscated (CreatorBox) and README-only repos (xiaoniu, GhostCut scripts, Asmr-Player, neokikoeru) could not be read in code.
-- The claims above were re-read against the code at the base (68595ce).
+- The claims above were re-read against the code at the base (bdc796c).
 
 ## 8. Addendum: SmartSub and Voice-Pro (2026-10-08)
 
-Same method and safety rules as above: shallow clones, README and file reading only, nothing run, no code copied. SmartSub `ea91e56` (2026-10-08), Voice-Pro `7231384` (2026-07-13), Chenyme-AAVT `b36765b` (2025-04-07). Baihe claims were re-read at `b5f51d4`. No model was run and no audio was heard, so nothing below is a quality claim; every accuracy statement is the repo's own.
+Same method and safety rules as above: shallow clones, README and file reading only, nothing run, no code copied. SmartSub `ea91e56` (2026-10-08), Voice-Pro `7231384` (2026-07-13), Chenyme-AAVT `b36765b` (2025-04-07). Baihe claims were re-read at `3c250d6`. No model was run and no audio was heard, so nothing below is a quality claim; every accuracy statement is the repo's own.
 
 ### A1. Corrections to the sections above
-Found while re-verifying. Sections 1 to 3 were written against `68595ce`; these three were already in it.
+Found while re-verifying. Sections 1 to 3 were written against `bdc796c`; these three were already in it.
 - **Gap 3 / Q2 miss the shipped "sensitive" preset** (`sensitivity_preset.py`, #881): a per-title opt-in with VAD threshold 0.35 instead of 0.5 and a decode without `no_repeat_ngram_size` / `repetition_penalty`, with `filter_hallucinated_segments` still on. The gap that remains is the one stated: pad, min speech and no-speech are not exposed, and the preset was not measured on whispered audio.
 - **Gap 9 / Q4 say `Line` stores no word times.** It does: `Line.word_timings` (`core.py:62`, `ALTER TABLE lines ADD COLUMN word_timings` at `db.py:1118`), written at transcription (`transcribe_service.py:1345`) and read by re-split (`restructure_service.py`). What is still missing is any Review view or edit of them (no `word_timings` in `frontend/src`) and a job that fills them later. The effort estimate for gap 9 drops from L to M for the storage part.
 - **Q4 says there is no waveform.** Review has `Waveform.tsx` with edge drag and a 0.05 s nudge (`waveformLogic.ts`, `NUDGE_SECONDS`), plus play and loop line. Missing: word chips and a word-level view.
