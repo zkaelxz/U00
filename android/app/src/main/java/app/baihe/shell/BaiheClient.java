@@ -279,6 +279,23 @@ final class BaiheClient {
         }
     }
 
+    /** The Quick read runs this phone's account still has working on the PC. */
+    JSONArray quickReadRuns() throws BridgeException {
+        JSONArray runs = call("POST", "/quick-reads", new JSONObject()).optJSONArray("runs");
+        return runs == null ? new JSONArray() : runs;
+    }
+
+    /** Drops one run (its pages not started are not worked on), or every run when `runId` is null. */
+    void dropQuickRead(String runId) throws BridgeException {
+        try {
+            JSONObject body = new JSONObject();
+            if (runId != null) body.put("run_id", runId);
+            call("POST", "/quick-reads/drop", body);
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     /** Sends a Quick read page the reader found wrong, with what the PC read on it, to the PC's reports. */
     void sendReport(JSONObject body) throws BridgeException {
         call("POST", "/report", body);

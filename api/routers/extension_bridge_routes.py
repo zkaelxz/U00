@@ -30,7 +30,7 @@ from services import page_server
 from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
-from services import extension_bridge_service
+from services import extension_bridge_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
 from services import (grab_last_page_service, live_service, model_readiness_service, quick_video_service,
@@ -338,6 +338,31 @@ def _remember_page(payload: dict, principal) -> dict:
              summary="Device token: stop working on the rest of a batch of pages")
 async def post_cancel(request: Request):
     return await _handle(request, extension_bridge_service.cancel_run)
+
+
+@router.post("/quick-reads", dependencies=[require_device_token()],
+             summary="Device token: the Quick read runs the caller has working on the PC")
+async def post_quick_reads(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: {"runs": quick_read_runs.list_runs(principal=principal)})
+
+
+@router.post("/quick-reads/drop", dependencies=[require_device_token()],
+             summary="Device token: drop one Quick read run (run_id) or all of the caller's (no run_id)")
+async def post_quick_reads_drop(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _drop_quick_reads(payload, principal))
+
+
+def _drop_quick_reads(payload: dict, principal) -> dict:
+    run_id = payload.get("run_id")
+    if run_id is None:
+        return quick_read_runs.drop_all(principal=principal)
+    try:
+        dropped = quick_read_runs.drop_run(str(run_id), principal=principal)
+    except NotFoundError as e:
+        raise page_server.EndpointError(404, e.message) from None
+    return {"dropped_runs": 1, "dropped_pages": dropped["dropped_pages"]}
 
 
 _VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),

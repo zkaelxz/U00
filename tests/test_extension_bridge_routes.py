@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
-from services import page_server
+from services import extension_bridge_service, page_server
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
@@ -792,3 +792,30 @@ class TestStreamedAnswersHeartbeat:
 
         lines = asyncio.run(self._lines(work, True))
         assert lines and set(lines) == {b'{"waiting": true}\n'}
+
+
+class TestQuickReadRunRoutes:
+    """The phone lists and drops its Quick read runs through the bridge."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        from services import quick_read_runs
+        monkeypatch.setattr(quick_read_runs, "_runs", {})
+        monkeypatch.setattr(extension_bridge_service, "_cancelled_runs", {})
+        self.runs = quick_read_runs
+
+    def test_list_then_drop_one_of_my_runs_but_not_someone_elses(self, isolated_db):
+        me, token = _member("me@example.com")
+        other, _ = _member("other@example.com")
+        cancel = extension_bridge_service.mark_cancelled
+        self.runs.begin("run-aaaaaaaa", me["id"], "https://site.example/a/b", 4, cancel)
+        self.runs.begin("run-bbbbbbbb", other["id"], "https://site.example/a/c", 2, cancel)
+        client = _client()
+        listed = client.post(f"{BASE}/quick-reads", headers=_auth(token), json={}).json()
+        assert [r["run_id"] for r in listed["runs"]] == ["run-aaaaaaaa"]
+        assert client.post(f"{BASE}/quick-reads/drop", headers=_auth(token),
+                           json={"run_id": "run-bbbbbbbb"}).status_code == 404
+        dropped = client.post(f"{BASE}/quick-reads/drop", headers=_auth(token), json={"run_id": "run-aaaaaaaa"})
+        assert dropped.json() == {"dropped_runs": 1, "dropped_pages": 4}
+        assert extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        assert not extension_bridge_service._run_cancelled("run-bbbbbbbb")
