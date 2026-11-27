@@ -83,3 +83,49 @@ def test_clearing_deleted_title_history_leaves_live_titles_and_english_edits(iso
     assert db.clear_deleted_title_source_edits() == 1
     assert [r["drama_id"] for r in db.list_source_edits(limit=-1)] == [kept]
     assert len(db.list_edit_samples(limit=-1)) == 2
+
+
+def _comic_page(drama_id, history):
+    import contextlib
+    import json
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO pages (drama_id, idx, filename, edit_history) VALUES (?, 0, 'p.png', ?)",
+                     (drama_id, json.dumps(history)))
+        conn.commit()
+
+
+def test_training_data_is_counted_per_source_language(isolated_db):
+    did, ids = _title()
+    db.update_drama(did, source_language="ja")
+    comic = db.create_drama(title_en="C", media_type="manga", source_language="ko")
+    db.record_edit_sample(did, "甲", "a", "A", line_id=ids[0])
+    db.record_source_edits(did, [
+        {"line_id": ids[0], "path": "person", "before_zh": "甲", "after_zh": "申"},
+        {"line_id": ids[1], "path": "person", "before_zh": "乙", "after_zh": "已"},
+        {"line_id": ids[2], "path": "compare", "before_zh": "丙", "after_zh": "两"}])
+    _comic_page(comic, [
+        {"op": "edit", "region_id": 1, "before": {"source_text": "a"}, "after": {"source_text": "b"}},
+        {"op": "edit", "region_id": 2, "before": {"translated_text": "x"}, "after": {"translated_text": "y"}}])
+    _comic_page(comic, [{"op": "edit", "region_id": 3, "before": {"x": 1}, "after": {"x": 5}}])
+    _comic_page(comic, [{"op": "create", "region_id": 4, "after": {"x": 1}},
+                        {"op": "edit", "region_id": 4, "before": {"source_text": ""}, "after": {"source_text": "c"}}])
+    counts = svc.training_data_counts()
+    assert counts["english_fixes"] == {"ja": 1}
+    # Only a person's fixes count, with the length of the lines they fixed (1 s each here).
+    assert counts["source_fixes"] == {"ja": 2}
+    assert counts["fixed_audio_hours"] == {"ja": round(2 / 3600, 2)}
+    assert counts["source_text_fixes"] == {"ko": 2}
+    assert counts["pages_with_box_edits"] == {"ko": 2}
+    report = svc.corrections_report()
+    report["training_data"] = counts
+    assert "comic pages with box edits (last 50 edits a page): ko 2" in corrections_report.render(report)
+
+
+def test_a_broken_undo_list_is_skipped(isolated_db):
+    comic = db.create_drama(title_en="C", media_type="manga", source_language="zh")
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO pages (drama_id, idx, filename, edit_history) VALUES (?, 0, 'p.png', 'not json')",
+                     (comic,))
+        conn.commit()
+    assert svc.training_data_counts()["source_text_fixes"] == {}

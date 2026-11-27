@@ -2,7 +2,8 @@
 
 Reads the library's edit log (read-only) and prints how many corrections were made per
 engine, model, prompt version, flag and mark, for English and for source text, and how
-often a flagged line was corrected against an unflagged one.
+often a flagged line was corrected against an unflagged one. It also counts, per source
+language, the fixes a model could be trained on, including comic edits.
 
 A deleted title's corrections are kept and counted, but no longer have a line, so the
 flagged/unflagged rates leave them out. Not counted: a translation made off-peak records
@@ -47,6 +48,16 @@ def render(report: dict) -> str:
                                             or "none"))
         out += _rate_lines(part["flag_rates"], report["line_count"])
         out.append("")
+    training = report.get("training_data")
+    if training:
+        out.append("Training data by source language (enough to learn from?):")
+        for key, label in (("english_fixes", "English fixes"), ("source_fixes", "source-text fixes"),
+                           ("fixed_audio_hours", "hours of audio in fixed lines"),
+                           ("source_text_fixes", "comic text fixes (last 50 edits a page)"),
+                           ("pages_with_box_edits", "comic pages with box edits (last 50 edits a page)")):
+            counts = training.get(key) or {}
+            out.append(f"  {label}: " + (", ".join(f"{k} {v}" for k, v in counts.items()) or "none"))
+        out.append("")
     return "\n".join(out)
 
 
@@ -56,6 +67,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     from services import edit_log_service
     report = edit_log_service.corrections_report()
+    report["training_data"] = edit_log_service.training_data_counts()
     print(json.dumps(report, ensure_ascii=False, indent=2) if args.json else render(report))
     return 0
 
