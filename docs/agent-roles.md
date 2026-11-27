@@ -10,8 +10,7 @@ A session that writes code never reviews its own change.
 
 1. **Assumptions first.** Before building, list what you are assuming. Ask the owner only about assumptions that would change the result.
 2. **Confidence.** Every result states how sure you are and what would make it certain.
-3. **Living status.** Update your item on the project dashboard as you work, following the dashboard's README steps. Private paths and links stay out of the repo.
-4. **One question at a time.** Short, plain messages; no walls of text.
+3. **One question at a time.** Short, plain messages; no walls of text.
 
 ## Coder
 
