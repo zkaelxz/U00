@@ -29,6 +29,8 @@ _KEEP_FREE_GB_MAX = 1024
 UPLOAD_MB_DEFAULT = 20480
 UPLOAD_MB_MIN = 100
 UPLOAD_MB_MAX = 1_048_576
+MEMBER_UPLOAD_MB_DEFAULT = 1024
+MEMBER_UPLOAD_MB_MIN = 50
 
 
 _BLOCKED_PHRASES_DEFAULT = "\n".join((
@@ -337,7 +339,10 @@ SETTINGS = (
           tab="system", section="Advanced"),
     _pref("max_upload_mb", "int", UPLOAD_MB_DEFAULT, min=UPLOAD_MB_MIN, max=UPLOAD_MB_MAX,
           label="Upload size limit (MB)", placeholder=str(UPLOAD_MB_DEFAULT),
-          help="The largest audio, video or backup file you can upload to this PC (100 to 1,048,576 MB). Blank uses 20,480 MB. The drive needs room for it. Other devices can't upload.", tab="system", section="Advanced"),
+          help="The largest audio, video or backup file you can upload to this PC (100 to 1,048,576 MB). Blank uses 20,480 MB. The drive needs room for it. Away from the PC only an admin (with Uploads from away on) or a member given the upload right can upload.", tab="system", section="Advanced"),
+    _pref("member_upload_mb", "int", MEMBER_UPLOAD_MB_DEFAULT, min=MEMBER_UPLOAD_MB_MIN, max=UPLOAD_MB_MAX,
+          label="Member upload limit (MB)", placeholder=str(MEMBER_UPLOAD_MB_DEFAULT),
+          help="The largest audio or video file a member you gave the upload right can send from their phone (50 to 1,048,576 MB). Blank uses 1,024 MB (1 GB). The upload size limit above still applies on top.", tab="system", section="Advanced"),
     _own("qwen_asr_batch_size", "int", 1, min=1, max=16, clamp=True,
          label="Qwen3-ASR batch size", tab="system", section="Transcription experiments"),
     _own("qwen_vad_refine_timing", "bool", False, label="Refine timing with the forced aligner",

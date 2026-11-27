@@ -402,6 +402,7 @@ def update_settings(changes: dict) -> dict:
 
 
 MAX_PROXY_URL_LEN = 500
+MEMBER_TRACKED_LIMIT = 100   # a member's tracked series are all checked hourly on the owner's PC and its internet address
 
 
 def set_proxy_url(url) -> dict:
@@ -488,6 +489,19 @@ def require_link_editable(source: str, series_id: str, principal) -> None:
             return
 
 
+def require_member_tracking_room(principal) -> None:
+    """Refuses a member one more tracked series past MEMBER_TRACKED_LIMIT; the
+    PC owner (no account) is never counted. Call it only for a new series."""
+    from lib.errors import ConflictError
+
+    uid = (principal or {}).get("user_id")
+    if uid is not None and sum(
+            1 for r in store.list_tracked_series() if r.get("linked_by_user_id") == uid
+    ) >= MEMBER_TRACKED_LIMIT:
+        raise ConflictError(f"You are already tracking {MEMBER_TRACKED_LIMIT} series, the most a member "
+                            "account can. Stop tracking one first.")
+
+
 def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url: str = "",
                 drama_id: int | None = None, principal=None) -> list:
     """Track or untrack one series. Tracking a new series needs this
@@ -495,7 +509,9 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     series (POST /api/sources/{name}/series): its chapters are recorded as
     known, so the first check announces (and auto-imports) nothing old.
     Without one: 409 "Open the series first". The stored URL is that
-    result's scheme+host+path URL; the client's `url` is not used."""
+    result's scheme+host+path URL; the client's `url` is not used.
+    Tracking an already-tracked series only relinks it when `drama_id` is
+    given; its known chapters are left alone."""
     from types import SimpleNamespace
 
     import background_jobs
@@ -521,6 +537,15 @@ def set_tracked(source: str, series_id: str, tracked: bool, title: str = "", url
     if drama_id is not None and (db.get_drama(drama_id) is None or not
                                  ownership_service.can_edit_drama(principal, drama_id)):
         raise NotFoundError(f"No title with id {drama_id}.")
+    if exists:
+        # Re-recording the listed chapters as known would hide any released since the
+        # last check (never announced or auto-imported), and the upsert would clear the
+        # title link when the request names none.
+        if drama_id is not None:
+            store.set_tracked_drama(source, series_id, drama_id,
+                                    linked_by_user_id=(principal or {}).get("user_id"))
+        return list_tracked(principal)
+    require_member_tracking_room(principal)
     status = background_jobs.get_status(search.SERIES_JOB_PREFIX + source) or {}
     result = status.get("result") if status.get("status") == "done" else None
     if (not isinstance(result, dict) or result.get("series_id") != series_id

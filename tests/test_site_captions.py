@@ -7,6 +7,10 @@ from engine_backends import llm_tasks
 from services import site_captions_service as sc
 from services import transcribe_service, ytdlp_child
 
+
+def _has_captions(drama_id):
+    return os.path.isfile(os.path.join(db.drama_dir(drama_id), sc.FILE_NAME))
+
 ROLLING = ("WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nhello\n\n"
            "00:00:02.000 --> 00:00:03.000\nhello\nthere\n\n"
            "00:00:03.000 --> 00:00:04.000\nthere\nfriend\n")
@@ -39,7 +43,7 @@ def test_an_unreadable_file_saves_nothing(isolated_db, tmp_path):
     did = db.create_drama(title_zh="D")
     src = tmp_path / "downloaded_audio.en.vtt"
     src.write_text("not captions")
-    assert sc.save(did, str(src)) is False and not sc.has_captions(did)
+    assert sc.save(did, str(src)) is False and not _has_captions(did)
 
 
 def test_the_hint_reaches_whisper_and_the_brief(isolated_db, tmp_path, monkeypatch):
@@ -77,4 +81,4 @@ def test_new_media_forgets_the_old_captions(isolated_db, tmp_path):
     src.write_text(ROLLING)
     sc.save(did, str(src))
     sc.remove(did)
-    assert not sc.has_captions(did) and sc.hint_text(did, 50) == ""
+    assert not _has_captions(did) and sc.hint_text(did, 50) == ""

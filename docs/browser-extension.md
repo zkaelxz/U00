@@ -213,7 +213,7 @@ extension/                     the browser side
   options.html / options.js    paste the token
 services/page_server.py        the endpoint, on a thread started by the API
 services/extension_service.py  the opt-in switch, the token, the engine setting
-api/routers/extension_routes.py  /api/extension/*, PC-only; UI in Settings → Browser extension
+api/routers/extension_routes.py  /api/extension/*, PC-only except the zip download; UI in Settings → Browser extension
 ```
 
 The endpoint's routes:
@@ -298,7 +298,7 @@ On the PC the extension talks to the bridge (127.0.0.1:8756, one shared
 token). Remote mode lets a household member's own computer (desktop Chrome or
 Edge) reach Baihe through the household address, in three parts:
 
-1. **Per-device tokens (built).** Settings > Sharing and devices > Extension tokens per computer: a
+1. **Per-device tokens (built).** Settings > Sharing and devices > Remote access keys: a
    signed-in member with the `extension.send` permission names a device
    and gets a token once (`baihe_dt_…`, 256 random bits; Baihe stores only
    its SHA-256). They see when each was last used (time and a coarse
@@ -346,8 +346,11 @@ Edge) reach Baihe through the household address, in three parts:
    loopback only), and the worker then calls `<address>/api/ext-bridge/*` with
    `Authorization: Bearer <device token>`, no cookies and no redirects. "Open
    in Baihe" opens that address. Remote setup: a signed-in member makes a token
-   under Settings > Sharing and devices, loads the `extension/` folder
-   unpacked (copy it from the repo), and pastes the household address and token.
+   under Settings > Sharing and devices > Remote access keys, downloads the
+   extension there (`GET /api/extension/download`: any signed-in member with `extension.send`; the
+   zip holds no token), loads it unpacked, and pastes the household address and token. That copy is
+   not updated by itself: the popup and options say when Baihe ships a newer version and give the
+   download address.
 
 The PC-only shared token above is unchanged and still what the extension
 on the PC itself uses. Port 8756 is never routed by the reverse proxy.

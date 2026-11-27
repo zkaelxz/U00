@@ -38,7 +38,7 @@ import shutil
 import time
 import unicodedata
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 from typing import Any
 
 import background_jobs
@@ -410,18 +410,47 @@ def _link_key(url) -> str:
     return source_link_service.split_source_url(url)[0].rstrip("/").casefold()
 
 
+# The only query keys that say which video or part a link is; any other (a token, a share tag) is left out
+# so it can neither split one title in two nor leak into the comparison.
+_IDENTIFYING_QUERY_KEYS = frozenset({"v", "id", "p"})
+
+
+def _link_identity(row_or_url, full="") -> str:
+    """What makes a saved link one page, for finding titles added twice. The cleaned link drops a
+    query (a YouTube video id lives there) and any path that looks like a token, so on its own it
+    can name just "/watch" or the host; the raw link kept beside it still has the id. A bare host
+    or a path-less page names no title, so gives "". Only ever compared, never shown."""
+    if isinstance(row_or_url, dict):
+        full, url = row_or_url.get("source_url_full"), row_or_url.get("source_url")
+    else:
+        url = row_or_url
+    raw = (full or url or "").strip()
+    try:
+        parts = urlsplit(raw)
+        host = (parts.hostname or "").casefold()
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in ("http", "https") or not host:
+        return ""
+    path = parts.path.split(";", 1)[0].rstrip("/")
+    query = sorted((k, v) for k, v in parse_qsl(parts.query) if k in _IDENTIFYING_QUERY_KEYS)
+    if not path and not query:
+        return ""
+    return host + path + ("?" + "&".join(f"{k}={v}" for k, v in query) if query else "")
+
+
 def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None) -> list:
     """Titles the caller can see that carry one of these names or this link, for the
     "already in your Library" warning on an add form: [{"id", "title", "same"}], where
     "same" is "link" or "name". Names match ignoring case, width and spacing; links
     match on their display-safe form, so the answer never depends on a stored query or token."""
     names = {key for key in (_name_key(title_en), _name_key(title_zh)) if key}
-    link = _link_key(source_url)
+    link = _link_identity(source_url)
     if not names and not link:
         return []
     found = []
     for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal)):
-        if link and _link_key(row.get("source_url")) == link:
+        if link and _link_identity(row) == link:
             same = "link"
         elif names & {_name_key(row.get("title_en")), _name_key(row.get("title_zh"))}:
             same = "name"

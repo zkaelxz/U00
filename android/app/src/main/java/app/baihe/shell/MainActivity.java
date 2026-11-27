@@ -32,7 +32,7 @@ import java.security.SecureRandom;
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
-    private static final String PAGE_DARK = "page_dark";
+    private static final String PAGE_LOOK = "page_look";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -41,6 +41,12 @@ public class MainActivity extends Activity {
     private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
+    /** Covers the WebView when the page could not load, so Android's raw error page is never shown. */
+    private View failureView;
+    private TextView failureMessage;
+    private Button failureRetry;
+    private boolean loadFailed;
+    private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
     private static final long UPDATE_RECHECK_MS = 60_000;
     /** While the app stays open, a build the PC fetches later is still noticed. */
@@ -58,6 +64,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         String crash = CrashLog.takePending(this);
         if (crash == null) crash = CrashLog.takeCaught(this);
@@ -113,10 +120,22 @@ public class MainActivity extends Activity {
                 // A page that reloads while its reader hid the strip never runs the cleanup that shows it again.
                 barsHidden = false;
                 showStrip();
+                loadFailed = false;
+            }
+
+            @Override
+            public void onReceivedError(WebView view, WebResourceRequest request, android.webkit.WebResourceError error) {
+                if (!LoadFailure.coversPage(request.isForMainFrame(), error.getErrorCode())) return;
+                loadFailed = true;
+                showLoadFailure(request.getUrl().toString());
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
+                if (loadFailed) return;
+                autoRetries = 0;
+                if (failureView != null) failureView.setVisibility(View.GONE);
+                syncSepiaFromPage();
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
@@ -209,8 +228,12 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void themeChanged(boolean dark) {
-                runOnUiThread(() -> followPageTheme(dark));
+            public void themeChanged(String look) {
+                runOnUiThread(() -> {
+                    followPageTheme(look);
+                    // An older Baihe page only says dark or light, so sepia is read from the page itself.
+                    if (web != null) web.postDelayed(MainActivity.this::syncSepiaFromPage, 300);
+                });
             }
 
             @Override
@@ -261,20 +284,94 @@ public class MainActivity extends Activity {
         showStrip();
         ViewGroup parent = (ViewGroup) web.getParent();
         if (parent != null) parent.removeView(web);
-        root.addView(web, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        // A WebView paints black until its first page does; the app's own colour hides that flash.
+        web.setBackgroundColor(palette.surface);
+        android.widget.FrameLayout body = new android.widget.FrameLayout(this);
+        body.addView(web, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        failureView = failureScreen(palette);
+        body.addView(failureView, new android.widget.FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        root.addView(body, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
         return root;
+    }
+
+    private View failureScreen(GrabUi.Palette palette) {
+        TextView message = new TextView(this);
+        failureMessage = message;
+        message.setTextColor(palette.text);
+        message.setTextSize(16);
+        message.setGravity(android.view.Gravity.CENTER);
+        Button retry = new Button(this);
+        failureRetry = retry;
+        retry.setText("Retry");
+        retry.setOnClickListener(v -> {
+            autoRetries = 0;
+            retryLoad();
+        });
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(android.view.Gravity.CENTER);
+        box.setPadding(48, 48, 48, 48);
+        box.setBackgroundColor(palette.surface);
+        box.addView(message);
+        box.addView(retry);
+        // Opaque and tappable so the WebView's own error page behind it can't be seen or touched.
+        box.setClickable(true);
+        box.setVisibility(View.GONE);
+        return box;
+    }
+
+    /** Covers the error page at once, then tries again quietly a couple of times before leaving it to the person. */
+    private void showLoadFailure(String url) {
+        if (failureView == null) return;
+        failureView.setVisibility(View.VISIBLE);
+        long delay = LoadFailure.retryDelayMs(autoRetries);
+        // While quiet retries remain it reads as a wait, not a failure: the PC may just be busy.
+        failureMessage.setText(delay < 0
+                ? "Can't reach Baihe right now.\nYour PC may be busy or restarting."
+                : "Connecting to Baihe…\nThe PC is taking longer than usual.");
+        failureRetry.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
+        if (delay < 0) return;
+        autoRetries++;
+        web.postDelayed(() -> {
+            if (loadFailed && !isFinishing() && !isDestroyed()) retryLoad();
+        }, delay);
+    }
+
+    private void retryLoad() {
+        String address = savedAddress();
+        if (address == null || web == null) return;
+        loadFailed = false;
+        // The failed address may be an alert route or a shared link; the web view still holds it.
+        String failed = web.getUrl();
+        web.loadUrl(failed == null || failed.startsWith("data:") || !ServerAddress.sameOrigin(address, failed)
+                ? address : failed);
     }
 
     /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
     private GrabUi.Palette palette() {
-        SharedPreferences p = prefs();
-        return p.contains(PAGE_DARK) ? new GrabUi.Palette(p.getBoolean(PAGE_DARK, false)) : GrabUi.Palette.of(this);
+        return GrabUi.Palette.saved(this);
     }
 
-    private void followPageTheme(boolean dark) {
+    /**
+     * The server may still serve a Baihe page that predates setLook and reports only dark or light;
+     * the page's own theme attribute tells the bar when that look is sepia.
+     */
+    private void syncSepiaFromPage() {
+        if (web == null) return;
+        web.evaluateJavascript("document.documentElement.getAttribute('data-theme')", value -> {
+            if ("\"sepia\"".equals(value)) followPageTheme("sepia");
+        });
+    }
+
+    private void followPageTheme(String look) {
+        if (!java.util.Arrays.asList("light", "dark", "sepia", "oled").contains(look)) return;
         SharedPreferences p = prefs();
-        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark) return;
-        p.edit().putBoolean(PAGE_DARK, dark).apply();
+        if (look.equals(p.getString(PAGE_LOOK, null))) return;
+        p.edit().putString(PAGE_LOOK, look).apply();
+        // Dialogs opened from now on take the new look's colours; one already on screen keeps its own.
+        getTheme().applyStyle(GrabUi.Palette.saved(this).themeRes(), true);
         // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
         if (customView != null || web == null) return;
         setContentView(page());

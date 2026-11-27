@@ -11,7 +11,7 @@
  */
 import { useSyncExternalStore } from 'react'
 import { browserStorage } from './hooks/usePersistedState'
-import { setShellDark } from './phoneShell'
+import { setShellLook } from './phoneShell'
 
 export type ThemePref = 'system' | 'light' | 'dark' | 'sepia' | 'oled'
 /** The look a theme resolves to once "system" is settled. */
@@ -83,7 +83,7 @@ const systemDark = (): boolean => globalThis.matchMedia?.('(prefers-color-scheme
 
 export function reportShellTheme(pref: ThemePref): void {
   const look = resolveTheme(pref, systemDark())
-  setShellDark(look === 'dark' || look === 'oled')
+  setShellLook(look)
 }
 
 /** Keeps the phone app's top bar in step with the page, including when the phone's own setting flips under "Match this device". */
@@ -92,12 +92,25 @@ export function watchShellTheme(): void {
   globalThis.matchMedia?.('(prefers-color-scheme: dark)').addEventListener('change', () => reportShellTheme(getThemePref()))
 }
 
-/** Save, apply and announce a new choice. */
-export function setThemePref(pref: ThemePref): void {
+// Set while an account is signed in, so a choice made here is also saved on the server.
+let accountSync: ((pref: ThemePref) => void) | null = null
+
+export function setAccountThemeSync(sync: ((pref: ThemePref) => void) | null): void {
+  accountSync = sync
+}
+
+/** Save, apply and announce a choice that came from the account, without sending it back. */
+export function applyAccountTheme(pref: ThemePref): void {
   saveTheme(pref)
   applyTheme(pref)
   reportShellTheme(pref)
   emit(pref)
+}
+
+/** Save, apply and announce a new choice, and keep it on the account when one is signed in. */
+export function setThemePref(pref: ThemePref): void {
+  applyAccountTheme(pref)
+  accountSync?.(pref)
 }
 
 function subscribe(listener: () => void): () => void {

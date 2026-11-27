@@ -60,16 +60,28 @@ def _gpu_queue_waiting_locked():
                and not user_caps.held(_jobs, e) for e in _gpu_queue)
 
 
+def _left_unstarted_hooks(entry: dict) -> list:
+    """The (job_id, hook) pairs to run for a queue entry that leaves the queue
+    without being promoted: its on_finish, and the give-back of the start it
+    took from its member's daily limit, since a job that never ran does not
+    count. An entry leaves the queue once, so each is handed out once."""
+    hooks = []
+    if entry.get("on_finish") is not None:
+        hooks.append((entry["job_id"], entry["on_finish"]))
+    owner_user_id, day = entry.get("daily") or (None, None)
+    if day is not None:
+        hooks.append((entry["job_id"], lambda _job_id: user_caps.refund_daily_start(owner_user_id, day)))
+    return hooks
+
+
 def _take_queued_locked(job_id=None) -> list:
     """Caller holds _lock. Removes job_id's entries (every entry for None)
-    from _gpu_queue and returns their (job_id, on_finish) hooks, for the
-    caller to run with _run_finish_hooks once it has released _lock. An
-    entry leaves the queue once, so its hook is handed out once."""
+    from _gpu_queue and returns their hooks (_left_unstarted_hooks), for the
+    caller to run with _run_finish_hooks once it has released _lock."""
     hooks, kept = [], []
     for entry in _gpu_queue:
         if job_id is None or entry["job_id"] == job_id:
-            if entry.get("on_finish") is not None:
-                hooks.append((entry["job_id"], entry["on_finish"]))
+            hooks.extend(_left_unstarted_hooks(entry))
         else:
             kept.append(entry)
     _gpu_queue[:] = kept
@@ -121,6 +133,41 @@ def _note_gpu_wait_reason_locked(job_id):
             _warn("GPU wait-reason check failed", exc)
     job["gpu_wait_external"] = reason
     _refresh_queue_messages_locked()
+
+
+def _sort_fair_locked() -> None:
+    """Caller holds _lock. Puts _gpu_queue in the order jobs start: live streams first, then
+    one job per person in turn (a person's n-th waiting job counts as turn n, plus the GPU jobs
+    they already have running), the PC owner's job ahead of a member's in the same turn, and
+    first come, first served inside that. Without this one member's ten queued runs would make
+    everyone else wait for all ten. The sort is stable and only reorders waiting entries."""
+    running = {}
+    for job in _jobs.values():
+        if job.get("gpu_touching") and job.get("status") == "running":
+            uid = job.get("owner_user_id")
+            running[uid] = running.get(uid, 0) + 1
+    turns = {}
+    keyed = []
+    for index, entry in enumerate(_gpu_queue):
+        uid = (_jobs.get(entry["job_id"]) or {}).get("owner_user_id")
+        turn = running.get(uid, 0) + turns.get(uid, 0)
+        turns[uid] = turns.get(uid, 0) + 1
+        if entry.get("priority"):
+            turn = 0      # a live stream is useless late, so it keeps arrival order among its own
+        keyed.append(((not entry.get("priority"), turn, uid is not None, index), entry))
+    keyed.sort(key=lambda pair: pair[0])
+    _gpu_queue[:] = [entry for _, entry in keyed]
+
+
+def _enqueue_locked(entry: dict) -> None:
+    """Caller holds _lock, with the job's queued run already in _jobs. Adds a
+    waiting GPU job and puts the line in start order. The entry keeps who
+    started it and the day its start was counted, because clearing a job
+    drops its run before its queue entry."""
+    run = _jobs.get(entry["job_id"]) or {}
+    entry["daily"] = (run.get("owner_user_id"), run.get("daily_day"))
+    _gpu_queue.append(entry)
+    _sort_fair_locked()
 
 
 def _queued_in_order_locked() -> list:

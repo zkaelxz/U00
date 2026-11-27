@@ -6,12 +6,18 @@ const GENERIC_FAILURE = "That didn't work.";
 
 // Chrome and Edge never update an extension loaded from a folder, so the app reports the
 // version it ships and the extension says when its own copy is older.
-function staleExtensionNote(data) {
+function staleExtensionNote(data, serverUrl = "") {
   const shipped = data && data.extension_version;
   const mine = chrome.runtime.getManifest().version;
   if (!shipped || shipped === mine) return "";
-  return `This extension is version ${mine}; your Baihe has ${shipped}. In Baihe's Settings, download the` +
-    " extension, unzip it over this extension's folder, then press Reload on the extensions page.";
+  const versions = `This extension is version ${mine}; your Baihe has ${shipped}.`;
+  // A copy for another computer can't follow the main PC's synced folder, so it is updated by downloading the zip again.
+  if (serverUrl) {
+    return `${versions} Download the new one at ${serverUrl}/api/extension/download (signed in to Baihe there),` +
+      " unzip it over this extension's folder, then press Reload on the extensions page.";
+  }
+  return `${versions} In Baihe's Settings > Browser extension, press Open extension folder, then on the` +
+    " extensions page remove this copy and Load unpacked from that folder. A copy loaded from there updates itself after this.";
 }
 
 function pluralize(count, noun) {

@@ -22,6 +22,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
   `python -m pytest -q -o addopts= -W ignore::DeprecationWarning -W ignore::SyntaxWarning --no-header -x --tb=short <files>`;
   never a blanket `-W ignore` (it hides crashing threads). Don't run `tools/route_table.py` without `--write` (36 KB).
 - Never skip, loosen or delete a test to get CI green. A test may go when its behaviour is gone, when another named test pins the same behaviour, when it pinned an implementation detail and a behaviour test replaces it, or when it could not fail; the only test of a live behaviour stays, and the PR names each removed test and the reason.
+- Role guides (coder, reviewer, test runner): `docs/agent-roles.md`.
 - Skip list, never read unless the task is about them: `docs/engineering-standards.md`,
   `.test_durations`, `docs/specs/`, `docs/design/`, `.claude/`.
 - More rules (mocked tests and `isolated_db`, frontend commands, SQL-kwarg whitelist, `save_lines` full sync, `sources.db`,
@@ -33,7 +34,7 @@ Start with `docs/local-model-card.md`: the ten rules that matter most, the stop-
 A short copy of the rules most likely to cause bugs; `CLAUDE.md` is the full set.
 - Match LLM results to lines by explicit id, never by list position.
 - No real names, nicknames, PC names or personal emails in code, tests, sample data, docs or commits: the repo is public. Use made-up ones (`Alex Example`, `DESKTOP-EXAMPLE`); the `privacy` CI job enforces it (`docs/testing-and-ci.md`, "Privacy check").
-- No secrets in URLs, logs, stored errors or API responses (no fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only)). Keys go in headers; pass error text
+- No secrets in URLs, logs, stored errors or API responses (no filesystem paths or fetched URLs either, except a `display_url`-cleaned source page link (scheme, host, path only), and the title's folder in Open folder's answer when the PC has no file manager (`local_only`)). Keys go in headers; pass error text
   through `engine_backends.shared.redact_secrets`.
 - Every outbound HTTP call has `timeout=`; use `lib.http.get`/`post` for fetches the app makes itself.
 - Every API route declares exactly one of `require_permission(...)`, `public_route()`, `local_only()` or `authenticated()`

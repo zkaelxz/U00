@@ -4,7 +4,7 @@ import type { ResourceReadings } from '../../types/diagnostics'
 import type { LibraryDashboard, LibraryUsage } from '../../types/library'
 
 // Parity L01/L04: the share of logged input tokens served from a provider's
-// prompt cache (services/library_service.cache_hit_share).
+// prompt cache.
 export function cacheHitShare(u: Pick<LibraryUsage, 'input_tokens' | 'cache_read_tokens'>): number {
   return u.input_tokens ? (u.cache_read_tokens || 0) / u.input_tokens : 0
 }

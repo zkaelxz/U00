@@ -55,7 +55,7 @@
 {$BAIHE_DOMAIN} {
 	# Other household requests are small JSON bodies. The largest are a bug
 	# report (screenshot up to 5 MB) and a glossary import (up to 1,000,000
-	# characters). Admin uploads from away are left uncapped here because the
+	# characters). Uploads from away (an admin's, or a member's with the upload right) are left uncapped here because the
 	# app caps them at the PC's Settings upload limit, which Caddy can't read,
 	# before it reads the body (api/remote_uploads.py). The extension's
 	# /api/ext-bridge/page and /pages carry up to 12 base64 images: the app
@@ -159,6 +159,11 @@
 			method POST
 			path /api/library/admin/bulk/translate
 		}
+		# The extension's own files (no token inside) are what a member sets up another computer with.
+		not {
+			method GET HEAD
+			path /api/extension/download
+		}
 		# An admin may view the users, the audit log and a user's devices from away.
 		not {
 			method GET HEAD
@@ -171,7 +176,7 @@
 		not {
 			method POST
 			path /api/admin/users/*/deactivate /api/admin/users/*/activate /api/admin/users/*/revoke-sessions /api/admin/users/*/paid-limit /api/admin/users/*/job-limit /api/admin/users/*/display-name /api/admin/users/*/devices/*/revoke
-			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create /api/admin/users/*/permissions/media.upload_member
 		}
 		# Delete a deactivated member (owner decision 2026-11-25). A regexp,
 		# since a trailing * would also let /users/<id>/anything through.
@@ -182,7 +187,7 @@
 		not {
 			method DELETE
 			path /api/admin/users/*/ollama-key
-			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create
+			path /api/admin/users/*/permissions/library.read /api/admin/users/*/permissions/lines.read /api/admin/users/*/permissions/lines.edit /api/admin/users/*/permissions/jobs.start /api/admin/users/*/permissions/jobs.cancel /api/admin/users/*/permissions/review.use /api/admin/users/*/permissions/media.import_url /api/admin/users/*/permissions/sources.import /api/admin/users/*/permissions/engines.paid /api/admin/users/*/permissions/extension.send /api/admin/users/*/permissions/media.stream /api/admin/users/*/permissions/library.create /api/admin/users/*/permissions/media.upload_member
 		}
 	}
 	@pc_only_post {

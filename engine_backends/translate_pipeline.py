@@ -800,8 +800,14 @@ class _TranslateRun:
                 continue
             try:
                 translations, _ = self._translate_chunk(part)
-            except Exception:
-                # The first attempt's gap is what gets reported; a failed retry adds nothing.
+            except Exception as e:
+                # The first attempt's gap is what gets reported; a failed retry adds
+                # nothing, unless it must end the run (a timed-out request may still
+                # be running, a daily limit won't clear), and then the reason is shown.
+                if stops_translate_run(e):
+                    self.stop_run = True
+                    self.errors.append({"batch_index": self.bi, "lines": [],
+                                        "error": redact_secrets(str(e))})
                 still.extend(part)
                 continue
             if len(translations) != len(part):

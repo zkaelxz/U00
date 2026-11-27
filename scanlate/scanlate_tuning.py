@@ -87,6 +87,13 @@ BALLOON_COLUMN_INSIDE = 0.7
 # A balloon interior covering this share of its box means the box lies within
 # the balloon (there is no outline in it to spare).
 BALLOON_FILLS_BOX = 0.9
+# A dark patch with a disc this wide (px) inside it is art or the outside of the balloon, not a
+# stroke of lettering.
+BALLOON_STROKE_MAX_PX = 6
+# The page this many px beyond the box is looked at to tell a dark patch that is the outside of the
+# balloon from heavy lettering cut by the box edge, and how close in grey the two must be.
+BALLOON_OUTSIDE_LOOK_PX = 3
+BALLOON_OUTSIDE_LIKE = 40
 # Grey art beside a balloon counts as outside it when it survives an opening of
 # this size: screentone's grey fringes round its dots do not, and lettering that
 # touches screentone would otherwise be left half-erased.
@@ -281,3 +288,8 @@ LINE_SPECK_REACH = 1.0
 # The English is started at this share of the original glyph size: the strip is one glyph high,
 # and the typesetter's own start size (set for the whole box) does not shrink into it.
 LINE_TEXT_SIZE_OF_GLYPH = 1.0
+
+# Lettering joined to a balloon's outline is ringed by the balloon's paper; art beside the
+# outline is not. A joined mark is kept only when this share of its surrounding ring is interior.
+BALLOON_JOINED_RING_PX = 3
+BALLOON_JOINED_INSIDE_SHARE = 0.6

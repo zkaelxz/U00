@@ -36,7 +36,7 @@ final class ShellSettings {
         void popOut();
 
         /** Baihe is showing a dark (true) or light (false) look, whatever the phone's own setting. */
-        void themeChanged(boolean dark);
+        void themeChanged(String look);
 
         /** Looks for a newer app build now and says what it found. */
         void checkForUpdates();
@@ -70,7 +70,13 @@ final class ShellSettings {
 
         @JavascriptInterface
         public void setDark(boolean dark) {
-            host.themeChanged(dark);
+            host.themeChanged(dark ? "dark" : "light");
+        }
+
+        /** Baihe's look by name (light, dark, sepia or oled); newer pages send this in place of setDark. */
+        @JavascriptInterface
+        public void setLook(String look) {
+            host.themeChanged(look);
         }
 
         /** The build line and the kept crash text as JSON, for Baihe's own "Report a problem" dialog; "{}" if it cannot be built. */

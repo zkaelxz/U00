@@ -2,7 +2,7 @@
 
 How to turn on each transcription option, what it needs, and what went wrong
 before. How the backends fit together is in `engine-backends.md` section 3, not
-here. Checked against the code on `baihe-subtitler` at `7bad622` (2026-10-08).
+here. Checked against the code on `baihe-subtitler` at `747f2bb` (2026-10-08).
 
 Numbers are only in "Measured results (snapshot)" at the end. They were measured
 once, on one machine, before some defaults changed. Do not read them as current
@@ -24,7 +24,7 @@ behaviour.
 | Separate vocals first | per title | off | |
 | Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
 | Difficult audio | per title (Transcribe > Advanced > Switches) | off | Opt-in for screamed, whispered or quiet speech. See "Difficult audio" below. |
-| Min silence, VAD threshold, Beam size | per title (Developer Mode) | 300 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
+| Min silence, VAD threshold, Beam size | per title (Developer Mode) | 1000 ms (plus a 20 s cap on one speech stretch), 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
 | Hallucination guard | per title (Developer Mode) | 0 (off) | Local Whisper only. Ignored by Fast mode, Groq, Mixed languages and the Qwen3-ASR backends. |
 | Pause that can split a long line | per title | 0.35 s | `segment_splitting.MIN_WORD_GAP_SECONDS`. |
 | Whisper fast mode, Repeat guard, Realign long segments | per title | off | Fast mode batches VAD chunks; Repeat guard bans repeated 3-token sequences (`core.WHISPER_REPEAT_GUARD_KWARGS`). |
@@ -414,7 +414,7 @@ differences under about 1 point are noise.
 
 | Topic | Guidance | Current default |
 |---|---|---|
-| Speech-detection settings | Keep 300 ms and threshold 0.5. Silence 100/1000 ms changed nothing; threshold 0.7 was 3.2 points worse. Tested on single sentences only. | 300 ms, 0.5 for Whisper with "Split lines by sentences" off; with it on, silence is 2000 ms |
+| Speech-detection settings | Single sentences: silence 100/1000 ms changed nothing; threshold 0.7 was 3.2 points worse. Long gold clips (5 Chinese clips, large-v3, 3 runs each): silence 1000 ms with a 20 s cap on one speech stretch raised mean character accuracy from 0.666 to 0.672 and transcribed 18% faster; two clips gained (+0.026, +0.038), one lost 0.026, the rest were flat, all repeatable. | 1000 ms (20 s speech cap), 0.5 for Whisper with "Split lines by sentences" off; with it on, silence is 2000 ms. A saved 300 was moved to the new default once; other saved values stay |
 | Beam size | 1 saved 7-35% of time with no clear accuracy cost in most cells. Exceptions: medium Korean +0.5, large-v3 Japanese +1.5 points (borderline). | 5 |
 | Initial prompt | Use only names that occur in the series and keep it short. A prompt of the utterance's own names (a ceiling, not a glossary) gave -0.7 points on clean audio and -3.8 on very bad audio; a shared glossary was not distinguishable from no prompt; unrelated names did nothing on clean audio and added 4.6 points on very bad audio. | glossary feeds it |
 | Mixed audio | Do not use one fixed language or whole-file auto-detect on a mixed file; use Mixed languages. | off |
@@ -684,7 +684,7 @@ Whisper plus Qwen combined.
 
 ## Measured results: November 2026 (RTX 3080 Ti)
 
-Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `777c5cc4`, `61f8ac70`, `cc407a75`, `2d266ed4`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
+Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `438c9f5a`, `b315de33`, `c4e0e834`, `3e02bb83`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
 
 ### Vocal separation before transcription
 

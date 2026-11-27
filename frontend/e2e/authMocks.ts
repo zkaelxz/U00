@@ -110,7 +110,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
     idle_timeout_days: 14,
     absolute_timeout_days: 30,
   },
-  // Settings > Extension tokens per computer, for a signed-in person: none yet.
+  // Settings > Remote access keys, for a signed-in person: none yet.
   '/api/auth/device-tokens': { tokens: [], max_active: 10 },
 }
 

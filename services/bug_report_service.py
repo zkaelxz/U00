@@ -522,6 +522,11 @@ def create_report(client: dict, screenshot: bytes | None = None, include_server_
         _write(os.path.join(folder, "report.json"),
                json.dumps(report, ensure_ascii=False, indent=2))
     public = build_markdown(report, include_server=False)
+    if reporter is not None:
+        # Reports from away are only readable at the PC, so without this nobody learns one is waiting.
+        from services import notification_service
+        notice = f"A member sent a problem report (#{report_id}). Read it in Diagnostics at the PC."
+        notification_service.notify_waiting(notice, push_text=notice)
     return {"id": report_id, "stamp": stamp,
             "markdown": markdown if include_server_in_response else public,
             "issue_markdown": public,

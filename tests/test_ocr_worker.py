@@ -155,6 +155,22 @@ class TestGpuAllowed:
         self.free = 16000
         assert ocr_worker._gpu_allowed("medium") and self.readings == 2
 
+    def test_a_fault_turns_the_gpu_off_for_a_while_not_for_the_rest_of_the_process(self):
+        ocr_worker._gpu_off("CUDA error")
+        assert not ocr_worker._gpu_allowed("medium")
+        ocr_worker._gpu_off_at -= ocr_worker.GPU_OFF_SECONDS + 1
+        assert ocr_worker._gpu_allowed("medium")
+
+    def test_why_the_cpu_is_used_is_logged_once_per_reason(self, monkeypatch):
+        lines = []
+        monkeypatch.setattr(ocr_worker, "_log", lambda text, warning=False: lines.append(text))
+        monkeypatch.setattr(ocr_worker, "_last_gpu_skip", None)
+        self.free = None
+        for _ in range(3):
+            ocr_worker._gpu_allowed("medium")
+            ocr_worker._gpu_checked_at = None
+        assert len(lines) == 1 and "could not be read" in lines[0]
+
 
 class _FakeProcess:
     def __init__(self):
@@ -371,6 +387,21 @@ def test_a_stuck_gpu_read_is_redone_on_the_cpu(helpers):
     helpers.monkeypatch.setattr(ocr_worker, "READ_TIMEOUT_SECONDS", 0)
     assert ocr_worker.read("medium", "/fake/b.png").txts == ("cpu",)
     assert ocr_worker._gpu_off_reason and not ocr_worker._gpu.alive()
+
+
+def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
+    helpers.monkeypatch.setattr(ocr_worker, "READ_TIMEOUT_SECONDS", 3600)
+    dead = _FakeConn([])
+    helpers.scripts += [dead, _FakeConn([("ok", ("cpu",), None, None)])]
+    real_start = ocr_worker._start
+
+    def start():
+        process, conn = real_start()
+        process.alive = conn is not dead
+        return process, conn
+    helpers.monkeypatch.setattr(ocr_worker, "_start", start)
+    assert ocr_worker.read("ko", "/fake/a.png").txts == ("cpu",)
+    assert len(helpers.starts) == 2
 
 
 def test_warming_does_not_start_the_gpu_load_without_its_weights(helpers):

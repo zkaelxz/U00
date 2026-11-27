@@ -101,7 +101,8 @@ def looks_like_unrendered_shell(html: str, extracted_text: str) -> dict:
         score += 0.3
 
     lowered = (extracted_text or "").lower()
-    for marker in EMPTY_STATE_MARKERS:
+    # An empty state is a short page; a long chapter may merely quote "没有找到" in its story.
+    for marker in EMPTY_STATE_MARKERS if text_len < 600 else ():
         if marker in lowered or marker in (extracted_text or ""):
             reasons.append(f"page shows an empty/loading state ({marker!r})")
             score += 0.35

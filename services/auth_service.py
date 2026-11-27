@@ -53,7 +53,7 @@ HOUSEHOLD_DEFAULT_PERMISSIONS = (
     "media.stream", "sources.import", "library.create",
 )
 OPT_IN_PERMISSIONS = (
-    "media.import_url", "engines.paid", "extension.send",
+    "media.import_url", "engines.paid", "extension.send", "media.upload_member",
 )
 # What a member account can hold; an admin can give or take each from the People screen.
 MEMBER_PERMISSIONS = HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS
@@ -77,6 +77,14 @@ ADMIN_HOUSEHOLD_PERMISSIONS = ADMIN_VIEW_PERMISSIONS + ADMIN_AWAY_WRITE_PERMISSI
 # keeps it. Away from the PC it also needs the PC's remote-uploads switch
 # (api.remote_uploads.away_principal); members never hold it.
 UPLOAD_PERMISSION = "media.upload"
+# The member's own right to upload audio/video into titles they own (owner
+# decision 2026-11-27, "members may upload from their phones, with a size limit"). Off
+# by default and granted per person; it covers only the media upload routes,
+# not covers, subtitles, novel text or comic pages, and is held to the
+# member upload limit setting. An admin
+# holds it through the admin flag but, away from the PC, loses it with
+# media.upload while the remote-uploads switch is off.
+MEMBER_UPLOAD_PERMISSION = "media.upload_member"
 # Updating Baihe from the website (owner decision 2026-10-30): an admin may
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.

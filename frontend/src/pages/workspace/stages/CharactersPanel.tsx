@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 
 import { mergeSpeakers, rememberSeriesCharacter, renameSpeaker, swapSpeakers, undoMergeSpeakers, undoRenameSpeaker, undoSpeakerChange } from '../../../api/characters'
 import { applyVoiceBankEntry, getCharacters, getCloneEngines, getVoiceBank, saveCharacter } from '../../../api/translateStage'
@@ -6,6 +6,7 @@ import { voiceBankAudioUrl } from '../../../api/voiceBankAudio'
 import { candidateAudioUrl, extractCandidates, listCandidates } from '../../../api/voiceClone'
 import { ClipPlayButton } from '../../../components/ClipPlayButton'
 import { ErrorBanner } from '../../../components/ErrorBanner'
+import { DisabledReason } from '../../../components/DisabledReason'
 import { isForbidden, LINES_READ_FORBIDDEN, safeDetail } from '../../../components/errorMessages'
 import { Field } from '../../../components/Field'
 import { buttonClass } from '../../../components/uiClasses'
@@ -140,6 +141,9 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
   const [swapWith, setSwapWith] = useState<string | null>(null)
   const set = <K extends keyof CharacterForm>(k: K, v: CharacterForm[K]) => setForm((f) => ({ ...f, [k]: v }))
   const label = entry.speaker_label
+  const saveReasonId = useId()
+  const renameReasonId = useId()
+  const applyReasonId = useId()
 
   const changes = buildCharacterUpdate(entry, form)
   const dirty = isDirty(changes)
@@ -241,7 +245,8 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
         {sample && <SampleCell label={label} sample={sample} />}
         <td role="cell" data-label="Reference" className="card-meta">{reference}</td>
         <td role="cell" className="card-action">
-          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} title={dirty ? undefined : 'No changes to save.'} onClick={save}>Save</button>
+          <button type="button" className={buttonClass('secondary', 'sm')} disabled={!dirty || busy} aria-describedby={dirty ? undefined : saveReasonId} onClick={save}>Save</button>
+          <DisabledReason id={saveReasonId}>{!dirty && 'No changes to save.'}</DisabledReason>
           {problem && <p className="error" role="alert">{problem}</p>}
           <ErrorBanner error={error} onDismiss={() => setError(null)} />
         </td>
@@ -283,10 +288,11 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
               <form className="character-rename" onSubmit={(e) => { e.preventDefault(); rename() }}>
                 <input aria-label={`New name for ${label}`} value={renaming} autoFocus
                   onChange={(e) => setRenaming(e.target.value)} />
-                <button type="submit" disabled={busy || renameProblemText !== null} title={renameProblemText ?? undefined}>
+                <button type="submit" disabled={busy || renameProblemText !== null} aria-describedby={renameProblemText ? renameReasonId : undefined}>
                   {entry.line_count ? `Rename on all ${entry.line_count} lines` : 'Rename'}
                 </button>
                 <button type="button" className={buttonClass('secondary')} disabled={busy} onClick={() => setRenaming(null)}>Cancel</button>
+                <DisabledReason id={renameReasonId}>{renameProblemText}</DisabledReason>
               </form>
             )}
             {mergeInto === null ? (
@@ -379,9 +385,10 @@ function Row({ entry, engines, bank, hasSeries, taken, mergeTargets, leavesClip,
                       {bankId && (
                         <ClipPlayButton key={bankId} src={voiceBankAudioUrl(Number(bankId))} name={bank.find((b) => String(b.id) === bankId)?.name ?? 'voice'} />
                       )}
-                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} title={bankId ? undefined : 'Choose a voice first.'} onClick={apply}>
+                      <button type="button" className={buttonClass('secondary', 'sm')} disabled={!bankId || busy} aria-describedby={bankId ? undefined : applyReasonId} onClick={apply}>
                         Apply
                       </button>
+                      <DisabledReason id={applyReasonId}>{!bankId && 'Choose a voice first.'}</DisabledReason>
                     </div>
                   </Field>
                 </div>

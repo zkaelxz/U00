@@ -325,3 +325,23 @@ def test_quick_translate_ignores_the_title_picked_earlier():
 
 def test_saving_uses_the_picked_title():
     assert _picked(True) == 5
+
+
+def _answers(steps):
+    return _node("content_expression", "(() => { const b = window.__baihe; " + steps + " })()")
+
+
+def test_a_save_after_a_quick_translate_sends_the_picture_again():
+    out = _answers("b.rememberAnswer('h', [1], false); "
+                   "return [!!b.answerFor('h', false), !!b.answerFor('h', true)];")
+    assert out == [True, False]
+
+
+def test_a_saved_answer_serves_both_modes():
+    out = _answers("b.rememberAnswer('h', [1], true); return [!!b.answerFor('h', true), !!b.answerFor('h', false)];")
+    assert out == [True, True]
+
+
+def test_saving_after_a_quick_translate_makes_the_answer_a_saved_one():
+    out = _answers("b.rememberAnswer('h', [1], false); b.rememberAnswer('h', [1], true); return !!b.answerFor('h', true);")
+    assert out is True

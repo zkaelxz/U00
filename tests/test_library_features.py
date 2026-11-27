@@ -30,22 +30,16 @@ pytestmark = pytest.mark.usefixtures("local_ollama_default")
 
 class TestTimeEstimates:
     def test_reading_time_counts_words(self):
-        lines = [Line(idx=0, start=0, end=1, zh="a", en="one two three four five")]
-        assert sc.estimate_reading_time(lines)["word_count"] == 5
+        assert sc.reading_time(5)["word_count"] == 5
 
     def test_reading_time_scales_with_wpm(self):
-        lines = [Line(idx=i, start=0, end=1, zh="a", en="w " * 100) for i in range(10)]
-        slow = sc.estimate_reading_time(lines, wpm=100)["minutes"]
-        fast = sc.estimate_reading_time(lines, wpm=400)["minutes"]
-        assert slow > fast
+        assert sc.reading_time(1000, wpm=100)["minutes"] > sc.reading_time(1000, wpm=400)["minutes"]
 
-    def test_listening_time_uses_last_timestamp(self):
-        lines = [Line(idx=0, start=0, end=90.0, zh="a", en="b")]
-        assert sc.estimate_listening_time(lines)["seconds"] == 90.0
+    def test_listening_time_is_seconds_and_display(self):
+        assert sc.listening_time(90.0)["seconds"] == 90.0
 
-    def test_empty_lines_no_crash(self):
-        assert sc.estimate_listening_time([])["seconds"] == 0
-        assert sc.estimate_reading_time([])["word_count"] == 0
+    def test_zero_words_no_crash(self):
+        assert sc.reading_time(0)["word_count"] == 0
 
     def test_percent_complete(self):
         assert sc.compute_percent_complete(9, 10) == 100.0

@@ -82,6 +82,7 @@ export interface SettingsPreferences extends TimingPreferences {
   monthly_cap_usd: number | null // null: BAIHE_MONTHLY_CAP_USD from .env applies
   narration_pace: number // 0.75..1.25, 1: as the voice speaks, default 0.9
   max_upload_mb: number // media/backup upload cap; BAIHE_MAX_UPLOAD_MB wins when set
+  member_upload_mb: number // the smaller cap for a member's upload from their phone
   ollama_num_ctx_override: number // 0: sized from the prompt
   keep_free_vram_gb: number // 0: off
   keep_free_ram_gb: number // 0: off

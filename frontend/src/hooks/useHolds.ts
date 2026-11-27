@@ -28,6 +28,16 @@ export function useCloudModelsAllowed(): boolean {
 // Upload controls: at the PC always; from away only for an admin while the PC's remote-uploads
 // switch is on, which is when the server includes media.upload in /me. Unlike useHolds this is
 // not optimistic away from the PC: only a /me that lists the permission shows them.
+// Audio/video upload only: a member with the member upload right may send these from their
+// phone, so the comic page, cover and subtitle controls keep using useCanUpload.
+export function useCanUploadMedia(): boolean {
+  const pc = usePcOnly()
+  const s = useSession()
+  if (pc !== 'remote') return true
+  return s.status === 'ready' && s.me.auth_enabled
+    && (s.me.permissions.includes('media.upload') || s.me.permissions.includes('media.upload_member'))
+}
+
 export function useCanUpload(): boolean {
   const pc = usePcOnly()
   const s = useSession()

@@ -11,6 +11,7 @@ from scanlate import scanlate_balloons
 from scanlate import scanlate_box_merge
 from scanlate import scanlate_inpaint
 from scanlate import scanlate_regions
+from scanlate import scanlate_render
 def _page(balloons, size=(300, 400), ground=70):
     """Grey page with white ellipse balloons (black outline) and dark lettering blocks."""
     img = np.full((size[0], size[1]), ground, np.uint8)
@@ -388,3 +389,41 @@ def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
     notch &= img[:100, 110:310] < 128
     assert notch.any() and not mask[notch].any()
     assert mask[:22, 25:53][img[:22, 135:163] == 0].all()
+
+
+def test_box_nearly_inside_a_balloon_keeps_the_dark_corners_it_cuts_across():
+    img = _page([(150, 100, 120, 80)], size=(200, 300), ground=0)
+    box = {"x": 60, "y": 40, "w": 180, "h": 120}
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    # The corners of the box lie outside the outline, on the dark art.
+    assert not mask[0, 0] and not mask[0, -1] and not mask[-1, 0] and not mask[-1, -1]
+    assert mask[60, 90]
+
+
+def test_heavy_lettering_cut_by_the_box_edge_in_a_nearly_full_balloon_is_still_erased():
+    img = _page([(150, 100, 120, 80)], size=(200, 300), ground=0)
+    # Thick glyphs that run past the box edge into the balloon's paper, thicker than any hairline.
+    img[96:114, 60:100] = 0
+    img[96:114, 118:146] = 0
+    box = {"x": 60, "y": 40, "w": 180, "h": 120}
+    mask = scanlate_balloons.bubble_erase_mask("x.png", box, image=img)
+    assert mask is not None
+    assert mask[96 - 40:114 - 40, 0:100 - 60].all()
+    assert not mask[0, 0] and not mask[-1, -1]
+
+
+def test_coloured_rings_in_a_balloon_do_not_cut_its_text_to_a_strip(tmp_path):
+    img = np.full((500, 500, 3), 255, np.uint8)
+    cv2.ellipse(img, (250, 250), (150, 150), 0, 0, 360, (0, 0, 0), 3)
+    for y in (150, 175):                                  # rings that read as red rules
+        cv2.line(img, (170, y), (330, y), (0, 0, 255), 3)
+    cv2.imwrite(str(tmp_path / "p.png"), img)
+    box = {"x": 100, "y": 100, "w": 300, "h": 300, "kind": "bubble", "font_size": 40,
+           "translated_text": "Okay", "skip": False}
+    out = tmp_path / "o.png"
+    scanlate_render.process_page(str(tmp_path / "p.png"), [box], str(out), notes=[])
+    drawn = cv2.cvtColor(cv2.imread(str(out)), cv2.COLOR_BGR2GRAY) < 100
+    drawn[:, :] &= ~(cv2.imread(str(tmp_path / "p.png"), 0) < 100)
+    ys = np.nonzero(drawn[110:390, 110:390].any(axis=1))[0] + 110
+    assert ys.size and 220 < (ys.min() + ys.max()) / 2 < 280

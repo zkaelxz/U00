@@ -41,6 +41,8 @@ STATE_KEYS = {
 # Keys built at run time, matched by (file, argument as written) so a new
 # dynamic key in another file has to be added here with its reason.
 DYNAMIC_KEYS = {
+    ("services/account_prefs_service.py", "KEY.format(user_id)"):
+        "account_prefs.<account id>: that account's own saved preferences (theme)",
     ("services/quick_video_service.py", "_own_key(user_id)"):
         "quick_video.profile_id.<account id>: that account's own choice, falling back to the PC's",
     ("services/quick_video_service.py", "_own_key(user_id) if user_id else PROFILE_KEY"):

@@ -91,9 +91,9 @@ test('Settings on a phone: the extension section fits and its targets are 44px',
   await openSettingsGroups(page, 'Connections')
   const ext = page.getByRole('region', { name: 'Browser extension' })
   await expect(ext.locator('.card-meta')).toHaveText('On · running')
-  await ext.getByRole('button', { name: 'Show extension token' }).click()
-  await ext.getByRole('button', { name: 'Confirm show extension token' }).click()
-  await expect(ext.getByLabel('Extension token', { exact: true })).toHaveValue('tok-phone')
+  await ext.getByRole('button', { name: 'Show local extension key' }).click()
+  await ext.getByRole('button', { name: 'Confirm show local extension key' }).click()
+  await expect(ext.getByLabel('Local extension key', { exact: true })).toHaveValue('tok-phone')
   for (const name of ['Copy', 'Hide']) {
     expect((await hitHeight(ext.getByRole('button', { name })))).toBeGreaterThanOrEqual(44)
   }

@@ -351,7 +351,8 @@ def _detector_on_gpu(model, torch):
 def _detector_outputs(model, inputs, torch):
     """The model's outputs for `inputs`, run on the GPU when it can be, with the tensors the
     post-processing reads on the CPU either way."""
-    with torch.no_grad():
+    import vram
+    with torch.no_grad(), vram.comic_gpu_use():
         try:
             gpu = _detector_on_gpu(model, torch)
             if gpu is not None:

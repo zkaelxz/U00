@@ -527,3 +527,37 @@ def test_a_browser_only_member_cbz_save_says_why_and_stays_pending(env, tmp_path
     assert summary["saved"] == [] and env["alpha"].seen == []
     assert summary["errors"]["Series T"].startswith("Saving as CBZ: Alpha needs the PC owner's browser")
     assert store.save_pending_ids(_row("alpha")) == ["c2", "c3"]
+
+
+def test_a_member_cannot_track_more_series_than_the_limit_but_the_owner_can(env, monkeypatch):
+    from lib.errors import ConflictError
+    env["alpha"] = _make("alpha")
+    b = _user("b@example.com")
+    monkeypatch.setattr(sources_registry_service, "MEMBER_TRACKED_LIMIT", 2)
+    for n in range(2):
+        store.track_series("alpha", f"own{n}", "Series", "", None, linked_by_user_id=b)
+    with pytest.raises(ConflictError) as err:
+        sources_registry_service.set_tracked("alpha", "one-too-many", True, principal=_p(b))
+    assert "already tracking 2 series" in err.value.message
+    # The owner (no account) is never counted, so the cap is not what refuses them.
+    with pytest.raises(ConflictError) as owner_err:
+        sources_registry_service.set_tracked("alpha", "one-too-many", True, principal=None)
+    assert "already tracking" not in owner_err.value.message
+
+
+def test_tracking_an_already_tracked_series_keeps_its_link_and_new_chapters(env, monkeypatch):
+    from services import sources_search_service as search
+    did = db.create_drama(title_en="Linked", media_type="novel",
+                          content_mode="novel_narration", is_private=0)
+    _track("alpha", drama_id=did)
+    monkeypatch.setattr(sources_registry_service, "require_source", lambda name: None)
+    result = {"kind": "series", "series_id": SERIES, "info": {"title": "Series T"},
+              "chapters": [{"chapter_id": c, "title": c} for c in ("c1", "c2", "c3")]}
+    real_status = background_jobs.get_status
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: (
+        {"status": "done", "result": result} if jid == search.SERIES_JOB_PREFIX + "alpha"
+        else real_status(jid)))
+    sources_registry_service.set_tracked("alpha", SERIES, True, principal=None)
+    assert _row("alpha")["drama_id"] == did
+    # c2 and c3 came out after the last check: still new, so the next check announces them.
+    assert {c["chapter_id"] for c in store.known_chapters("alpha", SERIES)} == {"c1"}

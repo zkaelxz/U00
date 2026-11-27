@@ -428,7 +428,7 @@ class TestTitleSources:
         assert rows["vad_threshold"]["series_value"] == 0.4
         assert rows["vad_threshold"]["differs_from_series"] is True
         assert rows["min_silence_ms"]["source"] == "settings_default"
-        assert rows["min_silence_ms"]["value"] == 300
+        assert rows["min_silence_ms"]["value"] == 1000
 
     def test_series_default_is_not_applied_to_an_unset_title(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])

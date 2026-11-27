@@ -30,6 +30,7 @@ const PREFS = {
   monthly_cap_usd: null as number | null,
   narration_pace: 0.9,
   max_upload_mb: 20480,
+  member_upload_mb: 1024,
   ollama_num_ctx_override: 0,
   keep_free_vram_gb: 0,
   keep_free_ram_gb: 0,

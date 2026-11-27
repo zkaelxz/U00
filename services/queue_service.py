@@ -52,6 +52,8 @@ QUEUE_VERSION = 1
 MAX_ITEMS = 200
 # One member can't fill the shared list and lock everyone else out.
 MAX_ITEMS_PER_MEMBER = 100
+# Members together can't either: the rest of the list is always the PC owner's (and admins' at the PC).
+MAX_MEMBER_ITEMS = 150
 STEPS = ("transcribe", "translate", "export")
 # Added only by Quick video translate; never a step to pick.
 DOWNLOAD = "download"
@@ -86,6 +88,15 @@ _INTERRUPTED = "Interrupted: Baihe stopped while this ran. Press Retry to run it
 _NOT_STARTED = "Not started: Baihe stopped before it ran. Press Retry to run it."
 _WAITING_FOR_CAP = ("Waiting for other jobs of the account that added it to finish; it "
                     "starts when one of them ends.")
+_WAITING_FOR_DISK = "Waiting: this PC is almost out of disk space; it starts once space is freed."
+_WAITING_FOR_TOMORROW = ("Waiting: today's job limit for the account that added it is used up; "
+                         "it starts again tomorrow, or when the PC owner raises the limit.")
+# How long an account's items rest after its daily limit refused one: the limit lasts until
+# midnight, so trying every tick would only repeat the refusal, but the owner may raise it sooner.
+DAILY_LIMIT_RETRY_SECONDS = 15 * 60
+# The same for every member's items while the drive is nearly full: each refused try rewrites the
+# queue document, and space comes back in minutes, not in one 5 s tick.
+DISK_LOW_RETRY_SECONDS = 60
 # Marks the document as this process's. A document without it came from an
 # earlier run or a restored backup, and is settled before anything reads it,
 # so neither can resume work on its own.
@@ -153,6 +164,8 @@ def _clean_item(raw) -> Optional[dict]:
             "now": bool(raw.get("now")),
             # A waiting item its adder paused: the queue skips it until it is resumed.
             "held": bool(raw.get("held")),
+            # Not tried again before this time: its account's daily job limit is used up.
+            "not_before": raw["not_before"] if type(raw.get("not_before")) in (int, float) else None,
             "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
             "settings": _clean_settings(raw.get("settings"), raw["step"]),
             # Items saved before "at_pc" was recorded count as away from the PC:
@@ -466,6 +479,10 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 1 for i in doc["items"] if i["user_id"] == uid) + len(entries) > MAX_ITEMS_PER_MEMBER:
             raise ConflictError(f"You can have at most {MAX_ITEMS_PER_MEMBER} items in the "
                                 "queue. Clear your finished items first.")
+        if not _overrides(principal) and sum(
+                1 for i in doc["items"] if not i["override"]) + len(entries) > MAX_MEMBER_ITEMS:
+            raise ConflictError(f"Members can have at most {MAX_MEMBER_ITEMS} items in the queue "
+                                "together. Clear your finished items, or ask the PC owner to clear some.")
         for n, (step, settings) in enumerate(entries):
             doc["items"].append({
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
@@ -641,7 +658,7 @@ def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
         item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, at_pc=item["at_pc"] and at_pc)
+                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
 
@@ -966,9 +983,12 @@ def _may_overlap(running: list, candidate: dict) -> bool:
 
 def _start_next(now: float, deferred=frozenset()) -> None:
     """Starts the first waiting item not in `deferred`. An item whose adder
-    is at their running cap (jobs/user_caps.py) goes back to waiting with a
-    reason and the next one is tried, so one member's own jobs never hold up
-    the line; the next tick tries it again."""
+    is at their running cap (jobs/user_caps.py), or that a nearly full drive
+    holds back, goes back to waiting with a reason and the next one is tried,
+    so one member's own jobs never hold up the line; the next tick tries it
+    again. An adder past their daily job limit has all their waiting items
+    rest for DAILY_LIMIT_RETRY_SECONDS, and a nearly full drive rests every
+    member's waiting items for DISK_LOW_RETRY_SECONDS."""
     from jobs import job_launch
     if job_launch.exclusive_active() or job_launch.maintenance_active():
         return     # a restore or cleanup holds the library: wait rather than skip everything
@@ -979,10 +999,12 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
                    and not i.get("held") and i["chain"] not in held_chains]
+        # Resting items still count as waiting below, so the queue doesn't go idle and forget them.
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
-        item = next((i for i in waiting if i["now"]), None)
+        item = next((i for i in ready if i["now"]), None)
         if item is None and doc["state"] == ACTIVE:
-            item = next(iter(waiting), None)
+            item = next(iter(ready), None)
         if item is None:
             if not running and not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
@@ -994,11 +1016,20 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         claimed = dict(item)
         _save(doc)
     status, reason, job_id = RUNNING, "", None
+    # (whose waiting items share the refusal, for how many seconds), or None
+    wait_reason, rest = _WAITING_FOR_CAP, None
     try:
         with user_caps.refuse_at_cap():
             job_id = _start_item(claimed)
         if job_id is None:
             status = DONE
+    except user_caps.DailyLimitError:
+        status, wait_reason = WAITING, _WAITING_FOR_TOMORROW
+        rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
+    except user_caps.DiskLowError:
+        status, wait_reason = WAITING, _WAITING_FOR_DISK
+        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
+        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:
@@ -1016,7 +1047,14 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             if status == RUNNING:
                 item["job_id"] = job_id
             elif status == WAITING:
-                item.update(status=WAITING, reason=_WAITING_FOR_CAP, started_at=None)
+                item.update(status=WAITING, reason=wait_reason, started_at=None)
+                if rest is not None:
+                    shares, seconds = rest
+                    for other in doc["items"]:
+                        # A shorter disk rest must not cut short (or relabel) a daily-limit rest.
+                        if (other["status"] == WAITING and shares(other)
+                                and (other.get("not_before") or 0) < now + seconds):
+                            other.update(reason=wait_reason, not_before=now + seconds)
             elif status == INTERRUPTED:
                 _finish(item, status, _INTERRUPTED, _clock())
             else:

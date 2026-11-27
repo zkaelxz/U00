@@ -345,6 +345,7 @@ class SettingsPreferences(TimingPreferences):
     monthly_cap_usd: Optional[float] = None
     narration_pace: float = 0.9
     max_upload_mb: int = 20480
+    member_upload_mb: int = 1024
     ollama_num_ctx_override: int
     keep_free_vram_gb: float = 0.0
     keep_free_ram_gb: float = 0.0
@@ -464,6 +465,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     monthly_cap_usd: Optional[Union[StrictInt, StrictFloat]] = None
     narration_pace: Optional[Union[StrictInt, StrictFloat]] = None
     max_upload_mb: Optional[StrictInt] = None
+    member_upload_mb: Optional[StrictInt] = None
     ollama_num_ctx_override: Optional[StrictInt] = None
     keep_free_vram_gb: Optional[Union[StrictInt, StrictFloat]] = None
     keep_free_ram_gb: Optional[Union[StrictInt, StrictFloat]] = None

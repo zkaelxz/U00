@@ -308,6 +308,25 @@ def _tone_from_edge(roi, filled):
     return np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
 
 
+def _lettering_in_paper(joined, filled):
+    """`joined` without the marks that are art or a thick outline: lettering joined to the
+    outline is ringed by the balloon's paper, while a dark patch outside a burst's dent sits
+    against the page's art and has little interior around it. Filling those made a straight
+    white edge beside the outline."""
+    import cv2
+
+    joined = joined & (filled == 0)
+    n, labels = cv2.connectedComponents(joined.astype(np.uint8), connectivity=8)
+    keep = np.zeros(joined.shape, bool)
+    kernel = np.ones((2 * scanlate_tuning.BALLOON_JOINED_RING_PX + 1,) * 2, np.uint8)
+    for i in range(1, n):
+        part = (labels == i).astype(np.uint8)
+        ring = (cv2.dilate(part, kernel) > 0) & (part == 0)
+        if ring.any() and (ring & (filled > 0)).sum() >= scanlate_tuning.BALLOON_JOINED_INSIDE_SHARE * ring.sum():
+            keep |= part > 0
+    return keep
+
+
 def _art_from_edge(roi, filled, outside):
     """bool mask of `roi`'s solid areas of ink or tone (at least ERASE_SOLID_ART_PX
     across) outside `filled` that connect to the box edge, with their one-pixel
@@ -321,6 +340,37 @@ def _art_from_edge(roi, filled, outside):
     on_edge = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
     solid = np.isin(labels, on_edge[on_edge > 0]).astype(np.uint8)
     return (cv2.dilate(solid, np.ones((3, 3), np.uint8)) & ink) > 0
+
+
+def _without_thick_dark_patches(filled, gray, area):
+    """All ones except the parts of the box's dark, unfilled area that are the outside of the
+    balloon: a disc wider than a stroke fits in them (BALLOON_STROKE_MAX_PX) and the page just
+    beyond the box, next to them, is as dark as they are. Heavy lettering cut by the box edge is
+    as thick, but the balloon's paper lies beyond it."""
+    import cv2
+
+    x0, y0, x1, y1 = area
+    pad = scanlate_tuning.BALLOON_OUTSIDE_LOOK_PX
+    wide = gray[max(0, y0 - pad):y1 + pad, max(0, x0 - pad):x1 + pad]
+    oy, ox = y0 - max(0, y0 - pad), x0 - max(0, x0 - pad)
+    inner = np.zeros(wide.shape, bool)
+    inner[oy:oy + filled.shape[0], ox:ox + filled.shape[1]] = True
+    missing = (filled == 0).astype(np.uint8)
+    n, labels = cv2.connectedComponents(missing, connectivity=8)
+    depth = cv2.distanceTransform(missing, cv2.DIST_L2, 3)
+    keep = np.ones_like(filled)
+    for i in range(1, n):
+        part = labels == i
+        if depth[part].max() < scanlate_tuning.BALLOON_STROKE_MAX_PX:
+            continue
+        grown = np.zeros(wide.shape, np.uint8)
+        grown[oy:oy + filled.shape[0], ox:ox + filled.shape[1]] = part
+        beyond = (cv2.dilate(grown, np.ones((2 * pad + 1, 2 * pad + 1), np.uint8)) > 0) & ~inner
+        if not beyond.any():
+            continue
+        if abs(float(np.median(wide[beyond])) - float(np.median(gray[y0:y1, x0:x1][part]))) <= scanlate_tuning.BALLOON_OUTSIDE_LIKE:
+            keep[part] = 0
+    return keep
 
 
 def bubble_erase_mask(image_path: str, box: dict, image=None):
@@ -367,10 +417,17 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
         # bumps of a burst) is as far from the paper as lettering, and was erased
         # to a straight white edge; lettering joined to the outline is thinner.
         joined = (hull > 0) & (depth > thickness + 1) & ~_art_from_edge(roi, filled, outside)
+        # A balloon the page's edge cuts has its lettering and outline merged with the dark
+        # page beyond the edge into one mark, which the ring test cannot tell apart.
+        if x0 > 0 and y0 > 0 and x1 < gray.shape[1] and y1 < gray.shape[0]:
+            joined = _lettering_in_paper(joined, filled)
         filled = filled | joined.astype(np.uint8)
     elif filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX:
-        # No paper outside the balloon in the box: the box lies within it.
-        filled = np.ones_like(filled)
+        # No paper outside the balloon in the box: the box lies within it, so the strokes the
+        # interior missed (lettering cut by the box edge) are lettering. A dark patch thicker
+        # than any stroke at the box's corner is the art outside the outline; filling it made
+        # square white notches on the outline.
+        filled = _without_thick_dark_patches(filled, gray, area)
     # Otherwise the balloon sits on dark art or tone, so no paper surrounds
     # it, yet part of the box is not balloon: only its interior is cleared.
     # Clearing the whole box wiped the outline and the art along it into a
