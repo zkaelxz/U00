@@ -618,20 +618,16 @@ public class MainActivity extends Activity {
         // Reopening the app resumes the same process and WebView, so no page load fires again;
         // onResume asks again, at most once a minute, so a build fetched meanwhile is offered.
         long now = System.currentTimeMillis();
-        if (updateOffered || AppUpdate.pending != null || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
+        if (updateOffered || now - updateCheckedAt < UPDATE_RECHECK_MS) return;
         updateCheckedAt = now;
         String cookie = CookieManager.getInstance().getCookie(address);
         new Thread(() -> {
-            long offered = AppUpdate.check(address, cookie);
+            // The PC only looks at GitHub when asked, so an unforced ask would hear the old build first.
+            long offered = AppUpdate.check(address, cookie, true);
             // A failed ask (no network, a restarting PC) is tried again at the next chance, not a minute later.
             if (offered == AppUpdate.CHECK_FAILED) updateCheckedAt = 0;
             if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) return;
-            if (AppUpdate.canUpdateSilently(getApplicationContext())) {
-                File apk = updateFile();
-                if (AppUpdate.download(address, cookie, apk)) AppUpdate.pending = apk;
-            } else {
-                runOnUiThread(() -> offerUpdate(address, cookie));
-            }
+            runOnUiThread(() -> offerUpdate(address, cookie));
         }).start();
     }
 
@@ -647,10 +643,7 @@ public class MainActivity extends Activity {
                 runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
             } else if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered)) {
                 runOnUiThread(() -> toast("This app is up to date."));
-            } else if (AppUpdate.pending != null) {
-                runOnUiThread(() -> toast("An update is downloaded and installs when you leave the app."));
             } else {
-                // Always asks here, even where updates could go in silently: the person pressed the button.
                 runOnUiThread(() -> { if (!updateOffered) offerUpdate(address, cookie); });
             }
         }).start();
@@ -723,14 +716,12 @@ public class MainActivity extends Activity {
     @Override
     protected void onStart() {
         super.onStart();
-        AppUpdate.screenStarted();
         AlertSchedule.enteredApp(this);
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        AppUpdate.screenStopped(this);
         AlertSchedule.leftApp(this);
     }
 
