@@ -213,6 +213,10 @@ textarea {
 @supports (backdrop-filter: blur(1px)) {
   .app-header::before, .ws-strip::before { backdrop-filter: blur(22px); }
 }
+/* The side and bottom fades let scrolled text show through as ghost letters and a clipped row (seen in the phone app's WebView), so phones get an opaque backing that ends at the bar. */
+@media (max-width: 640px) {
+  .app-header::before, .ws-strip::before { inset: 0; background: var(--bg); -webkit-mask-image: none; mask-image: none; backdrop-filter: none; }
+}
 /* At the top of a page nothing sits under the bar, and the tint reads as a box on the wash, so it only appears once the page has scrolled. Browsers without scroll timelines keep it on. */
 @supports (animation-timeline: scroll()) {
   .app-header::before, .ws-strip::before { opacity: 0; animation: bar-backing linear both; animation-timeline: scroll(root block); animation-range: 0 40px; }
