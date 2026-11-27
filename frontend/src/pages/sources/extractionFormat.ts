@@ -124,7 +124,15 @@ export function comicImportText(r: ComicUrlImportResult): string {
       ? 'Nothing was added yet. Check which images are the pages below, then import them.'
       : 'Baihe couldn’t be sure which images are the pages, so nothing was added.'
   }
-  return `Added ${pluralLocale(r.pages_added, 'page')} to the title.`
+  return addedPagesText(r.pages_added, r.already_present, r.skipped_count)
+}
+
+/** A re-import passes over the images the chapter already holds; say so rather than "Added 0 pages". */
+function addedPagesText(added: number, present = 0, skipped = 0): string {
+  if (present && !added && !skipped) return 'This chapter’s pages are already in the title, so nothing was added.'
+  const there = present ? ` (${pluralLocale(present, 'image')} already there)` : ''
+  if (present && !added) return `Nothing was added${there}.`
+  return `Added ${pluralLocale(added, 'page')} to the title${there}.`
 }
 
 /** The heading of the "left out" list, or null when nothing was left out. */
@@ -243,7 +251,7 @@ export function reviewImportText(r: ReviewImportResult): string {
   }
   if (r.content_type === 'novel') return `Added ${pluralLocale(r.char_count ?? 0, 'character')} to the title’s novel text.`
   const skipped = r.skipped_count ? ` ${pluralLocale(r.skipped_count, 'image')} skipped (over a size limit or not PNG, JPEG or WebP).` : ''
-  return `Added ${pluralLocale(r.pages_added ?? 0, 'page')} to the title.${skipped}`
+  return `${addedPagesText(r.pages_added ?? 0, r.already_present, r.skipped_count)}${skipped}`
 }
 
 export const profileSavedText = (p: ProfileSaved) =>

@@ -42,6 +42,8 @@ export interface ComicUrlImportResult {
   skipped_count: number
   // A Review extraction was opened for the drama (GET .../extraction).
   review_open?: boolean
+  // Images the chapter already held from an earlier or cancelled import, not added again.
+  already_present?: number
 }
 
 // ---------------------------------------------------------------- SO10 review
@@ -132,4 +134,5 @@ export interface ReviewImportResult {
   // Comic: images skipped by the page rules (type, size, pixels).
   skipped?: SkippedImage[]
   skipped_count?: number
+  already_present?: number
 }
