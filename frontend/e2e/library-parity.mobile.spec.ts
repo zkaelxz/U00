@@ -134,63 +134,26 @@ test('at 390px the placeholder for three (one tile and More) has the loaded shel
   expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(2)
 })
 
-test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a row, every target 44px', async ({ page }) => {
-  const title = (drama_id: number, t: string, media_type = 'streamer_vod') => ({
-    drama_id, title: t, media_type, content_mode: null, has_cover_art: false, updated_at: null,
-  })
+test('the Running line fits a phone and is a 44px target', async ({ page }) => {
   await page.route('**/api/library/home', (r) => r.fulfill({ json: {
-    ready: [
-      { ...title(11, 'Chime: karaoke night with a rather long title'), read_percent: 0, length_seconds: 7500, page_count: 0 },
-      { ...title(12, 'Anvil: game night'), read_percent: 0, length_seconds: 2700, page_count: 0, watched_seconds: 4360, watched_at: '2026-11-25T09:00:00' },
-      { ...title(13, 'A comic', 'manhua'), read_percent: 0, length_seconds: null, page_count: 24 },
-    ],
-    ready_count: 12,
-    needs_you: [
-      { ...title(14, 'Urchin collab'), kind: 'failed', step: 'translate', reason: 'The Claude key was refused.', risk_count: null, series_id: null, hold_kind: null },
-    ],
-    needs_you_count: 1,
-    running: [{ ...title(16, 'Chime: zatsudan'), step: 'transcribe', status: 'running', job_id: null, started_at: null }],
+    running: [{ drama_id: 16, title: 'Chime: zatsudan', media_type: 'streamer_vod', content_mode: null, has_cover_art: false, updated_at: null,
+      step: 'transcribe', status: 'running', job_id: null, started_at: null }],
     running_count: 2,
     can_control_queue: true,
   } }))
-  // This browser stopped earlier at 1:40; the account's newer place from another device wins.
-  await page.addInitScript(() => {
-    localStorage.setItem('baihe.pref.watch.at.12', '100')
-    localStorage.setItem('baihe.pref.watch.atTime.12', String(Date.parse('2026-11-25T08:00:00Z')))
-  })
   await page.goto('/')
-  // Off until asked for; the choice is remembered in this browser.
-  await expect(page.getByRole('region', { name: 'Ready' })).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Needs you' })).toHaveCount(0)
-  await page.getByRole('button', { name: 'Show Ready and Needs you' }).click()
-  const ready = page.getByRole('region', { name: 'Ready' })
-  const cards = ready.getByRole('link')
-  await expect(cards).toHaveCount(3)
-  // The started one comes first.
-  await expect(cards.first()).toContainText('Continue at 1:12:40')
-  await expect(cards.nth(1)).toContainText('Watch · 2 h 05 m')
-  await expect(cards.nth(2)).toContainText('Read · 24 pages')
-  const [a, b] = [(await cards.nth(0).boundingBox())!, (await cards.nth(1).boundingBox())!]
-  expect(Math.abs(a.y - b.y)).toBeLessThan(2)
-  await expect(ready.getByRole('button', { name: 'Show all 12' })).toBeVisible()
-
-  const needs = page.getByRole('region', { name: 'Needs you' })
-  await expect(needs.getByRole('link', { name: 'Fix the key' })).toHaveAttribute('href', /settings/)
-  await expect(needs.getByRole('listitem').first()).toContainText('Translating stopped')
   await expect(page.getByTestId('home-running')).toContainText('Transcribing Chime: zatsudan')
   await expect(page.getByTestId('home-running')).toContainText('1 more is waiting its turn')
 
   await expectNoSidewaysScroll(page)
-  for (const sel of ['.home-ready-card', '.home-act', '.home-running', '.home-more', '.home-toggle']) {
-    const heights = await page.locator(sel).evaluateAll((els) => els.map((e) => Math.round(window.hitHeight(e))))
-    expect(heights.length, sel).toBeGreaterThan(0)
-    for (const h of heights) expect(h, sel).toBeGreaterThanOrEqual(44)
-  }
+  const heights = await page.locator('.home-running').evaluateAll((els) => els.map((e) => Math.round(window.hitHeight(e))))
+  expect(heights.length).toBeGreaterThan(0)
+  for (const h of heights) expect(h).toBeGreaterThanOrEqual(44)
 })
 
-test('with every shelf empty, no shelf block is drawn above the list', async ({ page }) => {
+test('with nothing running, no shelf block is drawn above the list', async ({ page }) => {
   await page.route('**/api/library/home', (r) => r.fulfill({ json: {
-    needs_you: [], needs_you_count: 0, running: [], running_count: 0, ready: [], ready_count: 0, can_control_queue: true,
+    running: [], running_count: 0, can_control_queue: true,
   } }))
   await page.goto('/')
   await expect(page.locator('.drama-card').first()).toBeVisible()

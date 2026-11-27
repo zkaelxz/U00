@@ -1,25 +1,13 @@
-"""services/library_home_service.py -- the Library's three shelves: what needs the person, what the PC is running, and what is ready to watch or read.
+"""services/library_home_service.py -- the Library's Running line: the steps the PC is working on or has waiting.
 
-Read-only. Built from what the Library list, the PC queue and the series auto-run already keep, so the shelves and
-the pages they link to always agree. Risky-line counts are the expensive part (every line of a title is scored), so
-only the most recently changed titles that wait for a check are counted.
+Read-only. Built from what the PC queue already keeps, so the line and the pages it links to always agree.
 """
 
-import db
-from services import library_service, queue_service, review_lines_service, series_auto_service
+from services import library_service, queue_service
 
-_COMIC_MEDIA_TYPES = ("manga", "manhwa", "manhua")
-# Enough to fill a phone screen per shelf; the full grid is below them.
+# Enough to fill a phone screen; the Jobs page lists the rest.
 SHELF_LIMIT = 8
-# Each counted title reads all its lines; past this many the shelf would cost more than the rest of the page.
-RISK_TITLES = 20
-_FAILED = ("failed", "interrupted")
 _ACTIVE = ("waiting", "running")
-_FINISHED_PERCENT = 99
-
-
-def _is_comic(media_type) -> bool:
-    return (media_type or "").lower() in _COMIC_MEDIA_TYPES
 
 
 def _title(d: dict) -> str:
@@ -32,81 +20,15 @@ def _row(d: dict) -> dict:
             "updated_at": d.get("updated_at")}
 
 
-def _lines_done(d: dict) -> bool:
-    total = d.get("line_count") or 0
-    return total > 0 and (d.get("translated_count") or 0) >= total
-
-
-def _pages_done(d: dict) -> bool:
-    total = d.get("page_count") or 0
-    return total > 0 and (d.get("pages_translated") or 0) >= total
-
-
-def _newest_first(dramas: list) -> list:
-    return sorted(dramas, key=lambda d: (d.get("updated_at") or d.get("created_at") or "", d["id"]), reverse=True)
-
-
-def _failed_items(items: list) -> list:
-    """The newest failed step per title, unless a later step of that title was added since (a retry or the next step)."""
-    latest: dict[int, dict] = {}
-    for item in items:
-        if item["drama_id"] not in latest or item["id"] > latest[item["drama_id"]]["id"]:
-            latest[item["drama_id"]] = item
-    return [i for i in sorted(latest.values(), key=lambda i: i["id"], reverse=True) if i["status"] in _FAILED]
-
-
 def get_home(principal=None) -> dict:
     dramas = library_service.list_library_dramas(principal=principal)
     by_id = {d["id"]: d for d in dramas}
     queue = queue_service.get_queue(principal)
-    items = queue["items"]
-
-    needs: list = []
-    taken: set = set()
-    for item in _failed_items(items):
-        if item["drama_id"] in by_id:
-            needs.append({**_row(by_id[item["drama_id"]]), "kind": "failed", "step": item["step"],
-                          "reason": item["reason"], "risk_count": None, "series_id": None})
-            taken.add(item["drama_id"])
-    for hold in series_auto_service.held_series(principal):
-        needs.append({"drama_id": None, "title": hold["name"], "media_type": None, "content_mode": None,
-                      "has_cover_art": False, "updated_at": None, "kind": "series_hold", "step": None,
-                      "reason": hold["hold"], "risk_count": None, "series_id": hold["series_id"],
-                      "hold_kind": hold["hold_kind"]})
-
-    to_check = [d for d in _newest_first(dramas)
-                if d["id"] not in taken and _lines_done(d) and d.get("status") != "exported"
-                and not _is_comic(d.get("media_type"))][:RISK_TITLES]
-    # Unsure lines don't block watching or reading, so such a title stays on Ready with a note instead of Needs you.
-    unsure_counts = {d["id"]: review_lines_service.risk_count(d["id"]) for d in to_check}
 
     running = [{**_row(by_id[i["drama_id"]]), "step": i["step"], "status": i["status"],
                 "job_id": i["job_id"], "started_at": i["started_at"]}
-               for i in items if i["status"] in _ACTIVE and i["drama_id"] in by_id]
+               for i in queue["items"] if i["status"] in _ACTIVE and i["drama_id"] in by_id]
     running.sort(key=lambda r: (r["status"] != "running",))
-    busy = {r["drama_id"] for r in running}
 
-    ready = [d for d in _newest_first(dramas)
-             if d["id"] not in taken and d["id"] not in busy
-             and (d.get("read_percent") or 0.0) < _FINISHED_PERCENT
-             and (_pages_done(d) if _is_comic(d.get("media_type"))
-                  else _lines_done(d) and (d.get("status") == "exported" or d["id"] in unsure_counts))]
-    # Started ones first: picking up where you stopped is the likelier reason to open the shelf.
-    ready.sort(key=lambda d: (d.get("read_percent") or 0.0) <= 0)
-
-    return {"needs_you": needs[:SHELF_LIMIT], "needs_you_count": len(needs),
-            "running": running[:SHELF_LIMIT], "running_count": len(running),
-            "ready": [_ready_entry(d, (principal or {}).get("user_id") or 0, unsure_counts.get(d["id"], 0)) for d in ready[:SHELF_LIMIT]],
-            "ready_count": len(ready),
+    return {"running": running[:SHELF_LIMIT], "running_count": len(running),
             "can_control_queue": bool(queue.get("can_control"))}
-
-
-def _ready_entry(d: dict, user_id: int, unsure_count: int = 0) -> dict:
-    comic = _is_comic(d.get("media_type"))
-    length = None if comic else (db.line_reading_stats(d["id"])[1] or None)
-    # The account's place, so "Continue at" is the same on every device; the page prefers this browser's when newer.
-    prog = {} if comic else (db.get_progress(d["id"], user_id=user_id) or {})
-    watched = float(prog.get("audio_position_seconds") or 0.0)
-    return {**_row(d), "read_percent": d.get("read_percent") or 0.0,
-            "length_seconds": length, "page_count": d.get("page_count") or 0,
-            "unsure_count": unsure_count, "watched_seconds": watched, "watched_at": prog.get("last_accessed_at") if watched else None}

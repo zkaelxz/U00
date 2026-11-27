@@ -10,8 +10,6 @@ from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, D
 
 __all__ = [
     "LibraryHome",
-    "LibraryNeedsYouEntry",
-    "LibraryReadyEntry",
     "LibraryRunningEntry",
     "LibraryShelfTitle",
     "CaptureNote",
@@ -691,24 +689,6 @@ class LibraryShelfTitle(BaseModel):
     updated_at: Optional[str] = None
 
 
-class LibraryNeedsYouEntry(BaseModel):
-    """`kind`: failed (a queued step failed or was interrupted) or
-    series_hold (a series' auto-run stopped for the person; `drama_id` is null, `series_id` names it and
-    `hold_kind` says why: review after the first episode, stopped, ceiling or queue)."""
-    drama_id: Optional[int] = None
-    title: str
-    media_type: Optional[str] = None
-    content_mode: Optional[str] = None
-    has_cover_art: bool
-    updated_at: Optional[str] = None
-    kind: str
-    step: Optional[str] = None
-    reason: Optional[str] = None
-    risk_count: Optional[int] = None
-    series_id: Optional[int] = None
-    hold_kind: Optional[str] = None
-
-
 class LibraryRunningEntry(LibraryShelfTitle):
     step: str
     status: str
@@ -716,26 +696,10 @@ class LibraryRunningEntry(LibraryShelfTitle):
     started_at: Optional[float] = None
 
 
-class LibraryReadyEntry(LibraryShelfTitle):
-    """`length_seconds`: where the last line ends (null for a comic, or a title with no timed lines)."""
-    read_percent: float
-    length_seconds: Optional[float] = None
-    page_count: int = 0
-    # Where this account stopped playing it (0 for never) and when, from the Watch page on any device.
-    watched_seconds: float = 0.0
-    watched_at: Optional[str] = None
-    # Lines that look unsure: shown as a quiet note on the card, not a reason to ask for the owner.
-    unsure_count: int = 0
-
-
 class LibraryHome(BaseModel):
     """Each list is cut to a few entries; the `_count` fields say how many there are in all."""
-    needs_you: List[LibraryNeedsYouEntry]
-    needs_you_count: int
     running: List[LibraryRunningEntry]
     running_count: int
-    ready: List[LibraryReadyEntry]
-    ready_count: int
     can_control_queue: bool
 
 
