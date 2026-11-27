@@ -152,7 +152,8 @@ def _heading_html(heading, title: str, field: str, original) -> str:
     """The chapter's <h1>; a two-language book titles it in English and
     keeps the original heading under it."""
     source = " ".join((getattr(heading, "zh", "") or "").split()) if heading is not None else ""
-    if field != "bilingual" or not source or source == title:
+    english = " ".join((getattr(heading, "en", "") or "").split()) if heading is not None else ""
+    if field != "bilingual" or not source or not english or english == source:
         return f"<h1>{html.escape(title)}</h1>"
     return f'<h1 lang="en">{html.escape(title)}</h1>\n{original(source)}'
 

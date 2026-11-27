@@ -245,3 +245,15 @@ def test_katakana_gets_no_furigana(fake_epub, tmp_path, monkeypatch):
 
     text = _chapter_text(fake_epub["book"])
     assert "<p>コーヒーを<ruby>飲む<rp>(</rp><rt>のむ</rt><rp>)</rp></ruby></p>" in text
+
+
+def test_an_untranslated_heading_stays_one_untagged_title_in_every_part(fake_epub, tmp_path):
+    lines = [Line(idx=0, start=0, end=1, zh="第一章 开始", en=""),
+             *[Line(idx=i, start=i, end=i + 1, zh=f"句{i}", en=f"Line {i}") for i in range(1, 4)]]
+
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), field="bilingual",
+                        lines_per_chapter=2, source_language="zh")
+
+    text = _chapter_text(fake_epub["book"])
+    assert "<h1>第一章 开始 (2)</h1>" in text
+    assert 'lang="en">第一章' not in text and "<p>第一章 开始</p>" not in text
