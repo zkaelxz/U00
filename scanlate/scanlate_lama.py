@@ -3,6 +3,7 @@ running it on one region (scanlate_inpaint.py decides what to erase)."""
 
 import os
 import threading
+import time
 
 import model_pins
 from lib import device_use
@@ -217,8 +218,12 @@ def _load_lama_generator(hf_token: str | None = None, allow_download: bool = Tru
 # CPU copy stays the master: a region that does not fit, or a GPU that fails, uses it instead.
 # whisper_models.release_gpu_models() empties this with the app's other GPU models.
 _lama_gpu: dict = {}
-# Why the GPU was given up on for this process (a driver or CUDA fault, not a full GPU).
+# Every driver or CUDA fault seen (not a full GPU), kept as a history.
 _lama_gpu_broken: list = []
+# A fault sends regions to the CPU for this long only; one fault (a driver hiccup) otherwise
+# cost every later region the GPU until the app restarted. Same period as the text reader's.
+_GPU_OFF_SECONDS = 300
+_lama_gpu_off_until = 0.0
 # On a 3080 Ti a page's balloons took about 1.2 s on the CPU. The GPU needs the weights
 # (about 200 MB) and CUDA's own share once, plus working memory for the full-resolution
 # 64-channel maps, which grows with the region; these are deliberately generous so a region
@@ -230,7 +235,7 @@ _GPU_MB_PER_MEGAPIXEL = 3000
 def _lama_on_gpu(generator, pixels: int, torch):
     """The generator's GPU copy when a region of `pixels` fits on a free enough GPU and
     Settings allows GPU use, else None (the region runs on the CPU)."""
-    if _lama_gpu_broken or not torch.cuda.is_available():
+    if time.monotonic() < _lama_gpu_off_until or not torch.cuda.is_available():
         return None
     import vram
     import stored_settings
@@ -265,9 +270,11 @@ def _generate(generator, tensor, torch):
                 return out
         except Exception as exc:
             # A GPU that filled up meanwhile costs only this region; any other fault (a
-            # broken driver, a failed copy) would repeat on every region, so the CPU is kept.
+            # broken driver, a failed copy) would repeat on every region, so the CPU is kept for a while.
             if not isinstance(exc, getattr(torch.cuda, "OutOfMemoryError", ())):
+                global _lama_gpu_off_until
                 _lama_gpu_broken.append(type(exc).__name__)
+                _lama_gpu_off_until = time.monotonic() + _GPU_OFF_SECONDS
                 _lama_gpu.clear()
             try:
                 torch.cuda.empty_cache()

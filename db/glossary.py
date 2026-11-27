@@ -129,6 +129,16 @@ def list_translation_memory(series_id: int, limit: int | None = None):
     return [dict(r) for r in rows]
 
 
+def translation_memory_stamp(series_id: int) -> str:
+    """A cheap fingerprint that changes when any entry of the series is added, edited or used,
+    for a cache key that must not outlive the fixes a page was translated with."""
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT COUNT(*), MAX(id), MAX(updated_at), SUM(use_count), SUM(LENGTH(translation)) "
+            "FROM translation_memory WHERE series_id = ?", (series_id,)).fetchone()
+    return "|".join(str(v) for v in tuple(row))
+
+
 def list_translation_memory_for_sources(series_id: int, sources) -> list:
     """The entries whose stored source is exactly one of `sources`, so an exact
     match is found however many entries the series holds."""

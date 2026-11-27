@@ -547,6 +547,38 @@ def clear_pending_lines(drama_dir: str) -> None:
         pass
 
 
+# How many chapters the phone has saved to the title that are not yet in its translation text. The
+# server keeps this count itself so a phone cannot name a bigger one and put back chapters the owner cut.
+PHONE_ADDED_FILENAME = "novel_phone_added.json"
+
+
+def read_phone_added(drama_dir: str) -> int:
+    try:
+        with open(os.path.join(drama_dir, PHONE_ADDED_FILENAME), encoding="utf-8") as f:
+            return max(0, int(json.load(f)["count"]))
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
+
+
+def write_phone_added(drama_dir: str, count: int) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=".phone_added_", suffix=".part", dir=drama_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"count": count}, f)
+        os.replace(tmp, os.path.join(drama_dir, PHONE_ADDED_FILENAME))
+    except BaseException:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        raise
+
+
+def clear_phone_added(drama_dir: str) -> None:
+    try:
+        os.remove(os.path.join(drama_dir, PHONE_ADDED_FILENAME))
+    except FileNotFoundError:
+        pass
+
+
 def narration_paragraph_ends(lines, drama_dir: str):
     """Set of line idx that end a paragraph of the novel's saved source
     text (see novel_paragraph_ends), or None if there's no source

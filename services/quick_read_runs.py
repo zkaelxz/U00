@@ -124,6 +124,20 @@ def drop_run(run_id: str, principal=None) -> dict:
     return {"run_id": run_id, "dropped_pages": left}
 
 
+def drop_unheard(run_id: str, cancel) -> None:
+    """Stops a run whose reader has gone (no answer stream open for a while), unless nothing of it
+    is left to do: a later batch of a finished run must not be refused."""
+    with _lock:
+        run = _runs.get(run_id)
+        if run is None or run["received"] <= run["done"]:
+            return
+        left = run["received"] - run["done"]
+    _dropped[run_id] = "Stopped on the PC: the phone stopped listening for these pages."
+    cancel(run_id)
+    finish(run_id)
+    get_logger().info("Quick read run %s dropped: nobody listening (%d pages left)", run_id[:8], left)
+
+
 def drop_all(principal=None) -> dict:
     runs = pages = 0
     for run in list_runs(principal):

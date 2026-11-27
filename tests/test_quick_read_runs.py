@@ -1,5 +1,7 @@
 """Quick read runs listed and dropped from Jobs."""
 
+import time
+
 import pytest
 
 from lib.errors import NotFoundError
@@ -14,6 +16,7 @@ OTHER = {"user_id": 8}
 def _clean(monkeypatch):
     monkeypatch.setattr(quick_read_runs, "_runs", {})
     monkeypatch.setattr(extension_bridge_service, "_cancelled_runs", {})
+    monkeypatch.setattr(extension_bridge_service, "_streams", {})
 
 
 def _start(run_id, owner=None, pages=3, device=None, url="https://site.example/series/ch-4?token=abc"):
@@ -63,6 +66,84 @@ def test_without_a_device_only_a_run_on_the_same_page_is_dropped():
     assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
     _start("run-cccccccc", url="https://site.example/a/ch-2")
     assert extension_bridge_service._run_cancelled("run-bbbbbbbb")
+
+
+def _wait_until(check, seconds=5.0):
+    deadline = time.monotonic() + seconds
+    while not check() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return check()
+
+
+class TestPhoneGone:
+    """A run whose answer stream was lost and not opened again within the grace is dropped."""
+
+    @pytest.fixture(autouse=True)
+    def _short_grace(self, monkeypatch):
+        monkeypatch.setattr(extension_bridge_service, "STREAM_GONE_GRACE_SECONDS", 0.05)
+
+    def test_a_lost_stream_not_reopened_drops_the_run_and_says_why(self):
+        _start("run-aaaaaaaa")
+        stream = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", stream, lost=True)
+        assert _wait_until(lambda: extension_bridge_service._run_cancelled("run-aaaaaaaa"))
+        assert "stopped listening" in quick_read_runs.dropped_reason("run-aaaaaaaa")
+        assert quick_read_runs.list_runs(OWNER) == []
+
+    def test_a_stream_reopened_within_the_grace_keeps_the_run(self, monkeypatch):
+        monkeypatch.setattr(extension_bridge_service, "STREAM_GONE_GRACE_SECONDS", 0.2)
+        _start("run-aaaaaaaa")
+        first = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", first, lost=True)
+        again = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        time.sleep(0.4)
+        assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        # Lost again later: the new loss gets its own full grace.
+        extension_bridge_service.stream_closed("run-aaaaaaaa", again, lost=True)
+        assert _wait_until(lambda: extension_bridge_service._run_cancelled("run-aaaaaaaa"))
+
+    def test_another_stream_of_the_run_still_open_keeps_it(self):
+        _start("run-aaaaaaaa")
+        first = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        second = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", second, lost=True)
+        time.sleep(0.2)
+        assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", first, lost=False)
+        assert _wait_until(lambda: extension_bridge_service._run_cancelled("run-aaaaaaaa"))
+
+    def test_answers_that_ended_normally_drop_nothing(self):
+        _start("run-aaaaaaaa")
+        stream = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", stream, lost=False)
+        time.sleep(0.2)
+        assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        assert extension_bridge_service._streams == {}
+
+    def test_a_run_with_nothing_left_is_not_marked(self):
+        _start("run-aaaaaaaa", pages=1)
+        quick_read_runs.page_finished("run-aaaaaaaa")
+        stream = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", stream, lost=True)
+        assert _wait_until(lambda: extension_bridge_service._streams == {})
+        assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
+
+    def test_a_late_loss_of_a_stream_older_than_the_newest_is_not_counted(self):
+        _start("run-aaaaaaaa")
+        old = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        new = extension_bridge_service.stream_opened("run-aaaaaaaa")
+        extension_bridge_service.stream_closed("run-aaaaaaaa", old, lost=True)
+        extension_bridge_service.stream_closed("run-aaaaaaaa", new, lost=False)
+        time.sleep(0.2)
+        assert not extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        assert extension_bridge_service._streams == {}
+
+    def test_only_a_quick_read_that_asked_for_the_heartbeat_is_watched(self):
+        watched = {"run_id": "run-aaaaaaaa", "store": False, "heartbeat": True}
+        assert extension_bridge_service.stream_run_id(watched) == "run-aaaaaaaa"
+        # The desktop extension streams without the heartbeat and cuts its calls itself.
+        assert extension_bridge_service.stream_run_id({**watched, "heartbeat": None}) == ""
+        assert extension_bridge_service.stream_run_id({**watched, "store": True}) == ""
 
 
 def test_drop_from_jobs_records_the_reason():

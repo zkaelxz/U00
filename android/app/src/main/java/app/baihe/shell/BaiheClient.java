@@ -75,17 +75,27 @@ final class BaiheClient {
         final int status;
         /** The connection broke or stalled; asking again may work, unlike a refusal. */
         final boolean dropped;
+        /** The PC's word for what it refused, where the status alone is ambiguous; empty from an older Baihe. */
+        final String code;
 
         BridgeException(int status, String message) {
             this(status, message, false);
         }
 
         BridgeException(int status, String message, boolean dropped) {
+            this(status, message, dropped, "");
+        }
+
+        BridgeException(int status, String message, boolean dropped, String code) {
             super(message);
             this.status = status;
             this.dropped = dropped;
+            this.code = code;
         }
     }
+
+    /** The PC's code on a 422 for a batch its page filter rejected whole (services/extension_bridge_service.py). */
+    static final String NO_PAGES_CODE = "no_comic_pages";
 
     private static final int STREAM_RETRIES = 2;
     private static final long RETRY_WAIT_MS = 3_000;
@@ -410,7 +420,8 @@ final class BaiheClient {
             if (record != null) record.add(bytes.length, sent - sendStart, System.currentTimeMillis() - sent);
             if (status >= 300) {
                 InputStream err = conn.getErrorStream();
-                throw new BridgeException(status, refusalText(status, err == null ? "" : readCapped(err)));
+                String refusal = err == null ? "" : readCapped(err);
+                throw new BridgeException(status, refusalText(status, refusal), false, refusalCode(refusal));
             }
             JSONObject done = null;
             try (InputStream in = conn.getInputStream()) {
@@ -421,7 +432,9 @@ final class BaiheClient {
                     JSONObject item = new JSONObject(line);
                     if (item.has("page")) onPage.onPage(item.getJSONObject("page"));
                     else if (item.has("done")) done = item.getJSONObject("done");
-                    else if (item.has("error")) throw new BridgeException(item.optInt("status", 0), item.optString("error"));
+                    else if (item.has("error")) {
+                        throw new BridgeException(item.optInt("status", 0), item.optString("error"), false, item.optString("code", ""));
+                    }
                 }
             }
             if (done == null) throw new BridgeException(status, "Baihe stopped before it finished the pages.", true);
@@ -580,5 +593,14 @@ final class BaiheClient {
             // Fall through to the fixed text.
         }
         return "Baihe refused the request (" + status + ").";
+    }
+
+    /** The bridge's {"code"} beside its {"error"} text, or "" from an older Baihe or another answer. */
+    static String refusalCode(String body) {
+        try {
+            return new JSONObject(body).optString("code", "");
+        } catch (JSONException e) {
+            return "";
+        }
     }
 }
