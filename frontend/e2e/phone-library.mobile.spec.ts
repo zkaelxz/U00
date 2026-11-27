@@ -43,7 +43,7 @@ test('help and small buttons keep a 44px hit area', async ({ page }) => {
   await page.getByRole('button', { name: 'Add a title by hand' }).tap()
   const sheet = page.getByRole('dialog', { name: 'New title' })
   expect(await hitHeight(sheet.locator('.field-help-btn').first())).toBeGreaterThanOrEqual(44)
-  await sheet.getByRole('button', { name: 'Close' }).tap()
+  await sheet.getByRole('button', { name: 'Close', exact: true }).tap()
   for (const name of ['Read', 'Details']) {
     expect(await hitHeight(page.getByRole('link', { name: new RegExp(`^${name}`) }).or(page.getByRole('button', { name: new RegExp(`^${name}`) })).first())).toBeGreaterThanOrEqual(44)
   }
