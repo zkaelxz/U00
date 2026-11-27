@@ -60,16 +60,28 @@ def _gpu_queue_waiting_locked():
                and not user_caps.held(_jobs, e) for e in _gpu_queue)
 
 
+def _left_unstarted_hooks(entry: dict) -> list:
+    """The (job_id, hook) pairs to run for a queue entry that leaves the queue
+    without being promoted: its on_finish, and the give-back of the start it
+    took from its member's daily limit, since a job that never ran does not
+    count. An entry leaves the queue once, so each is handed out once."""
+    hooks = []
+    if entry.get("on_finish") is not None:
+        hooks.append((entry["job_id"], entry["on_finish"]))
+    owner_user_id, day = entry.get("daily") or (None, None)
+    if day is not None:
+        hooks.append((entry["job_id"], lambda _job_id: user_caps.refund_daily_start(owner_user_id, day)))
+    return hooks
+
+
 def _take_queued_locked(job_id=None) -> list:
     """Caller holds _lock. Removes job_id's entries (every entry for None)
-    from _gpu_queue and returns their (job_id, on_finish) hooks, for the
-    caller to run with _run_finish_hooks once it has released _lock. An
-    entry leaves the queue once, so its hook is handed out once."""
+    from _gpu_queue and returns their hooks (_left_unstarted_hooks), for the
+    caller to run with _run_finish_hooks once it has released _lock."""
     hooks, kept = [], []
     for entry in _gpu_queue:
         if job_id is None or entry["job_id"] == job_id:
-            if entry.get("on_finish") is not None:
-                hooks.append((entry["job_id"], entry["on_finish"]))
+            hooks.extend(_left_unstarted_hooks(entry))
         else:
             kept.append(entry)
     _gpu_queue[:] = kept
@@ -148,7 +160,12 @@ def _sort_fair_locked() -> None:
 
 
 def _enqueue_locked(entry: dict) -> None:
-    """Caller holds _lock. Adds a waiting GPU job and puts the line in start order."""
+    """Caller holds _lock, with the job's queued run already in _jobs. Adds a
+    waiting GPU job and puts the line in start order. The entry keeps who
+    started it and the day its start was counted, because clearing a job
+    drops its run before its queue entry."""
+    run = _jobs.get(entry["job_id"]) or {}
+    entry["daily"] = (run.get("owner_user_id"), run.get("daily_day"))
     _gpu_queue.append(entry)
     _sort_fair_locked()
 

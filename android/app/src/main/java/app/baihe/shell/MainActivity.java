@@ -32,8 +32,7 @@ import java.security.SecureRandom;
 /** Shows Baihe in a full-screen WebView and routes shared links to its Sources page. */
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
-    private static final String PAGE_DARK = "page_dark";
-    private static final String PAGE_SEPIA = "page_sepia";
+    private static final String PAGE_LOOK = "page_look";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -65,6 +64,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         String crash = CrashLog.takePending(this);
         if (crash == null) crash = CrashLog.takeCaught(this);
@@ -135,6 +135,7 @@ public class MainActivity extends Activity {
                 if (loadFailed) return;
                 autoRetries = 0;
                 if (failureView != null) failureView.setVisibility(View.GONE);
+                syncSepiaFromPage();
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
@@ -227,8 +228,12 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void themeChanged(boolean dark, boolean sepia) {
-                runOnUiThread(() -> followPageTheme(dark, sepia));
+            public void themeChanged(String look) {
+                runOnUiThread(() -> {
+                    followPageTheme(look);
+                    // An older Baihe page only says dark or light, so sepia is read from the page itself.
+                    if (web != null) web.postDelayed(MainActivity.this::syncSepiaFromPage, 300);
+                });
             }
 
             @Override
@@ -349,11 +354,24 @@ public class MainActivity extends Activity {
         return GrabUi.Palette.saved(this);
     }
 
-    private void followPageTheme(boolean dark, boolean sepia) {
+    /**
+     * The server may still serve a Baihe page that predates setLook and reports only dark or light;
+     * the page's own theme attribute tells the bar when that look is sepia.
+     */
+    private void syncSepiaFromPage() {
+        if (web == null) return;
+        web.evaluateJavascript("document.documentElement.getAttribute('data-theme')", value -> {
+            if ("\"sepia\"".equals(value)) followPageTheme("sepia");
+        });
+    }
+
+    private void followPageTheme(String look) {
+        if (!java.util.Arrays.asList("light", "dark", "sepia", "oled").contains(look)) return;
         SharedPreferences p = prefs();
-        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark
-                && p.getBoolean(PAGE_SEPIA, false) == sepia) return;
-        p.edit().putBoolean(PAGE_DARK, dark).putBoolean(PAGE_SEPIA, sepia).apply();
+        if (look.equals(p.getString(PAGE_LOOK, null))) return;
+        p.edit().putString(PAGE_LOOK, look).apply();
+        // Dialogs opened from now on take the new look's colours; one already on screen keeps its own.
+        getTheme().applyStyle(GrabUi.Palette.saved(this).themeRes(), true);
         // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
         if (customView != null || web == null) return;
         setContentView(page());
