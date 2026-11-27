@@ -595,7 +595,7 @@ def test_find_same_titles_keeps_a_link_match_when_many_share_the_name(isolated_d
     assert ds.set_source_url_once(oldest, "https://example.com/twin")
     for _ in range(ds.MAX_SAME_TITLES + 1):
         ds.create_drama(source_language="zh", title_en="Twin")
-    found = ds.find_same_titles(title_en="Twin", source_url="https://example.com/twin?x=1")
+    found = ds.find_same_titles(title_en="Twin", source_url="https://example.com/twin?utm_source=share")
     assert len(found) == ds.MAX_SAME_TITLES
     assert found[0] == {"id": oldest, "title": "Twin", "same": "link"}
     assert {t["same"] for t in found[1:]} == {"name"}

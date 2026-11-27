@@ -75,3 +75,12 @@ def test_links_whose_video_id_is_cut_do_not_match_on_the_bare_host(isolated_db):
     db.create_drama(title_en="One", source_url="https://video.example/watch/BV1aB2cD3eF4")
     db.create_drama(title_en="Two", source_url="https://video.example/watch/BV9xY8zW7vU6")
     assert media_fingerprint_service.duplicate_groups(None)["groups"] == []
+
+
+def test_links_differing_only_in_the_query_are_not_the_same_link(isolated_db):
+    one = db.create_drama(title_en="One", source_url="https://video.example/watch", source_url_full="https://video.example/watch?v=aaaaaaaaaaa")
+    two = db.create_drama(title_en="Two", source_url="https://video.example/watch", source_url_full="https://video.example/watch?v=bbbbbbbbbbb")
+    three = db.create_drama(title_en="Three", source_url="https://video.example/watch", source_url_full="https://video.example/watch?v=aaaaaaaaaaa&si=share")
+    groups = media_fingerprint_service.duplicate_groups(None)["groups"]
+    assert [(g["same"], [i["id"] for i in g["items"]]) for g in groups] == [("link", [one, three])]
+    assert two not in groups[0]["items"]

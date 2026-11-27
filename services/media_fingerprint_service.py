@@ -69,8 +69,7 @@ def duplicate_groups(principal=None) -> dict:
             keys.append(("file", row["media_hash"]))
         elif row.get("audio_filename") or row.get("source_video_filename"):
             unhashed += 1
-        # Bare host only: a video id that looks like a token is cut from the link, which would match every title from that site.
-        link = drama_service._page_link_key(row.get("source_url"))
+        link = drama_service._link_identity(row)
         if link:
             keys.append(("link", link))
         for name in {drama_service._name_key(row.get("title_en")), drama_service._name_key(row.get("title_zh"))}:
