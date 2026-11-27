@@ -7,6 +7,7 @@ other lettering, so without this it is translated and typeset onto the art.
 
 import difflib
 import re
+import unicodedata
 from collections.abc import Sequence
 
 _DOMAIN = re.compile(
@@ -252,7 +253,8 @@ def flag_already_english(regions: list, source_language: str) -> int:
         # lettering outside a balloon (logo, credit, caption, sign) is the artist's own English.
         if r.get("skip") or r.get("kind", "bubble") == "bubble":
             continue
-        letters = [c for c in (r.get("source_text") or "") if c.isalpha()]
+        # OCR reads an English sign in fullwidth letters on CJK pages ("ＡＤＶＥＮＴ…").
+        letters = [c for c in unicodedata.normalize("NFKC", r.get("source_text") or "") if c.isalpha()]
         latin = sum(1 for c in letters if c.isascii())
         if latin >= 3 and latin >= 0.8 * len(letters):
             r["skip"] = True

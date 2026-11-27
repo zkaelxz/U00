@@ -233,3 +233,8 @@ def test_english_is_not_skipped_when_the_source_is_not_cjk():
     regions = [_r("SECRET GARDEN", kind="sign")]
     assert wm.flag_already_english(regions, "en") == 0
     assert wm.flag_already_english(regions, "") == 0
+
+
+def test_a_sign_read_in_fullwidth_latin_letters_is_already_english():
+    regions = [_r("ＡＤＶＥＮＴＵＲＥＲＳ", kind="sign")]
+    assert wm.flag_already_english(regions, "ja") == 1
