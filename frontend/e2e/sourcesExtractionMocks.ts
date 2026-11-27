@@ -113,7 +113,7 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
   }
   await page.route(/\/api\/sources\/url\/ai-engines$/, (route) => {
     record(route)
-    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude', free: ['ollama'] })
+    return json(route, { engines: ['claude', 'gemini', 'ollama'], default: 'claude', free: [] })
   })
   // Every engine ready, so these specs don't depend on the e2e server's own
   // key state (no keys), which marks Claude and Gemini as unable to run. The
@@ -123,7 +123,7 @@ export async function mockExtraction(page: Page, s: MockState, m: ImportMockStat
       items: [
         { name: 'claude', label: 'Claude', free: false, models: null, key_configured: true },
         { name: 'gemini', label: 'Gemini', free: true, models: null, key_configured: true },
-        { name: 'ollama', label: 'Ollama', free: true, models: null, key_configured: true },
+        { name: 'ollama', label: 'Ollama', free: false, models: null, key_configured: true },
       ],
     }),
   )

@@ -687,7 +687,7 @@ describe('a member\'s run', () => {
     expect(memberRunForm(f)).toMatchObject({ engine: '', model: '', fallbacks: [], bulk: false, reflect: false })
   })
   it('runs the default when the account may use it, else Ollama', () => {
-    const engines = [{ name: 'claude', free: false }, { name: 'ollama', free: true }]
+    const engines = [{ name: 'claude', free: false }, { name: 'ollama', free: false }]
     expect(memberEngine('claude', engines, false)).toBe('ollama')
     expect(memberEngine('claude', engines, true)).toBe('claude')
     expect(memberEngine('ollama', engines, false)).toBe('ollama')

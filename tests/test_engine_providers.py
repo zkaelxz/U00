@@ -711,8 +711,8 @@ class TestFreeEngineLabelling:
     when the per-session "free-tier key" setting is on), and paid
     engines keep their normal descriptions."""
 
-    def test_free_engines_set_matches_the_roadmap_table(self):
-        assert engine_registry.FREE_ENGINES == {"fake", "fake_mt", "ollama"}
+    def test_no_engine_is_free_now_that_ollama_is_billed(self):
+        assert engine_registry.FREE_ENGINES == {"fake", "fake_mt"}
 
     def test_gemini_is_not_unconditionally_free(self):
         # Gemini reuses one engine for free and paid keys -- whether a
@@ -728,10 +728,10 @@ class TestFreeEngineLabelling:
         for name in ("claude", "deepseek", "openai"):
             assert engine_registry.ENGINE_NOTES[name].startswith("Paid")
 
-    def test_ollama_note_says_local_is_free_and_hosted_gemma_4_is_paid(self):
+    def test_ollama_note_says_it_is_hosted_and_paid(self):
         note = engine_registry.ENGINE_NOTES["ollama"]
-        assert "local" in note and "Gemma 4" in note and "paid" in note and "Free" in note
-        assert "testing" not in note and "lower quality" not in note
+        assert "Gemma 4" in note and "paid" in note and "free" not in note.lower()
+        assert engine_registry.open_to_all_accounts("ollama")
 
     def test_every_note_fits_the_narrow_dropdown(self):
         for name in engine_registry.ENGINES:

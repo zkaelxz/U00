@@ -276,6 +276,16 @@ def _ocr_reads_in_this_process():
     ocr_worker._params_cache.clear()
 
 
+@pytest.fixture
+def free_engine():
+    """The name of an engine that costs nothing and needs no key. Ollama runs hosted
+    tags only and is billed, so tests that need "a free engine" use Echo, which is
+    switched off again after the test."""
+    from engine_backends import echo
+    echo.set_enabled(True)
+    return echo.ENGINE_ID
+
+
 @pytest.fixture(autouse=True)
 def _echo_engine_off_after_each_test():
     """Turning Developer Mode on registers the Echo engine in the process-wide

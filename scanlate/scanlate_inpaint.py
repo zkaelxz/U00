@@ -40,9 +40,12 @@ class InpaintModelUnavailable(RuntimeError):
 
 
 
+_DARK_MEDIAN = 100
+
+
 def background_is_dark(gray_roi) -> bool:
     """True when most of the region is dark, i.e. the lettering is the light part."""
-    return float(np.median(gray_roi)) < 100
+    return float(np.median(gray_roi)) < _DARK_MEDIAN
 
 
 _LIGHT_LETTERING_GROW_ITERATIONS = 5
@@ -58,19 +61,37 @@ def _lettering_mask(gray_roi):
     each stroke is added too: a 3x3 dilation left it, and on ornate narration
     panels it showed as ghost Korean under the English."""
     import cv2
-    if background_is_dark(gray_roi):
+    if background_is_dark(gray_roi) or _has_light_lettering_on_midtone(gray_roi):
         # Light lettering on a dark balloon: masking the dark pixels would
-        # erase the whole balloon and smear the surrounding art across it. In a big balloon the
-        # grow reaches past the coloured edge its large lettering carries, which a smaller one
-        # left as a ghost.
+        # erase the whole balloon and smear the surrounding art across it. In a big dark balloon
+        # the grow reaches past the coloured edge its large lettering carries, which a smaller
+        # one left as a ghost. A mid-tone balloon keeps the small grow: a bigger one ate its body.
         _, mask = cv2.threshold(gray_roi, 150, 255, cv2.THRESH_BINARY)
     else:
         paper = float(np.median(gray_roi))
         cutoff = int(min(max(150, paper * _LETTERING_CUTOFF_OF_PAPER), 240))
         _, mask = cv2.threshold(gray_roi, cutoff, 255, cv2.THRESH_BINARY_INV)
         return _with_halo(gray_roi, paper, cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=2))
-    grow = _LIGHT_LETTERING_GROW_ITERATIONS if min(gray_roi.shape[:2]) >= _LIGHT_LETTERING_BIG_BOX_PX else 2
+    big = min(gray_roi.shape[:2]) >= _LIGHT_LETTERING_BIG_BOX_PX
+    grow = _LIGHT_LETTERING_GROW_ITERATIONS if big and background_is_dark(gray_roi) else 2
     return cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=grow)
+
+
+_MIDTONE_MEDIAN_MAX = 130
+_LIGHT_LETTERING_GRAY = 220
+_LIGHT_LETTERING_MIN_SHARE = 0.08
+_LIGHT_LETTERING_MAX_SHARE = 0.27
+
+
+def _has_light_lettering_on_midtone(gray_roi) -> bool:
+    """True for a mid-tone box (a blue-grey gradient balloon) with a clear minority of
+    near-white pixels. `_lettering_mask` reads such a box as paper and marks nearly all of it,
+    so a sign there was taken for artwork and left unerased under its English."""
+    median = float(np.median(gray_roi))
+    if not _DARK_MEDIAN <= median < _MIDTONE_MEDIAN_MAX:
+        return False
+    light = float((gray_roi >= _LIGHT_LETTERING_GRAY).mean())
+    return _LIGHT_LETTERING_MIN_SHARE <= light <= _LIGHT_LETTERING_MAX_SHARE
 
 
 def is_art_mistaken_for_sign(gray_page, box: dict) -> bool:
@@ -87,6 +108,8 @@ def is_art_mistaken_for_sign(gray_page, box: dict) -> bool:
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = gray_page[y:min(h, y + box["h"]), x:min(w, x + box["w"])]
     if roi.size == 0:
+        return False
+    if _has_light_lettering_on_midtone(roi):
         return False
     return float((_lettering_mask(roi) > 0).mean()) > scanlate_tuning.ART_SIGN_MIN_MASK_SHARE
 

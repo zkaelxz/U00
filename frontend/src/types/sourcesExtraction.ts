@@ -11,7 +11,7 @@ export interface AiEngines {
   engines: string[]
   // The saved default engine, when the fallback can use it.
   default: string | null
-  // The engines that need no `engines.paid`; the others may be paid.
+  // The engines that cost nothing; the others may be paid.
   free?: string[]
 }
 

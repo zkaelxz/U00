@@ -1018,7 +1018,7 @@ def test_a_member_without_the_right_still_gets_the_plain_refusal(isolated_db):
     assert r.status_code == 403 and r.json()["error"]["message"] != paid_limits.PAID_LIMIT_MESSAGE
 
 
-def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(isolated_db):
+def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(isolated_db, free_engine):
     from lib.errors import UnsupportedOperationError
     from services import translate_run_service
     m, _ = _paid_member(limit=1)
@@ -1027,7 +1027,7 @@ def test_paid_work_for_a_member_over_their_limit_is_refused_before_each_call(iso
         db.log_usage(None, "claude", "m", "translate", 1, 1, 1)
         with pytest.raises(UnsupportedOperationError, match="monthly spending limit"):
             translate_run_service.refuse_when_cap_spent("claude", False, None)
-        translate_run_service.refuse_when_cap_spent("ollama", False, None)   # a free engine is not capped
+        translate_run_service.refuse_when_cap_spent(free_engine, False, None)   # a free engine is not capped
     translate_run_service.refuse_when_cap_spent("claude", False, None)       # the PC owner's own work goes on
 
 

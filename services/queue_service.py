@@ -31,7 +31,6 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
-from engine_backends import local as engine_local
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -432,9 +431,9 @@ def _check_addable(principal, drama_id: int, step: str, holds_paid: bool, at_pc:
     if drama is None or not _owns_title(principal, drama_id):
         raise NotFoundError("Title not found.")
     if step == "translate" and not holds_paid \
-            and _translate_engine(drama) not in engine_registry.FREE_ENGINES:
+            and not engine_registry.open_to_all_accounts(_translate_engine(drama)):
         raise ForbiddenError("This title translates with a paid engine, which your account "
-                             "can't use. Ask the owner, or pick a free engine for the title.")
+                             "can't use. Ask the owner, or pick Ollama for the title.")
     if step == "translate":
         settings = check_translate_settings(drama, _translate_engine(drama), settings, holds_paid)
     elif step == "export":
@@ -788,7 +787,7 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
                      auto_series: Optional[int] = None) -> str:
     args = _translate_run_args(drama)
     holds_paid = _holds(principal, "engines.paid")
-    if args["engine"] not in engine_registry.FREE_ENGINES and not holds_paid:
+    if not engine_registry.open_to_all_accounts(args["engine"]) and not holds_paid:
         raise ForbiddenError("This title translates with a paid engine, which the account "
                              "that added it can't use.")
     # Checked again at start: the adder's permission and the title's engine may have changed since.
@@ -796,10 +795,7 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     if settings and not _holds(principal, "lines.edit"):
         raise ForbiddenError("This item changes the step's settings, which needs permission to edit lines.")
     saved = _queued_model_and_batch(drama, args["engine"])
-    run_model = settings.get("model", saved[0]) or engine_registry.effective_default_model(args["engine"])
-    # An Ollama cloud tag is billed like a paid engine, so the series ceiling covers it too.
-    paid = args["engine"] not in engine_registry.FREE_ENGINES or (
-        args["engine"] == "ollama" and engine_local.is_ollama_cloud_model(run_model))
+    paid = args["engine"] not in engine_registry.FREE_ENGINES
     # Raises when the series switch is off or its ceiling is spent. The run gets what is left as its own
     # per-job cap: 0 would mean "no cap" to the cost resolver, which ceiling_left never returns.
     left = series_auto_service.ceiling_left(auto_series) if auto_series is not None and paid else None

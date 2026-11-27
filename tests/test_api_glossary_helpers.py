@@ -243,7 +243,7 @@ class TestLinesGlossaryService:
             gs.start_lines_glossary_run(did)
 
     def test_monthly_cap_used_up_refuses_paid_not_free(self, isolated_db, monkeypatch,
-                                                       fake_engine):
+                                                       fake_engine, free_engine):
         started = []
         monkeypatch.setattr(job_launch, "start_job",
                             lambda *a, **k: started.append(a) or True)
@@ -254,11 +254,11 @@ class TestLinesGlossaryService:
         with pytest.raises(UnsupportedOperationError, match="spending cap"):
             gs.start_lines_glossary_run(did)
         assert started == []
-        free, _ = _lines_drama(isolated_db, engine="ollama")
-        assert gs.start_lines_glossary_run(free)["engine"] == "ollama"
+        free, _ = _lines_drama(isolated_db, engine=free_engine)
+        assert gs.start_lines_glossary_run(free)["engine"] == free_engine
 
     def test_novel_run_monthly_cap_used_up_refuses_paid_not_free(self, isolated_db, monkeypatch,
-                                                                 fake_engine):
+                                                                 fake_engine, free_engine):
         import os
         started = []
         monkeypatch.setattr(job_launch, "start_job",
@@ -276,7 +276,7 @@ class TestLinesGlossaryService:
         with pytest.raises(UnsupportedOperationError, match="spending cap"):
             gs.start_novel_glossary_run(novel_drama("claude"))
         assert started == []
-        assert gs.start_novel_glossary_run(novel_drama("ollama"))["engine"] == "ollama"
+        assert gs.start_novel_glossary_run(novel_drama(free_engine))["engine"] == free_engine
         assert len(started) == 1
 
     def test_duplicate_run_conflict(self, isolated_db, monkeypatch, fake_engine):

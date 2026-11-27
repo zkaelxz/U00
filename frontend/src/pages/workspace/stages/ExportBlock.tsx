@@ -1,11 +1,12 @@
-import type { ReactNode } from 'react'
+import { useContext, type ReactNode } from 'react'
 
 import { Section } from '../../../components/Section'
 import { readSectionOpen } from '../../../components/sectionStorage'
 import { browserStorage } from '../../../hooks/usePersistedState'
-import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, shownExportBlocks, type ExportBlockId } from '../exportBlocks'
-import { useSimple, useStage } from '../StageContext'
+import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, type ExportBlockId } from '../exportBlocks'
+import { useStage } from '../StageContext'
 import { titleKind } from '../titleKind'
+import { ShownExportBlocks } from './ShownExportBlocks'
 
 interface Props {
   id: ExportBlockId
@@ -24,11 +25,10 @@ interface Props {
 // open (per title kind) and the page stays short on a phone.
 export function ExportBlock({ id, opening, reason, hint, children, status }: Props) {
   const { drama } = useStage()
-  const simple = useSimple()
   const kind = titleKind(drama.media_type, drama.content_mode)
   const title = EXPORT_BLOCK_TITLES[id]
   // A block the viewer left open wins; opening this one as well would leave two open in the accordion.
-  const remembered = shownExportBlocks(kind, simple).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
+  const remembered = useContext(ShownExportBlocks).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
   return (
     <div className="export-block" role="group" aria-label={title}>
       <Section

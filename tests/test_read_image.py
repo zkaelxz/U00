@@ -212,10 +212,10 @@ class TestEstimate:
         assert body["estimated_usd"] > 0 and body["cap_left_usd"] == pytest.approx(5.0)
         assert body["fits_cap"] is True
 
-    def test_local_model_is_free(self, client):
+    def test_ollama_is_billed_and_capped(self, client):
         body = client.post("/api/translate/read-image/estimate",
                            json={"engine": "ollama", "width": 800, "height": 200}).json()
-        assert body["estimated_usd"] == 0 and body["cap_applies"] is False
+        assert body["cap_applies"] is True
 
     def test_deepseek_is_refused(self, client):
         resp = client.post("/api/translate/read-image/estimate",

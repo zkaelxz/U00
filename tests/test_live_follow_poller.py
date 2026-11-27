@@ -406,6 +406,8 @@ def test_auto_start_refused_when_a_gate_fails(env, starts, monkeypatch, gate, no
     monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: PUBLIC)
     monkeypatch.setattr(poller, "probe", lambda row: live())
     monkeypatch.setattr(notification_service, "notify_live_follow", lambda *a, **k: None)
+    # The built-in default is billed Ollama, which an unattended start refuses without a monthly cap.
+    monkeypatch.setattr(live_service, "default_engine", lambda: "fake")
     monkeypatch.setattr(live_service, "start_session",
                         lambda url, **kw: starts.append(url) or {"session_id": "s"})
     assert _check(fid, NOW + 3600)["started_stream_id"] == "abcdefghijk"

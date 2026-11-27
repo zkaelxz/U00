@@ -598,6 +598,55 @@ def unsure_word_spans(ln, below: float) -> Optional[list]:
     return [[a, b] for a, b, p in scored if p < below]
 
 
+def _probabilities(words) -> list:
+    return [w["probability"] for w in words or ()
+            if isinstance(w, dict) and isinstance(w.get("probability"), (int, float))
+            and not isinstance(w["probability"], bool) and math.isfinite(w["probability"])]
+
+
+def mean_word_probability(words) -> Optional[float]:
+    """The mean probability of the words that carry one, or None when none does."""
+    probs = _probabilities(words)
+    return sum(probs) / len(probs) if probs else None
+
+
+def scaled_line_confidence(confidence, words, segment_mean) -> Optional[float]:
+    """A line cut from a Whisper segment: the segment's score times how this line's words
+    scored against the whole segment's, so each sentence gets its own score while the
+    segment's no-speech and loop penalties stay. `confidence` unchanged when either mean
+    is unknown (another engine, or words dropped by an even cut)."""
+    line_mean = mean_word_probability(words)
+    if confidence is None or not segment_mean or line_mean is None:
+        return confidence
+    return round(min(1.0, max(0.0, confidence * line_mean / segment_mean)), 3)
+
+
+def rescore_shared_confidence(lines) -> dict:
+    """{line id: new confidence} for lines saved before each sentence had its own score.
+    `lines` are in line order with .id, .zh, .confidence and .word_timings; adjacent lines
+    sharing one score came from one Whisper segment, so each is scaled by its own words
+    against the run's. A line with no stored probabilities, or alone in its run, is left."""
+    out, i = {}, 0
+    while i < len(lines):
+        j = i + 1
+        while j < len(lines) and lines[j].confidence is not None and lines[j].confidence == lines[i].confidence:
+            j += 1
+        run = lines[i:j]
+        i = j
+        if len(run) < 2 or run[0].confidence is None:
+            continue
+        # A row without times (a hand-made backup) has no usable words, as one without a score.
+        words = [line_words(ln) if ln.start is not None and ln.end is not None else None for ln in run]
+        run_mean = mean_word_probability([w for ws in words for w in ws or ()])
+        if not run_mean:
+            continue
+        for ln, ws in zip(run, words):
+            new = scaled_line_confidence(ln.confidence, ws, run_mean)
+            if new != ln.confidence:
+                out[ln.id] = new
+    return out
+
+
 def line_word_index(ln) -> Optional["_WordIndex"]:
     words = line_words(ln)
     return _WordIndex.build(ln.zh or "", words) if words else None

@@ -46,7 +46,7 @@ export function savePick(pick: LinePick): void {
 // Why an engine can't be picked, or null.
 export function engineBlockReason(engine: TranslateEngine, holdsPaid: boolean): string | null {
   if (!engine.key_configured) return NO_KEY_REASON
-  if (!holdsPaid && !engine.free) return NEEDS_PAID_REASON
+  if (!holdsPaid && !engine.free && engine.name !== 'ollama') return NEEDS_PAID_REASON
   return null
 }
 

@@ -25,6 +25,7 @@ import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
 import { ExportBlock } from './ExportBlock'
+import { ShownExportBlocks } from './ShownExportBlocks'
 import { ExportSubtitles, type SubtitleExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
@@ -116,7 +117,7 @@ export default function ExportStage() {
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
-  const shown = shownExportBlocks(kind, simple)
+  const shown = shownExportBlocks(kind, simple, inputs)
   // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
   // opened later could fold under a click aimed at it, and remounting one would drop a started export. From then on
   // only the viewer opens and folds blocks. The libass check is not awaited: Burned-in video always comes after Video
@@ -193,7 +194,7 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : shown.map((id) => blocks[id])}
+      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : <ShownExportBlocks.Provider value={shown}>{shown.map((id) => blocks[id])}</ShownExportBlocks.Provider>}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">

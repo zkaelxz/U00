@@ -14,7 +14,8 @@ pytestmark = pytest.mark.usefixtures("local_ollama_default")
 
 def _drama(lines=(("你好", ""),), **fields):
     fields.setdefault("transcript_mode", "whisper")
-    did = db.create_drama(title_en="Signal", title_zh="信号", translation_engine="ollama", **fields)
+    fields.setdefault("translation_engine", "ollama")
+    did = db.create_drama(title_en="Signal", title_zh="信号", **fields)
     db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=z, en=en) for i, (z, en) in enumerate(lines)])
     return did
 
@@ -35,8 +36,8 @@ def _changed(item):
     return {r["label"]: r["value"] for r in item["changed_settings"]}
 
 
-def test_translate_item_settings_reach_the_run_and_leave_the_title_alone(isolated_db, seen_run):
-    did = _drama(translate_start_json='{"batch_size": 12, "locale": "en-GB"}')
+def test_translate_item_settings_reach_the_run_and_leave_the_title_alone(isolated_db, seen_run, free_engine):
+    did = _drama(translation_engine=free_engine, translate_start_json='{"batch_size": 12, "locale": "en-GB"}')
     before = db.get_drama(did)
     q.add_item(None, did, "translate", True, at_pc=True,
                settings={"batch_size": 20, "style_preset": "novel", "locale": "en-AU"})
@@ -48,8 +49,8 @@ def test_translate_item_settings_reach_the_run_and_leave_the_title_alone(isolate
     assert db.get_drama(did) == before
 
 
-def test_a_translate_item_without_settings_still_records_its_run(isolated_db, seen_run):
-    q._start_translate(None, db.get_drama(_drama()))
+def test_a_translate_item_without_settings_still_records_its_run(isolated_db, seen_run, free_engine):
+    q._start_translate(None, db.get_drama(_drama(translation_engine=free_engine)))
     assert seen_run["record_run"] is True and "batch_size" not in seen_run
 
 

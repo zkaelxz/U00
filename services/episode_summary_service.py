@@ -27,7 +27,7 @@ def no_engine_reason(allow_paid: bool) -> str:
     choice = None
     try:
         choice = settings_service.get("episode_summary_engine")
-        if not allow_paid and choice not in engine_registry.FREE_ENGINES:
+        if not allow_paid and not engine_registry.open_to_all_accounts(choice):
             return (f"Summary skipped: {choice} is a paid engine and this account can't use paid "
                     f"engines; {CHOOSE} that is free.")
         if choice != "ollama" and not translate_service.resolve_api_key(str(choice)):
