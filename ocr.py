@@ -773,11 +773,14 @@ def _manga_ocr_on_gpu() -> bool:
     return str(getattr(model, "device", "cpu")).startswith("cuda")
 
 
-def release_models(empty_cuda: bool = True) -> None:
+def release_models(empty_cuda: bool = True, keep_text_reader: bool = False) -> None:
     """Drops the cached Qwen3-VL, PaddleOCR-VL, Manga OCR, PaddleOCR and RapidOCR models and hands
     CUDA's memory back. They otherwise stay for the life of the process, with
     no other place that lists or frees them. They reload on next use.
-    `empty_cuda=False` for a caller that empties CUDA's cache itself afterwards."""
+    `empty_cuda=False` for a caller that empties CUDA's cache itself afterwards.
+    `keep_text_reader=True` leaves RapidOCR's helper processes running: they end themselves
+    after their idle time, and restarting them costs the next run a cold CPU read and a GPU load
+    of about 45 s."""
     import gc
     with _MODEL_LOCK:
         globals().get("_qwen3_vl_models", {}).clear()
@@ -786,7 +789,7 @@ def release_models(empty_cuda: bool = True) -> None:
         for name in ("_paddle_instances", "_paddle_line_instances", "_rapidocr_instances"):
             globals().get(name, {}).clear()
     ocr_worker = sys.modules.get("ocr_worker")
-    if ocr_worker is not None:
+    if ocr_worker is not None and not keep_text_reader:
         ocr_worker.stop()
     gc.collect()
     torch = sys.modules.get("torch")

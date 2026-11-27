@@ -69,6 +69,10 @@ class _Helper:
 _cpu = _Helper("cpu")
 _gpu = _Helper("gpu")
 _gpu_off_reason = None
+_gpu_off_at = 0.0
+# A GPU fault turns the GPU reader off, but for this long only: one fault (a card that was
+# briefly full) otherwise left every later read on the CPU until the app restarted.
+GPU_OFF_SECONDS = 300
 _gpu_checked_at = None
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
@@ -131,10 +135,12 @@ def _params(key: str) -> dict:
 
 
 def _gpu_off(reason: str) -> None:
-    global _gpu_off_reason
+    global _gpu_off_reason, _gpu_off_at
     if _gpu_off_reason is None:
-        _log(f"Text reader: using the CPU for the rest of this run: {reason}", warning=True)
+        _log(f"Text reader: using the CPU for the next {GPU_OFF_SECONDS // 60} minutes: {reason}",
+             warning=True)
     _gpu_off_reason = reason
+    _gpu_off_at = time.monotonic()
 
 
 def _gpu_retry_later() -> None:
@@ -182,6 +188,7 @@ def _gpu_ready(key: str) -> bool:
             _gpu.load_started = 0.0
             return True
     if reply[0] == "gpu_later":
+        _gpu_skipped("the GPU engine found no room while loading")
         _gpu_retry_later()
     else:
         _gpu_off(reply[1] if len(reply) > 1 else "the GPU engine did not load")
@@ -189,8 +196,24 @@ def _gpu_ready(key: str) -> bool:
     return False
 
 
+_last_gpu_skip = None
+
+
+def _gpu_skipped(reason: str) -> bool:
+    """False, after logging why reads stay on the CPU the first time that reason is seen: a
+    run on the CPU is ten times slower and was otherwise silent."""
+    global _last_gpu_skip
+    if reason != _last_gpu_skip:
+        _last_gpu_skip = reason
+        _log(f"Text reader: not using the GPU: {reason}", warning=True)
+    return False
+
+
 def _gpu_allowed(key: str) -> bool:
-    global _gpu_checked_at
+    global _gpu_checked_at, _gpu_off_reason
+    if _gpu_off_reason is not None and time.monotonic() - _gpu_off_at >= GPU_OFF_SECONDS:
+        _gpu_off_reason = None
+        _log("Text reader: trying the GPU again")
     if key not in GPU_KEYS or _gpu_off_reason is not None:
         return False
     try:
@@ -202,7 +225,7 @@ def _gpu_allowed(key: str) -> bool:
     if refused:
         if _gpu.alive():
             _stop_helper(_gpu)     # Settings or the guard turned it off: give the memory back now
-        return False
+        return _gpu_skipped("turned off in Settings or held by the GPU guard")
     # Its load or reads already passed the check below (a job's own process keeps its
     # engine in this process instead, where the check would count its own memory).
     if _gpu.alive() or ((inline or multiprocessing.current_process().daemon)
@@ -216,12 +239,15 @@ def _gpu_allowed(key: str) -> bool:
         import vram
         free = vram.free_vram_mb()
         if free is None:
-            return False     # no readable NVIDIA card
+            return _gpu_skipped("the free GPU memory could not be read (no NVIDIA card, or "
+                                "nvidia-smi did not answer)")
         # Also honours Settings > Keep free memory for the GPU.
         vram.check_fits("RapidOCR text reader", required_mb=GPU_NEED_MB, free_mb=free)
-    except Exception:
-        return False
+    except Exception as exc:
+        return _gpu_skipped(f"not enough free GPU memory ({type(exc).__name__}: {exc})")
     _gpu_checked_at = None
+    global _last_gpu_skip
+    _last_gpu_skip = None
     return True
 
 
@@ -250,7 +276,7 @@ def _ask(helper: _Helper, message) -> tuple:
             process, conn = child
             try:
                 conn.send(message)
-                if not conn.poll(READ_TIMEOUT_SECONDS):
+                if not _answered(process, conn):
                     helper.child = None
                     helper.ready = False
                     _end((process, conn))
@@ -270,6 +296,23 @@ def _ask(helper: _Helper, message) -> tuple:
                 if attempt == 2 or helper.device == "gpu":
                     break
     return ("error", "The text reader stopped unexpectedly.") if helper.device == "cpu" else ("gpu_lost",)
+
+
+def _answered(process, conn) -> bool:
+    """Whether `conn` has a reply, waiting up to READ_TIMEOUT_SECONDS. A helper that died
+    without closing its end (a crash while it started, or a spawned copy that failed to import)
+    is noticed within a second instead of after the whole timeout, and counts as an EOF."""
+    deadline = time.monotonic() + READ_TIMEOUT_SECONDS
+    while True:
+        if conn.poll(min(1, max(0, deadline - time.monotonic()))):
+            return True
+        if not process.is_alive():
+            if conn.poll(0):
+                return True
+            raise EOFError("the text reader helper stopped")
+        if time.monotonic() >= deadline:
+            break
+    return False
 
 
 def _start():

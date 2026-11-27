@@ -2,7 +2,7 @@
 
 How to turn on each transcription option, what it needs, and what went wrong
 before. How the backends fit together is in `engine-backends.md` section 3, not
-here. Checked against the code on `baihe-subtitler` at `7bad622` (2026-10-08).
+here. Checked against the code on `baihe-subtitler` at `747f2bb` (2026-10-08).
 
 Numbers are only in "Measured results (snapshot)" at the end. They were measured
 once, on one machine, before some defaults changed. Do not read them as current
@@ -684,7 +684,7 @@ Whisper plus Qwen combined.
 
 ## Measured results: November 2026 (RTX 3080 Ti)
 
-Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `777c5cc4`, `61f8ac70`, `cc407a75`, `2d266ed4`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
+Measured 2026-11-10 to 14 on the owner's Windows PC (RTX 3080 Ti, the app's own venv, offline), against the repo state at `v0.1.1` to `v0.1.4` plus later base commits (about `438c9f5a`, `b315de33`, `c4e0e834`, `3e02bb83`). The reference text is the owner's hand-corrected transcripts of private titles, so the audio, text and scripts are not in the repo; only the numbers are. Scores are `1 - CER` from the app's scorer unless noted. Run-to-run noise is stated where it was measured.
 
 ### Vocal separation before transcription
 

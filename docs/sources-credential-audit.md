@@ -1,6 +1,6 @@
 # Content sources: credential handling audit (Step 110)
 
-Audited 2026-09-30 against `baihe-subtitler` @ f09a592. Scope: the content-source layer (`sources/`, `page_fetch.py`'s profile functions, `services/sources_*.py`, `api/routers/sources_*.py`) and the yt-dlp cookie setting. The check was whether any adapter stores an account name, password, session cookie or token anywhere other than the browser profile the person opted into, and whether anything logs them.
+Audited 2026-09-30 against `baihe-subtitler` @ c87b604. Scope: the content-source layer (`sources/`, `page_fetch.py`'s profile functions, `services/sources_*.py`, `api/routers/sources_*.py`) and the yt-dlp cookie setting. The check was whether any adapter stores an account name, password, session cookie or token anywhere other than the browser profile the person opted into, and whether anything logs them.
 
 **Result:** no adapter stores or logs an account name, password or cookie outside the opted-in browser profile. There are three follow-ups, none about cookies or passwords (see "Gaps" below). The guard is `tests/test_sources_credential_audit.py`.
 

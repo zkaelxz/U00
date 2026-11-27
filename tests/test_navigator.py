@@ -3,7 +3,7 @@ tests/test_navigator.py -- navigator.py's own logic (label
 translation, navigation-step generation), independent of whichever tab
 renders it.
 
-Step 25f item 1: navigator.py was deleted by mistake (commit 4d25c9c),
+Step 25f item 1: navigator.py was deleted by mistake (commit 9ec5154),
 so "🧭 Translate page + get navigation steps" raised ModuleNotFoundError
 on every click, and no test imported it to notice.
 
