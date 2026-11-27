@@ -376,11 +376,11 @@ def _child_main(conn, threads: int) -> None:
     # Before numpy, cv2 or torch load, since they read these once.
     for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[name] = str(threads)
-    _lower_priority()
     parent = multiprocessing.parent_process()
     engines: dict = {}
     idle_exit = IDLE_EXIT_SECONDS
     last = time.monotonic()
+    lowered = False
     while True:
         if conn.poll(_PARENT_CHECK_SECONDS):
             try:
@@ -395,6 +395,11 @@ def _child_main(conn, threads: int) -> None:
             else:
                 conn.send(_serve(engines, *message[1:]))
             last = time.monotonic()
+            if not lowered:
+                # Only once its first answer is out: the load is what pages wait on, so it must not queue
+                # behind them for the CPU; the steady-state reads then stay out of the app's way.
+                _lower_priority()
+                lowered = True
         elif parent is not None and not parent.is_alive():
             return
         elif time.monotonic() - last > idle_exit:

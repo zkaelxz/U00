@@ -104,3 +104,15 @@ def test_a_failed_load_is_only_logged(models, monkeypatch, isolated_db):
         if thread.name == "page-server-warmup":
             thread.join(5)
     assert not page_server.PIPELINE_LOCK.locked()
+
+
+def test_a_text_reader_that_fails_to_load_is_reported_to_the_caller(models, monkeypatch):
+    import ocr
+    models["reader_cached"] = True
+
+    def broken(key, source, allow_download=True):
+        raise RuntimeError("no engine")
+
+    monkeypatch.setattr(ocr, "_run_rapidocr", broken)
+    with pytest.raises(RuntimeError):
+        scanlate.warm_models("auto")

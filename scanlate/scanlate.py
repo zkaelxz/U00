@@ -54,8 +54,24 @@ def warm_models(detect_backend: str = "auto") -> list:
     alone. Returns the names of the models it loaded. The caller holds the pipeline lock."""
     from scanlate import scanlate_detect
     from scanlate import scanlate_lama
+    import threading
     blank = np.full((64, 64, 3), 255, dtype=np.uint8)
     warmed = []
+    reader = None
+    if _chinese_reader_on_disk():
+        # Its helper process takes a while to start and load, so it starts first and loads while the
+        # detector and the eraser do.
+        import ocr
+        reader_errors = []
+
+        def load_reader():
+            try:
+                ocr._run_rapidocr("medium", blank, allow_download=False)
+            except Exception as e:
+                reader_errors.append(e)
+
+        reader = threading.Thread(target=load_reader, daemon=True, name="warm-text-reader")
+        reader.start()
     if detect_backend in ("auto", "ml") and scanlate_detect.bubble_ml_weights_cached():
         detect_bubbles("", backend="ml", image=blank)
         warmed.append("balloon detector")
@@ -64,9 +80,10 @@ def warm_models(detect_backend: str = "auto") -> list:
         mask[24:40, 24:40] = 255
         scanlate_lama._run_ml_inpaint(blank, mask, allow_download=False)
         warmed.append("text eraser")
-    if _chinese_reader_on_disk():
-        import ocr
-        ocr._run_rapidocr("medium", blank, allow_download=False)
+    if reader is not None:
+        reader.join()
+        if reader_errors:
+            raise reader_errors[0]
         warmed.append("Chinese text reader")
     import ocr
     if ocr.manga_ocr_on_disk():

@@ -453,3 +453,25 @@ def test_a_jobs_own_process_keeps_using_its_loaded_gpu_engine(monkeypatch):
     monkeypatch.setattr(vram, "free_vram_mb", lambda: pytest.fail("measured again"))
     monkeypatch.setitem(ocr_worker._inline_engines(), "medium:gpu", object())
     assert ocr_worker._gpu_allowed("medium")
+
+
+def test_the_helper_stays_at_normal_priority_until_its_first_answer(monkeypatch):
+    seen = []
+    monkeypatch.setattr(ocr_worker, "_lower_priority", lambda: seen.append("lowered"))
+    monkeypatch.setattr(ocr_worker, "_serve", lambda engines, *args: seen.append("served") or ("ok", [], None, None))
+
+    class Conn:
+        def __init__(self):
+            self.messages = [("read", "medium:cpu", None, "x"), ("read", "medium:cpu", None, "y"), ("stop",)]
+
+        def poll(self, timeout):
+            return True
+
+        def recv(self):
+            return self.messages.pop(0)
+
+        def send(self, reply):
+            seen.append("answered")
+
+    ocr_worker._child_main(Conn(), 1)
+    assert seen == ["served", "answered", "lowered", "served", "answered"]
