@@ -30,9 +30,10 @@ from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError, RateLimitedError,
                                      ServiceError, UnsupportedOperationError)
 from services.sources_extension_service import require_not_extension_only
-from services.sources_registry_service import require_source, scrub, scrub_any, safe_url
+from services.sources_registry_service import (require_source, scrub, scrub_any, safe_url,
+                                               visible_tracked_keys)
 from sources import (base, chapter_order, extension_marker, generic_import, health, ladder,
-                     registry)
+                     registry, store)
 from sources.http_transport import Cancelled, ResponseRefused
 from sources.models import (ChallengeDetected, ContentHidden, FailureReason, NotSupportedError,
                             SourceError, SourceUnavailable, TermsProhibited)
@@ -403,6 +404,9 @@ def get_job_result(job_id, local: bool = False, principal=None) -> dict:
         return {"job_id": "", "status": "idle", "progress": 0.0, "message": "",
                 "result": None}
     result = status.get("result")
+    from services.chapter_check_service import CHECK_JOB_ID
+    if job_id == CHECK_JOB_ID:
+        result = _check_result_for(result, principal)
     if status.get("status") == "error":
         err = (result or {}).get("error") if isinstance(result, dict) else None
         _raise_error_view(err or {"status": 500, "message": scrub(status.get("error"))})
@@ -421,6 +425,25 @@ def get_job_result(job_id, local: bool = False, principal=None) -> dict:
         if ident:
             out["source"], out["series_id"] = ident
     return scrub_any(out)
+
+
+def _check_result_for(result, principal):
+    """A chapter check's result cut down to the series the caller tracks (all for the owner
+    and admins)."""
+    if not isinstance(result, dict):
+        return result
+    out = {k: v for k, v in result.items() if k != "by_series"}
+    keys = visible_tracked_keys(principal)
+    if keys is None:
+        return out
+    titles = {r["title"] for r in store.list_tracked_series() if (r["source"], r["series_id"]) in keys}
+    mine = [b for b in result.get("by_series") or [] if (b[0], b[1]) in keys]
+    out["checked"], out["new"] = len(mine), sum(b[2] for b in mine)
+    out["errors"] = {t: e for t, e in (result.get("errors") or {}).items() if t in titles}
+    for key in ("queued", "saved", "extension_only"):
+        if key in result:
+            out[key] = [t for t in result[key] if t in titles]
+    return out
 
 
 def known_chapter_ids(series_result: dict) -> list:

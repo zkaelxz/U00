@@ -102,10 +102,11 @@ def env(isolated_db, monkeypatch):
             background_jobs.clear_job(jid)
 
 
-def _track(source, drama_id=None):
+def _track(source, drama_id=None, follower=0):
     """Tracks the series with only c1 known, so a check finds c2 and c3."""
     store.track_series(source, SERIES, "Series T", "", drama_id,
-                       known_chapters=[c for c in _chapters(source) if c.chapter_id == "c1"])
+                       known_chapters=[c for c in _chapters(source) if c.chapter_id == "c1"],
+                       follower_id=follower)
 
 
 def _row(source):
@@ -141,7 +142,7 @@ def made_private(env):
     b = _user("b@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
-    _track("alpha")
+    _track("alpha", follower=b)
     assert own.can_edit_drama(_p(b), did)
     tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(b))
     assert _row("alpha")["drama_id"] == did
@@ -190,7 +191,7 @@ def shared_link(env):
     b = _user("b@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
-    _track("alpha")
+    _track("alpha", follower=b)
     tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(b))
     return a, b, did
 
@@ -224,7 +225,7 @@ def test_series_made_private_is_denied(env):
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
     own.assign_drama_series(_p(a), did, sid)
-    _track("alpha")
+    _track("alpha", follower=b)
     tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(b))
     own.set_private(_p(a), "series", sid, True)
     _denied(did, env)
@@ -309,7 +310,7 @@ def test_owner_linking_their_own_drama_then_making_it_private_still_imports(env)
     a = _user("a@example.com")
     did = db.create_drama(title_en="A's novel", media_type="novel",
                           content_mode="novel_narration", owner_user_id=a, is_private=0)
-    _track("alpha")
+    _track("alpha", follower=a)
     tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(a))
     own.set_private(_p(a), "drama", did, True)
     _imports(did, env)
@@ -317,6 +318,7 @@ def test_owner_linking_their_own_drama_then_making_it_private_still_imports(env)
 
 def test_relinking_the_same_drama_keeps_the_link_owner(shared_link, env):
     a, b, did = shared_link
+    store.follow_series("alpha", SERIES, a)
     tracking.set_tracked_drama("alpha", SERIES, did, principal=_p(a))
     assert _row("alpha")["linked_by_user_id"] == b
     store.track_series("alpha", SERIES, "Series T", "", did, linked_by_user_id=a)
@@ -561,3 +563,164 @@ def test_tracking_an_already_tracked_series_keeps_its_link_and_new_chapters(env,
     assert _row("alpha")["drama_id"] == did
     # c2 and c3 came out after the last check: still new, so the next check announces them.
     assert {c["chapter_id"] for c in store.known_chapters("alpha", SERIES)} == {"c1"}
+
+
+# ---------------------------------------------------------------------------
+# Each person's tracked series stay theirs
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def two_members(env, monkeypatch):
+    env["alpha"] = _make("alpha")
+    monkeypatch.setattr(sources_registry_service, "require_source", lambda name: env["alpha"])
+    monkeypatch.setattr(tracking, "require_source", lambda name: env["alpha"])
+    a, b = _user("a@example.com"), _user("b@example.com")
+    store.track_series("alpha", "a1", "A's series", "", None, linked_by_user_id=a)
+    store.track_series("alpha", "b1", "B's series", "", None, linked_by_user_id=b)
+    store.track_series("alpha", "pc1", "PC series", "", None)
+    return a, b
+
+
+def _seen(principal):
+    return {r["series_id"] for r in sources_registry_service.list_tracked(principal)}
+
+
+def test_a_member_sees_only_the_series_they_track(two_members):
+    a, b = two_members
+    admin = _user("admin@example.com", is_admin=True)
+    assert _seen(_p(a)) == {"a1"} and _seen(_p(b)) == {"b1"}
+    assert _seen(None) == _seen({**_p(admin), "is_admin": True}) == {"a1", "b1", "pc1"}
+
+
+def test_new_chapter_notices_and_badges_go_only_to_the_series_followers(two_members):
+    a, b = two_members
+    did = db.create_drama(title_en="Shared", media_type="novel", content_mode="novel_narration",
+                          owner_user_id=a, is_private=0)
+    store.set_tracked_drama("alpha", "a1", did, linked_by_user_id=a)
+    for sid in ("a1", "b1", "pc1"):
+        store.record_new_chapters("alpha", sid, [_chapters("alpha")[1]])
+
+    def notices(principal):
+        return {n["series_id"] for n in sources_registry_service.list_notifications(
+            False, (principal or {}).get("user_id") or 0, principal)}
+    assert notices(_p(a)) == {"a1"} and notices(_p(b)) == {"b1"}
+    assert notices(None) == {"a1", "b1", "pc1"}
+    from lib.errors import NotFoundError
+    a_notice = next(n["id"] for n in store.list_notifications() if n["series_id"] == "a1")
+    with pytest.raises(NotFoundError):
+        sources_registry_service.dismiss_notification(a_notice, b, _p(b))
+    # The Library badge on a shared title counts only for the series' followers.
+    from services import library_service
+    assert library_service._new_chapter_counts(_p(b)) == {}
+    assert library_service._new_chapter_counts(_p(a)) == {did: 1}
+
+
+def test_relinking_or_a_library_reset_keeps_the_series_with_its_member(two_members):
+    a, _b = two_members
+    did = db.create_drama(title_en="Admin's", media_type="novel", content_mode="novel_narration")
+    tracking.set_tracked_drama("alpha", "a1", did, principal=None)     # the owner relinks
+    assert _row_of("a1")["linked_by_user_id"] is None
+    store.unlink_all_dramas()                                          # library reset/restore
+    assert _seen(_p(a)) == {"a1"}
+
+
+def _row_of(series_id):
+    return next(r for r in store.list_tracked_series() if r["series_id"] == series_id)
+
+
+def test_another_members_series_cannot_be_changed(two_members, monkeypatch):
+    from lib.errors import NotFoundError
+    a, b = two_members
+    calls = [
+        lambda: sources_registry_service.set_tracked("alpha", "a1", False, principal=_p(b)),
+        lambda: tracking.set_tracked_drama("alpha", "a1", None, principal=_p(b)),
+        lambda: tracking.set_tracked_save("alpha", "a1", True, principal=_p(b)),
+        lambda: tracking.preview_move("alpha", "a1", "alpha", "new", principal=_p(b)),
+        lambda: tracking.move_tracked("alpha", "a1", "alpha", "new", principal=_p(b)),
+    ]
+    for call in calls:
+        with pytest.raises(NotFoundError, match="isn't tracked"):
+            call()
+    # An admin away from the PC (no override) sees every series but changes only their own.
+    away_admin = {**_p(_user("admin@example.com", is_admin=True)), "is_admin": True}
+    assert "a1" in _seen(away_admin)
+    with pytest.raises(NotFoundError, match="isn't tracked"):
+        sources_registry_service.set_tracked("alpha", "a1", False, principal=away_admin)
+    assert _seen(_p(a)) == {"a1"} and not _row_of("a1")["save_cbz"]
+
+
+def _opened(monkeypatch, series_id):
+    from services import sources_search_service as search
+    result = {"kind": "series", "series_id": series_id, "info": {"title": "T"}, "chapters": []}
+    real_status = background_jobs.get_status
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: (
+        {"status": "done", "result": result} if jid == search.SERIES_JOB_PREFIX + "alpha"
+        else real_status(jid)))
+
+
+def test_tracking_a_series_someone_else_tracks_follows_it_and_stopping_leaves_theirs(
+        two_members, monkeypatch):
+    from lib.errors import ConflictError
+    a, b = two_members
+    # Unopened, it answers like an untracked series: nothing says someone else tracks it.
+    with pytest.raises(ConflictError, match="Open the series first"):
+        sources_registry_service.set_tracked("alpha", "a1", True, principal=_p(b))
+    _opened(monkeypatch, "a1")
+    sources_registry_service.set_tracked("alpha", "a1", True, principal=_p(b))
+    assert _seen(_p(b)) == {"a1", "b1"}
+    from lib.errors import ConflictError
+    with pytest.raises(ConflictError, match="Other people track"):
+        tracking.preview_move("alpha", "a1", "alpha", "new", principal=_p(b))
+    sources_registry_service.set_tracked("alpha", "a1", False, principal=_p(b))
+    assert _seen(_p(b)) == {"b1"} and _seen(_p(a)) == {"a1"}
+    sources_registry_service.set_tracked("alpha", "a1", False, principal=_p(a))
+    assert "a1" not in _seen(None)          # gone with its last follower
+
+
+def test_someone_elses_cbz_save_stays_on(two_members):
+    from lib.errors import ConflictError
+    a, b = two_members
+    store.follow_series("alpha", "a1", b)
+    env_cls = registry.adapter_classes()["alpha"]
+    env_cls.supports = lambda self, what: True
+    tracking.set_tracked_save("alpha", "a1", True, principal=_p(a))
+    with pytest.raises(ConflictError, match="Someone else saves"):
+        tracking.set_tracked_save("alpha", "a1", False, principal=_p(b))
+    assert _row_of("a1")["save_cbz"]
+
+
+def test_check_now_shows_a_member_only_their_series(two_members, monkeypatch):
+    from services import sources_search_service as search
+    a, _b = two_members
+    summary = chapter_check_service.run_check_cycle()
+    assert summary["checked"] == 3
+    status = {"status": "done", "result": {**summary, "errors": {"B's series": "x", "A's series": "y"}},
+              "owner_user_id": a, "progress": 1.0, "message": ""}
+    monkeypatch.setattr(background_jobs, "get_status", lambda jid: status)
+    out = search.get_job_result(chapter_check_service.CHECK_JOB_ID, principal=_p(a))["result"]
+    assert out["checked"] == 1 and out["errors"] == {"A's series": "y"} and "by_series" not in out
+    with pytest.raises(Exception, match="tracked"):
+        tracking.start_check_now(principal=_p(_user("c@example.com")))
+
+
+def test_series_tracked_before_followers_existed_go_to_their_linker_saver_or_the_pc(tmp_path):
+    import sqlite3
+    path = str(tmp_path / "old_sources.db")
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE tracked_series (source TEXT NOT NULL, series_id TEXT NOT NULL, "
+                 "title TEXT NOT NULL, url TEXT, drama_id INTEGER, last_checked REAL, "
+                 "last_check_error TEXT, linked_by_user_id INTEGER, save_cbz_by_user_id INTEGER, "
+                 "PRIMARY KEY (source, series_id))")
+    conn.executemany("INSERT INTO tracked_series(source, series_id, title, linked_by_user_id, "
+                     "save_cbz_by_user_id) VALUES('s', ?, 't', ?, ?)",
+                     [("linked", 5, None), ("saved", None, 6), ("both", 5, 6), ("pc", None, None)])
+    conn.commit()
+    conn.close()
+    store.migrate_file(path)
+    store.migrate_file(path)          # runs on every start: changes nothing the second time
+    conn = sqlite3.connect(path)
+    got = {}
+    for sid, uid in conn.execute("SELECT series_id, user_id FROM tracked_series_followers"):
+        got.setdefault(sid, set()).add(uid)
+    conn.close()
+    assert got == {"linked": {5}, "saved": {0, 6}, "both": {5, 6}, "pc": {0}}
