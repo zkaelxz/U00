@@ -55,7 +55,7 @@ export default function AdminPage() {
         </div>
       ) : (
         <p className="muted">
-          Only an admin can see this page. Ask the PC owner.{' '}
+          Only an admin can see this page. Ask the PC owner to make you an admin.{' '}
           <a href={routeHref({ name: 'library' })}>Back to Library</a>
         </p>
       )}

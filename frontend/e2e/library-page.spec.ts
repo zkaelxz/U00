@@ -81,11 +81,11 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
   sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
   await expect(sheet.getByLabel('Media type')).toHaveValue('novel')
-  await sheet.getByRole('button', { name: 'Close' }).click()
+  await sheet.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
-  await sheet.getByRole('button', { name: 'Discard draft' }).click()
+  await sheet.getByRole('button', { name: 'Clear and close' }).click()
   await expect(sheet).toBeHidden()
   await page.getByRole('button', { name: 'Add a title by hand' }).click()
   await expect(sheet.getByLabel('English title')).toHaveValue('')
@@ -215,7 +215,7 @@ test('line search without permission to read lines: a plain note, no error banne
   await page.getByRole('radio', { name: 'Lines' }).check()
   await page.getByLabel('Search all lines').fill('anything')
   await page.getByRole('button', { name: 'Search', exact: true }).click()
-  await expect(page.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
+  await expect(page.getByText('Seeing line text needs permission to read lines. Ask the PC owner to allow it.')).toBeVisible()
   await expect(page.locator('.line-hits').getByRole('alert')).toHaveCount(0)
 })
 

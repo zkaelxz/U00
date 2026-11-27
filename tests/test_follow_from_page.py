@@ -112,3 +112,15 @@ def test_a_series_tracked_during_the_fetch_is_left_alone(site, monkeypatch):
 def test_a_chapter_link_follows_its_series(site):
     site._parsed = ("chapter", SimpleNamespace(series_id="night-owl"))
     assert svc.follow_from_page("https://fake.example/night-owl/3")["already"] is False
+
+
+def test_a_member_cannot_follow_more_series_than_the_limit(site, monkeypatch):
+    from lib.errors import ConflictError
+    from services import sources_registry_service
+    monkeypatch.setattr(sources_registry_service, "MEMBER_TRACKED_LIMIT", 1)
+    store.track_series("fakesite", "other", "Other", "", None, linked_by_user_id=7)
+    with pytest.raises(ConflictError) as err:
+        svc.follow_from_page("https://fake.example/night-owl", principal={"user_id": 7})
+    assert "already tracking 1 series" in err.value.message
+    # The owner (no account) is never counted.
+    assert svc.follow_from_page("https://fake.example/night-owl")["already"] is False

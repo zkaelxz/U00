@@ -4,7 +4,7 @@ import { updateDramaMetadata } from '../../../api/library'
 import { removeMedia } from '../../../api/stageDeletes'
 import { getMediaStatus, uploadMedia } from '../../../api/workspace'
 import { Badge } from '../../../components/Badge'
-import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
+import { SlowUploadHint, UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { ButtonLink } from '../../../components/Button'
 import { formatDecimalBytes } from '../../diskUsage/diskUsageModel'
 import { ErrorBanner } from '../../../components/ErrorBanner'
@@ -25,7 +25,7 @@ import { useStageTab } from '../useStageTab'
 import { MEDIA_TAB_PREFIX, asMediaTab, mediaTabsFor, readMediaTab, resolveMediaTab, writeMediaTab, type MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
 import { ConfirmButton } from '../../../components/ConfirmButton'
-import { useCanUpload } from '../../../hooks/useHolds'
+import { useCanUpload, useCanUploadMedia } from '../../../hooks/useHolds'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { useStageDraft } from '../../../hooks/useStageDraft'
 import {
@@ -87,7 +87,7 @@ export default function SourceStage() {
   const [expectedSeconds, setExpectedSeconds] = useState<number | null>(null)
   const [reloads, setReloads] = useState(0)
   const pc = usePcOnly()
-  const canUpload = useCanUpload()
+  const [canUpload, canUploadMedia] = [useCanUpload(), useCanUploadMedia()]
   const [removeError, setRemoveError] = useState<unknown>(null)
   // "Upload a file" or "From a URL", remembered for this title.
   const { draft, save: saveDraft } = useStageDraft(dramaId, SOURCE_DRAFT_STAGE, SOURCE_DRAFT_SHAPE)
@@ -279,7 +279,7 @@ export default function SourceStage() {
             onChange={(e) => pick(e.target.files?.[0] ?? null)}
           />
           <button type="button" id={mediaFileInputId(dramaId)} className={buttonClass('secondary')} disabled={!media} onClick={() => mediaInput.current?.click()}>Choose a file</button>
-          <span className="source-file-name muted">{file ? file.name : 'No file chosen'}</span>
+          <span className="source-file-name muted">{file ? file.name : 'No file chosen'}{file && !uploading && <SlowUploadHint size={file.size} />}</span>
           <button
             type="button"
             className={buttonClass('secondary')}
@@ -331,7 +331,7 @@ export default function SourceStage() {
         </p>
       )}
       {uploaded && <p role="status">{uploaded}</p>}
-      <ErrorBanner error={error} describe={{ pcOnly: !canUpload }} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error} describe={{ pcOnly: !canUploadMedia }} onDismiss={() => setError(null)} />
     </>
   )
 
