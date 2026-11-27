@@ -86,12 +86,12 @@ class TestFailureStreak:
 
     def test_the_reason_names_the_error_without_url_key_or_path(self):
         msg = ("HTTP 500 from https://api.example.com/v1/x?key=sk-ant-api03-abcdefghijklmnop123 "
-               "reading /home/mai.tran/secret.txt")
+               "reading /home/sample/secret.txt")
         engine = _Scripted(RuntimeError(msg))
         _, errors, _ = _run(engine)
         text = errors[-1]["error"]
         assert "in a row" in text and "HTTP 500" in text
-        for leak in ("https://", "api.example.com", "sk-ant", "/home/mai.tran"):
+        for leak in ("https://", "api.example.com", "sk-ant", "/home/sample"):
             assert leak not in text
 
     def test_a_fallback_chain_stops_only_when_every_engine_failed(self):

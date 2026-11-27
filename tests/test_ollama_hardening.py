@@ -450,10 +450,10 @@ class TestServerErrors:
         assert "192.168" not in text and "http" not in text and "11434" not in text
 
     @pytest.mark.parametrize("path", [
-        r"C:\Users\mai.tran\.ollama\models\blobs\sha256-abc",
-        r"\\nas\share\mai.tran\models\blob",
-        "/home/mai.tran/.ollama/models/blobs/sha256-abc",
-        "/Users/mai.tran/.ollama/models/blobs/sha256-abc",
+        r"C:\Users\sample\.ollama\models\blobs\sha256-abc",
+        r"\\nas\share\sample\models\blob",
+        "/home/sample/.ollama/models/blobs/sha256-abc",
+        "/Users/sample/.ollama/models/blobs/sha256-abc",
     ])
     def test_filesystem_paths_never_reach_the_message(self, monkeypatch, path):
         import json
@@ -462,10 +462,10 @@ class TestServerErrors:
         for _ in range(local.OllamaEngine.consecutive_failure_limit - 1):
             with pytest.raises(requests.HTTPError) as info:
                 engine.translate_batch(["你好"], {})
-            assert "mai.tran" not in str(info.value) and ": no such file" in str(info.value)
+            assert "sample" not in str(info.value) and ": no such file" in str(info.value)
         with pytest.raises(local.OllamaRunStopped) as stopped:
             engine.translate_batch(["你好"], {})
-        assert "mai.tran" not in str(stopped.value)
+        assert "sample" not in str(stopped.value)
 
     def test_the_run_stops_after_repeated_engine_failures_and_keeps_its_work(self, monkeypatch):
         from core import Line

@@ -425,7 +425,7 @@ def pushes(monkeypatch):
     ns.reset_for_tests()
 
 
-LEAKY = ("FileNotFoundError: /home/mei/Baihe/dramas/12/Ep 1 01.mp3; "
+LEAKY = ("FileNotFoundError: /home/sample/Baihe/dramas/12/Ep 1 01.mp3; "
          "HTTPConnectionPool(host='192.168.1.20', port=11434): Max retries exceeded with url: /api/chat")
 
 

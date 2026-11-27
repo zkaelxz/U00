@@ -5,7 +5,7 @@ import { expect, test } from './fixtures'
 
 test('the Open folder notice fits a phone: Dismiss stays on one line and nothing overflows', async ({ page }) => {
   await page.route(/\/api\/dramas\/3\/folder\/open$/, (route) =>
-    route.fulfill({ json: { opened: false, folder: 'C:\\Users\\Jellyfin\\AppData\\Local\\Baihe\\library\\dramas\\3' } }))
+    route.fulfill({ json: { opened: false, folder: 'C:\\Users\\Sample\\AppData\\Local\\Baihe\\library\\dramas\\3' } }))
   await page.goto('/#/drama/3')
   await expect(page.getByTestId('drama-title')).toBeVisible()
   const open = page.getByRole('button', { name: 'Open folder' })

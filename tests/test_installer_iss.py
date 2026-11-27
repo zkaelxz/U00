@@ -702,12 +702,12 @@ class TestBootService:
                 i += 1
             return text[start:i] if i < len(text) else ""
 
-        owner = "C:\\Users\\Jellyfin\\AppData\\Local\\Programs\\Baihe Studio"
+        owner = "C:\\Users\\Sample\\AppData\\Local\\Programs\\Baihe Studio"
         for root in (owner, "C:\\", "D:\\\u674e\u660e\\Baihe", "E:\\Jo\u2019s \U0001f338 apps\\Baihe",
                      "C:\\Program Files (x86)\\Baihe~1"):
             text = json.dumps({"install_root": root, "data_dir": "C:\\d", "api_port": 8600}, indent=2) + "\n"
             assert config_root(text) == escaped(root), root
-        other = "C:\\Users\\baihe-test\\AppData\\Local\\Programs\\Baihe Studio"
+        other = "C:\\Users\\Other\\AppData\\Local\\Programs\\Baihe Studio"
         text = json.dumps({"install_root": owner, "data_dir": "C:\\d"}, indent=2)
         assert config_root(text).lower() != escaped(other).lower()
         assert config_root(text).lower() == escaped(owner.upper()).lower()
