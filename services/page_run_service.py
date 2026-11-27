@@ -6,6 +6,7 @@ glossary scan), never from a client flag, and a title with a run still waiting o
 second one. Every run stops at the glossary review: names are cheaper to fix before a translation.
 """
 
+import threading
 import uuid
 from typing import Optional
 
@@ -18,6 +19,8 @@ _ACTIVE = (q.WAITING, q.RUNNING)
 _STOPPED = (q.FAILED, q.SKIPPED, q.INTERRUPTED, q.CANCELLED)
 _NOVEL = "novel"
 _FILE = "file"
+# The "already running" check and the append are two steps; without this two starts at once both pass the check.
+_after_import_start = threading.Lock()
 
 
 def _glossary_status(drama_id: int, source: str) -> str:
@@ -275,8 +278,16 @@ def start_after_import(principal, drama_id: int, engine: str, lines: Optional[di
                        follow_import: bool = True) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one
     Scanlate run over the pages still untranslated. A novel with no lines yet gets text, lines,
-    names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits for the import job, so a failed
-    import stops the rest; `follow_import` is False for a phone save, which has no import job. The caller checks every engine against the paid-engine permission."""
+    names and a translation; `lines` is the lines step's settings (lines_choice). The first step waits
+    for the import job, so a failed import stops the rest; `follow_import` is False for a phone save,
+    which has no import job. The caller checks every engine against the paid-engine permission."""
+    with _after_import_start:
+        return _start_after_import_locked(principal, drama_id, engine, lines, at_pc=at_pc, model=model,
+                                          names=names, follow_import=follow_import)
+
+
+def _start_after_import_locked(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
+                               model: Optional[str], names: Optional[dict], follow_import: bool) -> dict:
     from services import sources_import_service
     kind = after_import_kind(principal, drama_id)
     view = after_import_run(principal, drama_id)

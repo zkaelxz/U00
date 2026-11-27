@@ -962,3 +962,27 @@ class TestTitleTranslate:
         assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 200
         again = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
         assert again.status_code == 200 and again.json()["state"] in ("waiting", "running")
+
+    def test_two_starts_at_once_queue_one_chain(self, isolated_db, monkeypatch):
+        import threading
+        from services import page_run_service, paid_job_service
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, _ = self._phone("a@example.com")
+        principal = dict(user_id=u["id"], is_admin=False,
+                         permissions=auth_service.effective_permissions(u["id"]))
+        did = db.create_drama(title_en="Novel", media_type="novel", owner_user_id=u["id"])
+        outcomes = []
+
+        def start():
+            try:
+                page_run_service.start_after_import(principal, did, "gemini", {}, at_pc=False, follow_import=False)
+                outcomes.append("ok")
+            except Exception as e:
+                outcomes.append(type(e).__name__)
+        threads = [threading.Thread(target=start) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        chains = {i["chain"] for i in page_run_service._title_items(principal, did)}
+        assert len(chains) == 1, outcomes
