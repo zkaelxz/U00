@@ -1,6 +1,6 @@
 # Navigation proposal: left menu, Ctrl+K palette and Jobs table
 
-Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner answers"). The rest of this file is the original proposal, written when nothing was built, so read it with the build status below. Status re-checked 2026-10-13 against `frontend/src/nav`, `frontend/src/router.ts` and `git log` at bfad0c8.
+Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner answers"). The rest of this file is the original proposal, written when nothing was built, so read it with the build status below. Status re-checked 2026-10-13 against `frontend/src/nav`, `frontend/src/router.ts` and `git log` at 887d1c7.
 
 | Step or decision | Built? | Where |
 |---|---|---|
@@ -20,7 +20,7 @@ Status: partly built; the owner approved section 5 on 2026-10-05 (see "Owner ans
 | Rail collapsed by default below 1280 px | Replaced by the floating dock (icons at rest, opens on hover), shown from 600 px | `nav/SideNav.tsx` |
 
 The other decisions (D1-D3, D5, D7, D8, D10-D12) were not checked one by one here.
-Written 2026-10-05 against `baihe-subtitler` at 611e69e. Every code claim below was read in `frontend/src`, `services/` or `api/` on that commit; where a doc and the code disagree, the code wins and the doc is named.
+Written 2026-10-05 against `baihe-subtitler` at 1b26a52. Every code claim below was read in `frontend/src`, `services/` or `api/` on that commit; where a doc and the code disagree, the code wins and the doc is named.
 
 ## 0. What was recovered, and what was not
 
