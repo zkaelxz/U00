@@ -254,3 +254,70 @@ def make_cover_if_missing(drama_id: int) -> bool:
         return True
     except Exception:
         return False
+
+
+def make_cover_from_first_page(drama_id: int, only_if_missing: bool = False) -> dict:
+    """Sets the cover from the first visible page of a comic title. Goes through save_cover, so
+    the page is re-encoded with no metadata like an upload."""
+    _require_drama(drama_id)
+    from services import comic_view_service
+    from comic_chapters import load as load_manifest
+    hidden = set(load_manifest(drama_id)["hidden"])
+    for page in db.list_pages(drama_id):
+        if page.get("filename") in hidden:
+            continue
+        found = comic_view_service.safe_file(drama_id, page.get("filename"))
+        if found is None:
+            continue
+        with open(found[0], "rb") as f:
+            return save_cover(drama_id, f, only_if_missing=only_if_missing)
+    raise InvalidInputError("This title has no page to take a cover from.")
+
+
+def cover_referer(cover_url: str, page_url: str) -> str:
+    """The page address for a picture on the page's own host; only its origin for another host,
+    as a browser sends, so a CDN never sees the chapter's path or query."""
+    from urllib.parse import urlsplit
+    cover, page = urlsplit(cover_url), urlsplit(page_url)
+    if not page.scheme or not page.hostname:
+        return ""
+    return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
+
+
+def fetch_site_cover(drama_id: int, cover_url: str, page_url: str) -> bool:
+    """Best-effort cover from a picture a site shows for the series. lib.http checks every hop is a
+    public address and save_cover re-encodes the bytes, so only a clean image is kept."""
+    if not cover_url:
+        return False
+    from services import quick_read_fetch
+    try:
+        data, _reason = quick_read_fetch.fetch_one(
+            cover_url, {"referer": cover_referer(cover_url, page_url or "")}, MAX_COVER_BYTES)
+        if data:
+            save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def fill_missing_cover(drama_id: int, cover_url: str = "", page_url: str = "",
+                       from_network: bool = True) -> bool:
+    """Best-effort cover for a title that has none, from the nearest picture: the site's own for
+    the series, then a frame of the title's video, then page one of a comic. Never replaces a
+    cover and never raises: a missing picture must not fail an import or a library pass. True only
+    when this call set the cover."""
+    try:
+        if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+            return False
+        if from_network and fetch_site_cover(drama_id, cover_url, page_url):
+            return True
+        for make in (make_cover_from_video, make_cover_from_first_page):
+            try:
+                make(drama_id, only_if_missing=True)
+                return True
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return False

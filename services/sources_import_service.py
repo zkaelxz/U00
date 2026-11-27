@@ -77,7 +77,7 @@ import background_jobs
 import comic_chapters
 import db
 from engine_backends import shared as engine_shared
-from services import drama_service, ownership_service
+from services import cover_art_service, drama_service, ownership_service
 import page_import_limits as limits
 from services import sources_extraction_service as extraction
 from lib.errors import (ConflictError, DependencyUnavailableError,
@@ -276,6 +276,19 @@ def _series_page_url(name: str, series_id: str) -> str:
     return ""
 
 
+def _fill_cover(adapter, series_id: str, drama_id: int) -> None:
+    """A title pulled from a source gets the picture the site shows for the series, else page one.
+    A cover the person already set is never replaced, and nothing here may fail the import."""
+    try:
+        if (db.get_drama(drama_id) or {}).get("cover_art_filename"):
+            return
+        info = adapter.get_series(series_id) if adapter.supports("get_series") else None
+        cover_art_service.fill_missing_cover(drama_id, getattr(info, "cover_url", "") or "",
+                                             getattr(info, "url", "") or "")
+    except Exception:
+        pass
+
+
 def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: list,
                         drama_id: int, local: bool = True):
     cancel_check = lambda: background_jobs.is_cancel_requested(job_id)  # noqa: E731
@@ -319,6 +332,12 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
                        _chapter_outcomes(raw, wanted, [], skip=skip, crashed=True))
         raise
     raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
+    # Not after a cancel or an import that brought in nothing: the series page is a network call the
+    # person did not ask for then.
+    imported = any(c["outcome"] == "imported" for c in _chapter_outcomes(raw, wanted, [], skip=skip))
+    if imported and not raw.get("cancelled"):
+        background_jobs.update_progress(job_id, 0.99, "Getting the cover...")
+        _fill_cover(adapter, series_id, drama_id)
     chapters = _chapter_outcomes(raw, wanted, [c for c in chapter_ids if c not in by_id])
     handoff = None
     if raw.get("handoff"):
@@ -738,6 +757,7 @@ def _import_with_adapter(job_id: str, found, url: str, drama_id: int) -> bool:
     n, skipped, present = extraction.write_pages(drama_id, items, job_id, chapter=ref)
     if n:
         drama_service.set_source_url_once(drama_id, url)
+        cover_art_service.fill_missing_cover(drama_id, from_network=False)
     background_jobs.set_result(job_id, _comic_result(False, n, skipped, already_present=present))
     return True
 
@@ -785,6 +805,7 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                                  job_id, chapter=chapter)
     if n:
         drama_service.set_source_url_once(drama_id, url)
+        cover_art_service.fill_missing_cover(drama_id, from_network=False)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected),
                                                      already_present=present))
 
