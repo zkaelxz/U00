@@ -222,7 +222,7 @@ class TestEveryRouteDeclared:
                                         f.read_text(), re.M))
                          for f in routers.glob("*.py"))
         walked = [r for r, p, _m, _d in api_auth.iter_route_declarations(app)
-                  if p.startswith("/api/") and p not in DOCS_PATHS]
+                  if p.startswith(("/api/", "/private/")) and p not in DOCS_PATHS]
         assert len(walked) == decorators
 
     def test_checker_catches_undeclared_and_double_declared_routes(self):

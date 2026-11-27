@@ -42,8 +42,8 @@ DATA_FOLDER_ENTRIES = {"library", ".env", "model_cache", "launcher", "desktop.in
 # (android_app_service.FOLDER_NAME), the downloaded ffmpeg (app_tools.FOLDER_NAME) and the
 # synced browser-extension folder (extension_service.synced_folder). Kept apart from the
 # list above, which Settings > Disk usage also reads as "may be cleared".
-APP_STATE_ENTRIES = frozenset({"android", "browser-extension", "pending_install", "playwright_browsers", "saved_comics",
-                               "tools", "voice_engines", "vtuber_names.json"})
+APP_STATE_ENTRIES = frozenset({"android", "browser-extension", "pending_install", "playwright_browsers", "private-pages",
+                               "saved_comics", "tools", "voice_engines", "vtuber_names.json"})
 
 
 # Copies a restore or Reset library keeps beside library\ (deleted from

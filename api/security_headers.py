@@ -41,6 +41,16 @@ READER_PAGE_HEADERS = (
     ("X-Content-Type-Options", "nosniff"),
     ("Cache-Control", "no-store"),
 )
+# A grading page opened from private-pages: the Reader page's policy, plus
+# downloads so a page can save its own results file.
+PRIVATE_PAGE_CSP = READER_PAGE_CSP.replace("sandbox allow-scripts", "sandbox allow-scripts allow-downloads")
+PRIVATE_PAGE_HEADERS = (
+    ("Content-Security-Policy", PRIVATE_PAGE_CSP),
+    ("X-Frame-Options", "DENY"),
+    ("X-Content-Type-Options", "nosniff"),
+    ("Cache-Control", "no-store"),
+    ("Pragma", "no-cache"),
+)
 # The PC listener gets only the anti-framing part: the household CSP's
 # frame-src and script rules were never checked against the PC-only pages.
 ADMIN_SECURITY_HEADERS = (
