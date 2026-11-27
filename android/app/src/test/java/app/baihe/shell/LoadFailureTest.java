@@ -20,8 +20,8 @@ public class LoadFailureTest {
 
     @Test
     public void quietRetriesBackOffThenStop() {
-        assertEquals(1500, LoadFailure.retryDelayMs(0));
-        assertEquals(4000, LoadFailure.retryDelayMs(1));
+        assertEquals(2000, LoadFailure.retryDelayMs(0));
+        assertEquals(5000, LoadFailure.retryDelayMs(1));
         assertEquals(-1, LoadFailure.retryDelayMs(LoadFailure.AUTO_RETRIES));
         assertEquals(-1, LoadFailure.retryDelayMs(-1));
     }

@@ -44,6 +44,8 @@ public class MainActivity extends Activity {
     private WebView web;
     /** Covers the WebView when the page could not load, so Android's raw error page is never shown. */
     private View failureView;
+    private TextView failureMessage;
+    private Button failureRetry;
     private boolean loadFailed;
     private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -291,11 +293,12 @@ public class MainActivity extends Activity {
 
     private View failureScreen(GrabUi.Palette palette) {
         TextView message = new TextView(this);
-        message.setText("Can't reach Baihe right now.\nYour PC may be restarting or the connection dropped.");
+        failureMessage = message;
         message.setTextColor(palette.text);
         message.setTextSize(16);
         message.setGravity(android.view.Gravity.CENTER);
         Button retry = new Button(this);
+        failureRetry = retry;
         retry.setText("Retry");
         retry.setOnClickListener(v -> {
             autoRetries = 0;
@@ -319,6 +322,11 @@ public class MainActivity extends Activity {
         if (failureView == null) return;
         failureView.setVisibility(View.VISIBLE);
         long delay = LoadFailure.retryDelayMs(autoRetries);
+        // While quiet retries remain it reads as a wait, not a failure: the PC may just be busy.
+        failureMessage.setText(delay < 0
+                ? "Can't reach Baihe right now.\nYour PC may be busy or restarting."
+                : "Connecting to Baihe…\nThe PC is taking longer than usual.");
+        failureRetry.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
         if (delay < 0) return;
         autoRetries++;
         web.postDelayed(() -> {
