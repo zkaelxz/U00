@@ -33,6 +33,7 @@ import java.security.SecureRandom;
 public class MainActivity extends Activity {
     private static final String PREFS = "baihe";
     private static final String PAGE_DARK = "page_dark";
+    private static final String PAGE_SEPIA = "page_sepia";
     private static final String ADDRESS = "address";
     private static final String SIGN_IN_VERIFIER = "sign_in_verifier";
     private static final String SIGN_IN_STARTED = "sign_in_started";
@@ -224,8 +225,8 @@ public class MainActivity extends Activity {
             }
 
             @Override
-            public void themeChanged(boolean dark) {
-                runOnUiThread(() -> followPageTheme(dark));
+            public void themeChanged(boolean dark, boolean sepia) {
+                runOnUiThread(() -> followPageTheme(dark, sepia));
             }
 
             @Override
@@ -337,14 +338,14 @@ public class MainActivity extends Activity {
 
     /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
     private GrabUi.Palette palette() {
-        SharedPreferences p = prefs();
-        return p.contains(PAGE_DARK) ? new GrabUi.Palette(p.getBoolean(PAGE_DARK, false)) : GrabUi.Palette.of(this);
+        return GrabUi.Palette.saved(this);
     }
 
-    private void followPageTheme(boolean dark) {
+    private void followPageTheme(boolean dark, boolean sepia) {
         SharedPreferences p = prefs();
-        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark) return;
-        p.edit().putBoolean(PAGE_DARK, dark).apply();
+        if (p.contains(PAGE_DARK) && p.getBoolean(PAGE_DARK, false) == dark
+                && p.getBoolean(PAGE_SEPIA, false) == sepia) return;
+        p.edit().putBoolean(PAGE_DARK, dark).putBoolean(PAGE_SEPIA, sepia).apply();
         // While a video is full screen the strip is not on screen; page() reads the saved value on the way back.
         if (customView != null || web == null) return;
         setContentView(page());

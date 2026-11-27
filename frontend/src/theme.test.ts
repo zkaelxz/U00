@@ -147,4 +147,14 @@ describe('reportShellTheme', () => {
     reportShellTheme('system')
     expect(setDark.mock.calls.map((c) => c[0])).toEqual([false, true, false, true])
   })
+
+  it('sends the look by name to an app build that has setLook, so sepia reaches the top bar', () => {
+    const setLook = vi.fn()
+    const setDark = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => false, set: () => {}, setLook, setDark } })
+    reportShellTheme('sepia')
+    reportShellTheme('oled')
+    expect(setLook.mock.calls.map((c) => c[0])).toEqual(['sepia', 'oled'])
+    expect(setDark).not.toHaveBeenCalled()
+  })
 })
