@@ -60,6 +60,7 @@ import { filterElsewhere, filterSettings, PC_ONLY_CARDS, SETTINGS_INDEX, SETTING
 import { CardChangesProvider, FoldControls, FoldSignalsProvider, SettingsCard, SettingsSearch, VisibleCardsProvider, type FoldSignals } from './settings/SettingsSearch'
 import { useSettingsChanges } from './settings/settingsChanges'
 import { Tabs } from '../components/Tabs'
+import { SidePane } from '../components/SidePane'
 import { seedPageTabFolds } from '../components/sectionStorage'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import './settings/settings.css'
@@ -290,6 +291,18 @@ export default function SettingsPage() {
         settings.gpu_limit_enabled ? `${settings.gpu_max_parallel} GPU job${settings.gpu_max_parallel === 1 ? '' : 's'} at once` : 'no GPU job limit'
       }`
     : undefined
+  // While an admin's settings are still loading only two of the sections are known; drawing that short list
+  // first would swap it for the full one a moment later.
+  const sectionList = visibleTabs.length > 1 && (loaded || !readsSettings || settingsRefused || loadError != null) && (
+    <Tabs
+      side
+      label="Settings"
+      idPrefix="settings"
+      tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
+      active={active}
+      onSelect={setStoredTab}
+    />
+  )
   // The public address check and the household's accounts live on the People and access page.
   return (
     <PageShell
@@ -301,19 +314,8 @@ export default function SettingsPage() {
       actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
       tabs={(
         <>
-          {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
           <div className="settings-tabrow">
-            {/* While an admin's settings are still loading only two of the tabs are known; drawing that
-                short row first would swap it for the full one a moment later. */}
-            {visibleTabs.length > 1 && (loaded || !readsSettings || settingsRefused || loadError != null) && (
-              <Tabs
-                label="Settings"
-                idPrefix="settings"
-                tabs={visibleTabs.map((t) => ({ id: t.id, label: t.label, count: searching ? match.counts[t.id] : undefined }))}
-                active={active}
-                onSelect={setStoredTab}
-              />
-            )}
+            {loaded && <SettingsSearch query={query} onQuery={setQuery} total={searching ? match.total : null} />}
             <FoldControls onExpand={() => foldAll('expand')} onCollapse={() => foldAll('collapse')} />
           </div>
         </>
@@ -333,6 +335,7 @@ export default function SettingsPage() {
           </ul>
         </nav>
       )}
+      <SidePane nav={sectionList}>
       <CardChangesProvider value={cardChanges}>
       <FoldSignalsProvider value={signals}>
       <VisibleCardsProvider value={searching ? match.cardIds : null}>
@@ -441,6 +444,7 @@ export default function SettingsPage() {
       </VisibleCardsProvider>
       </FoldSignalsProvider>
       </CardChangesProvider>
+      </SidePane>
     </PageShell>
   )
 }

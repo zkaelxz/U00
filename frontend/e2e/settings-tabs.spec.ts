@@ -16,6 +16,9 @@ test('seven tabs, the choice survives a reload, and arrow keys move between them
   await page.keyboard.press('ArrowRight')
   await expect(tab(page, 'Costs')).toHaveAttribute('aria-selected', 'true')
   await expect(tab(page, 'Costs')).toBeFocused()
+  // The sections are a list down the side, so Down moves on too.
+  await page.keyboard.press('ArrowDown')
+  await expect(tab(page, 'Transcription and jobs')).toHaveAttribute('aria-selected', 'true')
   await page.keyboard.press('End')
   await expect(tab(page, 'Advanced')).toHaveAttribute('aria-selected', 'true')
   await page.reload()
