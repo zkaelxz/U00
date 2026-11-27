@@ -317,27 +317,38 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     /** Until a page opens the web view is a black rectangle, so the supported sites are listed there instead. */
     private void showSites() {
         String saved = prefs().getString(GrabSites.KEY_SITES, "");
-        drawSites(GrabBookmarks.parse(saved));
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
-        if (server.isEmpty() || token.isEmpty()) return;
+        boolean setUp = !server.isEmpty() && !token.isEmpty();
+        drawSites(GrabBookmarks.parse(saved), setUp ? SITES_LOADING : SITES_NOT_SET_UP);
+        if (!setUp) return;
         sender.execute(() -> {
             try {
                 List<GrabBookmarks.Mark> fresh = new BaiheClient(server, token).sites();
-                if (fresh.isEmpty()) return;
+                if (fresh.isEmpty()) {
+                    if (saved.isEmpty()) runOnUiThread(() -> drawSites(fresh, SITES_EMPTY));
+                    return;
+                }
                 prefs().edit().putString(GrabSites.KEY_SITES, GrabBookmarks.serialize(fresh)).apply();
-                runOnUiThread(() -> drawSites(fresh));
+                runOnUiThread(() -> drawSites(fresh, SITES_EMPTY));
             } catch (BaiheClient.BridgeException e) {
-                // The saved list stays; the grab buttons report connection problems themselves.
+                // The saved list stays; with none saved, say why instead of showing a bare empty list.
+                if (saved.isEmpty()) runOnUiThread(() -> drawSites(new ArrayList<>(), SITES_UNREACHABLE));
             }
         });
     }
 
-    private void drawSites(List<GrabBookmarks.Mark> sites) {
+    private static final String SITES_NOT_SET_UP =
+            "Enter a comic site address above, or set up Grab in Settings to see the sites Baihe supports.";
+    private static final String SITES_LOADING = "Loading the list from your PC…";
+    private static final String SITES_EMPTY = "Your PC has no sites to list yet. Enter a comic site address above.";
+    // An older server has no /sites route, so a build of the app ahead of the PC lands here.
+    private static final String SITES_UNREACHABLE = "Couldn't load the list from your PC: it may be off, or need updating "
+            + "to a newer Baihe. You can still enter a comic site address above.";
+
+    private void drawSites(List<GrabBookmarks.Mark> sites, String emptyNote) {
         sitesHolder.removeAllViews();
-        sitesHolder.addView(GrabSites.panel(this, palette, sites,
-                "Enter a comic site address above, or set up Grab in Settings to see the sites Baihe supports.",
-                url -> web.loadUrl(url)));
+        sitesHolder.addView(GrabSites.panel(this, palette, sites, emptyNote, url -> web.loadUrl(url)));
     }
 
     @Override
