@@ -639,6 +639,16 @@ class TestScatteredLinesGetTheirOwnNeighbours:
         assert engine.calls[0]["recent_context"] == [("l3", "E3"), ("l4", "E4")]
         assert engine.calls[0]["upcoming_lines"] == ["l8"]
 
+    def test_a_later_contiguous_batch_does_not_keep_the_scattered_ones_neighbours(self):
+        lines = self._lines(30)
+        lines[9].en = ""
+        engine = ContextCapturingEngine()
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=2, context_window=3, context_window_ahead=0,
+            force_retranslate=True, target_ids={102, 110, 120, 121})
+        assert engine.calls[0]["upcoming_lines"] == ["l9"]
+        assert engine.calls[1]["zh_lines"] == ["l20", "l21"] and engine.calls[1]["upcoming_lines"] == []
+
     def test_zero_windows_still_mean_no_context(self):
         engine = ContextCapturingEngine()
         translate_pipeline.translate_lines_with_engine(

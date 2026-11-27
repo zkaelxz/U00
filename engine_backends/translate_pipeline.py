@@ -622,7 +622,8 @@ class _TranslateRun:
             self.lines, batch, self.args.context_window, self.args.context_window_ahead)
         if self.args.context_window > 0:
             self.context["recent_context"] = recent
-        if self.args.context_window_ahead > 0 or around:
+        # Also when empty after an "around" batch, which may have set source-only neighbours.
+        if self.args.context_window_ahead > 0 or around or self.context.get("upcoming_lines"):
             self.context["upcoming_lines"] = upcoming
         self.context["context_around"] = around
 

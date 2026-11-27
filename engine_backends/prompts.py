@@ -336,7 +336,8 @@ def build_batch_context(recent_context=None, upcoming_lines=None, recent_as_data
     if upcoming_lines and around:
         parts.append(
             "Untranslated lines near this batch, in the original language and in story "
-            "order (for context only). Do NOT translate these here:\n"
+            "order (for context only -- a line that ends on an unresolved thought or a "
+            "cliffhanger may need this to translate correctly). Do NOT translate these here:\n"
             + "\n".join(f"- {t}" for t in upcoming_lines) + "\n")
     elif upcoming_lines:
         parts.append(
