@@ -333,7 +333,7 @@ def _start():
     ctx = multiprocessing.get_context("spawn")
     parent_conn, child_conn = ctx.Pipe()
     threads = max(1, (os.cpu_count() or 2) // 2)
-    process = ctx.Process(target=_child_main, args=(child_conn, threads),
+    process = ctx.Process(target=_child_main, args=(child_conn, threads, time.time()),
                           name="baihe-ocr-worker", daemon=True)
     process.start()
     child_conn.close()
@@ -372,7 +372,7 @@ def _inline_engines() -> dict:
     return engines
 
 
-def _child_main(conn, threads: int) -> None:
+def _child_main(conn, threads: int, spawned_at: float | None = None) -> None:
     # Before numpy, cv2 or torch load, since they read these once.
     for name in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
         os.environ[name] = str(threads)
@@ -381,6 +381,12 @@ def _child_main(conn, threads: int) -> None:
     idle_exit = IDLE_EXIT_SECONDS
     last = time.monotonic()
     lowered = False
+
+    def since_spawn() -> str:
+        return "" if spawned_at is None else f"{time.time() - spawned_at:.1f} s after it was spawned"
+
+    # The first start's steps are logged so a slow one shows which step it was (the child has its own log handle).
+    _log(f"Text reader helper: running, {since_spawn()}")
     while True:
         if conn.poll(_PARENT_CHECK_SECONDS):
             try:
@@ -389,6 +395,8 @@ def _child_main(conn, threads: int) -> None:
                 return
             if message[0] == "stop":
                 return
+            if not lowered:
+                _log(f"Text reader helper: first request received, {since_spawn()}")
             if message[0] == "load":
                 idle_exit = message[3]
                 conn.send(_load_gpu_engine(engines, message[1], message[2], threads))
@@ -396,6 +404,7 @@ def _child_main(conn, threads: int) -> None:
                 conn.send(_serve(engines, *message[1:]))
             last = time.monotonic()
             if not lowered:
+                _log(f"Text reader helper: first answer sent, {since_spawn()}")
                 # Only once its first answer is out: the load is what pages wait on, so it must not queue
                 # behind them for the CPU; the steady-state reads then stay out of the app's way.
                 _lower_priority()
