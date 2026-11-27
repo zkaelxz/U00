@@ -75,6 +75,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     @SuppressLint({"SetJavaScriptEnabled", "AddJavascriptInterface"})
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         bridge = new GrabBridge(this);
         // Pages left by a Quick read that was cut off (the app was killed) are not kept.
