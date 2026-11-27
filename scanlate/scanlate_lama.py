@@ -251,7 +251,8 @@ def _lama_on_gpu(generator, pixels: int, torch):
 def _generate(generator, tensor, torch):
     """The generator's output for `tensor`, on the GPU when it fits there (see _lama_on_gpu),
     as a CPU tensor either way."""
-    with torch.no_grad():
+    import vram
+    with torch.no_grad(), vram.comic_gpu_use():
         try:
             gpu = _lama_on_gpu(generator, tensor.shape[-2] * tensor.shape[-1], torch)
             if gpu is not None:
