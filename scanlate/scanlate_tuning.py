@@ -117,6 +117,8 @@ CLASSIFY_DARK_GRAY = 130
 CLASSIFY_DARK_BALLOON_MIN_SHARE = 0.5
 CLASSIFY_DARK_BALLOON_MAX_SPREAD = 13
 CLASSIFY_DARK_BALLOON_LIGHT_SHARE = (0.08, 0.27)
+# Black is not a balloon's tone: white lettering on a black panel is a sound effect or a caption.
+CLASSIFY_DARK_BALLOON_MIN_TONE = 60
 # Lettering on dark, busy art is first guessed to be a sound effect. Once it
 # is read, a sound effect is a few big characters: more characters than this,
 # or more lines, is a caption or sign on the art and is translated like one.

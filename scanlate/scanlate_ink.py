@@ -3,6 +3,7 @@
 import numpy as np
 from PIL import Image
 
+from scanlate.scanlate_balloons import is_flat_dark_balloon
 from scanlate.scanlate_inpaint import background_is_dark
 
 
@@ -163,12 +164,6 @@ def _sampled_inks(page, regions: list, match_color: bool):
     return [fade[0] if fade else ink for ink, fade in zip(inks, fades)], fades
 
 
-# A dark balloon with a pale margin round it has a median just above the dark cut-off, so the
-# share of dark pixels decides too.
-_DARK_GRAY = 120
-_DARK_SHARE = 0.5
-
-
 def _text_fill(pil_img, box: dict, sampled=None):
     """The hand-set colour if any, then the colour sampled from the original lettering
     (when the person turned that on); else white lettering on a dark balloon,
@@ -180,6 +175,6 @@ def _text_fill(pil_img, box: dict, sampled=None):
         return sampled
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
-    if roi.size and (background_is_dark(roi) or float((roi < _DARK_GRAY).mean()) >= _DARK_SHARE):
+    if roi.size and (background_is_dark(roi) or is_flat_dark_balloon(roi)):
         return (255, 255, 255)
     return (0, 0, 0)
