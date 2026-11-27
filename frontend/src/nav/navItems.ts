@@ -93,8 +93,6 @@ export const NAV_ITEMS: NavItem[] = [
     badge: 'running-jobs',
     rail: { group: 'system', active: ['jobs'] },
   }),
-  // A member sees only My account and look here, which needs library.read.
-  item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
   item('People and access', { name: 'admin' }, {
     requires: 'admin.users.read',
     advanced: true,
@@ -116,6 +114,8 @@ export const NAV_ITEMS: NavItem[] = [
   }),
   // The Assistant's routes are local_only(); the page also waits for Developer Mode.
   item('Assistant', { name: 'assistant' }, { pcOnly: true, developerMode: true, advanced: true, rail: { group: 'system', active: ['assistant'] } }),
+  // Last in System so the admin pages sit together above it. A member sees only My account and look here, which needs library.read.
+  item('Settings', { name: 'settings' }, { requires: 'library.read', rail: { group: 'system', active: ['settings'] } }),
 ]
 
 export interface NavContext {
