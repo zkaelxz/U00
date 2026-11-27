@@ -227,9 +227,6 @@ def _start_cover_fetch(drama_id: int, cover_url: str, page_url: str) -> None:
         _cover_slot.release()
 
 
-_cover_referer = cover_art_service.cover_referer
-
-
 def _save_cover_from(drama_id: int, cover_url: str, page_url: str) -> None:
     """Never raises: a missing picture must not fail anything."""
     try:

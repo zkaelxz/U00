@@ -332,7 +332,12 @@ def _chapter_import_job(job_id: str, name: str, series_id: str, chapter_ids: lis
                        _chapter_outcomes(raw, wanted, [], skip=skip, crashed=True))
         raise
     raw = (background_jobs.get_status(job_id) or {}).get("result") or {}
-    _fill_cover(adapter, series_id, drama_id)
+    # Not after a cancel or an import that brought in nothing: the series page is a network call the
+    # person did not ask for then.
+    imported = any(c["outcome"] == "imported" for c in _chapter_outcomes(raw, wanted, [], skip=skip))
+    if imported and not raw.get("cancelled"):
+        background_jobs.update_progress(job_id, 0.99, "Getting the cover...")
+        _fill_cover(adapter, series_id, drama_id)
     chapters = _chapter_outcomes(raw, wanted, [c for c in chapter_ids if c not in by_id])
     handoff = None
     if raw.get("handoff"):
