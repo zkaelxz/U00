@@ -1,4 +1,4 @@
-/* Maintenance assistant: a stack of Cards like Settings. Tokens only. */
+/* Maintenance assistant: plain sections on three tabs. Tokens only. */
 .assistant-page .setting-list { margin: 0; }
 .assistant-page code { font-family: var(--font-mono); font-size: var(--text-sm); overflow-wrap: anywhere; }
 
@@ -39,7 +39,8 @@
 .assistant-suggestion-text { flex: 1 1 12rem; min-width: 0; overflow-wrap: anywhere; }
 .assistant-suggestion .error { flex-basis: 100%; margin: 0; }
 
-.assistant-ask { display: grid; gap: var(--space-3); }
+/* The question box stays in reach at the foot of the screen while a long chat scrolls past. */
+.assistant-ask { display: grid; gap: var(--space-3); position: sticky; bottom: 0; z-index: 1; padding-block: var(--space-2); background: var(--bg); border-top: 1px solid var(--border); }
 .assistant-ask textarea { width: 100%; }
 .assistant-actions { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; }
 .assistant-engine { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
