@@ -627,6 +627,9 @@ def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
     started = time.monotonic()
+    # Pages of one chapter arrive in several requests at once; the locks serve the earliest page first
+    # so the one the reader waits on is not passed over by later ones.
+    page_turns.set_priority(None if job["store"] else page_turns.page_priority(image["key"]))
     cached = image.get("cached_result")
     cache_key = None
     if cached is None:
@@ -709,6 +712,7 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
                     on_page(outcome[1])
         finally:
             order.finish(index)
+            page_turns.set_priority(None)   # a reused request thread must not keep this page's place
             quick_read_runs.page_finished(job["run_id"])
 
     if len(decoded) == 1:

@@ -121,11 +121,11 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 # actually serve.
 ALLOWED_TEXT_LANGUAGES = {"zh", "ja", "ko", "en"}
 
-PIPELINE_LOCK = threading.Lock()
+PIPELINE_LOCK = page_turns.FairLock()
 # Overlay redraws (erase + letter) take turns on this lock rather than PIPELINE_LOCK, so the next
 # page is read while the last one is redrawn. The eraser is the one model the redraw loads, and
 # scanlate_lama locks its own load and run.
-TYPESET_LOCK = threading.Lock()
+TYPESET_LOCK = page_turns.FairLock()
 
 _server_lock = threading.Lock()
 _server_started = False

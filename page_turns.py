@@ -31,6 +31,8 @@ page's previous-page context are what a one-at-a-time loop gave.
 
 import contextlib
 import hashlib
+import itertools
+import heapq
 import threading
 import time
 from collections import OrderedDict
@@ -361,3 +363,67 @@ class _PageTurn:
             yield
         finally:
             self._order._translated[self._index].set()
+
+
+class FairLock:
+    """A lock that hands itself to the waiter with the lowest priority, then to the earliest.
+    A plain `threading.Lock` picks any waiter, so with several batches of one Quick read at the
+    door the page the reader is waiting for could be passed over again and again while later
+    pages finished and were held back. Priorities are tuples; without one the thread's own
+    (`set_priority`) or (0, 0) is used, so callers that know nothing of priorities queue in order."""
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._held = False
+        self._waiting: list = []
+        self._seq = itertools.count()
+
+    def acquire(self, blocking: bool = True, timeout: float = -1, priority=None) -> bool:
+        """Like threading.Lock.acquire (cancellable_lock polls it with a timeout), plus a priority."""
+        if priority is None:
+            priority = getattr(_priority, "value", None) or (0, 0)
+        ticket = (priority, next(self._seq))
+        deadline = None if not blocking else (time.monotonic() + timeout if timeout >= 0 else None)
+        with self._cond:
+            heapq.heappush(self._waiting, ticket)
+            while self._held or self._waiting[0] != ticket:
+                remaining = None if deadline is None else deadline - time.monotonic()
+                if not blocking or (remaining is not None and remaining <= 0):
+                    self._waiting.remove(ticket)
+                    heapq.heapify(self._waiting)
+                    self._cond.notify_all()
+                    return False
+                self._cond.wait(remaining)
+            heapq.heappop(self._waiting)
+            self._held = True
+        return True
+
+    def release(self) -> None:
+        with self._cond:
+            self._held = False
+            self._cond.notify_all()
+
+    def locked(self) -> bool:
+        return self._held
+
+    def __enter__(self):
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc):
+        self.release()
+
+
+_priority = threading.local()
+
+
+def set_priority(value) -> None:
+    """This thread's place in every FairLock queue from now on (None clears it)."""
+    _priority.value = value
+
+
+def page_priority(key: str) -> tuple:
+    """Quick read's place for the picture called `key` ("p25"): after anything that names none,
+    and among Quick read pages in page order."""
+    digits = "".join(ch for ch in str(key or "") if ch.isdigit())
+    return (1, int(digits) if digits else 0)
