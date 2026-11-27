@@ -118,10 +118,20 @@ class TestValidation:
         ({"entries": [{"source": "a", "en": {"x": "b"}}]}, "one rendering for each style"),
         ({"styles": {"default": "z", "options": {"x": "X"}}}, "not one of its options"),
         ({"entries": [{"source": "a", "en": "b" * 500}]}, "longer than"),
+        ({"entries": [{"source": "a", "en": "b", "link": "http://example.com/a/"}]}, "'link'"),
+        ({"entries": [{"source": "a", "en": "b", "link": "https://example.com/a/?q=1"}]}, "'link'"),
     ])
     def test_errors_name_the_problem(self, change, message):
         with pytest.raises(lp.PackError, match=message):
             lp.validate_pack(_pack(**change), "f.json")
+
+    def test_a_link_is_kept_for_people_and_left_out_of_the_prompt(self, monkeypatch):
+        pack = lp.validate_pack(_pack(entries=[{"source": "先輩", "en": "senpai",
+                                                "link": "https://example.com/senpai/"}]), "f.json")
+        assert pack["entries"][0]["link"] == "https://example.com/senpai/"
+        monkeypatch.setattr(lp, "_cache", {"t-pack": pack})
+        found = lp.matching_entries({"t-pack": None}, "先輩")
+        assert "link" not in found[0] and "example.com" not in lp.build_pack_block(found)
 
     def test_non_object_is_refused(self):
         with pytest.raises(lp.PackError, match="one JSON object"):

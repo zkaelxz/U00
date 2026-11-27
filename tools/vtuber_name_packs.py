@@ -1,0 +1,341 @@
+"""Builds the VTuber name entries of the built-in language packs from Hololist profiles.
+
+    python tools/vtuber_name_packs.py fetch --cache DIR [--refresh-max N]
+    python tools/vtuber_name_packs.py build --cache DIR [--review FILE]
+
+`fetch` keeps a resumable cache of the public profile fields a names glossary needs
+(DIR/profiles.jsonl); birthdays, heights, likes and the site's own prose are not kept.
+A run fetches every profile it has not seen, then re-checks up to N of the oldest ones,
+so a weekly run picks up new debuts and renames without re-reading the whole site.
+Hololist's robots.txt disallows URLs with a query string, so only plain paths are read,
+one request every few seconds.
+
+`build` turns the cache into entries of language_pack_data/{ja,zh}-vtuber-names.json. Entries
+without a `link` are hand-written and kept as they are; the generated ones are replaced.
+A name or nickname that is also an ordinary word, a single character, or used by two
+VTubers is held back and listed in the review file instead, because packs match by plain
+substring. tools/vtuber_name_overrides.json is applied last, so a hand fix survives every
+rebuild.
+
+Needs `requests`, `opencc-python-reimplemented` and `wordfreq` (build only).
+"""
+import argparse
+import html
+import json
+import math
+import re
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+PACK_DIR = REPO_ROOT / "language_pack_data"
+OVERRIDES = Path(__file__).resolve().parent / "vtuber_name_overrides.json"
+SITE = "https://hololist.net"
+# Hololist country categories and the pack language whose streams name them.
+CATEGORIES = {"jp": "ja", "tw": "zh", "cn": "zh", "hk": "zh"}
+PLATFORMS = ("youtube.com", "youtu.be", "twitch.tv", "bilibili.com", "b23.tv")
+DELAY_SECONDS = 2.5
+REFRESH_AFTER_DAYS = 28
+# A Zipf frequency (log10 per billion words) at or above this marks an ordinary word.
+COMMON_WORD_ZIPF = 2.5
+NAV_SLUGS = {"about", "affiliations", "anniversary", "announcement", "birthday", "category", "contact",
+             "content", "cookie-policy", "debut", "feeds", "gender", "language", "latest", "live", "mbti",
+             "membership", "model", "newest", "news", "privacy-policy", "random", "retirement", "tags",
+             "terms-of-service", "top", "type", "upcoming", "watch", "affiliation", "tag", "zodiac"}
+CJK = re.compile(r"[぀-ヿ㐀-鿿가-힯豈-﫿]")
+
+
+# --- fetch -----------------------------------------------------------------
+
+def _get(session, url):
+    for attempt in range(4):
+        try:
+            resp = session.get(url, timeout=30)
+            time.sleep(DELAY_SECONDS)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+            return resp.text
+        except Exception as exc:  # noqa: BLE001 -- a flaky page is retried, then skipped
+            print(f"retry {url}: {type(exc).__name__}", file=sys.stderr, flush=True)
+            time.sleep(DELAY_SECONDS * 4 * (attempt + 1))
+    return None
+
+
+def _section(body, sid):
+    m = re.search(rf'<section id="{sid}"[^>]*>(.*?)</section>', body, re.S)
+    return m.group(1).split("</h2>", 1)[-1] if m else ""
+
+
+def _text(fragment):
+    return re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", fragment))).strip()
+
+
+def _links(fragment):
+    return [_text(a) for a in re.findall(r"<a [^>]*>(.*?)</a>", fragment, re.S)]
+
+
+def parse_profile(slug, category, body) -> dict:
+    """The fields a names glossary uses, from one profile page."""
+    h1 = re.search(r"<h1[^>]*>(.*?)</h1>", body, re.S)
+    links = _section(body, "links")
+    channels = links.split("Socials")[0]
+    description = _text(_section(body, "description"))
+    fan_native = re.search(r'fanbase is called "[^"(]*?\(([^)]+)\)"', description)
+    return {
+        "slug": slug, "category": category,
+        "name": _text(h1.group(1)) if h1 else slug,
+        "original": _text(_section(body, "original-name")),
+        "nicknames": [_text(li) for li in re.findall(r"<li>(.*?)</li>", _section(body, "nickname"), re.S)],
+        "fanbase": _text(_section(body, "fanbase")),
+        "fanbase_native": fan_native.group(1).strip() if fan_native else "",
+        "affiliation": _links(_section(body, "affiliation")),
+        "gender": _text(_section(body, "gender")),
+        "status": _text(_section(body, "status")),
+        "platforms": sorted({h for h in re.findall(r'href="https?://(?:www\.|m\.|live\.|space\.)?([^/"]+)', channels)
+                             if h.endswith(PLATFORMS)}),
+        "fetched": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+    }
+
+
+def _category_slugs(session, category):
+    first = _get(session, f"{SITE}/category/{category}/") or ""
+    last = max([int(n) for n in re.findall(rf"/category/{category}/page/(\d+)/", first)] or [1])
+    slugs = []
+    for page in range(1, last + 1):
+        body = first if page == 1 else _get(session, f"{SITE}/category/{category}/page/{page}/")
+        if not body:
+            continue
+        grid = body[body.find('<div class="row g-2">'):].split("Showing ")[0]
+        for slug in re.findall(r'<a href="https://hololist\.net/([^"/?]+)/">\s*<img', grid):
+            if slug not in NAV_SLUGS and slug not in slugs:
+                slugs.append(slug)
+    return slugs
+
+
+def load_cache(cache_dir: Path) -> dict:
+    path = cache_dir / "profiles.jsonl"
+    rows = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                rows[row["slug"]] = row
+    return rows
+
+
+def _save_cache(cache_dir: Path, rows: dict):
+    tmp = cache_dir / "profiles.jsonl.tmp"
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows.values()), encoding="utf-8")
+    tmp.replace(cache_dir / "profiles.jsonl")
+
+
+def fetch(cache_dir: Path, refresh_max: int):
+    import requests
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    rows = load_cache(cache_dir)
+    session = requests.Session()
+    session.headers["User-Agent"] = "glossary-builder (low-rate; respects robots.txt)"
+    listed = {}
+    for category in CATEGORIES:
+        for slug in _category_slugs(session, category):
+            listed.setdefault(slug, category)
+        print(f"{category}: {sum(1 for c in listed.values() if c == category)} listed", flush=True)
+    today = datetime.now(timezone.utc)
+    stale = sorted((r["fetched"], s) for s, r in rows.items() if s in listed
+                   and (today - datetime.strptime(r["fetched"], "%Y-%m-%d").replace(tzinfo=timezone.utc)).days
+                   >= REFRESH_AFTER_DAYS)
+    todo = [s for s in listed if s not in rows] + [s for _, s in stale[:refresh_max]]
+    for n, slug in enumerate(todo, 1):
+        body = _get(session, f"{SITE}/{slug}/")
+        if body:
+            rows[slug] = parse_profile(slug, listed[slug], body)
+        if n % 50 == 0 or n == len(todo):
+            _save_cache(cache_dir, rows)
+            print(f"fetched {n}/{len(todo)}", flush=True)
+    # A profile no longer listed in any category was removed or moved off these countries.
+    for slug in [s for s in rows if s not in listed]:
+        del rows[slug]
+    _save_cache(cache_dir, rows)
+
+
+# --- build -----------------------------------------------------------------
+
+def _split_nickname(nickname):
+    """("Rin Rin", "鈴鈴") from "Rin Rin (鈴鈴)"; None when there is no native-script form."""
+    m = re.fullmatch(r"(.+?)\s*\(([^()]+)\)", nickname)
+    if not m:
+        return None
+    reading, native = m.group(1).strip(), m.group(2).strip()
+    return (reading, native) if CJK.search(native) and not CJK.search(reading) else None
+
+
+def _pronoun(gender):
+    return {"Female": "she/her", "Male": "he/him"}.get(gender, "")
+
+
+class _Words:
+    """Ordinary-word check: a name that is also a common word would fire in normal speech."""
+
+    def __init__(self):
+        from wordfreq import get_frequency_dict
+        import opencc
+        self.freq = {"zh": get_frequency_dict("zh"), "ja": get_frequency_dict("ja")}
+        self.t2s = opencc.OpenCC("t2s")
+
+    def zipf(self, word, language):
+        if language == "zh":
+            word = self.t2s.convert(word)
+        f = self.freq[language].get(word)
+        return math.log10(f) + 9 if f else 0.0
+
+    def is_common(self, word, language):
+        return self.zipf(word, language) >= COMMON_WORD_ZIPF
+
+
+def _variants(source, language, converters):
+    """The source plus its other Chinese script, since packs match the exact characters."""
+    if language != "zh":
+        return [source]
+    out = [source]
+    for conv in converters:
+        other = conv.convert(source)
+        if other not in out:
+            out.append(other)
+    return out
+
+
+COUNTRY = {"jp": "Japanese", "tw": "Taiwanese", "cn": "Chinese", "hk": "Hong Kong"}
+
+
+def _note(row, nickname: bool) -> str:
+    """Short facts sent with the entry, so the model knows who the name is and which pronoun fits."""
+    who = f"{COUNTRY[row['category']]} VTuber"
+    facts = [f"Nickname of {row['name']}, {who}" if nickname else who]
+    if _pronoun(row["gender"]):
+        facts.append(_pronoun(row["gender"]))
+    agency = [a for a in row["affiliation"] if a and a != "Independent"]
+    facts.append(", ".join(agency) if agency else "independent")
+    if row["fanbase"]:
+        facts.append(f"fans: {row['fanbase']}")
+    if row["status"] and row["status"] != "Active":
+        facts.append(row["status"].lower())
+    return ("; ".join(facts) + ". Keep the name as written; never turn it into he/she.")[:300]
+
+
+def candidates(rows):
+    """[(language, source, en, note, link, kind, slug)] before filtering."""
+    import opencc
+    converters = (opencc.OpenCC("t2s"), opencc.OpenCC("s2t"))
+    out = []
+    for row in rows:
+        if not row.get("platforms"):
+            continue
+        language = CATEGORIES[row["category"]]
+        link = f"{SITE}/{row['slug']}/"
+        names = []
+        if row["original"] and CJK.search(row["original"]):
+            names.append((row["original"], row["name"], "name"))
+            # Speech never carries the separator, so the joined form is what a transcript holds.
+            joined = re.sub(r"[\s·・]", "", row["original"])
+            if joined != row["original"]:
+                names.append((joined, row["name"], "name"))
+        for nick in row["nicknames"]:
+            pair = _split_nickname(nick)
+            if pair:
+                names.append((pair[1], pair[0], "nickname"))
+        if row["fanbase_native"] and row["fanbase"]:
+            fan_en = re.split(r"\s*[&/,]\s*", row["fanbase"])[0]
+            names.append((row["fanbase_native"], f"{fan_en} ({row['name']}'s fans)", "fans"))
+        for native, en, kind in names:
+            note = (f"The fans of {row['name']}, a {COUNTRY[row['category']]} VTuber." if kind == "fans"
+                    else _note(row, kind == "nickname"))
+            for source in _variants(native, language, converters):
+                out.append((language, source, en, note, link, kind, row["slug"]))
+    return out
+
+
+def filter_candidates(cands, words, taken):
+    """(kept, held): kept entries per language, and held-back ones with the reason."""
+    by_source = {}
+    for c in cands:
+        by_source.setdefault((c[0], c[1]), []).append(c)
+    kept, held = {"ja": [], "zh": []}, []
+    for (language, source), group in by_source.items():
+        owners = {c[6] for c in group}
+        c = next((g for g in group if g[5] == "name"), group[0])
+        reason = ""
+        if source in taken.get(language, ()):
+            continue
+        if len(CJK.findall(source)) < 2:
+            reason = "one character"
+        elif len(source) > 40:
+            reason = "too long"
+        elif len(owners) > 1 and not (c[5] == "name" and sum(1 for g in group if g[5] == "name") == 1):
+            reason = "used by " + ", ".join(sorted(owners))
+        elif words.is_common(source, language):
+            reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"
+        if reason:
+            held.append((language, source, c[2], c[4], reason))
+        else:
+            kept[language].append({"source": source, "en": c[2], "category": "streamer",
+                                   "note": c[3], "link": c[4]})
+    return kept, held
+
+
+def build(cache_dir: Path, review: Path):
+    rows = list(load_cache(cache_dir).values())
+    overrides = json.loads(OVERRIDES.read_text(encoding="utf-8")) if OVERRIDES.exists() else {}
+    packs, hand, taken = {}, {}, {"ja": set(), "zh": set()}
+    for language in ("ja", "zh"):
+        path = PACK_DIR / f"{language}-vtuber-names.json"
+        packs[language] = json.loads(path.read_text(encoding="utf-8"))
+        hand[language] = [e for e in packs[language]["entries"] if not e.get("link")]
+    # A source another pack of the language already has keeps that pack's entry.
+    for path in sorted(PACK_DIR.glob("*.json")):
+        other = json.loads(path.read_text(encoding="utf-8"))
+        for language in ([other["language"]] if other["language"] in taken else list(taken)
+                         if other["language"] == "any" else []):
+            taken[language].update(e["source"] for e in other["entries"] if not e.get("link"))
+    kept, held = filter_candidates(candidates(rows), _Words(), taken)
+    for language, pack in packs.items():
+        fixes = overrides.get(language, {})
+        generated = []
+        for entry in sorted(kept[language], key=lambda e: e["link"]):
+            fix = fixes.get(entry["source"])
+            if fix is None:
+                generated.append(entry)
+            elif not fix.get("drop"):
+                generated.append({**entry, **{k: v for k, v in fix.items() if k in ("en", "note")}})
+        pack["entries"] = hand[language] + generated
+        pack["version"] = pack["version"] + 1
+        (PACK_DIR / f"{language}-vtuber-names.json").write_text(
+            json.dumps(pack, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        print(f"{language}: {len(hand[language])} hand-written + {len(generated)} from Hololist", flush=True)
+    if review:
+        lines = ["| language | source | English | reason | profile |", "|---|---|---|---|---|"]
+        lines += [f"| {lang} | {src} | {en} | {why} | {link} |" for lang, src, en, link, why in sorted(held)]
+        review.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        print(f"held back: {len(held)} (listed in {review})", flush=True)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    f = sub.add_parser("fetch")
+    f.add_argument("--cache", type=Path, required=True)
+    f.add_argument("--refresh-max", type=int, default=800)
+    b = sub.add_parser("build")
+    b.add_argument("--cache", type=Path, required=True)
+    b.add_argument("--review", type=Path)
+    args = parser.parse_args(argv)
+    if args.command == "fetch":
+        fetch(args.cache, args.refresh_max)
+    else:
+        build(args.cache, args.review)
+
+
+if __name__ == "__main__":
+    main()

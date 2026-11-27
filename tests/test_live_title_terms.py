@@ -131,11 +131,31 @@ def test_start_session_passes_hints_and_refuses_before_building_an_engine(isolat
         live_service.start_session("https://example.com/s", glossary_drama_id=424242, principal=OWNER)
     assert built == []
     live_service.start_session("https://example.com/s", principal=OWNER)
-    assert seen["term_hints"] is None
+    # With nothing picked, the built-in VTuber names and stream terms still hint.
+    assert ("彩虹社", "NIJISANJI") in [row[:2] for row in seen["term_hints"](["今天彩虹社的人来了"])]
     did, _ = _title()
     live_service.start_session("https://example.com/s", glossary_drama_id=did, principal=OWNER)
     assert callable(seen["term_hints"])
     live_service._sessions.clear()
+
+
+def test_built_in_packs_alone_keep_a_session_joinable(isolated_db, monkeypatch):
+    monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: True)
+    plain = live_service.start_session("https://example.com/a", principal=OWNER)["session_id"]
+    did, _ = _title()
+    picked = live_service.start_session("https://example.com/b", glossary_drama_id=did,
+                                        principal=OWNER)["session_id"]
+    assert live_service._sessions[plain]["private"] is False
+    assert live_service._sessions[picked]["private"] is True
+    live_service._sessions.clear()
+
+
+def test_default_packs_are_the_streams_language_vtuber_packs():
+    assert live_service._default_packs("ja") == {"ja-vtuber-names": None, "ja-vtuber-core": None}
+    # A language without VTuber packs gets none rather than an unknown pack id.
+    assert live_service._default_packs("ko") == {}
 
 
 def test_nothing_is_written_to_the_title(isolated_db, monkeypatch):

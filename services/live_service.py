@@ -553,10 +553,19 @@ def _series_term_hints(principal, series_id, source_language, own_terms=()):
     return _hint_function(int(series_id), pack_title, source_language, own_terms=own_terms)
 
 
-def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=()):
+def _default_packs(source_language) -> dict:
+    """The built-in packs a stream with no title or series picked uses: VTuber names and stream terms."""
+    known = language_packs.all_packs()
+    return {pid: None for pid in (f"{source_language}-vtuber-names", f"{source_language}-vtuber-core")
+            if pid in known}
+
+
+def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=(),
+                   default_packs=None):
     """`pack_title`: the title whose packs apply, or None for glossary only.
     `glossary_title`: set when the hints are for one title, so its own terms count too.
-    `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text."""
+    `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text.
+    `default_packs`: {pack id: style} used when there is no `pack_title`."""
     terms = (db.list_run_glossary_terms(glossary_title) if glossary_title
              else db.list_effective_glossary_terms(series_id) if series_id else [])
     own = [{"term_original": t["original"], "term_translation": t["translation"], "notes": ""} for t in own_terms]
@@ -573,9 +582,14 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
         found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
                  for t in llm_tasks.matching_glossary_terms(text, glossary)]
         if packs_apply and drama is not None:
-            for e in language_pack_service.entries_for_text(drama, text, glossary):
-                found.append((e["source"], e["en"], "; ".join(
-                    p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
+            entries = language_pack_service.entries_for_text(drama, text, glossary)
+        elif default_packs:
+            entries = language_packs.matching_entries(default_packs, text, glossary, language=source_language)
+        else:
+            entries = []
+        for e in entries:
+            found.append((e["source"], e["en"], "; ".join(
+                p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]
@@ -649,8 +663,9 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
         term_hints = _title_term_hints(principal, glossary_drama_id, source_language, own_terms)
     elif series_id is not None:
         term_hints = _series_term_hints(principal, series_id, source_language, own_terms)
-    elif own_terms:
-        term_hints = _hint_function(None, None, source_language, own_terms=own_terms)
+    else:
+        term_hints = _hint_function(None, None, source_language, own_terms=own_terms,
+                                    default_packs=_default_packs(source_language))
     _reap()
     joined = _join_running(url, principal)
     if joined:
@@ -673,7 +688,8 @@ def start_session(url, source_language="zh", whisper_size="small", segment_secon
                                  segment_seconds, overlap_seconds, max_minutes, eng, engine_name,
                                  use_gpu, use_saved_cookies, reply_without_thinking, term_hints,
                                  player_height if delayed_player else 0, chat_video, model,
-                                 spend_limit_usd)
+                                 spend_limit_usd,
+                                 private_terms=bool(glossary_drama_id is not None or series_id is not None or own_terms))
 
 
 def _reads_saved_cookies(use_saved_cookies) -> bool:
@@ -686,7 +702,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                       overlap_seconds, max_minutes, eng, engine_name, use_gpu,
                       use_saved_cookies, reply_without_thinking, term_hints=None,
                       player_height=0, chat_video=None, requested_model=None,
-                      spend_limit_usd=live_spend_service.DEFAULT_SESSION_LIMIT_USD):
+                      spend_limit_usd=live_spend_service.DEFAULT_SESSION_LIMIT_USD, private_terms=False):
     budget = live_spend_service.session_budget(eng, engine_name, spend_limit_usd)
     spend_guard = live_spend_service.LiveSpendGuard(
         eng, engine_name, functools.partial(_stop_for_spend, session_id), budget)
@@ -721,7 +737,7 @@ def _start_registered(session_id, out_dir, url, source_language, whisper_size, s
                                  "segment_seconds": segment_seconds, "delayed_player": bool(player_height),
                                  "source_language": source_language, "stream": stream_ref(url),
                                  "join_key": _join_key(url, stream_ref(url)),
-                                 "private": _reads_saved_cookies(use_saved_cookies) or term_hints is not None, "viewers": set(),
+                                 "private": _reads_saved_cookies(use_saved_cookies) or private_terms, "viewers": set(),
                                  "owner_user_id": acting.acting_user_id(),
                                  "chat": live_chat.ChatBoard() if chat else None}
     try:

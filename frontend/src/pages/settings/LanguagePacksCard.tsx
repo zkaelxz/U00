@@ -81,7 +81,15 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
                 <tr key={i}>
                   <td>{en.source}</td>
                   <td>{entryText(en.en, full.styles.default)}</td>
-                  <td>{en.note}</td>
+                  <td>
+                    {en.note}
+                    {en.link && (
+                      <>
+                        {en.note && ' '}
+                        <a href={en.link} target="_blank" rel="noopener noreferrer">Source page</a>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

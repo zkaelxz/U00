@@ -51,6 +51,9 @@ function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
                   {(entry.context || entry.note) && (
                     <div className="muted">{[entry.context, entry.note].filter(Boolean).join('. ')}</div>
                   )}
+                  {entry.link && (
+                    <a href={entry.link} target="_blank" rel="noopener noreferrer">Source page</a>
+                  )}
                 </div>
                 <button
                   type="button"
