@@ -135,6 +135,7 @@ public class MainActivity extends Activity {
                 if (loadFailed) return;
                 autoRetries = 0;
                 if (failureView != null) failureView.setVisibility(View.GONE);
+                syncSepiaFromPage();
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
@@ -228,7 +229,11 @@ public class MainActivity extends Activity {
 
             @Override
             public void themeChanged(boolean dark, boolean sepia) {
-                runOnUiThread(() -> followPageTheme(dark, sepia));
+                runOnUiThread(() -> {
+                    followPageTheme(dark, sepia);
+                    // An older Baihe page only says dark or light, so sepia is read from the page itself.
+                    if (web != null) web.postDelayed(MainActivity.this::syncSepiaFromPage, 300);
+                });
             }
 
             @Override
@@ -347,6 +352,17 @@ public class MainActivity extends Activity {
     /** The page's own theme once it has said, so a light Baihe on a dark phone (or the reverse) gets a matching bar. */
     private GrabUi.Palette palette() {
         return GrabUi.Palette.saved(this);
+    }
+
+    /**
+     * The server may still serve a Baihe page that predates setLook and reports only dark or light;
+     * the page's own theme attribute tells the bar when that look is sepia.
+     */
+    private void syncSepiaFromPage() {
+        if (web == null) return;
+        web.evaluateJavascript("document.documentElement.getAttribute('data-theme')", value -> {
+            if ("\"sepia\"".equals(value)) followPageTheme(false, true);
+        });
     }
 
     private void followPageTheme(boolean dark, boolean sepia) {
