@@ -187,7 +187,7 @@
   // A reader that is still fetching its pages looks stuck: the walk above ends with a handful of
   // pictures while it says it is loading, or says it holds more pages than were found. Wait for it,
   // bounded, so a slow connection does not cost half the chapter.
-  var LOADING_TEXT = /载入中|加载中|載入中|読み込み中|로딩 중|loading/i;
+  var LOADING_TEXT = /载入中|加载中|載入中|読み込み中|로딩 중/;
   function pageTotalHint() {
     var text = (document.body && document.body.innerText) || "";
     var counter = text.match(/\b(\d{1,3})\s*\/\s*(\d{1,3})\b/);
@@ -197,7 +197,7 @@
   function readerLoading() {
     return LOADING_TEXT.test((document.body && document.body.innerText) || "");
   }
-  var settleUntil = Date.now() + 45 * 1000;
+  var settleUntil = Date.now() + 20 * 1000;
   var quiet = 0;
   while (Date.now() < settleUntil && (readerLoading() || (items.length < pageTotalHint() && quiet < 6))) {
     box = scrollBox();
@@ -431,9 +431,9 @@
   // connection a picture taken sooner would be blank.
   // Waiting for slow pictures shares one budget across the chapter, so a bad connection costs
   // a bounded amount of time in total and the grab ends inside the app's time limit.
-  var drawBudget = 240000;
+  var drawBudget = 120000;
   function stillDrawing(el) {
-    for (var n = el, d = 0; n && d < 5; n = n.parentElement, d++) {
+    for (var n = el, d = 0; n && d < 3; n = n.parentElement, d++) {
       if (/(^|[\s_-])loaded($|[\s_-])/.test(String(n.className || ""))) return false;
       if (n.querySelector && n.querySelector('[class*="loading"]')) return true;
     }
@@ -466,6 +466,13 @@
         // A page that looks undrawn is asked for again, up to about eight seconds, then taken as it is.
         var code = 2;
         for (var attempt = 0; code === 2; attempt++) {
+          if (attempt > 0) {
+            // The reader may have swapped its placeholder for the picture, which moves the page.
+            r = el.getBoundingClientRect();
+            y = r.top + done;
+            if (y < 0 || y >= window.innerHeight) return false;
+            rows = Math.min(height - done, window.innerHeight - y);
+          }
           code = await ask(function (id) { Baihe.snap(nonce, id, key, r.left, y, r.width, rows, window.innerWidth, attempt >= 6 || drawBudget <= 0); });
           if (code === 2) {
             await new Promise(function (resolve) { setTimeout(resolve, 1300); });
