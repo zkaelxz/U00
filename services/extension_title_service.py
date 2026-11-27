@@ -26,7 +26,7 @@ import db
 import db.dramas
 from services import page_server
 from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, ServiceError
-from services import (drama_service, extension_novel_service, link_details_service, ownership_service,
+from services import (cover_art_service, drama_service, extension_novel_service, link_details_service, ownership_service,
                       source_link_service)
 from lib import clock
 from services.series_service import term_key
@@ -227,25 +227,14 @@ def _start_cover_fetch(drama_id: int, cover_url: str, page_url: str) -> None:
         _cover_slot.release()
 
 
-def _cover_referer(cover_url: str, page_url: str) -> str:
-    """The page address for a picture on the page's own host; only its origin for another host,
-    as a browser sends, so a CDN never sees the chapter's path or query."""
-    cover, page = urlsplit(cover_url), urlsplit(page_url)
-    if not page.scheme or not page.hostname:
-        return ""
-    return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
+_cover_referer = cover_art_service.cover_referer
 
 
 def _save_cover_from(drama_id: int, cover_url: str, page_url: str) -> None:
-    """Never raises: a missing picture must not fail anything. lib.http checks every hop is a
-    public address, and save_cover re-encodes the bytes, so only a clean image is kept."""
-    import io
-    from services import cover_art_service, quick_read_fetch
+    """Never raises: a missing picture must not fail anything."""
     try:
-        data, _reason = quick_read_fetch.fetch_one(cover_url, {"referer": _cover_referer(cover_url, page_url)},
-                                                   cover_art_service.MAX_COVER_BYTES)
-        if data:
-            cover_art_service.save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
+        if not cover_art_service.fetch_site_cover(drama_id, cover_url, page_url):
+            cover_art_service.fill_missing_cover(drama_id, from_network=False)
     except Exception as exc:
         import applog
         applog.get_logger().info("No cover from the page: %s", type(exc).__name__)

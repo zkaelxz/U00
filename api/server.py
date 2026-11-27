@@ -205,6 +205,8 @@ async def _lifespan(app: FastAPI):
         auth_service.prune_audit_log()
     except Exception:
         logging.getLogger(__name__).warning("Activity log pruning failed", exc_info=True)
+    from services import cover_backfill_service
+    cover_backfill_service.start_backfill_once()
     from services import novel_chapter_move_service
     try:
         novel_chapter_move_service.recover_interrupted_moves()
