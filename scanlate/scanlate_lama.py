@@ -225,13 +225,12 @@ _lama_gpu_broken: list = []
 # only goes to the GPU when it clearly fits beside whatever else is loaded there.
 _GPU_FIRST_LOAD_MB = 800
 _GPU_MB_PER_MEGAPIXEL = 3000
-_GPU_MAX_PIXELS = 1_000_000
 
 
 def _lama_on_gpu(generator, pixels: int, torch):
     """The generator's GPU copy when a region of `pixels` fits on a free enough GPU and
     Settings allows GPU use, else None (the region runs on the CPU)."""
-    if _lama_gpu_broken or pixels > _GPU_MAX_PIXELS or not torch.cuda.is_available():
+    if _lama_gpu_broken or not torch.cuda.is_available():
         return None
     import vram
     import stored_settings

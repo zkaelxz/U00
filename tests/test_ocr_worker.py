@@ -453,3 +453,15 @@ def test_a_jobs_own_process_keeps_using_its_loaded_gpu_engine(monkeypatch):
     monkeypatch.setattr(vram, "free_vram_mb", lambda: pytest.fail("measured again"))
     monkeypatch.setitem(ocr_worker._inline_engines(), "medium:gpu", object())
     assert ocr_worker._gpu_allowed("medium")
+
+
+def test_start_gpu_load_waits_for_the_engine_only_when_the_gpu_is_allowed(monkeypatch):
+    import ocr_worker
+    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: False)
+    assert ocr_worker.start_gpu_load("medium", wait=1) is False
+    answers = iter([False, False, True])
+    monkeypatch.setattr(ocr_worker._gpu, "alive", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: next(answers))
+    assert ocr_worker.start_gpu_load("medium", wait=5) is True

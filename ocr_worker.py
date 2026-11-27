@@ -116,6 +116,21 @@ def read(key: str, source, allow_download: bool = True):
     return SimpleNamespace(txts=txts, scores=scores, boxes=boxes)
 
 
+def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
+    """Starts the GPU engine's load now, so a first read does not fall back to the CPU while it
+    loads, and waits up to `wait` seconds for it. True once it is ready; False when the GPU
+    is not allowed (the reads stay on the CPU) or is still loading."""
+    if not (_gpu_allowed(key) and _gpu_weights_on_disk()):
+        return False
+    deadline = time.monotonic() + wait
+    while True:
+        if _gpu_ready(key):
+            return True
+        if time.monotonic() >= deadline or not _gpu.alive():
+            return False
+        time.sleep(0.2)
+
+
 def stop() -> None:
     """Ends the helpers and frees what they hold; the next read starts them again."""
     _stop_helper(_gpu)
