@@ -510,7 +510,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                 scanlate_translate.translate_page_bubbles(
                     missing, engine, meta, previous_context="", glossary_terms=glossary,
                     usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                    previous_lines=extras["previous_lines"])
+                    previous_lines=extras["previous_lines"], page_image=extras.get("page_image"))
             except Exception:
                 break  # the first call's own note already says why; this is a second chance only
             missing = _lines_without_english(bubbles)

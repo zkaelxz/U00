@@ -258,6 +258,27 @@ def test_lines_the_engine_left_empty_are_asked_for_again_and_the_rest_are_counte
     assert [r["translated_text"] for r in page["regions"]].count("") == 1
 
 
+def test_the_retry_for_empty_lines_sends_the_page_picture_again(token, drama, monkeypatch):
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
+    from services import extension_service
+    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
+           "kind": "bubble", "font_category": "regular", "reading_order": 0}
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
+    monkeypatch.setattr(extension_service, "page_extras", lambda *a, **k: {"page_image": picture})
+    seen = []
+
+    def translate(bubbles, engine, drama_meta, **kwargs):
+        seen.append(kwargs.get("page_image"))
+        if len(seen) == 2:
+            bubbles[0]["translated_text"] = "Hello"
+
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+    _send(token, drama)
+    assert seen == [picture, picture]
+
+
 @pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])
 def test_an_unsaved_page_comes_back_no_wider_than_the_phone_asked(token, fake_pipeline, drama, monkeypatch,
                                                                   sent, expected_width):
