@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
+import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
@@ -285,8 +286,8 @@ export function LibraryList({
                               </td>
                             )}
                             <td className="title-col">
-                              <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
-                              {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
+                              <a className="table-title" href={workspaceHref(d.id)} lang={nameLang(title, d)}>{title}</a>
+                              {d.title_en && d.title_zh && <div className="muted" lang={nameLang(d.title_zh, d)}>{d.title_zh}</div>}
                               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
                             </td>
                             <td>{mediaTypeLabel(d.media_type)}</td>
