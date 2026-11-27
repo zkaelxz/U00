@@ -327,9 +327,9 @@ def _title_translate(request: Request, payload: dict, principal) -> dict:
         plan = after_import_plan.novel_plan(request, drama_id)
         return page_run_service.start_after_import(
             principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
-            follow_import=False)
+            follow_import=False, add_chapters=True)
     except ServiceError as e:
-        # 409 is the only answer the phone keeps quiet about (the title is already running or has lines).
+        # 409 is the only answer the phone keeps quiet about (already running, or no new chapters to translate).
         status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)
                   else 409 if isinstance(e, ConflictError)
                   else 503 if isinstance(e, DependencyUnavailableError) else 422)

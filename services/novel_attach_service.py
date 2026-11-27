@@ -690,6 +690,25 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         return {"char_count": count, "added_chars": len(tail), "pending_chars": pending}
 
 
+def has_chapters_to_add(drama_id: int) -> bool:
+    """Read-only: whether add_new_chapters_from_sources has anything to do (saved chapters past the
+    text, or added text still waiting for lines). A text it would refuse counts too, so the refusal
+    is reported rather than skipped."""
+    from sources import pipeline
+    ownership_service.require_drama(drama_id)
+    if novel_text.read_pending_lines(db.drama_dir(drama_id)) is not None:
+        return True
+    try:
+        with pipeline._page_lock(drama_id):
+            chapters = _saved_chapters(drama_id)
+    except NotFoundError:
+        return False
+    except (ConflictError, InvalidInputError):
+        return True
+    covered = _chapters_covered(chapters, _read_novel(drama_id).strip())
+    return covered is None or covered < len(chapters)
+
+
 def _chapters_covered(chapters: list, current: str):
     """K when `current` is exactly the first K chapters joined by a blank line, else None."""
     length = -2

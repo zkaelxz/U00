@@ -14,6 +14,7 @@ export const STEP_LABELS: Record<QueueItemStep, string> = {
   names: 'Find names',
   import: 'Import chapters',
   text: 'Prepare the text',
+  append: 'Add new chapters',
   lines: 'Make lines',
   follow: 'Wait for the earlier job',
   run_translate: 'Translate',

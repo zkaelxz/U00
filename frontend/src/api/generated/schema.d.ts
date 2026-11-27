@@ -26696,7 +26696,7 @@ export interface components {
              * Step
              * @enum {string}
              */
-            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate" | "run_scanlate";
+            step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "append" | "lines" | "follow" | "run_translate" | "run_scanlate";
             /** Title */
             title: string;
         };
@@ -33327,7 +33327,7 @@ export interface components {
              */
             state: "idle" | "waiting" | "running" | "stopped" | "review" | "done";
             /** Step */
-            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "lines" | "follow" | "run_translate" | "run_scanlate") | null;
+            step: ("download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "append" | "lines" | "follow" | "run_translate" | "run_scanlate") | null;
         };
         /** TitleLanguagePack */
         TitleLanguagePack: {

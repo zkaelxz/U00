@@ -889,7 +889,7 @@ class TestTitleProgress:
         r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": own})
         assert r.status_code == 200
         assert r.json()["state"] in ("waiting", "running") and r.json()["kind"] == "comic"
-        assert set(r.json()) == {"state", "step", "kind"}
+        assert set(r.json()) == {"state", "step", "kind", "reason"} and r.json()["reason"] is None
         assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
 
     def test_a_title_with_no_run_or_no_translate_run_is_idle(self, isolated_db):
@@ -986,3 +986,44 @@ class TestTitleTranslate:
             t.join()
         chains = {i["chain"] for i in page_run_service._title_items(principal, did)}
         assert len(chains) == 1, outcomes
+
+    def test_new_chapters_of_a_novel_with_lines_queue_the_append_chain_once_and_nothing_new_is_a_409(
+            self, isolated_db, monkeypatch):
+        import threading
+        from services import page_run_service, paid_job_service
+        from sources import pipeline
+        from tests.test_page_run_service import _novel_with_lines
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, token = self._phone("a@example.com")
+        principal = {"user_id": u["id"], "is_admin": False, "permissions": []}
+        did = _novel_with_lines(owner_user_id=u["id"])
+        lines_before = db.load_line_ids(did)
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 409 and page_run_service._title_items(principal, did) == []
+        pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+        answers = []
+
+        def start():
+            answers.append(_client().post(f"{BASE}/title-translate", headers=_auth(token),
+                                          json={"drama_id": did}).status_code)
+        threads = [threading.Thread(target=start) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        items = page_run_service._title_items(principal, did)
+        assert len({i["chain"] for i in items}) == 1, answers
+        assert [i["step"] for i in items] == ["append", "lines", "run_translate"]
+        assert items[1]["settings"]["append"] is True and items[2]["settings"]["new_lines_only"] is True
+        # Queuing changes nothing yet: the steps run on the PC's queue.
+        assert db.load_line_ids(did) == lines_before
+
+    def test_someone_elses_novel_with_new_chapters_is_a_404(self, isolated_db):
+        from sources import pipeline
+        from tests.test_page_run_service import _novel_with_lines
+        _, token = self._phone("a@example.com")
+        other, _ = _member("b@example.com")
+        did = _novel_with_lines(owner_user_id=other["id"])
+        pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 404
+        assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": did}).status_code == 404
