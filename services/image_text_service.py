@@ -4,9 +4,9 @@ sends one picture to a vision engine and returns the text written in it, to
 fill the text box. UI-free.
 
 The picture goes through the page-upload rules (page_import_limits:
-PNG, JPEG or WebP, 30 MB) with a tighter pixel cap, is always decoded and
-written out again (so EXIF, GPS, XMP and PNG text chunks never reach a
-provider) and is cut down to MAX_EDGE pixels on its long side so the cost is
+PNG, JPEG or WebP, 30 MB) with a tighter pixel cap, is decoded and
+written out again unless its file holds nothing but pixels (so EXIF, GPS, XMP,
+thumbnails and PNG text chunks never reach a provider) and is cut down to MAX_EDGE pixels on its long side so the cost is
 predictable. It is not kept: only the route's upload buffer holds it, which
 Starlette may spool to a temp file over 1 MB, removed when the request ends.
 A paid engine is priced first, at the most a request can cost, and refused when
@@ -97,19 +97,78 @@ def _encoded(im) -> tuple:
 
 _AS_IS_MIME = {"JPEG": "image/jpeg", "PNG": "image/png"}
 _AS_IS_MODES = {"JPEG": ("RGB", "L"), "PNG": ("RGB", "RGBA", "L", "LA", "P")}
-# Header facts that carry nothing about the person or place. Anything else (EXIF, XMP, comments,
-# text chunks, ICC profiles) means the picture is rewritten, which strips it, as before.
-_AS_IS_INFO = {"jfif", "jfif_version", "jfif_unit", "jfif_density", "dpi", "progressive",
-               "progression", "adobe", "adobe_transform", "transparency", "aspect"}
+# Pillow's im.info misses much of what a file can carry (extra APP segments, JPEG thumbnails,
+# PNG chunks after IDAT, bytes after the end marker), so the file's own structure is walked and
+# anything outside these pixel-only pieces means the picture is rewritten, which strips it.
+_JPEG_TABLES = {0xC4, 0xCC, 0xDB, 0xDD}
+_JPEG_FRAMES = {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}
+_PNG_CHUNKS = {b"IHDR", b"PLTE", b"tRNS", b"pHYs", b"IDAT", b"IEND"}
 
 
-def _sendable_as_is(im, size: int) -> bool:
+def _jpeg_is_bare(data: bytes) -> bool:
+    if data[:2] != b"\xff\xd8":
+        return False
+    i, n = 2, len(data)
+    while i + 2 <= n:
+        if data[i] != 0xFF:
+            return False
+        marker = data[i + 1]
+        if marker == 0xFF:
+            i += 1
+            continue
+        if marker == 0xD9:
+            return i + 2 == n
+        if i + 4 > n:
+            return False
+        length = int.from_bytes(data[i + 2:i + 4], "big")
+        body = data[i + 4:i + 2 + length]
+        if length < 2 or len(body) != length - 2:
+            return False
+        if marker == 0xE0:
+            # JFIF with no thumbnail: the two thumbnail sizes after the density are zero.
+            if not (body[:5] == b"JFIF\0" and len(body) == 14 and body[12:14] == b"\0\0"):
+                return False
+        elif marker == 0xEE:
+            if body[:5] != b"Adobe":
+                return False
+        elif marker not in _JPEG_TABLES and marker not in _JPEG_FRAMES and marker != 0xDA:
+            return False
+        i += 2 + length
+        if marker == 0xDA:
+            # Entropy-coded data runs to the next marker that isn't a stuffed byte or a restart.
+            while i + 1 < n and not (data[i] == 0xFF and data[i + 1] not in (0x00, *range(0xD0, 0xD8))):
+                i += 1
+    return False
+
+
+def _png_is_bare(data: bytes) -> bool:
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        return False
+    i, n = 8, len(data)
+    while i + 12 <= n:
+        length = int.from_bytes(data[i:i + 4], "big")
+        kind = data[i + 4:i + 8]
+        if kind not in _PNG_CHUNKS:
+            return False
+        i += 12 + length
+        if kind == b"IEND":
+            return i == n
+    return False
+
+
+_BARE = {"JPEG": _jpeg_is_bare, "PNG": _png_is_bare}
+
+
+def _sendable_as_is(im, content: bytes) -> bool:
     """True when re-encoding would only rewrite the same pixels into a bigger file: a site's
     JPEG page became a PNG several times its size, which every Quick read page then uploaded."""
-    return (im.format in _AS_IS_MIME and im.mode in _AS_IS_MODES[im.format]
-            and size <= MAX_SENT_BYTES and max(im.size) <= MAX_EDGE
-            and set(im.info) <= _AS_IS_INFO
-            and getattr(im, "n_frames", 1) == 1)
+    if not (im.format in _AS_IS_MIME and im.mode in _AS_IS_MODES[im.format]
+            and len(content) <= MAX_SENT_BYTES and max(im.size) <= MAX_EDGE
+            and _BARE[im.format](content)):
+        return False
+    # A cut-short file must still be refused before any paid call, as the rewrite path does.
+    im.load()
+    return True
 
 
 def _prepared(content: bytes) -> tuple:
@@ -125,7 +184,7 @@ def _prepared(content: bytes) -> tuple:
             f"limit ({width}x{height}). Crop it smaller.")
     try:
         with Image.open(io.BytesIO(content)) as im:
-            if _sendable_as_is(im, len(content)):
+            if _sendable_as_is(im, content):
                 return content, _AS_IS_MIME[im.format], im.width, im.height
             im = ImageOps.exif_transpose(im)
             scale = min(1.0, MAX_EDGE / max(im.size))

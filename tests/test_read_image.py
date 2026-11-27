@@ -254,6 +254,56 @@ class TestPreparedPicture:
         data, mime, *_ = image_text_service._prepared(out.getvalue())
         assert data != out.getvalue() and Image.open(io.BytesIO(data)).mode == "RGB"
 
+    @staticmethod
+    def _plain_jpeg():
+        out = io.BytesIO()
+        Image.effect_noise((300, 200), 60).convert("RGB").save(out, "JPEG", quality=85)
+        return out.getvalue()
+
+    @staticmethod
+    def _segment(marker: int, body: bytes) -> bytes:
+        return bytes([0xFF, marker]) + (len(body) + 2).to_bytes(2, "big") + body
+
+    @pytest.mark.parametrize("extra", [
+        (0xE1, b"http://ns.adobe.com/xmp/extension/\0MARKER"),
+        (0xE3, b"MARKER"),
+        (0xEC, b"Ducky\0MARKER"),
+        (0xED, b"MARKER"),
+        (0xEF, b"MARKER"),
+    ])
+    def test_a_jpeg_with_any_other_segment_is_rewritten_without_it(self, extra):
+        plain = self._plain_jpeg()
+        planted = plain[:2] + self._segment(*extra) + plain[2:]
+        assert b"MARKER" not in image_text_service._prepared(planted)[0]
+
+    def test_a_jpeg_with_a_thumbnail_or_a_trailer_is_rewritten_without_it(self):
+        plain = self._plain_jpeg()
+        thumbed = plain[:2] + self._segment(0xE0, b"JFXX\0\x10MARKER") + plain[2:]
+        trailed = plain + b"SEFHMARKER"
+        for planted in (thumbed, trailed):
+            assert b"MARKER" not in image_text_service._prepared(planted)[0]
+
+    def test_a_cut_short_jpeg_is_still_refused_before_sending(self):
+        with pytest.raises(image_text_service.InvalidInputError, match="damaged"):
+            image_text_service._prepared(self._plain_jpeg()[:-1000])
+
+    @staticmethod
+    def _chunk(kind: bytes, body: bytes) -> bytes:
+        import zlib
+        return len(body).to_bytes(4, "big") + kind + body + zlib.crc32(kind + body).to_bytes(4, "big")
+
+    @pytest.mark.parametrize("where", ["text_after_idat", "private_chunk", "after_iend"])
+    def test_a_png_with_late_or_unknown_chunks_is_rewritten_without_them(self, where):
+        plain = _png((300, 80))
+        iend = plain.rindex(b"IEND") - 4
+        if where == "text_after_idat":
+            planted = plain[:iend] + self._chunk(b"tEXt", b"Comment\0MARKER") + plain[iend:]
+        elif where == "private_chunk":
+            planted = plain[:iend] + self._chunk(b"prVt", b"MARKER") + plain[iend:]
+        else:
+            planted = plain + b"MARKER"
+        assert b"MARKER" not in image_text_service._prepared(planted)[0]
+
     def test_webp_is_sent_as_png(self):
         _data, mime, *_ = image_text_service._prepared(_png((300, 80), "WEBP"))
         assert mime == "image/png"
