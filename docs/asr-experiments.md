@@ -24,7 +24,7 @@ behaviour.
 | Separate vocals first | per title | off | |
 | Sensitivity | per title | `normal` | `sensitive` lowers the VAD threshold to 0.35 (`sensitivity_preset.py`). |
 | Difficult audio | per title (Transcribe > Advanced > Switches) | off | Opt-in for screamed, whispered or quiet speech. See "Difficult audio" below. |
-| Min silence, VAD threshold, Beam size | per title (Developer Mode) | 1000 ms, 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
+| Min silence, VAD threshold, Beam size | per title (Developer Mode) | 1000 ms (plus a 20 s cap on one speech stretch), 0.5, 5 | Whisper's own pass. Min silence is not used when "Split lines by sentences" is on. |
 | Hallucination guard | per title (Developer Mode) | 0 (off) | Local Whisper only. Ignored by Fast mode, Groq, Mixed languages and the Qwen3-ASR backends. |
 | Pause that can split a long line | per title | 0.35 s | `segment_splitting.MIN_WORD_GAP_SECONDS`. |
 | Whisper fast mode, Repeat guard, Realign long segments | per title | off | Fast mode batches VAD chunks; Repeat guard bans repeated 3-token sequences (`core.WHISPER_REPEAT_GUARD_KWARGS`). |

@@ -338,7 +338,7 @@ def apply_run_overrides(drama: dict, overrides) -> dict:
 
 # The per-title options a Benchmark Lab transcription run may set, as the title stores them.
 # A field a Lab run leaves out takes what a title with nothing saved uses, never
-# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 300).
+# transcribe_for_timing's own defaults (a 2000 ms silence where titles use 1000).
 LAB_OPTION_FIELDS = ("beam_size", "min_silence_ms", "vad_threshold", "sensitivity_preset",
                      "hallucination_silence_sec", "whisper_repeat_guard", "difficult_audio",
                      "separate_vocals_first", "decode_randomness")

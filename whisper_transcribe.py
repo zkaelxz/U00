@@ -31,7 +31,7 @@ MIN_SILENCE_MS_MAX = 3000
 # talk would otherwise stay one oversized segment; measured with that silence on gold clips.
 VAD_MAX_SPEECH_S = 20
 # Auto-tune's default candidate min_silence_duration_ms values -- spans the
-# "Speech-splitting sensitivity" slider's real range meaningfully (300 is the
+# "Speech-splitting sensitivity" slider's real range meaningfully (1000 is the
 # app's default, services/transcribe_service._DEFAULT_TUNING; 3000 the
 # slider's max) without an unbounded number of full re-transcriptions.
 DEFAULT_AUTOTUNE_CANDIDATES_MS = [300, 800, 1500]
