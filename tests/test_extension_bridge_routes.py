@@ -874,3 +874,34 @@ class TestRepeatMeetsCacheAnsweredCopy:
         kept, _ = extension_bridge_service._drop_repeats_in_run([first], "run-meet")
         kept2, repeats = extension_bridge_service._drop_repeats_in_run([again], "run-meet")
         assert kept and not kept2 and [p["key"] for p in repeats] == ["b"]
+
+
+class TestTitleProgress:
+    def test_a_token_sees_only_its_own_titles_run(self, isolated_db):
+        from services import page_run_service
+        mine, token = _member("a@example.com")
+        other, _ = _member("b@example.com")
+        own = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=mine["id"])
+        theirs = db.create_drama(title_en="Other", media_type="manhua", owner_user_id=other["id"])
+        page_run_service.start_after_import(
+            dict(user_id=mine["id"], is_admin=False, permissions=auth_service.effective_permissions(mine["id"])),
+            own, "gemini", None, at_pc=False)
+        r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": own})
+        assert r.status_code == 200
+        assert r.json()["state"] in ("waiting", "running") and r.json()["kind"] == "comic"
+        assert set(r.json()) == {"state", "step", "kind"}
+        assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
+
+    def test_a_title_with_no_run_or_no_translate_run_is_idle(self, isolated_db):
+        u, token = _member("a@example.com")
+        comic = db.create_drama(title_en="Comic", media_type="manhua", owner_user_id=u["id"])
+        video = db.create_drama(title_en="Clip", media_type="drama", owner_user_id=u["id"])
+        for did in (comic, video):
+            r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": did})
+            assert r.status_code == 200 and r.json()["state"] == "idle"
+
+    def test_it_needs_a_token_and_a_title_number(self, isolated_db):
+        assert _client().post(f"{BASE}/title-progress", json={"drama_id": 1}).status_code == 401
+        _, token = _member("a@example.com")
+        for bad in ({}, {"drama_id": "1"}, {"drama_id": True}, {"drama_id": 0}):
+            assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json=bad).status_code == 400

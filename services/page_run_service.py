@@ -259,6 +259,17 @@ def after_import_run(principal, drama_id: int) -> dict:
     return _run_view(principal, drama_id, marker)
 
 
+def phone_progress(principal, drama_id: int) -> dict:
+    """What the phone's status line shows for a title it just saved to. Only comic and novel titles
+    have a translate run; any other title reads as idle rather than an error."""
+    try:
+        run = after_import_run(principal, drama_id)
+    except InvalidInputError:
+        return {"state": "idle", "step": None, "kind": None}
+    kind = after_import_kind(principal, drama_id)
+    return {"state": run["state"], "step": run["step"], "kind": kind}
+
+
 def start_after_import(principal, drama_id: int, engine: str, lines: Optional[dict], *, at_pc: bool,
                        model: Optional[str] = None, names: Optional[dict] = None) -> dict:
     """Queues the translating that follows the title's running chapter import. A comic gets one

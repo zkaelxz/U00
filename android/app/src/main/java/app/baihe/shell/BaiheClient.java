@@ -180,6 +180,15 @@ final class BaiheClient {
         }
     }
 
+    /** Where the PC's translating of a title this token saved to has got: state, step and kind. */
+    JSONObject titleProgress(long dramaId) throws BridgeException {
+        try {
+            return call("POST", "/title-progress", new JSONObject().put("drama_id", dramaId));
+        } catch (JSONException e) {
+            throw new BridgeException(0, "Could not build the request.");
+        }
+    }
+
     JSONObject sendPages(long dramaId, String pageUrl, List<PageImage> batch) throws BridgeException {
         return post(pageUrl, batch, dramaId, true);
     }

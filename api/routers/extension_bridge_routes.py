@@ -33,7 +33,8 @@ from lib.errors import InvalidInputError
 from services import extension_bridge_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import (grab_last_page_service, live_service, model_readiness_service, quick_video_service,
+from services import (grab_last_page_service, live_service, model_readiness_service, page_run_service,
+                      quick_video_service,
                       sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
 from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
@@ -285,6 +286,23 @@ async def post_report(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_page_report(
         payload, principal=principal), needs=("library.read",))
+
+
+@router.post("/title-progress", dependencies=[require_device_token()],
+             summary="Device token: how far the translating of a title the caller saved to has got")
+async def post_title_progress(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: _title_progress(payload, principal), needs=("library.read",))
+
+
+def _title_progress(payload: dict, principal) -> dict:
+    drama_id = payload.get("drama_id")
+    if isinstance(drama_id, bool) or not isinstance(drama_id, int) or not 1 <= drama_id < 2**63:
+        raise page_server.EndpointError(400, "drama_id is required")
+    try:
+        return page_run_service.phone_progress(principal, drama_id)
+    except NotFoundError as e:
+        raise page_server.EndpointError(404, e.message) from None
 
 
 @router.post("/follow", dependencies=[require_device_token()],
