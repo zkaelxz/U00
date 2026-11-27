@@ -10,6 +10,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -57,7 +58,10 @@ def check_page(image: Path, regions: list, out_dir: Path, stem: str):
     typeset = out_dir / f"{stem}-after.png"
     erased = out_dir / f"{stem}-erased.png"
     scanlate_render.process_page(str(image), shown, str(typeset), notes=[])
-    scanlate_render.process_page(str(image), blank, str(erased), notes=[])
+    # A zero-width character is not in every font; one that draws a missing-glyph box makes every
+    # balloon look like it still has lettering, so the blank pass skips drawing text instead.
+    with mock.patch.object(scanlate_render, "_letter_balloons", lambda *a, **k: None):
+        scanlate_render.process_page(str(image), blank, str(erased), notes=[])
     after = cv2.imread(str(typeset), cv2.IMREAD_GRAYSCALE)
     cleaned = cv2.imread(str(erased), cv2.IMREAD_GRAYSCALE)
     rows = []
