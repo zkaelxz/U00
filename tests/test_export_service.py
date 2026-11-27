@@ -581,6 +581,19 @@ class TestGenerateEpubOutput:
                                      field="en", readings=True)
         assert seen["readings"] is False
 
+    def test_traditional_text_without_opencc_is_read_as_simplified(self, isolated_db, monkeypatch):
+        import importlib.util
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        real_find = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a: None if name == "opencc" else real_find(name, *a))
+        seen = self._capture(monkeypatch)
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")],
+                          chinese_script="traditional")
+        export_service.generate_epub(did, field="bilingual", readings=True)
+        assert seen["chinese_script"] == "simplified"
+
     def test_reading_marks_without_their_packages_name_what_to_install(self, isolated_db, monkeypatch):
         import segment
         monkeypatch.setattr(segment, "missing_reader_packages", lambda language: ["pypinyin"])

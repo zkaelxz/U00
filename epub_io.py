@@ -148,14 +148,30 @@ def _paragraph_html(text: str, reading_language, chinese_script: str) -> str:
     return f"<p>{html.escape(text)}</p>"
 
 
+def _heading_html(heading, title: str, field: str, original) -> str:
+    """The chapter's <h1>; a two-language book titles it in English and
+    keeps the original heading under it."""
+    source = " ".join((getattr(heading, "zh", "") or "").split()) if heading is not None else ""
+    if field != "bilingual" or not source or source == title:
+        return f"<h1>{html.escape(title)}</h1>"
+    return f'<h1 lang="en">{html.escape(title)}</h1>\n{original(source)}'
+
+
+_KANJI_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff々]")
+
+
 def _ruby_html(text: str, language: str, chinese_script: str) -> str:
     import segment
 
     out = []
     for word, reading in segment.segment_and_annotate(text, language, chinese_script=chinese_script):
-        # pypinyin hands back punctuation and Latin text as their own "reading".
-        if reading and word.strip() and reading != word:
-            out.append(f"<ruby>{html.escape(word)}<rt>{html.escape(reading)}</rt></ruby>")
+        # pypinyin hands back punctuation and Latin text as their own "reading",
+        # and katakana needs no hiragana over it.
+        if (reading and word.strip() and reading != word
+                and (language != "ja" or _KANJI_RE.search(word))):
+            # <rp> shows the reading in brackets on a reader without ruby support.
+            out.append(f"<ruby>{html.escape(word)}<rp>(</rp><rt>{html.escape(reading)}</rt>"
+                       "<rp>)</rp></ruby>")
         else:
             out.append(html.escape(word))
     return "".join(out)
@@ -241,7 +257,7 @@ def export_epub(lines, title: str, author: str, out_path: str, field: str = "en"
                                              None if IMG_TOKEN_RE.search(text or "") else _image_item))
         html_paragraphs = "\n".join(html_parts)
         c = epub.EpubHtml(title=title, file_name=f"chap_{chapter_num:03d}.xhtml", lang=lang)
-        c.content = f"<h1>{html.escape(title)}</h1>\n{html_paragraphs}"
+        c.content = f"{_heading_html(heading, title, field, original)}\n{html_paragraphs}"
         book.add_item(c)
         chapters.append(c)
 

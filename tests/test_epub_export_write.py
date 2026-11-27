@@ -215,7 +215,7 @@ def test_a_two_language_book_puts_each_original_paragraph_before_its_english(fak
                         images_dir=str(images), source_language="zh")
 
     text = _chapter_text(fake_epub["book"])
-    assert "<h1>Chapter 1 The start</h1>" in text
+    assert '<h1 lang="en">Chapter 1 The start</h1>\n<p>第一章 开始</p>' in text
     assert text.index("<p>你好&lt;世界&gt;</p>") < text.index('<p class="en" lang="en">Hello &lt;world&gt;</p>')
     assert text.count("<img ") == 1
 
@@ -230,5 +230,18 @@ def test_reading_marks_go_over_the_original_only(fake_epub, tmp_path, monkeypatc
                         readings=True, source_language="zh")
 
     text = _chapter_text(fake_epub["book"])
-    assert "<p><ruby>你好<rt>nǐ hǎo</rt></ruby>。</p>" in text
+    assert "<p><ruby>你好<rp>(</rp><rt>nǐ hǎo</rt><rp>)</rp></ruby>。</p>" in text
     assert '<p class="en" lang="en">Hello.</p>' in text
+
+
+def test_katakana_gets_no_furigana(fake_epub, tmp_path, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "segment_and_annotate", lambda text, language, chinese_script="simplified": [
+        ("コーヒー", "こーひー"), ("を", None), ("飲む", "のむ")])
+    lines = [Line(idx=0, start=0, end=1, zh="コーヒーを飲む", en="Drink coffee")]
+
+    epub_io.export_epub(lines, "T", "", str(tmp_path / "out.epub"), field="zh",
+                        readings=True, source_language="ja")
+
+    text = _chapter_text(fake_epub["book"])
+    assert "<p>コーヒーを<ruby>飲む<rp>(</rp><rt>のむ</rt><rp>)</rp></ruby></p>" in text

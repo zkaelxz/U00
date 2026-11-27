@@ -752,6 +752,17 @@ def _log_epub_import_failure(exc: ImportError) -> None:
         pass
 
 
+def _reading_script(drama: dict) -> str:
+    """Traditional text is cut into words through opencc, an optional extra
+    the reading packages don't need: pypinyin reads Traditional characters
+    itself, so without opencc the words are cut as Simplified instead."""
+    import importlib.util
+    script = drama.get("chinese_script") or "simplified"
+    if script == "traditional" and importlib.util.find_spec("opencc") is None:
+        return "simplified"
+    return script
+
+
 def generate_epub(drama_id: int, field: str = "en", readings: bool = False) -> bytes:
     """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
@@ -803,7 +814,7 @@ def generate_epub(drama_id: int, field: str = "en", readings: bool = False) -> b
         epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
                             images_dir=os.path.join(ddir, "epub_images"),
                             source_language=drama.get("source_language"), readings=readings,
-                            chinese_script=drama.get("chinese_script") or "simplified")
+                            chinese_script=_reading_script(drama))
         with open(out_path, "rb") as f:
             return f.read()
     except ImportError as exc:
