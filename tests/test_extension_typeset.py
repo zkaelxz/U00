@@ -110,7 +110,9 @@ def test_a_failed_overlay_render_keeps_the_boxes_and_hides_the_detail(token, fak
 
     monkeypatch.setattr(scanlate_render, "process_page", broken)
     page = _overlay_only(token, drama, typeset=True)
-    assert "typeset_image" not in page and page["regions"][0]["translated_text"] == "the translation"
+    # The picture that comes back is the original, so a phone that holds no bytes still shows the page.
+    assert page["regions"][0]["translated_text"] == "the translation"
+    assert "secret" not in str(page)
     assert any("typeset failed" in n[1] for n in page["notes"])
 
 
