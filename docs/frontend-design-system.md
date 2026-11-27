@@ -11,7 +11,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 
 | Path | What lives there |
 |---|---|
-| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button below 600px, `JobsMenu`, `NotificationBell`, `ReportProblemButton`, `ThemeMenu`, user menu), the left rail from 1024px up and the nav drawer below it and picks the page from the route. |
+| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button below 600px, `JobsMenu`, `NotificationBell`, `ReportProblemButton`, `ThemeMenu`, user menu), the side nav from 600px up and the nav drawer below it and picks the page from the route. |
 | `router.ts` | The hash router: `Route` type, `parseRoute`, `routeHref`, `useRoute`. |
 | `pages/*.tsx` | One file per top-level page (`Library`, `Translate`, `Sources`, `Discover`, `Live`, `Reader`, `Comic`, `SavedManga`, `Settings`, `Diagnostics`, `Admin`, `Assistant`, `Benchmark`, `Login`, `LibraryTools`). |
 | `pages/<page>/` | A page's own panels, forms and CSS (`settings/`, `diagnostics/`, `sources/`, `reader/`, ...). Pure form and format logic sits beside the panel as `<name>.ts` with a `<name>.test.ts`. |
