@@ -97,15 +97,22 @@ def test_a_region_that_fits_runs_on_the_gpu_and_the_copy_is_kept(gpu):
     assert gpu["asked_mb"][0] > gpu["asked_mb"][1] > 0
 
 
-@pytest.mark.parametrize("change", ["no_gpu", "setting_off", "too_full", "too_large"])
+@pytest.mark.parametrize("change", ["no_gpu", "setting_off", "too_full"])
 def test_otherwise_the_cpu_copy_does_the_work(gpu, change):
     master, torch = _Generator(), _Torch()
     torch.cuda.available = change != "no_gpu"
     gpu["use_gpu"] = change != "setting_off"
     gpu["fits"] = change != "too_full"
-    h, w = (2000, 1000) if change == "too_large" else (200, 300)
-    assert _run(master, torch, h, w) == "cpu"
+    assert _run(master, torch) == "cpu"
     assert scanlate_lama._lama_gpu == {}
+
+
+def test_a_region_over_a_megapixel_uses_the_gpu_when_it_fits_and_asks_for_more_room(gpu):
+    master, torch = _Generator(), _Torch()
+    assert _run(master, torch, 2000, 1000) == "cpu from cuda"
+    assert gpu["asked_mb"][0] > 800 + 2 * 3000 - 1
+    gpu["fits"] = False
+    assert _run(master, torch, 2000, 1000) == "cpu"
 
 
 def test_a_full_gpu_costs_only_that_region(gpu):

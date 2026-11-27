@@ -1169,6 +1169,13 @@ def _run_job(*args, **kwargs):
         ocr.release_models(keep_text_reader=True)
 
 
+def _start_text_reader_gpu(ocr_backend: str, lang: str) -> None:
+    """The GPU engine takes seconds to load; started now it is ready by the first page read."""
+    if ocr_backend == "rapidocr" and lang != "ko":
+        import ocr_worker
+        ocr_worker.start_gpu_load("medium")
+
+
 def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
                    detect_backend: str, art_captions: bool = False, keep_text: bool = False):
     from scanlate import scanlate_detect
@@ -1177,6 +1184,7 @@ def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_na
     lang = drama.get("source_language") or "zh"
     guide = load_translation_guide(drama)
     ocr_backend = settings_service.resolve_ocr_backend(lang)
+    _start_text_reader_gpu(ocr_backend, lang)
     detect_kwargs = {"detect_backend": detect_backend,
                      "hf_token": settings_service.resolve_key("hf_token") or None,
                      "ocr_backend": ocr_backend,
