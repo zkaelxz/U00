@@ -354,9 +354,13 @@ def ensure_rapidocr_model(spec: dict) -> str:
     return path
 
 
+KOREAN_GPU_MEM_LIMIT = 2 * 1024 ** 3
+
+
 def _rapidocr_params(key: str, gpu: bool = False) -> dict:
     """The engine settings for `key`; with `gpu`, the medium pair on PyTorch's CUDA instead of
-    onnxruntime on the CPU (only "medium" has PyTorch weights here)."""
+    onnxruntime on the CPU (only "medium" has PyTorch weights here). Korean has none: its same
+    ONNX models run on onnxruntime-gpu's CUDA provider, so the text matches the CPU reader's."""
     import os
     # The text-orientation classifier flips some upright lines and they come back as
     # garbage (on Korean webtoon pages it lost 8 of 13 checked phrases); comic and
@@ -374,6 +378,13 @@ def _rapidocr_params(key: str, gpu: bool = False) -> dict:
     if key != "small":
         from rapidocr import LangRec, ModelType, OCRVersion
     if key == "ko":
+        if gpu:
+            # The defaults took 16 GB of the card and stalled some pages for 5 to 10 s; these keep
+            # it near 1 GB and steady (V100, 47 Korean pages: same text and boxes as the CPU).
+            params.update({"EngineConfig.onnxruntime.use_cuda": True,
+                           "EngineConfig.onnxruntime.cuda_ep_cfg.cudnn_conv_algo_search": "HEURISTIC",
+                           "EngineConfig.onnxruntime.cuda_ep_cfg.arena_extend_strategy": "kSameAsRequested",
+                           "EngineConfig.onnxruntime.cuda_ep_cfg.gpu_mem_limit": KOREAN_GPU_MEM_LIMIT})
         params.update({"Rec.model_path": ensure_rapidocr_model(RAPIDOCR_KOREAN_MODEL),
                        "Rec.ocr_version": OCRVersion.PPOCRV5, "Rec.model_type": ModelType.MOBILE,
                        "Rec.lang_type": LangRec.KOREAN})

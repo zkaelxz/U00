@@ -226,6 +226,10 @@ def _summary(changes: list) -> list:
 
 
 def _swap_line(swap: list) -> str:
+    if any(n.startswith("onnxruntime") for n in swap):
+        return ("Remove " + ", ".join(swap) + " first: onnxruntime and onnxruntime-gpu share one "
+                "folder and replace each other. Baihe previews the install before it removes "
+                "anything, and puts the removed one back if the install fails.")
     return ("Remove " + ", ".join(swap) + " first: PaddleOCR needs opencv-contrib-python, and "
             "the two cannot share one 'cv2' folder. Baihe previews the install before it "
             "removes anything.")
@@ -469,7 +473,7 @@ def build_plan(keys: list, jobs_running: bool = False, windows: bool | None = No
     # Only a plain install runs the OpenCV swap (_install_commands); an update
     # runs `specs` alone, so its clash check must see the real installed set.
     def swap_for(installed_now):
-        return [] if specs is not None else install_registry.cv2_swap_names(keys, installed_now)
+        return [] if specs is not None else install_registry.swap_names(keys, installed_now)
     if report is None:
         swap = swap_for(pending_install.snapshot() if installed is None else installed)
         plan["swap"] = swap

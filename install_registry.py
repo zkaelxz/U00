@@ -25,6 +25,14 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 # a test keeps the two equal. Nothing outside it ever reaches `pip uninstall`.
 CV2_SWAP_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
 CV2_CONTRIB = "opencv-contrib-python"
+# onnxruntime and onnxruntime-gpu fill one 'onnxruntime' folder, so installing either needs the
+# other removed first. pending_install.py repeats the names (it cannot import the app) and a test
+# keeps them equal.
+ORT_SWAP_PARTNER = {"onnxruntime-gpu": "onnxruntime", "onnxruntime": "onnxruntime-gpu"}
+# The last onnxruntime-gpu build that runs on a V100 (sm_70) with the CUDA 12 DLLs PyTorch
+# ships: 1.22 has no sm_70 kernels, and 1.29 and later are CUDA 13 builds.
+ORT_PINS = {"onnxruntime-gpu": "onnxruntime-gpu==1.19.2"}
+SWAP_UNINSTALLABLE = CV2_SWAP_UNINSTALLABLE + ("onnxruntime", "onnxruntime-gpu")
 # Keys whose install pulls its own OpenCV build; none now: PaddleOCR is installed without its
 # dependencies (below), so the swap of a plain OpenCV for the contrib build never applies.
 NEEDS_CV2_CONTRIB = frozenset()
@@ -51,6 +59,7 @@ PADDLE_REQUIREMENTS = {
                      "setuptools"),
 }
 PADDLE_PINS = {"paddleocr": "paddleocr==3.7.0", "paddlepaddle": "paddlepaddle==3.3.1"}
+_PINS = {**PADDLE_PINS, **ORT_PINS}
 # The rest of its requirements, installed beside it because --no-deps skips them.
 RAPIDOCR_KEYS = frozenset({"rapidocr", "onnxruntime", "shapely", "pyclipper", "omegaconf", "colorlog",
                            "six", "tqdm", "PyYAML"})
@@ -79,6 +88,10 @@ def unqueueable_reason(keys) -> str | None:
         # --no-deps covers the whole command, so other packages would lose their own requirements.
         return ("RapidOCR and PaddleOCR are installed on their own, without other packages "
                 "in the same install.")
+    if set(keys) >= set(ORT_SWAP_PARTNER):
+        return "onnxruntime and onnxruntime-gpu replace each other, so only one can be installed."
+    if "onnxruntime-gpu" in keys and not shutil.which("nvidia-smi"):
+        return "The Korean GPU text reader needs an NVIDIA GPU."
     if any(k in diagnostics_torch.TORCH_FAMILY for k in keys) and shutil.which("nvidia-smi"):
         return ("PyTorch on an NVIDIA PC is set up under GPU PyTorch, not here, so it keeps "
                 "its CUDA build.")
@@ -95,7 +108,7 @@ def install_dists(keys) -> list:
     opencv-python asked for beside a key that pulls contrib would only make the
     plan refuse the pair as two OpenCV flavours."""
     skip_plain_cv2 = bool(NEEDS_CV2_CONTRIB & set(keys))
-    dists = [PADDLE_PINS.get(k) or diagnostics.pip_install_name(k)
+    dists = [_PINS.get(k) or diagnostics.pip_install_name(k)
              for k in keys if not (skip_plain_cv2 and k == "cv2")]
     extras = [r for k in keys for r in PADDLE_REQUIREMENTS.get(k, ())]
     return list(dict.fromkeys(dists + extras))
@@ -127,10 +140,17 @@ def cv2_swap_names(keys, installed: dict) -> list:
     return [n for n in CV2_SWAP_UNINSTALLABLE if n in installed]
 
 
+def swap_names(keys, installed: dict) -> list:
+    """Every installed dist to remove before installing `keys`: the plain OpenCV
+    (cv2_swap_names) and the onnxruntime build the key replaces."""
+    ort = [ORT_SWAP_PARTNER[k] for k in keys if ORT_SWAP_PARTNER.get(k) in installed]
+    return cv2_swap_names(keys, installed) + ort
+
+
 def uninstall_argv(name: str, python: str | None = None) -> list:
     """The literal `pip uninstall -y NAME` argv. No flag and no name beyond
-    CV2_SWAP_UNINSTALLABLE can reach it."""
-    if name not in CV2_SWAP_UNINSTALLABLE:
+    SWAP_UNINSTALLABLE can reach it."""
+    if name not in SWAP_UNINSTALLABLE:
         raise ValueError("not an uninstallable package")
     return [python or sys.executable, "-m", "pip", "uninstall", "-y", name]
 

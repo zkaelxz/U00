@@ -59,8 +59,9 @@ _PINS_RE = re.compile(r"^baihe-torch-pins-[A-Za-z0-9_]+\.txt$")      # install_r
 _PIP_FLAGS = ("--no-cache-dir", "--disable-pip-version-check")
 # Also accepted: install_registry.INSTALL_WITHOUT_DEPS packages add it (repeated here, as above).
 _NO_DEPS_FLAG = "--no-deps"
-# Mirrors install_registry.CV2_SWAP_UNINSTALLABLE for the same reason.
-_UNINSTALLABLE = ("opencv-python", "opencv-python-headless")
+# Mirrors install_registry.SWAP_UNINSTALLABLE for the same reason.
+_UNINSTALLABLE = ("opencv-python", "opencv-python-headless", "onnxruntime", "onnxruntime-gpu")
+_CV2_PLAIN = _UNINSTALLABLE[:2]
 _CV2_CONTRIB = "opencv-contrib-python"
 _FILES = {"pending": "pending.json", "result": "result.json", "lock": "apply.lock"}
 
@@ -583,7 +584,7 @@ def without_clashing_cv2(wanted: dict, now: dict, before: dict):
     back would recreate the two-flavour clash the swap exists to avoid. This
     happens when pip is stopped after contrib landed."""
     if _CV2_CONTRIB in now and _CV2_CONTRIB not in before:
-        skipped = sorted(n for n in wanted if n in _UNINSTALLABLE)
+        skipped = sorted(n for n in wanted if n in _CV2_PLAIN)
         return {n: v for n, v in wanted.items() if n not in skipped}, skipped
     return wanted, []
 

@@ -134,7 +134,7 @@ class TestGpuAllowed:
 
     def test_a_card_with_room_is_used(self):
         assert ocr_worker._gpu_allowed("medium")
-        assert not ocr_worker._gpu_allowed("ko"), "only the medium pair has PyTorch weights"
+        assert not ocr_worker._gpu_allowed("ko"), "Korean needs onnxruntime-gpu"
 
     def test_settings_the_gpu_guard_or_no_card_keep_the_cpu(self):
         self.settings["use_gpu"] = False
@@ -406,7 +406,7 @@ def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
 
 
 def test_warming_does_not_start_the_gpu_load_without_its_weights(helpers):
-    helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: False)
+    helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda key="medium": False)
     helpers.scripts.append(_FakeConn([("ok", ("cpu",), None, None)]))
     assert ocr_worker.read("medium", "/fake/a.png", allow_download=False).txts == ("cpu",)
     assert len(helpers.starts) == 1 and not ocr_worker._gpu.alive()
@@ -460,7 +460,7 @@ def test_a_jobs_own_process_keeps_using_its_loaded_gpu_engine(monkeypatch):
 
 def test_start_gpu_load_waits_for_the_engine_only_when_the_gpu_is_allowed(monkeypatch):
     import ocr_worker
-    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda key="medium": True)
     monkeypatch.setattr(ocr_worker, "_gpu_allowed", lambda key: False)
     assert ocr_worker.start_gpu_load("medium", wait=1) is False
     answers = iter([False, False, True])
@@ -482,3 +482,31 @@ def test_a_read_waits_for_a_gpu_load_already_under_way_but_not_for_one_it_starts
     monkeypatch.setattr(ocr_worker._gpu, "loading", False)
     monkeypatch.setattr(ocr_worker, "_gpu_ready", lambda key: False)
     assert ocr_worker._gpu_ready_or_nearly("medium") is False
+
+
+def test_korean_uses_the_gpu_only_with_onnxruntime_gpu_installed(monkeypatch):
+    monkeypatch.setattr(ocr_worker, "_gpu_off_reason", None)
+    monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: False)
+    assert ocr_worker._gpu_allowed("ko") is False
+    monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: True)
+    monkeypatch.setattr(ocr_worker, "_gpu_checked_at", None)
+    # The card checks (Settings, guard, free memory) still apply beyond this point.
+    import stored_settings
+    monkeypatch.setattr(stored_settings, "read", lambda *a, **k: False)
+    assert ocr_worker._gpu_allowed("ko") is False
+
+
+def test_the_korean_gpu_engine_keeps_its_own_models_and_caps_the_cards_memory(monkeypatch):
+    import ocr
+    enum = types.SimpleNamespace(PPOCRV5="v5", MOBILE="mobile", KOREAN="korean")
+    monkeypatch.setitem(sys.modules, "rapidocr", types.SimpleNamespace(
+        LangRec=enum, ModelType=enum, OCRVersion=enum))
+    monkeypatch.setattr(ocr, "ensure_rapidocr_model", lambda spec: spec["file"])
+    cpu, gpu = ocr._rapidocr_params("ko"), ocr._rapidocr_params("ko", gpu=True)
+    assert "EngineConfig.onnxruntime.use_cuda" not in cpu
+    assert {k: v for k, v in gpu.items() if k not in cpu} == {
+        "EngineConfig.onnxruntime.use_cuda": True,
+        "EngineConfig.onnxruntime.cuda_ep_cfg.cudnn_conv_algo_search": "HEURISTIC",
+        "EngineConfig.onnxruntime.cuda_ep_cfg.arena_extend_strategy": "kSameAsRequested",
+        "EngineConfig.onnxruntime.cuda_ep_cfg.gpu_mem_limit": ocr.KOREAN_GPU_MEM_LIMIT}
+    assert all(gpu[k] == v for k, v in cpu.items())

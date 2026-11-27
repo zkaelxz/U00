@@ -741,7 +741,7 @@ def test_derive_adds_no_uninstall_step_for_a_key_that_needs_no_contrib(monkeypat
 
 def test_the_uninstall_allowlist_matches_the_registry():
     import install_registry
-    assert pi._UNINSTALLABLE == install_registry.CV2_SWAP_UNINSTALLABLE
+    assert pi._UNINSTALLABLE == install_registry.SWAP_UNINSTALLABLE
 
 
 def test_a_queued_plan_with_the_uninstall_step_runs_it_before_the_install(data, monkeypatch):

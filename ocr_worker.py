@@ -35,10 +35,10 @@ def _log(text: str, warning: bool = False) -> None:
     except Exception:
         pass
 
-# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean stays on the
-# CPU: its ONNX recognizer has no PyTorch weights, and swapping in the PyTorch detector changed
-# which lines were found (watermarks, stray fragments).
-GPU_KEYS = frozenset({"medium"})
+# Only the medium pair has PyTorch weights here; balloons and pages use it. Korean has none, and
+# swapping in the PyTorch detector changed which lines were found (watermarks, stray fragments),
+# so it keeps its own ONNX models and uses the GPU only through onnxruntime-gpu (_ort_gpu_installed).
+GPU_KEYS = frozenset({"medium", "ko"})
 # The helper held 2.25 GB on the V100 while reading Chinese pages (two models, CUDA's own
 # share, a page's working memory); a little over that so it only goes on a card with room.
 GPU_NEED_MB = 2500
@@ -97,7 +97,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
-    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk()) and _gpu_ready_or_nearly(key):
+    if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
             _gpu_off(reply[1])
@@ -124,7 +124,7 @@ def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
     """Starts the GPU engine's load now, so a first read does not fall back to the CPU while it
     loads, and waits up to `wait` seconds for it. True once it is ready; False when the GPU
     is not allowed (the reads stay on the CPU) or is still loading."""
-    if not (_gpu_allowed(key) and _gpu_weights_on_disk()):
+    if not (_gpu_allowed(key) and _gpu_weights_on_disk(key)):
         return False
     deadline = time.monotonic() + wait
     while True:
@@ -175,11 +175,20 @@ def _gpu_retry_later() -> None:
     _gpu_checked_at = time.monotonic()
 
 
-def _gpu_weights_on_disk() -> bool:
+def _gpu_weights_on_disk(key: str = "medium") -> bool:
     import os
     import ocr
+    if key == "ko":
+        return os.path.isfile(ocr.rapidocr_model_path(ocr.RAPIDOCR_KOREAN_MODEL))
     return all(os.path.isfile(ocr.rapidocr_model_path(spec)) for spec in (
         ocr.RAPIDOCR_TORCH_MEDIUM_DET_MODEL, ocr.RAPIDOCR_TORCH_MEDIUM_REC_MODEL, ocr.RAPIDOCR_MEDIUM_DICT))
+
+
+def _ort_gpu_installed() -> bool:
+    """Whether onnxruntime-gpu (not the CPU build) is installed, from its metadata: importing
+    onnxruntime here would load it into the app server."""
+    import diagnostics
+    return diagnostics.get_installed_version("onnxruntime-gpu") is not None
 
 
 def _gpu_ready_or_nearly(key: str) -> bool:
@@ -270,6 +279,8 @@ def _gpu_allowed(key: str) -> bool:
         _gpu_off_reason = None
         _log("Text reader: trying the GPU again")
     if key not in GPU_KEYS or _gpu_off_reason is not None:
+        return False
+    if key == "ko" and not _ort_gpu_installed():
         return False
     try:
         import stored_settings
@@ -492,6 +503,12 @@ def _load_gpu_engine(engines: dict, engine_id: str, key: str, threads) -> tuple:
         import ocr
         params = ocr._rapidocr_params(key, gpu=True)
         from rapidocr import RapidOCR
+        if key == "ko":
+            # torch is imported above, which loads the CUDA 12 DLLs onnxruntime-gpu then finds;
+            # a build without the provider would read on the CPU in a helper meant for the GPU.
+            import onnxruntime
+            if "CUDAExecutionProvider" not in onnxruntime.get_available_providers():
+                return ("gpu_failed", "onnxruntime has no CUDA provider")
         engine = RapidOCR(params=params)
         for name in ("_load_det_model", "_load_rec_model"):
             getattr(engine, name, lambda: None)()

@@ -1171,9 +1171,9 @@ def _run_job(*args, **kwargs):
 
 def _start_text_reader_gpu(ocr_backend: str, lang: str) -> None:
     """The GPU engine takes seconds to load; started now it is ready by the first page read."""
-    if ocr_backend == "rapidocr" and lang != "ko":
+    if ocr_backend == "rapidocr":
         import ocr_worker
-        ocr_worker.start_gpu_load("medium")
+        ocr_worker.start_gpu_load("ko" if lang == "ko" else "medium")
 
 
 def _run_job_pages(jid: str, drama_id: int, mode: str, page_ids: list, engine_name: str, engine,
