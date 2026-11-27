@@ -28,7 +28,7 @@ describe('exportBlockOrder', () => {
     ['video', ['softsub_video', 'burned_video', 'dubbed_video', 'subtitles']],
     ['audio', ['audiobook', 'subtitles']],
     ['novel', ['epub', 'audiobook', 'subtitles']],
-    ['comic', ['subtitles']],
+    ['comic', []],
     ['subtitle', ['subtitles']],
   ] as const)('a %s title lists only the exports that fit it', (kind, expected) => {
     expect(exportBlockOrder(kind)).toEqual(expected)
@@ -38,6 +38,7 @@ describe('exportBlockOrder', () => {
     expect(exportBlockOrder('audio', { hasSourceVideo: true, hasDub: false, hasNarration: true })).toEqual([
       'audiobook', 'dubbed_video', 'softsub_video', 'burned_video', 'subtitles',
     ])
+    expect(exportBlockOrder('comic', { hasSourceVideo: true, hasDub: true, hasNarration: true })).toEqual([])
     expect(exportBlockOrder('subtitle', { hasSourceVideo: false, hasDub: true, hasNarration: true })).toEqual(['subtitles', 'audiobook', 'dubbed_video'])
     expect(exportBlockOrder('video', { hasNarration: true })).toEqual(['softsub_video', 'burned_video', 'dubbed_video', 'audiobook', 'subtitles'])
   })

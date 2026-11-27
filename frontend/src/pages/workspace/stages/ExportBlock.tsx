@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 
 import { Section } from '../../../components/Section'
 import { readSectionOpen } from '../../../components/sectionStorage'
 import { browserStorage } from '../../../hooks/usePersistedState'
-import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, shownExportBlocks, type ExportBlockId } from '../exportBlocks'
-import { useSimple, useStage } from '../StageContext'
+import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, type ExportBlockId } from '../exportBlocks'
+import { useStage } from '../StageContext'
 import { titleKind } from '../titleKind'
 
 interface Props {
@@ -20,18 +20,17 @@ interface Props {
   status?: ReactNode
 }
 
-// Counts every block that could be shown, so a remembered-open one is never missed.
-const ALL_MEDIA = { hasSourceVideo: true, hasDub: true, hasNarration: true, novelNarration: true }
+// The blocks this title shows; the open choice is stored per kind, so one the title hides must not count as remembered.
+export const ShownExportBlocks = createContext<ExportBlockId[]>([])
 
 // One collapsible export. The blocks share an accordion group, so the last one opened is the one remembered
 // open (per title kind) and the page stays short on a phone.
 export function ExportBlock({ id, opening, reason, hint, children, status }: Props) {
   const { drama } = useStage()
-  const simple = useSimple()
   const kind = titleKind(drama.media_type, drama.content_mode)
   const title = EXPORT_BLOCK_TITLES[id]
   // A block the viewer left open wins; opening this one as well would leave two open in the accordion.
-  const remembered = shownExportBlocks(kind, simple, ALL_MEDIA).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
+  const remembered = useContext(ShownExportBlocks).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
   return (
     <div className="export-block" role="group" aria-label={title}>
       <Section

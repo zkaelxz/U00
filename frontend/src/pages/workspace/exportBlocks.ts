@@ -20,8 +20,7 @@ const ORDER: Record<TitleKind, ExportBlockId[]> = {
   video: [...VIDEO_FIRST, 'subtitles', 'epub'],
   audio: ['audiobook', 'dubbed_video', 'softsub_video', 'burned_video', 'subtitles', 'epub'],
   novel: ['epub', 'audiobook', 'subtitles', 'softsub_video', 'burned_video', 'dubbed_video'],
-  // There is no comic-specific export; the subtitle file is what a comic's lines export as.
-  comic: ['subtitles', 'epub', 'audiobook', 'softsub_video', 'burned_video', 'dubbed_video'],
+  comic: [],
   // Today's layout: the subtitle file, then the media jobs in their old order, then EPUB.
   subtitle: ['subtitles', 'audiobook', 'burned_video', 'softsub_video', 'dubbed_video', 'epub'],
 }
@@ -31,7 +30,8 @@ const FITS: Record<TitleKind, ExportBlockId[]> = {
   video: ['softsub_video', 'burned_video', 'dubbed_video', 'subtitles'],
   audio: ['audiobook', 'subtitles'],
   novel: ['epub', 'audiobook', 'subtitles'],
-  comic: ['subtitles'],
+  // A comic exports its pages from Scanlate, so the Export stage has no block for it.
+  comic: [],
   subtitle: ['subtitles'],
 }
 
@@ -59,6 +59,7 @@ export const SIMPLE_EXPORT_BLOCKS: ExportBlockId[] = ['softsub_video', 'subtitle
 
 /** Without `facts`, only what fits the kind; a novel's EPUB also needs novel-narration mode. */
 export function exportBlockOrder(kind: TitleKind, facts: ExportFacts = {}): ExportBlockId[] {
+  if (kind === 'comic') return []
   return ORDER[kind].filter((id) => {
     if (id === 'epub') return kind === 'novel' && facts.novelNarration !== false
     return FITS[kind].includes(id) || hasMediaFor(id, facts)

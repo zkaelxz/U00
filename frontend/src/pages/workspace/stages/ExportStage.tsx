@@ -24,7 +24,7 @@ import { exportBlockReason, openingExportBlock, shownExportBlocks, type ExportBl
 import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
-import { ExportBlock } from './ExportBlock'
+import { ExportBlock, ShownExportBlocks } from './ExportBlock'
 import { ExportSubtitles, type SubtitleExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
@@ -193,7 +193,7 @@ export default function ExportStage() {
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : shown.map((id) => blocks[id])}
+      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : <ShownExportBlocks.Provider value={shown}>{shown.map((id) => blocks[id])}</ShownExportBlocks.Provider>}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">
