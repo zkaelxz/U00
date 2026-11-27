@@ -103,7 +103,7 @@ def capped_upload(request: Request, receive, principal=None):
     from lib.capped_request import check_content_length
     from lib.errors import InvalidInputError
     from services import media_upload_service
-    limit = media_upload_service.upload_limit_bytes(principal) + _FORM_OVERHEAD
+    limit = media_upload_service.upload_limit_bytes(principal=principal) + _FORM_OVERHEAD
     try:
         check_content_length(request, limit, "the upload", media_upload_service.too_large_message(
             limit - _FORM_OVERHEAD, media_upload_service.is_member_caller(principal)))
