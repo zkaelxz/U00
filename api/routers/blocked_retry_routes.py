@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Path, Request
 from api.auth import require_engines_allowed, require_permission
 from api.llm_slots import llm_slot
 from api.schemas import BlockedRetryRequest, BlockedRetryResult, error_responses
-from services import blocked_retry_service
+from services import blocked_retry_service, translate_service
 
 router = APIRouter(prefix="/api/lines", tags=["lines"])
 
@@ -25,13 +25,15 @@ _BUSY = "Another AI request is running; try the retry again in a moment."
 
 
 async def _engine_gate(request: Request):
-    """require_engines_allowed on the body's engine (default ollama), before
+    """require_engines_allowed on the body's engine (default: the hosted default engine), before
     the body is validated. An unreadable body counts as a paid engine."""
     try:
         body = await request.json()
     except Exception:
         body = None
     engine = body.get("engine") if isinstance(body, dict) else None
+    if isinstance(body, dict) and engine is None:
+        engine = translate_service.default_hosted_engine()
     require_engines_allowed(request, engine if isinstance(engine, str) else None)
 
 
@@ -41,6 +43,7 @@ async def _engine_gate(request: Request):
              summary="Re-translate one content-blocked line with the chosen engine")
 def post_retry_blocked(body: BlockedRetryRequest, request: Request,
                        drama_id: int = Path(ge=1), line_id: int = Path(ge=1)):
-    require_engines_allowed(request, body.engine)
+    engine = body.engine or translate_service.default_hosted_engine()
+    require_engines_allowed(request, engine)
     with llm_slot(request, _BUSY):
-        return blocked_retry_service.retry_blocked_line(drama_id, line_id, body.engine)
+        return blocked_retry_service.retry_blocked_line(drama_id, line_id, engine)

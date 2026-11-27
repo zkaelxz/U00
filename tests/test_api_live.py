@@ -387,3 +387,17 @@ def test_ollama_check_passes_the_model(client, monkeypatch):
                         lambda *a: seen.append(a) or {"ok": True, "model": "m", "message": None})
     r = client.get("/api/live/ollama-check", params={"model": "m"})
     assert r.status_code == 200 and seen == [("m",)]
+
+
+def test_a_start_with_no_engine_is_gated_on_the_engine_it_will_run(client, monkeypatch):
+    from api.routers import live_routes
+    from lib.errors import ForbiddenError
+    seen = []
+
+    def gate(request, engine, **kw):
+        seen.append(engine)
+        raise ForbiddenError("stop here")
+    monkeypatch.setattr(live_service, "default_engine", lambda: "openai")
+    monkeypatch.setattr(live_routes, "require_engines_allowed", gate)
+    r = client.post("/api/live/sessions", json={"url": "https://example.com/live"})
+    assert r.status_code == 403 and seen == ["openai"]

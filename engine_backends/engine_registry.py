@@ -3,12 +3,12 @@
 import inspect
 import re
 from pathlib import Path
-from lib.errors import MissingPackageError
+from lib.errors import DependencyUnavailableError, MissingPackageError
 from lib import settings_schema
 from . import pricing
 from .claude import ClaudeEngine
 from .gemini import GeminiEngine
-from .local import REMOVED_LOCAL_MODELS, OllamaEngine, cloud_model_needs_paid, is_ollama_cloud_model
+from .local import REMOVED_LOCAL_MODELS, OllamaEngine, OllamaUnavailableError, cloud_model_needs_paid, is_ollama_cloud_model
 from .openai_compat import DeepSeekEngine, OpenAIEngine
 
 
@@ -403,6 +403,10 @@ def get_engine(engine_name: str, api_key: str | None = None, model: str | None =
         if model:
             return cls(api_key, model, **kwargs)
         return cls(api_key, **kwargs)
+    except OllamaUnavailableError as exc:
+        # A saved local tag: the plain refusal (503), not an unexpected 500.
+        raise DependencyUnavailableError(
+            exc.message, details={"reason": exc.reason}) from None
     except ImportError as exc:
         package = _missing_package_name(exc, engine_name)
         _log_import_failure(exc, engine_name)

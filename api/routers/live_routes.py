@@ -35,7 +35,7 @@ _ERRS = error_responses(404, 422, 503)
              summary="Start a live capture session (yt-dlp + local Whisper + engine)",
              responses=_ERRS)
 def post_session(body: LiveSessionStart, request: Request):
-    require_engines_allowed(request, body.engine or live_service.LIVE_DEFAULT_ENGINE)
+    require_engines_allowed(request, body.engine or live_service.default_engine())
     require_cloud_model_allowed(request, (body.engine, body.model))
     # The recorder downloads video for the whole session and its files are served to the PC only.
     if body.delayed_player and not is_at_pc(request):

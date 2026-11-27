@@ -16817,11 +16817,8 @@ export interface components {
          *     saved settings, so no model id or path can be passed through.
          */
         BlockedRetryRequest: {
-            /**
-             * Engine
-             * @default ollama
-             */
-            engine?: string;
+            /** Engine */
+            engine?: string | null;
         };
         /** BlockedRetryResult */
         BlockedRetryResult: {

@@ -427,3 +427,9 @@ class TestDefaultHostedEngine:
         monkeypatch.setattr(local, "check_ollama_reachable", lambda url: False)
         monkeypatch.setattr(translate_service.settings_service, "resolve_key", lambda name, *a: None)
         assert translate_service.default_hosted_engine() == "ollama"
+
+
+def test_a_saved_local_ollama_tag_is_refused_with_a_plain_503_not_a_crash():
+    with pytest.raises(DependencyUnavailableError) as exc:
+        engine_registry.get_engine("ollama", "local", "qwen3:8b")
+    assert "no longer supported" in str(exc.value) and exc.value.details["reason"] == "local_model_removed"

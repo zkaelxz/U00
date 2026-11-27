@@ -29,7 +29,7 @@ _ERRS = error_responses(403, 404, 409, 422, 429, 503)
 
 def _check_engine(request: Request, options) -> None:
     if options is not None:
-        require_engines_allowed(request, options.engine or live_service.LIVE_DEFAULT_ENGINE,
+        require_engines_allowed(request, options.engine or live_service.default_engine(),
                                 model=options.model)
 
 
@@ -89,7 +89,7 @@ def check_now(request: Request, follow_id: int = _ID):
 def start_live(request: Request, follow_id: int = _ID):
     principal = request.state.principal
     engine, model = live_follow_service.follow_engine(follow_id, principal=principal)
-    require_engines_allowed(request, engine or live_service.LIVE_DEFAULT_ENGINE, model=model)
+    require_engines_allowed(request, engine or live_service.default_engine(), model=model)
     require_cloud_model_allowed(request, (engine, model))
     model_readiness_service.require_ready(
         is_at_pc(request), model_readiness_service.for_live_follow, follow_id, principal)

@@ -185,6 +185,12 @@ def _require_offered_model(engine_name: str, model: Optional[str]):
         raise InvalidInputError("That model isn't offered for this engine.")
 
 
+def default_engine() -> str:
+    """The engine a Live request without one runs on, so the paid-engine gate
+    checks the engine that will actually run."""
+    return translate_service.default_hosted_engine()
+
+
 def live_default_model(engine_name: str = LIVE_DEFAULT_ENGINE):
     """The model Live runs when none is chosen: the engine's own default, so
     Ollama starts on Gemma 4 31B (hosted) unless the owner picked another."""
