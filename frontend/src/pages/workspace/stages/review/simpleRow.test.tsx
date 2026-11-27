@@ -257,7 +257,7 @@ describe('a flagged line outside the check queue', () => {
 describe('source text', () => {
   it('underlines the words Whisper was unsure of', () => {
     const html = row(false, { ...LINE, zh: '你好吗', unsure_words: [[1, 2]] })
-    expect(html).toContain('<div lang="zh" class="review-zh">你<span class="review-unsure-word" title="Whisper was unsure of this word">好</span>吗</div>')
+    expect(html).toContain('<div lang="zh-Hans" class="review-zh">你<span class="review-unsure-word" title="Whisper was unsure of this word">好</span>吗</div>')
   })
 
   it('shows plain text when the line keeps no word scores', () => {
