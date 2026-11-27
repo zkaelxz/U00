@@ -17,7 +17,8 @@ if str(REPO_ROOT) not in sys.path:
 
 import cv2
 
-from scanlate import scanlate_balloons, scanlate_checks, scanlate_render
+from scanlate import scanlate_balloons, scanlate_checks, scanlate_render, scanlate_watermark
+from scanlate.scanlate import suggest_font_size
 
 # Text the renderer draws as nothing, so the render shows only what the erase left.
 _BLANK_TEXT = "​"
@@ -32,15 +33,31 @@ def _pages(folder: Path):
                 break
 
 
+def _as_the_app_would_have_them(regions: list, gray) -> list:
+    """The regions with what the app sets before typesetting: the start size when the sample's
+    regions carry none (a Quick read cache entry drops it) and the site-stamp skips."""
+    out = [dict(r, skip=False) for r in regions]
+    for r in out:
+        if not r.get("font_size"):
+            r["font_size"] = suggest_font_size(gray, r)
+    height, width = gray.shape[:2]
+    scanlate_watermark.flag_site_marks(out, [], width, height)
+    scanlate_watermark.flag_edge_fragments(out, width, height)
+    scanlate_watermark.flag_page_numbers(out, width, height)
+    scanlate_watermark.flag_already_english(out, "ko")
+    return out
+
+
 def check_page(image: Path, regions: list, out_dir: Path, stem: str):
     """(report rows, path of the typeset page) for one page."""
-    shown = [dict(r, skip=False) for r in regions]
-    blank = [dict(r, skip=False, translated_text=_BLANK_TEXT) for r in regions]
+    original = cv2.imread(str(image), cv2.IMREAD_GRAYSCALE)
+    regions = _as_the_app_would_have_them(regions, original)
+    shown = [dict(r) for r in regions]
+    blank = [dict(r, translated_text=_BLANK_TEXT) for r in regions]
     typeset = out_dir / f"{stem}-after.png"
     erased = out_dir / f"{stem}-erased.png"
     scanlate_render.process_page(str(image), shown, str(typeset), notes=[])
     scanlate_render.process_page(str(image), blank, str(erased), notes=[])
-    original = cv2.imread(str(image), cv2.IMREAD_GRAYSCALE)
     after = cv2.imread(str(typeset), cv2.IMREAD_GRAYSCALE)
     cleaned = cv2.imread(str(erased), cv2.IMREAD_GRAYSCALE)
     rows = []

@@ -176,7 +176,11 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         to_render, art_signs = _split_art_signs(page, to_render)
         caption_styles = _caption_styles(page, captions)
         caption_rooms = [scanlate_art_text.clear_of_decoration(page, b) for b in captions]
-        letter_rooms = [scanlate_art_text.between_rules(page, b) for b in to_render]
+        # A balloon's own shape bounds its text; the coloured rings of a glow bubble read as rules
+        # and cut the box to a strip above its centre.
+        letter_rooms = [scanlate_art_text.between_rules(page, b)
+                        if (b.get("kind") or "bubble") not in SHAPE_FITTED_KINDS else b
+                        for b in to_render]
         # The ink is read before the erase below removes it.
         inks, fades = _sampled_inks(page, to_render, match_color)
         angles, lines = _tilts_and_lines(page, to_render)
