@@ -5,13 +5,9 @@ import { dropAllQuickReads, dropQuickRead, listQuickReads, type QuickReadRun } f
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { buttonClass } from '../../components/uiClasses'
 import { useInterval } from '../../hooks/useInterval'
+import { runLabel } from './quickReadLabel'
 
 const POLL_MS = 4000
-
-export function runLabel(run: QuickReadRun): string {
-  const where = [run.site, run.chapter].filter(Boolean).join(' / ')
-  return where || 'A Quick read'
-}
 
 export function QuickReadRuns() {
   const [runs, setRuns] = useState<QuickReadRun[] | null>(null)
@@ -24,7 +20,10 @@ export function QuickReadRuns() {
       setError(e)
     }
   }, [])
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const first = window.setTimeout(() => void load(), 0)
+    return () => window.clearTimeout(first)
+  }, [load])
   useInterval(() => void load(), POLL_MS, { pauseWhenHidden: true })
   async function drop(action: () => Promise<unknown>) {
     try {

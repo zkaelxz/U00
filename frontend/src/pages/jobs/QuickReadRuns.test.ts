@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { runLabel } from './QuickReadRuns'
+import { runLabel } from './quickReadLabel'
 
 const run = { run_id: 'run-aaaaaaaa', site: 'site.example', chapter: 'series/ch-4', pages_received: 5, pages_left: 3, running_seconds: 9 }
 
