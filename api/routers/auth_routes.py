@@ -76,7 +76,8 @@ from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, clie
                       set_session_cookie)
 from api.no_store import NO_STORE, no_store_json
 from api.remote_uploads import away_principal
-from services import auth_service, member_key_service, oidc_service
+from api.schemas import AccountPreferences
+from services import account_prefs_service, auth_service, member_key_service, oidc_service
 from lib.errors import DependencyUnavailableError, NotFoundError, RateLimitedError
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -277,6 +278,19 @@ def _own(request: Request) -> dict:
     """The caller's session principal; only ever from their own cookie."""
     _require_auth_on(request)
     return request.state.principal
+
+
+@router.get("/preferences", dependencies=[authenticated()], response_model=AccountPreferences,
+            response_model_exclude_none=True, summary="My preferences, kept for every device I sign in on")
+def get_preferences(request: Request):
+    return JSONResponse(AccountPreferences(**account_prefs_service.get(_own(request)["user_id"])).model_dump(exclude_none=True), headers=dict(NO_STORE))
+
+
+@router.put("/preferences", dependencies=[authenticated()], response_model=AccountPreferences,
+            response_model_exclude_none=True, summary="Save some of my preferences")
+def put_preferences(body: AccountPreferences, request: Request):
+    saved = account_prefs_service.update(_own(request)["user_id"], body.model_dump(exclude_none=True))
+    return JSONResponse(AccountPreferences(**saved).model_dump(exclude_none=True), headers=dict(NO_STORE))
 
 
 @router.get("/sessions", dependencies=[authenticated()], response_model=DeviceSessionList,

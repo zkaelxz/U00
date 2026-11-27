@@ -51,6 +51,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/auth/ollama-key` | authenticated() |
 | `GET /api/auth/ollama-key` | jobs.start |
 | `POST /api/auth/ollama-key` | jobs.start |
+| `GET /api/auth/preferences` | authenticated() |
+| `PUT /api/auth/preferences` | authenticated() |
 | `GET /api/auth/sessions` | authenticated() |
 | `POST /api/auth/sessions/revoke-others` | authenticated() |
 | `POST /api/auth/sessions/{auth_session_id}/revoke` | authenticated() |

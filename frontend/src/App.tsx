@@ -8,6 +8,7 @@ import { useMediaQuery } from './hooks/useMediaQuery'
 import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
 import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut, useSession } from './hooks/useSession'
+import { useAccountTheme } from './hooks/useAccountTheme'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { usePersistedState } from './hooks/usePersistedState'
 import { ViewModeSwitch } from './nav/ViewModeSwitch'
@@ -251,6 +252,7 @@ export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
+  useAccountTheme(menuUser(session)?.id ?? null)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const features = useFeatures()

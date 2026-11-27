@@ -2,7 +2,7 @@
 // dance; the browser only reads /api/auth/me, navigates to /api/auth/login
 // and posts /api/auth/logout. No token, client id or secret reaches here.
 
-import { apiUrl, getJson, postJson, type Fetch } from './client'
+import { apiUrl, getJson, postJson, putJson, type Fetch } from './client'
 
 export interface AuthUser {
   id: number | null
@@ -48,6 +48,15 @@ export function accountWords(displayName: string | null | undefined): string {
 }
 
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)
+
+/** What an account keeps on the server so it follows the person to any device (absent until chosen). */
+export interface AccountPreferences {
+  theme?: 'system' | 'light' | 'dark' | 'sepia' | 'oled'
+}
+
+export const getPreferences = (f?: Fetch) => getJson<AccountPreferences>('/api/auth/preferences', f)
+export const putPreferences = (prefs: AccountPreferences, f?: Fetch) =>
+  putJson<AccountPreferences>('/api/auth/preferences', prefs, f)
 
 export const logout = (f?: Fetch) => postJson<unknown>('/api/auth/logout', undefined, f)
 
