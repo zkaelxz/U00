@@ -256,7 +256,7 @@ class TestEveryRouteDeclared:
     def test_authenticated_only_on_own_session_routes(self):
         """authenticated() (signed in, no permission) is the fourth declaration
         kind; it is only for routes on the caller's own sessions, extension
-        device tokens and own Ollama key, so it may not spread to routes that touch shared data."""
+        device tokens, own Ollama key and own preferences, so it may not spread to routes that touch shared data."""
         app = _app("on")
         uses = sorted(f"{sorted(m)} {p}" for _r, p, m, d in api_auth.iter_route_declarations(app)
                       if ("authenticated", None) in d)
@@ -265,7 +265,8 @@ class TestEveryRouteDeclared:
                         "['POST'] /api/auth/device-tokens/{device_token_id}/revoke",
                         "['POST'] /api/auth/logout",
                         "['POST'] /api/auth/sessions/revoke-others",
-                        "['POST'] /api/auth/sessions/{auth_session_id}/revoke"]
+                        "['POST'] /api/auth/sessions/{auth_session_id}/revoke",
+                        "['PUT'] /api/auth/preferences"]
         kinds = {d[0] for _r, _p, _m, decls in api_auth.iter_route_declarations(app)
                  for d in decls}
         assert kinds == {"permission", "public", "local_only", "authenticated", "device_token"}

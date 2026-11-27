@@ -245,6 +245,14 @@ export function patchJson<T>(path: string, body: unknown, fetchImpl: Fetch = fet
   )
 }
 
+export function putJson<T>(path: string, body: unknown, fetchImpl: Fetch = fetch): Promise<T> {
+  return request<T>(
+    path,
+    { method: 'PUT', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER, 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+    fetchImpl,
+  )
+}
+
 export function deleteJson<T>(path: string, fetchImpl: Fetch = fetch): Promise<T> {
   return request<T>(path, { method: 'DELETE', headers: { ...JSON_ACCEPT, ...LOCAL_HEADER } }, fetchImpl)
 }
