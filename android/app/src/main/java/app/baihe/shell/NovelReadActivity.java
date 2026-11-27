@@ -1,6 +1,7 @@
 package app.baihe.shell;
 
 import android.app.Activity;
+import android.media.AudioManager;
 import android.os.Bundle;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
@@ -45,6 +46,7 @@ public class NovelReadActivity extends Activity {
     private BackgroundColorSpan highlight;
     private int highlightColor;
     private String speechNote = "";
+    private static final String KEY_READ_FROM = "readFrom";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -101,7 +103,13 @@ public class NovelReadActivity extends Activity {
                 ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(root);
 
+        // The voice plays on the media stream, so the volume keys reach it while it reads.
+        setVolumeControlStream(AudioManager.STREAM_MUSIC);
+        // Turning the phone recreates the screen; the chapter text lives in the session, the place here.
+        if (state != null) readFrom = state.getInt(KEY_READ_FROM, 0);
         refresh();
+        if (readFrom > 0 && readFrom < body.length()) play.setText("Resume");
+        else readFrom = 0;
         // Parts arrive while the reader is open, so the text grows as the grab translates them.
         NovelReadSession.listen(() -> runOnUiThread(this::refresh));
     }
@@ -150,15 +158,19 @@ public class NovelReadActivity extends Activity {
     }
 
     private void onSpeechReady(int result) {
-        if (isDestroyed() || tts == null) return;
+        if (isDestroyed()) return;
         if (result != TextToSpeech.SUCCESS) {
-            speechUnavailable();
+            // With no engine at all the error comes from inside the constructor, before tts is assigned.
+            body.post(() -> {
+                if (!isDestroyed()) speechUnavailable();
+            });
             return;
         }
+        if (tts == null) return;
         // The phone's own English (en-GB, say) when it is set to one, else US English, else the voice it has.
         Locale want = "en".equals(Locale.getDefault().getLanguage()) ? Locale.getDefault() : Locale.US;
         if (tts.setLanguage(want) < TextToSpeech.LANG_AVAILABLE) tts.setLanguage(Locale.ENGLISH);
-        // Narration's pace on the PC, so a chapter heard on the phone sounds the same.
+        // The PC's default narration pace.
         tts.setSpeechRate(0.9f);
         tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
             @Override
@@ -298,10 +310,13 @@ public class NovelReadActivity extends Activity {
         highlightEnd = -1;
     }
 
-    /** The volume keys scroll, so the phone can be read one-handed; most of a screen, to keep a line of overlap. */
+    /**
+     * The volume keys scroll, so the phone can be read one-handed; most of a screen, to keep a line of overlap.
+     * While reading aloud they set the voice's volume instead.
+     */
     @Override
     public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && keyCode != KeyEvent.KEYCODE_VOLUME_UP) {
+        if (reading || (keyCode != KeyEvent.KEYCODE_VOLUME_DOWN && keyCode != KeyEvent.KEYCODE_VOLUME_UP)) {
             return super.onKeyDown(keyCode, event);
         }
         int step = (int) (scroll.getHeight() * 0.85f);
@@ -312,6 +327,7 @@ public class NovelReadActivity extends Activity {
     /** Swallowed with its key-down, or the system would still change the volume and show its slider. */
     @Override
     public boolean onKeyUp(int keyCode, KeyEvent event) {
+        if (reading) return super.onKeyUp(keyCode, event);
         return keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP
                 || super.onKeyUp(keyCode, event);
     }
@@ -321,6 +337,12 @@ public class NovelReadActivity extends Activity {
     protected void onStop() {
         if (reading) pause();
         super.onStop();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putInt(KEY_READ_FROM, readFrom);
     }
 
     @Override
