@@ -21,7 +21,7 @@ refused before it reaches a URL.
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, soup as _soup
+from ..base import SourceAdapter, layout_changed_class, soup as _soup, https_only
 from ..domains import SiteDomains
 from ..http_transport import header
 from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
@@ -36,11 +36,6 @@ _LIST_HREF = re.compile(r"^/list\?toon=([0-9]{1,12})$")
 _VIEW_HREF = re.compile(r"^/view\?toon=([0-9]{1,12})&num=([0-9]{1,12})$")
 
 LayoutChanged = layout_changed_class("wfwf")
-
-
-def _https(url) -> str:
-    url = str(url or "")
-    return url if urlsplit(url).scheme == "https" else ""
 
 
 def _clean(text) -> str:
@@ -89,7 +84,7 @@ class WfwfSource(SourceAdapter):
                 continue
             seen.add(m.group(1))
             img = a.find("img")
-            cover = _https(img.get("src")) if img else ""
+            cover = https_only(img.get("src")) if img else ""
             out.append(SearchResult(self.name, m.group(1), title,
                                     f"{self.base_url}/list?toon={m.group(1)}", cover))
         return out
@@ -110,7 +105,7 @@ class WfwfSource(SourceAdapter):
         cover = soup.select_one(".thumb-wrap img")
         summary = soup.select_one("#summary")
         return SeriesInfo(self.name, sid, title, f"{self.base_url}/list?toon={sid}",
-                          _https(cover.get("src")) if cover else "",
+                          https_only(cover.get("src")) if cover else "",
                           description=_clean(summary.get_text(" ")) if summary else "",
                           content_type=ContentType.MANHWA.value, language="ko")
 
@@ -145,7 +140,7 @@ class WfwfSource(SourceAdapter):
         html = self._page(f"/view?toon={sid}&num={num}", f"Loading chapter {chapter.title}")
         urls = []
         for img in _soup(html).select("#vimg-area img[data-src]"):
-            url = _https(img.get("data-src"))
+            url = https_only(img.get("data-src"))
             if url and url not in urls:
                 urls.append(url)
         if not urls:
