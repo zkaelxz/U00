@@ -700,8 +700,11 @@ class TestRemoteUploads:
     def test_member_never(self, isolated_db, parsed):
         _remote_uploads()
         user = auth_service.add_user("kid@example.com")
+        # The member upload right opens the media upload routes (tests/test_member_uploads.py);
+        # every other upload route stays admin-only whatever a member holds.
         for p in auth_service.OPT_IN_PERMISSIONS:
-            auth_service.grant_permission(user["id"], p)
+            if p != auth_service.MEMBER_UPLOAD_PERMISSION:
+                auth_service.grant_permission(user["id"], p)
         with pytest.raises(Exception):
             auth_service.grant_permission(user["id"], auth_service.UPLOAD_PERMISSION)
         s = auth_service.create_session(user["id"], "pytest", "203.0.113.9")

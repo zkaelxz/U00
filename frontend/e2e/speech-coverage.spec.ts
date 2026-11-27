@@ -49,7 +49,7 @@ test('without permission to read lines: a plain note, no error banner', async ({
       : route.continue())
   await openPanel(page)
   const panel = page.getByTestId('speech-coverage')
-  await expect(panel.getByText('Seeing line text needs permission to read lines. Ask the PC owner.')).toBeVisible()
+  await expect(panel.getByText('Seeing line text needs permission to read lines. Ask the PC owner to allow it.')).toBeVisible()
   await expect(panel.getByRole('alert')).toHaveCount(0)
 })
 

@@ -7,6 +7,8 @@ import {
   isDirectAudioUrl,
   isDirectMediaUrl,
   isVideoFile,
+  slowUploadHint,
+  uploadMinutes,
   RANGES,
   rangeFieldError,
   ocrBackendOptions,
@@ -153,5 +155,13 @@ describe('rangeFieldError', () => {
   it('uses the plain name for the speech cutoff', () => {
     expect(RANGES.vad_threshold.label).toBe('Quiet-sound cutoff')
     expect(rangeFieldError('vad_threshold', '2')).toContain('Quiet-sound cutoff')
+  })
+})
+
+describe('slow upload hint', () => {
+  it('stays quiet for a small file and warns with minutes for a big one', () => {
+    expect(slowUploadHint(100 * 1024 * 1024)).toBeNull()
+    expect(uploadMinutes(1024 * 1024 * 1024)).toBe(15)
+    expect(slowUploadHint(1024 * 1024 * 1024)).toMatch(/about 15 minutes/)
   })
 })

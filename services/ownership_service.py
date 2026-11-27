@@ -213,7 +213,19 @@ def require_drama(drama_id) -> dict:
     return drama
 
 
+_MEMBER_OWN_TITLES_ONLY = "You can upload only into titles you made."
 _ADMIN_CHANGE_AT_PC = "An admin can change other people's private items only at the PC."
+
+
+def require_own_drama(principal, drama_id) -> None:
+    """A member may put media only into a title they made: a shared title they can
+    edit would otherwise let them swap its audio. Admins and calls with no
+    principal are not held to it."""
+    if principal is None or principal.get("is_admin"):
+        return
+    row = require_drama(drama_id)
+    if not _is_owner(principal, row):
+        raise ForbiddenError(_MEMBER_OWN_TITLES_ONLY)
 
 
 def require_visible(principal, kind: str, item_id: int) -> None:

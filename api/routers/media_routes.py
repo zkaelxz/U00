@@ -29,7 +29,7 @@ from lib.storage_errors import require_readable
 router = APIRouter(prefix="/api/media", tags=["media"])
 
 
-@router.post("/dramas/{drama_id}/upload", dependencies=[require_permission("media.upload")], response_model=MediaUploadResult,
+@router.post("/dramas/{drama_id}/upload", dependencies=[require_permission("media.upload_member")], response_model=MediaUploadResult,
              summary="Upload an audio/video file into one drama's folder",
              description="Replacing existing audio/video needs confirm_replace_audio=true (422 "
                          "with details.reason \"confirm_replace_audio\" otherwise); the old file "
@@ -45,12 +45,12 @@ def post_upload_media(request: Request, drama_id: int = Path(ge=1), file: Upload
 @router.get("/dramas/{drama_id}/status", dependencies=[require_permission("library.read")], response_model=MediaStatus,
             summary="Whether a drama has audio / a source video, and the upload size cap",
             responses=error_responses(404))
-def get_media_status(drama_id: int = Path(ge=1)):
-    return media_upload_service.get_media_status(drama_id)
+def get_media_status(request: Request, drama_id: int = Path(ge=1)):
+    return media_upload_service.get_media_status(drama_id, principal=request.state.principal)
 
 
 @router.post("/dramas/{drama_id}/upload-and-transcribe",
-             dependencies=[require_permission("media.upload", "jobs.start")], response_model=UploadAndTranscribeResult,
+             dependencies=[require_permission("media.upload_member", "jobs.start")], response_model=UploadAndTranscribeResult,
              summary="Upload a file, then start the transcribe run",
              description="Options are the same as POST /api/transcribe/dramas/{id}/run and are "
                          "checked before the file is stored (422/400/503 on a bad option). An audio "
