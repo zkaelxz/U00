@@ -588,6 +588,16 @@ def _migrate_auth_session_columns(conn):
             [(r[2] or device_label(r[1]), r[0]) for r in old_agents])
 
 
+def _migrate_min_silence_to_new_default(conn):
+    # The default went from 300 to 1000 ms. A stored 300 is the old column default for nearly
+    # every title and can't be told from a chosen 300, so all of them go back to unset (NULL,
+    # follows the default); the marker keeps a 300 chosen afterwards.
+    marker = "migrations.min_silence_unset"
+    if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (marker,)).fetchone() is None:
+        conn.execute("UPDATE dramas SET min_silence_ms = NULL WHERE min_silence_ms = 300")
+        conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, 'true')", (marker,))
+
+
 def _migrate_off_removed_test_engine(conn):
     # The fake "test_offline" engine is gone: a drama or preset still on it
     # goes back to the default engine instead of failing to start a run.
