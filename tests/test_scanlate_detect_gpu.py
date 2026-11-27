@@ -75,6 +75,7 @@ def gpu(monkeypatch):
     monkeypatch.setattr(vram, "check_fits", check_fits)
     monkeypatch.setattr(scanlate_detect, "_bubble_ml_gpu", {})
     monkeypatch.setattr(scanlate_detect, "_bubble_ml_gpu_broken", [])
+    monkeypatch.setattr(scanlate_detect, "_bubble_ml_gpu_off_until", 0.0)
     return state
 
 
@@ -106,7 +107,7 @@ def test_without_a_free_gpu_the_page_runs_on_the_cpu(gpu, change):
     assert scanlate_detect._bubble_ml_gpu == {}
 
 
-def test_a_full_gpu_costs_one_page_and_a_broken_one_the_process(gpu):
+def test_a_full_gpu_costs_one_page_and_a_broken_one_the_next_few_minutes(gpu):
     master, torch = _Model(), _Torch()
     _run(master, torch)
     scanlate_detect._bubble_ml_gpu["cuda"].gpu_error = _OutOfMemory("CUDA out of memory")
@@ -122,3 +123,17 @@ def test_releasing_the_detector_drops_its_gpu_copy(gpu):
     _run(_Model(), _Torch())
     scanlate_detect.release_bubble_model()
     assert scanlate_detect._bubble_ml_gpu == {}
+
+
+def test_the_gpu_comes_back_after_a_fault_once_the_pause_is_over(gpu, monkeypatch):
+    now = [1000.0]
+    monkeypatch.setattr(scanlate_detect.time, "monotonic", lambda: now[0])
+    master, torch = _Model(), _Torch()
+    _run(master, torch)
+    scanlate_detect._bubble_ml_gpu["cuda"].gpu_error = RuntimeError("driver fault")
+    assert _run(master, torch) == "cpu"
+    now[0] += scanlate_detect._GPU_OFF_SECONDS - 1
+    assert _run(master, torch) == "cpu"
+    now[0] += 2
+    assert _run(master, torch) == "cuda"
+    assert scanlate_detect._bubble_ml_gpu_broken == ["RuntimeError"], "the fault stays in the log"
