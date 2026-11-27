@@ -1118,6 +1118,19 @@ class TestArtCaptionsAlone:
         assert [b["kind"] for b in bubbles] == ["caption"]
         assert not any("No bubbles found" in m for _, m in notes)
 
+    def test_the_stamp_search_choice_reaches_the_caption_reader(self, tmp_path, monkeypatch):
+        from scanlate import scanlate_art_text
+        from PIL import Image
+        path = tmp_path / "p.png"
+        Image.new("RGB", (200, 200), (20, 20, 20)).save(path)
+        monkeypatch.setattr(scanlate, "detect_bubbles", lambda *a, **k: [])
+        seen = []
+        monkeypatch.setattr(scanlate_art_text, "find_art_captions",
+                            lambda *a, **k: seen.append(k.get("find_stamps")) or [])
+        scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True, art_caption_stamps=False)
+        scanlate.detect_and_ocr_page(str(path), "zh", art_captions=True)
+        assert seen == [False, True]
+
     def test_no_bubbles_and_no_captions_still_says_so(self, tmp_path, monkeypatch):
         from scanlate import scanlate_art_text
         from PIL import Image
