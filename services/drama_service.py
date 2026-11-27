@@ -462,6 +462,17 @@ def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None)
     return found[:MAX_SAME_TITLES]
 
 
+def titles_with_page_link(url, principal=None) -> list:
+    """Titles the caller can see whose saved link is this page, oldest first. Matched on
+    _link_identity, so two YouTube videos (same "/watch" display link) are two pages."""
+    link = _link_identity(url)
+    if not link:
+        return []
+    rows = [row for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))
+            if _link_identity(row) == link]
+    return sorted(rows, key=lambda r: r["id"])
+
+
 def _page_link_key(url) -> str:
     """A link's key only when it names a page. display_url collapses a token-like path to the bare host,
     and a host alone would make every such link on that site match each other."""

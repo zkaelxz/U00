@@ -984,9 +984,13 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary", "/subs"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route == "/subs":
+                from services import extension_subs_service
+                self._send_json(200, extension_subs_service.subs_for_page(payload))
+                return
             if route == "/capture-summary":
                 self._send_json(200, extension_bridge_service.record_capture_summary(payload))
                 return

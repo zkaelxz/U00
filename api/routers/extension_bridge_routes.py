@@ -31,7 +31,7 @@ from api import after_import_plan
 from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
-from services import extension_bridge_service, quick_read_runs
+from services import extension_bridge_service, extension_subs_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
 from services import (grab_last_page_service, live_service, model_readiness_service, page_run_service,
@@ -317,6 +317,14 @@ async def post_report(request: Request):
     principal = request.state.principal
     return await _handle(request, lambda payload: extension_bridge_service.record_page_report(
         payload, principal=principal), needs=("library.read",))
+
+
+@router.post("/subs", dependencies=[require_device_token()],
+             summary="Device token: the English lines of your title made from this video page, for its own player")
+async def post_subs(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_subs_service.subs_for_page(
+        payload, principal=principal), needs=("library.read", "lines.read"))
 
 
 @router.post("/title-progress", dependencies=[require_device_token()],
