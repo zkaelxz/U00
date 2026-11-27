@@ -627,3 +627,28 @@ class TestPunctuationOnlySegmentsDropped:
         got = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3")
 
         assert [g["text"] for g in got] == ["你好", "[Music]", "こんにちは。", "7"]
+
+
+class TestLaughsAreNotFlagged:
+    def _flags(self, text, start=4.28, end=4.56):
+        out = filter_hallucinated_segments([{"start": start, "end": end, "text": text}])
+        return [s.get("flag") for s in out]
+
+    @pytest.mark.parametrize("text", ["哈哈哈", "哈哈哈哈哈哈哈哈哈！", "呵呵呵", "嗯嗯嗯", "あはは", "ㅋㅋㅋ"])
+    def test_a_laugh_or_interjection_in_a_split_second_is_not_flagged(self, text):
+        assert self._flags(text) == [None]
+        assert self._flags(text, 4.0, 4.1) == [None]
+
+    def test_a_fast_laugh_is_not_flagged_for_its_rate(self):
+        assert self._flags("哈哈哈哈哈哈哈哈哈哈", 0.0, 0.6) == [None]
+
+    @pytest.mark.parametrize("text", ["うん", "ああ", "おお", "ほんほん"])
+    def test_kana_words_without_a_laughing_syllable_are_still_flagged(self, text):
+        assert self._flags(text, 4.0, 4.1) == ["text_uncertain"]
+
+    def test_a_long_run_of_interjections_is_still_flagged(self):
+        assert self._flags("嗯啊" * 6, 4.0, 4.1) == ["text_uncertain"]
+
+    def test_other_text_in_the_same_split_second_is_still_flagged(self):
+        assert self._flags("今天这根本") == ["text_uncertain"]
+        assert self._flags("哈哈今天") == ["text_uncertain"]
