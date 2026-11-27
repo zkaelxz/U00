@@ -30,6 +30,9 @@ import { formatJobDuration, isActive, isFinished, jobBaseName, jobTimeLeftText, 
 import { JobStagesPanel } from './diagnostics/JobStagesPanel'
 import { ActivityLog } from './jobs/ActivityLog'
 import { JobQueue } from './jobs/JobQueue'
+import { QuickReadRuns } from './jobs/QuickReadRuns'
+import { Tabs } from '../components/Tabs'
+import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { RunSettings } from './jobs/RunSettings'
 import {
   KIND_OPTIONS, NO_FILTERS, RANGE_OPTIONS, STATUS_CHIPS, effectiveStatus, filterJobs, hasActiveFilters, jobLinks, withLinkedJob,
@@ -52,6 +55,8 @@ const REFUSED_TEXT: Record<number, string> = {
 
 const fullTime = (sec: number) => new Date(sec * 1000).toLocaleString()
 
+const JOB_TABS = [{ id: 'jobs' as const, label: 'Jobs' }, { id: 'quick' as const, label: 'Quick read' }]
+
 export default function JobsPage() {
   const { jobs, error, reload } = useJobs()
   const session = useSession()
@@ -64,6 +69,7 @@ export default function JobsPage() {
   const [storedSort, setSort] = usePersistedState<{ key: SortKey; dir: SortDir }>('jobs.sort', { key: 'default', dir: 'desc' })
   const sort = useMemo(() => normalizeSort(storedSort), [storedSort])
   const [limit, setLimit] = useState(PAGE)
+  const [tab, setTab] = useState<'jobs' | 'quick'>('jobs')
   const [titles, setTitles] = useState<ReadonlyMap<number, string>>(new Map())
   const [actionError, setActionError] = useState<unknown>(null)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
@@ -149,6 +155,16 @@ export default function JobsPage() {
   }
 
   const noJobsYet = jobs !== null && all.length === 0 && refused === null
+  const tabs = <Tabs label="Jobs" idPrefix="jobs" tabs={JOB_TABS} active={tab} onSelect={setTab} />
+  if (tab === 'quick') {
+    return (
+      <PageShell width="wide" title="Jobs" label="Jobs" className="jobs-page" tabs={tabs}>
+        <div id={tabPanelId('jobs', 'quick')} role="tabpanel" aria-labelledby={tabButtonId('jobs', 'quick')}>
+          <QuickReadRuns />
+        </div>
+      </PageShell>
+    )
+  }
   return (
     <PageShell
       width="wide"
@@ -156,6 +172,7 @@ export default function JobsPage() {
       label="Jobs"
       className="jobs-page"
       meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
+      tabs={tabs}
     >
       {/* A person with no jobs yet reads the empty state before the queue form. */}
       {!noJobsYet && <JobQueue titles={titles} />}

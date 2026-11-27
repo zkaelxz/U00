@@ -31,3 +31,11 @@ export const deleteJob = (id: string, f?: Fetch) =>
 // PC only. Permanently erases every finished job's record.
 export const clearFinishedJobs = (f?: Fetch) =>
   postJson<{ deleted_count: number }>('/api/jobs/clear-finished', { confirm: true }, pcOnlyFetch(f))
+
+// Quick read runs still working on the PC (the phone's and the extension's chapters), for the Jobs tab.
+export interface QuickReadRun { run_id: string; site: string; chapter: string; pages_received: number; pages_left: number; running_seconds: number }
+export interface QuickReadDropResult { dropped_runs: number; dropped_pages: number }
+export const listQuickReads = (f?: Fetch) => getJson<{ items: QuickReadRun[]; count: number }>('/api/jobs/quick-reads', f)
+export const dropQuickRead = (runId: string, f?: Fetch) =>
+  postJson<QuickReadDropResult>(`/api/jobs/quick-reads/${encodeURIComponent(runId)}/drop`, undefined, f)
+export const dropAllQuickReads = (f?: Fetch) => postJson<QuickReadDropResult>('/api/jobs/quick-reads/drop-all', undefined, f)
