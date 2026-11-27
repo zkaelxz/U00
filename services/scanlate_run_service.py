@@ -733,6 +733,8 @@ def _flag_repeated_site_marks(drama_id: int, page_id: int, bubbles: list,
     scanlate_watermark.flag_site_marks(bubbles, earlier_regions, width, height)
     scanlate_watermark.flag_edge_fragments(bubbles, width, height)
     scanlate_watermark.flag_page_numbers(bubbles, width, height)
+    scanlate_watermark.flag_already_english(
+        bubbles, (db.get_drama(drama_id) or {}).get("source_language") or "zh")
 
 
 def _rerender(drama_id: int, page_id: int, jid: str) -> None:

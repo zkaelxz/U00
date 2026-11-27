@@ -207,3 +207,27 @@ def test_a_misread_bare_site_name_is_still_cut_from_a_caption(text):
     regions = [_r(f"자신이 원하는걸 얻고야 말겠다는\n{text}")]
     assert wm.flag_site_marks(regions) == 0
     assert regions[0]["source_text"] == "자신이 원하는걸 얻고야 말겠다는"
+
+
+@pytest.mark.parametrize("text", ["Feaserasa.cripmon", "今のBlo...SoleVingontwinthonkenter.come."])
+def test_a_scanlator_credit_with_no_known_domain_is_a_mark(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["Hello. Please sit down.", "Wait...why would you do that.", "Mr.Kim said no"])
+def test_a_sentence_break_is_not_an_address(text):
+    assert not wm.looks_like_site_mark(text)
+
+
+def test_text_already_in_english_on_a_cjk_page_is_left_alone():
+    logo = _r("SECRET GARDEN")
+    mixed = _r("안녕 OK")
+    cjk = _r("你好")
+    regions = [logo, mixed, cjk]
+    assert wm.flag_already_english(regions, "ko") == 1
+    assert [r["skip"] for r in regions] == [True, False, False]
+
+
+def test_english_is_not_skipped_when_the_source_is_not_cjk():
+    regions = [_r("SECRET GARDEN")]
+    assert wm.flag_already_english(regions, "en") == 0

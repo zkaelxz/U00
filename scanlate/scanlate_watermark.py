@@ -13,6 +13,11 @@ _DOMAIN = re.compile(
     r"(https?://|www\.|\b[a-z0-9][a-z0-9-]{1,}\.(?:com|net|org|co|kr|cc|me|tv|xyz|top|site|"
     r"info|io|jp|cn|tw|to|app|vip|club|moe)\b)", re.I)
 
+# Scanlators' credit lines come out of OCR as one Latin run with a dot inside ("Feaserasa.cripmon"),
+# which no list of domains covers. Two runs of four letters or more joined by a dot with no space
+# is an address, not dialogue (a sentence break has a space after its dot).
+_LATIN_ADDRESS = re.compile(r"[A-Za-z]{4,}\.[A-Za-z]{4,}")
+
 # An address stamped under a Korean or CJK site name has no Latin label before
 # the dot, and OCR garbles the name itself ("토끼뉴소.com"), so the dot-and-suffix
 # after any CJK character is enough to call it an address.
@@ -128,6 +133,8 @@ def looks_like_site_mark(text: str) -> bool:
     text = text or ""
     if _DOMAIN.search(text) or _CJK_DOMAIN.search(text) or _PROMO.search(_STRIP.sub("", text)):
         return True
+    if _LATIN_ADDRESS.search(text):
+        return True
     squashed = _normal(text)
     return any(name in squashed for name in _SITE_NAMES)
 
@@ -230,6 +237,24 @@ _NUMBER_BAND = 0.08           # of the page's height, from the top or bottom edg
 _NUMBER_MAX_HEIGHT_PER_WIDTH = 0.06
 _NUMBER_BAND_PER_WIDTH = 0.12
 _NUMBER_MAX_CHARS = 3
+
+
+def flag_already_english(regions: list, source_language: str) -> int:
+    """Skips regions already in Latin script on a CJK page (an English logo or
+    credit on a cover): redrawing them would replace the artist's own English
+    lettering with a worse copy."""
+    if source_language not in ("zh", "ja", "ko"):
+        return 0
+    flagged = 0
+    for r in regions:
+        if r.get("skip"):
+            continue
+        letters = [c for c in (r.get("source_text") or "") if c.isalpha()]
+        latin = sum(1 for c in letters if c.isascii())
+        if latin >= 3 and latin >= 0.8 * len(letters):
+            r["skip"] = True
+            flagged += 1
+    return flagged
 
 
 def flag_page_numbers(regions: list, width: int, height: int) -> int:
