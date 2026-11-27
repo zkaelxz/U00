@@ -290,6 +290,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/novel` | device_token (extension.send) |
 | `POST /api/ext-bridge/page` | device_token (extension.send) |
 | `POST /api/ext-bridge/pages` | device_token (extension.send) |
+| `POST /api/ext-bridge/quick-reads` | device_token (extension.send) |
+| `POST /api/ext-bridge/quick-reads/drop` | device_token (extension.send) |
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
 | `GET /api/ext-bridge/sites` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
@@ -367,6 +369,9 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/jobs` | library.read |
 | `POST /api/jobs/clear-finished` | local_only() |
 | `GET /api/jobs/queue-summary` | library.read |
+| `GET /api/jobs/quick-reads` | library.read |
+| `POST /api/jobs/quick-reads/drop-all` | jobs.cancel |
+| `POST /api/jobs/quick-reads/{run_id}/drop` | jobs.cancel |
 | `GET /api/jobs/{job_id}` | library.read |
 | `POST /api/jobs/{job_id}/cancel` | jobs.cancel |
 | `POST /api/jobs/{job_id}/delete` | local_only() |

@@ -22,6 +22,8 @@ import java.util.List;
 public class GrabHistoryActivity extends Activity {
     private GrabUi.Palette palette;
     private LinearLayout list;
+    /** Quick reads still working on the PC, filled in once the PC answers. */
+    private LinearLayout pcRuns;
 
     @Override
     protected void onCreate(Bundle state) {
@@ -69,6 +71,11 @@ public class GrabHistoryActivity extends Activity {
         }
         list.addView(top);
 
+        pcRuns = new LinearLayout(this);
+        pcRuns.setOrientation(LinearLayout.VERTICAL);
+        list.addView(pcRuns);
+        loadPcRuns();
+
         list.addView(section(waiting.isEmpty() ? "Waiting: nothing" : "Waiting"));
         for (GrabQueue.Item item : waiting) {
             LinearLayout card = card(item.name, GrabQueue.siteOf(item.url) + " - " + GrabQueue.chaptersLabel(item.chapters)
@@ -108,6 +115,49 @@ public class GrabHistoryActivity extends Activity {
                     + "translated for 14 days, so it costs nothing while it does. Nothing is kept on this phone.",
                     13, false, palette.muted));
         }
+    }
+
+    private void loadPcRuns() {
+        LinearLayout target = pcRuns;
+        String server = prefs().getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs().getString(GrabActivity.KEY_TOKEN, "");
+        if (server.isEmpty() || token.isEmpty()) return;
+        new Thread(() -> {
+            org.json.JSONArray runs;
+            try {
+                runs = new BaiheClient(server, token).quickReadRuns();
+            } catch (BaiheClient.BridgeException e) {
+                return; // The PC is not reachable: the lists below still work.
+            }
+            runOnUiThread(() -> {
+                if (target != pcRuns || isFinishing() || runs.length() == 0) return;
+                target.addView(section("Reading on the PC"));
+                for (int i = 0; i < runs.length(); i++) {
+                    org.json.JSONObject run = runs.optJSONObject(i);
+                    if (run == null) continue;
+                    String where = (run.optString("site") + " " + run.optString("chapter")).trim();
+                    LinearLayout card = card(where.isEmpty() ? "A Quick read" : where,
+                            run.optInt("pages_left") + " of " + run.optInt("pages_received") + " pages left");
+                    String id = run.optString("run_id");
+                    card.addView(button("Drop", palette.bad, v -> dropRun(id)));
+                    target.addView(card);
+                }
+                if (runs.length() > 1) target.addView(button("Drop all", palette.bad, v -> dropRun(null)));
+            });
+        }, "grab-pc-runs").start();
+    }
+
+    private void dropRun(String id) {
+        String server = prefs().getString(GrabActivity.KEY_SERVER, "");
+        String token = prefs().getString(GrabActivity.KEY_TOKEN, "");
+        new Thread(() -> {
+            try {
+                new BaiheClient(server, token).dropQuickRead(id);
+            } catch (BaiheClient.BridgeException ignored) {
+                // Still listed after the refresh if the PC did not drop it.
+            }
+            runOnUiThread(this::refresh);
+        }, "grab-pc-drop").start();
     }
 
     /** Back to Grab with a request for it; Grab is the one place that opens pages and works the queue. */

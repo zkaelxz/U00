@@ -19,6 +19,8 @@ import android.os.PowerManager;
 public class GrabKeepAlive extends Service {
     private static final String CHANNEL = "grab";
     private static final int NOTIFICATION_ID = 7;
+    private static final String READY_CHANNEL = "grab_ready";
+    private static final int READY_NOTIFICATION_ID = 8;
     /** Far longer than any grab (a page walk is capped at 6 minutes); only a leak guard. */
     private static final long WAKE_LOCK_MS = 45L * 60 * 1000;
     private PowerManager.WakeLock wake;
@@ -39,6 +41,33 @@ public class GrabKeepAlive extends Service {
             context.stopService(new Intent(context, GrabKeepAlive.class));
         } catch (RuntimeException ignored) {
             // Already stopped.
+        }
+    }
+
+    /** Tells the person a Quick read they left is fully ready; a tap opens the reader. Never throws. */
+    static void notifyReady(Context context, String name) {
+        try {
+            NotificationManager manager = (NotificationManager) context.getSystemService(NOTIFICATION_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                manager.createNotificationChannel(new NotificationChannel(
+                        READY_CHANNEL, "Baihe chapter ready", NotificationManager.IMPORTANCE_DEFAULT));
+            }
+            PendingIntent open = PendingIntent.getActivity(context, 1,
+                    new Intent(context, GrabActivity.class)
+                            .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            .putExtra(GrabActivity.EXTRA_COMMAND, "reader"),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? new Notification.Builder(context, READY_CHANNEL) : new Notification.Builder(context);
+            manager.notify(READY_NOTIFICATION_ID, builder
+                    .setSmallIcon(R.drawable.ic_grab)
+                    .setContentTitle("Chapter ready")
+                    .setContentText(name == null || name.isEmpty() ? "Tap to open the reader" : name + ": tap to open the reader")
+                    .setContentIntent(open)
+                    .setAutoCancel(true)
+                    .build());
+        } catch (RuntimeException ignored) {
+            // Notifications may be off; the reader still has the pages.
         }
     }
 

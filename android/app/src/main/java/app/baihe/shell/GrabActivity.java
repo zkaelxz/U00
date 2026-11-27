@@ -370,6 +370,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         intent.removeExtra(EXTRA_COMMAND);
         if ("start".equals(command)) {
             startQueue();
+        } else if ("reader".equals(command)) {
+            if (QuickReadSession.hasPages() || QuickReadSession.isDetached()) openReader();
         } else if ("bookmark".equals(command)) {
             // The Bookmarks screen's button only adds: there, Remove is on each card.
             String open = ServerAddress.browsable(web.getUrl());
@@ -1029,11 +1031,13 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         if (!QuickReadSession.isDetached()) return;
         quick.setDanger(false);
         quick.setLabel("Open reader", palette.onAccent, R.drawable.ic_quick);
-        say(backgroundLine(QuickReadSession.snapshot().size()), GrabUi.Kind.BUSY);
+        say(backgroundLine(QuickReadSession.snapshot().size()));
     }
 
     private static String backgroundLine(int ready) {
-        return "Still translating in the background: " + ready + " pages ready. More > Stop translating cancels it.";
+        int total = QuickReadSession.total();
+        String count = total > ready ? ready + " of " + total + " ready" : ready + " pages ready";
+        return "Reading: " + count + ". Tap here to open the reader. More > Stop translating cancels it.";
     }
 
     private void openReader() {
@@ -1063,6 +1067,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             web.goBack();
             return true;
         }
+        // Closing this screen would stop a running grab; Back brings Studio forward and leaves it going.
+        if (keyCode == KeyEvent.KEYCODE_BACK && (grabbing || QuickReadSession.isDetached())) {
+            ShellTabs.show(this, MainActivity.class);
+            return true;
+        }
         return super.onKeyDown(keyCode, event);
     }
 
@@ -1076,6 +1085,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     }
 
     private void say(String text) {
+        // The bar for a Quick read the reader was left on: a tap goes back to it.
+        if (text.startsWith("Reading: ")) {
+            runOnUiThread(() -> chip.showTappable(text, GrabUi.Kind.BUSY, this::openReader));
+            return;
+        }
         boolean busy = text.startsWith("Reading ") || text.startsWith("Redrawing ") || text.startsWith("Sending ")
                 || text.startsWith("Still translating");
         say(text, busy ? GrabUi.Kind.BUSY : GrabUi.Kind.INFO);
@@ -1631,6 +1645,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<PageImage> pages = PageFilter.pagesOnly(images);
             List<List<PageImage>> batches = Batches.plan(pages, max, 1);
             int n = batches.size();
+            QuickReadSession.addTotal(pages.size());
             Object lock = new Object();
             // A page's report text, found again by the very array that shows it.
             java.util.Map<byte[], String> metaOf = new java.util.IdentityHashMap<>();
@@ -1650,6 +1665,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             // Older Baihe versions omit the flag, so they never get addresses to fetch.
             boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
 
+            // Pages that finished but wait for an earlier batch count as ready, so the counter moves
+            // with the PC and not only with the order the reader shows them in.
+            java.util.function.Supplier<String> readyLine = () -> {
+                int waiting = 0;
+                for (List<byte[]> batchHeld : held) waiting += batchHeld.size();
+                String line = "Redrawing " + pages.size() + " pictures: " + (shown[0] + waiting) + " ready";
+                return waiting > 0 ? line + ", showing " + shown[0] : line;
+            };
+
             // Called with `lock` held: writes a page and, the first time, opens the reader.
             java.util.function.Consumer<byte[]> show = jpeg -> {
                 String name = String.format(java.util.Locale.ROOT, "page-%03d.jpg", shown[0]);
@@ -1665,8 +1689,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 if (originalArt != null) QuickReadActivity.writeOriginal(this, name, originalArt);
                 shown[0]++;
                 QuickReadSession.add(name);
-                say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
-                        : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                say(QuickReadSession.isDetached() ? backgroundLine(shown[0]) : readyLine.get());
                 if (!opened[0]) {
                     opened[0] = true;
                     firstPageAt[0] = System.currentTimeMillis();
@@ -1686,8 +1709,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         }
                         return;
                     }
-                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0])
-                            : "Redrawing " + pages.size() + " pictures: " + shown[0] + " ready");
+                    say(QuickReadSession.isDetached() ? backgroundLine(shown[0]) : readyLine.get());
                     try {
                         BaiheClient.PageListener onPage = page -> {
                             JSONObject wrapped;
@@ -1704,7 +1726,11 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                 if (jpegs.isEmpty()) {
                                     if (firstError[0].isEmpty()) firstError[0] = QuickRead.firstWarning(wrapped);
                                     byte[] original = QuickRead.original(batches.get(index), page.optString("key", ""));
-                                    if (original == null) return;
+                                    if (original == null) {
+                                        // Nothing to show for this page: say so, never leave the hole silent.
+                                        if (firstError[0].isEmpty()) firstError[0] = "A page came back without a picture.";
+                                        return;
+                                    }
                                     jpegs = java.util.Collections.singletonList(original);
                                 }
                                 byte[] originalArt = redrawn ? QuickRead.original(batches.get(index), page.optString("key", "")) : null;
@@ -1714,11 +1740,54 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                                     if (index == frontier[0]) show.accept(jpeg);
                                     else held.get(index).add(jpeg);
                                 }
+                                if (index != frontier[0] && !QuickReadSession.isDetached()) say(readyLine.get());
                             }
                         };
-                        JSONObject done = sendBatch(client, url, batches.get(index), onPage, pcFetch);
+                        // A batch that lost the PC for longer than the stream's own retries is asked again,
+                        // for the pages not yet delivered only, so nothing is dropped or shown twice.
+                        java.util.Set<String> got = new java.util.HashSet<>();
+                        BaiheClient.PageListener counted = page -> {
+                            got.add(page.optString("key", ""));
+                            onPage.onPage(page);
+                        };
+                        List<PageImage> todo = batches.get(index);
+                        JSONObject done;
+                        int attempt = 0;
+                        while (true) {
+                            boolean fetchedBefore = pcFetch[0];
+                            try {
+                                done = sendBatch(client, url, todo, counted, pcFetch);
+                                // Pages the PC never streams back (failed, repeats) make a retry look like an
+                                // older Baihe; that guess is only trusted on the first ask.
+                                if (attempt > 0) pcFetch[0] = fetchedBefore;
+                                break;
+                            } catch (BaiheClient.BridgeException e) {
+                                boolean stopped = cancelRequested || refused[0] || QuickReadSession.isAbandoned();
+                                if (attempt >= BATCH_RETRY_WAITS_MS.length || stopped || !BaiheClient.worthRetrying(e)) throw e;
+                                todo = BaiheClient.notDelivered(batches.get(index), got);
+                                if (todo.isEmpty()) {
+                                    done = new JSONObject();
+                                    break;
+                                }
+                                try {
+                                    // In short slices so Cancel is not held up by a long wait.
+                                    long until = System.currentTimeMillis() + BATCH_RETRY_WAITS_MS[attempt++];
+                                    while (System.currentTimeMillis() < until && !cancelRequested && !QuickReadSession.isAbandoned()) {
+                                        Thread.sleep(500);
+                                    }
+                                } catch (InterruptedException interrupted) {
+                                    Thread.currentThread().interrupt();
+                                    throw e;
+                                }
+                                if (cancelRequested || QuickReadSession.isAbandoned()) throw e;
+                            }
+                        }
                         synchronized (lock) {
                             JSONArray failed = done.optJSONArray("failed");
+                            // Dropped on the PC (from Jobs, or by a newer read): say so instead of a bare page count.
+                            if (firstError[0].isEmpty() && !cancelRequested && done.optString("stopped").startsWith("Stopped on the PC")) {
+                                firstError[0] = done.optString("stopped");
+                            }
                             if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
                                 firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
                             }
@@ -1749,6 +1818,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 }
             }
             int thisPart = shown[0] - shownBefore;
+            // A run that ended on an error leaves batches the PC is still queueing; they would hold
+            // up the next Quick read, so the pages it has not started are dropped.
+            if (!cancelRequested && !firstError[0].isEmpty() && thisPart < pages.size() && runId != null) {
+                String stale = runId;
+                new Thread(() -> {
+                    try {
+                        client.cancelRun(stale);
+                    } catch (BaiheClient.BridgeException ignored) {
+                        // The PC is unreachable or already done; nothing more to stop.
+                    }
+                }, "grab-cancel").start();
+            }
             // A part of a split chapter hands over to the next one with the reader still open.
             boolean carryOn = moreParts && !cancelRequested && !QuickReadSession.isAbandoned() && thisPart > 0;
             partsContinuing = carryOn;
@@ -1762,8 +1843,12 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     : (cancelRequested ? "Cancelled. " : "")
                     + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
                     + (truncated ? ". Some pages were left out." : "") + timing;
+            boolean awayFromReader = QuickReadSession.isDetached() || !BaiheApp.inFront();
             if (!carryOn) QuickReadSession.finish(message);
             if (!carryOn) QuickReadSession.onCancel(null);
+            if (!carryOn && !cancelRequested && firstError[0].isEmpty() && awayFromReader && !QuickReadSession.isAbandoned()) {
+                GrabKeepAlive.notifyReady(getApplicationContext(), runName);
+            }
             // A refusal (a spent limit, a bad token) would refuse the next chapter too, so none is offered.
             String ahead = carryOn || cancelRequested || refused[0] || thisPart == 0 || queueRunning
                     || !prefs().getBoolean(KEY_READ_AHEAD, true) ? null : ServerAddress.nextChapterUrl(url, pageNext);
@@ -1806,6 +1891,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
 
     // Tells one read-ahead page load from a later one when its timeout fires. Main thread only.
     private int aheadLoads;
+    /** Waits before asking again for a batch the PC could not be reached for. */
+    private static final long[] BATCH_RETRY_WAITS_MS = {5_000, 20_000, 45_000};
 
     /**
      * One request of a Quick read. The PC is asked to download the pictures first; any it could

@@ -4469,6 +4469,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/quick-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the Quick read runs the caller has working on the PC */
+        post: operations["post_quick_reads_api_ext_bridge_quick_reads_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ext-bridge/quick-reads/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: drop one Quick read run (run_id) or all of the caller's (no run_id) */
+        post: operations["post_quick_reads_drop_api_ext_bridge_quick_reads_drop_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/report": {
         parameters: {
             query?: never;
@@ -5548,6 +5582,57 @@ export interface paths {
         get: operations["queue_summary_api_jobs_queue_summary_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Quick read runs still working (site, chapter, pages left), for the Jobs tab */
+        get: operations["list_quick_reads_api_jobs_quick_reads_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads/drop-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop every Quick read run the caller may see: queued pages are not worked on */
+        post: operations["drop_all_quick_reads_api_jobs_quick_reads_drop_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/jobs/quick-reads/{run_id}/drop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Drop one Quick read run */
+        post: operations["drop_quick_read_api_jobs_quick_reads__run_id__drop_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -26709,6 +26794,35 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** QuickReadDropResult */
+        QuickReadDropResult: {
+            /** Dropped Pages */
+            dropped_pages: number;
+            /** Dropped Runs */
+            dropped_runs: number;
+        };
+        /** QuickReadRun */
+        QuickReadRun: {
+            /** Chapter */
+            chapter: string;
+            /** Pages Left */
+            pages_left: number;
+            /** Pages Received */
+            pages_received: number;
+            /** Run Id */
+            run_id: string;
+            /** Running Seconds */
+            running_seconds: number;
+            /** Site */
+            site: string;
+        };
+        /** QuickReadRunList */
+        QuickReadRunList: {
+            /** Count */
+            count: number;
+            /** Items */
+            items: components["schemas"]["QuickReadRun"][];
+        };
         /** QuickVideoProfile */
         QuickVideoProfile: {
             /** Id */
@@ -47402,6 +47516,46 @@ export interface operations {
             };
         };
     };
+    post_quick_reads_api_ext_bridge_quick_reads_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_quick_reads_drop_api_ext_bridge_quick_reads_drop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     post_report_api_ext_bridge_report_post: {
         parameters: {
             query?: never;
@@ -50633,6 +50787,86 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobQueueSummary"];
+                };
+            };
+        };
+    };
+    list_quick_reads_api_jobs_quick_reads_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadRunList"];
+                };
+            };
+        };
+    };
+    drop_all_quick_reads_api_jobs_quick_reads_drop_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadDropResult"];
+                };
+            };
+        };
+    };
+    drop_quick_read_api_jobs_quick_reads__run_id__drop_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuickReadDropResult"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

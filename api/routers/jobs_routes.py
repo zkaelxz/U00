@@ -14,9 +14,10 @@ user can never erase it.
 from fastapi import APIRouter, Header, Path, Request, Response
 from api.auth import local_only, require_permission
 from api.schemas import (DeleteConfirm, JobCancelResult, JobDeleteResult, JobForceStopResult,
-                         JobListResponse, JobQueueSummary, JobRecord, JobsClearFinishedResult, error_responses)
+                         JobListResponse, JobQueueSummary, JobRecord, JobsClearFinishedResult,
+                         QuickReadDropResult, QuickReadRun, QuickReadRunList, error_responses)
 from lib.errors import NotFoundError
-from services import jobs_service
+from services import jobs_service, quick_read_runs
 
 router = APIRouter(prefix="/api/jobs", tags=["jobs"])
 
@@ -34,6 +35,29 @@ def list_jobs(request: Request):
             summary="How many jobs run and wait, and the caller's own places in the GPU queue")
 def queue_summary(request: Request):
     return JobQueueSummary(**jobs_service.queue_summary(principal=request.state.principal))
+
+
+@router.get("/quick-reads", dependencies=[require_permission("library.read")],
+            response_model=QuickReadRunList,
+            summary="Quick read runs still working (site, chapter, pages left), for the Jobs tab")
+def list_quick_reads(request: Request):
+    items = [QuickReadRun(**r) for r in quick_read_runs.list_runs(principal=request.state.principal)]
+    return QuickReadRunList(items=items, count=len(items))
+
+
+@router.post("/quick-reads/drop-all", dependencies=[require_permission("jobs.cancel")],
+             response_model=QuickReadDropResult,
+             summary="Drop every Quick read run the caller may see: queued pages are not worked on")
+def drop_all_quick_reads(request: Request):
+    return QuickReadDropResult(**quick_read_runs.drop_all(principal=request.state.principal))
+
+
+@router.post("/quick-reads/{run_id}/drop", dependencies=[require_permission("jobs.cancel")],
+             response_model=QuickReadDropResult, summary="Drop one Quick read run",
+             responses=error_responses(404))
+def drop_quick_read(request: Request, run_id: str = Path(min_length=8, max_length=64, pattern="^[A-Za-z0-9-]+$")):
+    result = quick_read_runs.drop_run(run_id, principal=request.state.principal)
+    return QuickReadDropResult(dropped_runs=1, dropped_pages=result["dropped_pages"])
 
 
 @router.get("/{job_id}", dependencies=[require_permission("library.read")], response_model=JobRecord, summary="One job's cross-process record",

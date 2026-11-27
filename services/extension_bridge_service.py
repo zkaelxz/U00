@@ -24,7 +24,8 @@ import db
 import page_capture_checks
 from services import page_server
 import page_turns
-from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch
+from services import auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_keep, quick_read_runs
+from lib import device_use
 from lib.errors import ServiceError
 
 
@@ -322,16 +323,23 @@ def _drop_repeats_in_run(decoded: list, run_id: str) -> tuple[list, list]:
         while len(_runs_seen) > _MAX_REMEMBERED_RUNS:
             _runs_seen.popitem(last=False)
         for image in decoded:
-            # A picture answered from the cache has no bytes here; it was accepted when first read.
-            if image["content"] is None:
+            # A cache-answered copy has no bytes, so its address stands in for them; a copy with bytes
+            # claims both, so the two kinds of copy of one picture still meet.
+            digests = []
+            if image["content"] is not None:
+                digests.append(hashlib.sha256(image["content"]).hexdigest())
+            if image.get("fetch_url"):
+                digests.append("url:" + str(image["fetch_url"]))
+            if not digests:
                 kept.append(image)
                 continue
-            digest = hashlib.sha256(image["content"]).hexdigest()
-            if digest not in taken:
-                taken[digest] = image["key"]
-                image["run_claim"] = digest
+            owners = {taken[d] for d in digests if d in taken}
+            if not owners:
+                for d in digests:
+                    taken[d] = image["key"]
+                image["run_claim"] = digests
                 kept.append(image)
-            elif image["key"] and taken[digest] == image["key"]:
+            elif image["key"] and owners == {image["key"]}:
                 # The claim stays with the request that made it, so this one never releases it.
                 kept.append(image)
             else:
@@ -346,8 +354,9 @@ def _release_unread(decoded: list, outcomes: list, run_id: str) -> None:
         if taken is None:
             return
         for image, (outcome, _value) in zip(decoded, outcomes):
-            if outcome != "page" and image.get("run_claim"):
-                taken.pop(image["run_claim"], None)
+            if outcome != "page":
+                for digest in image.get("run_claim") or ():
+                    taken.pop(digest, None)
 
 
 def cancel_run(payload) -> dict:
@@ -355,6 +364,12 @@ def cancel_run(payload) -> dict:
     run_id = _run_id(payload)
     if not run_id:
         raise page_server.EndpointError(400, "run_id must be 8 to 64 letters, digits or dashes")
+    mark_cancelled(run_id)
+    quick_read_runs.finish(run_id)
+    return {"cancelled": True}
+
+
+def mark_cancelled(run_id: str) -> None:
     now = time.monotonic()
     with _cancelled_lock:
         for key in [k for k, at in _cancelled_runs.items() if now - at > _CANCELLED_TTL_SECONDS]:
@@ -362,7 +377,6 @@ def cancel_run(payload) -> dict:
         if len(_cancelled_runs) >= _MAX_CANCELLED_RUNS:
             del _cancelled_runs[min(_cancelled_runs, key=lambda k: _cancelled_runs[k])]
         _cancelled_runs[run_id] = now
-    return {"cancelled": True}
 
 
 MAX_SUMMARY_CHARS = 2000
@@ -607,17 +621,41 @@ def _prefetch(decoded: list, payload: dict, job: dict, member=None) -> list:
 def _log_page_time(result: dict, job: dict, started: float) -> None:
     from applog import get_logger
     seconds = result.get("seconds") or {}
+    # Counts since the last page, so with pages in parallel they blur, but a step stuck on the CPU still shows.
+    devices = device_use.take()
     get_logger().info("Extension page (%s%s): %.2fs in all; read %ss, translate %ss, typeset %ss; "
-                      "%d regions", "saved" if job["store"] else "quick read",
+                      "%d regions%s", "saved" if job["store"] else "quick read",
                       ", from cache" if result.get("cached") else "", time.monotonic() - started,
                       seconds.get("read", "-"), seconds.get("translate", "-"),
-                      seconds.get("typeset", "-"), len(result.get("regions") or []))
+                      seconds.get("typeset", "-"), len(result.get("regions") or []),
+                      (f"; waited {seconds['waited']}s for the models" if seconds.get("waited") else "")
+                      + (f"; devices: {devices}" if devices else ""))
+
+
+def _show_original_when_not_redrawn(result: dict, image: dict, job: dict) -> None:
+    """A Quick read page with nothing to redraw (no text, a cover, a failed redraw) goes back as the
+    original picture. A phone that had the PC download its pictures holds no bytes of its own, so
+    without this such a page was silently missing from the reader. It is set before the page is
+    cached, so a cached answer carries it too."""
+    if job["store"] or not job["typeset"] or result.get("typeset_image") or not image.get("content"):
+        return
+    try:
+        import io
+        picture = page_capture_checks.jpeg_data_url(io.BytesIO(image["content"]), job["typeset_max_width"])
+    except Exception:
+        return   # not a picture Pillow can open; the phone then keeps its own copy if it has one
+    if picture:
+        result["typeset_image"] = picture
 
 
 def _translate_one(image: dict, job: dict, turn):
     """One page of a request as (outcome, value): ("page", result), ("failed", entry),
     ("fatal", entry) when every later page would fail the same way, or ("stopped", None)."""
     started = time.monotonic()
+    # Pages of one chapter arrive in several requests at once; the locks serve the earliest page first
+    # so the one the reader waits on is not passed over by later ones.
+    page_turns.set_priority(None if job["store"] else page_turns.page_priority(image["key"]))
+    page_turns.take_waited()
     cached = image.get("cached_result")
     cache_key = None
     if cached is None:
@@ -634,7 +672,8 @@ def _translate_one(image: dict, job: dict, turn):
             image["content"], image["content_type"], drama_id=job["drama_id"],
             source_url=job["source_url"], source_language=job["source_language"], store=job["store"],
             member=job["member"], typeset=job["typeset"] and not job["store"],
-            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"])
+            typeset_style=job["typeset_style"], turn=turn, typeset_max_width=job["typeset_max_width"],
+            cover=image["key"] == "p0" and not job["store"])
     except page_turns.Stopped:
         return "stopped", None
     except page_server.EndpointError as e:
@@ -654,6 +693,12 @@ def _translate_one(image: dict, job: dict, turn):
         _typeset_stored_page(result, job["drama_id"], member=job["member"])
         result.setdefault("seconds", {})["typeset"] = round(time.monotonic() - typeset_started, 2)
     _record_run_notes(result)
+    result.setdefault("seconds", {}).update(waited=round(page_turns.take_waited(), 2),
+                                            total=round(time.monotonic() - started, 2))
+    _show_original_when_not_redrawn(result, image, job)
+    if not job["store"] and quick_read_keep.enabled():
+        quick_read_keep.save(cache_key or image["key"], image["content"], image["content_type"],
+                             quick_read_keep.take(), result)
     _remember_quick_read(cache_key, result)
     _remember_on_disk(cache_key, _quick_read_url_key(image, job), result)
     _log_page_time(result, job, started)
@@ -696,6 +741,8 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
                     on_page(outcome[1])
         finally:
             order.finish(index)
+            page_turns.set_priority(None)   # a reused request thread must not keep this page's place
+            quick_read_runs.page_finished(job["run_id"])
 
     if len(decoded) == 1:
         work(0)
@@ -782,6 +829,9 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
         skipped += [{"key": image["key"], "url": image["url"], "reason": "same picture as an earlier page of this read"}
                     for image in repeats]
     job["single"] = len(decoded) == 1
+    if not store:
+        quick_read_runs.begin(job["run_id"], _user_id(principal), source_url, len(decoded), mark_cancelled,
+                              device=(principal or {}).get("device_token_id"))
     # One bad page must not discard the rest of a chapter: each failure
     # is named so the person sees a mismatch instead of a short count.
     results, failed, stopped = [], [], ""
@@ -795,7 +845,7 @@ def run_images(payload, images, principal=None, on_page=None) -> dict:
             if outcome == "fatal":
                 stopped = value["error"]
         elif not stopped:
-            stopped = "cancelled by the extension"
+            stopped = quick_read_runs.dropped_reason(job["run_id"]) or "cancelled by the extension"
     if store:
         _record_chapter(drama_id, results, source_url, job["run_id"], payload.get("page_titles"))
     return {"pages": results, "skipped": skipped, "failed": failed,

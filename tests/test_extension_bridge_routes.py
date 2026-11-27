@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import db
-from services import page_server
+from services import extension_bridge_service, page_server
 from api.api_config import ApiSettings
 from api.server import create_app
 from services import auth_service
@@ -728,3 +728,149 @@ class TestSites:
 
     def test_needs_a_device_token(self, isolated_db):
         assert _client().get(f"{BASE}/sites").status_code == 401
+
+
+class TestStreamedAnswersHeartbeat:
+    """A caller that asks hears "waiting" lines while its pages queue, so a long wait is not a timeout."""
+
+    @staticmethod
+    async def _lines(work, heartbeat):
+        from api.routers import extension_bridge_routes as routes
+        response = await routes._streamed(work, heartbeat=heartbeat)
+        return [chunk async for chunk in response.body_iterator]
+
+    def test_a_slow_first_page_is_preceded_by_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.3)
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[0] == b'{"waiting": true}\n'
+        assert lines[-2:] == [b'{"page": {"key": "p0"}}\n', b'{"done": {}}\n']
+
+    def test_without_the_request_there_are_no_waiting_lines(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            write({"done": {}})
+
+        assert asyncio.run(self._lines(work, False)) == [b'{"done": {}}\n']
+
+    def test_a_refusal_after_the_answer_started_comes_as_an_error_line(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.05)
+
+        def work(write):
+            time.sleep(0.2)
+            raise page_server.EndpointError(429, "limit spent")
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines[-1] == b'{"error": "limit spent", "status": 429}\n'
+
+    def test_a_stream_with_nothing_real_to_send_ends_at_the_limit(self, monkeypatch):
+        import asyncio
+        import time
+        from api.routers import extension_bridge_routes as routes
+        monkeypatch.setattr(routes, "_HEARTBEAT_SECONDS", 0.02)
+        monkeypatch.setattr(routes, "_HEARTBEAT_LIMIT_SECONDS", 0.1)
+
+        def work(write):
+            time.sleep(0.5)
+            write({"done": {}})
+
+        lines = asyncio.run(self._lines(work, True))
+        assert lines and set(lines) == {b'{"waiting": true}\n'}
+
+
+class TestQuickReadRunRoutes:
+    """The phone lists and drops its Quick read runs through the bridge."""
+
+    @pytest.fixture(autouse=True)
+    def _fresh(self, monkeypatch):
+        from services import quick_read_runs
+        monkeypatch.setattr(quick_read_runs, "_runs", {})
+        monkeypatch.setattr(extension_bridge_service, "_cancelled_runs", {})
+        self.runs = quick_read_runs
+
+    def test_list_then_drop_one_of_my_runs_but_not_someone_elses(self, isolated_db):
+        me, token = _member("me@example.com")
+        other, _ = _member("other@example.com")
+        cancel = extension_bridge_service.mark_cancelled
+        self.runs.begin("run-aaaaaaaa", me["id"], "https://site.example/a/b", 4, cancel)
+        self.runs.begin("run-bbbbbbbb", other["id"], "https://site.example/a/c", 2, cancel)
+        client = _client()
+        listed = client.post(f"{BASE}/quick-reads", headers=_auth(token), json={}).json()
+        assert [r["run_id"] for r in listed["runs"]] == ["run-aaaaaaaa"]
+        assert client.post(f"{BASE}/quick-reads/drop", headers=_auth(token),
+                           json={"run_id": "run-bbbbbbbb"}).status_code == 404
+        dropped = client.post(f"{BASE}/quick-reads/drop", headers=_auth(token), json={"run_id": "run-aaaaaaaa"})
+        assert dropped.json() == {"dropped_runs": 1, "dropped_pages": 4}
+        assert extension_bridge_service._run_cancelled("run-aaaaaaaa")
+        assert not extension_bridge_service._run_cancelled("run-bbbbbbbb")
+
+
+class TestPageWithoutRedrawKeepsItsPicture:
+    def _png_bytes(self):
+        import io
+        Image = pytest.importorskip("PIL.Image")
+        buffer = io.BytesIO()
+        Image.new("RGB", (40, 60), (200, 200, 200)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def _job(self, **kw):
+        return {"store": False, "typeset": True, "typeset_max_width": 30, **kw}
+
+    def test_a_page_with_nothing_to_redraw_comes_back_as_the_original(self):
+        result = {"regions": []}
+        extension_bridge_service._show_original_when_not_redrawn(
+            result, {"content": self._png_bytes()}, self._job())
+        assert result["typeset_image"].startswith("data:image/jpeg;base64,")
+
+    def test_a_redrawn_page_and_a_saved_page_are_left_alone(self):
+        redrawn = {"typeset_image": "data:image/jpeg;base64,AAAA"}
+        extension_bridge_service._show_original_when_not_redrawn(redrawn, {"content": self._png_bytes()}, self._job())
+        assert redrawn["typeset_image"] == "data:image/jpeg;base64,AAAA"
+        saved = {}
+        extension_bridge_service._show_original_when_not_redrawn(saved, {"content": self._png_bytes()}, self._job(store=True))
+        assert "typeset_image" not in saved
+
+    def test_a_picture_pillow_cannot_open_is_ignored(self):
+        result = {}
+        extension_bridge_service._show_original_when_not_redrawn(result, {"content": b"not a picture"}, self._job())
+        assert "typeset_image" not in result
+
+
+class TestCacheAnsweredRepeatsInARun:
+    def test_one_address_listed_twice_is_shown_once_even_with_no_bytes(self):
+        pages = [{"key": "a", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "b", "content": None, "fetch_url": "https://img.example/1.jpg"},
+                 {"key": "c", "content": None, "fetch_url": "https://img.example/2.jpg"}]
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(pages, "run-urlrepeat")
+        assert [p["key"] for p in kept] == ["a", "c"]
+        assert [p["key"] for p in repeats] == ["b"]
+
+    def test_a_page_with_no_bytes_and_no_address_is_kept(self):
+        kept, repeats = extension_bridge_service._drop_repeats_in_run(
+            [{"key": "a", "content": None}, {"key": "b", "content": None}], "run-nourl")
+        assert len(kept) == 2 and not repeats
+
+
+class TestRepeatMeetsCacheAnsweredCopy:
+    def test_a_copy_with_bytes_and_a_cache_answered_copy_are_one_picture(self):
+        first = {"key": "a", "content": b"pic", "fetch_url": "https://img.example/9.jpg"}
+        again = {"key": "b", "content": None, "fetch_url": "https://img.example/9.jpg"}
+        kept, _ = extension_bridge_service._drop_repeats_in_run([first], "run-meet")
+        kept2, repeats = extension_bridge_service._drop_repeats_in_run([again], "run-meet")
+        assert kept and not kept2 and [p["key"] for p in repeats] == ["b"]

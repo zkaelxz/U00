@@ -523,6 +523,13 @@ public class QuickReadActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        // Pages added while the screen was off are shown at once, not at the next one.
+        if (!savedMode && list != null) refresh();
+    }
+
+    @Override
     protected void onDestroy() {
         // A chapter still being translated keeps going without the reader; its pages stay for the next open.
         if (!savedMode && !QuickReadSession.detach()) {
@@ -592,6 +599,17 @@ public class QuickReadActivity extends Activity {
                 more.setTextSize(16);
                 row.addView(more);
                 if (!running) {
+                    // The stats line is in a list row, where its text cannot be selected, so it is copied by a button.
+                    android.widget.Button copy = new android.widget.Button(QuickReadActivity.this);
+                    copy.setText("Copy");
+                    copy.setOnClickListener(v -> {
+                        android.content.ClipboardManager clipboard =
+                                (android.content.ClipboardManager) QuickReadActivity.this
+                                        .getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Quick read", footerSummary));
+                        android.widget.Toast.makeText(QuickReadActivity.this, "Copied.", android.widget.Toast.LENGTH_SHORT).show();
+                    });
+                    row.addView(copy);
                     row.setLayoutParams(new ListView.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
                     return row;

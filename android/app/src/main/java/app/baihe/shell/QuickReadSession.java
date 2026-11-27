@@ -13,6 +13,8 @@ final class QuickReadSession {
     private static boolean detached;
     private static String summary = "";
     private static String title = "";
+    // Pages the grab will send, for "12 of 54 ready"; 0 while not known yet.
+    private static int total;
     private static Runnable cancelHook;
     private static Runnable listener;
     private static Runnable detachHook;
@@ -31,8 +33,18 @@ final class QuickReadSession {
         detached = false;
         summary = "";
         title = "";
+        total = 0;
         nextHook = null;
         newestFrom = 0;
+    }
+
+    /** More pages are on their way (a chapter, or the next part of one). */
+    static synchronized void addTotal(int pages) {
+        total += pages;
+    }
+
+    static synchronized int total() {
+        return total;
     }
 
     /** Offers the chapter after a finished one; the reader takes it up once the last pages are near. */

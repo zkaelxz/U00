@@ -3,6 +3,7 @@ that module under the size limit: the blank-page probe, the byte-identical
 page lookup for re-captures, and the fixed failure messages."""
 
 import os
+from typing import IO
 
 import en_cleanup
 from scanlate import scanlate_regions
@@ -250,8 +251,8 @@ PREVIEW_MAX_BYTES = 1_500_000
 PREVIEW_JPEG_QUALITY = 75
 
 
-def jpeg_data_url(path: str, max_width: int | None = None) -> str:
-    """The image at `path` as a JPEG data: URL, or "" when it is over PREVIEW_MAX_BYTES.
+def jpeg_data_url(path: "str | IO[bytes]", max_width: int | None = None) -> str:
+    """The image at `path` (a file, or an open file-like object) as a JPEG data: URL, or "" when it is over PREVIEW_MAX_BYTES.
     `max_width` scales a wider image down to it (a phone sends its screen width), never up."""
     import base64
     import io

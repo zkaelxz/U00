@@ -24,6 +24,8 @@ import threading
 import time
 from types import SimpleNamespace
 
+from lib import device_use
+
 def _log(text: str, warning: bool = False) -> None:
     """To the app's log file (applog); a log that can't be written never stops a read."""
     try:
@@ -61,6 +63,7 @@ class _Helper:
         self.loading = False
         self.ready = False
         self.load_started = 0.0
+        self.slow_logged = False
 
     def alive(self) -> bool:
         return self.child is not None and self.child[0].is_alive()
@@ -73,6 +76,7 @@ _gpu_off_at = 0.0
 # A GPU fault turns the GPU reader off, but for this long only: one fault (a card that was
 # briefly full) otherwise left every later read on the CPU until the app restarted.
 GPU_OFF_SECONDS = 300
+GPU_SLOW_LOAD_SECONDS = 90
 _gpu_checked_at = None
 _params_cache: dict = {}
 # Tests read in this process with a fake RapidOCR (tests/conftest.py).
@@ -103,6 +107,9 @@ def read(key: str, source, allow_download: bool = True):
             reply = None
     if reply is None:
         reply = _ask(_cpu, ("read", f"{key}:cpu", _params(key), source))
+        device_use.note(f"text reader ({key})", "CPU")
+    else:
+        device_use.note(f"text reader ({key})", "GPU")
     if reply[0] == "error":
         raise RuntimeError(reply[1])
     _, txts, scores, boxes = reply
@@ -169,13 +176,19 @@ def _gpu_ready(key: str) -> bool:
                 _end(_gpu.child)
             child = _start()
             _gpu.child, _gpu.ready, _gpu.load_started = child, False, time.monotonic()
+            _gpu.slow_logged = False
             child[1].send(("load", f"{key}:gpu", key, GPU_IDLE_EXIT_SECONDS))
             _gpu.loading = True
+            _log("Text reader: loading the GPU engine; reads use the CPU until it is ready")
             return False
         assert _gpu.child is not None
         conn = _gpu.child[1]
         try:
             if not conn.poll(0):
+                if time.monotonic() - _gpu.load_started > GPU_SLOW_LOAD_SECONDS and not _gpu.slow_logged:
+                    _gpu.slow_logged = True
+                    _log(f"Text reader: the GPU engine is still loading after {GPU_SLOW_LOAD_SECONDS} s "
+                         "(a busy CPU slows it); reads stay on the CPU", warning=True)
                 return False
             reply = conn.recv()
         except (EOFError, OSError):

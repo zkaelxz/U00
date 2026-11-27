@@ -47,6 +47,9 @@ __all__ = [
     "SettingsOverview",
     "SettingsUpdateRequest",
     "JobCancelResult",
+    "QuickReadRun",
+    "QuickReadRunList",
+    "QuickReadDropResult",
     "JobDeleteResult",
     "JobForceStopResult",
     "JobsClearFinishedResult",
@@ -499,6 +502,25 @@ class JobQueueSummary(BaseModel):
     waiting: int
     # The caller's own waiting jobs (owned_by_me), next first.
     mine: List[JobQueuePosition]
+
+
+class QuickReadRun(BaseModel):
+    run_id: str
+    site: str
+    chapter: str
+    pages_received: int
+    pages_left: int
+    running_seconds: int
+
+
+class QuickReadRunList(BaseModel):
+    items: List[QuickReadRun]
+    count: int
+
+
+class QuickReadDropResult(BaseModel):
+    dropped_runs: int
+    dropped_pages: int
 
 
 class JobCancelResult(BaseModel):

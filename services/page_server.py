@@ -121,11 +121,11 @@ REQUEST_TIMEOUT_SECONDS = 120.0
 # actually serve.
 ALLOWED_TEXT_LANGUAGES = {"zh", "ja", "ko", "en"}
 
-PIPELINE_LOCK = threading.Lock()
+PIPELINE_LOCK = page_turns.FairLock()
 # Overlay redraws (erase + letter) take turns on this lock rather than PIPELINE_LOCK, so the next
 # page is read while the last one is redrawn. The eraser is the one model the redraw loads, and
 # scanlate_lama locks its own load and run.
-TYPESET_LOCK = threading.Lock()
+TYPESET_LOCK = page_turns.FairLock()
 
 _server_lock = threading.Lock()
 _server_started = False
@@ -437,22 +437,36 @@ def _lines_without_english(bubbles) -> list:
             and (b.get("source_text") or "").strip() and not (b.get("translated_text") or "").strip()]
 
 
+def _is_cover_page(bubbles) -> bool:
+    """A page of at most two lettered regions and no balloon: a cover or title page, whose logo is
+    shown as drawn instead of spending a translation and a redraw on it."""
+    from scanlate import scanlate
+    return len(bubbles) <= 2 and not any(
+        b.get("kind") in scanlate.BALLOON_KINDS and (b.get("source_text") or "").strip() for b in bubbles)
+
+
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
                          image: bytes = b"", in_order: bool = True, language: str = "",
-                         turn=page_turns.UNORDERED) -> float:
+                         turn=page_turns.UNORDERED, cover: bool = False) -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
     does not wait for the title's previous page (page_turns.translate_in_chain)."""
     import db
     from scanlate import scanlate_translate
-    from services import quick_read_cache
+    from services import quick_read_cache, quick_read_keep
     engine = _build_engine(config)
+    if quick_read_keep.enabled():
+        quick_read_keep.note_read(bubbles)
     turn.keep(bubbles)
     language = _page_source_language(drama, language, source_url)
     if not (in_order or drama or quick_read_cache.source_language(source_url)):
         language = _learn_page_language(bubbles, language, source_url)
     if not bubbles:
+        return 0.0
+    if cover and _is_cover_page(bubbles):
+        for b in bubbles:
+            b["skip"] = True   # counted as left alone on purpose, so the page is cached as complete
         return 0.0
     if engine is None:
         notes.append(_no_engine_note(config, "read"))
@@ -491,13 +505,17 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         # A second engine call is a page's slowest case; the log says how often it happens.
         get_logger().info("Extension page: %d of %d lines came back empty, asking again",
                           len(missing), len(bubbles))
-        try:
-            scanlate_translate.translate_page_bubbles(
-                missing, engine, meta, previous_context="", glossary_terms=glossary,
-                usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                previous_lines=extras["previous_lines"])
-        except Exception:
-            pass  # the first call's own note already says why; this is a second chance only
+        for _ in range(2):   # a line the model skips twice often comes back on the third ask
+            try:
+                scanlate_translate.translate_page_bubbles(
+                    missing, engine, meta, previous_context="", glossary_terms=glossary,
+                    usage_cb=usage, character_notes=extras.get("character_notes", ""),
+                    previous_lines=extras["previous_lines"])
+            except Exception:
+                break  # the first call's own note already says why; this is a second chance only
+            missing = _lines_without_english(bubbles)
+            if not missing:
+                break
         left = len(_lines_without_english(bubbles))
         if left:
             notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
@@ -591,7 +609,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     source_url: str = "", source_language: str = "",
                     store: bool = True, member: bool = False, typeset: bool = False,
                     typeset_style=None, turn=page_turns.UNORDERED,
-                    typeset_max_width: int | None = None) -> dict:
+                    typeset_max_width: int | None = None, cover: bool = False) -> dict:
     """One image, end to end: detect + OCR + translate, optionally stored
     into a drama first so the library keeps the real page and its
     bubbles.
@@ -672,6 +690,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                     ocr_backend=ocr_backend,
                     art_captions=_reads_art_captions(lang, ocr_backend),
                     art_captions_max_regions=_ART_CAPTION_MAX_REGIONS,
+                    art_caption_stamps=False,
                     tesseract_cmd=config.get("tesseract_cmd") or None,
                     prefer_paddle_vl_manga=bool(config.get("prefer_paddle_vl_manga")), page_id=(page or {}).get("id"))
                 read_seconds = time.monotonic() - read_started
@@ -707,7 +726,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
         notes.extend(_detect_notes(detect_notes, member))
         with turn.translating():
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, store, source_language, turn)
+                                                     notes, member, data, store, source_language, turn, cover)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
             typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)

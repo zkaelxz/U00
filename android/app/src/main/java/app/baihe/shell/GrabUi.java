@@ -198,13 +198,27 @@ final class GrabUi {
             setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
             // A tap opens a long message in full, a second tap dismisses it.
             setOnClickListener(v -> {
+                if (tap != null) {
+                    tap.run();
+                    return;
+                }
                 if (text.getMaxLines() == 3) text.setMaxLines(Integer.MAX_VALUE);
                 else setVisibility(GONE);
             });
             setVisibility(GONE);
         }
 
+        /** What a tap does instead of opening the message in full; cleared by the next plain show. */
+        private Runnable tap;
+
+        /** Shows a message whose tap goes somewhere (the reader), rather than expanding it. */
+        void showTappable(String message, Kind kind, Runnable onTap) {
+            show(message, kind);
+            tap = onTap;
+        }
+
         void show(String message, Kind kind) {
+            tap = null;
             removeCallbacks(hide);
             if (message == null || message.isEmpty()) {
                 setVisibility(GONE);

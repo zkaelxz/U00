@@ -5,6 +5,7 @@ import os
 import threading
 
 import model_pins
+from lib import device_use
 
 _LAMA_ML_REPO = "mayocream/lama-manga"
 _LAMA_ML_FILE = "lama-manga.safetensors"
@@ -256,6 +257,7 @@ def _generate(generator, tensor, torch):
         try:
             gpu = _lama_on_gpu(generator, tensor.shape[-2] * tensor.shape[-1], torch)
             if gpu is not None:
+                device_use.note("eraser (LaMa)", "GPU")
                 return gpu(tensor.to("cuda"))[0].cpu()
         except Exception as exc:
             # A GPU that filled up meanwhile costs only this region; any other fault (a
@@ -267,6 +269,7 @@ def _generate(generator, tensor, torch):
                 torch.cuda.empty_cache()
             except Exception:
                 pass
+        device_use.note("eraser (LaMa)", "CPU")
         return generator(tensor)[0]
 
 
