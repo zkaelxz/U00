@@ -252,7 +252,7 @@ export default function App() {
   const route = useRoute()
   const session = useSession()
   const view = gateView(session)
-  useAccountTheme(menuUser(session)?.id ?? null)
+  useAccountTheme(menuUser(session)?.id ?? null, session.status === 'ready' ? session.me.preferences : undefined)
   const developerMode = useDeveloperMode(view === 'app')
   const pcMode = usePcOnly()
   const features = useFeatures()

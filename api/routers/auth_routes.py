@@ -116,6 +116,8 @@ class MeResponse(BaseModel):
     # The member's own monthly limit for paid engines is used up, so
     # `engines.paid` is left out of `permissions` until it is raised or the month ends.
     paid_limit_reached: bool = False
+    # What the account keeps for every device (theme); only for a signed-in account.
+    preferences: Optional[AccountPreferences] = None
 
 
 class LogoutResponse(BaseModel):
@@ -268,22 +270,21 @@ def me(request: Request):
             body.update(signed_in=True, permissions=sorted(principal["permissions"]),
                         own_ollama_key=member_key_service.has_usable_key(principal["user_id"]),
                         paid_limit_reached=auth_service.paid_engines_held_back(principal["user_id"]),
+                        # Left out until the account has saved something, so the body is unchanged for most.
+                        preferences=account_prefs_service.get(principal["user_id"]) or None,
                         user={"id": principal["user_id"], "email": principal["email"],
                               "display_name": display, "is_admin": principal["is_admin"],
                               "is_local_owner": False})
-    return JSONResponse(MeResponse(**body).model_dump(), headers=dict(NO_STORE))
+    shown = MeResponse(**body).model_dump()
+    if shown["preferences"] is None:
+        del shown["preferences"]
+    return JSONResponse(shown, headers=dict(NO_STORE))
 
 
 def _own(request: Request) -> dict:
     """The caller's session principal; only ever from their own cookie."""
     _require_auth_on(request)
     return request.state.principal
-
-
-@router.get("/preferences", dependencies=[authenticated()], response_model=AccountPreferences,
-            response_model_exclude_none=True, summary="My preferences, kept for every device I sign in on")
-def get_preferences(request: Request):
-    return JSONResponse(AccountPreferences(**account_prefs_service.get(_own(request)["user_id"])).model_dump(exclude_none=True), headers=dict(NO_STORE))
 
 
 @router.put("/preferences", dependencies=[authenticated()], response_model=AccountPreferences,

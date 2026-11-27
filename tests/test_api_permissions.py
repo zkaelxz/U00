@@ -261,8 +261,7 @@ class TestEveryRouteDeclared:
         uses = sorted(f"{sorted(m)} {p}" for _r, p, m, d in api_auth.iter_route_declarations(app)
                       if ("authenticated", None) in d)
         assert uses == ["['DELETE'] /api/auth/ollama-key",
-                        "['GET'] /api/auth/device-tokens", "['GET'] /api/auth/preferences",
-                        "['GET'] /api/auth/sessions",
+                        "['GET'] /api/auth/device-tokens", "['GET'] /api/auth/sessions",
                         "['POST'] /api/auth/device-tokens/{device_token_id}/revoke",
                         "['POST'] /api/auth/logout",
                         "['POST'] /api/auth/sessions/revoke-others",

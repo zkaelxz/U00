@@ -24,6 +24,8 @@ export interface AuthMe {
   own_ollama_key?: boolean
   // Their own monthly limit for paid engines is used up, so engines.paid is left out of permissions.
   paid_limit_reached?: boolean
+  // What the account saved on any device; absent until it has saved something.
+  preferences?: AccountPreferences
 }
 
 // Past this the name would crowd the header's other controls, so the button says "Account" and the name shows in the open panel.
@@ -54,7 +56,6 @@ export interface AccountPreferences {
   theme?: 'system' | 'light' | 'dark' | 'sepia' | 'oled'
 }
 
-export const getPreferences = (f?: Fetch) => getJson<AccountPreferences>('/api/auth/preferences', f)
 export const putPreferences = (prefs: AccountPreferences, f?: Fetch) =>
   putJson<AccountPreferences>('/api/auth/preferences', prefs, f)
 

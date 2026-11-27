@@ -16,28 +16,23 @@ describe('startAccountTheme', () => {
 
   it("uses the account's saved theme over this browser's", async () => {
     applyAccountTheme('dark')
-    vi.spyOn(auth, 'getPreferences').mockResolvedValue({ theme: 'sepia' })
-    const stop = startAccountTheme()
-    await flush()
+    const stop = startAccountTheme({ theme: 'sepia' })
     expect(getThemePref()).toBe('sepia')
     stop()
   })
 
   it("gives an account with no theme yet this browser's choice", async () => {
     applyAccountTheme('oled')
-    vi.spyOn(auth, 'getPreferences').mockResolvedValue({})
     const put = vi.spyOn(auth, 'putPreferences').mockResolvedValue({ theme: 'oled' })
-    const stop = startAccountTheme()
+    const stop = startAccountTheme({})
     await flush()
     expect(put).toHaveBeenCalledWith({ theme: 'oled' })
     stop()
   })
 
   it('saves a later choice on the account, and stops once stopped', async () => {
-    vi.spyOn(auth, 'getPreferences').mockResolvedValue({})
     const put = vi.spyOn(auth, 'putPreferences').mockResolvedValue({ theme: 'dark' })
-    const stop = startAccountTheme()
-    await flush()
+    const stop = startAccountTheme(undefined)
     setThemePref('dark')
     expect(put).toHaveBeenCalledWith({ theme: 'dark' })
     stop()

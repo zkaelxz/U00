@@ -664,8 +664,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** My preferences, kept for every device I sign in on */
-        get: operations["get_preferences_api_auth_preferences_get"];
+        get?: never;
         /** Save some of my preferences */
         put: operations["put_preferences_api_auth_preferences_put"];
         post?: never;
@@ -24262,6 +24261,7 @@ export interface components {
             paid_limit_reached: boolean;
             /** Permissions */
             permissions: string[];
+            preferences: components["schemas"]["AccountPreferences"] | null;
             /** Sign In Configured */
             sign_in_configured: boolean;
             /** Signed In */
@@ -36916,26 +36916,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemberKeyStatus"];
-                };
-            };
-        };
-    };
-    get_preferences_api_auth_preferences_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AccountPreferences"];
                 };
             };
         };
