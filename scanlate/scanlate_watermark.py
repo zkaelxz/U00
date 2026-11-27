@@ -31,7 +31,7 @@ _CJK_DOMAIN = re.compile(
 # of a stamped address often enough that the bare name has to match as well.
 _SITE_NAMES = ("marumaru", "마루마루", "newtoki", "뉴토끼", "newtojuso", "뉴토주소", "toonkor", "툰코",
                "copymanga",
-               "newtokki", "webtoonkingdom", "fastestwebtoon", "웹툰왕국",
+               "newtokki", "webtoonkingdom", "fastestwebtoon", "웹툰왕국", "빠른웹툰", "빠른웹튼", "웹툰공급",
                "拷贝漫画", "拷貝漫畫", "mangadex", "twmanga", "kuaikan", "快看漫画", "快看漫畫")
 
 # Reader-site ads read as dialogue once translated. "Fastest webtoon" and

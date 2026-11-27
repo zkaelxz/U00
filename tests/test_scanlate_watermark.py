@@ -245,3 +245,13 @@ def test_a_stamp_the_ocr_read_in_english_is_skipped_whole():
     regions = [_r(stamp)]
     assert wm.flag_site_marks(regions) == 1
     assert regions[0]["skip"]
+
+
+@pytest.mark.parametrize("text", ["빠른 웹툰공급사이트", "웹툰왕국뉴토끼468", "가장 빠른 웹툰 공급사이트\nHTTPS://NEWTOKI468.COM"])
+def test_the_stamps_korean_wordings_without_its_first_word_are_marks(text):
+    assert wm.looks_like_site_mark(text)
+
+
+@pytest.mark.parametrize("text", ["이 웹툰 재밌어", "빠른 말이야", "공급이 부족해"])
+def test_ordinary_korean_near_the_stamp_words_is_not_a_mark(text):
+    assert not wm.looks_like_site_mark(text)
