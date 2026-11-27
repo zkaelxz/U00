@@ -415,4 +415,3 @@ class TermsProhibited(SourceError):
 class ContentHidden(SourceError):
     """The resource exists but is withheld behind an opt-in the app hasn't
     been given (e.g. a source's adult-content flag)."""
-
