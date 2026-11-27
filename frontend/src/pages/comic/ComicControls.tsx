@@ -7,6 +7,7 @@ import { useState, type FormEvent, type ReactNode } from 'react'
 
 import { Field } from '../../components/Field'
 import { AaControl } from '../../components/AaControl'
+import { Toggle } from '../../components/Toggle'
 import { SCROLL_SPEEDS, type ScrollSpeed } from './useAutoScroll'
 import { LOW_DATA_OPTIONS, type LowDataMode } from './lowData'
 import { clampPage, FIT_OPTIONS, MODE_OPTIONS, SPREAD_OPTIONS, type ComicFit, type ComicMode, type ComicPrefs, type SpreadMode } from './comicLogic'
@@ -22,9 +23,11 @@ type PrefsProps = {
   // Per-device low-data choice (absent where the page doesn't offer it).
   lowData?: LowDataMode
   onLowData?: (m: LowDataMode) => void
+  // Panel by panel (left out where a reader has no panel data).
+  panels?: { on: boolean; onChange: (on: boolean) => void }
 }
 
-function ViewForm({ prefs, onChange, canTypeset, phone, autoScroll, lowData, onLowData }: PrefsProps) {
+function ViewForm({ prefs, onChange, canTypeset, phone, autoScroll, lowData, onLowData, panels }: PrefsProps) {
   const set = <K extends keyof ComicPrefs>(k: K, v: ComicPrefs[K]) => onChange({ ...prefs, [k]: v })
   return (
     <div className="reader-prefs-form">
@@ -66,6 +69,11 @@ function ViewForm({ prefs, onChange, canTypeset, phone, autoScroll, lowData, onL
         </Field>
       )}
       <div className="toggle-list">
+        {prefs.mode === 'paged' && panels && (
+          <Field label="Panel by panel" help="Each tap zooms to the next panel, then turns the page. Pages without clear panel borders, and two pages side by side, show whole.">
+            <Toggle checked={panels.on} onChange={panels.onChange} />
+          </Field>
+        )}
         {prefs.mode === 'paged' && prefs.spread !== 'single' && (
           <Field label="First page alone" help="Show the first page by itself, like a book cover, so the pairs after it line up.">
             <input type="checkbox" checked={prefs.coverAlone} onChange={(e) => set('coverAlone', e.target.checked)} />

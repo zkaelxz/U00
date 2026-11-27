@@ -165,6 +165,39 @@ test('manga: one page at a time, right to left, keys, taps and the scrubber', as
   expect(s.unmocked).toEqual([])
 })
 
+test('panel by panel: each key zooms to the next panel, then turns the page; back reads it backwards', async ({ page }) => {
+  await singlePage(page, 9)
+  const s = await mockComic(page, { id: 9, mediaType: 'manga', pageCount: 3, lastPage: 1 })
+  await page.goto('/#/comic/9?page=1')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  const layer = page.getByTestId('comic-zoom-layer')
+  await page.getByRole('button', { name: 'View settings' }).click()
+  await page.getByRole('switch', { name: 'Panel by panel' }).click()
+  await page.keyboard.press('Escape')
+  await expect(layer).toHaveAttribute('style', /scale/)
+  const first = await layer.getAttribute('style')
+
+  await page.keyboard.press('ArrowLeft')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await expect.poll(() => layer.getAttribute('style')).not.toBe(first)
+  const second = await layer.getAttribute('style')
+  await page.keyboard.press('ArrowLeft')
+  await expect(label(page)).toHaveText('Page 2 of 3')
+  await expect(layer).toHaveAttribute('style', first!)
+
+  // Back from the first panel opens the page before on its last panel.
+  await page.keyboard.press('ArrowRight')
+  await expect(label(page)).toHaveText('Page 1 of 3')
+  await expect(layer).toHaveAttribute('style', second!)
+
+  // A page without panels shows whole.
+  await page.keyboard.press('End')
+  await expect(label(page)).toHaveText('Page 3 of 3')
+  await expect(layer).not.toHaveAttribute('style', /scale/)
+  expect(JSON.parse((await page.evaluate(() => localStorage.getItem('baihe.pref.comic.panels')))!)).toBe(true)
+  expect(s.unmocked).toEqual([])
+})
+
 test('Typeset and Text: rendered pages, boxes and the side panel, text only', async ({ page }) => {
   await singlePage(page, 11)
   const s = await mockComic(page, { id: 11, mediaType: 'manga', pageCount: 3, rendered: [0], firstPageText: '<b>Bold?</b> & more' })

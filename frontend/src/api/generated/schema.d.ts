@@ -10143,6 +10143,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/panels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A page's panels in reading order, as fractions of the page (empty: show the whole page) */
+        get: operations["get_page_panels_api_scanlate_dramas__drama_id__pages__page_id__panels_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/scanlate/dramas/{drama_id}/pages/{page_id}/regions": {
         parameters: {
             query?: never;
@@ -17896,6 +17913,13 @@ export interface components {
              */
             reading_mode_default: "paged" | "vertical";
         };
+        /** ComicPagePanels */
+        ComicPagePanels: {
+            /** Page Id */
+            page_id: number;
+            /** Panels */
+            panels: components["schemas"]["ComicPanel"][];
+        };
         /** ComicPageRegions */
         ComicPageRegions: {
             /** Height */
@@ -17906,6 +17930,20 @@ export interface components {
             regions: components["schemas"]["ComicRegion"][];
             /** Width */
             width: number;
+        };
+        /**
+         * ComicPanel
+         * @description A panel as fractions (0..1) of the page's width and height.
+         */
+        ComicPanel: {
+            /** H */
+            h: number;
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /** ComicProgress */
         ComicProgress: {
@@ -65020,6 +65058,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_page_panels_api_scanlate_dramas__drama_id__pages__page_id__panels_get: {
+        parameters: {
+            query?: {
+                /** @description Read rows from the right; left out, the title's language decides */
+                rtl?: boolean | null;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicPagePanels"];
+                };
             };
             /** @description Not Found */
             404: {

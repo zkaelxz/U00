@@ -6,6 +6,7 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/pages                        library.read
 - GET/HEAD /dramas/{id}/pages/{pid}/image        media.stream
 - GET  /dramas/{id}/pages/{pid}/regions          lines.read
+- GET  /dramas/{id}/pages/{pid}/panels           media.stream
 - GET  /dramas/{id}/progress                     library.read
 - POST /dramas/{id}/progress                     lines.edit
 - GET  /dramas/{id}/view-prefs                   library.read
@@ -20,17 +21,17 @@ does not do. Content type comes from the file's magic bytes, the
 download name is generic, and every refusal is one generic 404.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse, Response
 
 from api.auth import principal_user_id, require_permission
-from api.schemas import (ComicChapterMarks, ComicChapterMarksRequest, ComicPageList, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
+from api.schemas import (ComicChapterMarks, ComicChapterMarksRequest, ComicPageList, ComicPagePanels, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicStartChapterRequest, ComicStartChapterResult,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
 from api.schemas import error_responses
-from services import (comic_chapters_service, comic_reader_copy_service, comic_source_chapters_service,
+from services import (comic_chapters_service, comic_panels_service, comic_reader_copy_service, comic_source_chapters_service,
                       comic_view_service)
 
 router = APIRouter(prefix="/api/scanlate", tags=["comic"])
@@ -91,6 +92,17 @@ def get_page_image(request: Request, drama_id: int = Path(ge=1), page_id: int = 
             responses=_ERRS)
 def get_page_regions(drama_id: int = Path(ge=1), page_id: int = Path(ge=1)):
     return comic_view_service.get_page_regions(drama_id, page_id)
+
+
+# Panels come from the picture, so they need what the picture needs.
+@router.get("/dramas/{drama_id}/pages/{page_id}/panels", dependencies=_STREAM,
+            response_model=ComicPagePanels,
+            summary="A page's panels in reading order, as fractions of the page (empty: show the whole page)",
+            responses=_ERRS)
+def get_page_panels(drama_id: int = Path(ge=1), page_id: int = Path(ge=1),
+                    rtl: Optional[bool] = Query(None, description="Read rows from the right; "
+                                                                  "left out, the title's language decides")):
+    return comic_panels_service.page_panels(drama_id, page_id, right_to_left=rtl)
 
 
 @router.get("/dramas/{drama_id}/progress", dependencies=[require_permission("library.read")],
