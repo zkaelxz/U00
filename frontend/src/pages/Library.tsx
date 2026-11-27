@@ -123,7 +123,6 @@ function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: numbe
             </li>
           ))}
         </ul>
-        {count > limit && <div className="actions"><span className={buttonClass('ghost', 'sm')}>{'\u00a0'}</span></div>}
       </div>
     </section>
   )
@@ -145,7 +144,6 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   phone: boolean
   reloadKey: number
 }) {
-  const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   // The shelf is the tallest thing above the list; it holds its place until its own two requests and the title list
   // have answered, so the list does not jump down when they land.
@@ -159,8 +157,8 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   useEffect(() => {
     if (answered) setStoredCount(items.length)
   }, [answered, items.length, setStoredCount])
-  const limit = phone ? 1 : 4
-  const shown = loading ? [] : all ? items : items.slice(0, limit)
+  const limit = 2
+  const shown = loading ? [] : items.slice(0, limit)
   const row = (id: number) => rows?.get(id)
   const checking = rowsCurrent ? shown.filter((x) => needsCheckCount(x, row(x.dramaId))).map((x) => x.dramaId) : []
   const risk = useCheckCounts(checking, reloadKey)
@@ -197,13 +195,6 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
           )
         })}
       </ul>
-      {items.length > limit && (
-        <div className="actions">
-          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={all} onClick={() => setAll((v) => !v)}>
-            {all ? 'Less' : `More (${items.length - limit})`}
-          </button>
-        </div>
-      )}
     </Card>
   )
 }
@@ -556,7 +547,7 @@ export default function LibraryPage() {
       {/* Not on a phone: the box would push the first title card off the first screen; the phone bar's Find & Add opens it there. */}
       {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
-      <HomeShelves reloadKey={reloadKey} total={stats.data?.total_dramas ?? null} />
+      <HomeShelves reloadKey={reloadKey} />
 
       <ContinueShelf
         continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || listFailure?.reload === reloadKey}

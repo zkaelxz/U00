@@ -64,7 +64,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
 }
 
 // A cover that fails to load falls back to the letter tile, so a missing file never leaves a blank card.
-function DramaTile({ d }: { d: DramaSummary }) {
+export function DramaTile({ d }: { d: DramaSummary }) {
   const [broken, setBroken] = useState(false)
   return (
     <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true">

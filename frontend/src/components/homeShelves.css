@@ -1,5 +1,5 @@
 .home-shelves { display: flex; flex-direction: column; gap: var(--space-4); }
-/* With every shelf hidden, All titles would only push the list down, and an empty block would take a second page gap. */
+/* With every shelf hidden, an empty block would take a second page gap. */
 .home-shelves:not(:has(.home-shelf, .home-running, .home-toggle)) { display: none; }
 .home-toggle { align-self: flex-start; min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
 .home-shelf { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -44,8 +44,6 @@
 .home-running-foot { font-size: var(--text-sm); }
 .home-link { color: var(--accent-text); font-weight: 600; }
 
-.home-all { min-height: 48px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border: 1px solid var(--border);
-  border-radius: var(--radius-panel); background: var(--surface); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
 
 @media (max-width: 640px) {
   .home-ready-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

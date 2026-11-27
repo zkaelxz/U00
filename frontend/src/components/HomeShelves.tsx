@@ -10,7 +10,6 @@ import { getHome } from '../api/library'
 import { useHolds } from '../hooks/useHolds'
 import { useJobs, useNow } from '../hooks/useJobs'
 import { useLoad } from '../hooks/useLoad'
-import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { browserStorage, readPref, usePersistedState } from '../hooks/usePersistedState'
 import { freshServerPlace, newerPlace, positionKey, positionTimeKey, serverSeenKey } from '../pages/watch/watchLogic'
@@ -27,9 +26,7 @@ import './homeShelves.css'
 // The full list's own heading (LibraryList), so the jump needs no marker element of its own in the page's spaced stack.
 const showAll = () => document.getElementById('library-heading')?.closest('section')?.scrollIntoView({ block: 'start' })
 
-export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: number | null }) {
-  // Only a phone needs the jump: there the shelves fill the first screen and push the full list out of sight.
-  const phone = useMediaQuery('(max-width: 640px)')
+export function HomeShelves({ reloadKey }: { reloadKey: number }) {
   const { jobs } = useJobs()
   const active = activeCount(jobs ?? [])
   // A step starting or ending moves titles between shelves; the jobs list already hears about it.
@@ -45,6 +42,11 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
   if (!home.data) return null
   return (
     <div className="home-shelves" data-testid="home-shelves">
+      {(home.data.ready_count > 0 || home.data.needs_you.length > 0) && (
+        <button type="button" className="home-toggle" aria-pressed={shown} onClick={() => setShown(!shown)}>
+          {shown ? 'Hide Ready and Needs you' : 'Show Ready and Needs you'}
+        </button>
+      )}
       {shown && <ReadyShelf home={home.data} />}
       {viewer.canControlQueue
         ? <>
@@ -52,16 +54,6 @@ export function HomeShelves({ reloadKey, total }: { reloadKey: number; total: nu
             <RunningRow home={home.data} jobs={jobs} now={now} />
           </>
         : <YoursShelf home={home.data} viewer={viewer} jobs={jobs} now={now} shown={shown} />}
-      {(home.data.ready_count > 0 || home.data.needs_you.length > 0) && (
-        <button type="button" className="home-toggle" aria-pressed={shown} onClick={() => setShown(!shown)}>
-          {shown ? 'Hide Ready and Needs you' : 'Show Ready and Needs you'}
-        </button>
-      )}
-      {phone && total !== null && total > 0 && (
-        <button type="button" className="home-all" onClick={showAll}>
-          <span>All titles</span><span className="muted">{total}</span>
-        </button>
-      )}
     </div>
   )
 }

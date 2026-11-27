@@ -8,12 +8,12 @@ const shelfRow = (id: number, title_en: string, media_type: string, over: Record
 })
 type ShelfRow = ReturnType<typeof shelfRow>
 
-// Newest first: Blessing read to page 12; Grandmaster with lines left; Signal translated (the check state); Harbor
-// Lights exported; Quiet Stream also in the check state, past the four a computer shows until More.
+// Newest first: Blessing read to page 12; Signal translated (the check state); Grandmaster with lines left; Harbor
+// Lights exported; Quiet Stream also in the check state. The shelf shows two tiles: Blessing and Signal.
 const shelfRows = (): ShelfRow[] => [
+  shelfRow(3, 'Signal', 'video_drama', { line_count: 40, translated_count: 40, status: 'translated' }),
   shelfRow(1, 'Grandmaster of Demonic Cultivation', 'audio_drama', { line_count: 2000, translated_count: 766 }),
   shelfRow(2, "Heaven Official's Blessing", 'novel', { line_count: 90, translated_count: 90 }),
-  shelfRow(3, 'Signal', 'video_drama', { line_count: 40, translated_count: 40, status: 'translated' }),
   shelfRow(61, 'Harbor Lights', 'video_drama', { line_count: 12, translated_count: 12, status: 'exported' }),
   shelfRow(62, 'Quiet Stream', 'asmr', { line_count: 8, translated_count: 8, status: 'translated' }),
 ]

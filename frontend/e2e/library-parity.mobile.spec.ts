@@ -29,12 +29,9 @@ test('More filters and Continue fit a phone', async ({ page }) => {
   await page.route('**/api/library/recent', (r) => r.fulfill({ json: { items: [] } }))
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
-  // Phone: one item, then More.
-  await expect(shelf.getByRole('listitem')).toHaveCount(1)
-  await shelf.getByRole('button', { name: 'More (2)' }).click()
-  await expect(shelf.getByRole('listitem')).toHaveCount(3)
-  await expect(shelf.getByRole('button', { name: 'Less' })).toBeVisible()
-  await shelf.getByRole('button', { name: 'Less' }).click()
+  // At most two items, and no More.
+  await expect(shelf.getByRole('listitem')).toHaveCount(2)
+  await expect(shelf.getByRole('button', { name: /^More/ })).toHaveCount(0)
   await page.getByRole('button', { name: 'Filters' }).tap()
   await page.getByText('More filters', { exact: true }).click()
   await expect(page.getByRole('checkbox', { name: 'wuxia' })).toBeVisible()
@@ -93,9 +90,7 @@ for (const width of [390, 320]) {
     await page.goto('/')
     const shelf = page.getByRole('region', { name: 'Continue' })
     await expect(shelf.getByRole('link', { name: `Read from page 1234: ${long}`, exact: true })).toBeVisible()
-    await shelf.getByRole('button', { name: 'More (2)' }).tap()
     await expect(shelf.getByRole('link', { name: 'Translate 11,234 lines: Grandmaster of Demonic Cultivation', exact: true })).toBeVisible()
-    await expect(shelf.getByRole('link', { name: 'Check the lines: Signal', exact: true })).toBeVisible()
     const boxes = await shelf.locator('.continue-item').evaluateAll((items) => items.map((li) => {
       const btn = li.querySelector('.continue-next') as HTMLElement
       const text = li.querySelector('.continue-text') as HTMLElement
@@ -114,7 +109,7 @@ for (const width of [390, 320]) {
         buttonCut: label.left < b.left || label.right > b.right || label.bottom > b.bottom, titleCut: title.scrollWidth > title.clientWidth,
       }
     }))
-    expect(boxes).toHaveLength(3)
+    expect(boxes).toHaveLength(2)
     for (const box of boxes) {
       expect(box).toMatchObject({ below: true, fullWidth: true, insideItem: true, buttonCut: false, titleCut: false })
       expect(box.height).toBeGreaterThanOrEqual(44)
@@ -186,14 +181,14 @@ test('the Ready, Needs you and Running shelves fit a phone, two Ready cards a ro
   await expect(page.getByTestId('home-running')).toContainText('1 more is waiting its turn')
 
   await expectNoSidewaysScroll(page)
-  for (const sel of ['.home-ready-card', '.home-act', '.home-running', '.home-more', '.home-toggle', '.home-all']) {
+  for (const sel of ['.home-ready-card', '.home-act', '.home-running', '.home-more', '.home-toggle']) {
     const heights = await page.locator(sel).evaluateAll((els) => els.map((e) => Math.round(window.hitHeight(e))))
     expect(heights.length, sel).toBeGreaterThan(0)
     for (const h of heights) expect(h, sel).toBeGreaterThanOrEqual(44)
   }
 })
 
-test('with every shelf empty, the phone draws no All titles jump above the list', async ({ page }) => {
+test('with every shelf empty, no shelf block is drawn above the list', async ({ page }) => {
   await page.route('**/api/library/home', (r) => r.fulfill({ json: {
     needs_you: [], needs_you_count: 0, running: [], running_count: 0, ready: [], ready_count: 0, can_control_queue: true,
   } }))
