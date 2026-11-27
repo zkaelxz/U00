@@ -16,6 +16,7 @@ import contextlib
 import datetime
 import math
 import os
+import random
 import statistics
 import sys
 import tempfile
@@ -41,8 +42,8 @@ import subtitle_parse
 from engine_backends import shared as engine_shared
 import whisper_models
 from jobs import gpu_slots
-from services.asr_timing_service import (COVER_FRACTION, count_in_silence, match, overlap as _overlap,
-                                         speech_spans)
+from services.asr_timing_service import (COVER_FRACTION, count_in_silence, covers, match,
+                                         overlap as _overlap, speech_spans)
 from services import benchmark_scoring_service, settings_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from lib.errors import ServiceError
 from tools import self_test
@@ -58,6 +59,11 @@ MAX_CELL_CHARS = 300
 MAX_DIFF_ROWS = 150
 # Identical neighbours past this count are a loop; the app's own filter only cuts them at 4.
 LOOP_RUN = 3
+# Resamples for the paired comparison's 95% range; fixed seed so a report reads the same twice.
+PAIRED_RESAMPLES = 2000
+PAIRED_SEED = 0
+# Below this many groups the resampled range is too narrow to trust, so no verdict is given.
+MIN_PAIRED_GROUPS = 20
 # Reference lines must sit inside the window, give or take what a cut can lose.
 EDGE_TOLERANCE_S = 0.25
 GPU_WAIT_S = 600.0
@@ -327,6 +333,107 @@ def score_text(lines: list, reference: list, language: str):
         " ".join(r["text"] for r in reference), language)
 
 
+def _nearest_reference(line: dict, reference: list) -> int:
+    best = max(range(len(reference)), key=lambda i: _overlap(line, reference[i]))
+    if _overlap(line, reference[best]) > 0:
+        return best
+    return min(range(len(reference)), key=lambda i: abs(reference[i]["start"] - line["start"]))
+
+
+def paired_groups(reference: list, *recipe_lines: list) -> list:
+    """Reference line indexes grouped so that no recipe line, in any of the recipes compared,
+    spans two groups. Scoring per group then never charges a merged line twice, and every recipe
+    is scored on the same groups, which is what makes the comparison paired."""
+    parent = list(range(len(reference)))
+
+    def root(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for lines in recipe_lines:
+        for ln in lines:
+            # Covering, not any overlap: timings a little off the reference would otherwise chain
+            # every line into one group, and one group can't be resampled.
+            touched = [i for i, r in enumerate(reference) if covers(ln, r)]
+            for i in touched[1:]:
+                parent[root(i)] = root(touched[0])
+    groups: dict = {}
+    for i in range(len(reference)):
+        groups.setdefault(root(i), []).append(i)
+    return sorted(groups.values())
+
+
+def group_errors(lines: list, reference: list, groups: list, language: str) -> list:
+    """(edits, reference length) per group. Each recipe line counts once, in the group of the
+    reference line it overlaps most (or the nearest by start), so extra lines still cost their
+    characters. Normalised the same way as the whole-window score."""
+    if not reference:
+        return []
+    group_of = {i: g for g, members in enumerate(groups) for i in members}
+    given = [[] for _ in groups]
+    for ln in sorted(lines, key=lambda ln: ln["start"]):
+        given[group_of[_nearest_reference(ln, reference)]].append(ln["text"])
+    unit = "char" if language in benchmark_scoring_service.CHARACTER_LANGUAGES else "word"
+    normaliser = benchmark_scoring_service.script_normaliser("transcription", language)
+
+    def tokens(text):
+        text = benchmark_scoring_service.normalise_text(
+            benchmark_scoring_service._to_simplified(text, normaliser), unit)
+        return text if unit == "char" else text.split()
+    out = []
+    for members, texts in zip(groups, given):
+        r = tokens(" ".join(reference[i]["text"] for i in members))
+        h = tokens(" ".join(texts))
+        # The same bound as the whole-window scorer: a looping line far longer than its reference
+        # costs its extra length without an O(n*m) edit distance over it.
+        limit = 2 * len(r) + 10
+        out.append((benchmark_scoring_service._edit_distance(h[:limit], r) + max(0, len(h) - limit), len(r)))
+    return out
+
+
+def paired_difference(base: list, other: list, resamples: int = PAIRED_RESAMPLES):
+    """(error-rate change, low, high): `other` minus `base` over the same reference lines, with a
+    95% range from resampling those lines. Both recipes are scored on identical lines, so line
+    difficulty cancels and a change too small for two separate scores to show can still be seen.
+    Negative is fewer errors."""
+    total = sum(n for _, n in base)
+    if not total or len(base) != len(other) or len(base) < MIN_PAIRED_GROUPS:
+        return None
+    deltas = [(o[0] - b[0], b[1]) for b, o in zip(base, other)]
+    change = sum(d for d, _ in deltas) / total
+    rng = random.Random(PAIRED_SEED)
+    samples = []
+    for _ in range(resamples):
+        pick = [deltas[rng.randrange(len(deltas))] for _ in deltas]
+        length = sum(n for _, n in pick)
+        samples.append(sum(d for d, _ in pick) / length if length else 0.0)
+    samples.sort()
+    return change, samples[int(0.025 * resamples)], samples[int(0.975 * resamples) - 1]
+
+
+def paired_rows(plan: Plan, results: list) -> list:
+    """(label, change, low, high, verdict) for each finished recipe against the first one."""
+    if not plan.reference or not results or results[0].error:
+        return []
+    base = results[0]
+    rows = []
+    for r in results[1:]:
+        if r.error:
+            continue
+        groups = paired_groups(plan.reference, base.lines, r.lines)
+        found = paired_difference(group_errors(base.lines, plan.reference, groups, plan.language),
+                                  group_errors(r.lines, plan.reference, groups, plan.language))
+        if found is None:
+            rows.append((r.recipe.label, None, None, None,
+                         f"too few line groups ({len(groups)}, need {MIN_PAIRED_GROUPS}): use a longer window"))
+            continue
+        change, low, high = found
+        verdict = "fewer errors" if high < 0 else "more errors" if low > 0 else "within noise"
+        rows.append((r.recipe.label, change, low, high, verdict))
+    return rows
+
+
 def metrics(result: Result, reference: list, spans, language: str) -> dict:
     lines = result.lines
     covering = match(reference, lines)
@@ -455,6 +562,16 @@ def format_report(plan: Plan, results: list, audio_s: float, spans, use_gpu: boo
     if sum(len(r["text"]) for r in plan.reference) > benchmark_scoring_service.MAX_TEXT_CHARS:
         out.append(f"Only the first {benchmark_scoring_service.MAX_TEXT_CHARS} reference characters are scored.")
 
+    paired = paired_rows(plan, results)
+    if paired:
+        out += ["", "## Paired against the baseline", "",
+                "Each recipe's error rate minus the baseline's, line by line over the same reference lines, "
+                "with a 95% range from resampling those lines. A range that includes 0 is within noise. "
+                "Negative is fewer errors.", "",
+                "| change | recipe | 95% range | verdict |", "|---|---|---|---|"]
+        out += [f"| {change:+.4f} | {_cell(label)} | {low:+.4f} to {high:+.4f} | {verdict} |" if change is not None
+                else f"| n/a | {_cell(label)} | n/a | {verdict} |"
+                for label, change, low, high, verdict in paired]
     ok = [r for r in results if not r.error]
     out += ["", "## Lines that differ between recipes", ""]
     if len(ok) < 2:
