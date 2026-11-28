@@ -19,7 +19,7 @@ from tests import fake_engine
 from tests.job_helpers import wait_for_job
 
 ERRORS = [{"batch_index": 0, "lines": [0, 2],
-           "error": "2 of 3 lines got no translation (reply may have been cut off; try a smaller batch size)"}]
+           "error": "2 of 3 lines got no translation (the reply left them out or its English failed the reply check)"}]
 
 
 @pytest.fixture(autouse=True)
@@ -584,4 +584,25 @@ def test_lines_still_empty_after_the_retry_are_reported(isolated_db):
     lines, errors = _run_big_batch(engine)
     assert [ln.en for ln in lines] == [""] * 8
     assert errors and "got no translation" in errors[0]["error"]
-    assert len(engine.sizes) <= 1 + 2 + 4  # first ask plus two halving levels
+    assert len(engine.sizes) <= 1 + 2 + 4 + 8  # first ask, two halving levels, then one by one
+    assert engine.sizes.count(1) == 8
+
+
+class _SkipsInAGroup(fake_engine.FakeEngine):
+    """Leaves line z3 out of every reply except one that asks for it alone."""
+
+    def __init__(self):
+        super().__init__()
+        self.sizes = []
+
+    def translate_batch(self, zh, context):
+        self.sizes.append(len(zh))
+        return ["" if z == "z3" and len(zh) > 1 else f"T:{z}" for z in zh]
+
+
+def test_a_line_left_out_of_every_group_is_asked_alone(isolated_db):
+    engine = _SkipsInAGroup()
+    lines, errors = _run_big_batch(engine)
+    assert errors == []
+    assert lines[3].en == "T:z3"
+    assert engine.sizes[-1] == 1

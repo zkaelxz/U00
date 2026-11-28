@@ -789,8 +789,8 @@ class _TranslateRun:
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
             self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
-                                   f"translation (reply may have been cut off; "
-                                   f"try a smaller batch size)")
+                                   f"translation (the reply left them out or its English failed "
+                                   f"the reply check)")
         # Sentence mode redistributes one sentence over its fragments, so
         # fragment lengths say nothing there.
         if (allow_bisect and not self.args.reflect and not self.groups
@@ -813,14 +813,25 @@ class _TranslateRun:
             ln.flag_note = sentence_groups.SPLIT_BY_LENGTH_NOTE
 
     _EMPTY_RETRY_DEPTH = 2
+    # Gemma leaves the same ids out of a reply again when they are re-asked in a group (on a
+    # 5,131-line novel, 83 of 132 empty lines after both halving rounds), so the lines still
+    # empty then are asked one at a time. Bounded so a model refusing a whole batch costs at
+    # most this many extra requests.
+    _ONE_BY_ONE_MAX = 12
 
     def _retry_smaller(self, empty, fresh, depth):
         """Re-asks lines a reply left empty in halves, so a cut-off reply on a
-        big batch doesn't leave a hole until the user reruns by hand. Bounded
-        by depth; returns the lines that are still empty."""
-        if not empty or depth >= self._EMPTY_RETRY_DEPTH:
+        big batch doesn't leave a hole until the user reruns by hand, then the
+        lines still empty one at a time. Bounded by depth; returns the lines
+        that are still empty."""
+        if not empty:
             return empty
-        parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
+        if depth >= self._EMPTY_RETRY_DEPTH:
+            if len(empty) > self._ONE_BY_ONE_MAX:
+                return empty
+            parts = [[ln] for ln in empty]
+        else:
+            parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
         still = []
         for part in parts:
             if self._should_stop():
