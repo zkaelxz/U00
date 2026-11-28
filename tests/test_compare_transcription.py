@@ -650,7 +650,8 @@ class TestApi:
              "expected_candidate_zh": p["candidate_zh"]}]})
         assert applied.json() == {"applied": [p["line_id"]], "skipped": []}
         from services import jobs_service
-        assert jobs_service.job_kind(res["job_id"]) == "transcribe"
+        from jobs import job_results
+        assert job_results.job_kind(res["job_id"]) == "transcribe"
         assert jobs_service.job_page(res["job_id"]) == "title"
         assert client.get("/api/transcribe/dramas/999999/compare-transcription/result").status_code == 404
 

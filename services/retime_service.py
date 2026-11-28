@@ -16,7 +16,8 @@ from jobs import job_launch
 import whisper_models
 import db
 import forced_align
-from services import (compare_transcription_service as compare, jobs_service, settings_service,
+from jobs import job_results
+from services import (compare_transcription_service as compare, settings_service,
                       timing_settings_service, transcribe_pipeline, transcribe_service,
                       retranscribe_line_service, qwen3_requirements_service)
 from services.transcribe_options_service import ensure_no_active_jobs, require_audio_pipeline
@@ -198,7 +199,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                 cancelled = True
                 break
             except whisper_models.ModelDownloadError as exc:
-                failed_reason, detail = "model_download", jobs_service.scrub_text(str(exc))
+                failed_reason, detail = "model_download", job_results.scrub_text(str(exc))
                 break
             except ImportError:
                 failed_reason = "dependency_missing"
@@ -216,7 +217,7 @@ def run_retime_job(job_id, drama_id, line_ids, audio_path, language, use_gpu):
                               "couldn't cut this part of the audio")
                 continue
             except Exception as exc:
-                errors.append(jobs_service.scrub_text(
+                errors.append(job_results.scrub_text(
                     f"lines {lines[members[0]].idx + 1}-{lines[members[-1]].idx + 1}: {exc}"))
                 continue
             for i, seg in zip(members, out):
@@ -272,12 +273,12 @@ def get_retime_result(drama_id: int) -> dict:
     result = _finished_job(drama_id)["result"]
 
     def scrub(text):
-        return jobs_service.scrub_text(str(text)) if text else None
+        return job_results.scrub_text(str(text)) if text else None
     return {"job_id": retime_job_id(drama_id), "proposals": result["proposals"],
             "line_count": result.get("line_count", 0), "partial": bool(result.get("partial")),
             "device": scrub(result.get("device")),
             "device_notice": scrub(result.get("device_notice")),
-            "errors": [jobs_service.scrub_text(str(e)) for e in result.get("errors") or []]}
+            "errors": [job_results.scrub_text(str(e)) for e in result.get("errors") or []]}
 
 
 def _overlapping_ids(lines, current: dict, writes: list) -> set:

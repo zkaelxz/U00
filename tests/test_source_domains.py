@@ -258,6 +258,77 @@ class TestUnreachable:
         assert SECRET not in dump and "token=" not in dump
 
 
+class TestNextNumbers:
+    """A numbered domain is probed ahead only after a whole day of every domain failing."""
+    DAY = 24 * 3600
+    OLD = "https://xbanxia10.org"
+
+    def _site(self, routes):
+        store.set_domain_list("xbanxia", [self.OLD])
+        a, t = _xbanxia({f"{self.OLD}/": _down(), **routes})
+        return a.site, t
+
+    def _probed(self, t):
+        return [c["url"] for c in t.calls]
+
+    def test_waits_a_day_then_proposes_the_number_that_serves_the_site(self, world):
+        site, t = self._site({"https://xbanxia13.org/": _moved("https://xbanxia13.org/")})
+        assert site._try_next_numbers(now=1000.0) is False
+        assert self._probed(t) == []
+        assert site._try_next_numbers(now=1000.0 + self.DAY - 1) is False
+        assert self._probed(t) == []
+        assert site._try_next_numbers(now=1000.0 + self.DAY) is True
+        assert _hosts() == ["xbanxia13.org"]
+        assert self._probed(t)[:3] == ["https://xbanxia11.org/", "https://xbanxia12.org/", "https://xbanxia13.org/"]
+
+    def test_once_a_day(self, world):
+        site, t = self._site({})
+        site._try_next_numbers(now=0.0)
+        assert site._try_next_numbers(now=self.DAY) is False
+        first = len(self._probed(t))
+        assert first == domains.NEXT_NUMBERS
+        site._try_next_numbers(now=self.DAY + 60)
+        assert len(self._probed(t)) == first
+        site._try_next_numbers(now=2 * self.DAY + 1)
+        assert len(self._probed(t)) == 2 * first
+
+    def test_a_working_domain_restarts_the_wait(self, world):
+        site, t = self._site({})
+        site._try_next_numbers(now=0.0)
+        site._worked(self.OLD)
+        assert site._try_next_numbers(now=self.DAY + 5) is False
+        assert self._probed(t) == []
+
+    def test_nine_dead_numbers_do_not_stop_the_tenth(self, world):
+        dead = {f"https://xbanxia{n}.org/": _down() for n in range(11, 20)}
+        site, t = self._site({**dead, "https://xbanxia20.org/": _moved("https://xbanxia20.org/")})
+        site._try_next_numbers(now=0.0)
+        assert site._try_next_numbers(now=self.DAY) is True
+        assert _hosts() == ["xbanxia20.org"]
+        assert health.get("xbanxia") is None or health.get("xbanxia").get("state") != "backoff"
+
+    def test_the_probes_stop_at_their_time_budget(self, world, monkeypatch):
+        site, t = self._site({})
+        clock = iter(range(0, 1000, 12))   # each look at the clock is 12 s later
+        monkeypatch.setattr(domains.time, "monotonic", lambda: next(clock))
+        site._try_next_numbers(now=0.0)
+        site._try_next_numbers(now=self.DAY)
+        assert 0 < len(self._probed(t)) < domains.NEXT_NUMBERS
+
+    def test_a_host_that_redirects_elsewhere_is_not_proposed(self, world):
+        site, t = self._site({"https://xbanxia11.org/": _moved("https://other.example/")})
+        site._try_next_numbers(now=0.0)
+        assert site._try_next_numbers(now=self.DAY) is False
+        assert _hosts() == []
+
+    def test_a_name_without_a_number_is_not_probed(self, world):
+        store.set_domain_list("xbanxia", [XB_BARE])
+        a, t = _xbanxia({})
+        a.site._try_next_numbers(now=0.0)
+        a.site._try_next_numbers(now=self.DAY)
+        assert self._probed(t) == []
+
+
 # ---------------------------------------------------------------------------
 # PC-only routes
 # ---------------------------------------------------------------------------
