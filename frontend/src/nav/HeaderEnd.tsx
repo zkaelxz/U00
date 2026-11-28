@@ -56,11 +56,12 @@ function Avatar({ user, dot }: { user: AuthUser | null; dot?: boolean }) {
 }
 
 // With /me unavailable the user is unknown, but Sign out stays reachable.
+const accountLabel = (user: AuthUser | null) => (user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account')
+
 function AccountRows({ user }: { user: AuthUser | null }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // Never shown on the closed button: the address is long and private enough that it only shows inside the open panel.
-  const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
+  const label = accountLabel(user)
 
   async function onSignOut() {
     setBusy(true)
@@ -99,7 +100,7 @@ function AccountRows({ user }: { user: AuthUser | null }) {
 // Phone header: signed in with auth on. Absent with auth off.
 function UserMenu({ user }: { user: AuthUser | null }) {
   const ref = useDetailsMenu()
-  const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
+  const label = accountLabel(user)
   return (
     <details className="user-menu" ref={ref}>
       <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`} title={user?.display_name ?? label}>
@@ -130,13 +131,13 @@ function ProfileSwitch({ guest }: { guest: boolean }) {
   )
 }
 
-// The approved header keeps search, Jobs and the bell; the rarer controls live in one menu. The dot on the avatar says the
-// server answered the last check, and the "Can't reach Baihe" badge stays in the row.
+// Rarely used controls share one menu so the row stays search, Jobs and the bell. The dot on the avatar says the server
+// answered the last check; the "Can't reach Baihe" badge stays in the row, where it is seen.
 function YouMenu({ session, apiUp, viewMode, onViewMode }: { session: SessionState; apiUp: boolean; viewMode: ViewMode; onViewMode: (m: ViewMode) => void }) {
   const ref = useDetailsMenu()
   const user = menuUser(session)
   const profile = usePcProfile()
-  const name = user?.display_name?.trim() || user?.email || null
+  const name = user?.display_name ?? user?.email ?? null
   const summary = useRef<HTMLElement>(null)
   // A row that opens a dialog closes the menu first and leaves focus on its button, which the dialog returns to.
   const run = (open: () => void) => {

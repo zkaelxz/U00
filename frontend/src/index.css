@@ -683,7 +683,7 @@ div.section-flat div.section-flat > .section-flat-head .section-title { font-siz
 html[data-style='soft'] .header-end.has-room details.you-menu > summary { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
 .you-menu .user-menu-avatar { position: relative; width: 28px; height: 28px; border-radius: 999px; background: var(--accent-soft); }
 /* Green when the last check reached the server; nothing before the first answer, and the badge in the row when it fails. */
-.you-menu-dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border: 2px solid var(--btn); border-radius: 999px; background: var(--ok); }
+.you-menu-dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border: 2px solid var(--surface); border-radius: 999px; background: var(--ok); }
 .you-menu-panel { min-width: 16rem; gap: var(--space-2); }
 .you-menu-panel fieldset.segmented.view-mode-switch { justify-self: start; }
 .you-menu-panel button.you-menu-row { justify-content: flex-start; padding-inline: 8px; border-color: transparent; background: transparent; text-align: left; }

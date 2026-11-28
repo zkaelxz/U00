@@ -96,6 +96,44 @@ test('the choices are keyboard operable and the menu closes with Escape', async 
   await expect(you(page)).not.toHaveAttribute('open', '')
 })
 
+// Below the dock width the theme is a button and a menu in the drawer, with its own keys.
+test.describe('the drawer at a narrow window', () => {
+  test.use({ viewport: { width: 500, height: 800 } })
+
+  test('its theme menu is keyboard operable and closes with Escape', async ({ page }) => {
+    await page.goto('/#/library')
+    await page.getByRole('button', { name: /^(Menu|More)$/ }).click()
+    const btn = page.getByRole('button', { name: /^Theme: / })
+    await btn.focus()
+    await expect(btn).toHaveAttribute('aria-expanded', 'false')
+    await page.keyboard.press('Enter')
+    await expect(btn).toHaveAttribute('aria-expanded', 'true')
+    const menu = page.getByRole('menu', { name: 'Theme' })
+    await expect(menu.getByRole('menuitemradio')).toHaveCount(5)
+    // The current theme is focused and checked.
+    await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toBeFocused()
+    await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toHaveAttribute('aria-checked', 'true')
+
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(btn).toBeFocused()
+
+    await page.keyboard.press('ArrowDown')
+    await page.keyboard.press('End')
+    await expect(page.getByRole('menuitemradio', { name: 'OLED black' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(html(page)).toHaveAttribute('data-theme', 'oled')
+    await expect(menu).toHaveCount(0)
+    await expect(btn).toBeFocused()
+
+    // A click elsewhere closes it too.
+    await btn.click()
+    await expect(menu).toBeVisible()
+    await page.locator('.nav-drawer-theme > span').click()
+    await expect(menu).toHaveCount(0)
+  })
+})
+
 test('Settings has no theme select; the You menu is the only control', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Engines and keys')
