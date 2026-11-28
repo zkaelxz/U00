@@ -297,7 +297,8 @@ async function content(scenario) {
       const showPage = (url, complete) => Object.assign(page, { src: url, currentSrc: complete ? url : page.currentSrc, complete });
       const h = loadContent({ images: [page], fetchImage: okImage(),
         sendReply: (message) => {
-          showPage(IMG_URL_2, true);
+          // The reader has set the next page's src, which has not loaded yet: currentSrc still names this page.
+          showPage(IMG_URL_2, false);
           return { pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) };
         } });
       const result = await h.ask(capture);
@@ -310,6 +311,21 @@ async function content(scenario) {
       showPage(IMG_URL, true);
       load();
       return { ok: result.ok, afterAnswer, whileLoading, returned: drawnFor() };
+    }
+    case "capture_first_batch_size": {
+      // Eight pages on screen: the first request is as many pages as the app translates at once.
+      const sizes = {};
+      for (const store of [false, true]) {
+        const urls = Array.from({ length: 8 }, (_, n) => `https://s1.bzcdn.net/p/${n + 1}.jpg`);
+        const distinct = async ({ url }) => ({
+          ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
+                            content_type: "image/jpeg", url } });
+        const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
+        const h = loadContent({ images: urls.map((u, i) => placed(fakeImg(u), i * 100)), fetchImage: distinct, sendReply });
+        await h.ask(store ? { ...capture, dramaId: 5, store: true } : capture);
+        sizes[store ? "saved" : "overlay"] = h.sent.map((m) => m.images.length);
+      }
+      return sizes;
     }
     case "page_drawn_before_its_batch_answers": {
       // The worker forwards a finished page while its batch is still out; the batch's own

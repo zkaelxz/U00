@@ -859,6 +859,8 @@
   // Bounded: a long chapter on a recycling reader would otherwise keep every page's boxes.
   const MAX_REMEMBERED_PICTURES = 400;
   function rememberPicture(key, regions) {
+    // A data: address can be megabytes; such a page is simply not remembered.
+    if (key.length > 2048) return;
     state.byPicture.delete(key);
     state.byPicture.set(key, regions);
     if (state.byPicture.size > MAX_REMEMBERED_PICTURES) state.byPicture.delete(state.byPicture.keys().next().value);
@@ -879,9 +881,14 @@
   // The answer's own element went on to another page, but the reader may already show
   // this page in a different element of its pool.
   function drawWherePictureShows(key, regions) {
+    let drawn = false;
     for (const img of document.images) {
-      if (img.isConnected && showsLoadedPicture(img) && elementKey(img) === key) drawOverlay(img, regions);
+      if (img.isConnected && showsLoadedPicture(img) && elementKey(img) === key) {
+        drawOverlay(img, regions);
+        drawn = true;
+      }
     }
+    return drawn;
   }
 
   function watchForPageChanges() {
@@ -2129,12 +2136,14 @@
         // later page while this batch was in flight; drawing then
         // would put these bubbles on the wrong page.
         for (const el of elements) {
-          if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+          const isImg = el.tagName === "IMG";
+          // Kept even when drawn here: the element may show another page and then this one again.
+          if (srcKey && isImg) rememberPicture(srcKey, regions);
+          if (srcKey && el.isConnected && (!isImg || showsLoadedPicture(el)) && await currentDrawTargetKey(el) === srcKey) {
             drawOverlay(el, regions);
             counts.drawn += 1;
-          } else if (srcKey && el.tagName === "IMG") {
-            rememberPicture(srcKey, regions);
-            drawWherePictureShows(srcKey, regions);
+          } else if (srcKey && isImg && drawWherePictureShows(srcKey, regions)) {
+            counts.drawn += 1;
           }
         }
       }
@@ -2231,8 +2240,11 @@
     let sendFailure = "";
     let sentAny = false;
     // Two steps in a row with no new page send what is queued, so the last pages translate while the
-    // scroll makes sure the chapter has ended.
+    // scroll makes sure the chapter has ended. Not a lone page (the app filters out non-pages only in
+    // requests of two or more), and not when saving, where a page found later must still be stored in
+    // chapter order with the rest.
     const startSending = (quiet) => {
+      if (quiet && (store || queue.length < 2)) return;
       if (sending || !queue.length) return;
       const size = quiet ? queue.length : sentAny ? limit : Math.min(limit, firstBatch);
       if (queue.length < size) return;

@@ -38,11 +38,16 @@ class TestChapterCapture:
     def test_english_for_a_recycled_element_is_drawn_when_its_picture_shows_again(self):
         out = _run("content", "capture_answer_for_a_recycled_element_draws_when_its_picture_returns")
         assert out["ok"] is True
-        first = "https://s1.bzcdn.net/p/1.jpg"
-        # The element may carry the second page's own English meanwhile, never the first page's.
-        assert first not in out["afterAnswer"]
-        assert first not in out["whileLoading"]
-        assert out["returned"] == [first]
+        # Not over the next page while it loads, though currentSrc still names this one.
+        assert out["afterAnswer"] == []
+        assert out["whileLoading"] == []
+        assert out["returned"] == ["https://s1.bzcdn.net/p/1.jpg"]
+
+    def test_the_first_request_is_as_many_pages_as_the_app_translates_at_once(self):
+        out = _run("content", "capture_first_batch_size")
+        assert out["overlay"][0] == 6
+        assert out["saved"][0] == 2
+        assert sum(out["overlay"]) == sum(out["saved"]) == 8
 
 
 class TestPageSideFallback:
