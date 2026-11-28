@@ -56,7 +56,7 @@ describe('glossary re-translate selection', () => {
 
 describe('glossary re-translate requests', () => {
   it('uses the Translate form for the preview and the run, never force or bulk', () => {
-    expect(affectedParams(form, [4, 5])).toEqual({ term_ids: [4, 5], engine: 'claude', job_cost_cap_usd: 1.5 })
+    expect(affectedParams(form, [4, 5])).toEqual({ term_ids: [4, 5], engine: 'claude', job_cost_cap_usd: 1.5, style_preset: 'audio_drama' })
     expect(affectedParams({ ...form, cost_cap: '-1' }, [])).toBeNull()
     const body = buildAffectedRunBody(form, { ...preview, selected_term_ids: [] }, [1, 3], false)
     expect(body).toMatchObject({ line_ids: [1, 3], preview_hash: 'abc', include_hand_edited: false, locale: 'en-GB', engine: 'claude', job_cost_cap_usd: 1.5 })
@@ -70,6 +70,7 @@ describe('glossary re-translate requests', () => {
   it('builds the preview query and posts the run', async () => {
     expect(buildGlossaryAffectedQuery({ term_ids: [1, 2], engine: 'claude' })).toBe('?term_ids=1&term_ids=2&engine=claude')
     expect(buildGlossaryAffectedQuery({})).toBe('')
+    expect(buildGlossaryAffectedQuery({ style_preset: 'novel' })).toBe('?style_preset=novel')
     const calls: { url: string; init?: RequestInit }[] = []
     const fake = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init })

@@ -86,6 +86,7 @@ export function buildGlossaryAffectedQuery(p: GlossaryAffectedParams): string {
   if (p.model) q.set('model', p.model)
   if (p.reflect) q.set('reflect', 'true')
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
+  if (p.style_preset) q.set('style_preset', p.style_preset)
   return queryOf(q)
 }
 /** Read-only: no engine call, no change. */

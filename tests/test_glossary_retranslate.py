@@ -73,6 +73,14 @@ class TestFindAffected:
         assert p["has_glossary"] and p["hand_edited_count"] == 0
         assert p["estimate"]["target_line_count"] == 3
 
+    def test_the_preview_prices_the_style_picked_on_the_form(self, isolated_db, monkeypatch):
+        did, _sid, _rows = _seed([("林晚来了", "Lin came")], terms=[LIN])
+        styles, real = [], translate_run_service.estimate_translate_cost
+        monkeypatch.setattr(translate_run_service, "estimate_translate_cost",
+                            lambda *a, **k: styles.append(k.get("style_preset")) or real(*a, **k))
+        svc.find_glossary_affected_lines(did, engine_name="fake", style_preset="novel")
+        assert styles == ["novel", "novel"]
+
     def test_series_glossary_is_shared_by_dramas_of_the_series(self, isolated_db):
         _did, sid, _ = _seed([("x", "x")], terms=[LIN])
         other = db.create_drama(title_zh="E", series_id=sid)

@@ -12,7 +12,7 @@ import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { cancelHint, isTerminalStatus, offersCancel, type JobRecord } from '../../../../types/jobs'
 import type { ThreeRunState } from '../../../../types/threeRun'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../../types/translateStage'
-import { applyStartToForm, buildRunBody, initialForm, loadPresetStart, validateRun } from '../../translateForm'
+import { buildRunBody, savedRunForm, validateRun } from '../../translateForm'
 import { LineAiPicker } from './LineAiPicker'
 import { useLineAiPick } from './lineAiPick'
 import { useLineSelectionContext } from './useLineSelectionContext'
@@ -58,22 +58,24 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
     return () => ctl.abort()
   }, [dramaId])
 
+  const style = config ? savedRunForm(config, dramaId).style_preset : ''
   useEffect(() => {
     setEstimate(null)
+    if (!style) return
     const ctl = new AbortController()
     getTranslateEstimate(dramaId, {
-      engine: engine || undefined, model: model || undefined, force_retranslate: true,
+      engine: engine || undefined, model: model || undefined, force_retranslate: true, style_preset: style,
       ...(selectedIds.length ? { line_ids: selectedIds } : {}),
     }, withSignal(ctl.signal)).then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
     return () => ctl.abort()
     // selectedIds is rebuilt each render; `key` stands for its content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId, key, engine, model])
+  }, [dramaId, key, engine, model, style])
 
   const startRun = useCallback((n: number, lineIds: number[]) => {
     if (!config) return
     const form = {
-      ...applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config),
+      ...savedRunForm(config, dramaId),
       engine, model, reflect: false, bulk: false, fallbacks: [] as string[], force: true, forceConfirmed: true,
     }
     const problem = validateRun(form, config.translation_engine, config.bulk_supported_engines)

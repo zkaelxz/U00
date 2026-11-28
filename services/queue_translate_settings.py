@@ -41,12 +41,12 @@ def _queued_model_and_batch(drama: dict, engine: str):
     return model, last.get("batch_size")
 
 
-def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None) -> str:
+def _translate_cost(drama_id: int, engine: str, model=None, batch_size=None, style_preset=None) -> str:
     if engine in engine_registry.FREE_ENGINES:
         return "Free"
     try:
         est = translate_run_service.estimate_translate_cost(
-            drama_id, model=model, batch_size=batch_size)
+            drama_id, model=model, batch_size=batch_size, style_preset=style_preset)
     except ServiceError:
         return "No estimate yet; costs money"
     return f"About ${est['estimated_usd']:.2f}; costs money"
@@ -136,7 +136,8 @@ def _row(label: str, value) -> dict:
     return {"label": label, "value": str(value), "engine": None}
 
 
-def _check_translate_spend(drama_id: int, model=None, batch_size=None, series_left=None) -> None:
+def _check_translate_spend(drama_id: int, model=None, batch_size=None, series_left=None,
+                           style_preset=None) -> None:
     """The unattended twin of the Translate stage's estimate: refuse before
     any paid call when this month's cap is used up or the estimate is above
     what is left of it. The run itself still enforces the cap as it goes.
@@ -145,7 +146,7 @@ def _check_translate_spend(drama_id: int, model=None, batch_size=None, series_le
     monthly cap being set (the run's own ceiling is the unattended limit), and
     the estimate must fit it; a monthly cap that is set still applies."""
     est = translate_run_service.estimate_translate_cost(
-        drama_id, model=model, batch_size=batch_size)
+        drama_id, model=model, batch_size=batch_size, style_preset=style_preset)
     if not est["cap_applies"]:
         return
     # Like the scheduled model re-evaluation: unattended paid work needs a ceiling.

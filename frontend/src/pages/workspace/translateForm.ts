@@ -447,6 +447,11 @@ export function skippedNote(keys: string[] | undefined): string {
   return keys?.length ? ` Left out because they don't suit this title's language: ${keys.map((k) => k.replace(/_/g, ' ')).join(', ')}.` : ''
 }
 
+/** The form a run started outside the Translate stage uses: this browser's old preset, then the title's saved start. */
+export function savedRunForm(c: TranslateRunConfig, dramaId: number): RunForm {
+  return applyStartToForm(initialForm(c, loadPresetStart(dramaId)), c.translate_start, c)
+}
+
 // Overlay the Translate form values a profile left on the title (the server's
 // translate_start, or an applied profile's options) on `f`. Each value applies only
 // when this server still offers it and the engine can run it, as for a remembered

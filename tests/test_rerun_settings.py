@@ -348,7 +348,7 @@ def test_queue_cost_is_estimated_for_the_remembered_model_and_batch(isolated_db,
     monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
     model, batch = queue_service._queued_model_and_batch(db.get_drama(did), "fake")
     queue_service._translate_cost(did, "claude", model, batch)
-    assert seen == {"model": "model-a", "batch_size": 9}
+    assert seen == {"model": "model-a", "batch_size": 9, "style_preset": None}
 
 
 def test_queue_shows_the_default_when_the_remembered_model_is_gone(isolated_db):

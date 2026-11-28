@@ -25,6 +25,7 @@ import {
   isTranslationOnly,
   lineRanges,
   loadPresetStart,
+  savedRunForm,
   MAX_FALLBACKS,
   monthSpendText,
   ollamaWarning,
@@ -252,6 +253,16 @@ describe('preset start values', () => {
     expect(loadPresetStart(7)).toEqual({
       default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro',
     })
+  })
+
+  it('builds the saved run form from the old preset, then the title start', () => {
+    const storage = memory()
+    vi.stubGlobal('localStorage', storage)
+    storage.setItem('baihe.translatePreset.3', JSON.stringify({ style_preset: 'wuxia' }))
+    expect(savedRunForm(config, 3).style_preset).toBe('wuxia')
+    expect(savedRunForm(config, 4).style_preset).toBe('natural')
+    const started = { ...config, translate_start: { style_preset: 'natural' } } as TranslateRunConfig
+    expect(savedRunForm(started, 3).style_preset).toBe('natural')
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {
