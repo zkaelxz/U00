@@ -9,17 +9,18 @@ import { useSession } from '../../hooks/useSession'
 import type { LibraryRecap } from '../../types/library'
 import { dismissKey, isDismissed, recapItems, recapMonth, rememberDismissed } from './monthRecapLogic'
 
-// "Your October" at the top of the Library in the first week of November: this account's own month.
 export function MonthRecap() {
   const session = useSession()
   const [when] = useState(() => recapMonth(new Date()))
-  const account = session.status === 'ready' ? session.me.user?.id ?? null : null
   const [hidden, setHidden] = useState<string | null>(null)
-  const load = useCallback(() => (when ? getRecap(when.month) : Promise.resolve(null)), [when])
+  // The dismissal is per account, so nothing is asked until the session says whose it is.
+  const account = session.status === 'ready' ? session.me.user?.id ?? null : undefined
+  const key = when && account !== undefined ? dismissKey(account, when.month) : null
+  const wanted = !!when && account !== undefined && hidden !== key && !isDismissed(browserStorage(), account, when.month)
+  const month = wanted ? when.month : null
+  const load = useCallback(() => (month ? getRecap(month) : Promise.resolve(null)), [month])
   const recap = useLoad(load, 0)
-  if (!when || session.status === 'loading' || !recap.data) return null
-  const key = dismissKey(account, when.month)
-  if (hidden === key || isDismissed(browserStorage(), account, when.month)) return null
+  if (!wanted || !recap.data || account === undefined) return null
   return (
     <MonthRecapView
       recap={recap.data}

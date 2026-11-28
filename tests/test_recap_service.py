@@ -96,6 +96,41 @@ def test_the_pc_itself_has_its_own_month_apart_from_members(isolated_db, monkeyp
     assert recap_service.get_recap("2026-10", principal=None)["titles_read"] == 1
 
 
+def test_spend_counts_a_month_older_than_spend_historys_table(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Novel", media_type="novel")
+    _at(monkeypatch, 2020, 3, 9)
+    db.log_usage(did, "claude", "model-x", "translate", estimated_cost_usd=0.5)
+    _at(monkeypatch, 2026, 11, 2)
+    assert recap_service.get_recap("2020-03", principal=None)["spend_usd"] == pytest.approx(0.5)
+
+
+def test_an_admin_away_from_the_pc_gets_no_spend_but_at_the_pc_does(isolated_db, monkeypatch):
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi.testclient import TestClient
+    from api import auth as api_auth
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    host = "baihe.example.com"
+    settings = ApiSettings(household_port=8610, serve_frontend=False, google_client_id="cid",
+                           google_client_secret="secret-value", public_url=f"https://{host}")
+    did = db.create_drama(title_en="Novel", media_type="novel")
+    _at(monkeypatch, 2026, 10, 9)
+    db.log_usage(did, "claude", "model-x", "translate", estimated_cost_usd=0.25)
+    admin_id = auth_service.grant_admin_local("owner@example.com")["id"]
+    s = auth_service.create_session(admin_id, "pytest", "127.0.0.1")
+    h = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}", api_auth.CSRF_HEADER: s["csrf_token"]}
+
+    def spend(app, base_url):
+        c = TestClient(app, base_url=base_url, client=("127.0.0.1", 5000), raise_server_exceptions=False)
+        r = c.get("/api/library/recap?month=2026-10", headers=h)
+        assert r.status_code == 200, r.text
+        return r.json()["spend_usd"]
+
+    assert spend(create_app(settings, listener="household"), f"http://{host}") is None
+    assert spend(create_app(settings), "http://127.0.0.1:8600") == pytest.approx(0.25)
+
+
 def test_spend_is_only_for_a_caller_who_may_open_spend_history(isolated_db, monkeypatch):
     _, pa = _member("a@example.com")
     did = db.create_drama(title_en="Novel", media_type="novel")
