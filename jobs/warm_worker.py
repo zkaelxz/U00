@@ -209,23 +209,55 @@ def _windows_child_pids(me) -> list:
             walk.restype = wintypes.BOOL
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetCurrentProcess.argtypes = []
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
         snapshot = kernel32.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
         if not snapshot or snapshot == wintypes.HANDLE(-1).value:
             return []
     except Exception:
         return []
-    found = []
+    named_me = []
     try:
         entry = Entry()
         entry.dwSize = ctypes.sizeof(Entry)
         more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
         while more:
             if entry.th32ParentProcessID == me and entry.th32ProcessID != me:
-                found.append(int(entry.th32ProcessID))
+                named_me.append(int(entry.th32ProcessID))
             more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
     finally:
         kernel32.CloseHandle(snapshot)
+    # Windows keeps a process's parent id after the parent exits and reuses ids, so a
+    # program whose long-gone parent had this worker's id also names it: only one
+    # started after the worker is its child. One whose start can't be read is left alone.
+    mine = _windows_started(kernel32, kernel32.GetCurrentProcess(), close=False)
+    if mine is None:
+        return []
+    found = []
+    for pid in named_me:
+        handle = kernel32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        started = _windows_started(kernel32, handle) if handle else None
+        if started is not None and started > mine:
+            found.append(pid)
     return found
+
+
+def _windows_started(kernel32, handle, close=True):
+    """The process's creation time in 100 ns units, or None."""
+    import ctypes
+    from ctypes import wintypes
+    times = [wintypes.FILETIME() for _ in range(4)]
+    try:
+        if not kernel32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+            return None
+        return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+    finally:
+        if close:
+            kernel32.CloseHandle(handle)
 
 
 class _Pid:
@@ -637,7 +669,9 @@ class WarmJob:
         self._worker, self.seq, self.job_id = worker, seq, job_id
         self.target, self.args = target, args
         self._stale = stale
-        self._state = "claimed"   # then "sent", then "done" or "lost"
+        # Then "sent", then "done" or "lost"; or "returned" when close() gave the
+        # worker back unused, after which this handle must not reach the worker.
+        self._state = "claimed"
         self.began = False
         self.memory = {}
         self.channel = job_process_result.wrap_queue(_JobQueue(self), job_id)
@@ -656,10 +690,12 @@ class WarmJob:
 
     @property
     def pid(self):
-        return None if self.finished else self._worker.proc.pid
+        return None if self._state in ("done", "returned") else self._worker.proc.pid
 
     @property
     def exitcode(self):
+        if self._state == "returned":
+            return None
         return 0 if self.finished else self._worker.proc.exitcode
 
     def ended_before_its_job(self) -> bool:
@@ -784,7 +820,7 @@ class WarmJob:
         self._worker.release()
 
     def is_alive(self) -> bool:
-        if self._state in ("claimed", "done"):
+        if self._state in ("claimed", "done", "returned"):
             return False
         if self._worker.proc.is_alive():
             return True
@@ -795,7 +831,7 @@ class WarmJob:
         """Waits for the worker's report that this job finished, reading the
         queue for it (the watcher has stopped reading by then), or for the
         process to end."""
-        if self._state in ("claimed", "done"):
+        if self._state in ("claimed", "done", "returned"):
             return
         deadline = None if timeout is None else time.monotonic() + timeout
         jobs_queue = _JobQueue(self)
@@ -827,7 +863,7 @@ class WarmJob:
         worker outlives it."""
         if self._state != "claimed":
             return
-        self._state = "lost"
+        self._state = "returned"
         worker = self._worker
         with _lock:
             fresh = not worker.started

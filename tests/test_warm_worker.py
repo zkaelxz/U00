@@ -319,6 +319,18 @@ def test_a_reused_worker_whose_start_failed_still_ends_at_the_idle_limit(monkeyp
     assert _wait_gone(pid, timeout=15) and _one() is None
 
 
+def test_a_job_whose_start_failed_no_longer_reaches_the_worker_it_gave_back():
+    pid = _run("warm_handed_a", tagged_worker, ("a", False))["result"]["pid"]
+    job = warm_worker.claim("warm_handed_b", tagged_worker, ("b", False), KEY)
+    job.close()
+    job.channel.close()
+    assert not job.is_alive() and job.pid is None
+    job.terminate()   # a later stop of the failed job must not end the next job's worker
+    job.join(timeout=1)
+    after = _run("warm_handed_c", tagged_worker, ("c", False))
+    assert after["result"]["pid"] == pid and after["result"]["runs_here"] == 2
+
+
 def test_a_replacement_worker_takes_the_broken_ones_slot_and_ends_at_the_idle_limit(monkeypatch):
     monkeypatch.setattr(warm_worker, "IDLE_LIMIT_S", 1.0)
     pid = _run("warm_replaced_a", tagged_worker, ("a", False))["result"]["pid"]
@@ -859,3 +871,45 @@ def test_a_worker_that_has_served_its_jobs_is_retired_and_says_so(monkeypatch):
     assert any(f"retired (it has served {n} jobs), {n} jobs served" in line for line in logged), logged
     after = _run("warm_served_after", tagged_worker, ("after", False))
     assert after["result"]["runs_here"] == 1
+
+
+class _FakeKernel32:
+    """The kernel32 calls _windows_child_pids makes, over a made-up process table:
+    pid -> (parent pid, creation time)."""
+
+    def __init__(self, me, table):
+        self.me, self.table, self.rows = me, table, []
+
+        def func(fn):
+            fn.argtypes = fn.restype = None
+            return fn
+        self.CreateToolhelp32Snapshot = func(lambda flags, pid: 7)
+        self.Process32FirstW = func(lambda snap, ref: self._next(ref, first=True))
+        self.Process32NextW = func(lambda snap, ref: self._next(ref))
+        self.CloseHandle = func(lambda handle: True)
+        self.GetCurrentProcess = func(lambda: -1)
+        self.OpenProcess = func(lambda access, inherit, pid: 1000 + pid if pid in self.table else 0)
+        self.GetProcessTimes = func(lambda handle, created, *rest: self._times(handle, created))
+
+    def _next(self, ref, first=False):
+        if first:
+            self.rows = sorted(self.table.items())
+        if not self.rows:
+            return False
+        pid, (parent, _) = self.rows.pop(0)
+        ref._obj.th32ProcessID, ref._obj.th32ParentProcessID = pid, parent
+        return True
+
+    def _times(self, handle, created):
+        pid = self.me if handle == -1 else handle - 1000
+        created._obj.dwHighDateTime, created._obj.dwLowDateTime = 0, self.table[pid][1]
+        return True
+
+
+def test_on_windows_only_a_process_started_after_the_worker_counts_as_its_child(monkeypatch):
+    import ctypes
+    # 20: the worker. 21 started after it. 22 is older: its own parent was an earlier
+    # process that had the worker's id, which Windows reused. 23 has another parent.
+    table = {20: (1, 500), 21: (20, 600), 22: (20, 400), 23: (5, 700)}
+    monkeypatch.setattr(ctypes, "WinDLL", lambda *a, **k: _FakeKernel32(20, table), raising=False)
+    assert warm_worker._windows_child_pids(20) == [21]
