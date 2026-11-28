@@ -615,3 +615,42 @@ def test_asking_alone_is_bounded_per_batch(isolated_db):
     engine = _CutOffWhenBig(limit=0)
     _run_big_batch(engine, n=30)
     assert engine.sizes.count(1) == 12
+
+
+def test_a_content_filter_split_shares_one_ask_alone_budget(isolated_db):
+    from engine_backends.shared import ContentModerationBlocked
+
+    class BlockedWhole(_CutOffWhenBig):
+        def translate_batch(self, zh, context):
+            if len(zh) == 30:
+                self.sizes.append(30)
+                raise ContentModerationBlocked("fake", "test")
+            return super().translate_batch(zh, context)
+
+    engine = BlockedWhole(limit=0)
+    _run_big_batch(engine, n=30)
+    assert engine.sizes.count(1) == 12
+
+
+def test_lines_still_empty_are_reported_in_line_order_on_a_forced_rerun(isolated_db):
+    engine = _CutOffWhenBig(limit=0)
+    lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=70 + i) for i in range(6)]
+    lines[3].en = "kept"
+    _, errors = engine_translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, context_window=0,
+        context_window_ahead=0, force_retranslate=True)
+    assert errors[0]["lines"] == [0, 1, 2, 3, 4, 5]
+
+
+def test_an_answer_from_a_re_ask_is_cleaned_like_the_first(isolated_db):
+    class EchoesTheName(_CutOffWhenBig):
+        def translate_batch(self, zh, context):
+            self.sizes.append(len(zh))
+            return ["" for _ in zh] if len(zh) > 1 else [f"[Lin Wan] T:{z}" for z in zh]
+
+    engine = EchoesTheName(limit=1)
+    lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=70 + i, speaker="林晚") for i in range(4)]
+    engine_translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, context_window=0,
+        context_window_ahead=0, character_names={"林晚": "Lin Wan"})
+    assert [ln.en for ln in lines] == [f"T:z{i}" for i in range(4)]

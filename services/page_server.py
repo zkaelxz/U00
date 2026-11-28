@@ -539,8 +539,10 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                 except Exception:
                     failed = True  # the first call's own note already says why; this is a second chance only
                     break
+            # A lone line was already asked alone, with the picture; asking it again without one adds little.
+            lone = len(groups[0]) == 1 and attempt == 0
             missing = _lines_without_english(bubbles)
-            if failed or not missing:
+            if failed or not missing or lone:
                 break
         if split is not None:
             split["retry"] = round(time.monotonic() - retry_started, 2)

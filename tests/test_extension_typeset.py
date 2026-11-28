@@ -267,21 +267,35 @@ def test_only_the_first_retry_for_empty_lines_sends_the_page_picture_again(token
     from scanlate import scanlate
     from scanlate import scanlate_translate
     from services import extension_service
-    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
-           "kind": "bubble", "font_category": "regular", "reading_order": 0}
-    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    boxes = [{"x": 1, "y": 2, "w": 30, "h": 40, "source_text": text, "translated_text": "",
+              "kind": "bubble", "font_category": "regular", "reading_order": i}
+             for i, text in enumerate(["안녕", "뭐라고"])]
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(b) for b in boxes], []))
     picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
     monkeypatch.setattr(extension_service, "page_extras", lambda *a, **k: {"page_image": picture})
     seen = []
 
     def translate(bubbles, engine, drama_meta, **kwargs):
         seen.append(kwargs.get("page_image"))
-        if len(seen) == 3:
+        if len(seen) >= 3:
             bubbles[0]["translated_text"] = "Hello"
 
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     _send(token, drama)
-    assert seen == [picture, picture, None]
+    assert seen == [picture, picture, None, None]
+
+
+def test_a_lone_empty_line_is_asked_again_once(token, drama, monkeypatch):
+    from scanlate import scanlate
+    from scanlate import scanlate_translate
+    box = {"x": 1, "y": 2, "w": 30, "h": 40, "source_text": "안녕", "translated_text": "",
+           "kind": "bubble", "font_category": "regular", "reading_order": 0}
+    monkeypatch.setattr(scanlate, "detect_and_ocr_page", lambda *a, **k: ([dict(box)], []))
+    calls = []
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", lambda bubbles, *a, **k: calls.append(1))
+    page = _send(token, drama).payload["pages"][0]
+    # The first retry already asks it alone; a third call would repeat that without the picture.
+    assert len(calls) == 2 and page["untranslated_lines"] == 1
 
 
 @pytest.mark.parametrize("sent, expected_width", [(400, 400), (2000, 1000), (True, 1000), ("400", 1000), (100, 1000)])
