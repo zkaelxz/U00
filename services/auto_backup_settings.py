@@ -220,6 +220,25 @@ def same_drive_as_library(folder: str = "") -> bool:
     return volume(folder_path(folder)) == volume(db.LIBRARY_DIR)
 
 
+# A brand-new library has little to lose; the note waits until there is.
+SAME_DRIVE_NOTE_MIN_TITLES = 5
+SAME_DRIVE_DISMISSED_KEY = "auto_backup.same_drive_note_dismissed"
+
+
+def same_drive_note_due(settings: dict) -> bool:
+    """The one-time note that the copies sit on the library's own drive (the
+    default folder always does): until the owner dismisses it. The titles are
+    counted last because the settings page asks on every load."""
+    return bool(settings["enabled"]
+                and not db.get_app_setting(SAME_DRIVE_DISMISSED_KEY, False)
+                and same_drive_as_library(settings["folder"])
+                and db.has_at_least_dramas(SAME_DRIVE_NOTE_MIN_TITLES))
+
+
+def dismiss_same_drive_note() -> None:
+    db.set_app_setting(SAME_DRIVE_DISMISSED_KEY, True)
+
+
 def problem(settings: dict, state: dict, now=None):
     """Why the owner should look at the backups, or None: "failing" (the last
     run failed) or "stale" (no success for a long while). Backups turned off

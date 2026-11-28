@@ -174,7 +174,7 @@ test('Saved settings for this step: closed, read-only, per step, with a link to 
 
   await card.getByLabel('Step').selectOption('translate')
   await expect(rows).toContainText('Claude, claude-sonnet-5-5')
-  for (const label of ['Tone and character voice', 'Batch size', 'Thinking', 'Glossary', 'Language packs', 'VTuber names', 'Reply check', 'Off-peak start', 'Cost', 'Monthly cap left']) {
+  for (const label of ['Tone and character voice', 'Batch size', 'Glossary', 'Language packs', 'VTuber names', 'Reply check', 'Off-peak start', 'Cost', 'Monthly cap left']) {
     await expect(rows).toContainText(label)
   }
   await expect(panel.getByRole('link', { name: "Change in the title's Translate stage" })).toHaveAttribute('href', '#/drama/3/translate')

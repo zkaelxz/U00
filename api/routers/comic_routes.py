@@ -16,17 +16,18 @@ services/comic_view_service.py:
 - GET  /dramas/{id}/source-chapters              library.read
 
 Images go through Starlette's FileResponse (Range, HEAD, ETag,
-Last-Modified); this module adds the If-None-Match 304 that FileResponse
-does not do. Content type comes from the file's magic bytes, the
+Last-Modified); api.conditional_get adds the If-None-Match 304 that
+FileResponse does not do. Content type comes from the file's magic bytes, the
 download name is generic, and every refusal is one generic 404.
 """
 
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Path, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
 
 from api.auth import principal_user_id, require_permission
+from api.conditional_get import or_not_modified
 from api.schemas import (ComicChapterMarks, ComicChapterMarksRequest, ComicPageList, ComicPagePanels, ComicPageRegions, ComicProgress, ComicProgressRequest, ComicSourceChapters,
                               ComicStartChapterRequest, ComicStartChapterResult,
                               ComicViewPrefs, ComicViewPrefsView, ComicVisibilityRequest, ComicVisibilityResult)
@@ -47,14 +48,6 @@ _EXT = {"image/png": "png", "image/jpeg": "jpg"}
             responses=_ERRS)
 def get_pages(request: Request, drama_id: int = Path(ge=1)):
     return comic_view_service.list_pages(drama_id, user_id=principal_user_id(request) or 0)
-
-
-def _etag_matches(header: str, etag: str) -> bool:
-    for tag in header.split(","):
-        tag = tag.strip()
-        if tag == "*" or tag.removeprefix("W/") == etag:
-            return True
-    return False
 
 
 _STREAM = [require_permission("media.stream")]
@@ -78,12 +71,7 @@ def get_page_image(request: Request, drama_id: int = Path(ge=1), page_id: int = 
     resp = FileResponse(found["path"], media_type=found["content_type"], filename=name,
                         content_disposition_type="inline", stat_result=found["stat"],
                         headers={"X-Content-Type-Options": "nosniff", "Cache-Control": _CACHE})
-    inm = request.headers.get("if-none-match")
-    if inm and _etag_matches(inm, resp.headers["etag"]):
-        return Response(status_code=304, headers={
-            "ETag": resp.headers["etag"], "Last-Modified": resp.headers["last-modified"],
-            "Cache-Control": _CACHE, "X-Content-Type-Options": "nosniff"})
-    return resp
+    return or_not_modified(request, resp, _CACHE)
 
 
 @router.get("/dramas/{drama_id}/pages/{page_id}/regions",

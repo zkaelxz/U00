@@ -9,7 +9,9 @@ figures for the owner."""
 import collections
 import contextlib
 import contextvars
+import re
 import statistics
+import sys
 import threading
 import time
 
@@ -416,3 +418,178 @@ def translation_worker(translator, board, stage, stats, note, cancelled, wake):
         yield worker
     finally:
         worker.abandon()
+
+
+# A long session's risks (a stream that keeps breaking, captions drifting
+# behind, memory creeping up, spend nearing its cap) are written to the app log
+# on these intervals instead of being found by a soak test, and the ones a user
+# can act on also get a note.
+LAG_LOG_SECONDS = 300
+STATS_LOG_SECONDS = 600
+LAG_NOTE_SECONDS = 30.0
+BURST_RECONNECTS = 3
+BURST_WINDOW_SECONDS = 600
+SPEND_NOTE_SHARE = 0.8
+STALLING_NOTE = "The stream keeps stalling; captions may skip."
+LAG_NOTE = "Captions are falling behind."
+# Lines this many before a break are compared with the first chunk after it.
+REPEAT_LOOKBACK_CUES = 10
+
+
+def _rss_mb():
+    """This process's resident memory in MB, or None where it can't be read
+    without psutil (not a dependency)."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class Counters(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD)] + [
+                    (name, ctypes.c_size_t) for name in (
+                        "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage",
+                        "QuotaPagedPoolUsage", "QuotaPeakNonPagedPoolUsage",
+                        "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage")]
+            counters = Counters()
+            counters.cb = ctypes.sizeof(counters)
+            query = ctypes.windll.psapi.GetProcessMemoryInfo
+            query.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+            if not query(wintypes.HANDLE(-1), ctypes.byref(counters), counters.cb):
+                return None
+            return counters.WorkingSetSize / 1_048_576
+        with open("/proc/self/status", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except Exception:
+        pass
+    return None
+
+
+def _gpu_mb():
+    """Torch's CUDA memory in MB when torch is already loaded: importing it here
+    would cost seconds and a GPU context for a number."""
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_available():
+            return torch.cuda.memory_allocated() / 1_048_576
+    except Exception:
+        pass
+    return None
+
+
+def _same_text(text: str) -> str:
+    return re.sub(r"\W+", "", text or "")
+
+
+class SessionLog:
+    """Health lines of one Live session for the app log, and the notes for the
+    risks a user can see. Only numbers and fixed text are logged: a stream URL
+    can carry a signed token, so none is ever passed in. `spend()` gives
+    (spent_usd, limit_usd) or None; `processes()` the session's ffmpeg Popens."""
+
+    def __init__(self, note, stats: LagStats, spend=None, processes=None, clock=time.monotonic,
+                 resolved_at=None):
+        self._note, self._stats, self._clock = note, stats, clock
+        self._spend = spend or (lambda: None)
+        self._processes = processes or (lambda: [])
+        now = clock()
+        self._next_lag = now + LAG_LOG_SECONDS
+        self._next_stats = now + STATS_LOG_SECONDS
+        self._breaks = collections.deque()
+        self._stalling_noted = self._spend_noted = self._lagging = False
+        self._spent_at_last_log = 0.0
+        self._last_chunk = now
+        self._resolved = now if resolved_at is None else resolved_at
+        self._mark = None
+        self.repeats_dropped = 0
+
+    def _log(self, text: str, level: str = "info") -> None:
+        live_whisper._log(level, "Live: " + live_whisper._URL_RE.sub("[URL]", text))
+
+    def tick(self) -> None:
+        """Called on each pass of the capture loop."""
+        now = self._clock()
+        lag = self._stats.figures()["lag_seconds"]
+        lagging = lag > LAG_NOTE_SECONDS
+        if lagging and not self._lagging:
+            self._log(f"captions are {lag:.1f} s behind the stream", "warning")
+            self._note(LAG_NOTE, "lag")
+        self._lagging = lagging
+        if now >= self._next_lag:
+            self._next_lag = now + LAG_LOG_SECONDS
+            self._log(f"lag {lag:.1f} s")
+        spend = self._spend()
+        if spend and not self._spend_noted and spend[1] > 0 and spend[0] >= SPEND_NOTE_SHARE * spend[1]:
+            self._spend_noted = True
+            self._note(f"This session has used {spend[0] / spend[1]:.0%} of its spend limit "
+                       f"(${spend[0]:.2f} of ${spend[1]:.2f}).", "spend")
+        if now >= self._next_stats:
+            self._next_stats = now + STATS_LOG_SECONDS
+            self.resources("10 min")
+            if spend:
+                self._log(f"spent ${spend[0] - self._spent_at_last_log:.4f} in the last 10 min, "
+                          f"${spend[0]:.4f} of the ${spend[1]:.2f} session cap")
+                self._spent_at_last_log = spend[0]
+            else:
+                self._log("spend: no session cap (a free engine, or the monthly cap applies)")
+
+    def resources(self, when: str) -> None:
+        rss, gpu = _rss_mb(), _gpu_mb()
+        try:
+            alive = str(sum(1 for p in self._processes() if p is not None and p.poll() is None))
+        except Exception:
+            alive = "?"
+        self._log(f"resources ({when}): RSS {'?' if rss is None else f'{rss:.0f} MB'}"
+                  f"{'' if gpu is None else f', GPU {gpu:.0f} MB'}, ffmpeg processes {alive}")
+
+    def chunk_seen(self) -> None:
+        self._last_chunk = self._clock()
+
+    def broke(self, reason: str, breaks: int, chunk: int, stream_seconds: float,
+              board_size: int) -> None:
+        """A stream break, once the broken capture's chunks are captioned."""
+        now = self._clock()
+        self._log(f"stream broke off ({reason}): {now - self._last_chunk:.0f} s since the last "
+                  f"chunk, reconnect {breaks}; before: chunk {chunk}, stream time "
+                  f"{stream_seconds:.1f} s", "warning")
+        self.resources("reconnect")
+        self._breaks.append(now)
+        while self._breaks and now - self._breaks[0] > BURST_WINDOW_SECONDS:
+            self._breaks.popleft()
+        if len(self._breaks) > BURST_RECONNECTS and not self._stalling_noted:
+            self._stalling_noted = True
+            self._note(STALLING_NOTE, "stalling")
+        self._mark = {"at": now, "stream": stream_seconds, "board": board_size}
+        self.repeats_dropped = 0
+
+    def dropped(self, lines: int) -> None:
+        self.repeats_dropped += lines
+
+    def re_resolved(self) -> None:
+        now = self._clock()
+        self._log(f"re-resolved stream address after {(now - self._resolved) / 60:.0f} min")
+        self._resolved = now
+
+    def after_break(self, chunk: int, stream_seconds: float, segment_seconds: float,
+                    cues: list) -> None:
+        """The first chunk captioned after a break: how far the timeline moved
+        and what of the speech before the break it repeated."""
+        mark, self._mark = self._mark, None
+        if mark is None:
+            return
+        gap = self._clock() - mark["at"]
+        moved = stream_seconds - mark["stream"]
+        before = {_same_text(c.get("text")) for c in
+                  cues[max(0, mark["board"] - REPEAT_LOOKBACK_CUES):mark["board"]]}
+        repeated = sum(1 for c in cues[mark["board"]:] if _same_text(c.get("text")) in before - {""})
+        self._log(f"after reconnect: chunk {chunk}, stream time {stream_seconds:.1f} s; "
+                  f"{self.repeats_dropped} lines dropped as repeats, {repeated} shown that repeat "
+                  "a line from before the break")
+        # A chunk's slot plus the break is as far as the timeline should move;
+        # far more is a timestamp jump in the new capture's audio.
+        if moved > gap + 2 * segment_seconds:
+            self._log(f"timeline moved {moved:.0f} s across a {gap:.0f} s break", "warning")
+
+    def ended(self, why: str) -> None:
+        self._log(f"session ended: {why}")
