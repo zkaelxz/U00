@@ -1,7 +1,9 @@
 // Pure helpers for the Library page's cards and Continue shelf (kept out of
 // the component files so React fast refresh stays happy).
 
-import { pluralLocale } from '../labels'
+import { createContext } from 'react'
+
+import { pluralLocale, visibleTags } from '../labels'
 import { isComicType } from '../pages/comic/comicLogic'
 import { checkActionLabel } from '../pages/workspace/stepModel'
 import { titleKind } from '../pages/workspace/titleKind'
@@ -51,7 +53,8 @@ export function tileText(d: Titled): string {
 export const tileHue = (id: number) => `tile-h${Math.abs(id) % 6}`
 
 /** Up to `max` tags plus how many more there are. */
-export function shownTags(tags: string[], max = 2): { shown: string[]; more: number } {
+export function shownTags(all: string[], max = 2): { shown: string[]; more: number } {
+  const tags = visibleTags(all)
   return { shown: tags.slice(0, max), more: Math.max(0, tags.length - max) }
 }
 
@@ -214,3 +217,6 @@ export function lineHitCount({ count, more }: { count: number; more: boolean }):
   if (more) return `First ${count} matches, newest titles first. Add words to narrow the search.`
   return `${count} ${count === 1 ? 'match' : 'matches'}`
 }
+
+/** Library > Show covers. Off, no cover picture is asked for: a card drops its tile and the Covers view shows letters. */
+export const ShowCoversContext = createContext(true)

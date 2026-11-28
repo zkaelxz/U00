@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { api, ApiError, hasStatus } from '../api/client'
 import { deleteDrama, deleteOwnDrama, duplicateDrama, openDramaFolder } from '../api/library'
 import type { DramaDetail } from '../api/types'
-import { engineLabel } from '../labels'
+import { engineLabel, visibleTags } from '../labels'
 import type { DramaDeleteResult } from '../types/library'
 import { canConfirmDelete } from '../pages/libraryForm'
 import { Badge } from './Badge'
@@ -97,7 +97,7 @@ export function DramaDetailPanel({ dramaId, onDeleted, away = false }: Props) {
     ['Genre', drama.genre],
     ['Chapters', drama.chapter_count],
     ['Translation engine', engineLabel(drama.translation_engine)],
-    ['Tags', drama.custom_tags.join(', ')],
+    ['Tags', visibleTags(drama.custom_tags).join(', ')],
     ['Source media', drama.has_audio ? 'Attached' : 'None'],
   ]
   const longSummary = (drama.summary ?? '').length > 280
