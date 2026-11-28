@@ -734,6 +734,18 @@ class TestGenerateAssText:
             did, speaker_colors={"A": "#123456", "B": "#654321"})
         assert subtitle_ass.ass_color("#123456") in text and subtitle_ass.ass_color("#654321") in text
 
+    def test_supplied_colors_match_character_names(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Alice")
+        text = export_service.generate_ass_text(did, speaker_colors={" alice ": "#123456", "B": "#654321"})
+        rows = text.splitlines()
+        styles = {r.split(",")[0][len("Style: "):]: r for r in rows if r.startswith("Style: ")}
+
+        def style_of(words):
+            return next(r.split(",")[3] for r in rows if r.startswith("Dialogue:") and r.endswith(words))
+        assert subtitle_ass.ass_color("#123456") in styles[style_of("Hello")]
+        assert subtitle_ass.ass_color("#654321") in styles[style_of("Bye")]
+
     def test_per_speaker_off_has_no_speaker_styles(self, isolated_db):
         did = _ass_drama(isolated_db)
         text = export_service.generate_ass_text(

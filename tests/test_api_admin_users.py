@@ -1251,3 +1251,28 @@ def test_deleting_an_account_deletes_its_chapter_marks_only(isolated_db):
     auth_service.admin_delete_user(m["id"])
     assert db.get_chapter_marks(d, m["id"]) == {}
     assert db.get_chapter_marks(d) and db.get_chapter_marks(d, other["id"])
+
+
+
+def test_a_member_sees_their_own_limits_and_nobody_elses(isolated_db):
+    from jobs import user_caps
+    c = _remote(_app())
+    a, s = _admin()
+    m, ms = _paid_member(limit=2)
+    other, _ = _paid_member("other@example.com", limit=9)
+    user_caps.set_jobs_per_day(m["id"], 5)
+    user_caps.count_daily_start(m["id"])
+    db.create_drama(title_en="Mine", owner_user_id=m["id"])
+    db.create_drama(title_en="Theirs", owner_user_id=other["id"])
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 0.5)
+    with db.spending_for(other["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 4.0)
+    me = c.get("/api/auth/me", headers=_h(ms)).json()
+    assert me["limits"] == {"daily_job_limit": 5, "jobs_today": 1, "monthly_paid_cap_usd": 2.0,
+                            "month_paid_spend_usd": 0.5, "title_limit": 200, "titles_owned": 1}
+    assert "limits" not in c.get("/api/auth/me", headers=_h(s)).json()
+    fresh, fs = _member("new@example.com")
+    assert c.get("/api/auth/me", headers=_h(fs)).json()["limits"] == {
+        "daily_job_limit": None, "jobs_today": 0, "monthly_paid_cap_usd": None,
+        "month_paid_spend_usd": 0.0, "title_limit": 200, "titles_owned": 0}

@@ -1591,7 +1591,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 novelAdded = 0;
             }
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
+            endSend(cancelRequested ? "Cancelled." : e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not save the chapter.");
         }
@@ -1638,7 +1638,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     // A token the server refused, or a spent limit, would refuse every later part too.
                     if (cause instanceof BaiheClient.BridgeException) {
                         int status = ((BaiheClient.BridgeException) cause).status;
-                        if (status == 401 || status == 403 || status == 429) {
+                        if (GrabQueue.refusesTheRest(status)) {
                             stoppedBy = why;
                             break;
                         }
@@ -1853,7 +1853,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         synchronized (lock) {
                             if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
                             // A token the server refused, or a spent limit, would refuse every later batch too.
-                            if (e.status == 401 || e.status == 403 || e.status == 429) refused[0] = true;
+                            if (GrabQueue.refusesTheRest(e.status)) refused[0] = true;
                         }
                     }
                     synchronized (lock) {
@@ -2090,6 +2090,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             int noEnglish = 0;
             String firstError = "";
             String englishProblem = "";
+            boolean refused = false;
             for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
@@ -2101,8 +2102,10 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 } catch (BaiheClient.BridgeException e) {
                     failed += batches.get(i).size();
                     if (firstError.isEmpty()) firstError = e.getMessage();
-                    // A token the server refused would be refused again by every later batch.
-                    if (e.status == 401 || e.status == 403) break;
+                    if (GrabQueue.refusesTheRest(e.status)) {
+                        refused = true;
+                        break;
+                    }
                 }
             }
             failed += unreadable;
@@ -2117,11 +2120,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 GrabStore.markDone(prefs(), url);
             }
             // A chapter where every page was refused must not send the chain on to the next.
-            finishGrab(out.toString(), stored > 0);
+            endSend(out.toString(), stored > 0, refused);
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(e.getMessage());
+            endSend(e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not send the pages.");
         }
+    }
+
+    private void endSend(String message, boolean sent, boolean refused) {
+        boolean moreDue = chaptersLeft > 1 || (queueRunning && !GrabStore.queue(prefs()).isEmpty());
+        GrabQueue.AfterSend end = GrabQueue.afterSend(message, sent, refused, queueRunning, moreDue);
+        queueRunning = end.queueRunning;
+        finishGrab(end.message, end.goOn);
     }
 }

@@ -254,3 +254,11 @@ def test_a_source_without_a_dash_still_loses_them():
 ])
 def test_sentence_split_edges(before, after):
     assert ec.drop_em_dashes(before) == after
+
+
+@pytest.mark.parametrize("text,divider", [("————————", True), ("— — —", True), ("-----", True),
+                                          ("——", False), ("a———b", False), ("", False),
+                                          ("・・・", False), ("···", False), ("～～～", False),
+                                          ("－－－－－", True), ("＝＝＝", True), ("＊\u3000＊\u3000＊", True)])
+def test_is_divider(text, divider):
+    assert ec.is_divider(text) is divider
