@@ -797,11 +797,17 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             File apk = AppUpdate.savedApk(this);
             String problem = null;
-            if (!AppUpdate.reuseSavedApk(apkVersion(apk), offered)) {
-                apk.delete();
-                problem = AppUpdate.download(address, cookie, apk);
+            try {
+                if (!AppUpdate.reuseSavedApk(apkVersion(apk), offered)) {
+                    apk.delete();
+                    problem = AppUpdate.download(address, cookie, apk);
+                }
+                if (problem == null) problem = apkProblem(apk);
+            } catch (RuntimeException e) {
+                // The flag is static now, so it must not outlive a thread that died.
+                updateDownloading = false;
+                throw e;
             }
-            if (problem == null) problem = apkProblem(apk);
             if (problem != null) apk.delete();
             String failed = problem;
             runOnUiThread(() -> {

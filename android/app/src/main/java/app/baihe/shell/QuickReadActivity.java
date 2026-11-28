@@ -764,7 +764,7 @@ public class QuickReadActivity extends Activity {
             Bitmap bitmap = cache.get(key);
             if (bitmap != null) {
                 view.setImageBitmap(bitmap);
-                view.setContentDescription(descriptions.get(key));
+                view.setContentDescription(descriptions.getOrDefault(key, "Page " + (position + 1)));
                 view.setMinimumHeight(0);
             } else {
                 view.setImageDrawable(null);
