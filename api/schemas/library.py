@@ -85,6 +85,7 @@ __all__ = [
     "RomanizeCreditsRequest",
     "RomanizeCreditsResult",
     "CoverArtResult",
+    "SiteCoverResult",
     "DramaSourceLink",
     "DramaFolderOpened",
     "BurnPreviewStart",
@@ -774,6 +775,12 @@ class CoverArtResult(BaseModel):
     width: int
     height: int
     size_bytes: int
+
+
+class SiteCoverResult(BaseModel):
+    drama_id: int
+    # fetched, kept (the page names no cover-shaped picture), unreachable or no_link
+    outcome: str
 
 
 class BurnPreviewStart(BaseModel):

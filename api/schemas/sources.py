@@ -41,6 +41,7 @@ __all__ = [
     "SourceTrackRequest",
     "DiscoverTranslateQueryRequest",
     "DiscoverTranslateQueryResult",
+    "ExtensionSite",
     "DiscoverBaihehubSearchRequest",
     "DiscoverBaihehubHit",
     "DiscoverBaihehubResult",
@@ -237,6 +238,11 @@ class SourceCacheStats(BaseModel):
     bytes: int
 
 
+class ExtensionSite(BaseModel):
+    name: str
+    host: str
+
+
 class SourcesSettings(BaseModel):
     pace_min_delay: float
     pace_max_delay: float
@@ -255,6 +261,7 @@ class SourcesSettings(BaseModel):
     proxy_configured: bool = Field(description="Whether a proxy is set. The URL is never returned.")
     cache_modes: List[str]
     cache: SourceCacheStats
+    extension_sites: List[ExtensionSite] = Field(default_factory=list, description="Sites that work only through the browser extension, shown read-only.")
 
 
 class SourceProfileVersion(BaseModel):
