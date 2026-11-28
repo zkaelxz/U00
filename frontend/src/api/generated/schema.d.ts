@@ -27467,6 +27467,11 @@ export interface components {
             page: number;
             /** Page Count */
             page_count: number;
+            /**
+             * Page Starts
+             * @description The line position each page starts at, in page order.
+             */
+            page_starts: number[];
             /** Total Lines */
             total_lines: number;
         };
@@ -61321,6 +61326,8 @@ export interface operations {
                 html?: boolean;
                 /** @description Single lines with an edit button, not joined paragraphs. */
                 edit?: boolean;
+                /** @description A line position: answer with the page that holds it instead of `page`. */
+                line?: number | null;
             };
             header?: never;
             path: {

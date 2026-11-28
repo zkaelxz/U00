@@ -205,7 +205,7 @@ export default function App() {
       {route.name === 'library' && <LibraryPage />}
       {route.name === 'library-tools' && <LibraryToolsPage />}
       {route.name === 'drama' && <WorkspaceShell id={route.id} stage={route.stage} />}
-      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} />}
+      {route.name === 'read' && <ReaderPage key={route.id} id={route.id} page={route.page} line={route.line ?? null} />}
       {route.name === 'follow' && <FollowAlongPage key={route.id} id={route.id} />}
       {route.name === 'watch' && <WatchPage key={route.id} id={route.id} party={route.party} />}
       {route.name === 'comic' && <ComicPage key={route.id} id={route.id} page={route.page} />}

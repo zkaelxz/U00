@@ -67,6 +67,14 @@ def _starts_from_headings(rows: list) -> list:
     return starts
 
 
+def start_positions(drama_id: int, texts: list) -> list:
+    """The line positions where chapters start, from each line's source text in order,
+    found as line_chapters finds them."""
+    starts = starts_from_manifest(drama_id, [norm(t) for t in texts]) \
+        or _starts_from_headings([{"zh": t} for t in texts])
+    return [first for _number, _title, first in starts]
+
+
 def _split(drama_id: int) -> tuple:
     """(lines, chapter starts, source): the lines and where each chapter begins."""
     rows = db.load_lines(drama_id)

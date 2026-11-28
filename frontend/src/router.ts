@@ -68,7 +68,8 @@ export type Route =
   // "#/series": every series as a folder, each opening its Series page; once any series has a
   // streamer, the streamers come first. streamer: one streamer's series ("" for the series with none).
   | { name: 'series-list'; streamer?: string }
-  | { name: 'read'; id: number; page: number | null }
+  // `line`: open the page that holds this line (a chapter's first line, a resume point).
+  | { name: 'read'; id: number; page: number | null; line?: number }
   // "#/follow/3": a title's lines on their own clock, for audio played in another app.
   | { name: 'follow'; id: number }
   // "#/watch/3": the title's own sound or video with its lines following it.
@@ -189,8 +190,11 @@ export function parseRoute(hash: string): Route {
   if (head === 'follow' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) return { name: head, id: Number(a) }
   if ((head === 'read' || head === 'comic') && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 2) {
     // "#/read/3?page=2", "#/comic/3?page=2"; a missing or bad page means "resume where I left off".
-    const p = new URLSearchParams(qs).get('page')
+    const q = new URLSearchParams(qs)
+    const p = q.get('page')
     const page = p && /^\d+$/.test(p) && Number(p) >= 1 ? Number(p) : null
+    const line = q.get('line')
+    if (head === 'read' && page === null && line && /^\d+$/.test(line)) return { name: head, id: Number(a), page, line: Number(line) }
     return { name: head, id: Number(a), page }
   }
   if (head === 'comic' && a && /^\d+$/.test(a) && Number(a) >= 1 && parts.length === 3 && parts[2] === 'edit') {
@@ -253,6 +257,7 @@ export function routeHref(r: Route): string {
   if (r.name === 'comic-edit') return `#/comic/${r.id}/edit${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'watch') return `#/watch/${r.id}${r.party ? `?party=${r.party}` : ''}`
   if (r.name === 'follow') return `#/follow/${r.id}`
+  if (r.name === 'read' && !r.page && r.line !== undefined) return `#/read/${r.id}?line=${r.line}`
   if (r.name === 'read' || r.name === 'comic') return `#/${r.name}/${r.id}${r.page ? `?page=${r.page}` : ''}`
   if (r.name === 'manga-series') return `#/manga/${encodeURIComponent(r.source)}/${encodeURIComponent(r.series)}`
   if (r.name === 'manga-read') {

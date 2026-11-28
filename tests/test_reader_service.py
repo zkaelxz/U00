@@ -911,3 +911,72 @@ def test_a_longest_annotated_line_is_segmented_in_bounded_chunks_with_the_same_t
     assert len(cut_sizes) <= len(text) // (segment.MAX_SEGMENT_CHARS // 2)
     shown = "".join(re.findall(r'data-word="([^"]*)"', out))
     assert shown == text
+
+
+# -- pages follow chapters ----------------------------------------------------
+
+def _chaptered_novel(db, chapter_paragraphs):
+    """A narrated novel: per chapter a heading line, then paragraphs of 1-3 lines each.
+    Returns (drama id, chapter start positions, the positions that end a paragraph)."""
+    import novel_text
+    did = _drama(db, title_en="N", content_mode="novel_narration")
+    lines, source, heads, ends = [], [], [], set()
+    for c, shapes in enumerate(chapter_paragraphs, 1):
+        heads.append(len(lines))
+        ends.add(len(lines))
+        lines.append(f"第{c}章 标题")
+        source.append(f"第{c}章 标题")
+        for p, parts in enumerate(shapes):
+            pieces = [f"第{c}章{p}段{k}句。" for k in range(parts)]
+            lines += pieces
+            ends.add(len(lines) - 1)
+            source.append("".join(pieces))
+    db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh=t, en=f"E{i}")
+                        for i, t in enumerate(lines)])
+    with open(os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME), "w", encoding="utf-8") as f:
+        f.write("\n".join(source))
+    return did, heads, ends, len(lines)
+
+
+class TestChapterPages:
+    # Uneven chapters; chapter 2's paragraphs of 3 lines straddle every multiple of 20.
+    SHAPES = [[1] * 7, [3] * 15, [1, 2] * 4, [2] * 30, [1] * 3]
+
+    def test_every_chapter_opens_a_page_and_no_page_ends_inside_a_paragraph(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did, heads, ends, total = _chaptered_novel(isolated_db, self.SHAPES)
+        starts = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+        assert set(heads) <= set(starts)
+        bounds = starts + [total]
+        assert all(0 < b - a <= 20 for a, b in zip(bounds, bounds[1:]))
+        assert all(b - 1 in ends for b in bounds[1:])
+        # A fixed 20-line page would have opened chapter 2 mid-page.
+        assert heads[1] % 20 != 0
+
+    def test_a_page_shows_only_its_own_lines_and_line_finds_its_page(self, isolated_db, monkeypatch):
+        calls = _stub_render(monkeypatch)
+        did, heads, _ends, total = _chaptered_novel(isolated_db, self.SHAPES)
+        r = reader_service.get_reader_page(did, line=heads[3], chapter_size=20)
+        starts = r["page_starts"]
+        assert starts[r["page"] - 1] == heads[3]
+        assert calls[-1]["lines"][0].zh == "第4章 标题"
+        assert r["page_count"] == len(starts)
+        last = reader_service.get_reader_page(did, line=10_000, chapter_size=20)
+        assert last["page"] == len(starts)
+
+    def test_saved_position_is_the_pages_last_line(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did, heads, _ends, _total = _chaptered_novel(isolated_db, self.SHAPES)
+        starts = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+        page = starts.index(heads[2])
+        saved = reader_service.save_reading_position(did, page, chapter_size=20)
+        assert saved["last_line_idx"] == heads[2] - 1
+        # Resuming by that line lands on the same page whatever the old page number meant.
+        assert reader_service.get_reader_page(did, line=saved["last_line_idx"], chapter_size=20)["page"] == page
+
+    def test_a_subtitle_title_keeps_fixed_pages(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did = _drama(isolated_db, title_en="D")
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh="第1章 x" if i == 5 else "你好",
+                                          en="x") for i in range(45)])
+        assert reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"] == [0, 20, 40]
