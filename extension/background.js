@@ -69,7 +69,7 @@ function base(serverUrl) {
 // earlier and reported honestly: the app keeps working on it.
 const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
-const TIMED_OUT = "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.";
+const TIMED_OUT = "Baihe is still working on this. Try again in a few minutes; pages already read are kept.";
 
 // Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
 const inflight = new Set();
@@ -453,7 +453,7 @@ function stopAfterTimeout(merged, later) {
       notSent += 1;
     }
   }
-  merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+  merged.stopped = `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.`;
 }
 
 async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, pageTitles, store, filterPages }, runId, onPage = () => {}) {
@@ -780,8 +780,8 @@ async function chapterOutcome(tabId, kind, { dramaId, store }) {
   if (!r.ok) return { status: "failed", reason: r.error || "capture failed" };
   if (r.data.reason === "cancelled") return { status: "cancelled" };
   if (r.data.reason === "error") return { status: "failed", reason: r.data.message };
-  return (r.data.stored || r.data.translated) ? { status: "saved" }
-    : { status: "skipped", reason: "no pages found" };
+  if (r.data.stored || r.data.translated) return { status: "saved" };
+  return { status: "skipped", reason: r.data.alreadyStored ? "already in your library" : "no pages found" };
 }
 
 async function runSeries({ tabId, kind, dramaId, store, limit }) {

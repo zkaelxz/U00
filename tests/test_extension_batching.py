@@ -111,7 +111,7 @@ def test_a_timed_out_batch_stops_the_chapter_instead_of_overlapping_the_next():
     assert data["received"] == 10 and data["stored"] == 10
     assert [f["key"] for f in data["failed"]] == [f"k{i}" for i in range(10, 30)]
     assert "still working" in data["failed"][0]["error"]
-    assert "still working" in data["stopped"]["message"] and "later" in data["stopped"]["message"]
+    assert "still working" in data["stopped"] and "later" in data["stopped"]
 
 
 STREAMED = """(n, body) => ({ lines: [
@@ -159,7 +159,7 @@ def test_a_stream_the_time_limit_cuts_keeps_its_pages_and_sends_no_later_batch()
     assert [p["key"] for p in data["pages"]] == ["k0"]
     assert [f["key"] for f in data["failed"]] == [f"k{i}" for i in range(1, 12)]
     assert "still working" in data["failed"][-1]["error"]
-    assert "still working" in data["stopped"]["message"]
+    assert "still working" in data["stopped"]
 
 
 def test_a_page_heard_early_is_drawn_before_its_batch_answers():
@@ -168,3 +168,22 @@ def test_a_page_heard_early_is_drawn_before_its_batch_answers():
     assert out.returncode == 0, out.stderr
     got = json.loads(out.stdout.strip().splitlines()[-1])
     assert got == {"ok": True, "sends": 1, "drawnWhileOut": ["draw baihe-layer"]}
+
+
+@pytest.mark.parametrize("scenario,ending", [
+    ("a_refused_later_batch_names_the_apps_reason", ": This month's limit for the extension is reached."),
+    ("a_dropped_later_batch_names_only_the_place", " because the app stopped answering"),
+])
+def test_a_stopped_chapter_names_the_apps_reason_only_when_the_app_answered(scenario, ending):
+    out = subprocess.run(["node", str(HARNESS), "content", scenario], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    got = json.loads(out.stdout.strip().splitlines()[-1])
+    assert got["sends"] == 3
+    assert got["stopped"] == "Translated 1 of 2 pages; stopped at page 2" + ending
+
+
+def test_a_page_swapped_in_place_loses_the_old_english():
+    out = subprocess.run(["node", str(HARNESS), "content", "a_page_swapped_in_place_loses_the_old_english"],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "before": 1, "unchanged": 1, "after": 0}

@@ -29,6 +29,7 @@ const els = {
   saveNovel: document.getElementById("saveNovel"),
   continueNovel: document.getElementById("continueNovel"),
   continueComic: document.getElementById("continueComic"),
+  continueQuickNote: document.getElementById("continueQuickNote"),
   seriesCount: document.getElementById("seriesCount"),
   dramaTitle: document.getElementById("dramaTitle"),
   typeset: document.getElementById("typeset"),
@@ -271,7 +272,7 @@ function showOpenLink(dramaId) {
 // The result line has to say where pages went: a bare count left it unclear whether anything
 // was saved.
 function describeDestination({ sent, cached, store, dramaId }) {
-  const title = dramaTitles.get(String(dramaId)) || "the drama";
+  const title = dramaTitles.get(String(dramaId)) || "the title";
   const parts = [];
   if (!store) {
     if (sent) parts.push(`Drew ${sent} page${sent === 1 ? "" : "s"} on the page only, not saved`);
@@ -305,13 +306,17 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
-// Names the exact place, because "Settings" alone sent people to the wrong
-// section; Ollama is the one engine that needs no account or key.
+// Names the exact place, because "Settings" alone sent people to the wrong section.
 const NO_ENGINE_NOTE =
   "Connected, but no translation engine is chosen yet, so pages come back with their " +
   "original text only. In Baihe, open Settings → Browser extension and pick one under " +
-  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
-  "Ollama there.";
+  "“Translation engine”. Ollama is the one engine that needs no key in Baihe; it runs " +
+  "Gemma 4 on Ollama's servers and is billed per token.";
+// A copy on another computer can't open that card: it is shown only at the PC, and the engine is the PC's choice.
+const NO_ENGINE_NOTE_REMOTE =
+  "Connected, but the Baihe PC has no translation engine chosen for the extension yet, so pages " +
+  "come back with their original text only. Ask whoever runs the Baihe PC to pick one in " +
+  "Settings → Browser extension.";
 
 const MAX_NAMED_PROBLEMS = 3;
 
@@ -335,7 +340,7 @@ function summarizeCapture(data, { store, dramaId }) {
   const reused = data.alreadyStored || 0;
   parts.push(`${pages - reused} translated`);
   if (saving && data.stored !== undefined) {
-    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
+    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the title"}`);
   }
   if (cached) parts.push(`${cached} already done`);
   if (reused) parts.push(`${reused} already in library`);
@@ -379,10 +384,10 @@ async function load() {
       say("Actions are off until a token is saved.");
     } else if (health && (health.status === 401 || health.status === 403)) {
       showNotice("Baihe didn't accept this token.", "Open options", () => chrome.runtime.openOptionsPage());
-      say("Paste a new token from Baihe's Settings.");
+      say("Paste a new token from Baihe's Settings (Browser extension on the PC, Remote access keys on another computer).");
     } else {
-      showNotice("Can't reach Baihe on this PC.", "Retry", load);
-      say("Check that Baihe is running with the Extension bridge on.");
+      showNotice("Can't reach Baihe.", "Retry", load);
+      say("Check that Baihe is running and that Settings > Browser extension is switched on.");
     }
     return;
   }
@@ -432,7 +437,7 @@ async function load() {
 
   const stale = staleExtensionNote(data, settings.serverUrl);
   if (stale) say(stale, true);
-  else say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
+  else say(data.engine_configured ? "Connected. Ready to translate." : settings.serverUrl ? NO_ENGINE_NOTE_REMOTE : NO_ENGINE_NOTE);
 }
 
 let pageRunInFlight = false;
@@ -812,6 +817,19 @@ els.startLive.addEventListener("click", runStartLive);
 els.saveNovel.addEventListener("click", runSaveNovel);
 els.continueNovel.addEventListener("click", () => runContinue("novel"));
 els.continueComic.addEventListener("click", () => runContinue("comic"));
+// Applied at once, like Show / hide, so the switch is never a setting that waits for the next run.
+els.overlay.addEventListener("change", async () => {
+  const visible = els.overlay.checked;
+  await chrome.storage.local.set({ overlay: visible });
+  const tab = await activeTab();
+  if (!tab || !tab.id) return;
+  try {
+    await ensureContentScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "setOverlays", visible });
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;
@@ -843,6 +861,9 @@ function setSaveMode(save, { remember = true } = {}) {
   els.modeQuick.setAttribute("aria-pressed", String(!save));
   els.modeHint.hidden = save;
   els.dramaPick.hidden = !save;
+  // Each chapter's drawing is lost when the tab moves to the next, so a quick run would pay for pages nobody sees.
+  els.continueComic.hidden = !save;
+  els.continueQuickNote.hidden = save;
   showNovelSection();
   if (remember) chrome.storage.local.set({ quickTranslate: !save }).catch(() => {});
 }

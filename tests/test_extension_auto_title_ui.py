@@ -75,7 +75,7 @@ def test_the_popup_names_the_auto_choice_and_says_what_happened():
 def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     out = _node("popup_health_failure")
     assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
-    assert out["down"] == "Can't reach Baihe on this PC."
+    assert out["down"] == "Can't reach Baihe."
 
 
 def test_typeset_is_off_by_default_and_sent_when_on_whether_or_not_the_page_is_saved():

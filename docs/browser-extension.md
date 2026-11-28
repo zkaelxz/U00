@@ -55,7 +55,7 @@ Click the extension on a page you're reading:
   never replaced). An automatic title is not remembered for the site.
   **Automatic title options** (the popup's **Auto** tab, saved in the extension; the popup has Page, Chapter, Text and Auto tabs under the shared drama picker):
   *Create a new title when none matches* (off: Auto only reuses a match,
-  otherwise it says to pick a drama), *Fill name and source link from the
+  otherwise it says to pick a title), *Fill blank details (name, link, author, summary, cover) from the
   page* (off: a placeholder named after the site, with the page link kept so later chapters reuse it), *Put the title in a
   series*. A drama picked by hand always wins over Auto. Merging two titles
   or moving chapters between titles is not done here: move a title to

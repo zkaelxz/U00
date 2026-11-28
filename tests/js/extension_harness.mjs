@@ -50,7 +50,7 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, pictureAddresses = true }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -76,7 +76,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
       setAttribute: (name) => marks.push(`set ${name}`), removeAttribute: (name) => marks.push(`remove ${name}`) },
     images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "canvas" ? canvases : []),
-    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {},
+    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, children: [], append() {}, addEventListener() {}, remove() {}, appendChild() {},
                                                                  classList: { toggle() {}, add() {}, remove() {} } }),
     getElementById: () => null,
   };
@@ -109,6 +109,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
           if (message.type === "send") {
             sent.push(message);
             if (onSend) await onSend(message, (m) => new Promise((resolve) => listener(m, {}, resolve)));
+            if (sendAnswer) return sendAnswer(message, sent.length);
             return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
           if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
@@ -262,6 +263,35 @@ async function content(scenario) {
       const h = loadContent({ images: [img()], fetchImage: okImage(), onSend });
       const result = await h.ask(visible);
       return { ok: result.ok, sends: h.sent.length, drawnWhileOut };
+    }
+    case "a_refused_later_batch_names_the_apps_reason":
+    case "a_dropped_later_batch_names_only_the_place": {
+      // A 413 that names a cap of 1 splits the two pages into two sends; the second is then refused
+      // by the app (a status and its text) or lost on the way (no status).
+      const refused = scenario === "a_refused_later_batch_names_the_apps_reason";
+      const images = [placed(fakeImg(IMG_URL), 0), placed(fakeImg(IMG_URL_2), 1200)];
+      container(images);
+      const sendAnswer = (message, n) => (n === 1 ? { ok: false, status: 413, error: "at most 1 images" }
+        : n === 2 ? { ok: true, data: { pages: message.images.map((i) => ({ key: i.key, regions: [] })), received: 1 } }
+        : refused ? { ok: false, status: 429, error: "This month's limit for the extension is reached." }
+        : { ok: false, error: "Failed to fetch" });
+      const h = loadContent({ images, fetchImage: byUrl, sendAnswer });
+      const result = await h.ask({ ...visible, all: true });
+      return { ok: result.ok, sends: h.sent.length, stopped: result.data && result.data.stopped && result.data.stopped.message };
+    }
+    case "a_page_swapped_in_place_loses_the_old_english": {
+      // The reader keeps the <img> and changes its src; the old page's boxes must not stay over the new one.
+      const page = img();
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) }) });
+      const result = await h.ask(visible);
+      const before = h.sandbox.__baihe.state.active.size;
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      const unchanged = h.sandbox.__baihe.state.active.size;
+      page.src = IMG_URL_2;
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      return { ok: result.ok, before, unchanged, after: h.sandbox.__baihe.state.active.size };
     }
     case "canvas_tainted_no_url": {
       const canvas = fakeCanvas(800, 1200);

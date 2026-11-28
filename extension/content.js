@@ -710,9 +710,13 @@
     return entry;
   }
 
+  // The src attribute, not currentSrc: a srcset can switch resolution on a resize, which is the same page.
+  const pictureOf = (el) => (el.tagName === "IMG" && typeof el.getAttribute === "function" ? el.getAttribute("src") || "" : null);
+
   function drawOverlay(el, regions) {
     const entry = layerFor(el);
     entry.naturalWidth = elementSize(el).width;
+    entry.picture = pictureOf(el);
     entry.layer.textContent = "";
     if (regions.typesetImage) {
       // Baihe's own cleaned and typeset page replaces the preview boxes: it erases the lettering,
@@ -816,8 +820,10 @@
 
   function repositionAll() {
     for (const el of state.active.keys()) {
-      if (!el.isConnected) {
-        const entry = state.active.get(el);
+      const entry = state.active.get(el);
+      // A reader that pages in place keeps the element and swaps its picture, so the old English must go.
+      const swapped = entry && entry.picture != null && pictureOf(el) !== entry.picture;
+      if (!el.isConnected || swapped) {
         if (entry) entry.layer.remove();
         state.active.delete(el);
         continue;
@@ -841,8 +847,8 @@
 
   // A viewer that paginates in place (mangaz's own does exactly this)
   // swaps the image without a navigation, so a load handler would never
-  // fire. Watch the DOM instead, and re-translate the new page -- from
-  // the cache when it is one we have already done.
+  // fire. Watch the DOM instead, so the old page's English is taken off
+  // the new picture (repositionAll); pressing Translate again draws it.
   function watchForPageChanges() {
     if (state.observer) return;
     state.observer = new MutationObserver(() => scheduleReposition());
@@ -1194,8 +1200,8 @@
     if (!captured.text) {
       return {
         ok: false,
-        error: "No selectable text found here. Try selecting a passage first, or scroll to " +
-              "the part of the page you want translated.",
+        // The block is picked by length from the whole page, so scrolling would change nothing.
+        error: "No story text found on this page. Select the passage you want and press Translate again.",
       };
     }
     const response = await chrome.runtime.sendMessage({
@@ -1557,10 +1563,10 @@
       }
       data.stopped = {
         done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
-        // The reason can be a raw network error, so the message names the
-        // place only.
-        message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
-                 `${f.done + 1} because the app stopped answering`,
+        // Without a status the reason can be a raw network error, so only the place is named; with one, the
+        // app answered and its own reason (a limit, a removed right, a deleted title) is what to act on.
+        message: `Translated ${f.done} of ${images.length} pages; stopped at page ${f.done + 1}` +
+                 (f.status ? `: ${f.reason}` : " because the app stopped answering"),
       };
     }
     if (serverStop) {
@@ -1569,7 +1575,7 @@
     if (outcome.cancelled) {
       data.stopped = { reason: "cancelled",
                        message: `Cancelled after ${pages.length + skipped.length + failedPages.length} ` +
-                                `of ${images.length} pages; the pages already saved are kept.` };
+                                `of ${images.length} pages; ${store ? "the pages already saved are kept" : "the pages already drawn stay"}.` };
     }
     return { ok: true, data };
   }
@@ -1863,7 +1869,8 @@
 
   // The closing line of a chapter capture: every page found is either
   // counted in it or named as unreadable, so a shortfall is never silent.
-  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "") {
+  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "", store = true) {
+    const kept = store ? "saved " : "";
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
@@ -1871,9 +1878,9 @@
     if (counts.skipped) {
       tally.push(`${counts.skipped} skipped as not a page (${firstSkip || "no reason was given"})`);
     }
-    if (counts.noText) tally.push(`${counts.noText} saved with no text found on them (notice pages and art without lettering look like this)`);
+    if (counts.noText) tally.push(`${counts.noText} ${kept}with no text found on them (notice pages and art without lettering look like this)`);
     if (counts.noEnglish) {
-      tally.push(`${counts.noEnglish} saved with text read but no English back` +
+      tally.push(`${counts.noEnglish} ${kept}with text read but no English back` +
                  (englishProblem ? ` (${englishProblem})` : " (check the engine under Settings > Browser extension)"));
     }
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
@@ -1897,11 +1904,12 @@
 
   // The line that accounts for every page found: saved, typeset, and each one that is neither, by
   // its place in the chapter and the reason, so a short count is never unexplained.
-  function completenessLine(found, entries, repeats, unreadable, counts, timing, expected = 0) {
+  // Quick translate stores nothing, so its pages are "translated" and live only in this tab's drawing.
+  function completenessLine(found, entries, repeats, unreadable, counts, timing, expected = 0, store = true) {
     const place = (list, why) => list.slice(0, 6).map((e) => `page ${e.position} (${why(e)})`).join(", ") +
                                  (list.length > 6 ? `, and ${list.length - 6} more` : "");
     const saved = entries.filter((e) => e.status === "saved" || e.status === "read").length;
-    const parts = [`Saved ${saved} of ${found} pages`];
+    const parts = [store ? `Saved ${saved} of ${found} pages` : `Translated ${saved} of ${found} pages, drawn on this page only`];
     if (expected && expected !== found) parts.push(`the reader shows ${expected} pages, found ${found}`);
     const drawn = entries.filter((e) => e.typeset !== undefined);
     if (drawn.length) parts.push(`typeset ${drawn.filter((e) => e.typeset === true).length} of ${drawn.length}`);
@@ -2242,9 +2250,9 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem, store);
     const entries = [...ledger.values()];
-    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing, expected);
+    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing, expected, store);
     const missedItems = entries.filter((e) => e.status !== "saved" && e.status !== "read" && e.item)
                                .map((e) => e.item);
     state.missed = missedItems.length ? { items: missedItems, dramaId, store } : null;
