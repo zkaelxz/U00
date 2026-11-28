@@ -56,7 +56,7 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     around `line` -- `pad` seconds either side -- timed to the clip the
     same way the vertical export is. style_state: optional {style,
     speaker_colors, speaker_names, wrap_chars, language,
-    chinese_script, frame_aspect}; None or no style = the
+    chinese_script, frame_aspect, ear_placement}; None or no style = the
     "Clean" preset."""
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
@@ -69,5 +69,6 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
         wrap_chars=style_state.get("wrap_chars"),
         language=style_state.get("language"),
         chinese_script=style_state.get("chinese_script") or "simplified",
-        frame_aspect=style_state.get("frame_aspect"))
+        frame_aspect=style_state.get("frame_aspect"),
+        ear_placement=style_state.get("ear_placement"))
     return start, end, ass

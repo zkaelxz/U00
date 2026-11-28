@@ -35,6 +35,7 @@ import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
 from services import (
+    ear_marks_service,
     metadata_service,
     ownership_service,
     restructure_service,
@@ -323,7 +324,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       wrap_chars_en: Optional[int] = None,
                       wrap_chars_source: Optional[int] = None,
                       frame_aspect=TITLE_VIDEO, reading_line: bool = False,
-                      karaoke: bool = False) -> str:
+                      karaoke: bool = False, ear_placement: bool = False) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -345,6 +346,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     reads it from the title's own video (a downloaded file is most likely
     played over that video). reading_line and karaoke apply to the original
     text ("zh" and "bilingual"): see subtitle_ass.source_rows.
+    ear_placement puts lines heard in one ear of a
+    stereo title at the bottom left or right (ear_marks_service's current
+    marks; none when they are missing or out of date).
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -404,6 +408,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
         title=drama.get("title_en") or drama.get("title_zh") or "",
         notes_as_separate_line=notes_as_separate_line, frame_aspect=frame_aspect,
         ass_header=ass_header, ass_header_key=ass_header_key, source_text=source_text,
+        ear_placement=ear_marks_service.fresh_sides(drama_id, lines) if ear_placement else None,
         **break_language(drama))
 
 
@@ -442,6 +447,7 @@ def get_export_readiness(drama_id: int) -> dict:
         "overlap_count": len(overlaps),
         "auto_qc_issue_count": len(qc_issues),
         "dense_line_count": len(dense),
+        "ear_marked_lines": len(ear_marks_service.fresh_sides(drama_id, lines)),
     }
 
 

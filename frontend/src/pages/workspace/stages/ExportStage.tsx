@@ -113,9 +113,12 @@ export default function ExportStage() {
     if (r.dense_line_count > 0) review.push(plural(r.dense_line_count, 'dense line'))
   }
   const untranslated = r !== null && r.total_lines > 0 && !r.fully_translated
-  const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
+  // Ear placement fits only a stereo title whose lines have current ear marks, so it is offered and sent only then.
+  const earMarks = (r?.ear_marked_lines ?? 0) > 0
+  const sentForm = earMarks || !form.earPlacement ? form : { ...form, earPlacement: false }
+  const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} earMarks={earMarks} sourceLanguage={drama.source_language} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
-    options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
+    options ? buildAssRequest(sentForm, options) : { error: 'The style options have not loaded yet.' }
   const reasonOf = (id: ExportBlockId) => exportBlockReason(id, inputs) ?? (id === 'burned_video' && libass ? NO_LIBASS : null)
   const shown = shownExportBlocks(kind, simple, inputs)
   // Picked once, after the reads that decide the reasons have answered, and the blocks mount only then: a block that
@@ -137,7 +140,7 @@ export default function ExportStage() {
         <ExportSubtitles
           fmt={fmt}
           setFmt={setFmt}
-          form={form}
+          form={sentForm}
           setForm={setForm}
           options={options}
           totalLines={r ? r.total_lines : null}
