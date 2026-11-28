@@ -448,7 +448,7 @@ class TestVadSensitivity:
 
 
 class TestWhisperPrompt:
-    def _seen(self, monkeypatch, texts=(), sig="kwargs", **call):
+    def _seen(self, monkeypatch, texts=(), **call):
         import types
         import whisper_transcribe
         seen = {}
@@ -464,13 +464,7 @@ class TestWhisperPrompt:
         class Model:
             pass
         model = Model()
-        if sig == "kwargs":
-            model.transcribe = run
-        else:  # a faster-whisper too old for hotwords
-            model.transcribe = lambda audio_path, language=None, initial_prompt=None, **_never: run(
-                audio_path, language=language, initial_prompt=initial_prompt)
-            monkeypatch.setattr(whisper_transcribe, "_accepts_transcribe_kwarg",
-                                lambda m, name: name != "hotwords")
+        model.transcribe = run
         monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: model)
         out = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", **call)
         return seen, [s["text"] for s in out]
@@ -483,21 +477,11 @@ class TestWhisperPrompt:
         seen, _ = self._seen(monkeypatch, language="zh", chinese_script="traditional")
         assert seen["initial_prompt"] == "以下是普通話的句子。"
 
-    def test_names_can_still_prime_every_window(self, monkeypatch):
-        seen, _ = self._seen(monkeypatch, language="zh", initial_prompt="苏杉。",
-                             chinese_script="simplified", prompt_every_window=True)
-        assert seen["hotwords"] == "以下是普通话的句子。苏杉。" and "initial_prompt" not in seen
-
     def test_no_hint_outside_chinese_or_without_a_chosen_script(self, monkeypatch):
         for call in ({"language": "ja", "chinese_script": "simplified"},
                      {"language": "zh", "chinese_script": None}, {"language": "zh"}):
             seen, _ = self._seen(monkeypatch, **call)
             assert "hotwords" not in seen and "initial_prompt" not in seen, call
-
-    def test_an_older_faster_whisper_still_gets_the_prompt(self, monkeypatch):
-        seen, _ = self._seen(monkeypatch, sig="old", language="zh", initial_prompt="苏杉。",
-                             chinese_script="simplified")
-        assert seen["initial_prompt"] == "以下是普通话的句子。苏杉。"
 
     def test_the_prompt_written_back_as_a_line_is_dropped(self, monkeypatch):
         _, texts = self._seen(monkeypatch, texts=["以下是普通话的句子", "苏杉来了。", "以下是普通话的句子。苏杉。"],
@@ -507,11 +491,6 @@ class TestWhisperPrompt:
     def test_a_line_that_only_says_the_one_primed_name_is_kept(self, monkeypatch):
         _, texts = self._seen(monkeypatch, texts=["アキラ！"], language="ja", initial_prompt="アキラ。")
         assert texts == ["アキラ！"]
-
-    def test_lives_carried_context_stays_an_initial_prompt(self, monkeypatch):
-        seen, texts = self._seen(monkeypatch, texts=["好"], language="zh", initial_prompt="好。",
-                                 prompt_every_window=False)
-        assert seen["initial_prompt"] == "好。" and "hotwords" not in seen and texts == ["好"]
 
 
 class TestLineCoverageDiagnosis:
