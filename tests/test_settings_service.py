@@ -236,3 +236,9 @@ def test_an_unreadable_auto_off_row_keeps_the_seven_day_lapse(isolated_db):
     db.set_app_setting("remote_uploads.since", on_at)
     db.set_app_setting("remote_uploads_auto_off", "garbage")
     assert settings_service.remote_uploads_on() is False
+
+
+def test_the_auto_off_tick_does_not_flip_when_uploads_are_turned_on(isolated_db):
+    assert settings_service.get_settings_overview()["remote_uploads_auto_off"] is False
+    overview = settings_service.set_settings({"remote_uploads": True})
+    assert overview["remote_uploads_auto_off"] is False
