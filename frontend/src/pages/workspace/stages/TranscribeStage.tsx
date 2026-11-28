@@ -13,8 +13,10 @@ import {
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { UploadProgress, type UploadSent } from '../../../components/UploadProgress'
 import { Field } from '../../../components/Field'
+import { Section } from '../../../components/Section'
 import { Toggle } from '../../../components/Toggle'
 import { buttonClass } from '../../../components/uiClasses'
+import { parseRoute } from '../../../router'
 import { AsrAdviceLine } from './AsrAdviceLine'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { usePersistedState } from '../../../hooks/usePersistedState'
@@ -171,6 +173,19 @@ export default function TranscribeStage({
   } = form
   const useGpu = settingsGpu ?? config?.use_gpu ?? null
   const panelRef = useRef<HTMLDivElement>(null)
+  // Tools was a tab of its own: an old link to it opens the Tools fold, also when the stage is already showing.
+  const linksToTools = () => {
+    const hash = window.location.hash
+    const r = parseRoute(hash)
+    return r.name === 'drama' && r.id === dramaId && new URLSearchParams(hash.split('?')[1] ?? '').get('tab') === 'tools'
+  }
+  const [toolsLinked, setToolsLinked] = useState(() => (linksToTools() ? 1 : 0))
+  useEffect(() => {
+    const onHash = () => { if (linksToTools()) setToolsLinked((n) => n + 1) }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- dramaId is fixed for the stage's life
+  }, [])
   const transcriptRef = useRef<HTMLTextAreaElement>(null)
   // The stored media's length, for the time estimates (null = unknown).
   const [duration, setDuration] = useState<number | null>(null)
@@ -489,7 +504,12 @@ export default function TranscribeStage({
   }
   const showReplaceBox = () => focusOnAddTab('replace')
   const fixNeeded = () => {
-    if (needed === 'the transcript text') return transcriptRef.current?.focus()
+    if (needed === 'the transcript text') {
+      const box = transcriptRef.current
+      const fold = box?.closest('details')
+      if (fold) fold.open = true
+      return box?.focus()
+    }
     focusOnAddTab('file')
   }
 
@@ -560,10 +580,21 @@ export default function TranscribeStage({
     </>
   )
 
+  const modelLabel = (size: string) =>
+    (language === 'zh' && ZH_WHISPER_LABELS[size]) || (language === 'th' && TH_WHISPER_LABELS[size]) || WHISPER_LABELS[size] || size
+  const moreSummary = cf
+    ? [
+        modelLabel(cf.whisper_size).split(/[:(]/)[0].trim(),
+        language === 'zh' && (script === 'simplified' ? 'Simplified' : script === 'traditional' ? 'Traditional' : 'Keep script'),
+        haveTranscript && (transcriptText.trim() ? 'Transcript pasted' : 'No transcript yet'),
+        `Speakers ${runDiarize ? 'on' : 'off'}`,
+      ].filter(Boolean).join(' · ')
+    : undefined
+
   return (
     <div ref={panelRef}>
-      <MediaTabPanel id="transcribe" active={tab}>
-        <div className="source-grid">
+      <MediaTabPanel id="transcribe" active={tab} className="source-panel media-tabpanel transcribe-run">
+        <div className="transcribe-lang-row">
           <Field label="Source language">
             <select className="w-sm" value={language} onChange={(e) => setLanguage(e.target.value)}>
               <option value="zh">Chinese</option>
@@ -575,50 +606,10 @@ export default function TranscribeStage({
           </Field>
           {mode === 'whisper' && (
             <Field label="Auto (any language)">
-              <input type="checkbox" checked={autoLanguage} onChange={(e) => setAutoLanguage(e.target.checked)} />
-            </Field>
-          )}
-          {cf && (
-            <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
-              <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
-                {whisperChoices.map((o) => (
-                  <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
-                    {o.hidden ? `${o.size} (older choice, hidden)` : (language === 'zh' && ZH_WHISPER_LABELS[o.size]) || (language === 'th' && TH_WHISPER_LABELS[o.size]) || WHISPER_LABELS[o.size] || o.size}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-          {language === 'zh' && (
-            <Field label="Chinese script">
-              <select className="w-md" value={script} onChange={(e) => setScript(e.target.value)}>
-                <option value="">Keep current</option>
-                <option value="simplified">Simplified (Mainland)</option>
-                <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
-              </select>
+              <Toggle checked={autoLanguage} onChange={setAutoLanguage} />
             </Field>
           )}
         </div>
-        {haveTranscript && (
-          <Field label="Transcript text">
-            <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
-          </Field>
-        )}
-        {haveTranscript && !hasMedia && !file && (
-          <p className="muted" role="note" data-testid="transcript-no-audio">
-            The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
-            <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
-              Set up as novel
-            </button>
-          </p>
-        )}
-        <div className="setting-list">
-          <Field label="Detect speakers">
-            <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} aria-describedby={speakersOff && !runDiarize ? `needs-install-${speakersOff[0].id}` : undefined} onChange={setRunDiarize} />
-          </Field>
-        </div>
-        {speakersOff && !runDiarize && speakersOff.map((n) => <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />)}
-        <SpeakerDetectionNotice dramaId={dramaId} active={runDiarize} />
         {showBeforeYouRun && (
           <div id={notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'}>
             <PreflightCard
@@ -628,62 +619,10 @@ export default function TranscribeStage({
             />
           </div>
         )}
-        {cf && (
-          <details className="muted" data-testid="before-you-run">
-            <summary>Before you run</summary>
-            {hiddenChoice && !backendNotUsed && (
-              <p role="note" data-testid="whisper-hidden-size">
-                This title uses {hiddenChoice.size}, which is no longer offered.{' '}
-                <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setC('whisper_size', DEFAULT_WHISPER_SIZE)}>
-                  Switch to {DEFAULT_WHISPER_SIZE}
-                </button>
-              </p>
-            )}
-            {backendNotUsed && (
-              <p role="note" data-testid="whisper-not-used">
-                {backendNotUsed}: this run will use {replacementModel(cf.asr_backend_choice)}.
-              </p>
-            )}
-            {turboWarning && !backendNotUsed && <p role="note">{turboWarning}</p>}
-            <AsrAdviceLine
-              request={{
-                language, media_type: drama.media_type ?? '', asr_backend: cf.asr_backend_choice, whisper_size: cf.whisper_size,
-                separate_vocals_first: cf.separate_vocals_first, whisper_fast_mode: cf.whisper_fast_mode, use_groq: cf.use_groq,
-                has_transcript: haveTranscript, alignment_method: cf.alignment_method, use_gpu: useGpu, check_environment: true,
-              }}
-              onApply={(fix) => Object.entries(fix).forEach(([k, v]) => setC(k as keyof ConfigForm, v as never))}
-            />
-            {(switchedNotice ?? config?.whisper_size_notice) && (
-              <p role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
-            )}
-            {whisperChoices.filter((o) => o.reason && o.size === cf.whisper_size).map((o) => (
-              <p key={o.size} data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
-            ))}
-            {gpuUnavailable && <p data-testid="gpu-unavailable-reason">GPU unavailable: {config?.gpu_runtime.reason ?? 'the CUDA libraries are missing'}</p>}
-            <p data-testid="run-line">
-              {runLine({
-                backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
-                gpuRuntime: config?.gpu_runtime.status, gpuFound: readiness?.gpu_found, haveTranscript, alignmentMethod: cf.alignment_method,
-              })}
-            </p>
-            <GpuBanner onTurnedOn={() => setUseGpu(true)} />
-          </details>
-        )}
-        {cf && config && (
-          <p className="muted" data-testid="run-settings">
-            {'Also: '}
-            {runSettingsLine({
-              language, script, titleScript: config.chinese_script, voiceDetection: cf.sensitivity_preset, beamSize: Number(cf.beam_size),
-              separateVocals: cf.separate_vocals_first, useGroq: cf.use_groq, runDiarize, speakers, extraNames, promptOverride: override,
-            })}
-            {' · '}
-            <span data-testid="run-settings-saved">{runSettingsUnsaved ? 'not saved yet (Transcribe saves it)' : 'saved with this title'}</span>
-          </p>
-        )}
         <div className="actions">
           <button
             type="button"
-            className="primary"
+            className={buttonClass('primary')}
             disabled={busy || starting || !cf || !!needed || notInstalled || otherBlockers.length > 0}
             aria-describedby={[showBeforeYouRun && (notInstalled ? 'transcribe-not-installed' : 'transcribe-before-you-run'), needed && !busy && 'transcribe-needed'].filter(Boolean).join(' ') || undefined}
             onClick={transcribe}
@@ -711,11 +650,13 @@ export default function TranscribeStage({
           </p>
         )}
         {needed && !busy && (
-          <div className="source-needed" id="transcribe-needed" role="note">
-            <span>Still needed: {needed}.</span>
-            <button type="button" className={buttonClass('ghost', 'sm')} onClick={fixNeeded}>
-              {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
-            </button>
+          <div className="warn-bar transcribe-needed" id="transcribe-needed" role="note">
+            <span className="warn-bar-text">Still needed: {needed}.</span>
+            <span className="warn-bar-action">
+              <button type="button" className={buttonClass('secondary', 'sm')} onClick={fixNeeded}>
+                {needed === 'the transcript text' ? 'Paste transcript' : 'Choose a file'}
+              </button>
+            </span>
           </div>
         )}
         {busy && (
@@ -739,67 +680,165 @@ export default function TranscribeStage({
         ) : (
           <p className="muted source-summary" aria-hidden="true">&nbsp;</p>
         )}
+        <Section title="More options" storageKey="transcribe.more" summary={moreSummary}>
+          <div className="source-grid">
+            {cf && (
+              <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
+                <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
+                  {whisperChoices.map((o) => (
+                    <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>
+                      {o.hidden ? `${o.size} (older choice, hidden)` : modelLabel(o.size)}{o.reason ? ` (not for ${LANGUAGE_NAMES[language] ?? language})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {language === 'zh' && (
+              <Field label="Chinese script">
+                <select className="w-md" value={script} onChange={(e) => setScript(e.target.value)}>
+                  <option value="">Keep current</option>
+                  <option value="simplified">Simplified (Mainland)</option>
+                  <option value="traditional">Traditional (Taiwan, Hong Kong)</option>
+                </select>
+              </Field>
+            )}
+          </div>
+          {haveTranscript && (
+            <Field label="Transcript text">
+              <textarea ref={transcriptRef} rows={4} value={transcriptText} onChange={(e) => setTranscriptText(e.target.value)} />
+            </Field>
+          )}
+          {haveTranscript && !hasMedia && !file && (
+            <p className="muted" role="note" data-testid="transcript-no-audio">
+              The transcript is matched to the audio, and this title has none yet. If it is text to translate, not speech:{' '}
+              <button type="button" className={buttonClass('secondary', 'sm')} disabled={adopting || !transcriptText.trim()} onClick={asNovel}>
+                Set up as novel
+              </button>
+            </p>
+          )}
+          <div className="setting-list">
+            <Field label="Detect speakers">
+              <Toggle checked={runDiarize} disabled={speakersOff !== null && !runDiarize} aria-describedby={speakersOff && !runDiarize ? `needs-install-${speakersOff[0].id}` : undefined} onChange={setRunDiarize} />
+            </Field>
+          </div>
+          {speakersOff && !runDiarize && speakersOff.map((n) => <NeedsInstall key={n.id} need={n} onInstalled={() => void refreshReadiness()} />)}
+          <SpeakerDetectionNotice dramaId={dramaId} active={runDiarize} />
+          {cf && (
+            <details className="muted" data-testid="before-you-run">
+              <summary>Before you run</summary>
+              {hiddenChoice && !backendNotUsed && (
+                <p role="note" data-testid="whisper-hidden-size">
+                  This title uses {hiddenChoice.size}, which is no longer offered.{' '}
+                  <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setC('whisper_size', DEFAULT_WHISPER_SIZE)}>
+                    Switch to {DEFAULT_WHISPER_SIZE}
+                  </button>
+                </p>
+              )}
+              {backendNotUsed && (
+                <p role="note" data-testid="whisper-not-used">
+                  {backendNotUsed}: this run will use {replacementModel(cf.asr_backend_choice)}.
+                </p>
+              )}
+              {turboWarning && !backendNotUsed && <p role="note">{turboWarning}</p>}
+              <AsrAdviceLine
+                request={{
+                  language, media_type: drama.media_type ?? '', asr_backend: cf.asr_backend_choice, whisper_size: cf.whisper_size,
+                  separate_vocals_first: cf.separate_vocals_first, whisper_fast_mode: cf.whisper_fast_mode, use_groq: cf.use_groq,
+                  has_transcript: haveTranscript, alignment_method: cf.alignment_method, use_gpu: useGpu, check_environment: true,
+                }}
+                onApply={(fix) => Object.entries(fix).forEach(([k, v]) => setC(k as keyof ConfigForm, v as never))}
+              />
+              {(switchedNotice ?? config?.whisper_size_notice) && (
+                <p role="note" data-testid="whisper-size-notice">{switchedNotice ?? config?.whisper_size_notice}</p>
+              )}
+              {whisperChoices.filter((o) => o.reason && o.size === cf.whisper_size).map((o) => (
+                <p key={o.size} data-testid="whisper-exclusion-reason">{o.size}: {o.reason}</p>
+              ))}
+              {gpuUnavailable && <p data-testid="gpu-unavailable-reason">GPU unavailable: {config?.gpu_runtime.reason ?? 'the CUDA libraries are missing'}</p>}
+              <p data-testid="run-line">
+                {runLine({
+                  backend: cf.asr_backend_choice, whisperSize: cf.whisper_size, useGroq: cf.use_groq, useGpu,
+                  gpuRuntime: config?.gpu_runtime.status, gpuFound: readiness?.gpu_found, haveTranscript, alignmentMethod: cf.alignment_method,
+                })}
+              </p>
+              <GpuBanner onTurnedOn={() => setUseGpu(true)} />
+            </details>
+          )}
+          {cf && config && (
+            <p className="muted" data-testid="run-settings">
+              {'Also: '}
+              {runSettingsLine({
+                language, script, titleScript: config.chinese_script, voiceDetection: cf.sensitivity_preset, beamSize: Number(cf.beam_size),
+                separateVocals: cf.separate_vocals_first, useGroq: cf.use_groq, runDiarize, speakers, extraNames, promptOverride: override,
+              })}
+              {' · '}
+              <span data-testid="run-settings-saved">{runSettingsUnsaved ? 'not saved yet (Transcribe saves it)' : 'saved with this title'}</span>
+            </p>
+          )}
+        </Section>
       </MediaTabPanel>
       <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
-        {/* Simple leaves the tuning out, but a highlighted field must stay reachable. */}
-        {cf && !(simple && !fieldProblem) && (
-          <TranscribeAdvanced
-            dramaId={dramaId}
-            cf={cf}
-            form={form}
-            setC={setC}
-            kind={titleKind(drama.media_type, drama.content_mode)}
-            developerMode={developerMode}
-            haveTranscript={haveTranscript}
-            needs={needs}
-            speakersExplainedAbove={speakersOff !== null && !runDiarize}
-            speakerCountIgnored={speakerCountIgnored}
-            onNeedInstalled={() => void refreshReadiness()}
-            optionsSaved={optionsSaved}
-            fieldError={fieldError}
-            speakers={{
-              expected: speakers,
-              min: minSpeakers,
-              max: maxSpeakers,
-              set: (field, value) => {
-                setFieldProblem(null)
-                if (field === 'expected') form.setSpeakers(value)
-                else if (field === 'min') form.setMinSpeakers(value)
-                else form.setMaxSpeakers(value)
-              },
-            }}
-            manualCount={manualCount}
-            corrections={corrections}
-            needsAck={needsAck}
-            onDiarize={diarize}
+        <Section title="Tools" storageKey="transcribe.tools" openSignal={toolsLinked} summary={simple && !fieldProblem ? 'Auto-tune, speech coverage' : 'Tuning, Auto-tune, speech coverage'}>
+          {/* Simple leaves the tuning out, but a highlighted field must stay reachable. */}
+          {cf && !(simple && !fieldProblem) && (
+            <TranscribeAdvanced
+              dramaId={dramaId}
+              cf={cf}
+              form={form}
+              setC={setC}
+              kind={titleKind(drama.media_type, drama.content_mode)}
+              developerMode={developerMode}
+              haveTranscript={haveTranscript}
+              needs={needs}
+              speakersExplainedAbove={speakersOff !== null && !runDiarize}
+              speakerCountIgnored={speakerCountIgnored}
+              onNeedInstalled={() => void refreshReadiness()}
+              optionsSaved={optionsSaved}
+              fieldError={fieldError}
+              speakers={{
+                expected: speakers,
+                min: minSpeakers,
+                max: maxSpeakers,
+                set: (field, value) => {
+                  setFieldProblem(null)
+                  if (field === 'expected') form.setSpeakers(value)
+                  else if (field === 'min') form.setMinSpeakers(value)
+                  else form.setMaxSpeakers(value)
+                },
+              }}
+              manualCount={manualCount}
+              corrections={corrections}
+              needsAck={needsAck}
+              onDiarize={diarize}
+              busy={busy}
+              hasMedia={hasMedia}
+              duration={duration}
+              onSave={saveOptions}
+              onReset={resetToDefaults}
+              resetOffered={resetUndo.offered}
+              onUndoReset={resetUndo.undo}
+              saved={saved}
+              problem={null}
+              error={null}
+              onDismissError={() => setError(null)}
+            />
+          )}
+          <AutoTune
+            hasAudio={!!media?.has_audio}
             busy={busy}
-            hasMedia={hasMedia}
-            duration={duration}
-            onSave={saveOptions}
-            onReset={resetToDefaults}
-            resetOffered={resetUndo.offered}
-            onUndoReset={resetUndo.undo}
-            saved={saved}
-            problem={null}
-            error={null}
-            onDismissError={() => setError(null)}
+            override={override}
+            extraNames={extraNames}
+            onApplied={(c) => {
+              setConfig(c)
+              // Keep any other unsaved edits; only min silence changed.
+              setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
+            }}
           />
-        )}
-        <AutoTune
-          hasAudio={!!media?.has_audio}
-          busy={busy}
-          override={override}
-          extraNames={extraNames}
-          onApplied={(c) => {
-            setConfig(c)
-            // Keep any other unsaved edits; only min silence changed.
-            setCf((cur) => (cur ? { ...cur, min_silence_ms: String(c.min_silence_ms) } : formFromConfig(c)))
-          }}
-        />
-        <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
-        <MisheardNote busy={busy} />
-        <CaptionSpeakers hasVideo={!!media?.has_source_video} hasLines={!!drama?.line_count} busy={busy} />
-        {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
+          <SpeechCoverage hasAudio={!!media?.has_audio} busy={busy} />
+          <MisheardNote busy={busy} />
+          <CaptionSpeakers hasVideo={!!media?.has_source_video} hasLines={!!drama?.line_count} busy={busy} />
+          {showRawNovel && <NovelFilePanel kind="raw" busy={busy} onChanged={reloadAutoPrompt} />}
+        </Section>
       </MediaTabPanel>
     </div>
   )

@@ -90,3 +90,11 @@
   .source-switches > .field-item:nth-child(n + 3) { border-top: 1px solid var(--border); }
   .source-switches > .field-item:nth-child(even) { border-left: 1px solid var(--border); }
 }
+
+/* Run tab: language and one button first, the rest under two hairline folds. The form keeps a reading width; the
+   fold hairlines run the full width, like the Tools fold under them. */
+.transcribe-run > :not(details.section), .transcribe-run > details.section > .section-body { max-width: var(--measure-form); }
+.transcribe-lang-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3) var(--space-5); }
+.source-panel > details.section { border: 0; border-top: 1px solid var(--border); border-radius: 0; padding-inline: 0; margin: 0; }
+.source-panel > details.section > .section-body { display: grid; gap: var(--space-3); }
+.source-panel > details.section > .section-body > * { margin: 0; }
