@@ -1026,7 +1026,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 @media (max-width: 640px) {
   /* min-content counts whole words here (the title uses break-word, not the page-wide anywhere), so the actions wrap under the title before it breaks inside a word. */
   .page-head-text { flex: 1 1 0; min-width: min-content; }
-  .page-head > .actions { flex: none; }
+  /* max-width: two or more buttons wrap inside the screen instead of running past it at large text. */
+  .page-head > .actions { flex: none; max-width: 100%; }
 }
 /* Tabular figures in the body face: every digit is one width, so columns line up without the mono face. */
 .num { font-variant-numeric: tabular-nums; }
