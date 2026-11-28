@@ -23302,6 +23302,11 @@ export interface components {
             count: number;
             /** Items */
             items: components["schemas"]["LibrarySearchHit"][];
+            /**
+             * More
+             * @default false
+             */
+            more: boolean;
         };
         /** LibrarySeries */
         LibrarySeries: {

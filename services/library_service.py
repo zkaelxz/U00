@@ -219,14 +219,16 @@ def list_series_with_dramas(principal=None, include_single: bool = False) -> lis
 
 
 def search_lines(query: str, limit: int = 50, principal=None) -> dict:
-    """Global line search across every drama (Chinese or English text)."""
+    """Global line search across every drama (Chinese or English text). `more`:
+    matches beyond `limit` exist, so the page can't call the count the total."""
     query = query.strip() if isinstance(query, str) else ""
     if not query or len(query) > 200:
         raise InvalidInputError("A search is 1-200 characters.")
     limit = max(1, min(int(limit), 100))
-    rows = db.search_lines_globally(query, limit=limit,
+    rows = db.search_lines_globally(query, limit=limit + 1,
                                     visible_to=ownership_service.visible_to_filter(principal))
-    return {"count": len(rows), "items": [
+    more, rows = len(rows) > limit, rows[:limit]
+    return {"count": len(rows), "more": more, "items": [
         {k: r.get(k) for k in ("drama_id", "idx", "zh", "en", "title_en", "title_zh")}
         for r in rows]}
 
