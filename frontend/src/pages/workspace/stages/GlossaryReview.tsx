@@ -232,7 +232,7 @@ function ReviewBody({ source, engine, onStart, onCancel, resume }: Props & { sou
           {fresh && !active && (
             <button
               type="button"
-              className="primary"
+              className={buttonClass('primary')}
               disabled={busy || missing.length > 0}
               onClick={startTranslation}
             >

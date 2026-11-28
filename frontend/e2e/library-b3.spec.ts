@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { ME } from './authMocks'
+
 // Library parity batch B3 (inventory P06, L01, L04, L05, P03). Seed data:
 // e2e/serve_seeded_api.py. Anything that creates a drama deletes it again,
 // so the seeded three are unchanged afterwards.
@@ -118,6 +120,15 @@ test('Series fold is hidden when there is no series (L05)', async ({ page }) => 
   const tools = page.getByRole('region', { name: 'Library tools' })
   await expect(page.getByRole('tab', { name: 'Backup' })).toBeVisible()
   await expect(tools.locator('summary', { hasText: /^Series/ })).toHaveCount(0)
+})
+
+test('Create + fill with AI is left out for an account that cannot save details', async ({ page }) => {
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read', 'library.create', 'media.import_url'] } }))
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  const sheet = page.getByRole('dialog', { name: 'New title' })
+  await expect(sheet.getByRole('button', { name: 'Create title', exact: true })).toBeVisible()
+  await expect(sheet.getByRole('button', { name: 'Create + fill with AI' })).toHaveCount(0)
 })
 
 test('Create + fill with AI lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {

@@ -214,7 +214,7 @@ function SavePreset({ f, defaultEngine }: { f: RunForm; defaultEngine: string })
               onKeyDown={(e) => { if (e.key === 'Enter' && !isComposingKey(e)) save(false) }}
             />
           </Field>
-          <button type="button" className="primary" disabled={pending} onClick={() => save(false)}>Save profile</button>
+          <button type="button" className={buttonClass('primary')} disabled={pending} onClick={() => save(false)}>Save profile</button>
           <button type="button" className={buttonClass('ghost')} onClick={() => { setOpen(false); setTaken(null); setProblem(null) }}>Cancel</button>
         </div>
       )}
@@ -468,7 +468,7 @@ function RunPanel({
         {!(folded && blocker?.kind === 'all-translated') && (
           <button
             type="button"
-            className={blocker?.kind === 'all-translated' ? buttonClass('secondary') : 'primary'}
+            className={buttonClass(blocker?.kind === 'all-translated' ? 'secondary' : 'primary')}
             disabled={busy || starting || reviewing > 0 || blocker !== null || gate !== null}
             aria-describedby={blocker ? 'translate-blocker' : gate ? 'translate-gate' : busy ? 'translate-busy' : undefined}
             onClick={() => start()}

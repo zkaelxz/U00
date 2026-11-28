@@ -209,7 +209,7 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   expect(s.unmocked).toEqual([])
 })
 
-test.describe('below 600px', () => {
+test.describe('at 640px and below', () => {
   test.use({ viewport: { width: 500, height: 800 } })
 
 test('signed in: the Menu button replaces the cogwheel and its drawer stays on screen', async ({ page }) => {

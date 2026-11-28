@@ -185,7 +185,7 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             is saved and before it goes into the GitHub link; the server log is never put in the link.
           </p>
           <div className="actions report-actions">
-            <button type="submit" className="primary" disabled={sending}>
+            <button type="submit" className={buttonClass('primary')} disabled={sending}>
               {sending ? 'Sending…' : 'Send report'}
             </button>
             <button type="button" className={buttonClass('secondary')} onClick={onClose}>Cancel</button>
@@ -253,7 +253,7 @@ function ReportResult({ result, hadScreenshot, onClose }: {
         </div>
       )}
       <div className="actions report-actions">
-        <button type="button" className="primary" onClick={() => void copy()}>Copy report</button>
+        <button type="button" className={buttonClass('primary')} onClick={() => void copy()}>Copy report</button>
         {canShare && (
           <button type="button" className={buttonClass('secondary')} onClick={() => void share()}>Share…</button>
         )}

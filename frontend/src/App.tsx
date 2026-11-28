@@ -257,7 +257,7 @@ export default function App() {
     </>
   )
 
-  // One tree at every width, so crossing 600px keeps the open page (and a playing video) mounted.
+  // One tree at every width, so crossing the dock width keeps the open page (and a playing video) mounted.
   return (
     <ViewModeContext.Provider value={viewMode}>
     <JobsProvider>

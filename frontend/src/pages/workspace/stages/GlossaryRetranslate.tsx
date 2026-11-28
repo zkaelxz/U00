@@ -230,7 +230,7 @@ export function GlossaryRetranslate({ f, busy, onStarted, onClose, nested }: {
       <EngineGateNote gate={gate} />
       <div className="check-row">
         {preview && preview.lines.length > 0 && (
-          <button type="button" className="primary" disabled={busy || pending || loading || !chosen.length || gate !== null} onClick={start}>
+          <button type="button" className={buttonClass('primary')} disabled={busy || pending || loading || !chosen.length || gate !== null} onClick={start}>
             Re-translate {chosen.length} line{chosen.length === 1 ? '' : 's'}
           </button>
         )}

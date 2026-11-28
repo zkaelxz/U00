@@ -1,4 +1,4 @@
-/* The side dock (nav/SideNav.tsx), shown from 600px up; narrower screens keep the header nav and drawer.
+/* The side dock (nav/SideNav.tsx), shown from 641px up; narrower screens keep the header nav and drawer.
    It floats over the page: icons at rest, labelled rows while pointed at or while keyboard focus is inside (SideNav.tsx sets .is-open). */
 /* --page-inset-* is the room the nav takes at each edge, read by the page column and by bars fixed to the viewport (the Library selection bar). */
 .app-shell.has-rail { min-height: 100vh; --page-inset-left: 5.75rem; --page-inset-right: var(--space-4); --page-inset-bottom: 0px; }
@@ -90,7 +90,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 @media (pointer: coarse) {
   .app-rail nav a, .rail-brand a { min-height: 44px; }
 }
-/* Drawer rows are 44px wherever it opens, touch or not (it only exists below 600px). */
+/* Drawer rows are 44px wherever it opens, touch or not (it only exists at 640px and below). */
 .nav-drawer nav a, .nav-drawer nav a.rail-title { min-height: 44px; }
 :is(.app-rail, .nav-drawer) .rail-badge {
   flex: none;

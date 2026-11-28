@@ -1,7 +1,5 @@
 /* Benchmark Lab (pages/Benchmark.tsx). Tokens only; phone rules at <= 640px and the coarse-pointer block. */
 
-.bench-intro { max-width: 72ch; display: grid; gap: var(--space-1); }
-.bench-intro p { margin: 0; }
 .bench-page :is(h3, h2:where(.subhead)) { margin: 0; font-size: var(--text-md); font-weight: var(--weight-bold); }
 .bench-page .num { font-variant-numeric: tabular-nums; }
 .bench-note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
@@ -22,11 +20,12 @@
 .bench-run-table th:nth-child(4), .bench-run-table td:nth-child(4) { white-space: nowrap; }
 .bench-run-table .bench-judge-score { display: block; }
 
-/* Golden sets on phones: one card per set. */
+/* Golden sets on phones: one row per set, divided by a thin line. */
 .bench-set-cards, .bench-run-cards, .bench-case-list, .bench-groups, .bench-estimate-list, .bench-config-list,
 .bench-arena-runs, .bench-arena-rows { list-style: none; margin: 0; padding: 0; }
-.bench-set-cards { display: grid; gap: var(--space-2); }
-.bench-set-cards > li, .bench-run-cards > li {
+.bench-set-cards { display: grid; }
+.bench-set-cards > li { display: grid; gap: var(--space-1); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); min-width: 0; }
+.bench-run-cards > li {
   display: grid;
   gap: var(--space-1);
   padding: var(--space-3);
@@ -136,7 +135,7 @@
 .bench-prefill ul { margin: 0; padding-left: 1.2rem; font-size: var(--text-sm); overflow-wrap: anywhere; }
 
 /* Model re-evaluation (ReevalCard). */
-.reeval .card-body { display: grid; gap: var(--space-4); min-width: 0; }
+.reeval .bench-section-body { display: grid; gap: var(--space-4); min-width: 0; }
 .reeval p { margin: 0; }
 .reeval-intro { max-width: 72ch; }
 .reeval-production { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; overflow-wrap: anywhere; }
@@ -172,16 +171,24 @@
   .reeval-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-/* Collapsible page sections: the heading is a button, the (i) help and a running status sit beside it. */
-.bench-section-title { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
-.bench-section-title .card-title { min-width: 0; }
-.bench-section-toggle { display: flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: var(--space-1) 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; text-align: left; cursor: pointer; }
-.bench-section-toggle::before { content: ''; flex: none; width: 0.45em; height: 0.45em; border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(-45deg); transition: transform var(--dur-2, 120ms) ease; }
-.bench-section-toggle[aria-expanded='true']::before { transform: rotate(45deg); }
-@media (prefers-reduced-motion: reduce) { .bench-section-toggle::before { transition: none; } }
-.bench-section-body[hidden] { display: none; }
-.bench-section-status { margin: 0; font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--accent); }
-.bench-section-title { position: relative; }
+/* A pane is a grid item of the side pane's body: without this, a wide table inside stretches it past a phone screen. */
+.bench-panel { min-width: 0; }
+.bench-panel[hidden] { display: none; }
+
+/* Page sections: a plain heading with the (i) help beside it, its purpose and state under it; no box. */
+.bench-section { margin: 0 0 var(--space-5); min-width: 0; }
+.bench-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-2) var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-3); }
+.bench-section-heading { display: grid; gap: var(--space-1); min-width: 0; }
+.bench-section-title { position: relative; display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+.bench-section-title .section-title { margin: 0; min-width: 0; font-size: var(--text-lg); }
+.bench-section-purpose, .bench-section-meta { margin: 0; font-size: var(--text-sm); }
+.bench-section-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
+.bench-section-body > * { margin: 0; }
+@media (max-width: 640px) {
+  .bench-section-body { gap: var(--space-4); }
+  .bench-section-body > :is(.btn, button, .actions) + * { margin-top: var(--space-2); }
+}
+.bench-section-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 /* Anchor the steps to the heading row, not the small (i), so they stay inside a phone-width card. */
 .bench-help { position: static; }
 .bench-help .field-help-text { left: 0; max-width: min(24rem, calc(100vw - 4.5rem)); }
@@ -193,7 +200,6 @@
 .bench-judge legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
 .bench-judge-warning { display: grid; gap: var(--space-2); }
 .bench-judge-warning p { margin: 0; }
-.bench-check { display: inline-flex; align-items: center; gap: var(--space-2); }
 
 /* Your own clips: the drop area and one editable row per clip. */
 .bench-drop { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
@@ -223,7 +229,7 @@
 .bench-real-settings > summary { cursor: pointer; }
 
 /* Settings sweep */
-.sweep .card-body { display: grid; gap: var(--space-4); min-width: 0; }
+.sweep .bench-section-body { display: grid; gap: var(--space-4); min-width: 0; }
 .sweep p { margin: 0; }
 .sweep-intro { max-width: 72ch; }
 .sweep-block { display: grid; gap: var(--space-3); min-width: 0; }

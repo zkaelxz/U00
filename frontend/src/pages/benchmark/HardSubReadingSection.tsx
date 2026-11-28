@@ -66,7 +66,7 @@ export function HardSubReadingSection({ pc }: { pc: PcMode }) {
   const outcome = reading?.result ?? null
 
   return (
-    <Section title="Hard-sub reading result" summary="Lines read per speaker from the picture" storageKey="benchmark.hardSubReading">
+    <Section title="Hard-sub reading result" summary="Lines read per speaker from the picture" storageKey="benchmark.hardSubReading" keepFold>
       <div className="field-row">
         <Field label="Title">
           <select value={chosen ?? ''} onChange={(e) => setTitle(e.target.value ? Number(e.target.value) : null)}>

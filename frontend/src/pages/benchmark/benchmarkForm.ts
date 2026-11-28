@@ -8,10 +8,8 @@ import { ApiError } from '../../api/client'
 import type { BenchmarkConfig, BenchmarkLeftOut, BenchmarkTranscribeOptions, BenchmarkEngineOption, BenchmarkEstimate, BenchmarkJudgeScore, BenchmarkJudgeSummary, BenchmarkOptions, BenchmarkRequestConfig, BenchmarkRun, BenchmarkRunRequest, BenchmarkSet, BenchmarkStage, BenchmarkTier, ScriptCounts, BenchmarkCaseTiming, BenchmarkTimingSummary } from '../../types/benchmark'
 import { describeError, safeDetail } from '../../components/errorMessages'
 import { humanize, humanizeValue, type BadgeTone } from '../../components/labels'
-import { readSectionOpen, type StorageLike } from '../../components/sectionStorage'
 import { engineGate, type EngineGate } from '../workspace/stages/engineReady'
 import { isActiveStatus, type JobRecord } from '../../types/jobs'
-import { BENCH_DEFAULT_OPEN, type BenchSectionId } from './benchmarkHelp'
 import { cleanTranslate, translateChangesLabel } from './translateOptions'
 
 export const STAGE_LABELS: Record<string, string> = {
@@ -653,16 +651,7 @@ export function plainError(err: unknown, opts: { pcOnly?: boolean } = {}): strin
 
 // ---- page sections ----
 
-export function benchSectionStorageKey(id: BenchSectionId): string {
-  return `benchmark.card.${id}`
-}
-
-/** The remembered open state of a page section, else its default. */
-export function benchSectionOpen(storage: StorageLike | null, id: BenchSectionId): boolean {
-  return readSectionOpen(storage, benchSectionStorageKey(id), BENCH_DEFAULT_OPEN[id])
-}
-
-/** The one-line status a folded section shows while the benchmark job runs. */
+/** The page's one-line status while the benchmark job runs. */
 export function runningStatus(job: JobRecord | null): string {
   const pct = job?.progress != null ? Math.round(job.progress * 100) : null
   return `Running${pct != null ? ` · ${pct}%` : '…'}`

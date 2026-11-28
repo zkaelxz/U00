@@ -3,11 +3,14 @@ import { useMemo } from 'react'
 
 import { useMediaQuery } from '../../hooks/useMediaQuery'
 import type { ComicPageInfo } from '../../types/comic'
+import { usePanelSwitch } from './usePanels'
 import { buildSpreads, DOUBLE_QUERY, doubleActive, isStripPage, isWidePage, spreadIndex, spreadLabel, type ComicPrefs } from './comicLogic'
 
-export function useSpreads(prefs: ComicPrefs, visible: number[], pages: ComicPageInfo[], current: number | null) {
+// panelPages: the reader can read panel by panel, so its switch turns Automatic two-page reading off.
+export function useSpreads(prefs: ComicPrefs, visible: number[], pages: ComicPageInfo[], current: number | null, panelPages = false) {
   const landscapeWide = useMediaQuery(DOUBLE_QUERY)
-  const double = doubleActive(prefs, landscapeWide)
+  const panelsOn = usePanelSwitch()
+  const double = doubleActive(prefs, landscapeWide, panelPages && panelsOn)
   const spreads = useMemo(
     () => (double ? buildSpreads(visible, (n) => (pages[n - 1] ? isWidePage(pages[n - 1]) || isStripPage(pages[n - 1]) : false), prefs.coverAlone) : null),
     [double, visible, pages, prefs.coverAlone],

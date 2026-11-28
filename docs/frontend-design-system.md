@@ -11,7 +11,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 
 | Path | What lives there |
 |---|---|
-| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button below 600px, then `nav/HeaderEnd.tsx`: search, `JobsMenu`, `NotificationBell` and the You menu, or the PIN and account buttons on a phone), the side nav from 600px up and the nav drawer below it and picks the page from the route. |
+| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button at 640px and below, then `nav/HeaderEnd.tsx`: search, `JobsMenu`, `NotificationBell` and the You menu, or the PIN and account buttons on a phone), the side nav from 641px up and the nav drawer below it and picks the page from the route. |
 | `router.ts` | The hash router: `Route` type, `parseRoute`, `routeHref`, `useRoute`. |
 | `pages/*.tsx` | One file per top-level page (`Library`, `Translate`, `Sources`, `Discover`, `Live`, `Reader`, `Comic`, `SavedManga`, `Settings`, `Diagnostics`, `Admin`, `Assistant`, `Benchmark`, `Login`, `LibraryTools`). |
 | `pages/<page>/` | A page's own panels, forms and CSS (`settings/`, `diagnostics/`, `sources/`, `reader/`, ...). Pure form and format logic sits beside the panel as `<name>.ts` with a `<name>.test.ts`. |
@@ -43,7 +43,7 @@ Routes are location hashes, parsed by `parseRoute` in `router.ts`. Anything unkn
 | `#/read/<id>[?page=n]`, `#/comic/<id>[?page=n]` | Reader and comic reader |
 | `#/manga`, `#/manga/<source>/<series>[/<chapter>]` | Saved manga (rail: Library tools) |
 | `#/translate`, `#/sources`, `#/discover`, `#/live`, `#/library-tools` | Top-level pages |
-| `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | In the floating side nav (the drawer below 600px) |
+| `#/jobs`, `#/settings`, `#/admin`, `#/diagnostics`, `#/assistant`, `#/benchmark[?compare=]` | In the floating side nav (the drawer at 640px and below) |
 
 Nav links are plain `<a href={routeHref(...)}>`. `NAV_ITEMS` in `nav/navItems.ts` also names which route names keep a link marked `aria-current="page"`.
 
