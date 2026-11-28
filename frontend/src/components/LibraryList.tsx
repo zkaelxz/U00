@@ -26,7 +26,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, lineHitCount, lineHitHref, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { Paged, ShowMore } from './ShowMore'
@@ -118,7 +118,7 @@ export function LibraryList({
   }
   const [items, setItems] = useState<DramaSummary[] | null>(null)
   const [error, setError] = useState<unknown>(null)
-  const [hits, setHits] = useState<LibrarySearchHit[] | null>(null)
+  const [hits, setHits] = useState<LineHitList | null>(null)
   const [hitsError, setHitsError] = useState<unknown>(null)
   // A slow earlier search must not replace the hits of the one typed after it.
   const lineSearchSeq = useRef(0)
@@ -190,7 +190,7 @@ export function LibraryList({
     if (scope !== 'lines' || !term) return
     const seq = ++lineSearchSeq.current
     searchLines(term).then(
-      (r) => { if (seq === lineSearchSeq.current) { setHits(r.items); setHitsError(null) } },
+      (r) => { if (seq === lineSearchSeq.current) { setHits({ term, items: r.items, more: !!r.more }); setHitsError(null) } },
       (err: unknown) => { if (seq === lineSearchSeq.current) setHitsError(err) },
     )
   }
@@ -490,20 +490,22 @@ export function LibraryList({
   )
 }
 
-function LineHits({ hits, error }: { hits: LibrarySearchHit[] | null; error: unknown }) {
+type LineHitList = { term: string; items: LibrarySearchHit[]; more: boolean }
+
+function LineHits({ hits, error }: { hits: LineHitList | null; error: unknown }) {
   return (
     <div className="line-hits">
       {isForbidden(error) ? <p className="muted" role="status">{LINES_READ_FORBIDDEN}</p> : <ErrorBanner error={error} />}
       {hits === null && !error && <p className="muted">Type a word or phrase and press Enter to search every title's lines.</p>}
-      {hits && <p className="muted" data-testid="search-count">{hits.length} {hits.length === 1 ? 'match' : 'matches'}</p>}
-      {hits && hits.length > 0 && (
-        <Paged items={hits} testId="line-hits-more">
+      {hits && <p className="muted" data-testid="search-count">{lineHitCount({ count: hits.items.length, more: hits.more })}</p>}
+      {hits && hits.items.length > 0 && (
+        <Paged items={hits.items} testId="line-hits-more">
           {(visible) => (
         <ul className="line-hit-list">
           {visible.map((h) => (
             <li key={`${h.drama_id}-${h.idx}`}>
               <div className="line-hit-head">
-                <a href={workspaceHref(h.drama_id, 'review')}>{dramaName({ ...h, id: h.drama_id })}</a>
+                <a href={lineHitHref(h.drama_id, hits.term)}>{dramaName({ ...h, id: h.drama_id })}</a>
                 <span className="muted">Line {lineNumber(h.idx)}</span>
               </div>
               {h.zh && <p className="line-hit-zh">{h.zh}</p>}
