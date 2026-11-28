@@ -1,3 +1,6 @@
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { defineConfig, devices } from '@playwright/test'
 
 // End-to-end: a real browser -> the built React app (vite preview) ->
@@ -10,6 +13,11 @@ const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 4174)
 // A second build with the Discover Catalogue tab on, for the specs tagged @catalogue.
 const CATALOGUE_PORT = Number(process.env.E2E_CATALOGUE_PORT ?? 4175)
 const python = process.env.PYTHON ?? 'python'
+// The API server and every spec's seeding script load e2e/python-site/sitecustomize.py, which gives sqlite a longer wait
+// for another process's write lock. Workers load this file too, so the folder is added once.
+const pythonSite = fileURLToPath(new URL('./e2e/python-site', import.meta.url))
+const pythonPath = (process.env.PYTHONPATH ?? '').split(path.delimiter).filter(Boolean)
+if (!pythonPath.includes(pythonSite)) process.env.PYTHONPATH = [pythonSite, ...pythonPath].join(path.delimiter)
 // CI builds both bundles in a step of their own, so a slow build on a busy runner can't run out a server's start-up timeout.
 const prebuilt = !!process.env.E2E_PREBUILT
 
