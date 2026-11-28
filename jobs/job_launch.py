@@ -366,8 +366,7 @@ def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_use
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str | None = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str | None = None, run_settings: dict | None = None,
-                      initial_result=None, line_fields=None, cpu_retry_args=None, on_partial=None,
-                      warm_key=None) -> bool:
+                      initial_result=None, line_fields=None, cpu_retry_args=None, on_partial=None, warm_key=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -466,9 +465,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             return True
         proc, result_queue, run = _register_run_locked(
             job_id, target, args, gpu_touching, description, owner_user_id, counted_day,
-            start_method=start_method, warm_key=warm_key, run_settings=run_settings,
-            initial_result=initial_result, on_partial=on_partial, line_fields=line_fields,
-            origin_device=origin_device)
+            start_method=start_method, warm_key=warm_key, run_settings=run_settings, initial_result=initial_result,
+            on_partial=on_partial, line_fields=line_fields, origin_device=origin_device)
     try:
         _start_worker(proc, gpu_touching)
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
