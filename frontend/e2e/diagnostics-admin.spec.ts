@@ -352,7 +352,7 @@ test('check access asks online only when pressed and links to the terms', async 
     const online = r.request().url().includes('check_access=true')
     return r.fulfill({ json: {
       pyannote_installed: true, hf_token_configured: true, ready: !online,
-      models: online ? [{ model: 'pyannote/speaker-diarization-3.1', accessible: false }] : null,
+      models: online ? [{ model: 'pyannote/speaker-diarization-3.1', accessible: false, status: 'terms_needed' }] : null,
     } })
   })
   await page.goto('/#/diagnostics')
@@ -360,7 +360,7 @@ test('check access asks online only when pressed and links to the terms', async 
   await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('pyannote: ready')
   await expect(page.getByTestId('pyannote-summary')).toHaveText('Nemotron (default) needs no token · pyannote: ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
-  await expect(page.getByText('pyannote/speaker-diarization-3.1: can’t open it')).toBeVisible()
+  await expect(page.getByText('pyannote/speaker-diarization-3.1: accept its terms on Hugging Face')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Accept terms ↗' })).toHaveAttribute(
     'href', 'https://huggingface.co/pyannote/speaker-diarization-3.1')
   expect(urls.filter((u) => u.includes('check_access=true'))).toHaveLength(1)

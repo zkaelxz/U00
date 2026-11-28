@@ -178,7 +178,8 @@ def get_pyannote_readiness(check_access: bool = False, api=None) -> dict:
     }
     if check_access and (api is not None or _hf_hub_importable()):
         results = diagnostics_report.check_pyannote_gated_access(token, api=api)
-        out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"])}
+        out["models"] = [{"model": r["model"], "accessible": bool(r["accessible"]),
+                          "status": r["status"]}
                          for r in results]
     out["ready"] = bool(out["pyannote_installed"] and out["hf_token_configured"]
                         and (out["models"] is None or all(m["accessible"] for m in out["models"])))

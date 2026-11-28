@@ -120,6 +120,7 @@ class DiagnosticsModelCache(BaseModel):
 class DiagnosticsPyannoteModel(BaseModel):
     model: str
     accessible: bool
+    status: Literal["ok", "token_missing", "terms_needed", "token_rejected", "error"]
 
 
 class DiagnosticsPyannoteReadiness(BaseModel):
