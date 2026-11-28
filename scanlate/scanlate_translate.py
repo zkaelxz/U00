@@ -7,6 +7,7 @@ carries a short context string from page to page.
 
 import re
 
+from en_cleanup import drop_em_dashes
 from scanlate.scanlate_regions import region_excluded_from_auto
 
 
@@ -201,7 +202,7 @@ def translate_regions_by_id(texts_by_id: dict, engine, drama_meta: dict,
             if not isinstance(result, (list, tuple)) or len(result) != 1 \
                     or not isinstance(result[0], str):
                 return None, previous_context
-            out[key] = result[0]
+            out[key] = drop_em_dashes(result[0])
         return out, previous_context
 
     items = list(zip(ids, texts_by_id.values()))
@@ -280,6 +281,7 @@ def _matched_answer(text, ids: list, previous_context: str, names_out: dict | No
     got.update({k: data[k] for k in ids if k not in got and isinstance(data.get(k), str)})
     if set(got) != set(ids) or not all(isinstance(v, str) for v in got.values()):
         return None, previous_context
+    got = {k: drop_em_dashes(v) for k, v in got.items()}
     summary = data.get("context_summary")
     new_context = (summary.strip()[:_MAX_CONTEXT_CHARS]
                    if isinstance(summary, str) and summary.strip() else previous_context)

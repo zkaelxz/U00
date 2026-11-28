@@ -11,6 +11,7 @@ from bulk.bulk_translate import (_character_names, _copy_english_lines, _require
                             request_key, resolve_novel_reference, stored_translate_args, zh_hash)
 from engine_backends.medium_prompts import kind_for
 import db
+from en_cleanup import drop_em_dashes
 import source_change
 from engine_backends import (
     translate_pipeline,
@@ -553,7 +554,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
             continue
         if fixes_text:
             translation = substitute_terms(translation, ln.zh)
-        ln.en = translation
+        ln.en = drop_em_dashes(translation)
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1
         critique = critique_by_id.get(lid)

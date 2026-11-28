@@ -13,7 +13,7 @@ import { useJob, useJobRun } from '../../../../hooks/useJob'
 import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { cancelHint, isTerminalStatus, offersCancel } from '../../../../types/jobs'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../../types/translateStage'
-import { applyStartToForm, buildRunBody, initialForm, loadPresetStart, validateRun } from '../../translateForm'
+import { buildRunBody, savedRunEstimateParams, savedRunForm, validateRun } from '../../translateForm'
 import { LineAiPicker } from './LineAiPicker'
 import { useLineAiPick } from './lineAiPick'
 import { useLineSelectionContext } from './useLineSelectionContext'
@@ -90,14 +90,14 @@ export function RetranslateSelected({ dramaId, jobRunning, onChanged }: { dramaI
   const key = selectedIds.join(',')
   useEffect(() => {
     setEstimate(null)
-    if (!key) return
+    if (!key || !config) return
     const ctl = new AbortController()
-    getTranslateEstimate(dramaId, { engine: engine || undefined, model: model || undefined, force_retranslate: true, line_ids: selectedIds }, withSignal(ctl.signal))
+    getTranslateEstimate(dramaId, savedRunEstimateParams(config, dramaId, engine, model, selectedIds), withSignal(ctl.signal))
       .then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
     return () => ctl.abort()
     // selectedIds is rebuilt each render; `key` stands for its content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId, key, engine, model])
+  }, [dramaId, key, engine, model, config])
 
   const active = !!job && !isTerminalStatus(job.status)
   const busy = starting || active
@@ -111,7 +111,7 @@ export function RetranslateSelected({ dramaId, jobRunning, onChanged }: { dramaI
     if (!config) return
     setConfirming(false)
     const form = {
-      ...applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config),
+      ...savedRunForm(config, dramaId),
       engine, model, reflect: false, bulk: false, fallbacks: [] as string[], force: true, forceConfirmed: true,
     }
     const problem = validateRun(form, config.translation_engine, config.bulk_supported_engines)

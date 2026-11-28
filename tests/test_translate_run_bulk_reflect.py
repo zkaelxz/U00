@@ -218,6 +218,18 @@ def test_bulk_estimate_above_cap_is_refused(isolated_db, monkeypatch):
     assert db.list_bulk_jobs(did) == []
 
 
+def test_the_bulk_cap_check_prices_the_runs_style(isolated_db, monkeypatch):
+    did = _seed([("你好", "")])
+    _current["did"] = did
+    _fake_engines(monkeypatch)
+    styles, real = [], svc.estimate_translate_cost
+    monkeypatch.setattr(svc, "estimate_translate_cost",
+                        lambda *a, **k: styles.append(k.get("style_preset")) or real(*a, **k))
+    with pytest.raises(UnsupportedOperationError):
+        svc.start_translate_run(did, bulk=True, style_preset="novel", job_cost_cap_usd=1e-9)
+    assert styles == ["novel"]
+
+
 def test_mode_validation(isolated_db, monkeypatch):
     patch_setting(monkeypatch, "gemini_free_tier", True)  # a request alone can't grant it
     did = _seed([("一", "")])

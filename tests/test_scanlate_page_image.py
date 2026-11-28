@@ -150,13 +150,32 @@ def test_the_page_picture_needs_the_setting_and_an_engine_that_reads_pictures(is
     pid = _stored_page(did)
     patch_setting(monkeypatch, "scanlate_page_image", True)
     data, mime, scale = run_svc._page_image(did, pid, "claude")
-    assert data and mime == "image/png" and scale == 1.0
+    assert data and mime == "image/jpeg" and scale == 1.0
     # DeepSeek takes no pictures, but its page is already off the PC, so Gemma may read it.
     assert run_svc._page_image(did, pid, "deepseek") is not None
     assert run_svc._page_image(did, pid, "ollama", "translategemma:27b") is not None
     assert run_svc._page_image(did, pid, "nonesuch") is None
     patch_setting(monkeypatch, "scanlate_page_image", False)
     assert run_svc._page_image(did, pid, "claude") is None
+
+
+def test_a_page_goes_as_full_colour_jpeg_and_a_screenshot_stays_png():
+    from PIL import JpegImagePlugin
+
+    from services import image_text_service
+    buf = io.BytesIO()
+    page = Image.new("RGBA", (64, 48), (200, 30, 30, 128))
+    page.save(buf, "PNG")
+    data, mime, scale = run_svc.page_picture(buf.getvalue())
+    assert mime == "image/jpeg" and scale == 1.0
+    with Image.open(io.BytesIO(data)) as sent:
+        # 4:4:4: small coloured lettering keeps its edges.
+        assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
+    assert image_text_service._prepared(buf.getvalue())[1] == "image/png"
+    clear = io.BytesIO()
+    Image.new("RGBA", (64, 48), (0, 0, 0, 0)).save(clear, "PNG")
+    with Image.open(io.BytesIO(run_svc.page_picture(clear.getvalue())[0])) as sent:
+        assert min(sent.convert("L").getextrema()) > 245  # a see-through page reads as paper, not black
 
 
 def test_a_missing_page_file_means_a_text_only_translation(isolated_db, monkeypatch):
@@ -557,3 +576,12 @@ def test_a_page_outside_a_chapter_is_not_asked_for_names(monkeypatch):
     monkeypatch.setattr(llm_tasks, "call_llm_json", call)
     scanlate_translate.translate_page_bubbles([_region("안녕")], _Engine(), {"source_language": "ko"})
     assert '"names"' not in prompts[0]
+
+
+def test_comic_translations_come_back_without_em_dashes(monkeypatch):
+    from engine_backends import llm_tasks
+    monkeypatch.setattr(llm_tasks, "call_llm_json", lambda engine, prompt, **kw: json.dumps(
+        {"translations": {"0": "Wait—", "1": "He—the king—came."}, "context_summary": "x"}))
+    got, _ = scanlate_translate.translate_regions_by_id({"0": "잠깐", "1": "왕이 왔다"}, _Engine(),
+                                                        {"source_language": "ko"})
+    assert got == {"0": "Wait...", "1": "He, the king, came."}

@@ -168,7 +168,7 @@ describe('packages', () => {
     expect(busyLine({ kind: 'install', name: 'jieba' })).toBe(
       'Installing jieba… this can take several minutes. Cancel it below if needed.')
     expect(busyLine({ kind: 'upgrade', name: 'jieba' })).toBe(
-      'Updating jieba… this can take several minutes. Keep this tab open.')
+      'Updating jieba… this can take several minutes. Cancel it below if needed.')
     expect(busyLine({ kind: 'reset', name: 'library' })).toBeNull()
     expect(busyLine(null)).toBeNull()
   })

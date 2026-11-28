@@ -6,6 +6,8 @@ import os
 
 import pytest
 
+from lib.errors import InvalidInputError
+
 import sensitivity_preset as presets
 from jobs import job_launch
 from core import Line
@@ -346,7 +348,7 @@ def test_queue_cost_is_estimated_for_the_remembered_model_and_batch(isolated_db,
     monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
     model, batch = queue_service._queued_model_and_batch(db.get_drama(did), "fake")
     queue_service._translate_cost(did, "claude", model, batch)
-    assert seen == {"model": "model-a", "batch_size": 9}
+    assert seen == {"model": "model-a", "batch_size": 9, "style_preset": None}
 
 
 def test_queue_shows_the_default_when_the_remembered_model_is_gone(isolated_db):
@@ -405,3 +407,27 @@ def test_the_estimate_prices_the_titles_last_run_style(isolated_db, monkeypatch)
                         lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
     translate_run_service.estimate_translate_cost(did, "claude")
     assert presets == ["novel"]
+
+
+def test_a_blank_batch_size_is_estimated_at_the_plain_stream_default_the_run_uses(isolated_db, monkeypatch):
+    did = _seeded()
+    plain = translate_run_service.get_translate_config_defaults(False, "claude", None, True)["batch_size"]
+    assert plain != translate_run_service.get_translate_config_defaults(False, "claude", None)["batch_size"]
+    monkeypatch.setattr(translate_run_service, "_plain_stream", lambda *a: True)
+    sizes = []
+    monkeypatch.setattr(translate_run_service, "_estimate_run_calls",
+                        lambda d, dr, e, t, z, batch_size, *a, **k: sizes.append(batch_size) or None)
+    translate_run_service.estimate_translate_cost(did, "claude")
+    assert sizes == [plain]
+
+
+def test_the_estimate_prices_a_style_picked_on_the_form(isolated_db, monkeypatch):
+    did = _seeded(translate_start_json='{"style_preset": "novel"}')
+    presets, real = [], workspace_job_service.build_run_style_context
+    monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                        lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+    translate_run_service.estimate_translate_cost(did, "claude", style_preset="audio_drama")
+    translate_run_service.estimate_translate_cost(did, "claude", style_preset="")
+    assert presets == ["audio_drama", "novel"]
+    with pytest.raises(InvalidInputError):
+        translate_run_service.estimate_translate_cost(did, "claude", style_preset="no-such-style")

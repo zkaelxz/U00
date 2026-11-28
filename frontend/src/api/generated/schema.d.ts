@@ -76051,6 +76051,7 @@ export interface operations {
                 line_ids?: number[] | null;
                 chapter_from?: number | null;
                 chapter_to?: number | null;
+                style_preset?: string | null;
             };
             header?: never;
             path: {
@@ -76107,6 +76108,8 @@ export interface operations {
                 reflect?: boolean;
                 gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
+                style_preset?: string | null;
+                batch_size?: number | null;
             };
             header?: never;
             path: {

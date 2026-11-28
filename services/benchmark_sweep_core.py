@@ -130,8 +130,8 @@ def split_by_title(cases: list) -> tuple:
         groups.setdefault(title_of(c), []).append(c)
     if len(groups) < 2:
         raise UnsupportedOperationError(
-            "A sweep needs clips from at least 2 titles, so one can be held out to confirm the winner. "
-            "Give the clips their titles, or add clips from another title.")
+            "A sweep needs cases from at least 2 titles, so one can be held out to confirm the winner. "
+            "Give the cases their titles, or add cases from another title.")
     target = HOLDOUT_SHARE * len(cases)
     held, count = [], 0
     for title in sorted(groups, key=lambda t: hashlib.sha1(t.encode("utf-8")).hexdigest()):
