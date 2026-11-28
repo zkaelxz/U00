@@ -404,47 +404,29 @@ def _store_page(drama_id: int, data: bytes, ext: str):
 
 
 def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language: str = "",
-                 glossary=None) -> dict:
+                 glossary=None, reread: bool = False, split: dict | None = None) -> dict:
     """Character notes and the page picture, as a Scanlate run sends them, with the built-in
-    comic glossary's entries for this page appended to the notes. A failure here only costs
-    that quality, never the translation."""
+    comic glossary's entries for this page appended to the notes. `reread` first gives
+    hard-to-read text a second look with the picture model (page_reread_service), before the
+    glossary is matched against it. A failure here only costs that quality, never the
+    translation."""
+    from services import comic_fixes_service, comic_glossary_service, extension_service, page_reread_service
     language = _page_source_language(drama, language)
-    return _with_page_notes(_picture_extras(drama, config, engine, image), drama, language, bubbles, glossary)
-
-
-def _picture_extras(drama, config: dict, engine, image: bytes) -> dict:
-    from services import extension_service
     try:
-        return extension_service.page_extras(drama, config, engine, image)
+        extras = extension_service.page_extras(drama, config, engine, image)
     except Exception:
-        return {}
-
-
-def _page_readers(extras: dict):
-    return (extras.get("page_image") or {}).get("readers")
-
-
-def _timed_reread(bubbles, image: bytes, language: str, extras: dict, split: dict | None) -> int:
-    """page_reread_service.reread: hard-to-read text gets a second look with the picture model,
-    before the glossary is matched against it."""
-    from services import page_reread_service
-    reread_started = time.monotonic()
-    try:
-        changed = page_reread_service.reread(bubbles, image, language, _page_readers(extras))
-    except Exception:
-        changed = 0
-    if split is not None:
-        # How often the reread changes text is how often the answer started beside it is dropped.
-        split["reread"] = round(time.monotonic() - reread_started, 2)
-        split["reread_changed"] = changed
-    return changed
-
-
-def _with_page_notes(extras: dict, drama, language: str, bubbles, glossary) -> dict:
-    """A copy of `extras` whose character notes add the glossary and the title's fixes for the
-    text of `bubbles`."""
-    from services import comic_fixes_service, comic_glossary_service
-    extras = dict(extras)
+        extras = {}
+    if reread:
+        reread_started = time.monotonic()
+        try:
+            changed = page_reread_service.reread(bubbles, image, language,
+                                                 (extras.get("page_image") or {}).get("readers"))
+        except Exception:
+            changed = 0
+        if split is not None:
+            # Whether the reread changed anything decides if translating beside it would pay off.
+            split["reread"] = round(time.monotonic() - reread_started, 2)
+            split["reread_changed"] = changed
     try:
         extras["character_notes"] = comic_glossary_service.with_reference(
             extras.get("character_notes", ""), language, bubbles, glossary)
@@ -454,65 +436,6 @@ def _with_page_notes(extras: dict, drama, language: str, bubbles, glossary) -> d
         extras["character_notes"] = comic_fixes_service.with_fixes(
             extras.get("character_notes", ""), drama, bubbles)
     return extras
-
-
-def _translate_beside_reread(bubbles, image: bytes, language: str, picture: dict,
-                             split: dict | None, notes_for, translate) -> tuple:
-    """Translates a page whose hard text the picture model rereads. Returns the extras the kept
-    answer was asked with and its failure, or None. The OCR reading starts translating at once,
-    beside the reread.
-    When the reread changed nothing, the early answer was asked for the same page text and notes as
-    the serial order would have, so it is kept and the page saves a round trip. Its previous page's
-    lines and summary are the ones in hand a reread earlier, the same looseness pages translated
-    side by side already have. Otherwise it is dropped (it leaves no names or summary behind) and
-    the page is translated again from the corrected text, as before."""
-    import contextvars
-    import copy
-    early = copy.deepcopy(bubbles)
-    decided = threading.Event()
-    verdict = {"keep": False}
-    outcome = {}
-
-    def keep() -> bool:
-        decided.wait()
-        return verdict["keep"]
-
-    def run():
-        try:
-            # The previous page's lines can take a moment to arrive; waiting here keeps the reread going.
-            outcome["extras"] = notes_for(early)
-            translate(early, outcome["extras"], keep)
-        except Exception as e:
-            outcome["error"] = e
-
-    # The household member whose spend this is lives in the context, so the thread gets a copy.
-    worker = threading.Thread(target=contextvars.copy_context().run, args=(run,), daemon=True,
-                              name="quick-read-early-translate")
-    worker.start()
-    try:
-        changed = _timed_reread(bubbles, image, language, picture, split)
-        verdict["keep"] = changed == 0
-    finally:
-        decided.set()
-    if not verdict["keep"]:
-        return _translate_now(bubbles, notes_for, translate)
-    worker.join()
-    if "extras" not in outcome:
-        return _translate_now(bubbles, notes_for, translate)
-    # The next page may be reading these dicts for its previous lines, so they are never emptied;
-    # translating only adds or changes keys.
-    for bubble, answered in zip(bubbles, early):
-        bubble.update(answered)
-    return outcome["extras"], outcome.get("error")
-
-
-def _translate_now(bubbles, notes_for, translate) -> tuple:
-    extras = notes_for(bubbles)
-    try:
-        translate(bubbles, extras, None)
-    except Exception as e:
-        return extras, e
-    return extras, None
 
 
 def _lines_without_english(bubbles) -> list:
@@ -533,38 +456,6 @@ def _is_cover_page(bubbles) -> bool:
         b.get("kind") in scanlate.BALLOON_KINDS and (b.get("source_text") or "").strip() for b in bubbles)
 
 
-def _ask_again_for_empty_lines(bubbles, engine, meta, glossary, usage, extras: dict,
-                               split: dict | None, notes: list) -> None:
-    from scanlate import scanlate_translate
-    missing = _lines_without_english(bubbles)
-    if not missing:
-        return
-    from applog import get_logger
-    # A second engine call is a page's slowest case; the log says how often it happens.
-    get_logger().info("Extension page: %d of %d lines came back empty, asking again",
-                      len(missing), len(bubbles))
-    retry_started = time.monotonic()
-    for attempt in range(2):   # a line the model skips twice often comes back on the third ask
-        try:
-            scanlate_translate.translate_page_bubbles(
-                missing, engine, meta, previous_context="", glossary_terms=glossary,
-                usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                previous_lines=extras["previous_lines"],
-                # Only the first retry pays for the picture: a second one would double the slowest case.
-                page_image=extras.get("page_image") if attempt == 0 else None)
-        except Exception:
-            break  # the first call's own note already says why; this is a second chance only
-        missing = _lines_without_english(bubbles)
-        if not missing:
-            break
-    if split is not None:
-        split["retry"] = round(time.monotonic() - retry_started, 2)
-    left = len(_lines_without_english(bubbles))
-    if left:
-        notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
-                                 "translation after a retry"])
-
-
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
                          image: bytes = b"", in_order: bool = True, language: str = "",
                          turn=page_turns.UNORDERED, cover: bool = False,
@@ -574,6 +465,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
     does not wait for the title's previous page (page_turns.translate_in_chain)."""
     import db
+    from scanlate import scanlate_translate
     from services import quick_read_cache, quick_read_keep
     engine = _build_engine(config)
     if quick_read_keep.enabled():
@@ -594,6 +486,14 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     started = time.monotonic()
     glossary = (db.list_run_glossary_terms(drama) or None) if drama else None
     usage = _usage_cb(drama, config, engine)
+    # A stored page already saved its read, so a corrected reading would disagree with the copy
+    # the library keeps; only a page nothing is saved for (Quick read) gets the second look.
+    extras_started = time.monotonic()
+    extras = _page_extras(drama, config, engine, image, bubbles, language, glossary,
+                          reread=not in_order, split=split)
+    if split is not None:
+        split["extras"] = round(time.monotonic() - extras_started, 2)
+    extras["previous_lines"] = turn.previous_lines()
     # The prompt names the page's language; a Quick read page has no title to take it from.
     meta = drama or {"source_language": language or "zh"}
     title = "" if in_order else quick_read_cache.title_key(source_url)
@@ -602,46 +502,44 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         # Pages read side by side, and the next chapter of the same title, start from the names
         # and pronouns earlier pages settled; kept on disk as long as Quick read's page cache.
         page_turns.seed_title_memory(drama_id, chain_url, quick_read_cache.title_memory(title))
-    extras_started = time.monotonic()
-    picture = _picture_extras(drama, config, engine, image)
-    notes_language = _page_source_language(drama, language)
-
-    def notes_for(page) -> dict:
-        return {**_with_page_notes(picture, drama, notes_language, page, glossary),
-                "previous_lines": turn.previous_lines()}
-
-    if split is not None:
-        split["extras"] = round(time.monotonic() - extras_started, 2)
-    from services import page_reread_service
-    # A stored page already saved its read, so a corrected reading would disagree with the copy
-    # the library keeps; only a page nothing is saved for (Quick read) gets the second look.
-    rereads = not in_order and image and _page_readers(picture) and page_reread_service.hard_regions(bubbles)
-    # The early answer runs beside the page's own engine calls, so it gets its own engine.
-    early_engine = _build_engine(config) if rereads else None
-
-    def translate(page, page_extras, keep_result):
-        page_engine, page_usage = (engine, usage) if keep_result is None else (
-            early_engine, _usage_cb(drama, config, early_engine))
-        page_turns.translate_in_chain(drama_id, chain_url, page, page_engine, meta, glossary, page_usage,
-                                      wait_for_turn=in_order, keep_result=keep_result, **page_extras)
-
-    if early_engine is not None:
-        extras, failure = _translate_beside_reread(bubbles, image, notes_language, picture, split,
-                                                   notes_for, translate)
-    else:
-        if not in_order:
-            _timed_reread(bubbles, image, notes_language, picture, split)
-        extras, failure = _translate_now(bubbles, notes_for, translate)
-    if failure is not None:
+    try:
+        page_turns.translate_in_chain(drama_id, chain_url, bubbles, engine, meta, glossary, usage,
+                                      wait_for_turn=in_order, **extras)
+    except Exception as e:
         # The OCR text is still real and still useful, so it is returned rather than thrown
         # away -- the same choice the Scanlate pipeline makes on this failure.
-        notes.append(["warning", f"translation failed ({failure_detail(failure, member)}); "
+        notes.append(["warning", f"translation failed ({failure_detail(e, member)}); "
                                  "the source text below was still read"])
     if title:
         learned = page_turns.title_memory(drama_id, chain_url)
         if learned["names"] or learned["cast"]:
             quick_read_cache.remember_title(title, {**quick_read_cache.title_memory(title), **learned})
-    _ask_again_for_empty_lines(bubbles, engine, meta, glossary, usage, extras, split, notes)
+    missing = _lines_without_english(bubbles)
+    if missing:
+        from applog import get_logger
+        # A second engine call is a page's slowest case; the log says how often it happens.
+        get_logger().info("Extension page: %d of %d lines came back empty, asking again",
+                          len(missing), len(bubbles))
+        retry_started = time.monotonic()
+        for attempt in range(2):   # a line the model skips twice often comes back on the third ask
+            try:
+                scanlate_translate.translate_page_bubbles(
+                    missing, engine, meta, previous_context="", glossary_terms=glossary,
+                    usage_cb=usage, character_notes=extras.get("character_notes", ""),
+                    previous_lines=extras["previous_lines"],
+                    # Only the first retry pays for the picture: a second one would double the slowest case.
+                    page_image=extras.get("page_image") if attempt == 0 else None)
+            except Exception:
+                break  # the first call's own note already says why; this is a second chance only
+            missing = _lines_without_english(bubbles)
+            if not missing:
+                break
+        if split is not None:
+            split["retry"] = round(time.monotonic() - retry_started, 2)
+        left = len(_lines_without_english(bubbles))
+        if left:
+            notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
+                                     "translation after a retry"])
     return time.monotonic() - started
 
 
@@ -665,7 +563,9 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
                                       **_page_extras(drama, config, engine, image, missing, language,
                                                      glossary))
     except Exception as e:
-        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
+        # A partial answer is already in the dicts; keep those lines, as a first read does.
+        return ([["warning", f"translation failed ({failure_detail(e, member)})"]]
+                + page_capture_checks.save_filled_translations(page_id, missing, originals))
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
@@ -847,7 +747,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if mine is None:
                 return page_capture_checks.reused_page_response(
                     data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                    drama_pk, page["id"])
+                    drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
@@ -855,7 +755,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
                                                  config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
-                data, reuse_saved, reuse_notes, drama_pk, page["id"])
+                data, reuse_saved, reuse_notes, drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.

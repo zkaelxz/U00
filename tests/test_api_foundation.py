@@ -523,6 +523,8 @@ class TestExportReadinessEndpoint:
             "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
             "fully_translated": True,
             "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
+            "sound_captioned_lines": 0,
+            "ear_marked_lines": 0,
         }
 
     def test_unknown_drama_is_404(self, local_client, isolated_db):

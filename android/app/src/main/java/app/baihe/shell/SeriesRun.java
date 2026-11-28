@@ -7,6 +7,7 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -108,34 +109,95 @@ final class SeriesRun {
         return out;
     }
 
-    /** A finished run that sent its pages; a stopped or failed one is grabbed again. */
-    static boolean isDone(GrabQueue.Done done) {
-        return done.message.startsWith("Sent ");
+    /** Enough for several long series; the oldest keys go first. */
+    static final int MAX_DONE = 5000;
+
+    /** The stored list of finished chapter keys with this chapter added last. */
+    static String withDone(String json, String url) {
+        String k = key(url);
+        List<String> keys = new ArrayList<>(doneKeys(json));
+        if (!k.isEmpty()) {
+            keys.remove(k);
+            keys.add(k);
+        }
+        int from = Math.max(0, keys.size() - MAX_DONE);
+        return new JSONArray(keys.subList(from, keys.size())).toString();
     }
 
-    /** Whether a finished run already sent this chapter, so a run to the last chapter can stop where an earlier one got to. */
-    static boolean alreadyDone(String url, List<GrabQueue.Done> history) {
+    static LinkedHashSet<String> doneKeys(String json) {
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        try {
+            JSONArray rows = new JSONArray(json == null || json.isEmpty() ? "[]" : json);
+            for (int i = 0; i < rows.length(); i++) {
+                String k = rows.optString(i, "");
+                if (!k.isEmpty()) out.add(k);
+            }
+        } catch (org.json.JSONException e) {
+            // A damaged list remembers nothing, so chapters are grabbed again rather than skipped.
+        }
+        return out;
+    }
+
+    /**
+     * A history row written before chapters were remembered on their own. Only a row that sent
+     * every page with English counts; anything partial is grabbed again.
+     */
+    static boolean isDone(GrabQueue.Done done) {
+        String m = done.message;
+        return m.startsWith("Sent ") && !m.startsWith("Sent 0 ") && !m.contains("Not sent")
+                && !m.contains("without English");
+    }
+
+    /** Whether an earlier run already sent this chapter, so a run to the last chapter can stop where an earlier one got to. */
+    static boolean alreadyDone(String url, Set<String> done, List<GrabQueue.Done> history) {
         String k = key(url);
         if (k.isEmpty()) return false;
+        if (done.contains(k)) return true;
         for (GrabQueue.Done d : history) if (isDone(d) && key(d.url).equals(k)) return true;
         return false;
     }
 
-    static Plan plan(List<GrabQueue.Item> links, List<GrabQueue.Done> history, List<GrabQueue.Item> queue) {
-        Set<String> finished = new HashSet<>();
-        for (GrabQueue.Done d : history) if (isDone(d)) finished.add(key(d.url));
+    /**
+     * Whether a run to the last chapter should stop before `next`. A site that names its chapters
+     * only in the query (chapter.php?id=N) gives every chapter the same key, so a next chapter that
+     * looks like the one just grabbed is not taken as grabbed before.
+     */
+    static boolean stopsBefore(String next, String current, Set<String> done, List<GrabQueue.Done> history) {
+        return !key(next).equals(key(current)) && alreadyDone(next, done, history);
+    }
+
+    /** Every chapter a series run skips: the finished list plus the older history rows that count. */
+    static Set<String> finished(Set<String> done, List<GrabQueue.Done> history) {
+        Set<String> out = new HashSet<>(done);
+        for (GrabQueue.Done d : history) {
+            String k = key(d.url);
+            if (isDone(d) && !k.isEmpty()) out.add(k);
+        }
+        return out;
+    }
+
+    /** History rows written after `at`, so "Forget finished chapters" also covers rows already in the history. */
+    static List<GrabQueue.Done> since(List<GrabQueue.Done> history, long at) {
+        List<GrabQueue.Done> out = new ArrayList<>();
+        for (GrabQueue.Done d : history) if (d.at > at) out.add(d);
+        return out;
+    }
+
+    static Plan plan(List<GrabQueue.Item> links, Set<String> done, List<GrabQueue.Done> history,
+                     List<GrabQueue.Item> queue) {
+        Set<String> finished = finished(done, history);
         Set<String> waiting = new HashSet<>();
         for (GrabQueue.Item q : queue) waiting.add(key(q.url));
         List<GrabQueue.Item> fresh = new ArrayList<>();
-        int done = 0;
+        int doneCount = 0;
         int queued = 0;
         for (GrabQueue.Item item : readingOrder(links)) {
             String k = key(item.url);
-            if (finished.contains(k)) done++;
+            if (finished.contains(k)) doneCount++;
             else if (waiting.contains(k)) queued++;
             else fresh.add(item);
         }
-        return new Plan(fresh, links.size(), done, queued);
+        return new Plan(fresh, links.size(), doneCount, queued);
     }
 
     /** What the person is told before anything starts: the size of the job and what it can cost. */

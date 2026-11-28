@@ -134,8 +134,9 @@ test('a search for who can sign in links to People and access', async ({ page })
   await page.getByRole('navigation', { name: 'On other pages' }).getByRole('link', { name: 'People and access: Activity log' }).click()
   await expect(page).toHaveURL(/#\/admin\?card=activity$/)
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
-  // The link opens the card it names, which is shut on a plain visit.
-  await expect(page.locator('#admin-card-activity details.section').first()).toHaveAttribute('open', '')
+  // The link shows the pane it names, which a plain visit does not.
+  await expect(page.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('heading', { name: 'Activity log', level: 2 })).toBeVisible()
 })
 
 test('deep links land on the Advanced tab with the card open', async ({ page }) => {

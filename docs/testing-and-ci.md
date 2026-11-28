@@ -32,8 +32,8 @@ access), and ownership checks. When in doubt, treat a PR as risky. Release tags 
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, that thread merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
-   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
-   the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
+   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start the run and turn auto-merge on
+   straight away once the review has passed; there is no wait for other PR runs (owner, 2026-11-28).
 2. **The order.** Once the independent review passes (and, for a risky PR, the security review), the owning thread checks the lane
    (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it when the checks are
    green. No typed "Merge NNNN" or other word from the owner is needed, and none is a merge order.
@@ -108,7 +108,7 @@ through `--ff` and a restored `.pytest_cache`), `optional-tests` (installs jieba
 matrix was skipped, and fails if any shard failed or `changes` did; it exists so branch protection keeps its `test` name),
 `frontend` (build, vitest, lint), `e2e` (Playwright in seven jobs: five for the desktop and Catalogue projects, two for the phone project, which `E2E_PROJECT_GROUP` in `frontend/playwright.config.ts` picks; Playwright shards by test count and a phone test takes about twice as long), `smoke` (see "Real-app smoke test" below; `test` fails if it failed), `windows-scripts` (see "Windows script checks" below; `test`
 also fails if it failed, and passes when it was skipped) and `caddy` (see "Caddy check" below; the same rule). `windows-bootstrap.yml` (its own workflow with one job,
-`bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself)
+`bootstrap`, path-filtered to `start.bat`, `requirements-core.txt`, `constraints.txt`, `check_setup.py`, `api/**`, `frontend/**` and itself; on a PR it waits, as the browser tests do, until auto-merge is on or the `full-ci` label is added)
 and `windows-installer.yml` (job `installer`, plus `release` for a tag, which publishes a pre-release) cover the installer; `promote-release.yml` (run by hand, behind the `release-main` environment) makes a tested pre-release the full release. `dependency-canary.yml` and
 `dependency-audit.yml` are weekly scheduled runs, never a PR gate (see "Testing a dependency upgrade" below). The four guard files are ignored only in the workflow's `test-shard` command lines;
 `python run_tests.py` and the local commands above still run everything.
@@ -257,7 +257,10 @@ squash commit carries them), or the message, author or committer of a commit the
 owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). Tests calls it from `.github/workflows/privacy.yml`, which also runs by itself on every push to a `claude/` branch, since such a branch is public as soon as it is pushed, PR or not. The terms live only in the
 `PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job prints the file and line,
 the commit or which PR field, never the term. Fix a hit by using a made-up value (`Alex Example`, `DESKTOP-EXAMPLE`,
-`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. Dependabot runs get
+`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. A public VTuber stage name in the
+language packs that holds a term (owner's choice, 2026-11-28) is allowed by listing that exact phrase in the
+`PRIVATE_ALLOW` secret, one per line, matched in any case and honoured only under `language_pack_data/`: a line still
+fails when any term is left once the listed phrases are taken out. Dependabot runs get
 no secrets and skip it; any other run without the secret fails, which includes fork PRs. The secret is only as private
 as push access, since a branch of this repository can change the workflow. Keep very short or common words out of the
 list: the runner masks each term in the log. To change the list, update the secret (`gh secret set PRIVATE_TERMS <

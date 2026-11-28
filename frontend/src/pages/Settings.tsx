@@ -80,7 +80,7 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   use_gpu:
     'Transcription, speaker detection and comic text removal run on the GPU when there is one (much faster). Off runs them on the processor, and a title with Separate vocals first turned on stops, because that step cannot be kept off the GPU.',
   bulk_auto_resume:
-    'After a restart, unfinished paid translation batches wait until you press Resume on the title, and one notification says so, so nothing is spent until then.',
+    'On: after a restart, unfinished translation batches wait until you press Resume on the title, and one notification says so, so nothing is spent until then. Off: they still wait for Resume, with no notification.',
 }
 
 // Cards that disappear with a feature switch (lib/features.py). The extension's

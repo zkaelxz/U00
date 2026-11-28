@@ -150,10 +150,10 @@ def start_narration_run(drama_id: int, engine_name: Optional[str] = None,
     job_id = f"narration_{drama_id}"
     started = job_launch.start_job(
         job_id, _run_narration_job, job_id, drama_id, text, engine_name, api_key, model,
-        description=f"Chunk & tag (title {drama_id})", fresh=bool(fresh),
+        description=f"Split and name speakers (title {drama_id})", fresh=bool(fresh),
         append=bool(append), chapters=selection, one_narrator=bool(one_narrator), line_fields=db.FULL_SYNC)
     if not started:
-        raise ConflictError("A narration chunk & tag run is already active for this title.")
+        raise ConflictError("A split-and-name run is already active for this title.")
     return {"job_id": job_id}
 
 
@@ -269,10 +269,10 @@ def _pending_tail(drama_id: int, text: str) -> str:
     chars, length = waiting.chars, waiting.length
     if length != len(text):
         raise ConflictError("The translation text changed after the chapters were added, so their lines "
-                            "can't be cut on their own. Run chunk & tag again from the Media tab.")
+                            "can't be cut on their own. Run Split and name speakers again in Media.")
     saved = db.load_lines(drama_id)
     if not saved:
-        raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")
+        raise InvalidInputError("This title has no lines to add to; run Split and name speakers first.")
     if lines_already_added(waiting, text, [ln["zh"] if isinstance(ln, dict) else ln.zh for ln in saved]):
         # A stop between saving the lines and clearing the marker: adding them again would repeat them.
         novel_text.clear_pending_lines(os.path.join(db.DRAMAS_DIR, str(drama_id)))
@@ -478,7 +478,7 @@ def _save_chapters(job_id, drama_id, lines, chapters, whole_text, notice=None):
     for label in sorted({ln.speaker or "Narrator" for ln in lines}):
         db.upsert_character(drama_id, label, character_name=label)
     if existing:
-        db.save_line_history_snapshot(drama_id, existing, "before chunk & tag chapters")
+        db.save_line_history_snapshot(drama_id, existing, "before split and name speakers (chapters)")
     db.save_lines(drama_id, result_lines, expect_unchanged=existing)
     db.update_drama(drama_id, status="aligned")
     finish_tagging_checkpoint(drama_id)
@@ -497,7 +497,7 @@ def _save_lines(job_id, drama_id, lines, notice=None):
     background_jobs.cancel_line_jobs(drama_id)
     existing = db.load_line_objects(drama_id)
     if existing:
-        db.save_line_history_snapshot(drama_id, existing, "before chunk & tag speakers")
+        db.save_line_history_snapshot(drama_id, existing, "before split and name speakers")
     _carry_over_existing(lines, existing)
     # Full sync on purpose: the list is the drama's lines now; text that is
     # gone loses its row, unchanged text keeps its row through the carry-over.

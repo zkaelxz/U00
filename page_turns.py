@@ -94,7 +94,7 @@ def _evict_idle_chains():
 
 
 def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
-                       wait_for_turn: bool = True, keep_result=None, **extras):
+                       wait_for_turn: bool = True, **extras):
     """Translates one page as the next link of its title's context chain.
     Other titles never wait on this title's lock. `extras` (character_notes,
     page_image) go to `translate_page_bubbles` as given.
@@ -102,9 +102,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
     `wait_for_turn=False` (Quick read, which keeps nothing) skips the title's
     lock: the page reads the summary of whichever page finished last and
     leaves its own, so pages translate side by side at the cost of a looser
-    story link between pages in flight together. There, `keep_result` is asked
-    once the answer is in: False leaves the title's names, pronouns and summary
-    as they were, for an answer the caller throws away."""
+    story link between pages in flight together."""
     from scanlate import scanlate_translate
     key = _chain_key(drama_id, source_url)
     if key is not None and not wait_for_turn:
@@ -113,15 +111,11 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
             names = dict(_chapter_names.get(key, {}))
             cast = {name: dict(votes) for name, votes in _cast.get(key, {}).items()}
             before = {name: dict(votes) for name, votes in cast.items()}
-        discard = False
         try:
             new_context = scanlate_translate.translate_page_bubbles(
                 bubbles, engine, drama or {}, previous_context=previous,
                 glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, cast=cast, **extras)
         finally:
-            discard = keep_result is not None and not keep_result()
-            if discard:
-                names, cast = {}, {}
             # Names from an answer that applied only in part are still the model's spelling.
             with _context_lock:
                 if names:
@@ -143,8 +137,6 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                     _cast.pop(key, None)
                 while len(_cast) > MAX_CHAINS:
                     _cast.pop(next(iter(_cast)))
-        if discard:
-            return
         with _context_lock:
             _contexts[key] = new_context
             _contexts.move_to_end(key)

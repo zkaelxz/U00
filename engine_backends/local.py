@@ -518,9 +518,9 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int | None
         payload = dict(payload, model=direct_cloud_model(model))
         unreachable = ("ollama_cloud_unreachable",
                        "Couldn't reach Ollama's servers. Check this PC's internet connection, "
-                       "or pick a local model.")
+                       "or pick another engine.")
         too_slow = ("ollama_timeout", "Ollama's servers took too long to answer. Try again later, "
-                                      "or pick a local model.")
+                                      "or pick another engine.")
     else:
         url, kwargs = f"{base_url}/api/chat", {}
         unreachable = ("ollama_unreachable",
@@ -551,11 +551,11 @@ def _ollama_chat_request(post, base_url: str, payload: dict, timeout: int | None
                 raise OllamaUnavailableError(
                     "ollama_cloud_key_refused",
                     "Ollama refused your API key. Paste a new one under Settings > Your Ollama "
-                    "key, or pick a local model.") from None
+                    "key, or pick another engine.") from None
             raise OllamaUnavailableError(
                 "ollama_cloud_signin",
-                "Ollama cloud models need you to be signed in. Run \"ollama signin\", "
-                "or pick a local model in Settings.") from None
+                "Ollama cloud models need you to be signed in. Run \"ollama signin\" on this PC, "
+                "or pick another engine.") from None
         if status != 404:
             # Closing a streamed response discards its body, and the caller
             # needs the server's wording to tell "can't think" from other 400s.
@@ -594,7 +594,7 @@ class OllamaCloudLimitError(Exception):
                  if own_key else
                  "Ollama's cloud models are rate-limited or over its usage limit right now. ")
         super().__init__(
-            whose + "Wait and resume the run later, use a local model, or check your Ollama plan."
+            whose + "Wait and resume the run later, use another engine, or check your Ollama plan."
             + (f" Ollama said: {detail}" if detail else ""))
 
 

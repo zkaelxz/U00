@@ -679,12 +679,12 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
         if covered is None:
             raise ConflictError(
                 "The translation text is not a copy of the first saved chapters (it was pasted, edited or cut), "
-                "so the new chapters can't be added to it automatically. Add them in the Media tab.")
+                "so the new chapters can't be added to it automatically. Add them in Media.")
         # A text that already holds every saved chapter has nothing to put back: a retried add is a no-op.
         if from_chapter is not None and covered != from_chapter - 1 and covered != len(chapters):
             raise ConflictError(
                 f"The translation text holds {covered} saved chapters, not the {from_chapter - 1} expected, so "
-                "the new chapters can't be told apart. Add them in the Media tab.")
+                "the new chapters can't be told apart. Add them in Media.")
         tail = "\n\n".join(chapters[covered:]).strip()
         waiting = novel_text.read_pending_lines(folder)
         if not tail:
@@ -700,7 +700,7 @@ def add_new_chapters_from_sources(drama_id: int, from_chapter: int | None = None
             # The text changed after the earlier chapters were added, so where their lines start is not known;
             # starting a new marker would leave them without lines for good.
             raise ConflictError("The translation text changed after the last chapters were added without lines, "
-                                "so more can't be added yet. Run chunk & tag again from the Media tab.")
+                                "so more can't be added yet. Run Split and name speakers again in Media.")
         # Before the write, like a replace: only the chapters read above are settled, so one the phone saves
         # meanwhile stays counted.
         _settle_phone_added(drama_id, folder, phone_seen)

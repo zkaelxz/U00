@@ -18,12 +18,12 @@ const SHOTS = process.env.SWEEP_SHOTS_DIR
 const NO_HEADER = '.app-header { visibility: hidden !important; }'
 
 for (const theme of ['light', 'dark', 'sepia', 'oled']) {
-  test(`Settings sweep: estimate, start, and a finished recommendation (${theme})`, async ({ page }) => {
+  test(`Transcription sweep: estimate, start, and a finished recommendation (${theme})`, async ({ page }) => {
     await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
     await mockLab(page, () => null)
     await page.goto('/#/benchmark')
-    await openBenchTab(page, 'Settings sweep')
-    const card = page.getByRole('region', { name: 'Settings sweep' })
+    await openBenchTab(page, 'Transcription sweep')
+    const card = page.getByRole('region', { name: 'Transcription sweep' })
     await expect(card.getByLabel('Golden set', { exact: true })).toHaveValue('My drama clips')
     // Only sets with audio clips are offered.
     await expect(card.getByLabel('Golden set', { exact: true }).locator('option')).toHaveCount(1)
@@ -47,7 +47,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     if (SHOTS) await card.screenshot({ path: `${SHOTS}/sweep-running-${theme}-desktop.png`, style: NO_HEADER })
   })
 
-  test(`Settings sweep: the recommendation and approving it (${theme})`, async ({ page }) => {
+  test(`Transcription sweep: the recommendation and approving it (${theme})`, async ({ page }) => {
     await page.addInitScript((t) => localStorage.setItem('baihe.theme', t), theme)
     let sweep: Record<string, unknown> = finished
     await mockLab(page, () => sweep)
@@ -59,7 +59,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
       return r.fulfill({ json: { sweep } })
     })
     await page.goto('/#/benchmark?tab=sweep')
-    const card = page.getByRole('region', { name: 'Settings sweep' })
+    const card = page.getByRole('region', { name: 'Transcription sweep' })
     const rec = card.getByTestId('sweep-recommendation')
     await expect(rec).toContainText('Change recommended')
     await expect(rec).toContainText('large-v3, Minimum silence (ms) 500')
