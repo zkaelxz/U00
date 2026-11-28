@@ -659,7 +659,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb))
+        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb,
+        standalone_extra_speech=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
