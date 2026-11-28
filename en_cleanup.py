@@ -221,6 +221,16 @@ def _dash_replacement(text: str, m, line_prefixes) -> str:
     return ", "
 
 
+SCENE_BREAK = "* * *"
+# A novel's scene divider ("————————", "-----", "＊＊＊"). Dots and tildes are left out:
+# "・・・" and "～～～" are pauses and humming, which get translated.
+_DIVIDER_RE = re.compile(r"[ \t]*[-\u2010-\u2015=*\uFF0A\u2500\u2501 \t]{3,}[ \t]*")
+
+
+def is_divider(text: str) -> bool:
+    return bool(text) and sum(not c.isspace() for c in text) >= 3 and bool(_DIVIDER_RE.fullmatch(text))
+
+
 # A dash in the source ("——", "―", "─", "－－", "--") is the author's own, so the English keeps its dashes.
 _SOURCE_DASH_RE = re.compile(r"[\u2014\u2015\u2500\u2501]|\uFF0D\uFF0D|--")
 
