@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useId, useState } from 'react'
 
 import { engineGate } from './workspace/stages/engineReady'
 import { packagesHref } from './readiness/packagesHref'
@@ -26,7 +26,7 @@ import { useHolds } from '../hooks/useHolds'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useStoredState } from '../hooks/useStoredRun'
-import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { DownloadResultButton, FileOrScreenshotMenu, FileStatus } from './TranslateFileControls'
 import { appendRead } from './readImage'
 import { TranslateReadImage } from './TranslateReadImage'
 import {
@@ -77,6 +77,8 @@ export default function TranslatePage() {
   const [clearing, setClearing] = useState(false)
   const [clearError, setClearError] = useState<unknown>(null)
   const pc = usePcOnly()
+  const fileId = useId()
+  const fileStatusId = `${fileId}-status`
   // The server holds a named paid engine to engines.paid and runs an omitted one on what the account may use.
   const canTranslate = useHolds('jobs.start')
   const chosen = useChosenForYou()
@@ -196,7 +198,23 @@ export default function TranslatePage() {
   const shown = visibleHistory(history, showAll)
 
   return (
-    <PageShell width="standard" title="Text" label="Text" className="translate-page" meta="Quick text translation, outside any title. One side is always English.">
+    <PageShell
+      width="standard"
+      title="Text"
+      label="Text"
+      className="translate-page"
+      meta="Quick text translation, outside any title. One side is always English."
+      actions={
+        <FileOrScreenshotMenu
+          fileId={fileId}
+          fileStatusId={fileStatusId}
+          target={{ setText, setSourceName, setFileMessage }}
+          canRead={canTranslate}
+          readOpen={readOpen}
+          onRead={() => setReadOpen(!readOpen)}
+        />
+      }
+    >
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Card className="translate-card" as="div">
         <form onSubmit={submit} className="translate-form">
@@ -255,17 +273,24 @@ export default function TranslatePage() {
             </p>
           )}
 
+          {readOpen && canTranslate && (
+            <TranslateReadImage
+              engines={engines}
+              pageEngine={engine}
+              language={direction === 'to_english' ? pair.source_language : ''}
+              allowed={canTranslate}
+              auto={auto}
+              onText={(read) => setText((current) => appendRead(current, read))}
+              onClose={() => setReadOpen(false)}
+            />
+          )}
           <div className="translate-panes">
             <div className="translate-pane translate-source">
               <div className="translate-pane-head">
                 <label htmlFor="translate-text" className="translate-pane-title">
                   Text to translate <span className="muted">· {sourceLabel}</span>
                 </label>
-                <OpenFileField
-                  sourceName={sourceName}
-                  message={fileMessage}
-                  target={{ setText, setSourceName, setFileMessage }}
-                />
+                <FileStatus id={fileStatusId} sourceName={sourceName} message={fileMessage} />
               </div>
               <textarea
                 id="translate-text"
@@ -273,6 +298,8 @@ export default function TranslatePage() {
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
+            </div>
+            <div className="translate-run">
               <div className="actions translate-actions">
                 <button
                   type="submit"
@@ -290,41 +317,20 @@ export default function TranslatePage() {
                 >
                   Clear
                 </button>
-                {canTranslate && (
-                  <button
-                    type="button"
-                    className={buttonClass('secondary')}
-                    aria-expanded={readOpen}
-                    onClick={() => setReadOpen(!readOpen)}
+                {estimate && estimate.estimated_usd > 0 && (
+                  <p
+                    data-testid="translate-estimate"
+                    className={estimate.fits_cap ? 'muted' : 'translate-warning'}
+                    role="status"
                   >
-                    Read from a screenshot…
-                  </button>
+                    About ${estimate.estimated_usd.toFixed(2)}
+                    {estimate.cap_left_usd !== null
+                      ? `; cap left $${estimate.cap_left_usd.toFixed(2)}${estimate.fits_cap ? '' : ': it will stop before the end'}`
+                      : ''}
+                    .
+                  </p>
                 )}
               </div>
-              {readOpen && canTranslate && (
-                <TranslateReadImage
-                  engines={engines}
-                  pageEngine={engine}
-                  language={direction === 'to_english' ? pair.source_language : ''}
-                  allowed={canTranslate}
-                  auto={auto}
-                  onText={(read) => setText((current) => appendRead(current, read))}
-                  onClose={() => setReadOpen(false)}
-                />
-              )}
-              {estimate && estimate.estimated_usd > 0 && (
-                <p
-                  data-testid="translate-estimate"
-                  className={estimate.fits_cap ? 'muted' : 'translate-warning'}
-                  role="status"
-                >
-                  About ${estimate.estimated_usd.toFixed(2)}
-                  {estimate.cap_left_usd !== null
-                    ? `; cap left $${estimate.cap_left_usd.toFixed(2)}${estimate.fits_cap ? '' : ': it will stop before the end'}`
-                    : ''}
-                  .
-                </p>
-              )}
               {!canTranslate && (
                 <p id="translate-needs-permission" className="translate-warning">
                   Text translation isn't allowed for this account. Ask the PC owner to allow it.
@@ -347,7 +353,6 @@ export default function TranslatePage() {
                 </p>
               )}
             </div>
-
             <div
               className="translate-pane translate-result-pane"
               role="region"

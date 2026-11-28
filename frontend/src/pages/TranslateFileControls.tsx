@@ -1,11 +1,10 @@
 /*
- * "Open a file" field and "Download" button for the Translate page.
+ * The "+ File or screenshot" menu, its "Open a file" field and the "Download" button for the Translate page.
  * Pure logic lives in translateFile.ts; these handlers take their browser
  * pieces (FileReader, object URLs) as arguments so they can be tested in node.
  */
-import { useId } from 'react'
-
 import { buttonClass } from '../components/uiClasses'
+import { useDetailsMenu } from '../hooks/useDetailsMenu'
 import {
   ACCEPT_ATTR,
   downloadName,
@@ -16,20 +15,20 @@ import {
   type FileLoadTarget,
 } from './translateFile'
 
-// The native file input is visually hidden; its <label> is drawn as a small
-// secondary button (focus shows on the label via translate.css). The hint and
-// the result line stay visible text, never a tooltip.
+// The native file input is visually hidden; its <label> is drawn as a row of the page's "+ File or screenshot"
+// menu (focus shows on the label via translate.css). The file's name or error is FileStatus, outside the menu,
+// so it stays in view once the menu closes.
 export function OpenFileField({
-  sourceName,
-  message,
+  id,
+  statusId,
   target,
+  onChosen,
 }: {
-  sourceName: string | null
-  message: string | null
+  id: string
+  statusId: string
   target: FileLoadTarget
+  onChosen?: (input: HTMLInputElement) => void
 }) {
-  const id = useId()
-  const hintId = `${id}-hint`
   return (
     <div className="translate-file">
       <input
@@ -37,31 +36,75 @@ export function OpenFileField({
         type="file"
         className="visually-hidden"
         accept={ACCEPT_ATTR}
-        aria-describedby={hintId}
+        aria-describedby={`${id}-hint ${statusId}`}
         onChange={(e) => {
           const input = e.currentTarget
+          onChosen?.(input)
           void loadChosenFile(input.files?.[0], target, fileReaderBytes).finally(() => {
             input.value = ''
           })
         }}
       />
-      <label htmlFor={id} className={buttonClass('secondary', 'sm')}>
-        Open a file…
-      </label>
-      {message ? (
-        <span id={hintId} className="translate-file-error" role="alert">
-          {message}
-        </span>
-      ) : sourceName ? (
-        <span id={hintId} className="muted" role="status">
-          Loaded {sourceName}
-        </span>
-      ) : (
-        <span id={hintId} className="muted">
-          .txt, .md or .epub; replaces the text below
-        </span>
-      )}
+      <label htmlFor={id}>Open a file…</label>
+      <span id={`${id}-hint`} className="muted">.txt, .md or .epub; replaces the text</span>
     </div>
+  )
+}
+
+export function FileOrScreenshotMenu({
+  fileId,
+  fileStatusId,
+  target,
+  canRead,
+  readOpen,
+  onRead,
+}: {
+  fileId: string
+  fileStatusId: string
+  target: FileLoadTarget
+  canRead: boolean
+  readOpen: boolean
+  onRead: () => void
+}) {
+  const menu = useDetailsMenu()
+  const close = (from: Element) => {
+    const details = from.closest('details')
+    if (details) details.open = false
+  }
+  return (
+    <details className="translate-add" ref={menu}>
+      <summary className={buttonClass('secondary')}>+ File or screenshot</summary>
+      <div className="translate-add-panel">
+        <OpenFileField id={fileId} statusId={fileStatusId} target={target} onChosen={close} />
+        {canRead && (
+          <button
+            type="button"
+            aria-expanded={readOpen}
+            onClick={(e) => {
+              onRead()
+              close(e.currentTarget)
+            }}
+          >
+            Read from a screenshot…
+          </button>
+        )}
+      </div>
+    </details>
+  )
+}
+
+export function FileStatus({ id, sourceName, message }: { id: string; sourceName: string | null; message: string | null }) {
+  if (message) {
+    return (
+      <span id={id} className="translate-file-error" role="alert">
+        {message}
+      </span>
+    )
+  }
+  return (
+    <span id={id} className="muted" role="status">
+      {sourceName ? `Loaded ${sourceName}` : ''}
+    </span>
   )
 }
 
