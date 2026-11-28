@@ -224,7 +224,7 @@ def _dash_replacement(text: str, m, line_prefixes) -> str:
 SCENE_BREAK = "* * *"
 # A novel's scene divider ("————————", "-----", "＊＊＊"). Dots and tildes are left out:
 # "・・・" and "～～～" are pauses and humming, which get translated.
-_DIVIDER_RE = re.compile(r"[ \t]*[-\u2010-\u2015=*\uFF0A\u2500\u2501 \t]{3,}[ \t]*")
+_DIVIDER_RE = re.compile(r"[ \t\u3000]*[-\u2010-\u2015=*\uFF0A\uFF0D\uFF1D\u2500\u2501 \t\u3000]{3,}[ \t\u3000]*")
 
 
 def is_divider(text: str) -> bool:
