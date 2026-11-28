@@ -133,3 +133,31 @@ test('Library keeps only a summary and links to Library tools', async ({ page })
   await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Library' }).click()
   await expect(page.getByTestId('drama-count')).toBeVisible()
 })
+
+test('title names use the text font; Traditional Chinese takes Taiwan fonts', async ({ page }) => {
+  await page.goto('/')
+  const name = dramas(page).getByRole('link', { name: 'Signal', exact: true }).first()
+  await expect(name).toBeVisible()
+  const style = await name.evaluate((el) => ({ family: getComputedStyle(el).fontFamily, weight: getComputedStyle(el).fontWeight, lang: el.getAttribute('lang') }))
+  expect(style.family).toMatch(/^Figtree,/)
+  expect(style.weight).toBe('650')
+  expect(style.lang).toBeNull()
+  // The CSS alone: a name or line marked zh-Hant gets the Taiwan stack, a zh-Hans one the mainland stack.
+  const families = await page.evaluate(() => {
+    const probe = (lang: string, cls: string) => {
+      const el = document.createElement('span')
+      el.className = cls
+      el.lang = lang
+      el.textContent = '臺灣'
+      document.body.append(el)
+      const family = getComputedStyle(el).fontFamily
+      el.remove()
+      return family
+    }
+    return { titleHant: probe('zh-Hant', 'table-title'), lineHant: probe('zh-Hant', ''), lineHans: probe('zh-Hans', '') }
+  })
+  expect(families.titleHant).toContain('Microsoft JhengHei UI')
+  expect(families.lineHant).toContain('PingFang TC')
+  expect(families.lineHans).toContain('PingFang SC')
+  expect(families.lineHans).not.toContain('PingFang TC')
+})

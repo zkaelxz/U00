@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { getPeaks } from '../../../../api/media'
 import { listAllLines, listLines } from '../../../../api/review'
 import { buttonClass } from '../../../../components/uiClasses'
+import { chineseLang } from '../../../../hanScript'
 import { lineNumber } from '../../../../lineNumber'
 import { routeHref } from '../../../../router'
 import type { ReviewLine, ReviewLinesPage } from '../../../../types/review'
@@ -13,6 +14,7 @@ import { ReasonDetails } from './LineRow'
 import type { PlayerHandle } from './Player'
 import { sourceTextLang } from './reviewDraft'
 import { formatTenths, PAGE_SIZE, pageForPosition } from './reviewLogic'
+import { useTitleTextLang } from '../../StageContext'
 
 // Half a second either side shows where the speech starts and stops around the line.
 const SOUND_PAD_S = 0.5
@@ -166,10 +168,11 @@ export function LineWhy({ dramaId, line }: { dramaId: number; line: ReviewLine }
 }
 
 function NearText({ line, sourceLanguage }: { line: ReviewLine; sourceLanguage: string | null }) {
+  const titleLang = useTitleTextLang()
   return (
     <>
       <span className="this-line-near-zh">
-        <span className="this-line-near-idx">#{lineNumber(line.idx)}</span> <span lang={sourceTextLang(line.lang, sourceLanguage)}>{line.zh}</span>
+        <span className="this-line-near-idx">#{lineNumber(line.idx)}</span> <span lang={chineseLang(sourceTextLang(line.lang, sourceLanguage), line.zh, titleLang)}>{line.zh}</span>
       </span>
       <span className="this-line-near-en">{line.en || <span className="muted review-untranslated">Not translated</span>}</span>
     </>

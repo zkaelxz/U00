@@ -14,6 +14,7 @@ import { PageShell } from '../../components/PageShell'
 import { Tabs } from '../../components/Tabs'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import { dramaName, workspaceHref } from '../../components/libraryView'
+import { nameLang } from '../../hanScript'
 import { tabButtonId, tabPanelId } from '../../components/tabIds'
 import { buttonClass } from '../../components/uiClasses'
 import { useHolds } from '../../hooks/useHolds'
@@ -64,7 +65,7 @@ function TitlesTab({ data }: { data: SeriesPageData }) {
       {ordered.map((t) => (
         <li key={t.id} className="series-title-row">
           <div className="series-title-text">
-            <a className="table-title" href={workspaceHref(t.id)}>
+            <a className="table-title" href={workspaceHref(t.id)} lang={nameLang(dramaName(t), t)}>
               {t.episode_number != null && <span className="muted">#{t.episode_number} </span>}
               {dramaName(t)}
             </a>
@@ -383,7 +384,7 @@ export default function SeriesPage({ id, tab: initialTab }: { id: number; tab?: 
     <PageShell
       width="standard"
       className="series-page"
-      title={data?.name ?? 'Series'}
+      title={data ? <span className="title-name" lang={nameLang(data.name, {})}>{data.name}</span> : 'Series'}
       back={(
         <nav aria-label="Breadcrumb" className="reader-crumbs">
           <a href={routeHref({ name: 'library' })}>Library</a>
