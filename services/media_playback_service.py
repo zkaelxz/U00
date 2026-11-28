@@ -57,8 +57,8 @@ def burn_preview_ass(lines, line, style_state, pad=2.0):
     same way the vertical export is. style_state: optional {style,
     speaker_colors, speaker_names, wrap_chars, language,
     chinese_script, frame_aspect, ear_placement, field, source_text}; None
-    or no style = the "Clean" preset. No field, or "en" on a line with no
-    English yet, shows the original text."""
+    or no style = the "Clean" preset. No field means "en"; "en" on a line
+    with no English yet shows the original text."""
     style_state = style_state or {}
     start, end = max(line.start - pad, 0.0), line.end + pad
     field = style_state.get("field") or "en"
