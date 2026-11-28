@@ -395,6 +395,9 @@ class SettingsOverview(BaseModel):
     offer_provider_models: bool = False
     # On and not lapsed (settings_service.remote_uploads_on).
     remote_uploads: bool = False
+    # When it was turned on (Unix seconds); None while off.
+    remote_uploads_since: Optional[float] = None
+    remote_uploads_auto_off: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     # BAIHE_MAX_UPLOAD_MB set: it wins over preferences.max_upload_mb.
@@ -439,6 +442,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     bulk_auto_resume: Optional[StrictBool] = None
     offer_provider_models: Optional[StrictBool] = None
     remote_uploads: Optional[StrictBool] = None
+    remote_uploads_auto_off: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)

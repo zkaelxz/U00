@@ -16575,6 +16575,13 @@ export interface components {
              */
             remote_uploads: boolean;
             /**
+             * Remote Uploads Auto Off
+             * @default false
+             */
+            remote_uploads_auto_off: boolean;
+            /** Remote Uploads Since */
+            remote_uploads_since: number | null;
+            /**
              * Upload Max Mb From Env
              * @default false
              */
@@ -17148,6 +17155,8 @@ export interface components {
             realign_pause_seconds?: number | null;
             /** Remote Uploads */
             remote_uploads?: boolean | null;
+            /** Remote Uploads Auto Off */
+            remote_uploads_auto_off?: boolean | null;
             /** Repeat Loop Min Repeats */
             repeat_loop_min_repeats?: number | null;
             /** Retime Window Pad Seconds */

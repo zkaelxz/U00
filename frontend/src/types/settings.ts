@@ -10,6 +10,7 @@ export type SettingsToggleKey =
   | 'bulk_auto_resume'
   | 'offer_provider_models'
   | 'remote_uploads'
+  | 'remote_uploads_auto_off'
 
 // Settings > Timing and splitting (the three sections of lib/settings_schema.py), all numbers.
 // Optional here so a preferences object built before these rows existed still type-checks;
@@ -127,6 +128,7 @@ export type EndpointName = 'ollama_url'
 export interface SettingsOverview extends Record<SettingsToggleKey, boolean> {
   engine_keys: Record<string, boolean>
   gpu_max_parallel: number // 1..4; 1 = one GPU job at a time
+  remote_uploads_since?: number | null // Unix seconds the away-upload switch was turned on; null while off
   desktop_popups?: boolean // false: Baihe runs as the boot service, so a pop-up has nowhere to show
   preferences: SettingsPreferences
   endpoints: Record<EndpointName, string | null>

@@ -16,6 +16,7 @@ import threading
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
+import applog
 from services import auth_service
 
 log = logging.getLogger(__name__)
@@ -125,6 +126,27 @@ def capped_upload(request: Request, receive, principal=None):
     return None, counting
 
 
+class AwayUploadCounts:
+    """Uploads accepted from away since the app started, for one log line each: counts only,
+    so a stolen cookie's filling of the disk shows in the log without any title or file name."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.admin = 0
+        self.member = 0
+
+    def record(self, member: bool) -> tuple[int, int]:
+        with self._lock:
+            if member:
+                self.member += 1
+            else:
+                self.admin += 1
+            return self.admin, self.member
+
+
+away_counts = AwayUploadCounts()
+
+
 class RemoteUploadGate:
     """Pure-ASGI middleware, installed with auth on, inside EarlyAuthGate
     (which has already refused a request with no valid session or CSRF
@@ -179,6 +201,10 @@ class RemoteUploadGate:
 
         try:
             await self._audit(principal, scope)
+            from services import media_upload_service
+            admin, member = away_counts.record(media_upload_service.is_member_caller(principal))
+            applog.get_logger().info("upload from away accepted: %d by admins and %d by members since the app started",
+                     admin, member)
             return await self.app(scope, counted, send)
         finally:
             temp_room.release(left)
