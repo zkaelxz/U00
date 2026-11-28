@@ -51,7 +51,7 @@ describe('queueModel', () => {
   })
 
   it('says a paid Translate uses your key and costs money, and names the cap', () => {
-    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set, so the queue will skip it')
     expect(translateCostNote('Ollama', false, 5)).toBe('Uses Ollama, which is free.')
   })
@@ -72,7 +72,7 @@ describe('saved settings panel', () => {
 
   it('does not double the full stop when an engine description ends with one', () => {
     expect(translateCostNote('Paid, cloud; best tone and character voice.', true, 5)).toBe(
-      'Uses Paid, cloud; best tone and character voice. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+      'Uses Paid, cloud; best tone and character voice, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', false, 0)).toBe('Uses Claude, which is free.')
     expect(translateCostNote('Claude.', false, 0)).toBe('Uses Claude, which is free.')
   })
