@@ -331,6 +331,94 @@ def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
     assert len(usage) == 1
 
 
+class _HeEngine(_Engine):
+    """Says "he" in chapter 0 until asked strictly; chapter 3 is slow."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def translate_batch(self, zh_lines, context):
+        strict = bool(context.get("pronoun_strict"))
+        if not strict and any(z.startswith(("第3", "c3")) for z in zh_lines):
+            time.sleep(0.3)
+        out = super().translate_batch(zh_lines, context)
+        with self.lock:
+            self.order.append(("strict" if strict else "plain", list(zh_lines)))
+        if strict:
+            return [f"she {z}" for z in zh_lines]
+        return [f"he {z}" if z.startswith(("第0", "c0")) else e for z, e in zip(zh_lines, out)]
+
+
+def _pronoun_run(engine, **kw):
+    from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+    return _run(engine, 2, style_guidelines=PRONOUN_DEFAULT_MARKER, **kw)
+
+
+def test_a_chapters_pronoun_recheck_runs_as_it_finishes_beside_the_others(novel):
+    engine = _HeEngine()
+    lines, errors, _u, _s = _pronoun_run(engine)
+    assert errors == []
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    rechecked = sorted(z for kind, zs in engine.order if kind == "strict" for z in zs)
+    assert rechecked == sorted(ln.zh for ln in lines[:PER_CHAPTER])  # each suspect asked once
+    assert all(ln.en.startswith("she ") and ln.flag != tp.PRONOUN_CHECK_FLAG for ln in lines[:PER_CHAPTER])
+
+
+def test_under_a_cap_each_recheck_request_takes_a_slot_like_a_batch(novel, monkeypatch):
+    engine = _HeEngine()
+    reserved = []
+    real = tp._TranslateRun._reserve_batch
+
+    def reserve(self, batch):
+        reserved.append([ln.zh for ln in batch])
+        return real(self, batch)
+    monkeypatch.setattr(tp._TranslateRun, "_reserve_batch", reserve)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    strict = [zs for kind, zs in engine.order if kind == "strict"]
+    assert all(any(set(zs) <= set(chunk) for chunk in reserved) for zs in strict)
+    assert sum(1 for chunk in reserved if all(z.startswith(("第0", "c0")) for z in chunk)) > (
+        sum(1 for kind, zs in engine.order if kind == "plain" and zs[0].startswith(("第0", "c0"))
+            and len(zs) > 1))  # chapter 0's batches plus its re-check requests
+    assert all(ln.en.startswith("she ") for ln in lines[:PER_CHAPTER])
+
+
+def test_a_cap_reached_stops_the_recheck_too(novel, monkeypatch):
+    engine = _HeEngine()
+
+    def chapter0_done(self):
+        return any(kind == "plain" and "c0l5" in zs for kind, zs in engine.order)
+    # Reached right after chapter 0's last batch, so its lane gets as far as the re-check.
+    monkeypatch.setattr(tp._TranslateRun, "_cap_reached", chapter0_done)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    assert all(ln.en for ln in lines[:PER_CHAPTER])
+    assert not any(kind == "strict" for kind, _ in engine.order)
+
+
+def test_a_recheck_that_ends_the_run_stops_the_other_lanes_before_they_wake(novel, monkeypatch):
+    engine = _HeEngine()
+    original = engine.translate_batch
+
+    def quota_on_recheck(zh_lines, context):
+        if context.get("pronoun_strict"):
+            raise TranslateRunStopped("quota")
+        return original(zh_lines, context)
+    engine.translate_batch = quota_on_recheck
+    stopped_at_release = []
+    real = tp._TranslateRun._release_batch
+
+    def release(self, cost, batch, stop=False):
+        real(self, cost, batch, stop)
+        stopped_at_release.append((batch[0].zh, self.stopped))
+    monkeypatch.setattr(tp._TranslateRun, "_release_batch", release)
+    _pronoun_run(engine, cost_cap_usd=100.0)
+    # The failed re-check chunk (chapter 0's first suspects) wakes the others already stopped.
+    assert ("第0章", True) in stopped_at_release
+
+
 # --- A slow DeepSeek run moves to the fallback at a chapter start -------------------------
 
 from engine_backends import fallback as fb  # noqa: E402
