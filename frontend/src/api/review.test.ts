@@ -110,7 +110,8 @@ describe('review api', () => {
         if (texts.get(m.id) === m.old_text) {
           texts.set(m.id, m.new_text)
           applied.push(m.id)
-        } else stale.push(m.id)
+        } else if (texts.get(m.id) === m.new_text) applied.push(m.id)
+        else stale.push(m.id)
       }
       if (n === 2 && failSecond) return new Response(JSON.stringify({ error: { code: 'internal_error', message: 'lost' } }), { status: 500 })
       return new Response(JSON.stringify({ applied: applied.length, stale: stale.length, applied_ids: applied, stale_ids: stale }), { status: 200 })
@@ -122,16 +123,17 @@ describe('review api', () => {
     expect(r.rest.map((m) => m.id)).toEqual(matches.slice(1000).map((m) => m.id))
     expect(r.error).toBeInstanceOf(ApiError)
     expect(review.unsentNote(r)).toBe(' Stopped partway: 1500 lines were not changed. Apply the rest sends only those.')
-    // Apply the rest: the lost request's 1000 come back stale, the other 500 are replaced once.
+    // Apply the rest: the lost request's 1000 already hold the change and count as applied, not
+    // as lines changed since; the other 500 are replaced once.
     failSecond = false
     const rest = await review.applyFindReplace(1, r.rest, f)
     expect(rest.rest).toEqual([])
-    expect(rest.applied).toBe(500)
-    expect(rest.stale).toBe(1000)
+    expect(rest.applied).toBe(1500)
+    expect(rest.stale).toBe(0)
     expect([...texts.values()].every((t) => t === 'Lin Zhou')).toBe(true)
-    // Sending the same matches yet again changes nothing.
+    // Sending the same matches yet again writes nothing: every line already holds its change.
     const third = await review.applyFindReplace(1, r.rest, f)
-    expect(third.applied).toBe(0)
+    expect(third.stale).toBe(0)
     expect([...texts.values()].every((t) => t === 'Lin Zhou')).toBe(true)
   })
   it('a failed first request throws: nothing was changed', async () => {

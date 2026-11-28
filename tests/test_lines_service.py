@@ -420,6 +420,23 @@ class TestFindReplace:
         assert next(r for r in rows if r["id"] == edited)["en"] == "Hand edit"
         assert db.list_translation_memory(sid)[0]["translation"] == "Lin Chou said 0."
 
+    def test_a_match_sent_again_after_its_answer_was_lost_counts_as_applied(self, save_spy, monkeypatch):
+        did, ids = _seed()
+        matches = [{"id": ids[0], "old_text": "Hello", "new_text": "Howdy"},
+                   {"id": ids[2], "old_text": "Thanks", "new_text": "Cheers"}]
+        svc.apply_find_replace(did, matches)
+        db.save_lines(did, [Line(idx=2, start=2, end=3, zh="谢谢", en="Thanks (edited)",
+                                 id=ids[2])], fields=("en",))
+        writes = []
+        real = db.update_lines_fields_if_many
+        monkeypatch.setattr(db, "update_lines_fields_if_many",
+                            lambda drama_id, items: writes.append(items) or real(drama_id, items))
+        out = svc.apply_find_replace(did, matches)
+        # Line 0 already holds this change; line 2 was edited by hand since, so it stays stale.
+        assert out == {"applied": 1, "stale": 1, "applied_ids": [ids[0]], "stale_ids": [ids[2]]}
+        assert writes == [[]]
+        assert _row(did, ids[0])["en"] == "Howdy"
+
     def test_all_stale_writes_nothing(self, save_spy):
         did, ids = _seed()
         out = svc.apply_find_replace(did, [{"id": ids[0], "old_text": "nope", "new_text": "x"}])
