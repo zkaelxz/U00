@@ -20,3 +20,20 @@ export function speakLine(synth: Speech, text: string, makeUtterance: (t: string
 }
 
 export const canSpeak = () => typeof window !== 'undefined' && 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined'
+
+/**
+ * One step of the voice as the newest line or the switch changes: the line id now counted as said, and the English
+ * to read (null for none). Turned on mid-session it starts from the next line, not one that went by before.
+ */
+export function spokenStep(said: number | null, newest: LiveCue | null, on: boolean): { said: number | null; text: string | null } {
+  if (!on) return { said: null, text: null }
+  if (said === null) return { said: newest?.id ?? -1, text: null }
+  if (!newest || newest.id === said) return { said, text: null }
+  return { said: newest.id, text: newest.translated }
+}
+
+/** Chrome reads nothing aloud until the page has had a click, tap or key press; false where it can't tell. */
+export function waitsForATap(nav: { userActivation?: { hasBeenActive: boolean } } | undefined =
+  typeof navigator === 'undefined' ? undefined : navigator): boolean {
+  return nav?.userActivation ? !nav.userActivation.hasBeenActive : false
+}

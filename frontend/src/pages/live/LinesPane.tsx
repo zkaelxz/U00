@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { fmtTs } from '../../api/live'
 import type { LiveCue } from '../../types/live'
-import { canSpeak, newestEnglish, speakLine } from './newestLine'
+import { canSpeak, newestEnglish, speakLine, spokenStep, waitsForATap } from './newestLine'
 import type { TextSize } from './ViewingOptions'
 
 /** The translation, or why there is none yet: the transcript under it always stays. */
@@ -20,22 +20,28 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
   return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
 }
 
-function useSpokenNewest(newest: LiveCue | null, on: boolean) {
+function useSpokenNewest(newest: LiveCue | null, on: boolean): boolean {
   const said = useRef<number | null>(null)
+  const [tapNeeded, setTapNeeded] = useState(() => waitsForATap())
   useEffect(() => {
-    if (!on || !canSpeak()) return
-    // Turned on mid-session: start from the next line, not one that went by before.
-    if (said.current === null) said.current = newest?.id ?? -1
-    if (!newest || newest.id === said.current) return
-    said.current = newest.id
-    speakLine(window.speechSynthesis, newest.translated)
-  }, [newest, on])
+    if (!on || !tapNeeded) return undefined
+    const tapped = () => setTapNeeded(false)
+    window.addEventListener('pointerdown', tapped, { once: true })
+    window.addEventListener('keydown', tapped, { once: true })
+    return () => {
+      window.removeEventListener('pointerdown', tapped)
+      window.removeEventListener('keydown', tapped)
+    }
+  }, [on, tapNeeded])
   useEffect(() => {
-    if (on || !canSpeak()) return
-    said.current = null
-    window.speechSynthesis.cancel()
-  }, [on])
+    if (!canSpeak()) return
+    const step = spokenStep(said.current, newest, on)
+    said.current = step.said
+    if (step.text && !tapNeeded) speakLine(window.speechSynthesis, step.text)
+    if (!on) window.speechSynthesis.cancel()
+  }, [newest, on, tapNeeded])
   useEffect(() => () => { if (canSpeak()) window.speechSynthesis.cancel() }, [])
+  return on && tapNeeded && canSpeak()
 }
 
 function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiting: boolean }) {
@@ -56,7 +62,7 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
 export function LinesPane({ cues, total, lang, waiting, size = 'm', tvSize, showOriginal = true, speak = false }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: TextSize; tvSize?: TextSize; showOriginal?: boolean; speak?: boolean }) {
   const box = useRef<HTMLDivElement>(null)
   const newest = newestEnglish(cues)
-  useSpokenNewest(newest, speak)
+  const tapToSpeak = useSpokenNewest(newest, speak)
   // The line count when the reader scrolled away from the newest; null while the newest is in view.
   const [awayAt, setAwayAt] = useState<number | null>(null)
   const fresh = awayAt === null ? 0 : Math.max(0, total - awayAt)
@@ -66,6 +72,7 @@ export function LinesPane({ cues, total, lang, waiting, size = 'm', tvSize, show
       <div className="live-cues-box" ref={box} tabIndex={0} aria-label="Live lines" onScroll={(e) => onScroll(e.currentTarget.scrollTop)}>
         <CueFeed cues={cues} lang={lang} waiting={waiting} />
       </div>
+      {tapToSpeak && <p className="muted" data-testid="live-speak-paused">Speaking starts once you click or tap the page.</p>}
       {/* Holds only the newest English, so a screen reader says each line once as it arrives. */}
       <p className="visually-hidden" role="log" aria-live="polite" data-testid="live-newest">{newest?.translated ?? ''}</p>
       {fresh > 0 && (

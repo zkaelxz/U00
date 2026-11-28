@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { LiveCue } from '../../types/live'
 import { LinesPane } from './LinesPane'
-import { newestEnglish, speakLine } from './newestLine'
+import { newestEnglish, speakLine, spokenStep, waitsForATap } from './newestLine'
 
 const cue = (id: number, translation = 'done', translated = `Line ${id}`): LiveCue =>
   ({ id, translation, translated, text: `第${id}句`, start: id * 5, end: id * 5 + 4 }) as LiveCue
@@ -40,5 +40,25 @@ describe('speakLine', () => {
     expect(s.cancel).toHaveBeenCalledOnce()
     expect(s.speak).toHaveBeenCalledOnce()
     expect(s.cancel.mock.invocationCallOrder[0]).toBeLessThan(s.speak.mock.invocationCallOrder[0])
+  })
+})
+
+describe('spokenStep', () => {
+  it('starts from the next line when turned on, says each line once, and forgets on off', () => {
+    let step = spokenStep(null, cue(5), true)
+    expect(step).toEqual({ said: 5, text: null })
+    step = spokenStep(step.said, cue(5), true)
+    expect(step.text).toBeNull()
+    step = spokenStep(step.said, cue(6), true)
+    expect(step).toEqual({ said: 6, text: 'Line 6' })
+    expect(spokenStep(step.said, cue(6), true).text).toBeNull()
+    expect(spokenStep(step.said, cue(7), false)).toEqual({ said: null, text: null })
+    expect(spokenStep(null, null, true)).toEqual({ said: -1, text: null })
+  })
+
+  it('knows when the browser still waits for a click before it may speak', () => {
+    expect(waitsForATap({ userActivation: { hasBeenActive: false } })).toBe(true)
+    expect(waitsForATap({ userActivation: { hasBeenActive: true } })).toBe(false)
+    expect(waitsForATap({})).toBe(false)
   })
 })

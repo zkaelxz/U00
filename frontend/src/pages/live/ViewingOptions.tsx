@@ -56,7 +56,7 @@ export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOrigi
         <Toggle checked={showOriginal} onChange={onShowOriginal} />
       </Field>
       {speak && (
-        <Field label="Speak the English" help="Reads each new line aloud with your browser's own voice, so you can follow without looking. When lines come faster than it can read, it skips ahead to the newest.">
+        <Field label="Speak the English" help="Reads each new line aloud with your browser's own voice, so you can follow without looking. When lines come faster than it can read, it skips ahead to the newest. Not needed with a screen reader, which already reads each new line.">
           <Toggle checked={speak.on} onChange={speak.onChange} data-testid="live-speak" />
         </Field>
       )}
