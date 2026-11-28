@@ -657,30 +657,17 @@ div.section-flat div.section-flat > .section-flat-head .section-title { font-siz
      text painted after it does not cover the padding and take the taps. */
   a.touch-link { position: relative; padding-block: 8px; }
 }
-/* Header controls are icon-only (their old words are the aria-label and tooltip). .header-end is a size container so that "Connected"
-   shows only where the row has room; the min-widths below are the icons' natural widths plus gaps, in rem so a larger text size moves them.
-   The row wraps to its own line rather than squeezing; the PIN/account variant is wider, and a long account name or the server-down badge ask for more. */
-.header-end.has-room { flex: 1 1 0; min-width: min(31.6rem, 100%); justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
-.header-end.has-room.has-extras { min-width: 46.8rem; }
-/* A size container has no content width of its own, so the min-width stands in for the icons' natural width (32.2rem, 47rem with the PIN
-   button or account) and lets the header wrap the row to a line of its own where the icons-only row wraps, so the header is never taller than it is
-   with icons only; up to 640px the row shrinks instead of wrapping. The words steps widen the gaps to the drawn 10px with a margin, because the container cannot change its own gap. The
-   header that also carries the PIN button and the account starts at 6px: with 8px its icons overflow by 5px at some narrow widths. */
-.header-end.has-room.has-extras { gap: 6px; }
-@media (max-width: 640px) { .header-end.has-room, .header-end.has-room.has-extras { gap: var(--space-1); min-width: 0; } }
-/* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is 54px wider than "Connected", which the steps were sized with.
-   The padding narrows what the size container's queries see, so every words step comes 3.6rem later exactly then, with no second set of steps;
-   the first control's negative margin gives the controls that room back. */
-.header-end.has-room:has(.api-down) { padding-left: 3.6rem; }
-.header-end.has-room:has(.api-down) > :first-child { margin-left: -3.6rem; }
-/* The badge itself (140px with its gap) is part of the icons' natural width while it shows, so the row wraps before it would squeeze the controls. */
-.header-end.has-room:has(.api-down) { min-width: min(41.4rem, 100%); }
-.header-end.has-room.has-extras:has(.api-down) { min-width: 56.6rem; }
-@media (max-width: 640px) { .header-end.has-room:has(.api-down), .header-end.has-room.has-extras:has(.api-down) { min-width: 0; } }
-/* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
-.header-end .api-connected { display: none; color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
+/* Header controls are icon-only (their old words are the aria-label and tooltip), plus the You menu. .header-end is a size container
+   so the search button's "Ctrl K" hint shows only where the row has room (nav/palette.css). A size container has no content width of
+   its own, so the min-width stands in for the controls' natural width, in rem so a larger text size moves it, and the header wraps the
+   row to a line of its own rather than squeezing it. */
+.header-end.has-room { flex: 1 1 0; min-width: min(15rem, 100%); justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
+@media (max-width: 640px) { .header-end.has-room { gap: var(--space-1); min-width: 0; } }
+/* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is part of the row's natural width. */
+.header-end.has-room:has(.api-down) { min-width: min(24rem, 100%); }
+@media (max-width: 640px) { .header-end.has-room:has(.api-down) { min-width: 0; } }
 
-/* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header; the phone
+/* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header (the You menu); the phone
    drawer and the other segmented controls keep their own look. */
 .header-end fieldset.segmented.view-mode-switch { padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .header-end fieldset.segmented.view-mode-switch label { padding: 6px 12px; border-radius: var(--radius-sm); color: var(--text); font-size: var(--text-md); }
@@ -690,18 +677,20 @@ div.section-flat div.section-flat > .section-flat-head .section-title { font-siz
   .header-end fieldset.segmented.view-mode-switch { min-height: var(--control-h); }
 }
 
-/* Frost and Soft draw the other header buttons as boxes in their own stylesheets; these two are plain until they sit in the row. */
-.header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: var(--btn-edge); background: var(--btn); box-shadow: var(--btn-shadow); }
-html[data-style='soft'] .header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
-
-/* Only "Connected" is words; every button stays an icon. It shows where the old words steps began, so the row never needs more room than the icons. */
-@container header-end (min-width: 52rem) { .header-end:not(.has-extras) .api-connected { display: inline; } }
-@container header-end (min-width: 74rem) { .header-end.has-extras:not(.has-long-name) .api-connected { display: inline; } }
-@container header-end (min-width: 80rem) { .header-end.has-long-name .api-connected { display: inline; } }
+/* The You menu: the word and the avatar in one box, as the header's other buttons are drawn. Frost and Soft draw those in their own
+   stylesheets; this one is plain until it sits in the row. */
+.header-end.has-room details.you-menu > summary { display: inline-flex; width: auto; gap: var(--space-2); padding: 0 4px 0 12px; border-radius: var(--radius); border-color: var(--btn-edge); background: var(--btn); box-shadow: var(--btn-shadow); }
+html[data-style='soft'] .header-end.has-room details.you-menu > summary { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
+.you-menu .user-menu-avatar { position: relative; width: 28px; height: 28px; border-radius: 999px; background: var(--accent-soft); }
+/* Green when the last check reached the server; nothing before the first answer, and the badge in the row when it fails. */
+.you-menu-dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border: 2px solid var(--btn); border-radius: 999px; background: var(--ok); }
+.you-menu-panel { min-width: 16rem; gap: var(--space-2); }
+.you-menu-panel fieldset.segmented.view-mode-switch { justify-self: start; }
+.you-menu-panel button.you-menu-row { justify-content: flex-start; padding-inline: 8px; border-color: transparent; background: transparent; text-align: left; }
+.you-menu-panel button.you-menu-row:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
+.you-menu-account { display: grid; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
-  /* "Report a problem" is a 44px icon button in the title row; its aria-label stays its accessible name. */
-  .app-header button.report-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
   .app-header { row-gap: var(--space-2); padding-bottom: var(--space-2); }
 }
 @media (pointer: coarse), (max-width: 640px) { .history-read { display: inline-flex; align-items: center; min-height: 44px; } }
@@ -1281,5 +1270,5 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 
 /* The header's icon buttons share one width, so the row doesn't look ragged. */
 @media (min-width: 641px) and (pointer: fine) {
-  .header-end.has-room :is(button.palette-btn, button.report-btn, button.jobs-menu-btn, button.notify-bell-btn, button.theme-menu-btn, button.keys-btn) { min-width: 38px; justify-content: center; }
+  .header-end.has-room :is(button.palette-btn, button.jobs-menu-btn, button.notify-bell-btn) { min-width: 38px; justify-content: center; }
 }

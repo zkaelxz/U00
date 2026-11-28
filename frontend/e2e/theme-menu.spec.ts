@@ -1,16 +1,20 @@
 import { expect, test, type Page } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 
-// The header theme button: Match this device / Light / Dark / Sepia / OLED black. The
+// The theme choices in the header's You menu: Match this device / Light / Dark / Sepia / OLED black. The
 // choice is per browser (localStorage), so nothing is sent to the API.
 
 const bg = (page: Page) => page.evaluate(() => getComputedStyle(document.body).backgroundColor)
 const html = (page: Page) => page.locator('html')
-const button = (page: Page) => page.getByRole('button', { name: /^Theme: / })
+const you = (page: Page) => page.locator('details.you-menu')
+const choice = (page: Page, label: string) => you(page).getByRole('radio', { name: label, exact: true })
+const VALUE: Record<string, string> = { 'Match this device': 'system', Light: 'light', Dark: 'dark', Sepia: 'sepia', 'OLED black': 'oled' }
+// Found by value, so it can be checked while the menu is closed.
+const chosen = (page: Page, label: string) => you(page).locator(`input[name="theme"][value="${VALUE[label]}"]`)
 
 async function pick(page: Page, label: string) {
-  await button(page).click()
-  await page.getByRole('menuitemradio', { name: label, exact: true }).click()
+  if (!(await you(page).evaluate((el) => (el as HTMLDetailsElement).open))) await you(page).locator('summary').click()
+  await choice(page, label).check()
 }
 
 test.afterEach(async ({ page }) => {
@@ -20,7 +24,7 @@ test.afterEach(async ({ page }) => {
 test('each theme sets data-theme and changes the page colour', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/#/library')
-  await expect(button(page)).toHaveAccessibleName('Theme: Match this device. Change theme')
+  await expect(chosen(page, 'Match this device')).toBeChecked()
   await expect(html(page)).not.toHaveAttribute('data-theme', /.*/)
   const system = await bg(page)
 
@@ -28,7 +32,7 @@ test('each theme sets data-theme and changes the page colour', async ({ page }) 
   await expect(html(page)).toHaveAttribute('data-theme', 'dark')
   const dark = await bg(page)
   expect(dark).not.toBe(system)
-  await expect(button(page)).toHaveAccessibleName('Theme: Dark. Change theme')
+  await expect(chosen(page, 'Dark')).toBeChecked()
 
   await pick(page, 'Sepia')
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
@@ -56,7 +60,7 @@ test('the choice survives a reload and is set before the app renders', async ({ 
   await pick(page, 'Sepia')
   await page.reload()
   await expect(html(page)).toHaveAttribute('data-theme', 'sepia')
-  await expect(button(page)).toHaveAccessibleName('Theme: Sepia. Change theme')
+  await expect(chosen(page, 'Sepia')).toBeChecked()
   expect(await bg(page)).toBe('rgb(239, 228, 203)')
 
   // The inline script in index.html sets it while the page is still loading.
@@ -69,39 +73,30 @@ test('the choice survives a reload and is set before the app renders', async ({ 
   expect(await page.evaluate(() => (window as unknown as { themeAtDcl: string | null }).themeAtDcl)).toBe('sepia')
 })
 
-test('the menu is keyboard operable and closes with Escape', async ({ page }) => {
+test('the choices are keyboard operable and the menu closes with Escape', async ({ page }) => {
   await page.goto('/#/library')
-  const btn = button(page)
-  await btn.focus()
-  await expect(btn).toHaveAttribute('aria-expanded', 'false')
+  const summary = you(page).locator('summary')
+  await summary.focus()
   await page.keyboard.press('Enter')
-  await expect(btn).toHaveAttribute('aria-expanded', 'true')
-  const menu = page.getByRole('menu', { name: 'Theme' })
-  await expect(menu.getByRole('menuitemradio')).toHaveCount(5)
-  // The current theme is focused and checked.
-  await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toBeFocused()
-  await expect(page.getByRole('menuitemradio', { name: 'Match this device' })).toHaveAttribute('aria-checked', 'true')
+  await expect(you(page)).toHaveAttribute('open', '')
+  await expect(you(page).getByRole('group', { name: 'Theme' }).getByRole('radio')).toHaveCount(5)
+  await choice(page, 'Match this device').focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(chosen(page, 'Light')).toBeChecked()
+  await expect(html(page)).toHaveAttribute('data-theme', 'light')
 
   await page.keyboard.press('Escape')
-  await expect(menu).toHaveCount(0)
-  await expect(btn).toBeFocused()
-
-  await page.keyboard.press('ArrowDown')
-  await page.keyboard.press('End')
-  await expect(page.getByRole('menuitemradio', { name: 'OLED black' })).toBeFocused()
-  await page.keyboard.press('Enter')
-  await expect(html(page)).toHaveAttribute('data-theme', 'oled')
-  await expect(menu).toHaveCount(0)
-  await expect(btn).toBeFocused()
+  await expect(you(page)).not.toHaveAttribute('open', '')
+  await expect(summary).toBeFocused()
 
   // A click elsewhere closes it too.
-  await btn.click()
-  await expect(menu).toBeVisible()
+  await summary.click()
+  await expect(you(page)).toHaveAttribute('open', '')
   await page.locator('.app-brand, .rail-brand').click()
-  await expect(menu).toHaveCount(0)
+  await expect(you(page)).not.toHaveAttribute('open', '')
 })
 
-test('Settings has no theme select; the header button is the only control', async ({ page }) => {
+test('Settings has no theme select; the You menu is the only control', async ({ page }) => {
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Engines and keys')
   await expect(page.getByRole('region', { name: 'Translation style', exact: true })).toBeVisible()
@@ -116,7 +111,7 @@ test('OLED black sets a true-black page and is remembered', async ({ page }) => 
   await pick(page, 'OLED black')
   await expect(html(page)).toHaveAttribute('data-theme', 'oled')
   expect(await bg(page)).toBe('rgb(0, 0, 0)')
-  await expect(button(page)).toHaveAccessibleName('Theme: OLED black. Change theme')
+  await expect(chosen(page, 'OLED black')).toBeChecked()
   await page.waitForFunction(() => localStorage.getItem('baihe.theme') === 'oled')
   await page.reload()
   await expect(html(page)).toHaveAttribute('data-theme', 'oled')
@@ -128,5 +123,5 @@ test('an unknown stored theme falls back to the system look', async ({ page }) =
   await page.evaluate(() => localStorage.setItem('baihe.theme', 'amoled'))
   await page.reload()
   await expect(html(page)).not.toHaveAttribute('data-theme', /.*/)
-  await expect(button(page)).toHaveAccessibleName('Theme: Match this device. Change theme')
+  await expect(chosen(page, 'Match this device')).toBeChecked()
 })
