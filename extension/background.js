@@ -299,14 +299,14 @@ async function startLive({ url, sourceLanguage }) {
   return call("/live", { method: "POST", body: { url: link, source_language: sourceLanguage || "zh" } });
 }
 
-// Finds or creates the title a page belongs to (the app's extension_title_service); the
-// options decide how much it may do. Only a public page's address is sent, as for novels.
 async function fetchSiteSubs({ url }) {
   const link = videoLink(url);
   if (!link) return { ok: false, error: "Open a video page on a public website first." };
   return call("/subs", { method: "POST", body: { page_url: link } });
 }
 
+// Finds or creates the title a page belongs to (the app's extension_title_service); the
+// options decide how much it may do. Only a public page's address is sent, as for novels.
 async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks, author, summary, coverUrl }) {
   const { autoTitle } = await settings();
   return call("/title", {

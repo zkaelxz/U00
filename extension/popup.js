@@ -743,6 +743,8 @@ async function runSiteSubs() {
     }
     if (!on) return say("Baihe subs off.");
     const data = result.data || {};
+    // A later switch of the toggle already answered for this page.
+    if (data.superseded) return;
     els.siteSubs.checked = !!(data.found && data.count);
     say(describeSiteSubs(data), !els.siteSubs.checked);
   } catch (e) {

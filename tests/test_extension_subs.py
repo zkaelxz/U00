@@ -75,6 +75,40 @@ class TestMatching:
         out = _ask(VIDEO_A)
         assert out["found"] is True and out["cues"] == []
 
+    def test_the_oldest_title_with_english_wins_over_an_older_untranslated_one(self, isolated_db):
+        _title(VIDEO_A, name="Untranslated", lines=[Line(idx=0, start=0, end=1, zh="你好", en="")])
+        _title(VIDEO_A, name="Translated")
+        _title(VIDEO_A, name="Also translated")
+        assert _ask(VIDEO_A)["title"] == "Translated"
+
+    @pytest.mark.parametrize("saved, page", [
+        ("https://youtu.be/AAAAAAAAAAA?si=share", VIDEO_A),
+        ("https://m.youtube.com/watch?v=AAAAAAAAAAA", VIDEO_A),
+        ("https://youtube.com/watch?v=AAAAAAAAAAA", VIDEO_A),
+        ("https://www.youtube.com/shorts/AAAAAAAAAAA", VIDEO_A),
+        ("https://www.youtube.com/live/AAAAAAAAAAA?feature=share", VIDEO_A),
+        (VIDEO_A, "https://youtu.be/AAAAAAAAAAA"),
+        ("https://m.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD/"),
+        ("https://www.bilibili.com/video/BV1xx411c7mD/?p=1", "https://www.bilibili.com/video/BV1xx411c7mD"),
+        ("https://www.bilibili.com/video/BV1xx411c7mD?p=2&spm=x", "https://m.bilibili.com/video/BV1xx411c7mD/?p=2"),
+    ])
+    def test_every_address_of_one_video_finds_its_title(self, isolated_db, saved, page):
+        _title(saved)
+        assert _ask(page)["found"] is True
+
+    @pytest.mark.parametrize("saved, page", [
+        ("https://youtu.be/AAAAAAAAAAA", VIDEO_B),
+        ("https://www.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD?p=2"),
+        ("https://www.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1yy411c7mD"),
+    ])
+    def test_another_video_or_part_is_not_a_match(self, isolated_db, saved, page):
+        _title(saved)
+        assert _ask(page) == {"found": False}
+
+    def test_the_duplicate_check_still_tells_the_addresses_apart(self):
+        from services import drama_service
+        assert drama_service._link_identity("https://youtu.be/AAAAAAAAAAA") != drama_service._link_identity(VIDEO_A)
+
     def test_speaker_names_are_the_ones_exports_use(self, isolated_db, monkeypatch):
         did = _title(VIDEO_A)
         monkeypatch.setattr(export_service, "_speaker_display_names",

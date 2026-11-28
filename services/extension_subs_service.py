@@ -18,12 +18,23 @@ def _page_url(payload: dict) -> str:
     return url.strip()
 
 
-def _whole_title(url: str, principal):
+def _whole_titles(url: str, principal):
     for row in drama_service.titles_with_page_link(url, principal):
         own_link = (row.get("source_url_full") or row.get("source_url") or "").strip()
         if media_upload_service.downloaded_whole_from(row["id"], own_link):
-            return row
-    return None
+            yield row
+
+
+def _pick(url: str, principal):
+    """(row, cues, cut_off): the oldest whole title with English lines, else the oldest whole one
+    (a second download not translated yet must not hide the first's lines), else (None, [], False)."""
+    first = None
+    for row in _whole_titles(url, principal):
+        cues, cut_off = _cues(row["id"])
+        if cues:
+            return row, cues, cut_off
+        first = first or row
+    return first, [], False
 
 
 def _cues(drama_id: int) -> tuple:
@@ -45,9 +56,8 @@ def subs_for_page(payload: dict, principal=_BRIDGE_PRINCIPAL) -> dict:
     cues is empty for a title with no English yet.
     Only a title whose media is the whole download of the page counts: a part starts at 0:00, so
     its lines would play at the wrong moments. Nothing about the link or the files goes back."""
-    row = _whole_title(_page_url(payload), principal)
+    row, cues, cut_off = _pick(_page_url(payload), principal)
     if row is None:
         return {"found": False}
-    cues, cut_off = _cues(row["id"])
     return {"found": True, "title": row.get("title_en") or row.get("title_zh") or "",
             "cues": cues, "cut_off": cut_off}

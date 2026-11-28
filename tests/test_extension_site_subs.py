@@ -60,7 +60,7 @@ def test_the_line_at_the_players_time_is_drawn_over_it():
       const subs = window.__baihe.state.subs;
       const result = { answer, asked: asked[0].type, shown: shown(), left: subs.root.style.left,
                        width: subs.root.style.width };
-      window.__baihe.stopSubs();
+      window.__baihe.turnOffSubs();
       return result;
     """)
     assert out["answer"] == {"ok": True, "data": {"media": True, "found": True, "title": "Sample",
@@ -68,6 +68,74 @@ def test_the_line_at_the_players_time_is_drawn_over_it():
     assert out["asked"] == "fetchSiteSubs"
     assert out["shown"] == ["Hello"]
     assert (out["left"], out["width"]) == ("10px", "640px")
+
+
+def test_on_off_on_before_the_first_answer_leaves_one_overlay():
+    out = _run("""
+      let release;
+      const gate = new Promise((r) => { release = r; });
+      const reply = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => { await gate; return reply(m); };
+      const first = window.__baihe.startSubs();
+      window.__baihe.turnOffSubs();
+      const second = window.__baihe.startSubs();
+      release();
+      const [a, b] = await Promise.all([first, second]);
+      const roots = made.filter((e) => e.id === "baihe-subs");
+      const result = { a: a.data, b: b.data.found, roots: roots.length,
+                       current: window.__baihe.state.subs.root === roots[0] };
+      window.__baihe.turnOffSubs();
+      return { ...result, removed: roots[0].removed === true, running: window.__baihe.state.subs !== null };
+    """)
+    assert out == {"a": {"superseded": True}, "b": True, "roots": 1, "current": True,
+                   "removed": True, "running": False}
+
+
+def test_off_before_the_answer_draws_nothing():
+    out = _run("""
+      let release;
+      const gate = new Promise((r) => { release = r; });
+      const reply = chrome.runtime.sendMessage;
+      chrome.runtime.sendMessage = async (m) => { await gate; return reply(m); };
+      const first = window.__baihe.startSubs();
+      window.__baihe.turnOffSubs();
+      release();
+      const a = await first;
+      return { a: a.data, roots: made.filter((e) => e.id === "baihe-subs").length,
+               running: window.__baihe.state.subs !== null };
+    """)
+    assert out == {"a": {"superseded": True}, "roots": 0, "running": False}
+
+
+def test_a_fullscreen_video_hides_the_lines_it_cannot_draw():
+    out = _run("""
+      await window.__baihe.startSubs();
+      const subs = window.__baihe.state.subs;
+      const before = subs.root.style.display;
+      document.fullscreenElement = media;
+      await new Promise((r) => setTimeout(r, 300));
+      const during = subs.root.style.display;
+      document.fullscreenElement = null;
+      await new Promise((r) => setTimeout(r, 300));
+      const after = subs.root.style.display;
+      window.__baihe.turnOffSubs();
+      return [before, during, after];
+    """)
+    assert out == ["", "none", ""]
+
+
+def test_a_player_that_goes_away_hides_the_lines():
+    out = _run("""
+      await window.__baihe.startSubs();
+      const subs = window.__baihe.state.subs;
+      media.isConnected = false;
+      document.querySelectorAll = () => [];
+      await new Promise((r) => setTimeout(r, 300));
+      const display = subs.root.style.display;
+      window.__baihe.turnOffSubs();
+      return display;
+    """)
+    assert out == "none"
 
 
 def test_another_video_on_the_same_page_turns_the_subs_off():

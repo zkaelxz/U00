@@ -462,14 +462,60 @@ def find_same_titles(*, title_en="", title_zh="", source_url="", principal=None)
     return found[:MAX_SAME_TITLES]
 
 
+_YOUTUBE_ID = re.compile(r"[A-Za-z0-9_-]{6,20}")
+_BILIBILI_VIDEO = re.compile(r"/video/(BV[0-9A-Za-z]{10}|av\d+)(?:/|$)", re.IGNORECASE)
+
+
+def _on_site(host: str, site: str) -> bool:
+    return host == site or host.endswith("." + site)
+
+
+def _video_key(raw: str) -> str:
+    """One key for every address of one YouTube or Bilibili video: a phone share (youtu.be), the
+    mobile site, shorts and live links name the same video, and Bilibili's part 1 is also the page
+    with no ?p. "" for any other page."""
+    try:
+        parts = urlsplit(raw.strip())
+        host = (parts.hostname or "").casefold()
+    except ValueError:
+        return ""
+    query = dict(parse_qsl(parts.query))
+    segments = [s for s in parts.path.split("/") if s]
+    video = ""
+    if _on_site(host, "youtu.be"):
+        video = segments[0] if segments else ""
+    elif _on_site(host, "youtube.com"):
+        if parts.path.rstrip("/") == "/watch":
+            video = query.get("v", "")
+        elif len(segments) >= 2 and segments[0] in ("shorts", "live", "embed"):
+            video = segments[1]
+    if video:
+        return f"youtube:{video}" if _YOUTUBE_ID.fullmatch(video) else ""
+    if _on_site(host, "bilibili.com"):
+        found = _BILIBILI_VIDEO.match(parts.path)
+        if found:
+            name = found.group(1)
+            name = "BV" + name[2:] if name[:2].upper() == "BV" else name.lower()
+            part = query.get("p", "1")
+            return f"bilibili:{name}:{int(part) if part.isdigit() else part}"
+    return ""
+
+
+def page_key(row_or_url) -> str:
+    """What the extension's Show Baihe subs matches a page on: _video_key for a YouTube or Bilibili
+    video, else _link_identity. Only for that lookup; the duplicate check keeps _link_identity."""
+    raw = row_or_url if isinstance(row_or_url, str) else \
+        (row_or_url.get("source_url_full") or row_or_url.get("source_url") or "")
+    return _video_key(raw) or _link_identity(row_or_url)
+
+
 def titles_with_page_link(url, principal=None) -> list:
-    """Titles the caller can see whose saved link is this page, oldest first. Matched on
-    _link_identity, so two YouTube videos (same "/watch" display link) are two pages."""
-    link = _link_identity(url)
-    if not link:
+    """Titles the caller can see whose saved link is this page (page_key), oldest first."""
+    key = page_key(url)
+    if not key:
         return []
     rows = [row for row in db.list_dramas(visible_to=ownership_service.visible_to_filter(principal))
-            if _link_identity(row) == link]
+            if page_key(row) == key]
     return sorted(rows, key=lambda r: r["id"])
 
 

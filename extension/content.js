@@ -2294,7 +2294,8 @@
   // reloading (YouTube) must not keep showing the last one's lines.
   function subsPageKey() {
     const page = new URL(location.href);
-    const ids = ["v", "id", "p"].map((k) => `${k}=${page.searchParams.get(k) || ""}`).join("&");
+    // Bilibili's part 1 is also its page with no ?p.
+    const ids = ["v", "id", "p"].map((k) => `${k}=${page.searchParams.get(k) || (k === "p" ? "1" : "")}`).join("&");
     return `${page.host}${page.pathname.replace(/\/+$/, "")}?${ids}`;
   }
 
@@ -2354,36 +2355,40 @@
     document.documentElement.appendChild(style);
   }
 
-  function stopSubs(note) {
-    const subs = state.subs;
-    if (!subs) return;
-    state.subs = null;
+  function stopSubs(subs, note) {
+    if (!subs || subs.stopped) return;
+    subs.stopped = true;
+    if (state.subs === subs) state.subs = null;
     clearInterval(subs.timer);
     for (const [target, name, fn] of subs.listeners) target.removeEventListener(name, fn);
     subs.root.remove();
     if (note) toast(note);
   }
 
+  // Returns false when the lines can't be shown: a <video> or <audio> that is itself fullscreen
+  // draws none of its children, so there is nowhere to put them.
   function placeSubs(subs) {
+    const full = document.fullscreenElement;
+    if (full && (full.tagName === "VIDEO" || full.tagName === "AUDIO")) return false;
     // In fullscreen only the fullscreen element's own children are drawn.
-    const host = document.fullscreenElement || document.documentElement;
+    const host = full || document.documentElement;
     if (subs.root.parentNode !== host) host.appendChild(subs.root);
-    if (subs.media.tagName !== "VIDEO") return;
+    if (subs.media.tagName !== "VIDEO") return true;
     const r = subs.media.getBoundingClientRect();
     Object.assign(subs.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    return true;
   }
 
   function drawSubs(subs) {
+    if (subs.stopped) return;
     if (subsPageKey() !== subs.pageKey) {
-      stopSubs("Baihe subs turned off: this is a different video.");
+      stopSubs(subs, "Baihe subs turned off: this is a different video.");
       return;
     }
-    if (!subs.media.isConnected) {
-      const next = mainMedia();
-      if (!next) return;
-      subs.media = next;
-    }
-    placeSubs(subs);
+    if (!subs.media.isConnected) subs.media = mainMedia() || subs.media;
+    const showing = subs.media.isConnected && placeSubs(subs);
+    subs.root.style.display = showing ? "" : "none";
+    if (!showing) return;
     const shown = cuesAt(subs.cues, subs.media.currentTime - subs.nudge);
     const key = shown.map((c) => `${c.start}|${c.en}`).join("\n");
     if (key === subs.shownKey) return;
@@ -2422,16 +2427,26 @@
     chip.append(label,
       button("−0.5 s", "Show the lines half a second earlier", () => nudge(-SUBS_NUDGE_STEP)),
       button("+0.5 s", "Show the lines half a second later", () => nudge(SUBS_NUDGE_STEP)),
-      button("Off", "Turn Baihe subs off", () => stopSubs()));
+      button("Off", "Turn Baihe subs off", () => stopSubs(subs)));
     return chip;
   }
 
+  // Bumped by every on and off, so an answer that arrives after a later switch is dropped.
+  let subsGeneration = 0;
+
+  function turnOffSubs() {
+    subsGeneration++;
+    stopSubs(state.subs);
+  }
+
   async function startSubs() {
-    stopSubs();
+    const generation = ++subsGeneration;
+    stopSubs(state.subs);
     const media = mainMedia();
     if (!media) return { ok: true, data: { media: false } };
     const pageKey = subsPageKey();
     const answer = await chrome.runtime.sendMessage({ type: "fetchSiteSubs", url: location.href });
+    if (generation !== subsGeneration) return { ok: true, data: { superseded: true } };
     if (!answer || !answer.ok) return answer || { ok: false, error: "No answer from the extension." };
     const data = answer.data || {};
     if (!data.found || !Array.isArray(data.cues) || !data.cues.length) {
@@ -2466,7 +2481,7 @@
         switch (message && message.type) {
           case "showSiteSubs":
             if (message.on) respond(await startSubs());
-            else { stopSubs(); respond({ ok: true, data: { on: false } }); }
+            else { turnOffSubs(); respond({ ok: true, data: { on: false } }); }
             break;
           case "translateVisible":
             respond(await translateVisible(message));
@@ -2513,7 +2528,6 @@
               visibleRun: state.visible ? { running: true, text: state.visible.text } : null,
               textPage: isTextPage(),
               hasSelection: !!selectedText(),
-              hasMedia: !!mainMedia(),
               siteSubs: !!state.subs,
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
@@ -2540,5 +2554,5 @@
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
                      completenessLine, nextChapterUrl, looksGated, rememberAnswer, answerFor,
-                     cuesAt, subsPageKey, mainMedia, startSubs, stopSubs };
+                     cuesAt, subsPageKey, mainMedia, startSubs, stopSubs, turnOffSubs };
 })();
