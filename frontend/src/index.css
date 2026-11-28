@@ -1080,7 +1080,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 }
 
 /* Toolbar: search, scope, filters, view, select */
-.library-list { display: grid; gap: var(--space-3); min-width: 0; }
+.library-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .library-toolbar[hidden] { display: none; }
 .library-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .toolbar-search { display: flex; gap: var(--space-2); flex: 1 1 18rem; min-width: 0; }

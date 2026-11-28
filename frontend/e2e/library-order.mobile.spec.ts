@@ -14,9 +14,8 @@ test.beforeEach(async ({ page }) => {
 test('sort, group and collapse on a phone', async ({ page }) => {
   await page.getByLabel('Sort by').selectOption('date-asc')
   expect(await cardTitles(page)).toEqual(['Solo', 'Early', 'Mid', 'Zeta', 'Loose'])
-  await page.getByRole('button', { name: 'Filters' }).tap()
-  await page.getByLabel('Group by').selectOption('series')
-  await page.getByRole('button', { name: 'Close' }).tap()
+  // Grouping sits in the chip row now, not in the Filters sheet.
+  await page.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'By series' }).tap()
   await expect(page.getByTestId('title-group')).toHaveCount(3)
   const groups = page.getByTestId('title-group')
   await expect(groups).toHaveCount(3)
