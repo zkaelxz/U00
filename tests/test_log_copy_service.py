@@ -21,7 +21,7 @@ def folder(isolated_db, tmp_path, monkeypatch):
 
 
 def _zips(folder):
-    return sorted(p.name for p in folder.iterdir() if p.suffix == ".zip")
+    return sorted(p.name for p in folder.iterdir() if p.suffix == ".zip" and p.name.startswith("baihe-weekly-logs-"))
 
 
 def test_off_until_a_folder_is_picked(folder):
@@ -44,7 +44,7 @@ def test_keeps_the_newest_four(folder):
     for i in range(6):
         svc.write_copy(now=1_700_000_000 + i * 86400)
     assert len(_zips(folder)) == svc.KEEP
-    assert _zips(folder)[-1].startswith("baihe-logs-") and not any(n.endswith(".part") for n in os.listdir(folder))
+    assert _zips(folder)[-1].startswith("baihe-weekly-logs-") and not any(n.endswith(".part") for n in os.listdir(folder))
 
 
 def test_turning_it_off_keeps_the_copies(folder):
@@ -78,3 +78,30 @@ def test_the_overview_names_the_folder_but_never_its_path(folder):
     svc.set_folder(str(folder))
     shown = svc.overview()
     assert shown["folder_name"] == "copies" and str(folder) not in repr(shown)
+
+
+def test_hand_saved_send_logs_zips_are_never_rotated(folder):
+    (folder / "baihe-logs-20260101-000000.zip").write_bytes(b"mine")
+    svc.set_folder(str(folder))
+    for i in range(6):
+        svc.write_copy(now=1_700_000_000 + i * 86400)
+    assert (folder / "baihe-logs-20260101-000000.zip").exists()
+
+
+def test_an_unreachable_folder_is_retried_hourly_and_builds_nothing(folder, monkeypatch):
+    svc.set_folder(str(folder))
+    built = []
+    monkeypatch.setattr(gaps, "build_support_bundle", lambda: built.append(1) or b"x")
+    folder.rmdir()
+    assert svc.periodic_tick(now=1_000_000) is False
+    assert svc.periodic_tick(now=1_000_000 + 60) is False
+    assert built == []
+    folder.mkdir()
+    assert svc.periodic_tick(now=1_000_000 + svc.RETRY_SECONDS + 1) is True
+    assert built == [1]
+
+
+def test_a_verbatim_windows_prefix_is_not_a_way_around_the_guards(folder, monkeypatch):
+    monkeypatch.setattr(svc.os.path, "realpath", lambda p: "\\\\?\\" + str(folder))
+    monkeypatch.setattr(svc.os.path, "isdir", lambda p: p == str(folder))
+    assert svc.set_folder(str(folder)) and svc.get_folder() == str(folder)

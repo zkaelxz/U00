@@ -13,9 +13,12 @@ log = logging.getLogger(__name__)
 
 FOLDER_KEY = "logs.weekly_copy_folder"
 LAST_KEY = "logs.weekly_copy_last"
+TRIED_KEY = "logs.weekly_copy_tried"
+RETRY_SECONDS = 3600
 INTERVAL_SECONDS = 7 * 24 * 3600
 KEEP = 4
-_PREFIX, _SUFFIX = "baihe-logs-", ".zip"
+# Not the Send logs name, so a folder that also holds hand-saved zips never has those rotated away.
+_PREFIX, _SUFFIX = "baihe-weekly-logs-", ".zip"
 _MAX_FOLDER_LEN = 1024
 
 
@@ -39,6 +42,10 @@ def _check_folder(value) -> str:
     if not os.path.isabs(value):
         raise InvalidInputError("The log folder must be a full folder path, starting with the drive letter.")
     real = os.path.realpath(value)
+    for prefix in ("\\\\?\\UNC\\", "\\\\?\\"):   # \\?\ forms would slip past the comparisons below
+        if real.startswith(prefix):
+            real = ("\\\\" if "UNC" in prefix else "") + real[len(prefix):]
+            break
     if not os.path.isdir(real):
         raise InvalidInputError("That folder does not exist.")
     # Logs of a library or of the app itself must not land inside what a backup or an update replaces.
@@ -79,8 +86,10 @@ def write_copy(now: float | None = None) -> dict:
     folder = get_folder()
     if not folder:
         raise ConflictError("The weekly log copy is off.")
+    if not os.path.isdir(folder):
+        raise OSError("log folder unreachable")   # before the costly build
     data = gaps.build_support_bundle()
-    name = gaps.support_bundle_filename(now)
+    name = gaps.support_bundle_filename(now).replace("baihe-logs-", _PREFIX, 1)
     target = os.path.join(folder, name)
     tmp = target + ".part"
     try:
@@ -110,6 +119,10 @@ def periodic_tick(now: float | None = None) -> bool:
         last = db.get_app_setting(LAST_KEY)
         if isinstance(last, (int, float)) and now - last < INTERVAL_SECONDS:
             return False
+        tried = db.get_app_setting(TRIED_KEY)
+        if isinstance(tried, (int, float)) and now - tried < RETRY_SECONDS:
+            return False   # a folder that fails (unplugged drive) is retried hourly, not every poll
+        db.set_app_setting(TRIED_KEY, now)
         write_copy(now)
         return True
     except ConflictError:
