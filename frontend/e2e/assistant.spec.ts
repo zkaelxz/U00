@@ -173,10 +173,8 @@ test('backlog: add, delete (two-step), clear all; changelog', async ({ page }) =
   await page.goto('/#/assistant')
   const card = page.getByRole('region', { name: 'Backlog' })
   await openSection(page, 'Backlog')
-  // Closed, the summary counts the items.
-  await card.locator('summary').first().click()
+  // The heading counts the items.
   await expect(card.locator('.section-summary')).toHaveText('1 item')
-  await openSection(page, 'Backlog')
   const list = card.getByRole('list', { name: 'Backlog items', exact: true })
   await expect(list.getByRole('listitem')).toHaveCount(1)
 
@@ -226,36 +224,34 @@ test('desktop screenshot', async ({ page }) => {
   await shot(page, 'assistant-desktop', true)
 })
 
-test('tabs: Ask, Work list, Tools; every card starts open, a fold and the tab are remembered', async ({ page }) => {
+test('tabs: Ask, Work list, Tools; each shows its sections in full as plain headings, and the tab is remembered', async ({ page }) => {
   const s = await mockAssistant(page, { developerMode: true })
   await page.goto('/#/assistant')
-  const fold = (name: string) => page.getByRole('region', { name }).locator('details.section').first()
+  const heading = (region: string, name: string) => page.getByRole('region', { name: region }).getByRole('heading', { name, exact: true })
   const tabs = page.getByRole('tablist', { name: 'Assistant' }).getByRole('tab')
   await expect(tabs).toHaveText(['Ask', 'Work list', 'Tools'])
   await expect(page.getByRole('tab', { name: 'Ask', exact: true })).toHaveAttribute('aria-selected', 'true')
   // The read-only notice stays above the tabs.
   await expect(page.getByText('Read-only: it suggests fixes but never applies them.')).toBeVisible()
-  await expect(fold('Ask the assistant')).toHaveJSProperty('open', true)
+  await expect(heading('Ask the assistant', 'Ask')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Question' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Backlog' })).toBeHidden()
+  // No boxes and no fold to open: the sections are headings, and only the rarely used extras stay folded.
+  await expect(page.locator('.assistant-page .card')).toHaveCount(0)
 
   await openTab(page, 'Work list')
-  await expect(fold('Backlog')).toHaveJSProperty('open', true)
-  await expect(fold('Changelog')).toHaveJSProperty('open', true)
+  await expect(heading('Backlog', 'Backlog')).toBeVisible()
+  await expect(heading('Changelog', 'Changelog')).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Backlog' }).getByLabel('New item')).toBeVisible()
 
   await openTab(page, 'Tools')
-  await expect(fold('Tools')).toHaveJSProperty('open', true)
-  await fold('Tools').locator('summary').first().click()
+  await expect(heading('Tools', 'Tools')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Independent review', exact: true })).toBeVisible()
 
   await openTab(page, 'Work list')
-  await fold('Changelog').locator('summary').first().click() // fold it: the closed choice is the one that must be remembered
-  // The fold choice is saved from the details 'toggle' event, which fires after the click returns; reloading first loses it.
-  await page.waitForFunction(() => ['assistant.tools', 'assistant.changelog'].every((k) => window.localStorage.getItem(`baihe.section.${k}`) !== null))
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Work list', exact: true })).toHaveAttribute('aria-selected', 'true')
-  await expect(fold('Changelog')).toHaveJSProperty('open', false)
-  await expect(fold('Backlog')).toHaveJSProperty('open', true)
-  await openTab(page, 'Tools')
-  await expect(fold('Tools')).toHaveJSProperty('open', false)
+  await expect(heading('Changelog', 'Changelog')).toBeVisible()
   expect(s.unmocked).toEqual([])
 })
 

@@ -36,9 +36,10 @@ def _lines(*texts, speaker=None):
 
 
 def _run(engine, lines, guidelines, names=None, **kw):
+    kw = {"context_window": 0, "context_window_ahead": 0, **kw}
     return translate_pipeline.translate_lines_with_engine(
         lines, engine, drama_meta={"source_language": "zh"}, style_guidelines=guidelines,
-        character_names=names or {}, context_window=0, context_window_ahead=0, **kw)
+        character_names=names or {}, **kw)
 
 
 def _user_message(guidelines, numbered="1. 他来了", **ctx):
@@ -99,6 +100,19 @@ def test_male_output_is_asked_again_once_for_just_those_ids():
     assert retry["ids"] == [100, 102] and retry["context"]["pronoun_strict"]
     assert [ln.en for ln in lines] == ["She came.", "Hello.", "She said they left."]
     assert not any(ln.flag for ln in lines)
+
+
+def test_the_recheck_shows_each_suspect_its_own_neighbours_not_the_last_batchs():
+    texts = ["他来了"] + [f"句{i}" for i in range(1, 15)] + ["他走了", "句16"]
+    first = {100 + i: f"S{i}." for i in range(len(texts))}
+    first.update({100: "He came.", 115: "He left."})
+    engine = ScriptedEngine(first, {100: "She came.", 115: "She left."})
+    lines = _lines(*texts)
+    _run(engine, lines, ON, batch_size=50, context_window=6, context_window_ahead=3)
+    retry = engine.calls[1]["context"]
+    assert retry["pronoun_strict"] and engine.calls[1]["ids"] == [100, 115]
+    assert [zh for zh, _ in retry["recent_context"]] == ["句1", "句12", "句13", "句14"]
+    assert retry["upcoming_lines"] == ["句16"]
 
 
 def test_a_line_still_male_after_the_retry_is_flagged_not_asked_a_third_time():
