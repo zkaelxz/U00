@@ -1,4 +1,5 @@
 """Write a file so a crash or a failed write never leaves it truncated."""
+import errno
 import os
 import tempfile
 import time
@@ -11,6 +12,11 @@ _ON_WINDOWS = os.name == "nt"
 _HELD_WINERRORS = {5, 32}
 _REPLACE_ATTEMPTS = 10
 _REPLACE_DELAY = 0.02
+# How a filesystem says it cannot fsync at all (some network shares and FUSE
+# mounts; Windows reports ERROR_INVALID_FUNCTION). Anything else, such as EIO
+# or ENOSPC, means the data may not be on disk.
+_NO_FSYNC_ERRNOS = {errno.EINVAL, errno.ENOTSUP, errno.EOPNOTSUPP}
+_NO_FSYNC_WINERRORS = {1}
 
 
 def replace_file(src: str, dst: str) -> None:
@@ -42,13 +48,14 @@ def _while_held(action, *paths) -> None:
 def _flush_to_disk(f) -> None:
     # Without this, NTFS (and ext4 with delayed allocation) can keep the
     # rename after a power cut and lose the data, leaving an empty file where
-    # the old one was. Best effort: a filesystem that cannot fsync still gets
-    # the rename.
+    # the old one was. A filesystem that cannot fsync still gets the rename;
+    # a failed fsync must not replace a good file with one that may be lost.
     try:
         f.flush()
         os.fsync(f.fileno())
-    except OSError:
-        pass
+    except OSError as e:
+        if e.errno not in _NO_FSYNC_ERRNOS and getattr(e, "winerror", None) not in _NO_FSYNC_WINERRORS:
+            raise
 
 
 def atomic_write(path: str, data, binary: bool = False, *, prefix: str = "", suffix: str = ".tmp") -> None:
