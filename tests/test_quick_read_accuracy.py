@@ -162,8 +162,12 @@ def test_quick_read_rereads_before_matching_the_glossary(isolated_db, monkeypatc
     monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     bubbles = [_bubble("勇有が来た", 0.4)]
     page_server._translate_read_page(bubbles, {}, None, None, "", [], False, _png(), False, "ja")
+    for thread in threading.enumerate():
+        if thread.name == "quick-read-early-translate":
+            thread.join(5)
     assert bubbles[0]["source_text"] == "勇者が来た"
-    assert sent[1][0] == ["勇者が来た"] and "勇者 → default: Hero" in sent[1][1]
+    # The early ask, on the OCR text, runs beside the reread, so the two can land in either order.
+    assert any(src == ["勇者が来た"] and "勇者 → default: Hero" in notes for src, notes in sent)
     # A saved page keeps the read it stored, so it is not corrected.
     other = [_bubble("勇有が来た", 0.4)]
     page_server._translate_read_page(other, {}, None, None, "", [], False, _png(), True, "ja")
