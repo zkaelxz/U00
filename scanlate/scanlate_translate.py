@@ -6,6 +6,7 @@ carries a short context string from page to page.
 """
 
 import re
+import unicodedata
 
 from en_cleanup import drop_em_dashes
 from scanlate.scanlate_regions import region_excluded_from_auto
@@ -468,6 +469,37 @@ def recheck_source_script(texts_by_id: dict, result: dict, engine, drama_meta: d
     return out, [k for k, v in out.items() if k in texts_by_id and has_source_script(v, texts_by_id[k])]
 
 
+# Marks NFKC leaves in their CJK form. "……" is one ellipsis in CJK lettering and widens to six dots.
+_CJK_MARKS = str.maketrans({"。": ".", "、": ",", "・": ".", "〜": "~", "「": '"', "」": '"',
+                            "『": '"', "』": '"'})
+
+
+def marks_only_english(text: str):
+    """The English for a region lettered only in punctuation and symbols ("……", "？！"), or None
+    when it has a letter or digit of any script. Such a region needs no model: a whole picture
+    call for one "……" balloon took seconds, and a model that answered it with "" cost a retry."""
+    # Invisible format and control characters (a stray zero-width space) are not lettering: a
+    # region of only those would get an answer that shows nothing, so it goes to the model.
+    text = "".join(ch for ch in (text or "") if unicodedata.category(ch)[0] != "C").strip()
+    if not text or any(unicodedata.category(ch)[0] in "LN" for ch in text):
+        return None
+    english = re.sub(r"\.{3,}", "...", unicodedata.normalize("NFKC", text).translate(_CJK_MARKS))
+    english = drop_em_dashes(english).strip()
+    return english or None
+
+
+def _answer_marks_locally(bubbles: list) -> list:
+    """Answers the punctuation-only bubbles (marks_only_english) in place; returns the others."""
+    rest = []
+    for b in bubbles:
+        english = marks_only_english(b["source_text"])
+        if english is None:
+            rest.append(b)
+        else:
+            b["translated_text"] = english
+    return rest
+
+
 def previous_page_block(lines) -> str:
     """The prompt section for the page before this one ([{"source", "english"}], english
     possibly empty); "" for none. It is context only, so the answer must not contain it."""
@@ -538,14 +570,15 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     reaches the translation call, not the raw OCR output. Skipped regions
     and SFX left out of the automated pass (region_excluded_from_auto())
     aren't sent at all and keep whatever translated_text they had; neither
-    are regions with no source text.
+    are regions with no source text. A region lettered only in punctuation is
+    answered here (marks_only_english) and not sent either.
 
     Mutates `bubbles` in place and returns the new rolling context for the
     next page. Answers are matched to bubbles by explicit id
     (translate_regions_by_id). When no answer could be applied (unreadable,
-    short, padded, reordered-by-position or naming an unknown id) no bubble is
-    touched; when only some chunks of a dense page failed, the rest are
-    applied. Either way it raises ValueError, naming how many regions were
+    short, padded, reordered or with unknown ids) only the punctuation-only
+    bubbles get their local answer; when only some chunks of a dense page
+    failed, the rest are applied. Either way it raises ValueError, naming how many regions were
     left untranslated.
 
     `page_image` ({"data", "mime", "scale"}, optionally "engine" and "usage_cb" for
@@ -562,6 +595,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
+    eligible = _answer_marks_locally(eligible)
     if not eligible:
         return previous_context
     # Standing reference and the page before share the notes argument, which every request
