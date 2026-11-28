@@ -76,14 +76,15 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
                                batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE),
                                line_ids: Optional[List[int]] = Query(None, max_length=5000),
                                chapter_from: Optional[int] = Query(None, ge=1),
-                               chapter_to: Optional[int] = Query(None, ge=1)):
+                               chapter_to: Optional[int] = Query(None, ge=1),
+                               style_preset: Optional[str] = Query(None, max_length=40)):
     return translate_thinking_service.annotate_estimate(
         translate_run_service.estimate_translate_cost(
             drama_id, engine_name=engine, model=model, reflect=reflect,
             force_retranslate=force_retranslate, bulk=bulk,
             gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
             batch_size=batch_size, line_ids=line_ids,
-            chapter_from=chapter_from, chapter_to=chapter_to),
+            chapter_from=chapter_from, chapter_to=chapter_to, style_preset=style_preset),
         drama_id, thinking, reflect)
 
 

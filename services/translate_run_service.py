@@ -232,14 +232,14 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
 
 
 def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
-                        context_lines, *, whole_title, bulk) -> float:
+                        context_lines, *, whole_title, bulk, style_preset) -> float:
     """Dollars for every paid call a translate run makes: its batches (with the
     title's real prompt), the pre-read of the whole episode and the episode summary.
     The summary is priced on its own engine, which Settings can set apart from the run's."""
     ids = {ln["id"] for ln in targets}
     lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in ids]
     glossary_terms, style_guidelines, _ = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, profile_service.style_preset(drama),
+        drama_id, drama, lines, style_preset,
         engine_name=stand_in.name, model=stand_in.model)
     stable_text = engine_prompts.build_stable_system_text({
         "drama_meta": drama, "style_guidelines": style_guidelines, "glossary_terms": glossary_terms})
@@ -288,10 +288,11 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
                             bulk: bool = False, gemini_free_tier: bool | None = None,
                             job_cost_cap_usd: float | None = None, line_ids=None,
                             batch_size: int | None = None, chapter_from: int | None = None,
-                            chapter_to: int | None = None) -> dict:
+                            chapter_to: int | None = None, style_preset: str | None = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
-    sets how many times the instructions are sent; omitted, the engine's default."""
+    sets how many times the instructions are sent; omitted, the engine's default.
+    style_preset (optional): the Style the form picked; omitted, the title's own."""
     reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
@@ -310,6 +311,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
+    if style_preset is not None and style_preset not in translation_guide.STYLE_PRESETS:
+        raise InvalidInputError("Unknown style preset.")
 
     free_tier = engine_name == "gemini" and gemini_free_tier
     resolved_model = model or engine_registry.effective_default_model(engine_name)
@@ -334,7 +337,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         estimated = _estimate_run_calls(
             drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
             (defaults["context_window"], defaults["context_window_ahead"]),
-            whole_title=line_ids is None, bulk=bulk)
+            whole_title=line_ids is None, bulk=bulk,
+            style_preset=style_preset or profile_service.style_preset(drama))
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
     alignment_usd = (_alignment_check_estimate(engine_name, resolved_model, targets)

@@ -6,6 +6,8 @@ import os
 
 import pytest
 
+from lib.errors import InvalidInputError
+
 import sensitivity_preset as presets
 from jobs import job_launch
 from core import Line
@@ -405,3 +407,14 @@ def test_the_estimate_prices_the_titles_last_run_style(isolated_db, monkeypatch)
                         lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
     translate_run_service.estimate_translate_cost(did, "claude")
     assert presets == ["novel"]
+
+
+def test_the_estimate_prices_a_style_picked_on_the_form(isolated_db, monkeypatch):
+    did = _seeded(translate_start_json='{"style_preset": "novel"}')
+    presets, real = [], workspace_job_service.build_run_style_context
+    monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                        lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+    translate_run_service.estimate_translate_cost(did, "claude", style_preset="audio_drama")
+    assert presets == ["audio_drama"]
+    with pytest.raises(InvalidInputError):
+        translate_run_service.estimate_translate_cost(did, "claude", style_preset="no-such-style")
