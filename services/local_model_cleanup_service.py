@@ -1,6 +1,7 @@
 """services/local_model_cleanup_service.py -- the one-time 0.2.0 startup pass that clears saved local Ollama models."""
 import contextlib
 import json
+import sqlite3
 
 import db
 from engine_backends import engine_registry
@@ -146,6 +147,30 @@ def _clear_assistant(conn) -> int:
 def run_once() -> dict:
     """Clears every saved local Ollama model once and returns {storage name: values cleared},
     only the ones that changed. Hosted (-cloud) tags and other engines' models are left as they are."""
+    try:
+        # A plain read first, so that a start after the pass takes no write lock.
+        with contextlib.closing(db.get_conn()) as conn:
+            if _marker_set(conn):
+                return {}
+        counts, skipped = _clear_all()
+    except sqlite3.Error:
+        # A busy or unwritable library must not stop the app from starting; the marker stays
+        # unset so the pass runs again next start, and drop_saved_local_model covers reads meanwhile.
+        _warn("Saved local Ollama models not cleared: the library could not be written; "
+              "trying again next start.")
+        return {}
+    if counts is None:
+        return {}
+    changed = {name: n for name, n in counts.items() if n}
+    _log(changed, skipped)
+    return changed
+
+
+def _marker_set(conn) -> bool:
+    return conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (MARKER,)).fetchone() is not None
+
+
+def _clear_all():
     from services import engine_routing_service
     unset_engine = engine_routing_service.resolve_capability("translation.cheap")
     tiers = engine_registry.WORKFLOW_TIERS
@@ -153,10 +178,10 @@ def run_once() -> dict:
         conn.isolation_level = None
         conn.execute("BEGIN IMMEDIATE")
         try:
-            # Checked under the write lock: another process may have run it while this one waited.
-            if conn.execute("SELECT 1 FROM app_settings WHERE key = ?", (MARKER,)).fetchone():
+            # Checked again under the write lock: another process may have run it while this one waited.
+            if _marker_set(conn):
                 conn.execute("ROLLBACK")
-                return {}
+                return None, []
             engines = _title_engines(conn, unset_engine)
             steps = {
                 "presets": lambda: _clear_presets(conn),
@@ -173,19 +198,31 @@ def run_once() -> dict:
             for name, step in steps.items():
                 try:
                     counts[name] = step()
-                except (TypeError, ValueError, AttributeError, LookupError):
-                    # A malformed stored value must never stop the app from starting; that
-                    # storage keeps its value and the read-time fallback still covers it.
+                except sqlite3.Error:
+                    raise
+                except Exception:
+                    # Any hand-edited or restored value (an id of 1e999, JSON nested too deep)
+                    # must never stop the app from starting; that storage keeps its value and
+                    # drop_saved_local_model still drops a local tag when it is read.
                     counts[name] = 0
                     skipped.append(name)
             conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (MARKER,))
             conn.execute("COMMIT")
         except Exception:
-            conn.execute("ROLLBACK")
+            # A failed COMMIT can already have ended the transaction; a second error here
+            # would hide the first.
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
             raise
-    changed = {name: n for name, n in counts.items() if n}
-    _log(changed, skipped)
-    return changed
+    return counts, skipped
+
+
+def _warn(message: str) -> None:
+    try:
+        import applog
+        applog.get_logger().warning(message)
+    except OSError:
+        pass   # no log folder is no reason to stop starting
 
 
 def _log(changed: dict, skipped: list) -> None:

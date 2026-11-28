@@ -1,5 +1,7 @@
 """The one-time clearing of saved local Ollama model choices (0.2.0)."""
+import contextlib
 import json
+import sqlite3
 
 import pytest
 
@@ -139,22 +141,96 @@ def test_an_empty_library_only_records_the_pass(isolated_db, log):
     assert svc.run_once() == {}
 
 
-def test_a_failure_changes_nothing_and_runs_again(isolated_db, log, monkeypatch):
+class _Conn:
+    """Passes everything to a real connection, recording statements and failing the one named."""
+
+    def __init__(self, conn, statements, fail_on=None):
+        self._conn, self._statements, self._fail_on = conn, statements, fail_on
+
+    def execute(self, sql, *args):
+        self._statements.append(sql)
+        if sql == self._fail_on:
+            raise sqlite3.OperationalError("database is locked")
+        return self._conn.execute(sql, *args)
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+        else:
+            setattr(self._conn, name, value)
+
+
+def _wrap_conns(monkeypatch, fail_on=None):
+    statements = []
+    real = svc.db.get_conn
+    monkeypatch.setattr(svc.db, "get_conn", lambda: _Conn(real(), statements, fail_on))
+    return statements
+
+
+@pytest.mark.parametrize("fail_on", ["BEGIN IMMEDIATE", "COMMIT"])
+def test_a_locked_or_unwritable_library_does_not_stop_startup_and_runs_again(
+        isolated_db, log, monkeypatch, fail_on):
+    db = isolated_db
+    pid = db.save_preset("Ollama one", translation_engine="ollama", engine_model=LOCAL)
+    _wrap_conns(monkeypatch, fail_on)
+
+    assert svc.run_once() == {}
+    assert _preset_model(db, pid) == LOCAL
+    assert db.get_app_setting(svc.MARKER) is None
+    assert log.lines == ["Saved local Ollama models not cleared: the library could not be written; "
+                         "trying again next start."]
+
+    monkeypatch.undo()
+    monkeypatch.setattr(applog, "get_logger", lambda: log)
+    assert svc.run_once() == {"presets": 1}
+
+
+def test_a_database_error_in_a_step_changes_nothing_and_runs_again(isolated_db, log, monkeypatch):
     db = isolated_db
     db.set_app_setting("extension_translation_engine", {"engine": "ollama", "model": LOCAL})
     pid = db.save_preset("Ollama one", translation_engine="ollama", engine_model=LOCAL)
 
     def boom(conn):
-        raise RuntimeError("disk")
+        raise sqlite3.OperationalError("disk I/O error")
     monkeypatch.setattr(svc, "_clear_queue", lambda conn, engines: boom(conn))
-    with pytest.raises(RuntimeError):
-        svc.run_once()
+    assert svc.run_once() == {}
     assert _preset_model(db, pid) == LOCAL
     assert db.get_app_setting(svc.MARKER) is None
 
     monkeypatch.undo()
     monkeypatch.setattr(applog, "get_logger", lambda: log)
     assert svc.run_once() == {"presets": 1, "extension_translation_engine": 1}
+
+
+def test_a_start_after_the_pass_takes_no_write_lock(isolated_db, log, monkeypatch):
+    assert svc.run_once() == {}
+    statements = _wrap_conns(monkeypatch)
+
+    assert svc.run_once() == {}
+    assert statements and not any(s.startswith("BEGIN") for s in statements)
+
+
+def test_out_of_range_ids_and_deep_json_skip_only_their_storage(isolated_db, log):
+    db = isolated_db
+    did = db.create_drama(title_en="Ollama title", translation_engine="ollama")
+    pid = db.save_preset("Ollama one", translation_engine="ollama", engine_model=LOCAL)
+    queue = json.dumps(_queue([_item(1, did, "translate", {"model": LOCAL})]))
+    with contextlib.closing(db.get_conn()) as conn:
+        # Hand-edited values: json reads 1e999 as inf, and int(inf) raises OverflowError.
+        conn.executemany("INSERT INTO app_settings (key, value) VALUES (?, ?)", [
+            ("job_queue", queue.replace(f'"drama_id": {did}', '"drama_id": 1e999')),
+            ("extension_translation_engine", "[" * 100000 + "]" * 100000)])
+        conn.commit()
+
+    assert svc.run_once() == {"presets": 1}
+    assert _preset_model(db, pid) is None
+    assert db.get_app_setting(svc.MARKER) is True
+    assert log.lines[0] == ("Saved local Ollama models not cleared in unreadable settings: "
+                            "extension_translation_engine, job_queue")
+    assert "1e999" not in " ".join(log.lines)
 
 
 def test_queue_items_with_odd_title_ids_are_skipped_or_matched(isolated_db, log):
