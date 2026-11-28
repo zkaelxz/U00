@@ -137,7 +137,7 @@ def enforce(lines, terms, ask, stop, allowed_runs=()) -> int:
         if replies is not None and len(replies) == len(asked):
             for ln, reply in zip(asked, replies):
                 if _acceptable(ln, reply, terms, allowed_runs):
-                    ln.en = drop_em_dashes(reply)
+                    ln.en = drop_em_dashes(reply, ln.zh)
                     misses[id(ln)] = []
     for ln in lines:
         left = misses.get(id(ln))

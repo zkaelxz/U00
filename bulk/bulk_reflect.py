@@ -554,7 +554,7 @@ def _write_reflect_english(job: dict, row_by_id: dict, text_by_id: dict, critiqu
             continue
         if fixes_text:
             translation = substitute_terms(translation, ln.zh)
-        ln.en = drop_em_dashes(translation)
+        ln.en = drop_em_dashes(translation, ln.zh)
         source_change.clear_for_new_english(ln)
         counts["applied"] += 1
         critique = critique_by_id.get(lid)

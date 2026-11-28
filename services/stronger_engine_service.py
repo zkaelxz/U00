@@ -317,5 +317,5 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     if not isinstance(text, str) or not text.strip():
         raise ServiceError("The engine returned no translation for this line.")
     return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
-            "model": getattr(engine, "model", None), "text": drop_em_dashes(text.strip()),
+            "model": getattr(engine, "model", None), "text": drop_em_dashes(text.strip(), line.zh),
             "based_on_en": line.en or "", "cost_usd": round(cost, 6)}
