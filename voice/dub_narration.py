@@ -15,7 +15,7 @@ import uuid
 import video_export
 from lib.atomic_write import remove_file, replace_file
 from novel_text import (  # noqa: F401 (re-exported)
-    NARRATION_TRACK_NAMES, NOVEL_SOURCE_FILENAME, find_narration_track, heading_title,
+    NARRATION_TRACK_NAMES, NARRATION_WAITING_NAME, NOVEL_SOURCE_FILENAME, find_narration_track, heading_title,
     is_chapter_heading, narration_paragraph_ends)
 
 from audio_levelling import level_clip
@@ -479,7 +479,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
     _refuse_mostly_failed(units, drama_dir, checkpoints.joined_any)
-    errors = _join_track(steps, lines, drama_dir, pace, narrate_original)
+    errors = _join_track(steps, lines, drama_dir, pace, narrate_original, final=True)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
     if os.path.isfile(legacy):
@@ -487,9 +487,11 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     return os.path.join(drama_dir, NARRATION_TRACK_NAMES[0]), errors
 
 
-def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: bool) -> list:
+def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: bool,
+                final: bool = False) -> list:
     """Joins the clips of `steps` (all of the title's, or the part spoken so far) into the
-    title's track and sets the times and clip of `lines` (theirs). Returns the failed lines' errors."""
+    title's track and sets the times and clip of `lines` (theirs). Returns the failed lines' errors.
+    final: the whole track, which is kept under NARRATION_WAITING_NAME when the old one stays held."""
     from types import SimpleNamespace
     from pydub import AudioSegment
     from resegment import split_times
@@ -538,14 +540,28 @@ def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: boo
             # Shortened by the pace, so the gap is the same length once the track is slowed.
             cursor_ms = end_ms + round(CLIP_GAP_MS * pace)
         stream.finish(cursor_ms)
-        # Retries while the Reader is still streaming the old track on Windows.
-        replace_file(part_path, out_path)
+        _put_track_in_place(part_path, out_path, drama_dir, final)
     finally:
         stream.abort()
         remove_partial_track(drama_dir)
 
     _stretch_times(lines, pace)
     return errors
+
+
+def _put_track_in_place(part_path: str, out_path: str, drama_dir: str, final: bool) -> None:
+    try:
+        # Retries for about a second while the Reader is still streaming the old track on Windows.
+        replace_file(part_path, out_path)
+    except PermissionError:
+        if not final:
+            raise
+        # A listener can keep the old track open for as long as it plays; failing the run here
+        # would throw away hours of narration, so the track waits for find_narration_track.
+        replace_file(part_path, os.path.join(drama_dir, NARRATION_WAITING_NAME))
+        return
+    with contextlib.suppress(OSError):
+        os.remove(os.path.join(drama_dir, NARRATION_WAITING_NAME))
 
 
 # A join of the part spoken so far reads all of its clips again, so the next join waits this many

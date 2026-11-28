@@ -565,6 +565,46 @@ class TestListenWhileItIsMade:
         assert all(ln.dub_filename for ln in lines)
 
 
+    def test_a_final_track_held_open_waits_beside_it_and_a_read_swaps_it_in(
+            self, monkeypatch, fake_pydub, tmp_path):
+        import novel_text
+        track = tmp_path / "narration_track.flac"
+        real = dub_narration.replace_file
+
+        def held(src, dst):
+            if dst == str(track):
+                raise PermissionError(13, "The process cannot access the file")
+            return real(src, dst)
+        monkeypatch.setattr(dub_narration, "replace_file", held)
+        track.write_bytes(b"the part the Reader is playing")
+        os.utime(track, (1, 1))
+        lines = self._chapters(2)
+        out, errors = self._run(monkeypatch, tmp_path, lines, parts=[])
+        assert errors == [] and all(ln.dub_filename for ln in lines)
+        waiting = tmp_path / novel_text.NARRATION_WAITING_NAME
+        made = waiting.read_bytes()
+        assert made != b"the part the Reader is playing"
+        # Still held at the next read: the waiting track is the one served.
+        real_replace = os.replace
+
+        def still_held(src, dst):
+            raise PermissionError(13, "The process cannot access the file")
+        monkeypatch.setattr(novel_text.os, "replace", still_held)
+        assert novel_text.find_narration_track(str(tmp_path)) == novel_text.NARRATION_WAITING_NAME
+        monkeypatch.setattr(novel_text.os, "replace", real_replace)
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert track.read_bytes() == made and not waiting.exists()
+
+    def test_a_waiting_track_older_than_the_title_track_is_dropped(self, tmp_path):
+        import novel_text
+        waiting = tmp_path / novel_text.NARRATION_WAITING_NAME
+        waiting.write_bytes(b"older")
+        os.utime(waiting, (1, 1))
+        (tmp_path / "narration_track.flac").write_bytes(b"newer")
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert not waiting.exists() and (tmp_path / "narration_track.flac").read_bytes() == b"newer"
+
+
 class TestMakeAgainKeepsTheOldTrack:
     """A title that already has a track is not given a part of the new one: with its clips cached
     the part would replace the whole track before anything is spoken."""
