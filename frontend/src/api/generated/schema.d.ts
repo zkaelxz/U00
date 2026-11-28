@@ -16567,10 +16567,13 @@ export interface components {
              * @default false
              */
             remote_uploads: boolean;
+            /**
+             * Remote Uploads Auto Off
+             * @default false
+             */
+            remote_uploads_auto_off: boolean;
             /** Remote Uploads Since */
             remote_uploads_since: number | null;
-            /** Remote Uploads Auto Off */
-            remote_uploads_auto_off: boolean;
             /**
              * Upload Max Mb From Env
              * @default false
