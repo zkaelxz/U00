@@ -20,16 +20,23 @@ from lib.safe_paths import plain_file_in
 # "Prologue". Kept short and without sentence-ending punctuation, so an
 # ordinary sentence that merely starts the same way (第一回合他就输了。 /
 # "Chapter and verse, ...") isn't one. Markers that also start everyday
-# words (第一部电影, 1화를, 프롤로그가) must be followed by a space,
-# a separator or the end of the line.
-_HEADING_END = r"(?=\s|[:：.\-–—]|$)"
+# words (第一部电影, 1화를, 프롤로그가, 番外的, 闲话少说) must be followed by a
+# space, a separator, a closing bracket or the end of the line. Downloaded
+# TXT files often put 正文, a bracket or a decoration symbol in front
+# (正文 第一章 / 【第一章】 / ☆第3章).
+_HEADING_END = r"(?=\s|[:：.\-–—】\]］〕]|$)"
+_CJK_NUMBER = r"[0-9０-９零〇一二三四五六七八九十百千两兩]+"
 _CHAPTER_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[章回节節卷]|"
-    r"(?:第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[話话部篇集幕]|"
-    r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|"
-    r"终章|終章|プロローグ|エピローグ|幕間|프롤로그|에필로그|외전|서장|종장|"
+    r"^\s*(?:[☆★◆◇●○■□※◎♦]+\s*)?(?:正文\s*)?[【\[［〔]?\s*"
+    r"(第\s*" + _CJK_NUMBER + r"\s*[章回节節卷]|"
+    r"(?:第\s*" + _CJK_NUMBER + r"\s*[話话部篇集幕]|"
+    r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|卷\s*" + _CJK_NUMBER + r"|"
+    r"番外篇?\s*" + _CJK_NUMBER + r"|最[終终][話话章回]|"
+    r"终章|終章|プロローグ|エピローグ|幕間|閑話|闲话|間章|间章|後日談|后日谈|"
+    r"프롤로그|에필로그|외전|서장|종장|후기|작가의\s*말|"
     r"序章|序言|楔子|引子|尾声|尾聲|后记|後記|番外篇?)" + _HEADING_END + "|"
-    r"(?P<english>(chapter\s+\S+|prologue|epilogue)\s*(?:[:：.\-–—]|$)))", re.IGNORECASE)
+    r"(?P<english>(chapter\s+\S+|episode\s+\S+|ep\.?\s*\d+|ch\.\s*\d+|prologue|epilogue)"
+    r"\s*(?:[:：.\-–—\]]|$)))", re.IGNORECASE)
 _CHAPTER_HEADING_MAX_CHARS = 60
 _SENTENCE_END = tuple("。！？!?…」』”\"")
 

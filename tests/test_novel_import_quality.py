@@ -147,6 +147,43 @@ def test_chapter_starts_keeps_a_volume_heading_with_its_first_chapter():
     assert book[starts[1][0]:].startswith("第二章 空\n第三章")
 
 
+HEADING_SHAPES = [
+    "正文 第一章 重生", "正文第一章 重生", "【第一章】重生", "【番外】", "☆第3章 夜行", "★第十章",
+    "最終話", "最终话", "最终章", "最終章 別れ", "番外一 夏天", "番外1", "番外篇2 夏天",
+    "閑話 休日", "间章", "間章", "後日談", "后日谈", "卷一 第一章", "卷三",
+    "Episode 3", "Episode 3: The Bridge", "EP.1", "Ep 12 - Rain", "Ch. 5", "Ch.5: Home",
+    "[Chapter 2]", "후기", "작가의 말",
+]
+
+
+@pytest.mark.parametrize("text", HEADING_SHAPES)
+def test_common_heading_shapes_are_headings(text):
+    assert novel_text.is_heading_text(text)
+
+
+# Ordinary sentences that open with the same words as a heading marker.
+_SENTENCE_OPENERS = ["第一部电影", "番外的故事", "番外篇的故事", "正文开始", "最终话题", "闲话少说",
+                     "閑話休題", "卷起袖子", "卷一卷", "后日谈起", "최종화를", "후기를", "작가의 말을",
+                     "Episode 3 was boring", "Episode three was", "EP.1 was the pilot",
+                     "Ch. 5 was the best part", "Ep is short for", "Chapter and verse",
+                     "最終章まで"]
+# Half end without a sentence mark (a line cut by a hard wrap), so the marker's own boundary
+# rule is what keeps them out, not the end-of-sentence check.
+_SENTENCE_TAILS = ["，他说完就走了。", "，我们走吧。", "真的很好看。", "は面白かった！", ", and it was fine.",
+                   "，他说完就走了", "真的很好看", "だった", "남겨 주세요", " and then"]
+ORDINARY_SENTENCES = [head + tail for head in _SENTENCE_OPENERS for tail in _SENTENCE_TAILS]
+
+
+def test_ordinary_sentences_that_start_like_a_heading_are_not_headings():
+    assert len(ORDINARY_SENTENCES) == 200
+    assert [s for s in ORDINARY_SENTENCES if novel_text.is_heading_text(s)] == []
+
+
+def test_chapter_starts_finds_every_chapter_of_a_txt_with_mixed_heading_shapes():
+    book = "".join(f"{title}\n这一章的正文。\n他们说了很多话。\n\n" for title in HEADING_SHAPES)
+    assert [t for _o, t in novel_text.chapter_starts(book)] == HEADING_SHAPES
+
+
 def test_best_decoding_keeps_gbk_full_of_decoration_symbols():
     data = ("★☆★第一章★☆★\n①他说②她说③※※■■□□\n" * 3 + "他。").encode("gbk")
     assert novel_text.best_decoding(data, ("gb18030", "big5"))[1] == "gb18030"
