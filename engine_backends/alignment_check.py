@@ -212,7 +212,7 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
     if vectors is None or len(vectors) != 2 * len(todo):
         return 0
     pos = {id(ln): k for k, ln in enumerate(lines)}
-    strict, doubtful, borderline = {}, [], {}
+    strict, doubtful, borderline, strong = {}, [], {}, {}
     for i, ln in enumerate(todo):
         if vectors[i] is None or vectors[len(todo) + i] is None:
             if unchecked is not None:
@@ -226,6 +226,9 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             note = note or (shift_note(near[0], score, near[1]) if near else None)
         strict[i] = note
         borderline[i] = score >= min_similarity
+        strong[i] = not borderline[i] or bool(
+            near and _closer_neighbour(i, pos, todo, vectors, score,
+                                       max(neighbour_margin, READING_SPEED_MARGIN)))
         # A line under the bar stays flagged whatever the judge says, so asking would only
         # pay for a different note.
         if (judge is not None and score >= min_similarity and neighbour_margin is not None
@@ -240,7 +243,8 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             # "ok" only overrules a borderline neighbour doubt: a score under the bar stays
             # flagged, since a model that says "ok" to everything must not empty the check.
             note = JUDGED_NOTES.get(verdicts[i])
-        if note and _set_flag(ln, note):
+            strong[i] = True
+        if note and _set_flag(ln, note, strong[i]):
             flagged += 1
         elif note:
             hidden += 1
@@ -256,14 +260,19 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
 # leave exactly the long, swallowed-a-neighbour lines unchecked. Its note is kept after this
 # tail, so a later clean check can give the flag back.
 READING_SPEED_TAIL = " Also (too fast to read): "
+# Every doubt shown on a reading speed line is a flag the user did not get before, so there the
+# neighbour test needs the wider margin (on the gold pairs 0.12 gave 0.4-1.4% false flags against
+# 1.3-2.8% at 0.08), unless the score is under the bar or a judge confirmed the doubt.
+READING_SPEED_MARGIN = 0.12
 
 
-def _set_flag(ln, note: str) -> bool:
-    """True when the line now carries the doubt as its flag; another flag keeps its slot."""
+def _set_flag(ln, note: str, strong: bool) -> bool:
+    """True when the line now carries the doubt as its flag; another flag keeps its slot, and a
+    reading speed flag gives way only to a `strong` doubt (READING_SPEED_MARGIN)."""
     if ln.flag == ALIGNMENT_FLAG:
         _own, sep, old = (ln.flag_note or "").partition(READING_SPEED_TAIL)
         ln.flag_note = note + (sep + old if sep else "")
-    elif ln.flag == READING_SPEED_FLAG:
+    elif ln.flag == READING_SPEED_FLAG and strong:
         ln.flag, ln.flag_note = ALIGNMENT_FLAG, note + READING_SPEED_TAIL + (ln.flag_note or "")
     elif not ln.flag:
         ln.flag, ln.flag_note = ALIGNMENT_FLAG, note
