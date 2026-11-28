@@ -7,6 +7,8 @@ on:
     secrets:
       PRIVATE_TERMS:
         required: false
+      PRIVATE_ALLOW:
+        required: false
   push:
     branches: ["claude/**"]
 
@@ -25,6 +27,7 @@ jobs:
       - name: No private names, nicknames, PC names or personal emails
         env:
           PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+          PRIVATE_ALLOW: ${{ secrets.PRIVATE_ALLOW }}
           ACTOR: ${{ github.actor }}
           EVENT: ${{ github.event_name }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -45,8 +48,31 @@ jobs:
           has_term() { grep -q -i -w -F -f "$terms" <<<"$1"; }
           set +e; hits="$(git grep -I -n -i -w -F -f "$terms" -- .)"; rc=$?; set -e
           if [ "$rc" -eq 0 ]; then
-            printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/::error::Private term in /'
-            found=1
+            # A public VTuber's stage name can hold a term; PRIVATE_ALLOW lists those exact phrases, honoured
+            # only in the language packs: a line still fails if any term is left once they are taken out.
+            allow="$RUNNER_TEMP/allow"
+            printf '%s\n' "${PRIVATE_ALLOW:-}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$allow"
+            hits="$(printf '%s\n' "$hits" | python3 - "$terms" "$allow" <<'PY'
+          import re, sys
+          def phrases(path):
+              return [t for t in open(path, encoding="utf-8").read().splitlines() if t]
+          terms = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", re.I) for t in phrases(sys.argv[1])]
+          allowed = [re.compile(re.escape(a), re.I) for a in phrases(sys.argv[2])]
+          for hit in sys.stdin.read().splitlines():
+              path, number, text = hit.split(":", 2)
+              if allowed and path.startswith("language_pack_data/"):
+                  for a in allowed:
+                      text = a.sub(" ", text)
+                  if not any(t.search(text) for t in terms):
+                      continue
+              print(f"{path}:{number}")
+          PY
+            )"
+            rm -f "$allow"
+            if [ -n "$hits" ]; then
+              printf '%s\n' "$hits" | sed 's/^/::error::Private term in /'
+              found=1
+            fi
           elif [ "$rc" -ne 1 ]; then
             echo "::error::git grep failed ($rc)."; exit 1
           fi

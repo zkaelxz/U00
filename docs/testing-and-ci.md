@@ -257,7 +257,10 @@ squash commit carries them), or the message, author or committer of a commit the
 owner's private terms (real names, family nicknames, PC names, personal emails, the LAN IP). Tests calls it from `.github/workflows/privacy.yml`, which also runs by itself on every push to a `claude/` branch, since such a branch is public as soon as it is pushed, PR or not. The terms live only in the
 `PRIVATE_TERMS` repository secret, one per line, matched as whole words in any case; the job prints the file and line,
 the commit or which PR field, never the term. Fix a hit by using a made-up value (`Alex Example`, `DESKTOP-EXAMPLE`,
-`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. Dependabot runs get
+`C:\Users\alex`) and, for a commit, by rewording it or committing with the GitHub no-reply email. A public VTuber stage name in the
+language packs that holds a term (owner's choice, 2026-11-28) is allowed by listing that exact phrase in the
+`PRIVATE_ALLOW` secret, one per line, matched in any case and honoured only under `language_pack_data/`: a line still
+fails when any term is left once the listed phrases are taken out. Dependabot runs get
 no secrets and skip it; any other run without the secret fails, which includes fork PRs. The secret is only as private
 as push access, since a branch of this repository can change the workflow. Keep very short or common words out of the
 list: the runner masks each term in the log. To change the list, update the secret (`gh secret set PRIVATE_TERMS <
