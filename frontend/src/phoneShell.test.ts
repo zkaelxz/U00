@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { canChangeAddress, canPopOut, changeShellAddress, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
+import { canChangeAddress, canPopOut, changeShellAddress, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellNotificationsBlocked, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -83,6 +83,19 @@ describe('changing the address', () => {
     expect(changeAddress).toHaveBeenCalledWith('k')
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
     expect(canChangeAddress()).toBe(false)
+  })
+})
+
+describe('notifications blocked', () => {
+  it('asks the app, and says not blocked where nothing can tell', () => {
+    vi.stubGlobal('window', {})
+    expect(shellNotificationsBlocked()).toBe(false)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(shellNotificationsBlocked()).toBe(false)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), notificationsBlocked: () => true } })
+    expect(shellNotificationsBlocked()).toBe(true)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), notificationsBlocked: () => { throw new Error('gone') } } })
+    expect(shellNotificationsBlocked()).toBe(false)
   })
 })
 

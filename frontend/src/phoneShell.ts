@@ -19,6 +19,7 @@ type Bridge = {
   setBarsHidden?: (hidden: boolean) => void
   saveFile?: (key: string, name: string, mime: string, base64: string) => boolean
   changeAddress?: (key: string) => void
+  notificationsBlocked?: () => boolean
 }
 
 const bridge = (): Bridge | null => {
@@ -119,6 +120,15 @@ function toBase64(bytes: Uint8Array): string {
   // In slices: String.fromCharCode with one argument per byte overflows the call stack on a large file.
   for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
   return btoa(text)
+}
+
+/** True when Android blocks the app's notifications; false in a browser or an older app build, which can't tell. */
+export function shellNotificationsBlocked(): boolean {
+  try {
+    return bridge()?.notificationsBlocked?.() ?? false
+  } catch {
+    return false
+  }
 }
 
 /** Hides or shows the app's own Studio | Grab strip for a full-screen reader. Quiet where the app cannot. */

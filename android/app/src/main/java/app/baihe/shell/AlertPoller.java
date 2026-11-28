@@ -40,7 +40,7 @@ final class AlertPoller {
         if (fresh.isEmpty()) return;
         ensureChannel(context);
         if (fresh.size() > AlertFeed.MAX_SEPARATE) {
-            show(context, 1, fresh.size() + " new updates in Baihe", null);
+            show(context, 1, fresh.size() + " new updates in Baihe", AlertFeed.sharedRoute(fresh));
             return;
         }
         for (AlertFeed.Item item : fresh) show(context, (int) (item.id % 100000) + 100, item.text, item.route);
