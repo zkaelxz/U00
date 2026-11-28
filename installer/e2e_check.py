@@ -400,6 +400,13 @@ def cmd_update(args) -> int:
     Setup is started: this process holds the installed Python's files, which
     Setup replaces."""
     _use_app(args.app)
+    import process_guard
+    # As `python -m api` does at start: Setup leaves through this job's
+    # breakaway window (process_guard.breakaway_allowed), which a process the
+    # CI step started directly doesn't have.
+    os.environ.pop(process_guard.GROUP_NAME_ENV, None)
+    if not process_guard.contain_children():
+        return _fail("couldn't put the updater into its own job, as the server does")
     from services import update_service as us
     us.check()
     st = us.status()
