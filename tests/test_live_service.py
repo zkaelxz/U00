@@ -516,13 +516,27 @@ def test_more_time_never_puts_the_stop_past_the_longest_limit(live, monkeypatch)
     assert live_service.extend_session(sid)["time_left_seconds"] >= live_service.MAX_MINUTES_RANGE[1] * 60 - 2
 
 
-def test_more_time_is_refused_once_the_session_is_finishing(live):
+def test_more_time_is_refused_once_the_session_is_finishing(live, monkeypatch):
+    # The tail is held so the session is still finishing, not already ended, when asked.
+    tail, release = threading.Event(), threading.Event()
+
+    def slow_tail(out_dir, last):
+        tail.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(live_translate, "list_remaining_chunks", slow_tail)
     sid = _start(max_minutes=60)
-    assert _wait(lambda: "out_dir" in live and live_service.get_session(sid)["time_left_seconds"] is not None)
-    assert live_service.stop_session(sid)["finishing"] is True
-    assert live_service.get_session(sid)["can_extend"] is False
-    with pytest.raises(ConflictError, match="already finishing"):
-        live_service.extend_session(sid)
+    try:
+        assert _wait(lambda: "out_dir" in live and live_service.get_session(sid)["time_left_seconds"] is not None)
+        assert live_service.stop_session(sid)["finishing"] is True
+        assert tail.wait(5)
+        assert live_service.get_session(sid)["can_extend"] is False
+        with pytest.raises(ConflictError, match="already finishing"):
+            live_service.extend_session(sid)
+    finally:
+        release.set()
+    assert _terminal(sid)
 
 
 def test_more_time_is_refused_once_the_time_is_up_and_the_tail_is_captioned(live, monkeypatch):
