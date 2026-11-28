@@ -369,7 +369,7 @@ def test_the_first_line_has_only_lines_after_it(monkeypatch):
 
 def test_a_long_neighbour_is_cut_short():
     long_line = Line(idx=0, start=0, end=1, zh="长" * 500, en="long " * 200)
-    block = line_tools.neighbour_context([long_line, Line(idx=1, start=1, end=2, zh="短", en="x")], 1)
+    block = line_tools.surrounding_lines_block([long_line, Line(idx=1, start=1, end=2, zh="短", en="x")], 1)
     assert "长" * line_tools.CONTEXT_LINE_CHARS + "…" in block and "长" * 201 not in block
 
 

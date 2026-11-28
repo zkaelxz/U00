@@ -19,7 +19,7 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
                          glossary_terms=None, context: str = ""):
     """Explains the reasoning behind a specific rendering: which choices
     were interpretive, what alternatives existed, what was lost.
-    `context` is a read-only block of the surrounding lines (neighbour_context)."""
+    `context` is a read-only block of the surrounding lines (surrounding_lines_block)."""
     if not getattr(engine, "supports_reference", False):
         return "This feature needs an LLM engine (Claude, DeepSeek, or Ollama)."
 
@@ -105,7 +105,7 @@ def _clip(text: str) -> str:
     return text if len(text) <= CONTEXT_LINE_CHARS else text[:CONTEXT_LINE_CHARS] + "…"
 
 
-def neighbour_context(lines, at: int) -> str:
+def surrounding_lines_block(lines, at: int) -> str:
     """The read-only block of up to CONTEXT_RADIUS lines before and after
     lines[at] (script order), with speakers, for a single-line prompt."""
     def row(ln):

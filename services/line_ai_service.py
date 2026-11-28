@@ -100,6 +100,21 @@ def engine_for(drama: dict, engine_name, model, gemini_free_tier, check_cap: boo
 
 def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
              need_en: bool = True, check_cap: bool = True):
+    drama, line, engine, engine_name, _lines, _at = _prepare_with_lines(
+        drama_id, line_id, engine_name, model, gemini_free_tier, need_en, check_cap)
+    return drama, line, engine, engine_name
+
+
+def _prepare_in_context(drama_id: int, line_id: int, engine_name, model, gemini_free_tier):
+    """_prepare plus the read-only block of the lines around this one: Chinese, Japanese
+    and Korean drop subjects, so one line alone often can't say who "she" is."""
+    drama, line, engine, engine_name, lines, at = _prepare_with_lines(
+        drama_id, line_id, engine_name, model, gemini_free_tier)
+    return drama, line, engine, engine_name, line_tools.surrounding_lines_block(lines, at)
+
+
+def _prepare_with_lines(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
+                        need_en: bool = True, check_cap: bool = True):
     drama = ownership_service.require_drama(drama_id)
     lines = db.load_line_objects(drama_id)
     at = next((n for n, ln in enumerate(lines) if ln.id == line_id), None)
@@ -111,8 +126,7 @@ def _prepare(drama_id: int, line_id: int, engine_name, model, gemini_free_tier,
     if need_en and not (line.en or "").strip():
         raise UnsupportedOperationError("This line needs both source text and a translation.")
     engine, engine_name = engine_for(drama, engine_name, model, gemini_free_tier, check_cap)
-    # Chinese, Japanese and Korean drop subjects, so one line alone often can't say who "she" is.
-    return drama, line, engine, engine_name, line_tools.neighbour_context(lines, at)
+    return drama, line, engine, engine_name, lines, at
 
 
 def _line_language(drama: dict, line) -> str:
@@ -152,8 +166,8 @@ def improve_line(drama_id: int, line_id: int, engine_name: str | None = None, mo
     issue = (issue or "").strip()
     if len(issue) > MAX_ISSUE_CHARS:
         raise InvalidInputError(f"issue is too long (max {MAX_ISSUE_CHARS} characters).")
-    drama, line, engine, name, context = _prepare(drama_id, line_id, engine_name, model,
-                                                  gemini_free_tier)
+    drama, line, engine, name, context = _prepare_in_context(drama_id, line_id, engine_name, model,
+                                                             gemini_free_tier)
     guidelines = _style_guidelines(drama_id, drama, line, engine, name, model)
     suggestion = run(lambda: line_tools.improve_line(
         line.zh, line.en, engine, issue=issue,
@@ -169,8 +183,8 @@ def explain_line(drama_id: int, line_id: int, engine_name: str | None = None, mo
                  gemini_free_tier: bool | None = None) -> dict:
     """Why the line reads the way it does. Writes nothing.
     Returns {line_id, explanation, engine, model}."""
-    drama, line, engine, name, context = _prepare(drama_id, line_id, engine_name, model,
-                                                  gemini_free_tier)
+    drama, line, engine, name, context = _prepare_in_context(drama_id, line_id, engine_name, model,
+                                                             gemini_free_tier)
     glossary = db.list_run_glossary_terms(drama) or None
     text = run(lambda: line_tools.explain_translation(
         line.zh, line.en, engine, source_language=_line_language(drama, line),
@@ -209,8 +223,8 @@ def alternatives_for_line(drama_id: int, line_id: int, engine_name: str | None =
     it trades away. Writes nothing. Returns
     {line_id, current_en, alternatives: [{translation, approach, tradeoff}],
     engine, model}; apply one through the compare-and-set line patch."""
-    drama, line, engine, name, context = _prepare(drama_id, line_id, engine_name, model,
-                                                  gemini_free_tier)
+    drama, line, engine, name, context = _prepare_in_context(drama_id, line_id, engine_name, model,
+                                                             gemini_free_tier)
     # The glossary rides in the guidelines, so an alternative spells a name as the title does.
     guidelines = _style_guidelines(drama_id, drama, line, engine, name, model)
     rows = run(lambda: line_tools.alternative_translations(
@@ -230,8 +244,8 @@ def grammar_for_line(drama_id: int, line_id: int, engine_name: str | None = None
     """A word-by-word breakdown of one line's source text (for learning).
     Needs no translation. Writes nothing. Returns
     {line_id, zh, parts: [{word, reading, meaning, function}], engine, model}."""
-    drama, line, engine, name, _context = _prepare(drama_id, line_id, engine_name, model,
-                                                   gemini_free_tier, need_en=False)
+    drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
+                                         gemini_free_tier, need_en=False)
     rows = run(lambda: line_tools.grammar_breakdown(
         line.zh, engine, source_language=_line_language(drama, line)),
         (engine, "line_grammar", drama_id))
