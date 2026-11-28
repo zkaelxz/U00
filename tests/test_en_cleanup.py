@@ -249,6 +249,8 @@ def test_a_source_without_a_dash_still_loses_them():
     ("I told him—he never listens.\nOkay.", "I told him. He never listens.\nOkay."),
     ("It was him—that guy over there.", "It was him, that guy over there."),
     ("The man who—he was tall.", "The man who... he was tall."),
+    ("I like that—it's nice.", "I like that. It's nice."),
+    ("Line one—he left\nOkay then—they came.", "Line one. He left\nOkay then. They came."),
 ])
 def test_sentence_split_edges(before, after):
     assert ec.drop_em_dashes(before) == after

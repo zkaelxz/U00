@@ -166,7 +166,7 @@ _SUBJECTS = frozenset(
     "i you he she we they it i'm you're he's she's we're they're it's "
     "there's that's i'll you'll he'll she'll we'll they'll i've you've we've they've "
     "i'd you'd he'd she'd we'd they'd".split())
-_JOINING_WORDS = frozenset("who which that the a an and but or if because so to of".split())
+_JOINING_WORDS = frozenset("who which the a an and but or if because so to of".split())
 # Afterthoughts that keep the comma: "I thought—never mind." is not an explanation.
 _NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
 # A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
@@ -214,7 +214,8 @@ def _dash_replacement(text: str, m, line_prefixes) -> str:
     # second sentence; a comma there splices two sentences (the owner found too many).
     clause = re.match(r"([A-Za-z']+)\s+\S+[^\n\u2013\u2014\u2015]*(?=\n|$)", after)
     if (word and word.group(0).lower() in _SUBJECTS and clause and len(before.split()) >= 2
-            and not _DASH_RE.search(before) and not _DASH_RE.search(after) and prev not in "\"'“‘"):
+            and not _DASH_RE.search(before.rsplit("\n", 1)[-1])
+            and not _DASH_RE.search(after.split("\n", 1)[0]) and prev not in "\"'“‘"):
         # "The man who—he was tall": a sentence left hanging on a joining word broke off.
         return "... " if last and last.group(1).lower() in _JOINING_WORDS else ". " + _CAPITALIZE_NEXT
     return ", "
