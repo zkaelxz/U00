@@ -43,7 +43,7 @@ function Body({ data, run, onChange }: { data: SeriesPageData; run: SeriesAutoRu
         stops after the first episode so you can check the subtitles, then goes on when you press Continue. It also
         stops when an episode fails and when the spending ceiling is reached. The ceiling covers all episodes it runs
         together (not the monthly cap), and the translation run for each episode is capped to what is left of it.
-        The queue starts by itself, so the first episode starts at once unless the queue is paused or set to start later.
+        The queue starts by itself, so the first episode starts at once unless the queue is paused, set to start later, stopped after a failed item, or has another person's items waiting.
       </p>
       {run.on && (
         <p data-testid="series-auto-status" role="status">
