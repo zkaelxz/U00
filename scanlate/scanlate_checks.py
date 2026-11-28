@@ -1,4 +1,4 @@
-"""Measures a rendered comic page against the original: fill leaking past a balloon, text off-centre or tiny, source lettering left behind."""
+"""Measures a rendered comic page against the original: fill leaking past a balloon, text off-centre, tiny or colliding with a neighbour's, source lettering left behind."""
 import numpy as np
 
 # A balloon's own outline is dark and sits just inside the mask's edge; changes within this many
@@ -12,6 +12,8 @@ MAX_OFF_CENTRE = 0.15
 MIN_LETTER_PX = 9
 # Dark pixels left in the interior of an erase-only render, as a share of the interior.
 MAX_LEFTOVER_SHARE = 0.004
+# Two balloons' lettering collides when the area they share is this share of the smaller one.
+MAX_TEXT_OVERLAP = 0.1
 _DARK = 110
 _CHANGED = 40
 
@@ -95,3 +97,33 @@ def region_problems(original, rendered, erased_only, box: dict, interior) -> lis
     if erased_only is not None and leftover_share(erased_only, box, interior) > MAX_LEFTOVER_SHARE:
         problems.append("source-left")
     return problems
+
+
+def text_extent(rendered, erased_only, box: dict):
+    """(x0, y0, x1, y1) in page pixels of the English drawn in `box`: dark pixels that the render
+    added to the erase-only page, or all dark ones when there is none. None when nothing was drawn."""
+    b = _crop(rendered, box)
+    ink = b < _DARK
+    if erased_only is not None:
+        ink &= _crop(erased_only, box)[:b.shape[0], :b.shape[1]] >= _DARK
+    if not ink.any():
+        return None
+    ys, xs = np.nonzero(ink)
+    x0, y0 = max(0, int(box["x"])), max(0, int(box["y"]))
+    return x0 + int(xs.min()), y0 + int(ys.min()), x0 + int(xs.max()) + 1, y0 + int(ys.max()) + 1
+
+
+def colliding_texts(extents: list) -> set:
+    """Indexes of the extents (None skipped) that share an area with another's of at least
+    MAX_TEXT_OVERLAP of the smaller one: two balloons whose English runs into each other."""
+    hit = set()
+    for i, a in enumerate(extents):
+        for j in range(i + 1, len(extents)):
+            b = extents[j]
+            if a is None or b is None:
+                continue
+            w, h = min(a[2], b[2]) - max(a[0], b[0]), min(a[3], b[3]) - max(a[1], b[1])
+            smaller = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+            if w > 0 and h > 0 and w * h >= MAX_TEXT_OVERLAP * smaller:
+                hit.update((i, j))
+    return hit
