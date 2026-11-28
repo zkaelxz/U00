@@ -160,9 +160,16 @@ def _result_files():
 def _no_worker_left(isolated_db):
     yield
     with warm_worker._lock:
-        left, warm_worker._current = warm_worker._current, None
-    if left is not None:
-        left.retire("the test ended")
+        left, warm_worker._workers[:] = list(warm_worker._workers), []
+    for worker in left:
+        worker.retire("the test ended")
+
+
+def _one():
+    """The only warm worker, or None."""
+    with warm_worker._lock:
+        assert len(warm_worker._workers) <= 1, warm_worker._workers
+        return warm_worker._workers[0] if warm_worker._workers else None
 
 
 def test_two_matching_jobs_run_in_one_worker_and_each_reads_only_its_own_results():
@@ -203,7 +210,7 @@ def test_without_a_key_the_job_gets_its_own_process_as_before():
     assert isinstance(job_table._jobs["cold_one"]["process"], multiprocessing.process.BaseProcess)
     status = _wait_end("cold_one")
     assert status["status"] == "done" and status["result"]["runs_here"] == 1
-    assert warm_worker._current is None
+    assert _one() is None
     bg.clear_job("cold_one")
 
 
@@ -265,7 +272,7 @@ def test_the_parent_retires_an_idle_worker_at_the_idle_limit(monkeypatch):
     monkeypatch.setattr(warm_worker, "IDLE_LIMIT_S", 1.0)
     pid = _run("warm_idle", tagged_worker, ("idle", False))["result"]["pid"]
     assert _wait_gone(pid, timeout=15)
-    assert warm_worker._current is None   # retired by the parent, not left to exit
+    assert _one() is None   # retired by the parent, not left to exit
     after = _run("warm_after_idle", tagged_worker, ("next", False))
     assert after["status"] == "done" and after["result"]["pid"] != pid
 
@@ -279,7 +286,7 @@ def _watch_first_timer(monkeypatch):
     def spy(worker, idle_round):
         real(worker, idle_round)
         if idle_round == 1:
-            after.append(warm_worker._current is worker and worker.proc.is_alive())
+            after.append(worker in warm_worker._workers and worker.proc.is_alive())
             fired.set()
     monkeypatch.setattr(warm_worker, "_retire_if_idle_since", spy)
     return fired, after
@@ -313,27 +320,18 @@ def test_a_reused_worker_whose_start_failed_still_ends_at_the_idle_limit(monkeyp
     assert job is not None
     assert fired.wait(15)   # the first timer found the worker taken
     job.close()
-    assert _wait_gone(pid, timeout=15) and warm_worker._current is None
+    assert _wait_gone(pid, timeout=15) and _one() is None
 
 
-def test_a_replacement_worker_that_found_the_slot_taken_ends_at_the_idle_limit(monkeypatch):
+def test_a_replacement_worker_takes_the_broken_ones_slot_and_ends_at_the_idle_limit(monkeypatch):
     monkeypatch.setattr(warm_worker, "IDLE_LIMIT_S", 1.0)
     pid = _run("warm_replaced_a", tagged_worker, ("a", False))["result"]["pid"]
-    warm_worker._current.conn.close()
-    other = warm_worker._Worker(OTHER_KEY)
-    real_forget = warm_worker._forget
-
-    def forget_then_another_job_claims(worker):
-        real_forget(worker)
-        with warm_worker._lock:
-            if warm_worker._current is None:
-                warm_worker._current = other
-    monkeypatch.setattr(warm_worker, "_forget", forget_then_another_job_claims)
+    _one().conn.close()
     status = _run("warm_replaced_b", tagged_worker, ("b", False))
     assert status["status"] == "done", status
     fresh = status["result"]["pid"]
-    assert fresh != pid and warm_worker._current is other
-    assert _wait_gone(fresh, timeout=15)
+    assert fresh != pid and _one() is not None and _one().proc.pid == fresh
+    assert _wait_gone(fresh, timeout=15) and _one() is None
 
 
 def _card_full_while_alive(monkeypatch, pid_of):
@@ -385,7 +383,7 @@ def _fake_card(monkeypatch, reading):
 
 
 def _idle_worker():
-    worker = warm_worker._current
+    worker = _one()
     return worker if worker is not None and worker.started and not worker.busy and worker.proc.is_alive() else None
 
 
@@ -393,13 +391,13 @@ def test_the_workers_own_memory_counts_as_free_for_the_job_that_reuses_it(monkey
     monkeypatch.setattr(warm_worker, "UTIL_SETTLE_S", 0.0)
 
     def reading():
-        worker = warm_worker._current
+        worker = _one()
         used = 1000.0 + (5000.0 if worker is not None and worker.started and worker.proc.is_alive() else 0.0)
         return {"utilization_percent": 0, "memory_used_mb": used, "memory_total_mb": 6000.0,
                 "memory_free_mb": 6000.0 - used}
     _fake_card(monkeypatch, reading)
     pid = _run("warm_held_a", tagged_worker, ("a", False), gpu_touching=True)["result"]["pid"]
-    assert warm_worker._current.held_mb == 5000.0
+    assert _one().held_mb == 5000.0
     status = _run("warm_held_b", tagged_worker, ("b", False), gpu_touching=True)
     assert status["status"] == "done", status
     assert status["result"]["pid"] == pid
@@ -432,7 +430,7 @@ def test_a_worker_the_parent_stopped_retiring_exits_by_itself(monkeypatch):
 
 def test_a_worker_idle_past_the_limit_is_not_reused_even_before_its_timer():
     pid = _run("warm_limit_a", tagged_worker, ("a", False))["result"]["pid"]
-    warm_worker._current.idle_since -= warm_worker.IDLE_LIMIT_S + 1
+    _one().idle_since -= warm_worker.IDLE_LIMIT_S + 1
     after = _run("warm_limit_b", tagged_worker, ("b", False))
     assert after["result"]["runs_here"] == 1 and after["result"]["pid"] != pid
     assert _gone(pid)
@@ -463,6 +461,7 @@ class _FakeJob:
     seq = 2
     finished = False
     began = False
+    memory = None
 
     def __init__(self, raw):
         self.raw_queue = raw
@@ -479,11 +478,12 @@ def test_a_jobs_reader_skips_other_jobs_items_and_stops_at_its_idle_report():
     raw.put((1, ("ok", "the first job's")))
     raw.put((2, ("ok", "mine")))
     assert reader.get(timeout=1) == ("ok", "mine")
+    raw.put((2, (warm_worker._MEMORY, {"threads": 3})))
     raw.put((2, warm_worker._IDLE))
     raw.put((3, ("progress", 0.1, "the next job's")))
     with pytest.raises(queue.Empty):
         reader.get(timeout=1)
-    assert job.finished and job.began
+    assert job.finished and job.began and job.memory == {"threads": 3}
     with pytest.raises(queue.Empty):
         reader.get(timeout=1)
     assert raw.get_nowait() == (3, ("progress", 0.1, "the next job's"))   # left for its own reader
@@ -517,7 +517,7 @@ def test_retiring_kills_the_workers_group_even_once_it_has_exited(monkeypatch):
     _run("warm_group", tagged_worker, ("a", False))
     killed = []
     monkeypatch.setattr(job_process_kill, "_kill_worker_group", lambda proc: killed.append(proc.pid))
-    worker = warm_worker._current
+    worker = _one()
     worker.kill()
     worker.proc.join(5)
     warm_worker.retire_idle("test")
@@ -588,23 +588,100 @@ def test_a_worker_is_not_kept_while_another_gpu_job_runs(monkeypatch):
     try:
         status = _run("warm_beside_gpu", tagged_worker, ("w", False), gpu_touching=True)
         assert status["status"] == "done"
-        assert _gone(status["result"]["pid"]) and warm_worker._current is None
+        assert _gone(status["result"]["pid"]) and _one() is None
     finally:
         go.set()
         _wait_end("busy_gpu_job")
         bg.clear_job("busy_gpu_job")
 
 
-def test_a_worker_is_not_kept_when_gpu_jobs_may_run_in_parallel(monkeypatch):
+def _two_slots(monkeypatch):
     monkeypatch.setattr(job_settings, "get_gpu_max_parallel", lambda: 2)
-    status = _run("warm_parallel", tagged_worker, ("w", False))
-    assert _gone(status["result"]["pid"]) and warm_worker._current is None
+    monkeypatch.setattr(job_launch, "get_gpu_limit_enabled", lambda: False)
+
+
+def test_with_two_gpu_slots_a_worker_is_kept_between_jobs(monkeypatch):
+    _two_slots(monkeypatch)
+    first = _run("warm_parallel_a", tagged_worker, ("a", False), gpu_touching=True)
+    second = _run("warm_parallel_b", tagged_worker, ("b", False), gpu_touching=True)
+    assert second["result"]["pid"] == first["result"]["pid"] and second["result"]["runs_here"] == 2
+
+
+def test_with_two_gpu_slots_a_worker_is_kept_beside_one_other_running_gpu_job(monkeypatch):
+    _two_slots(monkeypatch)
+    go = threading.Event()
+    bg.clear_job("busy_gpu_job")
+    assert job_launch.start_job("busy_gpu_job", lambda: go.wait(30), gpu_touching=True, line_fields=())
+    try:
+        status = _run("warm_beside_one", tagged_worker, ("w", False), gpu_touching=True)
+        assert status["status"] == "done"
+        assert not _gone(status["result"]["pid"]) and _one() is not None
+    finally:
+        go.set()
+        _wait_end("busy_gpu_job")
+        bg.clear_job("busy_gpu_job")
+
+
+def test_two_slots_give_two_workers_and_a_third_job_its_own_process(monkeypatch, tmp_path):
+    _two_slots(monkeypatch)
+    release = str(tmp_path / "release")
+    for tag in ("x", "y", "z"):
+        _start(f"warm_slot_{tag}", waits_for_file, (release, tag))
+        _pid_from(release + f".{tag}.pid")
+    with warm_worker._lock:
+        assert len(warm_worker._workers) == 2
+    assert isinstance(job_table._jobs["warm_slot_z"]["process"], multiprocessing.process.BaseProcess)
+    open(release, "w").close()
+    done = {tag: _wait_end(f"warm_slot_{tag}") for tag in ("x", "y", "z")}
+    assert all(d["status"] == "done" for d in done.values()), done
+    assert len({d["result"]["pid"] for d in done.values()}) == 3
+    assert _wait_gone(done["z"]["result"]["pid"])
+    with warm_worker._lock:
+        kept = {w.proc.pid for w in warm_worker._workers}
+    assert kept == {done["x"]["result"]["pid"], done["y"]["result"]["pid"]}
+    again = _run("warm_slot_again", tagged_worker, ("again", False))
+    assert again["result"]["pid"] in kept and again["result"]["runs_here"] == 2
+
+
+def test_idle_workers_never_outnumber_the_slots_other_gpu_jobs_leave(monkeypatch, tmp_path):
+    _two_slots(monkeypatch)
+    release = str(tmp_path / "release")
+    for tag in ("x", "y"):
+        _start(f"warm_full_{tag}", waits_for_file, (release, tag))
+        _pid_from(release + f".{tag}.pid")
+    with job_table._lock:   # a GPU job running beside both, as an earlier admission left it
+        job_table._jobs["busy_gpu_job"] = {"status": "running", "gpu_touching": True}
+    try:
+        open(release, "w").close()
+        assert all(_wait_end(f"warm_full_{tag}")["status"] == "done" for tag in ("x", "y"))
+        with warm_worker._lock:
+            assert len(warm_worker._workers) == 1   # 1 running + 1 idle fill the 2 slots
+    finally:
+        with job_table._lock:
+            job_table._jobs.pop("busy_gpu_job", None)
+
+
+def test_an_idle_worker_whose_own_memory_keeps_growing_is_retired(monkeypatch):
+    readings = iter([1000.0, 1600.0, 2100.0])
+    monkeypatch.setattr(warm_worker, "_process_used_mb", lambda pid: next(readings))
+    pids = [_run(f"warm_grow_{n}", tagged_worker, (str(n), False))["result"]["pid"] for n in range(3)]
+    assert len(set(pids)) == 1
+    assert _wait_gone(pids[0]) and _one() is None   # 2100 - 1000 > GROWTH_LIMIT_MB
+    after = _run("warm_grow_after", tagged_worker, ("after", False))
+    assert after["result"]["runs_here"] == 1
+
+
+def test_the_workers_own_memory_counts_as_held_when_the_driver_reports_it(monkeypatch):
+    monkeypatch.setattr(warm_worker, "_process_used_mb", lambda pid: 3300.0)
+    _run("warm_own_mb", tagged_worker, ("o", False))
+    assert _one().held_mb == 3300.0
+    assert warm_worker.reusable_held_mb(KEY) == 3300.0 and warm_worker.reusable_held_mb(OTHER_KEY) == 0.0
 
 
 def test_the_gpu_guard_retires_an_idle_worker_when_memory_is_short():
     pid = _run("warm_guard", tagged_worker, ("w", False))["result"]["pid"]
     gpu_guard._free_idle_models({"unloaded_at": time.time()}, time.time())
-    assert _gone(pid) and warm_worker._current is None
+    assert _gone(pid) and _one() is None
 
 
 class _FakeProc:
@@ -625,12 +702,12 @@ def test_a_job_sent_to_a_worker_that_was_leaving_runs_in_a_fresh_process():
     status = _run("warm_leaving_b", _TargetTheWarmWorkerCannotTake(), ("b", False))
     assert status["status"] == "done", status
     assert status["result"]["tag"] == "b" and status["result"]["pid"] != pid
-    assert _gone(pid) and warm_worker._current is None
+    assert _gone(pid) and _one() is None
 
 
 def test_a_reused_worker_whose_pipe_broke_hands_the_job_to_a_fresh_worker():
     pid = _run("warm_pipe_a", tagged_worker, ("a", False))["result"]["pid"]
-    warm_worker._current.conn.close()
+    _one().conn.close()
     status = _run("warm_pipe_b", tagged_worker, ("b", False))
     assert status["status"] == "done", status
     assert status["result"]["runs_here"] == 1 and status["result"]["pid"] != pid
@@ -648,7 +725,7 @@ def test_a_failed_first_launch_fails_the_start_and_leaves_no_worker(monkeypatch)
         job_launch.start_process_job("warm_no_launch", tagged_worker, args=("x", False),
                                      start_method="spawn", line_fields=(), warm_key=KEY)
     assert bg.get_status("warm_no_launch")["status"] == "error"
-    assert warm_worker._current is None
+    assert _one() is None
     bg.clear_job("warm_no_launch")
 
 
@@ -689,7 +766,7 @@ def test_the_dead_worker_sweep_ends_a_warm_job_and_its_worker(tmp_path):
     with job_table._lock:
         job_table._workers["warm_swept"] = (job_table._jobs["warm_swept"], gone_thread)
     assert job_runner.reconcile_dead_workers() == ["warm_swept"]
-    assert _wait_gone(pid) and warm_worker._current is None
+    assert _wait_gone(pid) and _one() is None
     status = _wait_end("warm_swept")
     assert status["status"] == "error" and status["error"] == job_runner.WORKER_LOST_MESSAGE
     bg.clear_job("warm_swept")

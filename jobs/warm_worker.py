@@ -1,8 +1,10 @@
-"""jobs/warm_worker.py -- a transcription worker process kept alive between matching queued jobs.
+"""jobs/warm_worker.py -- transcription worker processes kept alive between matching queued jobs.
 
 Each transcription otherwise starts a fresh spawned worker, which pays process
-start and imports, and reloads the vocal separator and Whisper. Here one
-worker runs the matching jobs one after another. The job runner still sees a
+start and imports, and reloads the vocal separator and Whisper. Here a worker
+runs matching jobs one after another, at most one worker per GPU slot
+(gpu_max_parallel), so busy and idle workers together never outnumber the GPU
+jobs that may run at once. The job runner still sees a
 Process per job (WarmJob): the job ends when the worker reports it idle, a
 cancel, clear or stop kills the whole worker, and a native crash goes to the
 usual CPU retry in a fresh normal process. Every item on the worker's
@@ -19,6 +21,7 @@ import signal
 import tempfile
 import threading
 import time
+import types
 
 import gpu_probe
 import job_process_result
@@ -48,6 +51,11 @@ UTIL_SETTLE_S = 2.0
 # about to run it; it has finished the job and is ready for the next.
 _BEGAN = "warm-began"
 _IDLE = "warm-idle"
+_MEMORY = "warm-memory"
+
+# A worker whose own GPU memory, idle, has grown this much past its first idle
+# reading is retired: a fresh one starts from its first reading again.
+GROWTH_LIMIT_MB = 1024.0
 
 
 def arm() -> str:
@@ -214,6 +222,25 @@ def _kill_leftover_children():
         pass
 
 
+def _memory_report() -> dict:
+    """What the worker holds once a job is done, after dropping what torch
+    caches: torch's own counts, and the live thread count (each library keeps
+    per-thread GPU handles). Empty parts where torch is not loaded."""
+    import gc
+    import sys
+    gc.collect()
+    report = {"threads": threading.active_count()}
+    torch = sys.modules.get("torch")
+    try:
+        if torch is not None and torch.cuda.is_initialized():
+            torch.cuda.empty_cache()
+            report["torch_allocated_mb"] = torch.cuda.memory_allocated() / 2**20
+            report["torch_reserved_mb"] = torch.cuda.memory_reserved() / 2**20
+    except Exception:
+        pass
+    return report
+
+
 def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
     """The worker process: runs the jobs it is sent, strictly one at a time,
     until it has been idle idle_exit_s, the parent closes the pipe, or a job
@@ -242,6 +269,7 @@ def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
             if not channel.reusable:
                 return
             _kill_leftover_children()
+            raw_queue.put((seq, (_MEMORY, _memory_report())))
             raw_queue.put((seq, _IDLE))
     finally:
         _kill_leftover_children()
@@ -263,26 +291,53 @@ def _card_used_mb():
         return None
 
 
-def _vram_note(used=...) -> str:
+def _process_used_mb(pid):
+    """GPU memory pid holds, per nvidia-smi; None where the driver does not
+    report it per process (Windows display mode reports N/A)."""
+    import shutil
+    if pid is None or not shutil.which("nvidia-smi"):
+        return None
+    try:
+        from lib.proc import run_captured
+        result = run_captured(["nvidia-smi", "--query-compute-apps=pid,used_memory",
+                               "--format=csv,noheader,nounits"], timeout=5)
+        if result.timed_out or result.returncode != 0:
+            return None
+        for line in result.stdout.splitlines():
+            fields = [x.strip() for x in line.split(",")]
+            if len(fields) == 2 and fields[0] == str(pid):
+                return float(fields[1])
+    except Exception:
+        return None
+    return None
+
+
+def _vram_note(used: "float | None | types.EllipsisType" = ...) -> str:
     """For the measurement: the card's used memory, whoever uses it."""
     used = _card_used_mb() if used is ... else used
     return f", VRAM used {used:.0f} MB" if used is not None else ""
 
 
-def _others_need_the_gpu(job_id) -> str:
-    """Why the worker must not stay loaded once job_id ends, or "": another
-    GPU job runs beside it, or GPU jobs may run in parallel, where the
-    free-VRAM check that lets one join cannot tell an idle worker's memory
-    from a busy job's."""
-    from jobs import gpu_queue, job_settings, job_table
+def _slots() -> int:
+    from jobs import job_settings
+    return job_settings.get_gpu_max_parallel()
+
+
+def _no_slot_to_stay_in(job_id) -> str:
+    """Why the worker whose job job_id just ended must not stay loaded, or "":
+    the other running GPU jobs and the idle workers already take every GPU
+    slot, so keeping it would put more on the card than may run at once."""
+    from jobs import gpu_queue, job_table
     try:
-        if job_settings.get_gpu_max_parallel() > 1:
-            return "GPU jobs may run in parallel"
+        slots = _slots()
         with job_table._lock:
-            if gpu_queue._running_gpu_job_count_locked(job_id):
-                return "another GPU job is running"
+            running = gpu_queue._running_gpu_job_count_locked(job_id)
+        with _lock:
+            idle = sum(1 for w in _workers if not w.busy)
     except Exception:
         return "the running GPU jobs could not be checked"
+    if running + idle > slots:
+        return "every GPU slot is taken"
     return ""
 
 
@@ -306,6 +361,7 @@ class _Worker:
         # beyond that while idle: a job that reuses it takes that memory over.
         self.baseline_mb = None
         self.held_mb = 0.0
+        self.first_idle_mb = None   # its own memory at its first idle, for GROWTH_LIMIT_MB
 
     def fits(self, key) -> bool:
         """Caller holds _lock. Same settings, still running, and inside the
@@ -369,56 +425,74 @@ class _Worker:
 
 
 _lock = threading.Lock()
-_current: _Worker | None = None   # the one warm worker, idle or running a job
+_workers: list[_Worker] = []   # the warm workers, idle or running a job
 
 
 def _forget(worker):
     """worker is gone or going: never hand it another job."""
-    global _current
     with _lock:
-        if _current is worker:
-            _current = None
+        if worker in _workers:
+            _workers.remove(worker)
 
 
 def claim(job_id, target, args, key):
-    """A WarmJob that runs target(*args, result channel) in the warm worker,
-    or None when that worker is running another job (this one then gets a
-    fresh worker of its own, as before). Starts nothing: the caller may hold
-    the job lock, and WarmJob.start does the slow part."""
-    global _current
+    """A WarmJob that runs target(*args, result channel) in an idle warm worker
+    it fits, or in a new one while the workers do not yet fill the GPU slots;
+    None when they do and all are busy (this job then gets a fresh worker of its
+    own, as before). Starts nothing: the caller may hold the job lock, and
+    WarmJob.start does the slow part."""
+    slots = _slots()
     stale = None
     with _lock:
-        worker = _current
-        if worker is not None and worker.busy:
-            return None
-        if worker is not None and not worker.fits(key):
-            stale, worker = worker, None
+        worker = next((w for w in _workers if not w.busy and w.fits(key)), None)
         if worker is None:
-            worker = _current = _Worker(key)
+            stale = next((w for w in _workers if not w.busy), None)
+            if stale is not None:
+                _workers.remove(stale)
+            if len(_workers) >= slots:
+                if stale is not None:
+                    _workers.append(stale)   # not replaced: it stays for the idle checks to end
+                return None
+            worker = _Worker(key)
+            _workers.append(worker)
         worker.busy = True
         worker.jobs += 1
         return WarmJob(worker, worker.jobs, job_id, target, args, stale)
 
 
-def idle_key():
-    """The idle warm worker's key, or None when there is no idle one."""
+def has_idle() -> bool:
     with _lock:
-        worker = _current
-        return worker.key if worker is not None and not worker.busy else None
+        return any(not w.busy for w in _workers)
+
+
+def reusable_held_mb(key) -> float:
+    """The memory an idle worker key fits holds, which a job with that key takes
+    over rather than adds to; 0 when there is none."""
+    if key is None:
+        return 0.0
+    with _lock:
+        worker = next((w for w in _workers if not w.busy and w.fits(key)), None)
+        return worker.held_mb if worker is not None else 0.0
 
 
 def retire_idle(reason, keep_key=None):
-    """Ends the warm worker if it is idle, before GPU work that cannot use it
-    starts or is admitted: it must not hold VRAM that work needs, nor count in
-    the free-VRAM checks as another program's load. A busy one is its job's.
-    keep_key: the starting job's own warm key, which keeps a worker it fits."""
-    global _current
+    """Ends the idle warm workers before GPU work that cannot use them starts or
+    is admitted: they must not hold VRAM that work needs, nor count in the
+    free-VRAM checks as another program's load. A busy one is its job's.
+    keep_key: the starting job's own warm key, which keeps one worker it fits."""
+    going = []
     with _lock:
-        worker = _current
-        if worker is None or worker.busy or (keep_key is not None and worker.fits(keep_key)):
-            return
-        _current = None
-    worker.retire(reason)
+        kept = False
+        for worker in list(_workers):
+            if worker.busy:
+                continue
+            if keep_key is not None and not kept and worker.fits(keep_key):
+                kept = True
+                continue
+            _workers.remove(worker)
+            going.append(worker)
+    for worker in going:
+        worker.retire(reason)
 
 
 def retire_if_the_card_reads_busy():
@@ -429,10 +503,11 @@ def retire_if_the_card_reads_busy():
     the worker holds counted free, since the job takes it over. Only a card
     still busy then retires the worker, and is read once more."""
     with _lock:
-        worker = _current
-        if worker is None or worker.busy:
+        idle = [w for w in _workers if not w.busy]
+        if not idle:
             return
-        idle_since, held_mb = worker.idle_since, worker.held_mb
+        idle_since = max(w.idle_since for w in idle)
+        held_mb = sum(w.held_mb for w in idle)
     if not gpu_probe.prefetched_busy():
         return
     wait = UTIL_SETTLE_S - (time.monotonic() - idle_since)
@@ -444,7 +519,7 @@ def retire_if_the_card_reads_busy():
     load = gpu_probe.prefetched_load() or {}
     retire_idle(f"the GPU looked busy to the job that would reuse it: utilization "
                 f"{load.get('utilization_percent')}%, {load.get('memory_free_mb')} MB free "
-                f"counting the worker's {held_mb:.0f} MB")
+                f"counting the idle workers' {held_mb:.0f} MB")
     gpu_probe.prefetch()
 
 
@@ -455,15 +530,12 @@ def _arm_idle_timer(worker, idle_round):
 
 
 def _retire_if_idle_since(worker, idle_round):
-    """The idle limit's timer: retires worker if it has been idle since then,
-    also when it is no longer _current (a replacement that found the slot
-    taken), which nothing else would end."""
-    global _current
+    """The idle limit's timer: retires worker if it has been idle since then."""
     with _lock:
         if worker.busy or worker.idle_round != idle_round:
             return
-        if _current is worker:
-            _current = None
+        if worker in _workers:
+            _workers.remove(worker)
     worker.retire("idle limit")
 
 
@@ -484,6 +556,9 @@ class _JobQueue:
                 continue   # an earlier job's leftover, never this job's
             if item == _BEGAN:
                 self._job.began = True
+                continue
+            if isinstance(item, tuple) and item and item[0] == _MEMORY:
+                self._job.memory = item[1]
                 continue
             if item == _IDLE:
                 self._job.went_idle()
@@ -517,6 +592,7 @@ class WarmJob:
         self._stale = stale
         self._state = "claimed"   # then "sent", then "done" or "lost"
         self.began = False
+        self.memory = {}
         self.channel = job_process_result.wrap_queue(_JobQueue(self), job_id)
 
     @property
@@ -577,32 +653,46 @@ class WarmJob:
         worker.retire("it could not be given a job")
 
     def _replace_worker(self, old):
-        global _current
         _forget(old)
         old.retire("its pipe broke")
         fresh = _Worker(old.key)
         with _lock:
             fresh.busy = True
             fresh.jobs = 1
-            if _current is None:
-                _current = fresh
+            _workers.append(fresh)   # in old's slot
         self._worker, self.seq = fresh, 1
 
     def went_idle(self):
         self._state = "done"
         worker = self._worker
-        reason = _others_need_the_gpu(self.job_id)
         with _lock:
             idle_round = worker.now_idle()
+        reason = _no_slot_to_stay_in(self.job_id) or self._grew_too_much(worker)
         if reason:
             _forget(worker)
             worker.retire(reason)
             return
-        used = _card_used_mb()
-        if used is not None and worker.baseline_mb is not None:
-            worker.held_mb = max(0.0, used - worker.baseline_mb)
-        _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note(used)}")
         _arm_idle_timer(worker, idle_round)
+
+    def _grew_too_much(self, worker) -> str:
+        """Records what the idle worker holds, and why it must go if its own
+        memory grew past GROWTH_LIMIT_MB."""
+        used = _card_used_mb()
+        own = _process_used_mb(worker.proc.pid)
+        if own is not None:
+            worker.held_mb = own
+        elif used is not None and worker.baseline_mb is not None:
+            worker.held_mb = max(0.0, used - worker.baseline_mb)
+        if worker.first_idle_mb is None:
+            worker.first_idle_mb = own
+        torch_note = "".join(f", {name} {self.memory[name]:.0f} MB" for name in
+                             ("torch_allocated_mb", "torch_reserved_mb") if name in self.memory)
+        _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note(used)}"
+             + (f", own {own:.0f} MB" if own is not None else "")
+             + torch_note + (f", threads {self.memory['threads']}" if "threads" in self.memory else ""))
+        if own is not None and worker.first_idle_mb is not None and own - worker.first_idle_mb > GROWTH_LIMIT_MB:
+            return f"its memory grew {own - worker.first_idle_mb:.0f} MB"
+        return ""
 
     def _lost(self):
         self._state = "lost"

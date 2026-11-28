@@ -453,8 +453,8 @@ def _promote_one_queued_gpu_job(dropped):
     `dropped`, which the caller runs once _lock is released."""
     proc = result_queue = build_error = None
     if _gpu_queue:
-        _retire_unless_next_uses_it(dropped)
-        gpu_probe.prefetch()
+        next_key = _retire_unless_next_uses_it(dropped)
+        gpu_probe.prefetch(held_mb=warm_worker.reusable_held_mb(next_key))
         warm_worker.retire_if_the_card_reads_busy()
     with _lock:
         if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
@@ -525,14 +525,16 @@ def _promote_one_queued_gpu_job(dropped):
 def _retire_unless_next_uses_it(dropped):
     """Before the queue's slot check, outside _lock: an idle warm worker the
     next job in line cannot use is retired, so the free-VRAM checks do not take
-    its memory for another program's."""
-    if warm_worker.idle_key() is None:
-        return
+    its memory for another program's. Returns that job's warm key, or None."""
+    if not warm_worker.has_idle():
+        return None
     with _lock:
         _sort_fair_locked()
         entry = _next_promotable_entry_locked(dropped)
-    if entry is not None:
-        warm_worker.retire_idle("another GPU job is next", keep_key=entry.get("warm_key"))
+    if entry is None:
+        return None
+    warm_worker.retire_idle("another GPU job is next", keep_key=entry.get("warm_key"))
+    return entry.get("warm_key")
 
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,

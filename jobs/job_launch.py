@@ -317,12 +317,13 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
 def _before_gpu_admit(warm_key=None):
     """Outside _lock, before a GPU job's admission: an idle warm worker this
     job cannot use is retired first, so the free-VRAM checks do not take its
-    memory for another program's; then the card is read ahead of the check.
-    A worker the job could use goes too if that reading says busy
+    memory for another program's; then the card is read ahead of the check,
+    with the memory of the worker the job will reuse counted free. A worker the
+    job could use goes too if that reading says busy
     (warm_worker.retire_if_the_card_reads_busy)."""
     warm_worker.retire_idle("another GPU job is starting", keep_key=warm_key)
     if get_gpu_limit_enabled():
-        gpu_probe.prefetch()
+        gpu_probe.prefetch(held_mb=warm_worker.reusable_held_mb(warm_key))
         warm_worker.retire_if_the_card_reads_busy()
 
 
