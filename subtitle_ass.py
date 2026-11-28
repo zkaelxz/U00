@@ -395,7 +395,7 @@ def source_rows(style: dict, field: str, notes_by_idx, wrap_chars, frame_aspect=
         notes = fit(notes_suffix(ln.idx, notes_by_idx))
         if not whole.endswith(zh + notes):
             return None
-        lang = getattr(ln, "lang", None) or language
+        lang = getattr(ln, "lang", None) or language or "zh"
         reading = segment.reading_text(ln.zh, lang, chinese_script) if reading_line else ""
         sung = _karaoke_text(ln, zh) if karaoke else None
         if not reading and sung is None:
