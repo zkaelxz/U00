@@ -177,32 +177,35 @@ export type ShellMediaState = {
 
 /** Fired by the app on the top page right after it sets the page key. */
 export const SHELL_KEY_EVENT = 'baihekey'
-let pendingMedia: string | null = null
+let pendingMedia: (ShellMediaState & { at: number }) | null = null
 
 /** Tells the app what the player is doing; the time it was read goes with it, so the lock screen's clock can run on from there. */
 export function reportMediaState(s: ShellMediaState): void {
   try {
     if (typeof bridge()?.mediaState !== 'function') return
-    const json = JSON.stringify({ ...s, at: Date.now() })
     const key = pageKey()
     if (typeof key === 'string') {
-      bridge()?.mediaState?.(key, json)
+      bridge()?.mediaState?.(key, JSON.stringify({ ...s, at: Date.now() }))
       return
     }
     // Play pressed before the app handed this page its key: send the latest state once the key arrives.
     if (!pendingMedia && typeof window.addEventListener === 'function') window.addEventListener(SHELL_KEY_EVENT, sendPendingMedia, { once: true })
-    pendingMedia = json
+    pendingMedia = { ...s, at: Date.now() }
   } catch {
     // The shell went away with the page.
   }
 }
 
 function sendPendingMedia(): void {
-  const json = pendingMedia
+  const held = pendingMedia
   pendingMedia = null
   const key = pageKey()
+  if (!held || typeof key !== 'string') return
+  // The app trusts a report's time for only a few seconds, so a held one is moved on to now.
+  const now = Date.now()
+  const position = held.state === 'playing' ? held.position + ((now - held.at) / 1000) * held.rate : held.position
   try {
-    if (json && typeof key === 'string') bridge()?.mediaState?.(key, json)
+    bridge()?.mediaState?.(key, JSON.stringify({ ...held, position, at: now }))
   } catch {
     // The shell went away with the page.
   }
