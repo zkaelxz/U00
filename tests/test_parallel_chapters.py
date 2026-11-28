@@ -458,3 +458,19 @@ def test_a_later_parts_first_batch_is_shown_the_source_lines_before_it(subtitles
     first_sends = [upcoming for zh, _recent, upcoming in engine.seen if zh[0] == "s9"]
     assert "s8" in first_sends[0]
 
+
+
+def test_only_a_later_parts_first_batch_gets_the_lines_before_it(subtitles):
+    engine = _SeenEngine()
+    _run_seen(engine, _subtitles({9: 25.0, 21: 30.0}))
+    for zh, _recent, upcoming in engine.seen:
+        if zh[0] not in ("s9", "s21"):
+            assert not any(u in upcoming for u in (f"s{int(zh[0][1:]) - k}" for k in range(1, 4)))
+
+
+def test_chapter_lanes_get_no_lines_from_before_the_chapter(novel):
+    engine = _SeenEngine()
+    _run(engine, 2)
+    firsts = {zh[0]: ups for zh, _r, ups in engine.seen if zh[0].startswith("第")}
+    assert len(firsts) == CHAPTERS
+    assert not any(f"c{c - 1}l{PER_CHAPTER - 1}" in firsts[f"第{c}章"] for c in range(1, CHAPTERS))
