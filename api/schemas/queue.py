@@ -40,6 +40,8 @@ class QueueItem(BaseModel):
     held: bool = False
     # Waits for the night window and an idle PC.
     tonight: bool = False
+    # A step of a run started on a title's page, which can't be moved to tonight.
+    page_run: bool = False
     # The caller may reorder, pause, cancel, remove or retry it.
     mine: bool
     added_at: Optional[float] = None

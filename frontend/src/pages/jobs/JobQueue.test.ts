@@ -7,7 +7,7 @@ import { QueueRow } from './JobQueue'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 7, drama_id: 3, title: 'Signal', step: 'transcribe', status: 'waiting', reason: null, job_id: null,
-  engine: null, paid: false, changed_settings: [], held: false, tonight: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: null, paid: false, changed_settings: [], held: false, tonight: false, page_run: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const noop = () => undefined
 const row = (p: Partial<QueueItem>, first = false, last = false) => renderToStaticMarkup(
@@ -77,6 +77,9 @@ describe('Tonight on a queued item', () => {
     expect(night).toContain('Run now Transcribe Signal')
     expect(night).toContain('Tonight</span>')
     expect(night).toContain('Waits for tonight, 1:00-7:00.')
+  })
+  it('offers no Run tonight on a step of a run started on a title page', () => {
+    expect(row({ status: 'waiting', page_run: true })).not.toContain('Run tonight')
   })
   it('offers neither on a running or finished item', () => {
     for (const status of ['running', 'done'] as const) {

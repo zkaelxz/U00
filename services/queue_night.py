@@ -65,6 +65,13 @@ def night_key(night: dict, now: float) -> str:
     return here.date().isoformat()
 
 
+def window_start(night: dict, now: float) -> float:
+    """When the current night's window opened (night_key's date at the start time)."""
+    day = datetime.date.fromisoformat(night_key(night, now))
+    hour, minute = divmod(_minutes(night["start"]), 60)
+    return datetime.datetime.combine(day, datetime.time(hour, minute)).timestamp()
+
+
 def _clock_text(hhmm: str) -> str:
     h, m = hhmm.split(":")
     return f"{int(h)}:{m}"
@@ -144,23 +151,49 @@ def maybe_start_self_check(night: dict, now: float) -> bool:
 
 
 def _paid_check() -> Optional[dict]:
-    """One short call to the default translation engine, so a refused key or an empty balance shows
-    up before a night's run. Skipped for an engine without a key, and once the monthly cap is spent."""
-    from services import engine_routing_service, settings_service, translate_run_service
-    from services.real_model_check_service import FAIL, PASS
+    """One short metered call to the default translation engine, so a refused key or an empty
+    balance shows up before a night's run. It is logged like any paid request, so it counts in the
+    monthly cap; skipped for an engine without a key, and for a capped engine with no cap set or the
+    cap spent (unattended paid work always has a ceiling)."""
+    from engine_backends import engine_registry
+    from lib.errors import UnsupportedOperationError
+    from services import (engine_routing_service, settings_service, translate_run_service,
+                          translate_service)
     engine = engine_routing_service.resolve_capability("translation.cheap")
+    free_tier = engine == "gemini" and bool(settings_service.resolve_gemini_free_tier(None))
     try:
         status = engine_routing_service.engine_status(engine)
         if not status["needs_key"] or not status["key_configured"]:
             return None
-        translate_run_service.refuse_when_cap_spent(engine, bool(settings_service.get("gemini_free_tier")), None)
-        result = engine_routing_service.test_engine(engine)
+        if translate_run_service.engine_cap_applies(engine, free_tier, None) \
+                and not translate_run_service.month_cap_usd():
+            return None
+        translate_run_service.refuse_when_cap_spent(engine, free_tier, None)
+        built = engine_registry.get_engine(
+            engine, translate_service.resolve_api_key(engine), None, free_tier=free_tier,
+            base_url=settings_service.ollama_url() if engine == "ollama" else None)
     except ServiceError:
         return None
-    ok = result["status"] == "working"
-    reason = "" if ok else ((result.get("last_test") or {}).get("error") or "The engine test failed.")
-    return {"id": "engine", "label": f"Translation ({engine})", "status": PASS if ok else FAIL,
-            "reason": engine_shared.redact_secrets(reason)}
+    try:
+        text, stopped = translate_service.translate_metered(built, engine, "你好", "zh", "en")
+    except UnsupportedOperationError:   # the cap or the paid limit was reached meanwhile
+        return None
+    except Exception as e:  # any engine failure is what this check is for
+        return _engine_result(engine, str(e) or type(e).__name__)
+    if stopped:   # the call would have passed the cap
+        return None
+    return _engine_result(engine, "" if text.strip() else "The engine gave no answer.")
+
+
+def _engine_result(engine: str, reason: str) -> dict:
+    """The check's row, also recorded as the engine's Settings > Test badge."""
+    import diagnostics_report
+    from services import engine_routing_service
+    from services.real_model_check_service import FAIL, PASS
+    error = diagnostics_report.redact_for_support(reason)[:engine_routing_service.MAX_TEST_ERROR] if reason else None
+    engine_routing_service.record_test(engine, not reason, error)
+    return {"id": "engine", "label": f"Translation ({engine})", "status": FAIL if reason else PASS,
+            "reason": error or ""}
 
 
 def run_self_check() -> None:

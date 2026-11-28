@@ -317,6 +317,7 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wai
     out["reason"] = item["reason"] or None
     out["held"] = bool(item.get("held")) and item["status"] == WAITING
     out["tonight"] = bool(item.get("tonight"))
+    out["page_run"] = bool(item.get("now"))
     if out["tonight"] and item["status"] == WAITING and not out["reason"]:
         out["reason"] = night_wait
     out["title"] = _title_name(drama)
@@ -1048,7 +1049,10 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
         night_ok = any(i.get("tonight") for i in waiting) and queue_night.in_window(doc["night"], now) \
             and queue_night.pc_idle()
-        ready = [i for i in waiting if (i.get("not_before") or 0) <= now and (night_ok or not i.get("tonight"))]
+        # A Tonight step holds back the later steps of its run, which would otherwise start now and be skipped.
+        tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now
+                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains))]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         ordered = [i for i in ready if i["now"]]
         if doc["state"] == ACTIVE:
@@ -1129,7 +1133,8 @@ def night_tick(now: float | None = None) -> None:
         doc = _load(now)
         inside = queue_night.in_window(doc["night"], now)
         if inside and doc["night_open"] is None:
-            doc["night_open"] = now
+            # The window's start, not now: tick() may already have started a Tonight item this poll.
+            doc["night_open"] = queue_night.window_start(doc["night"], now)
             _save(doc)
         elif not inside and doc["night_open"] is not None:
             summary = queue_night.summary_text(doc["items"], doc["night_open"])

@@ -546,7 +546,7 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
               <button type="button" className={buttonClass('secondary')} aria-label={`Run now ${name}`} disabled={busy} onClick={() => onTonight(false)}>
                 Run now
               </button>
-            ) : (
+            ) : !item.page_run && (
               <button type="button" className={buttonClass('secondary')} aria-label={`Run tonight ${name}`} disabled={busy} onClick={() => onTonight(true)}>
                 Run tonight
               </button>

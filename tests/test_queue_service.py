@@ -1261,25 +1261,67 @@ def test_a_check_alerts_only_on_its_second_failed_night_in_a_row(isolated_db):
     assert n.record_results([fail]) == []
 
 
-def test_the_paid_check_is_skipped_without_a_key_or_once_the_cap_is_spent(isolated_db, monkeypatch):
-    from lib.errors import UnsupportedOperationError
-    from services import engine_routing_service, queue_night as n, translate_run_service
-    status = {"needs_key": True, "key_configured": False}
-    monkeypatch.setattr(engine_routing_service, "resolve_capability", lambda cap: "deepseek")
-    monkeypatch.setattr(engine_routing_service, "engine_status", lambda engine: status)
-    calls = []
-    monkeypatch.setattr(engine_routing_service, "test_engine",
-                        lambda engine: calls.append(engine) or {"status": "failed", "last_test": {"error": "401 refused"}})
+class _NightEngine:
+    name, model, free_tier, last_usage = "deepseek", "deepseek-chat", False, None
+    error = None
+
+    def translate_batch(self, texts, context=None):
+        if self.error:
+            raise RuntimeError(self.error)
+        self.last_usage = {"input_tokens": 20, "output_tokens": 5}
+        return ["Hello" for _ in texts]
+
+
+@pytest.fixture
+def night_engine(isolated_db, monkeypatch):
+    from engine_backends import engine_registry
+    from services import engine_routing_service, translate_run_service, translate_service
+    engine = _NightEngine()
+    status = {"needs_key": True, "key_configured": True}
+    cap = {"usd": 5.0}
+    monkeypatch.setattr(engine_routing_service, "resolve_capability", lambda c: "deepseek")
+    monkeypatch.setattr(engine_routing_service, "engine_status", lambda e: status)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda e: "sk-test")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: cap["usd"])
+    return engine, status, cap
+
+
+def _usage_rows():
+    import contextlib
+    with contextlib.closing(db.get_conn()) as c:
+        return c.execute("select count(*) from usage_log").fetchone()[0]
+
+
+def test_the_paid_check_is_one_call_counted_in_the_monthly_cap(night_engine):
+    from services import queue_night as n
+    from services.engine_routing_service import ENGINE_TEST_PREFIX
+    assert n._paid_check()["status"] == "pass"
+    assert _usage_rows() == 1 and db.get_month_spend() > 0
+    assert db.get_app_setting(ENGINE_TEST_PREFIX + "deepseek")["ok"] is True
+
+
+def test_the_paid_check_is_skipped_without_a_key_a_cap_or_room_under_it(night_engine, monkeypatch):
+    from services import queue_night as n
+    engine, status, cap = night_engine
+    status["key_configured"] = False
     assert n._paid_check() is None
     status["key_configured"] = True
+    cap["usd"] = 0.0
+    assert n._paid_check() is None
+    cap["usd"] = 5.0
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
+    assert n._paid_check() is None
+    assert _usage_rows() == 0
 
-    def spent(*a):
-        raise UnsupportedOperationError("This month's cap is used up.")
-    monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", spent)
-    assert n._paid_check() is None and calls == []
-    monkeypatch.setattr(translate_run_service, "refuse_when_cap_spent", lambda *a: None)
+
+def test_a_refused_key_fails_the_paid_check_without_showing_it(night_engine):
+    from services import queue_night as n
+    engine, _status, _cap = night_engine
+    engine.error = "401 refused for key sk-abcdefghijklmnopqrstuvwx"
     result = n._paid_check()
-    assert calls == ["deepseek"] and result["status"] == "fail" and result["reason"] == "401 refused"
+    assert result["status"] == "fail" and "401 refused" in result["reason"]
+    assert "sk-abcdefghijklmnopqrstuvwx" not in result["reason"]
 
 
 def test_an_unreadable_idle_time_counts_as_idle(monkeypatch):
@@ -1288,3 +1330,37 @@ def test_an_unreadable_idle_time_counts_as_idle(monkeypatch):
     assert n.pc_idle()
     monkeypatch.setattr(n, "pc_idle_seconds", lambda: 599.0)
     assert not n.pc_idle()
+
+
+def test_the_morning_summary_counts_a_tonight_item_started_on_the_windows_first_poll(jobs, idle, monkeypatch):
+    from services import notification_service, queue_night
+    told = []
+    monkeypatch.setattr(notification_service, "notify_resource_alert", lambda text, recovered=False: told.append(text))
+    monkeypatch.setattr(queue_night, "maybe_start_self_check", lambda night, now: False)
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True, tonight=True)
+    q.tick(now=_at(23, day=27))
+    q.night_tick(now=_at(23, day=27))
+    q.tick(now=_at(1, 0, day=28))           # the runner ticks first, then night_tick reads its own clock
+    q.night_tick(now=_at(1, 0, day=28) + 0.01)
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(3, day=28))
+    q.night_tick(now=_at(7, 5, day=28))
+    assert told == ["Overnight queue: 1 done, 0 skipped or failed."]
+
+
+def test_a_tonight_step_holds_back_the_rest_of_its_run(jobs, idle):
+    a = _drama("A")
+    q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1")
+    q.set_item_tonight(None, _items()[0]["id"], True)
+    q.tick(now=_at(15))
+    assert [i["status"] for i in _items()] == ["waiting", "waiting"] and jobs.started == []
+    q.tick(now=_at(1, 30, day=28))
+    assert jobs.started == [f"transcribe_{a}"]
+
+
+def test_a_page_started_step_offers_no_run_tonight(jobs):
+    a = _drama("A")
+    q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1", now=True)
+    q._append_items(None, _drama("B"), [("transcribe", {})], True)
+    assert [i["page_run"] for i in q.get_queue(None)["items"]] == [True, True, False]

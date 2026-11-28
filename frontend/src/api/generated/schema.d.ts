@@ -26649,6 +26649,11 @@ export interface components {
             /** Mine */
             mine: boolean;
             /**
+             * Page Run
+             * @default false
+             */
+            page_run: boolean;
+            /**
              * Paid
              * @default false
              */
