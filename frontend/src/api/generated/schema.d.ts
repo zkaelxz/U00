@@ -25772,7 +25772,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting";
+            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting" | "device_token";
             /** Starts At */
             starts_at: number | null;
             target: components["schemas"]["NotificationTarget"] | null;
@@ -45976,7 +45976,10 @@ export interface operations {
     };
     get_cover_api_dramas__drama_id__cover_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description thumb: a small JPEG copy for lists */
+                size?: "full" | "thumb";
+            };
             header?: never;
             path: {
                 drama_id: number;
@@ -45993,6 +45996,13 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not Found */
             404: {
