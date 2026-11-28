@@ -210,7 +210,7 @@ export default function SavedMangaReader({ source, series, chapter, page: routeP
           )}
           <span className="comic-zoom" role="group" aria-label="Zoom">
             <button type="button" aria-label="Zoom out" disabled={!zoomed} onClick={() => act('zoomOut')}>−</button>
-            <button type="button" className="comic-zoom-level" aria-label="Reset zoom" disabled={!zoomed} onClick={() => act('zoomReset')}>
+            <button type="button" className="comic-zoom-level" aria-label={`${Math.round(z.scale * 100)}%, reset zoom`} disabled={!zoomed} onClick={() => act('zoomReset')}>
               {Math.round(z.scale * 100)}%
             </button>
             <button type="button" aria-label="Zoom in" disabled={z.scale >= ZOOM.max} onClick={() => act('zoomIn')}>+</button>
