@@ -260,6 +260,31 @@ def test_auth_on_permissions(fake_live, monkeypatch):
     assert c.post(f"/api/live/sessions/{sid}/stop", headers=importer).status_code == 200
 
 
+def test_extend_is_404_unseen_403_not_the_starter_409_finishing(fake_live, monkeypatch):
+    # The fake capture has no time limit of its own, so the limit is faked here.
+    monkeypatch.setattr(live_translate, "extend_time_limit", lambda job_id, seconds, longest: 3000.0)
+    from services import model_readiness_service
+    monkeypatch.setattr(model_readiness_service, "whisper_ready", lambda *a: True)
+    c = _on_client()
+    starter = _headers("media.import_url", email="imp@example.com")
+    sid = c.post("/api/live/sessions", json={"url": URL, "engine": "fake"}, headers=starter).json()["session_id"]
+    assert _wait(lambda: background_jobs.is_running(sid))
+    stranger = _headers("media.import_url", email="other@example.com")
+    assert c.post(f"/api/live/sessions/{sid}/extend", headers=stranger).status_code == 404
+    viewer = auth_service.add_user("viewer@example.com")
+    auth_service.grant_permission(viewer["id"], "media.import_url")
+    live_service._sessions[sid]["viewers"].add(viewer["id"])
+    s = auth_service.create_session(viewer["id"])
+    as_viewer = {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                 api_auth.CSRF_HEADER: s["csrf_token"]}
+    assert c.post(f"/api/live/sessions/{sid}/extend", headers=as_viewer).status_code == 403
+    r = c.post(f"/api/live/sessions/{sid}/extend", headers=starter)
+    assert r.status_code == 200 and r.json()["time_left_seconds"] == 3000
+    live_translate.mark_finishing(sid)
+    r = c.post(f"/api/live/sessions/{sid}/extend", headers=starter)
+    assert r.status_code == 409 and "already finishing" in r.text
+
+
 def test_two_sessions_at_a_time(client, fake_live):
     body = {"url": URL, "engine": "fake"}
     first = client.post("/api/live/sessions", json=body)

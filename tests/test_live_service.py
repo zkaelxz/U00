@@ -564,6 +564,19 @@ def test_only_the_starter_may_give_more_time(live):
     assert live_service.extend_session(sid, principal=starter)["time_left_seconds"] > 3600
 
 
+def test_a_session_the_pc_started_is_extended_only_at_the_pc(live):
+    sid = _start(max_minutes=60)
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    assert live_service._sessions[sid]["owner_user_id"] is None
+    remote_admin = {"user_id": 3, "is_admin": True, "admin_override": False}
+    assert live_service.get_session(sid, principal=remote_admin)["can_extend"] is False
+    with pytest.raises(ForbiddenError):
+        live_service.extend_session(sid, principal=remote_admin)
+    pc_admin = {"user_id": 3, "is_admin": True, "admin_override": True}
+    assert live_service.get_session(sid, principal=pc_admin)["can_extend"] is True
+    assert live_service.extend_session(sid, principal=pc_admin)["time_left_seconds"] > 3600
+
+
 def test_more_time_is_refused_without_a_limit_or_for_a_viewer(live):
     sid = _start(max_minutes=None)
     assert _wait(lambda: background_jobs.is_running(sid))

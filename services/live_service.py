@@ -969,10 +969,12 @@ def _may_fix_names(principal, session_id, entry) -> bool:
 
 def _started(principal, entry) -> bool:
     """Only the session's starter: an admin or the PC owner may not lengthen someone else's
-    session (owner, 2026-11-28: every session is independent). No owner means the PC started it."""
+    session (owner, 2026-11-28: every session is independent). No owner means the PC started it,
+    so whoever acts as the PC may: the local owner, or with sign-in on an admin on the PC's own
+    listener (the household listener clears admin_override)."""
     owner = entry.get("owner_user_id")
     if owner is None:
-        return principal is None or bool(principal.get("is_local_owner"))
+        return ownership_service.may_override(principal)
     uid = ownership_service.user_id(principal)
     return uid is not None and uid == owner
 
