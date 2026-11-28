@@ -338,3 +338,40 @@ def test_set_rules_refuses_bad_input_and_saves_nothing(isolated_db, changes):
     with pytest.raises(InvalidInputError):
         rms.set_rules({"cpu": {"enabled": True}, **changes})
     assert rms.get_rules()["cpu"]["enabled"] is False
+
+
+
+def _low_disk_events(n=12):
+    got = []
+    for i in range(n):
+        rms.run_cycle(notify=got.append, now=T0 + i * 30, readings={"disk_free": 4.0})
+    return got
+
+
+def test_a_low_disk_alert_says_what_a_cleanup_would_free(isolated_db, monkeypatch):
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "storage_scan", lambda: {"would_free_bytes": 3 * 1024 ** 3})
+    [event] = _low_disk_events()
+    assert event["metric"] == "disk_free" and event["text"].endswith(
+        "A cleanup in Library tools > Storage would free about 3.0 GB.")
+    assert "/" not in event["text"].replace("Library tools > Storage", "")
+
+
+@pytest.mark.parametrize("scan", ["little", "fails"])
+def test_a_low_disk_alert_names_no_figure_when_there_is_none_worth_naming(isolated_db, monkeypatch, scan):
+    from services import library_admin_service
+
+    def scanned():
+        if scan == "fails":
+            raise OSError("D:\\Baihe is gone")
+        return {"would_free_bytes": 1024}
+    monkeypatch.setattr(library_admin_service, "storage_scan", scanned)
+    [event] = _low_disk_events()
+    assert "cleanup" not in event["text"] and "Baihe" not in event["text"]
+
+
+def test_other_alerts_do_not_scan_the_library(isolated_db, monkeypatch):
+    from services import library_admin_service
+    monkeypatch.setattr(library_admin_service, "storage_scan", lambda: pytest.fail("scanned"))
+    for i in range(11):
+        rms.run_cycle(notify=lambda e: None, now=T0 + i * 30, readings={"gpu_temp": 90})

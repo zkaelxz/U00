@@ -16,6 +16,7 @@ import threading
 import time
 
 import db
+import stored_settings
 from lib import acting
 from lib.errors import ConflictError, RateLimitedError
 
@@ -95,6 +96,21 @@ def refund_daily_start(owner_user_id, day: str | None) -> None:
 # starting before the library drive is nearly full. The owner's and admins' own jobs are never
 # held back.
 MEMBER_MIN_FREE_GB = 10
+# resource_monitor_service's rules setting and the range its disk limit is accepted in.
+ALERT_RULES_SETTING = "resource_alert_rules"
+_ALERT_LIMIT_RANGE = (1, 100000)
+
+
+def member_min_free_gb() -> float:
+    """MEMBER_MIN_FREE_GB, or the owner's own low-disk alert limit when they set it lower:
+    members must not sit waiting for space at a level that never alerts the owner."""
+    rules = stored_settings.read(ALERT_RULES_SETTING)
+    disk = rules.get("disk_free") if isinstance(rules, dict) else None
+    limit = disk.get("limit") if isinstance(disk, dict) else None
+    if (isinstance(limit, bool) or not isinstance(limit, (int, float))
+            or not _ALERT_LIMIT_RANGE[0] <= limit <= _ALERT_LIMIT_RANGE[1]):
+        return MEMBER_MIN_FREE_GB
+    return min(MEMBER_MIN_FREE_GB, limit)
 
 
 def _is_admin_account(user_id) -> bool:
@@ -112,14 +128,14 @@ def held_back_by_low_disk(owner_user_id) -> bool:
 
 def refuse_if_disk_low(owner_user_id) -> None:
     """Raises DiskLowError (409) when a member would start a job while the library drive has
-    less than MEMBER_MIN_FREE_GB free. An unreadable drive is not a reason to refuse."""
+    less than member_min_free_gb() free. An unreadable drive is not a reason to refuse."""
     if owner_user_id is None:
         return
     try:
         free_gb = shutil.disk_usage(db.LIBRARY_DIR).free / 1024 ** 3
     except OSError:
         return
-    if free_gb >= MEMBER_MIN_FREE_GB:
+    if free_gb >= member_min_free_gb():
         return
     # The request's own principal must be an admin's too: a device token or scheduled work acts
     # for an admin account with member rights only, so it is held like a member's, and so is a

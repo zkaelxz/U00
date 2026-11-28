@@ -13,6 +13,7 @@ timers are in memory, so a restart restarts the clock.
 """
 
 import shutil
+import sqlite3
 import sys
 import threading
 import time
@@ -20,6 +21,7 @@ from typing import Any
 
 import db
 from engine_backends.shared import redact_secrets
+from lib.errors import ServiceError
 from lib.proc import run_captured
 
 RULES_SETTING = "resource_alert_rules"
@@ -387,6 +389,9 @@ def run_cycle(notify=None, now=None, readings=None) -> list:
             except Exception:
                 pass
     for event in events:
+        if event["metric"] == "disk_free" and event["kind"] in ("alert", "repeat"):
+            event["text"] += _cleanup_hint()
+    for event in events:
         try:
             (notify or _notify)(event)
         except Exception as exc:
@@ -419,6 +424,24 @@ def snapshot(now=None) -> dict:
         })
     return {"sampled_seconds_ago": None if sampled_at is None else max(0, round(now - sampled_at)),
             "sample_seconds": int(SAMPLE_SECONDS), "metrics": metrics}
+
+
+# Below this a cleanup isn't worth naming in a low-disk alert.
+MIN_HINT_BYTES = 100 * 1024 ** 2
+
+
+def _cleanup_hint() -> str:
+    """What Library tools > Storage's cleanup (its default preset) would free right now, so a
+    low-disk alert says where to start; empty when that is too little or can't be told. Scanned
+    only when the alert goes out, so the figure is never an old one."""
+    from services import library_admin_service
+    try:
+        freed = library_admin_service.storage_scan()["would_free_bytes"]
+    except (ServiceError, OSError, sqlite3.Error):
+        return ""
+    if not isinstance(freed, int) or freed < MIN_HINT_BYTES:
+        return ""
+    return f" A cleanup in Library tools > Storage would free about {freed / 1024 ** 3:.1f} GB."
 
 
 def _log(fmt, *args):
