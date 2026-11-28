@@ -4,6 +4,7 @@ path, the opt-in Groq cloud path and the Whisper prompt/sensitivity settings.
 """
 
 import json
+import logging
 import math
 import os
 import re
@@ -14,6 +15,7 @@ from segment_splitting import (_word_dicts, extend_ends_to_speech, settle_overla
 from whisper_hallucination import (IMPLAUSIBLE_FLAG, STOCK_PHRASE_ISOLATION_SEC, filter_hallucinated_segments,
                                    is_stock_phrase)
 
+log = logging.getLogger(__name__)
 
 
 
@@ -341,6 +343,109 @@ def _rehear_sparse(model, audio, kwargs: dict, segments: list, prompt_keys: set)
     return settle_overlaps(result)
 
 
+# faster-whisper's defaults for the thresholds a run does not pass itself.
+_DEFAULT_LOG_PROB_THRESHOLD = -1.0
+_DEFAULT_NO_SPEECH_THRESHOLD = 0.6
+# Failed stretches this close are re-heard as one clip, up to one Whisper window: each clip is a
+# decode of its own, and a longer gap may be silence the detector cut, which a decode without
+# the detector fills with credits.
+_FALLBACK_JOIN_GAP_SEC = 1.0
+_WHISPER_WINDOW_SEC = 30.0
+
+
+def _number(value):
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+
+
+def _needs_fallback(segment, kwargs: dict) -> bool:
+    """Whether faster-whisper would retry this segment's window at a higher temperature: its
+    generate_with_fallback rule, with the thresholds this run passes. A segment that reports no
+    scores (a stand-in model) passes."""
+    logprob, ratio = _number(getattr(segment, "avg_logprob", None)), _number(getattr(segment, "compression_ratio", None))
+    no_speech = _number(getattr(segment, "no_speech_prob", None))
+    low = logprob is not None and logprob < kwargs.get("log_prob_threshold", _DEFAULT_LOG_PROB_THRESHOLD)
+    looping = ratio is not None and ratio > kwargs.get("compression_ratio_threshold", LOOPING_COMPRESSION_RATIO)
+    # Unsure over what is probably silence is not retried: faster-whisper drops the window instead.
+    silent = low and no_speech is not None and no_speech > kwargs.get("no_speech_threshold", _DEFAULT_NO_SPEECH_THRESHOLD)
+    return (low or looping) and not silent
+
+
+class _PromptFallbacks:
+    """A names-primed decode runs at temperature 0 only, and the stretches of it that miss the
+    fallback thresholds are heard again without the names (_rehear_without_prompt): on one title
+    the names sent nearly every segment down faster-whisper's temperature ladder, which made the
+    decode 2.5-3x slower (V100, 2026-11-28). Fast mode's batched pipeline already decodes at the
+    first temperature only, so it is left alone."""
+
+    def __init__(self, kwargs: dict, fast_mode: bool):
+        self.kwargs = kwargs
+        self.primed = "initial_prompt" in kwargs and not fast_mode
+        self.failed = []
+
+    @property
+    def decode_kwargs(self) -> dict:
+        return {**self.kwargs, "temperature": 0.0} if self.primed else self.kwargs
+
+    def watch(self, segments):
+        """`segments`, noting the ones that miss the thresholds. Each decode starts the notes over."""
+        self.failed = []
+        for s in segments:
+            if self.primed and _needs_fallback(s, self.kwargs):
+                self.failed.append((s.start, s.end, getattr(s, "avg_logprob", None)))
+            yield s
+
+    def rehear(self, model, audio, segments: list, prompt_keys: set) -> list:
+        return _rehear_without_prompt(model, audio, self.kwargs, segments, self.failed, prompt_keys)
+
+
+def _fallback_clips(failed) -> list:
+    """[start, end, [avg_logprob, ...]] per clip to re-hear."""
+    clips = []
+    for start, end, logprob in sorted(failed):
+        if clips and start - clips[-1][1] <= _FALLBACK_JOIN_GAP_SEC and end - clips[-1][0] <= _WHISPER_WINDOW_SEC:
+            clips[-1][1] = max(clips[-1][1], end)
+            clips[-1][2].append(logprob)
+        else:
+            clips.append([start, end, [logprob]])
+    return clips
+
+
+def _mean(values) -> float:
+    values = [v for v in values if _number(v) is not None]
+    return sum(values) / len(values) if values else -math.inf
+
+
+def _rehear_without_prompt(model, audio, kwargs: dict, segments: list, failed, prompt_keys: set) -> list:
+    """`segments` with each stretch in `failed` (_PromptFallbacks) replaced by what Whisper hears
+    there without the names prompt, at the run's own temperatures, when that passes the thresholds
+    or is surer than the primed decode; otherwise the primed text stays. Segment times are those of
+    the decode that wrote `segments`, heard from `audio`."""
+    if not failed or not _accepts_transcribe_kwarg(model, "clip_timestamps"):
+        return segments
+    clips = _fallback_clips(failed)
+    retry = {k: v for k, v in kwargs.items() if k not in ("vad_parameters", "initial_prompt")}
+    retry.update(vad_filter=False, clip_timestamps=[t for c in clips for t in c[:2]])
+    heard, _info = model.transcribe(audio, **retry)
+    by_clip = [[] for _ in clips]
+    for h in heard:
+        for i, (start, end, _primed) in enumerate(clips):
+            if h.start >= start - _REHEAR_EDGE_SEC and h.end <= end + _REHEAR_EDGE_SEC:
+                by_clip[i].append(h)
+                break
+    result, replaced = list(segments), 0
+    for (start, end, primed), raw in zip(clips, by_clip):
+        lines = [h for h in _segment_dicts(raw, prompt_keys) if not is_stock_phrase(h["text"])]
+        passes = not any(_needs_fallback(h, kwargs) for h in raw)
+        if not lines or not (passes or _mean(getattr(h, "avg_logprob", None) for h in raw) > _mean(primed)):
+            continue
+        replaced += 1
+        result = [s for s in result if not (_span(s)[0] >= start and _span(s)[1] <= end)] + lines
+    # A run that replaces most stretches loses the names the prompt was for; the count shows it.
+    log.info("Names prompt: %d of %d stretches below Whisper's confidence were heard again "
+             "without it and replaced", replaced, len(clips))
+    return sorted(result, key=lambda s: s["start"])
+
+
 # Whisper writes Mandarin in Traditional characters with no punctuation about as
 # often as in Simplified; a sentence in the wanted script and with punctuation,
 # shown as text it has already written, steers it to both.
@@ -627,14 +732,14 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     if difficult_audio and not fast_mode:
         kwargs.update(_relaxed_kwargs(model, no_speech_threshold, log_prob_threshold))
 
-    resume, whole = _Resume(None if fast_mode else resume_segments, on_unit), _WholeAudio(audio_path)
+    resume, whole, fallbacks = _Resume(None if fast_mode else resume_segments, on_unit), _WholeAudio(audio_path), _PromptFallbacks(kwargs, fast_mode)
 
     def _collect(m, segments, info):
         duration = (getattr(info, "duration", None) or 0) + resume.at
         resume.restart()
-        result = _segment_dicts(segments, prompt_keys, _progress_reporter(progress_cb, resume, duration),
+        result = _segment_dicts(fallbacks.watch(segments), prompt_keys, _progress_reporter(progress_cb, resume, duration),
             on_kept=resume.keep if resume.on_unit and not fast_mode else None)
-        result = resume.merged(result)
+        result = resume.merged(fallbacks.rehear(m, tail or whole.as_heard(), result, prompt_keys))
         settle_overlaps(result)
         # Difficult audio is the shouted or whispered speech Silero scores as silence.
         _fit_to_speech(result, audio_path, trim_starts=not _skips_detector(language, difficult_audio), audio=whole.samples)
@@ -657,7 +762,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
-        return _transcribe(m, tail or whole.decoded(), kwargs, standalone_extra_speech)
+        return _transcribe(m, tail or whole.decoded(), fallbacks.decode_kwargs, standalone_extra_speech)
 
     try:
         try:
