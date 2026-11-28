@@ -25,6 +25,7 @@ import {
   isTranslationOnly,
   lineRanges,
   loadPresetStart,
+  savedRunEstimateParams,
   savedRunForm,
   MAX_FALLBACKS,
   monthSpendText,
@@ -263,6 +264,10 @@ describe('preset start values', () => {
     expect(savedRunForm(config, 4).style_preset).toBe('natural')
     const started = { ...config, translate_start: { style_preset: 'natural' } } as TranslateRunConfig
     expect(savedRunForm(started, 3).style_preset).toBe('natural')
+    expect(savedRunEstimateParams(config, 3, 'claude', '', [4, 5])).toEqual({
+      engine: 'claude', force_retranslate: true, style_preset: 'wuxia', line_ids: [4, 5],
+    })
+    expect(savedRunEstimateParams(config, 4, '', 'm', [])).toEqual({ model: 'm', force_retranslate: true, style_preset: 'natural' })
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {

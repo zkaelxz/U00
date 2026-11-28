@@ -135,11 +135,12 @@ def get_glossary_affected(drama_id: int = Path(ge=1),
                           reflect: bool = False,
                           gemini_free_tier: Optional[bool] = None,
                           job_cost_cap_usd: Optional[float] = Query(None, ge=0),
-                          style_preset: Optional[str] = Query(None, max_length=40)):
+                          style_preset: Optional[str] = Query(None, max_length=40),
+                          batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE)):
     return glossary_retranslate_service.find_glossary_affected_lines(
         drama_id, term_ids=term_ids, engine_name=engine, model=model, reflect=reflect,
         gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
-        style_preset=style_preset)
+        style_preset=style_preset, batch_size=batch_size)
 
 
 @router.post("/dramas/{drama_id}/glossary-affected/run", dependencies=[require_permission("jobs.start")],

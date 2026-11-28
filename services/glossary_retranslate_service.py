@@ -102,7 +102,8 @@ def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str 
                                  model: str | None = None, reflect: bool = False,
                                  gemini_free_tier: bool | None = None,
                                  job_cost_cap_usd: float | None = None,
-                                 style_preset: str | None = None) -> dict:
+                                 style_preset: str | None = None,
+                                 batch_size: int | None = None) -> dict:
     """The preview: affected lines, the glossary to pick terms from, and
     cost estimates (no engine call) for the machine lines alone and for
     every affected line. term_ids None = every term."""
@@ -116,7 +117,7 @@ def find_glossary_affected_lines(drama_id: int, term_ids=None, engine_name: str 
         return translate_run_service.estimate_translate_cost(
             drama_id, engine_name, model, reflect=reflect, force_retranslate=True,
             gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd, line_ids=ids,
-            style_preset=style_preset)
+            style_preset=style_preset, batch_size=batch_size)
 
     return {
         "drama_id": drama_id,

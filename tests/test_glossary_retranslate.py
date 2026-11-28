@@ -716,6 +716,16 @@ class TestApi:
                 [("permission", "jobs.start")],
         }
 
+    def test_the_preview_route_prices_the_forms_style_and_batch_size(self, isolated_db, monkeypatch):
+        did, _sid, _rows = _seed([("林晚来了", "Lin came")], terms=[LIN])
+        seen, real = [], translate_run_service.estimate_translate_cost
+        monkeypatch.setattr(translate_run_service, "estimate_translate_cost",
+                            lambda *a, **k: seen.append((k.get("style_preset"), k.get("batch_size"))) or real(*a, **k))
+        r = TestClient(create_app()).get(f"/api/translate-run/dramas/{did}/glossary-affected",
+                                         params={"engine": "fake", "style_preset": "novel", "batch_size": 12})
+        assert r.status_code == 200, r.text
+        assert seen == [("novel", 12), ("novel", 12)]
+
     def test_preview_and_run(self, isolated_db):
         did, _sid, rows = _seed([("林晚", "machine"), ("晚晚", "mine")], terms=[LIN],
                                 machine={0})

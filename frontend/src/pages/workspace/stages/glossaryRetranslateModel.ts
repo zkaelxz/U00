@@ -17,7 +17,7 @@ export function chosenIds(lines: GlossaryAffectedLine[], selected: Set<number>, 
   return lines.filter((l) => selected.has(l.id) && (includeHandEdited || !l.hand_edited)).map((l) => l.id)
 }
 
-/** Preview query from the Translate form (engine, model, Reflect, cap, Style); null while the cap is invalid. */
+/** Preview query from the Translate form (engine, model, Reflect, cap, Style, batch size); null while the cap is invalid. */
 export function affectedParams(f: RunForm, termIds: number[]): GlossaryAffectedParams | null {
   const est = buildEstimateParams(f)
   if (!est) return null
@@ -28,6 +28,7 @@ export function affectedParams(f: RunForm, termIds: number[]): GlossaryAffectedP
     ...(est.reflect ? { reflect: true } : {}),
     ...(est.job_cost_cap_usd !== undefined ? { job_cost_cap_usd: est.job_cost_cap_usd } : {}),
     ...(est.style_preset ? { style_preset: est.style_preset } : {}),
+    ...(est.batch_size !== undefined ? { batch_size: est.batch_size } : {}),
   }
 }
 

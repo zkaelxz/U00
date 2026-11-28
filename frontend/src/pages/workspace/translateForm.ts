@@ -452,6 +452,17 @@ export function savedRunForm(c: TranslateRunConfig, dramaId: number): RunForm {
   return applyStartToForm(initialForm(c, loadPresetStart(dramaId)), c.translate_start, c)
 }
 
+/** The estimate for a Review redo of `lineIds` (every line when empty), priced with the Style that run uses. */
+export function savedRunEstimateParams(
+  c: TranslateRunConfig, dramaId: number, engine: string, model: string, lineIds: number[],
+): EstimateParams {
+  return {
+    engine: engine || undefined, model: model || undefined, force_retranslate: true,
+    style_preset: savedRunForm(c, dramaId).style_preset,
+    ...(lineIds.length ? { line_ids: lineIds } : {}),
+  }
+}
+
 // Overlay the Translate form values a profile left on the title (the server's
 // translate_start, or an applied profile's options) on `f`. Each value applies only
 // when this server still offers it and the engine can run it, as for a remembered
