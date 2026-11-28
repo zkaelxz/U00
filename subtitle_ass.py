@@ -346,16 +346,28 @@ def _karaoke_text(ln, fitted: str):
             groups.append([word, ch])
     if src[i:].strip():
         return None
-    marks = [round(max(0.0, spans[w][2]["start"] - ln.start) * 100) for w, _ in groups]
-    marks.append(max(marks[-1], round(max(0.0, spans[groups[-1][0]][2]["end"] - ln.start) * 100)))
-    out = [f"{{\\2a{_UNSUNG_ALPHA}}}"]
-    if marks[0]:
-        out.append(f"{{\\k{marks[0]}}}")
-    for n, (_, text) in enumerate(groups):
-        piece = _ass_escape(text)
-        # A backslash at the end would escape the next tag's brace.
-        out.append(f"{{\\kf{max(0, marks[n + 1] - marks[n])}}}{piece}{chr(0x2060) if piece.endswith(chr(92)) else ''}")
+    origin = round(ln.start * 100)
+
+    def at(t):  # centiseconds after the Dialogue's own (rounded) start
+        return max(0, round(t * 100) - origin)
+    out, cursor = [f"{{\\2a{_UNSUNG_ALPHA}}}"], 0
+    for n, (w, text) in enumerate(groups):
+        begin = max(cursor, at(spans[w][2]["start"]))
+        if begin > cursor:
+            # An empty syllable: the pause before this word is not drawn as the last word still being said.
+            out.append(f"{{\\k{begin - cursor}}}")
+        end = max(begin, at(spans[w][2]["end"]))
+        if n + 1 < len(groups):
+            end = min(end, max(begin, at(spans[groups[n + 1][0]][2]["start"])))
+        out.append(f"{{\\kf{end - begin}}}{_before_tag(_ass_escape(text))}")
+        cursor = end
     return "".join(out)
+
+
+def _before_tag(escaped: str) -> str:
+    """Escaped text that an override tag follows: a backslash at its end would
+    escape the tag's brace, so a word joiner goes between them."""
+    return escaped + "\u2060" if escaped.endswith("\\") else escaped
 
 
 def source_rows(style: dict, field: str, notes_by_idx, wrap_chars, frame_aspect=None,
@@ -390,7 +402,7 @@ def source_rows(style: dict, field: str, notes_by_idx, wrap_chars, frame_aspect=
             return None
         scale = round(_READING_SCALE * 100)
         above = (f"{{\\fscx{scale}\\fscy{scale}}}"
-                 f"{_ass_escape(fit(reading, int(limit / _READING_SCALE), lang))}{{\\r}}\\N") if reading else ""
+                 f"{_before_tag(_ass_escape(fit(reading, int(limit / _READING_SCALE), lang)))}{{\\r}}\\N") if reading else ""
         # \\r ends the faint unsung look before the notes, which are never sung.
         body = f"{sung}{{\\r}}" if sung else _ass_escape(zh)
         return _ass_escape(whole[:len(whole) - len(zh) - len(notes)]) + above + body + _ass_escape(notes)

@@ -183,17 +183,31 @@ def _require_reading_packages(lines, drama: dict) -> None:
             details={"reason": "missing_package", "package": missing[0]})
 
 
-def _with_reading_rows(lines, drama: dict):
-    """Copies of `lines` with a pinyin or kana row above each original text."""
+def _reading_rows(lines, drama: dict) -> dict:
+    """{line id: its pinyin or kana row}, from the line's own text, so a
+    speaker name or a wrap added later is not read out."""
     import segment
     script = drama.get("chinese_script") or "simplified"
-    out = []
+    rows = {}
     for ln in lines:
         lang = getattr(ln, "lang", None) or drama.get("source_language") or "zh"
         reading = "" if getattr(ln, "sfx", False) else segment.reading_text(ln.zh or "", lang, script)
-        c = copy.copy(ln)
         if reading:
-            c.zh = f"{reading}\n{ln.zh}"
+            rows[ln.id] = reading
+    return rows
+
+
+def _with_reading_rows(lines, rows: dict):
+    """Copies of `lines` with the reading row above the original text. It
+    goes on after wrapping: the source wrap width counts characters, and a
+    pinyin row is several times longer than the line it reads."""
+    if not rows:
+        return lines
+    out = []
+    for ln in lines:
+        c = copy.copy(ln)
+        if rows.get(ln.id):
+            c.zh = f"{rows[ln.id]}\n{ln.zh}"
         out.append(c)
     return out
 
@@ -620,9 +634,10 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     # above it, and players, cue numbers and the timing tidy go by order.
     lines = sorted(core_module.lines_from_rows(rows), key=lambda ln: ln.start)
     _require_exportable_text(lines, field)
+    readings = {}
     if reading_line and field != "en" and fmt != "lrc":
         _require_reading_packages(lines, drama)
-        lines = _with_reading_rows(lines, drama)
+        readings = _reading_rows(lines, drama)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
     wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
@@ -630,6 +645,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     names = _speaker_display_names(drama_id) if speaker_names else None
 
     if fmt == "vtt":
+        if readings:
+            # The original is wrapped here, before its reading row goes on, so the writer leaves it as it is.
+            lines = _with_reading_rows(subtitle_formats.wrap_lines(
+                lines, wrap_chars and {"zh": wrap_chars.get("zh")}, **break_language(drama)), readings)
+            wrap_chars = wrap_chars and {**wrap_chars, "zh": None}
         return _export_result(subtitle_formats.lines_to_vtt(
             lines, field, notes_by_idx, wrap_chars, **break_language(drama), speaker_names=names))
     if fmt == "lrc":
@@ -641,8 +661,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
     # The name goes in before wrapping, so the first row still fits the wrap width with it.
-    wrapped = subtitle_formats.wrap_lines(_with_speaker_names(timed, field, names), wrap_chars,
-                                          **break_language(drama))
+    wrapped = _with_reading_rows(subtitle_formats.wrap_lines(
+        _with_speaker_names(timed, field, names), wrap_chars, **break_language(drama)), readings)
     if field == "bilingual":
         text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:

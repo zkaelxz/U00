@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { OriginalLine, StudyLine, StudyWords } from './StudyLine'
+import { OriginalLine, ReadingWords, StudyLine, StudyWords } from './StudyLine'
 import { heardUpTo } from './watchLogic'
 
 const study = { line_id: 7, language: 'zh', original: '你好', needs_install: null }
@@ -46,5 +46,25 @@ describe('the original line on the now card', () => {
     expect(heardUpTo(words, 0.5)).toBe(-1)
     expect(heardUpTo(words, 1.5)).toBe(0)
     expect(heardUpTo(words, 2)).toBe(2)
+  })
+})
+
+describe('the original line with readings on', () => {
+  const words = [
+    { word: '我', reading: 'wǒ', meanings: [], start: 1 },
+    { word: 'New', reading: null, meanings: [], start: 2 },
+  ]
+  it('shows ruby over each word and keeps the spaces between them', () => {
+    const out = renderToStaticMarkup(<ReadingWords text="我 New" words={words} lang="zh" heard={-1} />)
+    expect(out).toBe('<ruby class="watch-word">我<rt>wǒ</rt></ruby> <span class="watch-word">New</span>')
+  })
+  it('marks the words heard so far', () => {
+    const out = renderToStaticMarkup(<ReadingWords text="我 New" words={words} lang="zh" heard={0} />)
+    expect(out).toContain('<ruby class="watch-word watch-word-heard">我')
+    expect(out).toContain('<span class="watch-word">New</span>')
+  })
+  it('puts no furigana over kana', () => {
+    const ja = [{ word: 'テスト', reading: 'てすと', meanings: [], start: null }]
+    expect(renderToStaticMarkup(<ReadingWords text="テスト" words={ja} lang="ja" heard={-1} />)).not.toContain('<rt>')
   })
 })

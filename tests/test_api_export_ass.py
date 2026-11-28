@@ -178,3 +178,27 @@ def test_reading_line_without_its_packages_names_what_to_install(client, isolate
     assert r.status_code == 503
     assert "pypinyin" in _error(r)["message"]
     assert client.post(_url(did), json={"field": "en", "reading_line": True}).status_code == 200
+
+
+def _one_timed_line(isolated_db, text, words):
+    from segment_splitting import encode_line_words
+    did = isolated_db.create_drama(title_en="D")
+    isolated_db.save_lines(did, [Line(idx=0, start=1.0, end=5.0, zh=text, en="E",
+                                      word_timings=encode_line_words(text, words))])
+    return did
+
+
+def test_a_pause_between_words_is_not_drawn_as_the_word_still_being_said(client, isolated_db):
+    did = _one_timed_line(isolated_db, "嗯……我知道", [{"word": "嗯……", "start": 1.2, "end": 1.4},
+                                                  {"word": "我知道", "start": 3.4, "end": 4.0}])
+    text = client.post(_url(did), json={"field": "zh", "karaoke": True}).text
+    assert _dialogues(text)[0] == r"{\2a&H90&}{\k20}{\kf20}嗯……{\k200}{\kf60}我知道{\r}"
+
+
+def test_a_backslash_or_brace_in_the_text_cannot_break_the_tags(client, isolated_db, monkeypatch):
+    import segment
+    monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+    monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified": "a\\")
+    did = _one_timed_line(isolated_db, "{好}\\", [{"word": "{好}\\", "start": 1.0, "end": 2.0}])
+    out = _dialogues(client.post(_url(did), json={"field": "zh", "karaoke": True, "reading_line": True}).text)[0]
+    assert out == "{\\fscx60\\fscy60}a\\\u2060{\\r}\\N{\\2a&H90&}{\\kf100}\\{好\\}\\\u2060{\\r}"

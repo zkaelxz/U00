@@ -60,6 +60,24 @@ export function StudyWords({ study, language }: { study: Study; language: string
 
 const KANJI = /[㐀-䶿一-鿿豈-﫿々]/
 
+type Word = Study['words'][number]
+
+// The breakdown leaves out spaces and line breaks between words; they are put back from the line's own text. null when
+// the words don't spell the text in order, and the text is shown plain.
+function withGaps(text: string, words: Word[]): (string | { word: Word; index: number })[] | null {
+  const out: (string | { word: Word; index: number })[] = []
+  let pos = 0
+  for (const [index, word] of words.entries()) {
+    const at = text.indexOf(word.word, pos)
+    if (at < 0) return null
+    if (at > pos) out.push(text.slice(pos, at))
+    out.push({ word, index })
+    pos = at + word.word.length
+  }
+  if (pos < text.length) out.push(text.slice(pos))
+  return out
+}
+
 /**
  * The now card's original text with a Reading switch: on, pinyin or furigana sits over each word and the words light up
  * as they are spoken (from the line's stored word times; a line without them just shows the readings).
@@ -116,27 +134,39 @@ export function OriginalLine({ dramaId, lineId, text, language, mediaRef }: {
   return (
     <div className="watch-now-original">
       <p className="watch-now-zh" lang={lang}>
-        {words && words.length > 0
-          ? words.map((w, i) => {
-              const cls = timed && i <= heard ? 'watch-word watch-word-heard' : 'watch-word'
-              // Katakana and kana need no reading over them.
-              const show = w.reading && w.reading !== w.word && (lang !== 'ja' || KANJI.test(w.word))
-              return show ? (
-                <ruby key={i} className={cls}>
-                  {w.word}
-                  <rt>{w.reading}</rt>
-                </ruby>
-              ) : (
-                <span key={i} className={cls}>{w.word}</span>
-              )
-            })
-          : text}
+        {words && words.length > 0 ? <ReadingWords text={text} words={words} lang={lang} heard={timed ? heard : -1} /> : text}
       </p>
+      {on && study?.needs_install && <p role="status">Readings need {study.needs_install}, which is not installed (see Diagnostics).</p>}
       {canRead && (
         <Field label={language === 'ja' ? 'Furigana' : 'Pinyin'}>
           <Toggle checked={reading} onChange={setReading} />
         </Field>
       )}
     </div>
+  )
+}
+
+/** A line's words with their readings over them; the words up to `heard` (an index, -1 for none) show as spoken. */
+export function ReadingWords({ text, words, lang, heard }: { text: string; words: Word[]; lang: string; heard: number }) {
+  const pieces = withGaps(text, words)
+  if (!pieces) return <>{text}</>
+  return (
+    <>
+      {pieces.map((p, i) => {
+        if (typeof p === 'string') return p
+        const { word: w, index } = p
+        const cls = index <= heard ? 'watch-word watch-word-heard' : 'watch-word'
+        // Katakana and kana need no reading over them.
+        const show = w.reading && w.reading !== w.word && (lang !== 'ja' || KANJI.test(w.word))
+        return show ? (
+          <ruby key={i} className={cls}>
+            {w.word}
+            <rt>{w.reading}</rt>
+          </ruby>
+        ) : (
+          <span key={i} className={cls}>{w.word}</span>
+        )
+      })}
+    </>
   )
 }

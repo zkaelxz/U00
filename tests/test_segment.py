@@ -185,6 +185,8 @@ def test_reading_text_is_kana_for_japanese_and_empty_where_it_adds_nothing():
     pytest.importorskip("pykakasi")
     assert segment.reading_text("東京に行く", "ja") == "とうきょうにいく"
     assert segment.reading_text("すごい", "ja") == ""
+    assert segment.reading_text("テストです", "ja") == ""
+    assert segment.reading_text("東京のテスト", "ja") == "とうきょうのテスト"
     assert segment.reading_text("안녕", "ko") == ""
 
 

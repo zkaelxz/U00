@@ -169,6 +169,13 @@ export function buildAssRequest(
   return { request }
 }
 
+/** The language a reading line is written for (pinyin or kana), or null: Korean is written in Hangul, which already
+ * spells the sound. A title saved without a language is Chinese, as the server treats it. */
+export function readingLanguage(sourceLanguage: string | null | undefined): 'zh' | 'ja' | null {
+  const lang = sourceLanguage || 'zh'
+  return lang === 'zh' || lang === 'ja' ? lang : null
+}
+
 export const MAX_BASE_NAME = 100
 
 // What the File name field shows when blank: the title the server names the download after.

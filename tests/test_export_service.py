@@ -146,6 +146,17 @@ class TestGenerateSubtitleText:
         assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "lrc", "zh", reading_line=True)
         assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "srt", "en", reading_line=True)
 
+    def test_the_source_wrap_width_does_not_cut_the_reading_row(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            "wǒ men jīn tiān yì qǐ qù" if "我们" in text else "")
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="我们今天一起去", en="We go")])
+        for fmt in ("srt", "vtt"):
+            text = export_service.generate_subtitle_text(did, fmt, "zh", reading_line=True, wrap_chars_source=4)
+            assert "wǒ men jīn tiān yì qǐ qù\n我们今天\n一起去" in text, fmt
+
     def test_vtt_starts_with_webvtt_header(self, isolated_db):
         did = self._drama_with_lines(isolated_db)
         text = export_service.generate_subtitle_text(did, "vtt", "en")

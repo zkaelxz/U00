@@ -10,7 +10,7 @@ import { downloadText } from '../../../components/downloadBlob'
 import { Toggle } from '../../../components/Toggle'
 import { routeHref } from '../../../router'
 import type { AssStyleOptions, SubtitleField } from '../../../types/export'
-import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, srtFileText, type AssForm } from '../exportForm'
+import { buildAssRequest, exportFilename, fileNameHint, MAX_BASE_NAME, parseWrap, readingLanguage, srtFileText, type AssForm } from '../exportForm'
 import { useStage } from '../StageContext'
 import { stageLabel } from '../stages'
 import { titleKind } from '../titleKind'
@@ -52,9 +52,7 @@ interface Props {
 export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const blocked = exportBlocked(totalLines)
-  const sourceLanguage = drama.source_language
-  // Korean is written in Hangul, which already spells the sound.
-  const canRead = form.field !== 'en' && (sourceLanguage === 'zh' || sourceLanguage === 'ja')
+  const sourceLanguage = readingLanguage(drama.source_language)
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: SubtitleExportFormat } | null>(null)
@@ -92,7 +90,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
       tidyTiming: form.tidyTiming && fmt === 'srt',
       speakerNames: form.speakerNames,
-      readingLine: canRead && form.readingLine && fmt !== 'lrc',
+      readingLine: !!sourceLanguage && form.field !== 'en' && form.readingLine && fmt !== 'lrc',
     })
   }
 
@@ -190,14 +188,9 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
             <Toggle checked={form.includeNotes} onChange={(v) => set('includeNotes', v)} />
           </Field>
-          {canRead && fmt !== 'lrc' && (
-            <Field label="Reading line" help={`${sourceLanguage === 'ja' ? 'Furigana (kana)' : 'Pinyin'} in smaller text above the original. Needs the Reader's word packages (Diagnostics).`}>
+          {sourceLanguage && form.field !== 'en' && (fmt === 'srt' || fmt === 'vtt') && (
+            <Field label="Reading line" help={`${sourceLanguage === 'ja' ? 'Kana' : 'Pinyin'} on its own row above the original. Needs the Reader's word packages (Diagnostics).`}>
               <Toggle checked={form.readingLine} onChange={(v) => set('readingLine', v)} />
-            </Field>
-          )}
-          {form.field !== 'en' && fmt === 'ass' && (
-            <Field label="Karaoke" help="ASS only. Each word of the original fills in as it is spoken, from the word times Whisper kept. Lines without word times, or edited since, show as usual.">
-              <Toggle checked={form.karaoke} onChange={(v) => set('karaoke', v)} />
             </Field>
           )}
           <Field

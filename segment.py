@@ -304,8 +304,10 @@ def segment_and_annotate(text: str, language: str, chinese_script: str = "simpli
     return segment_zh(text, chinese_script=chinese_script)
 
 
-# Pinyin words are spaced, but punctuation sits against the word before it, as in English.
+# Pinyin words are spaced, but punctuation sits against the word it belongs to, as in English.
 _SPACE_BEFORE_PUNCT = re.compile(r"\s+(?=[，。！？、；：,.!?;:）」』》”’)\]])")
+_SPACE_AFTER_PUNCT = re.compile(r"(?<=[（「『《“‘(\[])\s+")
+_KANJI = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff々]")
 
 
 def reading_text(text: str, language: str, chinese_script: str = "simplified") -> str:
@@ -321,8 +323,9 @@ def reading_text(text: str, language: str, chinese_script: str = "simplified") -
         chinese_script = "simplified"
     pieces = segment_and_annotate(text, language, chinese_script=chinese_script)
     if language == "ja":
-        row = "".join(reading or word for word, reading in pieces)
+        # Kana already spells its sound; only words with kanji are rewritten.
+        row = "".join(reading if reading and _KANJI.search(word) else word for word, reading in pieces)
     else:
-        row = _SPACE_BEFORE_PUNCT.sub("", " ".join((reading or word).strip() for word, reading in pieces
-                                                   if word.strip()))
+        row = " ".join((reading or word).strip() for word, reading in pieces if word.strip())
+        row = _SPACE_AFTER_PUNCT.sub("", _SPACE_BEFORE_PUNCT.sub("", row))
     return "" if row == text else row

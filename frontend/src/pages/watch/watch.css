@@ -54,7 +54,7 @@
 .watch-now > p, .watch-now-form { margin: 0; }
 .watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
 .watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }
-.watch-now-zh rt { font-size: 0.55em; color: var(--text-muted, inherit); }
+.watch-now-zh rt { font-size: 0.55em; color: var(--muted); }
 .watch-now-original .watch-word { transition: color 0.12s; }
 .watch-now-original:has(.watch-word-heard) .watch-word:not(.watch-word-heard) { opacity: 0.55; }
 .watch-now-label { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
@@ -71,7 +71,7 @@ button.watch-now-box:hover:not(:disabled) { background: var(--field-bg); border-
 textarea.watch-now-field { width: 100%; box-sizing: border-box; padding: var(--space-2) var(--space-3); }
 .watch-now-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .watch-now-theirs { display: grid; gap: 2px; }
-.watch-now-theirs-en { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.watch-now-theirs-en { margin: 0; overflow-wrap: anywhere; }
 .watch-now-theirs-en.is-empty { color: var(--muted); }
 /* Kept in the page while empty, so "Saved." is read out when it appears. */
 .watch-now-status { margin: 0; color: var(--muted); font-size: var(--text-sm); }
