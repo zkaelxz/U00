@@ -10,7 +10,6 @@ import types
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
-import requests
 import dependency_updates
 import diagnostics
 import diagnostics_report
@@ -599,9 +598,8 @@ class TestCheckEngineReachable:
 
 
 class TestDependencyVersionCheck:
-    """Step 27: 'is this outdated' + Upgrade. Like the pyannote check
-    above, this reaches the network -- every test here mocks
-    lib.http.pinned_get so no test ever makes a real call to PyPI."""
+    """Installed versions are read offline; the PyPI check reaches the
+    network only when it is run on purpose."""
 
     def test_get_installed_version_returns_none_for_unknown_distribution(self):
         assert diagnostics.get_installed_version("definitely-not-a-real-package-xyz") is None
@@ -610,106 +608,6 @@ class TestDependencyVersionCheck:
         # pytest is a real dev dependency of this project's own test env.
         version = diagnostics.get_installed_version("pytest")
         assert version and version[0].isdigit()
-
-    def test_get_latest_pypi_version_parses_a_successful_response(self, monkeypatch):
-        class FakeResp:
-            status_code = 200
-            headers = {}
-            def iter_content(self, size):
-                yield b'{"info": {"version": "9.9.9"}}'
-            def close(self):
-                pass
-        captured = {}
-        def fake_get(url, ip, headers, timeout=None, method="GET", **kw):
-            captured["url"], captured["timeout"], captured["ip"] = url, timeout, ip
-            return FakeResp()
-        monkeypatch.setattr(http, "pinned_get", fake_get)
-        assert dependency_updates.get_latest_pypi_version("somepkg", timeout=3.5) == "9.9.9"
-        assert captured["url"] == "https://pypi.org/pypi/somepkg/json"
-        assert captured["timeout"] == 3.5
-        assert captured["ip"] is None  # a fixed vendor URL: no pinning, no redirects
-
-    def test_get_latest_pypi_version_does_not_follow_a_redirect(self, monkeypatch):
-        calls = []
-
-        class FakeResp:
-            status_code = 302
-            headers = {"Location": "https://elsewhere.example/json"}
-            def close(self):
-                pass
-        monkeypatch.setattr(http, "pinned_get",
-                            lambda url, *a, **kw: calls.append(url) or FakeResp())
-        assert dependency_updates.get_latest_pypi_version("somepkg") is None
-        assert calls == ["https://pypi.org/pypi/somepkg/json"]
-
-    def test_get_latest_pypi_version_returns_none_on_404(self, monkeypatch):
-        class FakeResp:
-            status_code = 404
-            headers = {}
-            def close(self):
-                pass
-        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
-        assert dependency_updates.get_latest_pypi_version("no-such-package") is None
-
-    def test_get_latest_pypi_version_gives_up_on_an_oversized_body(self, monkeypatch):
-        closed = []
-
-        class FakeResp:
-            status_code = 200
-            headers = {}
-            def iter_content(self, size):
-                while True:             # a server that never stops
-                    yield b"x" * size
-            def close(self):
-                closed.append(True)
-        monkeypatch.setattr(dependency_updates, "PYPI_JSON_MAX_BYTES", 1000)
-        monkeypatch.setattr(http, "pinned_get", lambda *a, **kw: FakeResp())
-        assert dependency_updates.get_latest_pypi_version("somepkg") is None
-        assert closed
-
-    def test_get_latest_pypi_version_returns_none_on_network_error(self, monkeypatch):
-        def boom(*a, **kw):
-            raise requests.ConnectionError("no network")
-        monkeypatch.setattr(http, "pinned_get", boom)
-        assert dependency_updates.get_latest_pypi_version("somepkg") is None
-
-    def test_check_dependency_versions_flags_an_outdated_package(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "1.0.0")
-        monkeypatch.setattr(dependency_updates, "get_latest_pypi_version",
-                            lambda name, timeout=10.0: "2.0.0")
-        deps = {"somepkg": {"installed": True, "powers": "x", "tier": "feature"}}
-        results = dependency_updates.check_dependency_versions(deps)
-        assert results == {"somepkg": {"installed_version": "1.0.0",
-                                       "latest_version": "2.0.0", "outdated": True}}
-
-    def test_check_dependency_versions_flags_an_up_to_date_package(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "2.0.0")
-        monkeypatch.setattr(dependency_updates, "get_latest_pypi_version",
-                            lambda name, timeout=10.0: "2.0.0")
-        deps = {"somepkg": {"installed": True, "powers": "x", "tier": "feature"}}
-        results = dependency_updates.check_dependency_versions(deps)
-        assert results["somepkg"]["outdated"] is False
-
-    def test_check_dependency_versions_compares_numerically_not_lexically(self, monkeypatch):
-        # a plain string compare gets "1.10.0" < "1.9.0" backwards
-        monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "1.9.0")
-        monkeypatch.setattr(dependency_updates, "get_latest_pypi_version",
-                            lambda name, timeout=10.0: "1.10.0")
-        deps = {"somepkg": {"installed": True, "powers": "x", "tier": "feature"}}
-        assert dependency_updates.check_dependency_versions(deps)["somepkg"]["outdated"] is True
-
-    def test_check_dependency_versions_skips_packages_that_arent_installed(self, monkeypatch):
-        def boom(name):
-            raise AssertionError("should not be called for an uninstalled package")
-        monkeypatch.setattr(diagnostics, "get_installed_version", boom)
-        deps = {"somepkg": {"installed": False, "powers": "x", "tier": "feature"}}
-        assert dependency_updates.check_dependency_versions(deps) == {}
-
-    def test_check_dependency_versions_outdated_is_none_when_latest_cant_be_determined(self, monkeypatch):
-        monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: "1.0.0")
-        monkeypatch.setattr(dependency_updates, "get_latest_pypi_version", lambda name, timeout=10.0: None)
-        deps = {"somepkg": {"installed": True, "powers": "x", "tier": "feature"}}
-        assert dependency_updates.check_dependency_versions(deps)["somepkg"]["outdated"] is None
 
     def test_no_network_call_unless_the_check_is_explicitly_run(self, monkeypatch, tmp_path):
         def boom(*a, **k):
@@ -738,49 +636,9 @@ class TestUpgradePipArgs:
         assert "-c" not in args
 
 
-class TestUpgradeBlockedReason:
-    """Step 47 item 5: an "Upgrade" action that can't actually reach the
-    latest release for a real reason must say why instead of silently
-    offering nothing, or a doomed-to-fail upgrade."""
-
-    def test_none_for_an_ordinary_package_with_no_known_limitation(self, tmp_path):
-        assert dependency_updates.upgrade_blocked_reason(
-            "somepkg", "9.9.9", project_root=str(tmp_path)) is None
-
-    def test_known_python_314_limitation_only_applies_on_python_314(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 14, 0, "final", 0))
-        reason = dependency_updates.upgrade_blocked_reason(
-            "audio-separator", "0.3.0", project_root=str(tmp_path))
-        assert reason is not None
-        assert "3.14" in reason
-        assert "diffq-fixed" in reason
-
-    def test_known_limitation_does_not_apply_on_a_different_python_version(self, monkeypatch, tmp_path):
-        monkeypatch.setattr(diagnostics.sys, "version_info", (3, 11, 0, "final", 0))
-        assert dependency_updates.upgrade_blocked_reason(
-            "audio-separator", "0.3.0", project_root=str(tmp_path)) is None
-
-    def test_constraints_cap_explains_why_when_latest_exceeds_it(self, tmp_path):
-        (tmp_path / "constraints.txt").write_text("torch<3  # some real reason\n")
-        reason = dependency_updates.upgrade_blocked_reason(
-            "torch", "3.1.0", project_root=str(tmp_path))
-        assert reason is not None
-        assert "torch<3" in reason
-        assert "constraints.txt" in reason
-
-    def test_no_reason_when_latest_is_still_within_the_cap(self, tmp_path):
-        (tmp_path / "constraints.txt").write_text("torch<3\n")
-        assert dependency_updates.upgrade_blocked_reason(
-            "torch", "2.9.0", project_root=str(tmp_path)) is None
-
-    def test_no_reason_when_constraints_file_is_missing(self, tmp_path):
-        assert dependency_updates.upgrade_blocked_reason(
-            "torch", "3.1.0", project_root=str(tmp_path)) is None
-
-
 class TestKnownInstallLimitationReason:
     """Step 61: the same known, Python-version-specific limitation
-    upgrade_blocked_reason shows for an already-installed package should
+    classify_update shows for an already-installed package should
     also be visible for one that isn't installed yet at all -- a "not
     installed" row shouldn't leave that as the only signal until the
     user clicks Install and hits a raw pip/Cython traceback."""

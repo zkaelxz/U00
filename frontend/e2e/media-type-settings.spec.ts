@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test'
 
 import { expect, test } from './fixtures'
-import { gotoMedia, mediaPanel } from './mediaTabs'
+import { gotoMedia, mediaPanel, openFold } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
 // Settings that do not apply to a title's media type are not in the page at all.
@@ -93,6 +93,7 @@ test('the transcript choice without audio does not dead-end: it offers to transl
   await gotoMedia(page, 'transcribe', 1)
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   const run = mediaPanel(page, 'transcribe')
+  await openFold(run, 'More options')
   // The seeded title has no audio, and a transcript is lined up with audio.
   const asNovel = run.getByRole('button', { name: 'Set up as novel' })
   await expect(asNovel).toBeDisabled()

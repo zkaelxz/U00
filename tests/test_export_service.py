@@ -45,6 +45,7 @@ class TestGetExportReadiness:
             "overlap_count": 0,
             "auto_qc_issue_count": 0,
             "dense_line_count": 0,
+            "ear_marked_lines": 0,
         }
 
     def test_partial_translation_counts_are_correct(self, isolated_db):
