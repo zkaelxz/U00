@@ -26,6 +26,18 @@ export interface AuthMe {
   paid_limit_reached?: boolean
   // What the account saved on any device; absent until it has saved something.
   preferences?: AccountPreferences
+  // A signed-in member's own limits; absent for an admin and the PC owner.
+  limits?: MemberLimits
+}
+
+/** A limit is null when the PC owner set none. */
+export interface MemberLimits {
+  daily_job_limit: number | null
+  jobs_today: number
+  monthly_paid_cap_usd: number | null
+  month_paid_spend_usd: number
+  title_limit: number
+  titles_owned: number
 }
 
 export const me = (f?: Fetch) => getJson<AuthMe>('/api/auth/me', f)

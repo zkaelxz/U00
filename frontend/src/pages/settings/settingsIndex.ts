@@ -66,6 +66,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'My account and look',
     cards: [
       { id: 'sharing' },
+      { id: 'limits' },
       { id: 'display' },
       { id: 'phone-app' },
       { id: 'customize-menu' },
@@ -129,6 +130,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Remote access keys', 'browser extension devices token pair extension tokens grab phone'),
   e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
+  e('limits', 'Your limits', 'daily jobs spending monthly cap titles quota limit used left'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
