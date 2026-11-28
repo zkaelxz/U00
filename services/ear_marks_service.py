@@ -18,6 +18,7 @@ import storage
 import video_export
 from engine_backends.shared import redact_secrets
 from jobs import job_launch
+from lib import acting
 from lib.atomic_write import atomic_write
 from lib.errors import NotFoundError, UnsupportedOperationError
 from services import drama_service, media_playback_service, media_upload_service, ownership_service
@@ -71,6 +72,11 @@ def _media_path(drama_id: int):
     return None
 
 
+def _folder(drama_id: int) -> str:
+    # Not db.drama_dir: that makes the folder, and a title deleted meanwhile must not get it back.
+    return os.path.join(db.DRAMAS_DIR, str(drama_id))
+
+
 def _timed(lines) -> list:
     return [(ln.id, float(ln.start), float(ln.end)) for ln in lines
             if getattr(ln, "id", None) is not None and ln.end > ln.start]
@@ -103,7 +109,7 @@ def _fresh(drama_id: int, lines=None):
         stamp = _stamp(path, timed)
     except OSError:
         return None, timed, None, None
-    data = load_sidecar(db.drama_dir(drama_id))
+    data = load_sidecar(_folder(drama_id))
     if not data or data.get("stamp") != stamp:
         data = None
     return data, timed, path, stamp
@@ -128,11 +134,12 @@ def _job_id(drama_id: int) -> str:
 def get_ear_marks(drama_id: int) -> dict:
     """The title's ear marks by line id. state: "ready" (the marks are current, maybe
     none), "working" (being worked out), "needed" (none yet, or the lines' timing or
-    the file changed) or "unavailable" (no sound file or no timed lines)."""
+    the file changed) or "unavailable" (no sound file, no timed lines, or a file ffprobe
+    can't read)."""
     ownership_service.require_drama(drama_id)
     data, timed, path, _ = _fresh(drama_id)
     out = {"drama_id": drama_id, "marks": [], "one_sided": 0, "total_lines": len(timed)}
-    if path is None or not timed:
+    if path is None or not timed or (data or {}).get("failed"):
         return {**out, "state": "unavailable"}
     if background_jobs.is_running(_job_id(drama_id)):
         return {**out, "state": "working"}
@@ -170,9 +177,12 @@ def start_ear_marks(drama_id: int) -> dict:
             or drama_service.job_running_for_drama(drama_id)
             or media_upload_service.upload_in_progress(drama_id)):
         return {"job_id": job_id, "drama_id": drama_id, "started": False}
-    started = job_launch.start_job(
-        job_id, _run_job, job_id, drama_id, path, timed, stamp, db.drama_dir(drama_id),
-        description=f"Ear marks (title #{drama_id})", line_fields=())
+    # Started as the app's own job, not the viewer's: Watch starts it unasked, so it must not
+    # use up a member's daily jobs or running-jobs cap (jobs/user_caps.py counts by starter).
+    with acting.as_app():
+        started = job_launch.start_job(
+            job_id, _run_job, job_id, drama_id, path, timed, stamp, _folder(drama_id),
+            description=f"Ear marks (title #{drama_id})", line_fields=())
     return {"job_id": job_id, "drama_id": drama_id, "started": bool(started)}
 
 
@@ -321,6 +331,8 @@ def _run_job(job_id, drama_id, path, timed, stamp, drama_dir):
                "side_db": found["side_db"], "total_lines": len(timed), "one_sided": len(marks),
                "left": left, "right": len(marks) - left,
                "marks": {str(k): v for k, v in sorted(marks.items())}}
+    if db.get_drama(drama_id) is None or not os.path.isdir(drama_dir):
+        return   # deleted before the job started; nothing is left to mark
     atomic_write(os.path.join(drama_dir, EAR_MARKS_FILE), json.dumps(sidecar, indent=1))
     # Kept in the log too: whether real titles have many one-sided lines decides if
     # stereo-aware transcription is worth testing.

@@ -250,6 +250,10 @@ class TestFailures:
         monkeypatch.setattr(ears, "_probe", probe)
         assert wait_for_job(ears.start_ear_marks(title)["job_id"])["status"] == "done"
         assert _sidecar(title)["failed"] is True
+        # Told apart from a file with no one-sided lines, and not tried again.
+        assert ears.get_ear_marks(title)["state"] == "unavailable"
+        assert ears.start_ear_marks(title)["started"] is False
+        assert ears.fresh_sides(title) == {}
 
     # A full disk makes ffmpeg exit non-zero too, so a failed decode is not stored as final.
     @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired(["ffmpeg", "/x/source.flac"], 600),
@@ -407,6 +411,14 @@ class TestBusy:
             background_jobs.request_cancel(job_id)
             wait_for_job(job_id)
 
+    def test_a_title_deleted_before_the_job_ran_gets_no_folder_back(self, title, decoder):
+        _, timed, path, stamp = ears._fresh(title)
+        folder = db.drama_dir(title)
+        drama_service.delete_drama(title, confirm=True, confirm_text="DELETE")
+        assert not os.path.exists(folder)
+        ears._run_job("earmarks_test", title, path, timed, stamp, ears._folder(title))
+        assert not os.path.exists(folder)
+
     def test_nothing_to_stop_is_at_once(self):
         assert background_jobs.stop_side_jobs(987654, wait_seconds=0) is True
 
@@ -505,17 +517,33 @@ class TestRoutes:
         assert "source" not in json.dumps(body)
         assert client.get("/api/reader/dramas/9999/ear-marks").status_code == 404
 
-    def test_other_members_private_title_is_404_and_post_needs_jobs_start(self, isolated_db, decoder):
-        def login(email):
-            u = auth_service.add_user(email)
-            s = auth_service.create_session(u["id"])
-            return u["id"], {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
-                             api_auth.CSRF_HEADER: s["csrf_token"]}
-        a_id, a = login("a@example.com")
-        b_id, b = login("b@example.com")
-        did = db.create_drama(title_en="Private Example", owner_user_id=a_id, is_private=1)
+    @staticmethod
+    def _login(email):
+        u = auth_service.add_user(email)
+        s = auth_service.create_session(u["id"])
+        return u["id"], {"Cookie": f"{api_auth.COOKIE_NAME}={s['session_token']}",
+                         api_auth.CSRF_HEADER: s["csrf_token"]}
+
+    @staticmethod
+    def _member_client():
         app = create_app(ApiSettings(auth_mode="on", serve_frontend=False))
-        c = TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
+        return TestClient(app, base_url="https://baihe.example.com", raise_server_exceptions=False)
+
+    def test_a_watch_start_uses_none_of_the_members_job_allowance(self, title, decoder):
+        from jobs import user_caps
+        m_id, m = self._login("member@example.com")
+        user_caps.set_jobs_per_day(m_id, 1)
+        r = self._member_client().post(f"/api/reader/dramas/{title}/ear-marks", headers=m)
+        assert r.status_code == 200 and r.json()["started"] is True, r.text
+        job = wait_for_job(r.json()["job_id"])
+        assert job["status"] == "done" and job.get("owner_user_id") is None
+        assert user_caps.jobs_today(m_id) == 0
+
+    def test_other_members_private_title_is_404_and_post_needs_jobs_start(self, isolated_db, decoder):
+        a_id, a = self._login("a@example.com")
+        b_id, b = self._login("b@example.com")
+        did = db.create_drama(title_en="Private Example", owner_user_id=a_id, is_private=1)
+        c = self._member_client()
         url = f"/api/reader/dramas/{did}/ear-marks"
         assert c.get(url, headers=b).status_code == 404
         assert c.post(url, headers=b).status_code == 404
