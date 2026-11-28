@@ -148,6 +148,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('transcription-experiments', 'Advanced transcription', 'transcription experiments asr whisper experimental qwen batch size mixed languages forced aligner'),
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
+  e('developer-mode', 'Keep Quick read pages for debugging', 'quick read debug copies pages reproduce'),
 ]
 
 type SettingsMatch = {

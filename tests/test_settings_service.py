@@ -89,6 +89,15 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
     assert isinstance(overview["notify_on_completion"], bool)
 
 
+
+def test_desktop_popups_says_whether_a_pop_up_can_show(tmp_path, isolated_db, monkeypatch):
+    from lib import desktop_session
+    env_path = _write_env(tmp_path, "")
+    monkeypatch.setattr(desktop_session, "has_desktop", lambda: False)
+    assert settings_service.get_settings_overview(env_path)["desktop_popups"] is False
+    monkeypatch.setattr(desktop_session, "has_desktop", lambda: True)
+    assert settings_service.get_settings_overview(env_path)["desktop_popups"] is True
+
 def test_get_settings_overview_never_leaks_a_key_value(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-should-not-leak\n")
     overview = settings_service.get_settings_overview(env_path)

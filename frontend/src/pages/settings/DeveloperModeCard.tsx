@@ -16,7 +16,7 @@ import { DEVELOPER_MODE_HELP, assistantErrorText, isAssistantForbidden } from '.
 
 const TITLE = 'Developer Mode'
 const KEEP_PAGES_HELP =
-  'Keeps the original picture and what the reader found (before and after translation) for each Quick read page, the last 300 pages for 3 days, so a page that came out wrong can be reproduced exactly. Copies stay on this PC and are not in any backup. Off by default.'
+  'Keeps the original picture and what the reader found (before and after translation) for each Quick read page, the last 300 pages for 3 days, so a page that came out wrong can be reproduced exactly. Off by default; copies are only on this PC and are not part of any backup.'
 
 export function DeveloperModeCard() {
   // null: loading; 'hidden': another device.
