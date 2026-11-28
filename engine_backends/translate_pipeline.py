@@ -863,9 +863,9 @@ class _TranslateRun:
         keep = [ln for ln in empty if self.args.force_retranslate and (ln.en or "").strip()]
         reask = [ln for ln in empty if not any(ln is k for k in keep)]
         if reask and (len(chunk) > 1 or len(reask) < len(chunk)):
-            self._one_by_one_left = self._ONE_BY_ONE_MAX
             retried = []
-            empty = keep + self._retry_smaller(reask, retried, depth=0)
+            left = {id(ln) for ln in keep + self._retry_smaller(reask, retried, depth=0)}
+            empty = [ln for ln in chunk if id(ln) in left]  # in line order, for the error list
             self._check_replies(retried, allow_bisect)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
@@ -1064,6 +1064,8 @@ class _TranslateRun:
         self.hard_failures.clear()
         translated_before = len(self.translated)
         try:
+            # Reset per batch, not per reply: a content-filter split gives two replies.
+            self._one_by_one_left = self._ONE_BY_ONE_MAX
             self._process_chunk(batch, allow_bisect=True)
             if medium_prompts.kind_for(self.args.drama_meta) == "novel":
                 self._clean_novel_replies(self.translated[translated_before:])
