@@ -141,8 +141,11 @@ class ReadingSpeedModeUpdate(BaseModel):
 
 class ClearReadingSpeedFlagsResult(BaseModel):
     """flagged_count is the re-check's count (0 unless recheck was asked
-    for); history_id is None when no line carried the flag."""
+    for); history_id is None when no line carried the flag. still_flagged_count
+    is the part of cleared_count that was a note hidden under a source-match flag,
+    which stays on the line."""
     cleared_count: int
+    still_flagged_count: int = 0
     flagged_count: int
     history_id: Optional[int] = None
 

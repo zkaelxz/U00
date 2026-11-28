@@ -315,6 +315,14 @@ def test_a_saved_choice_is_kept_and_clamped(isolated_db):
     assert settings_service.parallel_chapters() == 3
 
 
+def test_deepseek_gets_six_lanes_only_at_the_top_setting(isolated_db):
+    from services import settings_service
+    assert settings_service.parallel_chapters("deepseek") == 6
+    assert settings_service.parallel_chapters("claude") == 3
+    settings_service.set_settings({"novel_parallel_chapters": 2})
+    assert settings_service.parallel_chapters("deepseek") == 2
+
+
 @pytest.mark.parametrize("parallel", [1, 3])
 def test_a_batch_priced_over_what_is_left_is_not_sent(novel, parallel):
     # Each call costs 1.0 and a batch is one or more calls: the run stops before the spend

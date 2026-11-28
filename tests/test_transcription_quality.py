@@ -169,16 +169,17 @@ def _fake_audio_separator(monkeypatch, fail=False, returns_relative=False):
 
 class TestVocalSeparationBackends:
     @pytest.mark.parametrize("relative", [False, True])
-    def test_auto_uses_mel_band_roformer(self, monkeypatch, tmp_path, relative):
+    def test_auto_uses_mel_band_roformer_fv4(self, monkeypatch, tmp_path, tmp_path_factory, relative):
         pytest.importorskip("soundfile")
         import audio_preprocess as ap
+        monkeypatch.setattr(ap, "MODEL_DIR", str(tmp_path_factory.mktemp("sep-models")))
         seen = _fake_audio_separator(monkeypatch, returns_relative=relative)
         in_path = str(tmp_path / "in.wav")
         _write_fixture_wav(in_path)
         out = str(tmp_path / "vocals.wav")
         assert ap.separate_vocals(in_path, out) == out
         assert os.path.exists(out)
-        assert seen["model"] == ap.MEL_ROFORMER_VOCAL_MODEL and seen["stem"] == "Vocals"
+        assert seen["model"] == ap.MEL_ROFORMER_FV4_MODEL and seen["stem"] == "Vocals"
         # temp separator work dir cleaned up -- only the two real WAVs remain
         assert sorted(p.name for p in tmp_path.iterdir()) == ["in.wav", "vocals.wav"]
 

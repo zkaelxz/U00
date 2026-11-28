@@ -6,6 +6,8 @@ import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
 import { useCanUpload, useHolds } from '../../../hooks/useHolds'
+import { isComicType } from '../../comic/comicLogic'
+import { CoverCropper } from './CoverCropper'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
@@ -26,6 +28,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const [fileKey, setFileKey] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
+  const [cropping, setCropping] = useState(false)
   const [coverVersion, setCoverVersion] = useState(0)
   const [coverBroken, setCoverBroken] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -163,9 +166,30 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                     {grabbing ? 'Making cover…' : 'Make cover from video'}
                   </button>
                 </div>
+                {drama.media_type !== 'novel' && (
+                  <div>
+                    <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCropping((c) => !c)}>
+                      {isComicType(drama.media_type) ? 'Pick a page and crop' : 'Pick a frame and crop'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
+          {cropping && canUpload && (
+            <CoverCropper
+              dramaId={dramaId}
+              source={isComicType(drama.media_type) ? 'comic' : 'video'}
+              onClose={() => setCropping(false)}
+              onSaved={(w, h) => {
+                setCropping(false)
+                setCoverBroken(false)
+                setCoverVersion(Date.now())
+                setNotice(`Cover saved (${w}×${h}).`)
+                refetchDrama()
+              }}
+            />
+          )}
           {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} describe={{ pcOnly: true, reasonAsTitle: true }} onDismiss={() => setError(null)} />
         </div>

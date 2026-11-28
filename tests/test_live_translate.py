@@ -686,6 +686,38 @@ class TestRunLiveJobContextCarrying:
         assert seen_prompts[1] == "text from chunk 0"  # chunk 0's own tail
         background_jobs.clear_job(job_id)
 
+    def test_glossary_names_stay_out_of_whisper_but_the_hints_still_reach_the_session(self, monkeypatch, job_id="test_live_names"):
+        import background_jobs
+        from jobs import job_table
+        background_jobs.clear_job(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+
+        class FakeProc:
+            error = None
+
+            def poll(self):
+                return None
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+        monkeypatch.setattr(lt, "list_completed_chunks",
+                            lambda out_dir, last: [(0, "chunk_00000.wav")] if last == -1 else [])
+        seen = []
+
+        def fake_process_chunk(*a, **kw):
+            seen.append(kw.get("name_prompt"))
+            return []
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: bool(seen))
+
+        hints = lt.TermHints(names="阿洛。")
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20,
+                         "zh", "medium", engine=None, poll_interval=0.01, term_hints=hints)
+
+        assert seen == [""] and hints.names == "阿洛。"
+        background_jobs.clear_job(job_id)
+
 
 
 # ---------------------------------------------------------------------------

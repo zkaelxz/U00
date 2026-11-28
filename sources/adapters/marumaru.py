@@ -33,13 +33,12 @@ from urllib.parse import quote, urlsplit
 
 from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, https_only
 from ..domains import SiteDomains, hostport
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceUnavailable)
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef, SearchResult, SeriesInfo)
 from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 from .. import store
 
-BASE_URL = "https://marumaru108.com"
+BASE_URL = "https://marumaru113.com"
 LANDING_URL = "https://xn--2s2ba48db081g83a126ab6u.com/"
 READER_URL = "https://api.storagewebtoon.store/api/v1/reader/A2/episodes/"
 PAGE_SIZE = 100
@@ -73,7 +72,7 @@ def _json(resp, what: str):
 class MarumaruSource(PlainImageDownload, SourceAdapter):
     name = "marumaru"
     display_name = "Marumaru (마루마루)"
-    homepage = "https://marumaru108.com"
+    homepage = BASE_URL
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
     url_patterns = [r"marumaru\d*\.[a-z]+/(?:webtoon|manhwa)/\d+"]
@@ -86,7 +85,7 @@ class MarumaruSource(PlainImageDownload, SourceAdapter):
                   "/recent, no Crawl-delay; no terms page found. Chosen by the owner 2026-11-03 for "
                   "free chapters only; the client still slows down on 429s and blocks."),
         fast_allowed=True)
-    host_min_interval = {"marumaru108.com": 2.5, "api.storagewebtoon.store": 2.5}
+    host_min_interval = {"marumaru113.com": 2.5, "api.storagewebtoon.store": 2.5}
     default_headers = {"Referer": BASE_URL + "/"}
     images_only = True
     default_page_ext = ".webp"
@@ -102,24 +101,22 @@ class MarumaruSource(PlainImageDownload, SourceAdapter):
         return bool(m and "마루마루" in m.group(1))
 
     def _api(self, path: str, action: str) -> dict:
-        try:
-            resp = self.site.get(path, action=action, use_cache=False)
-        except SourceUnavailable as e:
-            if e.reason is FailureReason.ALL_DOMAINS_UNREACHABLE and not self.site.fixed:
-                self._propose_from_landing()
-            raise
+        resp = self.site.get(path, action=action, use_cache=False)
         return _json(resp, action.lower())
 
-    def _propose_from_landing(self):
-        """Reads the landing page and proposes each https address on it that serves this site.
-        Never changes the list itself; the owner confirms on the PC."""
+    def discover_addresses(self, redirected_hosts):
+        """Proposes each https address that serves this site: the hosts the old address
+        redirected to (its answers are JSON, which verify_site cannot read) and those on the
+        landing page. Never changes the list itself; the owner confirms on the PC."""
+        listed = {hostport(o) for o in self.site.origins()}
+        candidates = [f"https://{h}" for h in redirected_hosts]
         try:
             landing = self.client.get(LANDING_URL, action="Looking for Marumaru's new address",
                                       use_cache=False)
+            candidates += _HREF.findall(landing.text)[:10]
         except Exception:
-            return
-        listed = {hostport(o) for o in self.site.origins()}
-        for origin in dict.fromkeys(_HREF.findall(landing.text)[:10]):
+            pass
+        for origin in dict.fromkeys(candidates):
             host = hostport(origin)
             if not host or host in listed or "marumaru" not in host:
                 continue

@@ -10,6 +10,8 @@ from .shared import PROVIDER_RESPONSE_MAX_BYTES, redact_secrets
 log = logging.getLogger(__name__)
 
 ALIGNMENT_FLAG = "source_mismatch"
+# subtitle_formats.READING_SPEED_FLAG, which a test pins; nothing in engine_backends imports that module.
+READING_SPEED_FLAG = "reading_speed"
 FLAG_NOTE_PREFIX = "Source match: "
 EMBED_MODEL = "bge-m3"
 
@@ -231,17 +233,56 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             doubtful.append(i)
     verdicts = (judge([_judge_item(i, todo[i], todo, pos) for i in doubtful])
                 if judge is not None and doubtful else {})
-    flagged = 0
+    flagged = hidden = 0
     for i, note in strict.items():
         ln = todo[i]
         if i in verdicts and (verdicts[i] != "ok" or borderline.get(i)):
             # "ok" only overrules a borderline neighbour doubt: a score under the bar stays
             # flagged, since a model that says "ok" to everything must not empty the check.
             note = JUDGED_NOTES.get(verdicts[i])
-        if note:
-            if not ln.flag or ln.flag == ALIGNMENT_FLAG:
-                ln.flag, ln.flag_note = ALIGNMENT_FLAG, note
-                flagged += 1
-        elif ln.flag == ALIGNMENT_FLAG:
-            ln.flag, ln.flag_note = None, ""
+        if note and _set_flag(ln, note):
+            flagged += 1
+        elif note:
+            hidden += 1
+        else:
+            _clear_flag(ln)
+    if hidden:
+        # How often the one flag slot still hides a doubt decides whether more flags may give way.
+        log.info("source-match check: %d doubted lines kept another flag", hidden)
     return flagged
+
+
+# Reading speed is set on every line before this check runs, so keeping the slot for it would
+# leave exactly the long, swallowed-a-neighbour lines unchecked. Its note is kept after this
+# tail, so a later clean check can give the flag back.
+READING_SPEED_TAIL = " Also (too fast to read): "
+
+
+def _set_flag(ln, note: str) -> bool:
+    """True when the line now carries the doubt as its flag; another flag keeps its slot."""
+    if ln.flag == ALIGNMENT_FLAG:
+        _own, sep, old = (ln.flag_note or "").partition(READING_SPEED_TAIL)
+        ln.flag_note = note + (sep + old if sep else "")
+    elif ln.flag == READING_SPEED_FLAG:
+        ln.flag, ln.flag_note = ALIGNMENT_FLAG, note + READING_SPEED_TAIL + (ln.flag_note or "")
+    elif not ln.flag:
+        ln.flag, ln.flag_note = ALIGNMENT_FLAG, note
+    else:
+        return False
+    return True
+
+
+def drop_displaced_reading_speed(ln) -> bool:
+    """Forgets a reading speed flag this check took the place of, so clearing reading speed flags
+    clears it too and a later clean check cannot bring it back; True when there was one."""
+    if ln.flag != ALIGNMENT_FLAG or READING_SPEED_TAIL not in (ln.flag_note or ""):
+        return False
+    ln.flag_note = ln.flag_note.partition(READING_SPEED_TAIL)[0]
+    return True
+
+
+def _clear_flag(ln) -> None:
+    """Takes back a doubt the English no longer earns, giving a displaced reading speed flag back."""
+    if ln.flag == ALIGNMENT_FLAG:
+        _own, sep, old = (ln.flag_note or "").partition(READING_SPEED_TAIL)
+        ln.flag, ln.flag_note = (READING_SPEED_FLAG, old) if sep else (None, "")

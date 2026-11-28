@@ -22,6 +22,7 @@ import os
 import shutil
 import sys
 import types
+import zipfile
 
 import pytest
 
@@ -251,14 +252,24 @@ class TestKeptSeparator:
 
 class TestSeparateVocals:
     @pytest.mark.parametrize("backend", ["auto", "audio_separator", "demucs"])
-    def test_every_accepted_name_runs_audio_separator(self, monkeypatch, tmp_path, backend):
+    def test_every_default_name_runs_the_default_model(self, monkeypatch, tmp_path, backend):
         """"demucs" is a value an older title, series default or saved profile
         can still hold; it must not fail with a KeyError."""
         pytest.importorskip("soundfile")
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
         captured = _install_fake_audio_separator(monkeypatch)
         in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
         _write_wav(in_path, seconds=0.3, samplerate=8000)
         assert audio_preprocess.separate_vocals(in_path, out_path, backend=backend) == out_path
+        assert captured["model"] == audio_preprocess.MEL_ROFORMER_FV4_MODEL
+
+    def test_the_original_model_can_still_be_chosen(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path / "models"))
+        captured = _install_fake_audio_separator(monkeypatch)
+        in_path, out_path = str(tmp_path / "audio.wav"), str(tmp_path / "vocals.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        audio_preprocess.separate_vocals(in_path, out_path, backend="mel_roformer_original")
         assert captured["model"] == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
 
     def test_an_unknown_backend_name_is_rejected(self):
@@ -871,3 +882,62 @@ class TestLevelAudio:
         peak = lambda k: max(abs(x) for x in data[16000 * (4 * k + 1):16000 * (4 * k + 3)])
         assert peak(2) > 400 * 5 and peak(3) < 32000
         assert os.path.getsize(src) == before
+
+
+class TestSeparationModel:
+    @pytest.fixture
+    def models(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path))
+        monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 1)
+
+        def put(name):
+            with zipfile.ZipFile(tmp_path / name, "w") as z:
+                z.writestr("w", "x")
+        return put
+
+    def test_the_default_is_fv4_when_nothing_is_downloaded(self, models):
+        assert audio_preprocess.separation_model("auto") == audio_preprocess.MEL_ROFORMER_FV4_MODEL
+
+    def test_a_pc_with_only_the_original_keeps_it_and_downloads_nothing(self, models):
+        models(audio_preprocess.MEL_ROFORMER_VOCAL_MODEL)
+        for name in audio_preprocess.DEFAULT_SEPARATION_NAMES:
+            assert audio_preprocess.separation_model(name) == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+        assert audio_preprocess.separation_model("mel_roformer_fv4") == audio_preprocess.MEL_ROFORMER_FV4_MODEL
+
+    def test_fv4_wins_once_it_is_downloaded(self, models):
+        models(audio_preprocess.MEL_ROFORMER_VOCAL_MODEL)
+        models(audio_preprocess.MEL_ROFORMER_FV4_MODEL)
+        assert audio_preprocess.separation_model("auto") == audio_preprocess.MEL_ROFORMER_FV4_MODEL
+        assert audio_preprocess.separation_model("mel_roformer_original") == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+
+    def test_a_cut_off_fv4_download_does_not_count(self, models, tmp_path):
+        models(audio_preprocess.MEL_ROFORMER_VOCAL_MODEL)
+        (tmp_path / audio_preprocess.MEL_ROFORMER_FV4_MODEL).write_bytes(b"not a zip")
+        assert audio_preprocess.separation_model("auto") == audio_preprocess.MEL_ROFORMER_VOCAL_MODEL
+
+    def test_an_unknown_name_is_a_key_error(self, models):
+        with pytest.raises(KeyError):
+            audio_preprocess.separation_model("nonsense")
+
+    def test_download_fetches_without_loading(self, models, monkeypatch, tmp_path):
+        calls = []
+
+        class FakeSeparator:
+            def __init__(self, model_file_dir, **kw):
+                calls.append(("dir", model_file_dir))
+
+            def download_model_and_data(self, model_filename):
+                calls.append(("download", model_filename))
+                with zipfile.ZipFile(tmp_path / model_filename, "w") as z:
+                    z.writestr("w", "x")
+
+            def load_model(self, model_filename):
+                raise AssertionError("a download must not load the model")
+
+        fake_module = types.ModuleType("audio_separator.separator")
+        fake_module.Separator = FakeSeparator
+        monkeypatch.setitem(sys.modules, "audio_separator", types.ModuleType("audio_separator"))
+        monkeypatch.setitem(sys.modules, "audio_separator.separator", fake_module)
+        audio_preprocess.download_separation_model(audio_preprocess.MEL_ROFORMER_FV4_MODEL)
+        assert calls == [("dir", str(tmp_path)), ("download", audio_preprocess.MEL_ROFORMER_FV4_MODEL)]
+        assert audio_preprocess.separation_model("auto") == audio_preprocess.MEL_ROFORMER_FV4_MODEL
