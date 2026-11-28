@@ -180,7 +180,7 @@ def retry_blocked_line(drama_id: int, line_id: int, engine_name: str | None = No
         raise ServiceError("The engine returned no translation for this line. Nothing was "
                            "changed; try again or pick another engine.")
     if not db.update_line_fields_if(drama_id, line.id,
-                                    {"en": drop_em_dashes(translation), "flag": None, "flag_note": ""}, seen):
+                                    {"en": drop_em_dashes(translation, line.zh), "flag": None, "flag_note": ""}, seen):
         raise ConflictError("This line changed while retrying; nothing was written.")
     return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
             "model": used_model, "retried": True, "blocked": False, "reason": None,

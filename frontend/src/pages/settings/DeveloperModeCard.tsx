@@ -9,12 +9,14 @@ import { getPcMode, loadPcMode } from '../../api/pcOnly'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
-import type { AssistantSettings } from '../../types/assistant'
+import type { AssistantSettings, AssistantSettingsPatch } from '../../types/assistant'
 import { CloudConsent } from '../assistant/CloudConsent'
 import { announceDeveloperMode } from '../assistant/developerMode'
 import { DEVELOPER_MODE_HELP, assistantErrorText, isAssistantForbidden } from '../assistant/assistantFormat'
 
 const TITLE = 'Developer Mode'
+const KEEP_PAGES_HELP =
+  'Keeps the original picture and what the reader found (before and after translation) for each Quick read page, the last 300 pages for 3 days, so a page that came out wrong can be reproduced exactly. Off by default; copies are only on this PC and are not part of any backup.'
 
 export function DeveloperModeCard() {
   // null: loading; 'hidden': another device.
@@ -48,15 +50,15 @@ export function DeveloperModeCard() {
 
   if (on === 'hidden') return null
 
-  const flip = (next: boolean) => {
+  const save = (patch: AssistantSettingsPatch) => {
     setBusy(true)
     setError(null)
-    saveAssistantSettings({ developer_mode: next }).then(
+    saveAssistantSettings(patch).then(
       (s) => {
         setOn(s.developer_mode)
         setSettings(s)
         setBusy(false)
-        announceDeveloperMode(s.developer_mode)
+        if (patch.developer_mode !== undefined) announceDeveloperMode(s.developer_mode)
       },
       (e: unknown) => {
         if (isAssistantForbidden(e)) setOn('hidden')
@@ -73,8 +75,13 @@ export function DeveloperModeCard() {
       ) : (
         <div className="setting-list">
           <Field label="Developer Mode" help={DEVELOPER_MODE_HELP}>
-            <Toggle checked={on} disabled={busy} onChange={flip} />
+            <Toggle checked={on} disabled={busy} onChange={(next) => save({ developer_mode: next })} />
           </Field>
+          {on && settings && (
+            <Field label="Keep Quick read pages for debugging" help={KEEP_PAGES_HELP}>
+              <Toggle checked={settings.quick_read_keep_pages ?? false} disabled={busy} onChange={(next) => save({ quick_read_keep_pages: next })} />
+            </Field>
+          )}
         </div>
       )}
       {on === true && settings && <CloudConsent settings={settings} onSettings={setSettings} />}

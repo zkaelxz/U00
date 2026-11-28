@@ -321,7 +321,7 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=(), novel: bool = False) -
             if p not in still or len(line_problems(sources[p], candidate[p], allowed_runs, novel)) < len(
                     line_problems(sources[p], replies[p], allowed_runs, novel)):
                 replies[p] = candidate[p]
-                live[p].en = drop_em_dashes(candidate[p])
+                live[p].en = drop_em_dashes(candidate[p], sources[p])
     return [(live[p], reason)
             for p, reason in suspect_positions(sources, replies, allowed_runs, novel).items()]
 
