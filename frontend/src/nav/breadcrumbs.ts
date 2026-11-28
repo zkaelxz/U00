@@ -44,6 +44,8 @@ export function routeCrumbs(route: Route, opts: CrumbOptions = {}): Crumb[] {
       ]
     case 'settings':
       return route.section ? [{ label: labelOf('settings'), href: routeHref({ name: 'settings' }) }, { label: route.section === 'uploads' ? 'Uploads' : 'Developer mode' }] : []
+    case 'sharing':
+      return [{ label: labelOf('settings'), href: routeHref({ name: 'settings' }) }, { label: 'Sharing' }]
     case 'benchmark':
       return [{ label: labelOf('diagnostics'), href: routeHref({ name: 'diagnostics' }) }, { label: labelOf('benchmark') }]
     default:

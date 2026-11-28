@@ -1,5 +1,4 @@
 import { expect, test, type Page } from '@playwright/test'
-import { openSettingsGroups } from './settingsNav'
 
 // A remote (household) admin holds no admin.library: Cancel on every job (owner
 // decision 2026-10-12), and the Sharing list with a note that other people's
@@ -55,18 +54,16 @@ test('PC admin still gets Cancel', async ({ page }) => {
   await expect(page.getByTestId('jobs-cancel-note')).toHaveCount(0)
 })
 
-test('remote admin: every item in Settings > Sharing, with a note', async ({ page }) => {
+test('remote admin: every item on the Sharing page, with a note', async ({ page }) => {
   await mock(page, ['library.read', 'admin.users.read'])
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'My account and look')
+  await page.goto('/#/sharing')
   await expect(page.getByTestId('remote-admin-sharing-note')).toBeVisible()
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
 })
 
 test('PC admin still gets every item with its switch', async ({ page }) => {
   await mock(page, ['library.read', 'admin.library', 'admin.users.read'])
-  await page.goto('/#/settings')
-  await openSettingsGroups(page, 'My account and look')
+  await page.goto('/#/sharing')
   await expect(page.getByTestId('sharing-drama:5')).toBeVisible()
   await expect(page.getByTestId('remote-admin-sharing-note')).toHaveCount(0)
 })

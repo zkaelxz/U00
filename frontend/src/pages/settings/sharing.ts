@@ -1,4 +1,4 @@
-// Pure helpers for Settings > Sharing (SharingCard.tsx).
+// Pure helpers for Settings > Sharing (SharingCard.tsx) and the Sharing page (SharingPage.tsx).
 import { ApiError, hasStatus } from '../../api/client'
 import { describeError } from '../../components/errorMessages'
 import type { SessionState } from '../../hooks/useSession'
@@ -16,7 +16,7 @@ export function shareDefaultHelp(on: boolean, admin: boolean): string {
     ? 'On: new titles and series you create can be seen by everyone in the household.'
     : 'Off: new titles and series you create are private to you (admins can still see them).'
   const existing = admin
-    ? 'This only affects new items. Change existing ones one at a time in the list below.'
+    ? 'This only affects new items. Change existing ones on the Sharing page.'
     : 'This only affects new items. An admin can change existing ones one at a time.'
   return `${now} ${existing}`
 }
@@ -125,3 +125,55 @@ export function sharingErrorText(e: unknown): string {
 }
 
 export const isSharingForbidden = (e: unknown) => hasStatus(e, 403)
+
+export type SharingOrder = 'status' | 'owner' | 'title'
+export type SharingShow = 'all' | 'shared' | 'private' | 'pc'
+
+export const SHARING_ORDERS: readonly { value: SharingOrder; label: string }[] = [
+  { value: 'status', label: 'Shared, then private' },
+  { value: 'owner', label: 'Owner' },
+  { value: 'title', label: 'Title' },
+]
+
+export const SHARING_SHOWS: readonly { value: SharingShow; label: string }[] = [
+  { value: 'all', label: 'Everything' },
+  { value: 'shared', label: 'Shared' },
+  { value: 'private', label: 'Private' },
+  { value: 'pc', label: 'Private, created at the PC' },
+]
+
+/** The owner filter's value: the account id, or "pc" for items with no owner account. */
+export const ownerKey = (item: SharingItem): string => (item.owner_user_id == null ? 'pc' : String(item.owner_user_id))
+
+/** Each owner once, by name, for the owner filter. */
+export function ownerChoices(items: readonly SharingItem[]): { value: string; label: string }[] {
+  const seen = new Map<string, string>()
+  for (const i of items) if (!seen.has(ownerKey(i))) seen.set(ownerKey(i), i.owner_name)
+  return [...seen].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label))
+}
+
+function shownBy(items: SharingItem[], show: SharingShow): SharingItem[] {
+  if (show === 'pc') return filterPcPrivate(items)
+  if (show === 'all') return items
+  const want = show === 'shared'
+  // A series' heading stays while one of its titles is shown, as filterPcPrivate keeps it.
+  const series = new Set(items.filter((i) => followsSeries(i) && isShared(i) === want).map((i) => i.series_id))
+  return items.filter((i) => isShared(i) === want || (i.kind === 'series' && series.has(i.id)))
+}
+
+/**
+ * The list as the Sharing page shows it: filtered by who can see it and by owner, then grouped. "Shared, then
+ * private" keeps the server's order, where a series' titles sit under it; Owner groups by owner; Title is one list
+ * from A to Z.
+ */
+export function arrangeSharing(
+  items: SharingItem[], order: SharingOrder, show: SharingShow, owner: string,
+): { key: string; label: string; items: SharingItem[] }[] {
+  const shown = shownBy(items, show).filter((i) => owner === '' || ownerKey(i) === owner)
+  if (order === 'status') return groupBySharing(shown).map((g) => ({ key: g.label, ...g }))
+  if (order === 'title') {
+    const sorted = [...shown].sort((a, b) => itemTitle(a).localeCompare(itemTitle(b), undefined, { numeric: true }))
+    return sorted.length ? [{ key: 'title', label: 'A to Z', items: sorted }] : []
+  }
+  return ownerChoices(shown).map((o) => ({ key: o.value, label: o.label, items: shown.filter((i) => ownerKey(i) === o.value) }))
+}
