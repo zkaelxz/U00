@@ -224,11 +224,16 @@ class TestKeptSeparator:
         checked = []
         monkeypatch.setattr(audio_preprocess.memory_headroom, "check_separation", checked.append)
         monkeypatch.setitem(audio_preprocess._BACKENDS, "audio_separator", lambda *a, **k: "out")
-        monkeypatch.setattr(audio_preprocess, "_kept_separator", ("model", object()))
+        model = audio_preprocess.separation_model()
+        monkeypatch.setattr(audio_preprocess, "_kept_separator", (model, object()))
+        audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
+        assert checked == []
+        # Another model is loaded beside the kept one (which goes once the call succeeds).
+        monkeypatch.setattr(audio_preprocess, "_kept_separator", ("another-model.ckpt", object()))
         audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
         monkeypatch.setattr(audio_preprocess, "_kept_separator", None)
         audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
-        assert checked == [True]
+        assert checked == [True, True]
 
     def test_a_failed_call_keeps_nothing(self, monkeypatch, tmp_path):
         pytest.importorskip("soundfile")
