@@ -730,6 +730,9 @@ class _Abortable:
     def running(self) -> bool:
         return self._worker.is_alive()
 
+    def failed(self) -> bool:
+        return not self._worker.is_alive() and "error" in self._box
+
     def result(self, should_stop, poll: float = 0.25):
         """fn()'s result, or background_jobs.JobCancelled as soon as should_stop() is true."""
         while True:
@@ -821,12 +824,10 @@ class _LiveRun(ChunkCaptioner):
         self.report("Resolving the stream address...")
         # The lookup is network only and the load disk and GPU only, so the lookup
         # runs on its own thread meanwhile; the model is still loaded through the
-        # runner, as when the two ran one after the other. A bad link is reported
-        # once the load is done.
-        lookup = _Abortable(
-            lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
-                                       cookies_file=self.cookies_file, proxy=self.proxy))
-        if not self._warm_whisper():
+        # runner, as when the two ran one after the other. A failed lookup gives
+        # the load up at once, so a bad link is not reported only after the load.
+        lookup = _Abortable(self._look_up)
+        if not self._warm_whisper(give_up=lookup.failed):
             return
         if lookup.running():
             self.report("Resolving the stream address...")
@@ -835,12 +836,18 @@ class _LiveRun(ChunkCaptioner):
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
             return
-        if self.stream_url_check is not None:
-            self.stream_url_check(self.source_url)
         self._capture_and_caption()
 
-    def _warm_whisper(self):
-        """False when a cancel ended the job during the load."""
+    def _look_up(self):
+        url = resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
+                                 cookies_file=self.cookies_file, proxy=self.proxy)
+        if self.stream_url_check is not None:
+            self.stream_url_check(url)
+        return url
+
+    def _warm_whisper(self, give_up=None):
+        """False when a cancel ended the job during the load; True, the load
+        given up, once give_up() is true."""
         # Before capture starts, so the load and first CUDA call don't put chunk 1
         # behind the live edge.
         self.report(
@@ -849,9 +856,11 @@ class _LiveRun(ChunkCaptioner):
             slow_after=60, slow_note="Still loading after {secs} s: the model may be "
                                      "downloading for the first time.")
         try:
-            self.note(f"Whisper {self.whisper_size} ready in "
-                      f"{live_whisper.warm_start(self.runner, self.whisper_size, self.use_gpu):.1f} s.")
+            secs = live_whisper.warm_start(self.runner, self.whisper_size, self.use_gpu, give_up)
+            self.note(f"Whisper {self.whisper_size} ready in {secs:.1f} s.")
         except background_jobs.JobCancelled:
+            if give_up is not None and give_up() and not self.should_stop():
+                return True
             background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
             return False
         except Exception as exc:
