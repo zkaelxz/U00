@@ -22,6 +22,7 @@ ALLOWED = {
     ("tests/test_scanlate.py", "could not import 'torch': No module named 'torch'"),
     # The runner has no Chinese, Japanese or Korean font installed.
     ("tests/test_scanlate_bench.py", "no CJK font on this machine"),
+    ("tests/test_scanlate_review_fixes.py", "no CJK font on this machine"),
 }
 
 
