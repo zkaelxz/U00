@@ -131,6 +131,8 @@ def _serve():
             _warn(f"The household listener was not started: {e}")
             settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
+    # Every refusal is behind us; ffmpeg, pip and the browser must not inherit it.
+    os.environ.pop(START_REFUSAL_FILE_ENV, None)
     if settings.is_development:
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True,
                     access_log=not settings.auth_enabled)
@@ -141,7 +143,6 @@ def _serve():
     # happens (process_guard), and closing the console window runs the
     # clean stop first. The installed launcher's clean-stop route can make
     # the server exit (shutdown_service). No-ops off Windows.
-    import os
     import process_guard
     from api.background import stop_gpu_queue_poller
     from services import shutdown_service

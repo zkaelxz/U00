@@ -692,6 +692,8 @@ def launch(headless: bool = False) -> int:
         else:
             # Another click is already starting it; wait for that one.
             print("Baihe Studio is already starting; waiting for it.", flush=True)
+            # A sentence left by an earlier start must not explain this one.
+            (launcher_dir() / START_REFUSAL_NAME).unlink(missing_ok=True)
             healthy = wait_for_health(port)
         if not healthy:
             refusal = take_start_refusal()

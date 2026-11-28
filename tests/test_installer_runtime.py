@@ -404,6 +404,19 @@ class TestStartRefusal:
         assert "old reason" not in str(exc.value)
 
 
+    def test_waiting_for_another_click_never_shows_an_old_sentence(self, data_dir, monkeypatch):
+        (data_dir / "launcher").mkdir(parents=True)
+        (data_dir / "launcher" / launcher.START_REFUSAL_NAME).write_text("old reason", encoding="utf-8")
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: False)
+        monkeypatch.setattr(launcher, "apply_pending_install", lambda *a: None)
+        monkeypatch.setattr(launcher, "acquire_start_lock", lambda: False)
+        monkeypatch.setattr(launcher, "wait_for_health", lambda port, proc=None: False)
+        with pytest.raises(launcher.LaunchError, match="didn't answer") as exc:
+            launcher.launch()
+        assert "old reason" not in str(exc.value)
+
+
 class TestWaitForHealth:
     def test_stops_waiting_when_the_server_exits(self, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
