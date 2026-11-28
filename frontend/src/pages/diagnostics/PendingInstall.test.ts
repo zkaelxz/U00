@@ -157,7 +157,7 @@ it('says it installs by itself when the service helper restarts Baihe', () => {
 
 it('does not call a failed install a success after the helper restarted Baihe', () => {
   const banner = PendingInstallBanner({
-    status: status({ last_restart: { outcome: 'install_failed', downtime_seconds: 40, restored: 2 } }),
+    status: status({ last_restart: { outcome: 'install_failed', downtime_seconds: 40, restored: 2, at: 1, install_status: 'failed', packages: 1, restore_failed: 0 } }),
     onCancel: () => undefined, onDismiss: () => undefined, onRestarted: () => undefined,
   })
   const text = JSON.stringify(banner)
