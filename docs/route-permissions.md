@@ -58,6 +58,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/import` | local_only() |
 | `POST /api/backups/import/list` | local_only() |
 | `POST /api/backups/now` | local_only() |
+| `POST /api/backups/same-drive-note/dismiss` | local_only() |
 | `GET /api/backups/settings` | local_only() |
 | `POST /api/backups/settings` | local_only() |
 | `GET /api/backups/snapshot` | local_only() |
