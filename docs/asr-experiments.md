@@ -169,6 +169,19 @@ which accounts for part of the gain. RoFormer lost or changed 4-5 short fillers
 default (the margin rule needs a third). On a V100 with title 2 (no reference)
 separation also dropped 9 consecutive lines, so check line counts when using it.
 
+### Two Whisper lanes (temporary A/B switch)
+
+`BAIHE_WHISPER_LANES=2` in the environment of the app's process is a switch for one V100 A/B
+only. It is not a setting, and it is removed again whether the test passes or fails (if it
+passes, it becomes a Developer Mode option). With it set, the GPU Whisper model is built with
+two CTranslate2 workers. A fresh run of a file of 10 minutes or more is then cut at the middle
+of the longest pause in its middle third, and both halves are heard at once by the normal
+decoder. A failed half stops the other one, except that a half that ran out of memory is
+heard again on its own once the other half finishes. CPU, fast mode, a resumed run and a model
+cached before the variable was set use one lane. Unset, nothing changes. The second half's
+30 s windows start in other places than in a one-lane run, so the pass rule is paired CER
+within ±0.01 at temperature 0 (not "changes only near the cut"), plus 1.3x faster.
+
 ## Do not combine
 
 The notes the Transcribe form and a finished run's details show, from `services/transcribe_options_service._ADVICE_RULES` (`tests/test_asr_advice.py` keeps this table in step with them).

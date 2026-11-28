@@ -781,12 +781,13 @@ def _load_text_only(model_size: str, use_gpu: bool, token):
     return text_only_whisper.load(folder, use_gpu, WHISPER_LANGUAGE_RULES[model_size].only_for[0])
 
 
-def whisper_lanes() -> int:
-    """2 when BAIHE_WHISPER_LANES=2, else 1: a GPU model is then built with two workers, so two
-    transcribe() calls on two threads run at once. Read per call and never cached: the variable is
-    set for one V100 A/B process, so a model already cached in this process was built for it.
-    Not a setting: whether two lanes beat one is still being measured."""
-    return 2 if os.environ.get("BAIHE_WHISPER_LANES", "").strip() == "2" else 1
+def _two_workers() -> dict:
+    """{"num_workers": 2} when BAIHE_WHISPER_LANES=2, else {}: a GPU model is then built with two
+    workers, so two transcribe() calls on two threads run at once, and its device info says
+    "lanes": 2, which is what whisper_transcribe checks (a model cached before the variable was
+    set, the CPU fallback and the text-only models have one worker and stay one lane). A
+    temporary switch for one V100 A/B (docs/asr-experiments.md), not a setting."""
+    return {"num_workers": 2} if os.environ.get("BAIHE_WHISPER_LANES", "").strip() == "2" else {}
 
 
 def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None,
@@ -829,8 +830,7 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
     build_kwargs = {"local_files_only": True} if offline else {}
 
     def _build(device, compute_type):
-        lanes = {"num_workers": 2} if device == "cuda" and whisper_lanes() > 1 else {}
-        return WhisperModel(model_path, device=device, compute_type=compute_type, **build_kwargs, **lanes)
+        return WhisperModel(model_path, device=device, compute_type=compute_type, **build_kwargs, **(_two_workers() if device == "cuda" else {}))
 
     device_info = {"device": "cpu", "compute_type": "int8", "gpu_error": None}
     try:
@@ -849,7 +849,8 @@ def load_whisper_model(model_size: str, use_gpu: bool = False, local_model_path:
             try:
                 compute_type = gpu_compute_type()
                 model = _build("cuda", compute_type)
-                device_info = {"device": "cuda", "compute_type": compute_type, "gpu_error": None}
+                device_info = {"device": "cuda", "compute_type": compute_type, "gpu_error": None,
+                               **({"lanes": 2} if _two_workers() else {})}
             except Exception as gpu_exc:
                 if is_network_error(gpu_exc):
                     raise

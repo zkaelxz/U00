@@ -647,7 +647,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
-        return _transcribe_in_lanes(m, model if use_gpu else None, tail or whole.decoded(), kwargs, prompt_keys, progress_cb, resume)
+        return _transcribe_in_lanes(m, model, (model_size, use_gpu, local_model_path), tail or whole.decoded(), kwargs, prompt_keys, progress_cb, resume)
 
     try:
         try:
@@ -694,44 +694,79 @@ def _lane_cut(audio) -> float | None:
     return max(pauses)[1] if pauses else None
 
 
-def _transcribe_in_lanes(m, gpu_model, audio, kwargs, prompt_keys, progress_cb, resume):
-    """m.transcribe(audio), or, with BAIHE_WHISPER_LANES=2 on the GPU model of a fresh run, the
-    two halves either side of _lane_cut heard at once on two threads and merged. Each half is a
-    normal decode (retries, timestamps, rehear afterwards). Only the first half reports
-    checkpoint units: they must stay in time order for a resume to start after them. The
-    second thread only calls transcribe on the model the job's thread built; it builds none."""
-    cut = (_lane_cut(audio) if m is gpu_model and whisper_models.whisper_lanes() > 1 and not resume.at
-           else None)
+class _LaneStopped(Exception):
+    """The other lane failed, so this one stops at its next segment instead of finishing its half."""
+
+
+def _out_of_memory(exc) -> bool:
+    return "out of memory" in str(exc).lower()
+
+
+def _transcribe_in_lanes(m, model, which, audio, kwargs, prompt_keys, progress_cb, resume):
+    """m.transcribe(audio), or, when `model` (the one the job loaded, `which` = its model size,
+    use_gpu and local path) was built on the GPU with two workers (BAIHE_WHISPER_LANES=2) and
+    the run is fresh, the two halves either side of _lane_cut heard at once on two threads and
+    merged. Each half is a normal decode (retries, timestamps, rehear afterwards). Only the
+    first half reports checkpoint units: they must stay in time order for a resume to start
+    after them. The second thread only calls transcribe on the model the job's thread built;
+    it builds none, and progress is written from the job's thread only, where a force stop is
+    checked."""
+    cut = (_lane_cut(audio) if m is model and not resume.at
+           and whisper_models.get_whisper_device_info(*which).get("lanes") == 2 else None)
     if cut is None:
         return m.transcribe(audio, **kwargs)
     at = int(cut * 16000)
-    halves, heard, errors, reached = (audio[:at], audio[at:]), [[], []], [], [0.0, 0.0]
-    duration = len(audio) / 16000
+    halves, heard, failed, reached = (audio[:at], audio[at:]), [[], []], {}, [0.0, 0.0]
+    duration, stop = len(audio) / 16000, threading.Event()
 
-    def report(lane):
-        if not progress_cb:
-            return None
-
-        def on_segment(s):
-            reached[lane] = s.end
+    def report():
+        if progress_cb:
             progress_cb(min(sum(reached) / duration, 1.0))
-        return on_segment
 
-    def lane(i):
+    def lane(i, alone=False):
+        def on_segment(s):
+            if stop.is_set() and not alone:
+                raise _LaneStopped()
+            reached[i] = s.end
+            if i == 0 or alone:
+                report()
         try:
             segments, _info = m.transcribe(halves[i], **kwargs)
-            heard[i] = _segment_dicts(segments, prompt_keys, report(i),
+            heard[i] = _segment_dicts(segments, prompt_keys, on_segment,
                                       on_kept=resume.keep if i == 0 and resume.on_unit else None)
+        except _LaneStopped:
+            pass
         except BaseException as exc:   # re-raised on the job's thread below
-            errors.append(exc)
+            failed[i] = exc
+            # Two decodes at once is what can run the card out of memory: the other half
+            # finishes and this one is heard again alone. Any other error ends both now.
+            if not _out_of_memory(exc):
+                stop.set()
 
     second = threading.Thread(target=lane, args=(1,), name="whisper-lane-2", daemon=True)
     second.start()
-    lane(0)
-    second.join()
-    if errors:
-        raise errors[0]
-    return _LaneSegments(heard[0] + [_shifted(s, cut) for s in heard[1]]), None
+    try:
+        lane(0)
+        while second.is_alive():
+            second.join(0.5)
+            if not stop.is_set():
+                report()
+    except BaseException:
+        stop.set()
+        second.join()
+        raise
+    real = [e for e in failed.values() if not _out_of_memory(e)] or (
+        list(failed.values()) if len(failed) == 2 else [])
+    if real:
+        raise real[0]
+    for i in list(failed):
+        if i == 0:
+            resume.restart()
+        del failed[i]
+        lane(i, alone=True)
+        if i in failed:
+            raise failed[i]
+    return _LaneSegments(heard[0] + [_shifted(s, at / 16000) for s in heard[1]]), None
 
 
 def _retry_on_cpu(model_size, local_model_path, hf_token, run, collect):
