@@ -39,3 +39,6 @@ export const makeCoverFromVideo = (id: number, f: Fetch = fetch) =>
 // An <img src>; `v` busts the browser cache after a new upload.
 export const coverUrl = (id: number, v: number | string = 0) =>
   apiUrl(`/api/dramas/${id}/cover${v ? `?v=${encodeURIComponent(String(v))}` : ''}`)
+
+// The small copy for lists and tiles; the full cover is up to 25 megapixels.
+export const coverThumbUrl = (id: number) => apiUrl(`/api/dramas/${id}/cover?size=thumb`)

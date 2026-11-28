@@ -126,6 +126,9 @@ describe('parseRoute', () => {
     expect(parseRoute('#/read/3?page=2')).toEqual({ name: 'read', id: 3, page: 2 })
     expect(parseRoute('#/read/3?page=0')).toEqual({ name: 'read', id: 3, page: null })
     expect(parseRoute('#/read/3?page=x')).toEqual({ name: 'read', id: 3, page: null })
+    expect(parseRoute('#/read/3?line=120')).toEqual({ name: 'read', id: 3, page: null, line: 120 })
+    expect(parseRoute('#/read/3?page=2&line=120')).toEqual({ name: 'read', id: 3, page: 2 })
+    expect(routeHref({ name: 'read', id: 3, page: null, line: 120 })).toBe('#/read/3?line=120')
     for (const h of ['#/read', '#/read/0', '#/read/abc', '#/read/3/extra']) {
       expect(parseRoute(h)).toEqual({ name: 'library' })
     }

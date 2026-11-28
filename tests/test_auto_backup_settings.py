@@ -521,6 +521,46 @@ class TestProblem:
     def test_never_run_yet_is_not_a_problem(self):
         assert abt_.problem(self._settings(), {}, self.NOW) is None
 
+    def _titles(self, n):
+        for i in range(n):
+            db.create_drama(title_en=f"T{i}")
+
+    def test_the_default_folder_with_a_few_titles_raises_the_same_drive_note(self, isolated_db):
+        self._titles(abt_.SAME_DRIVE_NOTE_MIN_TITLES - 1)
+        assert abs_.settings_overview()["problem"] is None
+        self._titles(1)
+        assert abs_.settings_overview()["problem"] == "same_drive"
+
+    def test_the_same_drive_note_once_dismissed_stays_away(self, isolated_db):
+        self._titles(abt_.SAME_DRIVE_NOTE_MIN_TITLES)
+        assert abs_.dismiss_same_drive_note()["problem"] is None
+        assert abs_.settings_overview()["problem"] is None
+
+    def test_no_same_drive_note_for_another_drive_or_with_backups_off(self, isolated_db, monkeypatch):
+        self._titles(abt_.SAME_DRIVE_NOTE_MIN_TITLES)
+        monkeypatch.setattr(abt_, "same_drive_as_library", lambda folder="": False)
+        assert abs_.settings_overview()["problem"] is None
+        monkeypatch.undo()
+        abs_.set_settings(enabled=False)
+        assert abs_.settings_overview()["problem"] is None
+
+    def test_titles_are_not_counted_once_the_note_cannot_show(self, isolated_db, monkeypatch):
+        def no_count(n):
+            raise AssertionError("counted titles")
+        abs_.dismiss_same_drive_note()
+        monkeypatch.setattr(db, "has_at_least_dramas", no_count)
+        assert abs_.settings_overview()["problem"] is None
+
+    def test_counting_titles_stops_at_the_threshold(self, isolated_db):
+        self._titles(3)
+        assert db.has_at_least_dramas(3) is True
+        assert db.has_at_least_dramas(4) is False
+
+    def test_a_failing_backup_wins_over_the_same_drive_note(self, isolated_db, monkeypatch):
+        self._titles(abt_.SAME_DRIVE_NOTE_MIN_TITLES)
+        monkeypatch.setattr(abs_, "_get_state", lambda: {"last_error": "boom"})
+        assert abs_.settings_overview()["problem"] == "failing"
+
     def test_folder_on_another_volume_is_not_the_library_drive(self, isolated_db, monkeypatch):
         monkeypatch.setattr(os, "stat", lambda p, *a, **k: type("S", (), {
             "st_dev": 2 if "elsewhere" in str(p) else 1})())

@@ -11,6 +11,12 @@ import { expect, test } from './fixtures'
 
 // The Player button of an audio title's lines is drawn in More's row, which starts closed.
 const headerMore = (page: Page) => page.locator('.workspace-header').getByRole('button', { name: 'More', exact: true })
+// Add media, Redo transcription, Glossary and Search are in More's row, which starts closed and which Search closes again.
+const openMore = async (page: Page) => {
+  const more = headerMore(page)
+  if (await more.getAttribute('aria-expanded') !== 'true') await more.click()
+  return page.locator('.title-top-more-row')
+}
 // Found by its class, not its name: while the row is closed its buttons have no accessible name.
 const playerButton = (page: Page) => page.locator('.title-top-more-row button', { hasText: /^Player/ })
 
@@ -46,7 +52,7 @@ test('Simple shows the five actions and the lines, and Full brings the stage tab
   await page.getByRole('radio', { name: 'Guided', exact: true }).check()
   await expect(page).toHaveURL(/#\/drama\/1$/)
   await expect(page.getByRole('navigation', { name: 'Stages' })).toHaveCount(0)
-  // The step links open each stage; the current step's action is the main button, and Add media, Redo and Glossary are in the header.
+  // The step links open each stage; the current step's action is the main button, and Add media, Redo and Glossary are in the header's More row.
   const tabs = page.getByRole('list', { name: 'Steps' })
   await expect(tabs.getByRole('link', { name: step('Add') })).toHaveAttribute('href', '#/drama/1/source?tab=add')
   await expect(tabs.getByRole('link', { name: step('Transcribe') })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
@@ -54,6 +60,7 @@ test('Simple shows the five actions and the lines, and Full brings the stage tab
   await expect(tabs.getByRole('link', { name: step('Review') })).toHaveAttribute('href', '#/drama/1/review')
   await expect(tabs.getByRole('link', { name: step('Export') })).toHaveAttribute('href', '#/drama/1/export')
   await expect(page.getByRole('link', { name: 'Translate 10 lines', exact: true })).toHaveAttribute('href', '#/drama/1/translate')
+  await openMore(page)
   await expect(page.getByRole('link', { name: 'Redo transcription' })).toHaveAttribute('href', '#/drama/1/source?tab=transcribe')
   await expect(page.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/1/source?tab=add')
   await expect(page.getByRole('link', { name: 'Glossary' })).toHaveAttribute('href', '#/drama/1/translate?tab=glossary')
@@ -631,27 +638,30 @@ test.describe('the check queue', () => {
     await expectNoSidewaysScroll(page)
   })
 
-  test('the header holds Add media, Redo transcription, Glossary, Search, the switch and More; More holds the title\'s files and the source link', async ({ page }) => {
+  test('the header holds the switch and More; More holds Add media, Redo transcription, Glossary, Search, the title\'s files and the source link', async ({ page }) => {
     seedCheckLines()
     await simple(page)
     const header = page.locator('.workspace-header')
-    await expect(header.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=add')
-    await expect(header.getByRole('link', { name: 'Redo transcription', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
-    await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
-    await expect(header.getByRole('button', { name: 'Search', exact: true })).toBeVisible()
+    const more = header.getByRole('button', { name: 'More', exact: true })
+    const row = page.locator('.title-top-more-row')
+    await expect(row).toBeHidden()
     await expect(header.getByRole('radio', { name: 'Guided', exact: true })).toBeChecked()
-    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(header.getByRole('link', { name, exact: true })).toHaveCount(1)
-    await expect(page.locator('.title-top-actions').getByRole('link').or(page.locator('.title-top-actions').getByRole('button')))
-      .toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
-    // The switch sits after Search and before More, in the header's one row.
+    await expect(page.locator('.title-top-actions').getByRole('link').or(page.locator('.title-top-actions').getByRole('button'))).toHaveText(['More'])
+    // The switch sits before More, in the header's one row.
     const order = await page.locator('.title-top-actions').evaluate((row) => [...row.children].map((el) => el.matches('.title-view-switch') ? 'switch' : el.textContent))
-    expect(order).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'switch', 'More'])
+    expect(order).toEqual(['switch', 'More'])
+    await more.click()
+    await expect(row.getByRole('link', { name: 'Add media', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=add')
+    await expect(row.getByRole('link', { name: 'Redo transcription', exact: true })).toHaveAttribute('href', '#/drama/3/source?tab=transcribe')
+    await expect(row.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
+    await expect(row.getByRole('button', { name: 'Search', exact: true })).toBeVisible()
+    for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(row.getByRole('link', { name, exact: true })).toHaveCount(1)
+    await more.click()
+    await expect(row).toBeHidden()
     // The main button is under the steps, first in the lines' Need a look row.
     const main = page.getByRole('button', { name: 'Check the 3 lines', exact: true })
     await expect(main).toHaveCount(1)
     expect((await main.boundingBox())!.y).toBeGreaterThan((await page.getByRole('list', { name: 'Steps' }).boundingBox())!.y)
-    const more = header.getByRole('button', { name: 'More', exact: true })
-    const row = page.locator('.title-top-more-row')
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
     await more.click()
     await expect(more).toHaveAttribute('aria-expanded', 'true')
@@ -664,21 +674,22 @@ test.describe('the check queue', () => {
     await expect(page.getByRole('button', { name: 'Open folder' })).toBeHidden()
     // The stage pages share the header.
     await page.goto('/#/drama/3/translate')
-    await expect(header.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
-    await expect(header.getByRole('button', { name: 'More', exact: true })).toBeVisible()
+    await more.click()
+    await expect(row.getByRole('link', { name: 'Glossary', exact: true })).toHaveAttribute('href', '#/drama/3/translate?tab=glossary')
     await expectNoSidewaysScroll(page)
   })
 
   test('Search shows All with the lines\' search box focused, from the title page and from another step\'s page', async ({ page }) => {
     seedCheckLines()
     await simple(page)
-    const search = page.locator('.workspace-header').getByRole('button', { name: 'Search', exact: true })
+    const search = page.locator('.title-top-more-row').getByRole('button', { name: 'Search', exact: true })
     const box = page.getByRole('searchbox', { name: 'Search lines' })
     await expect(queueRadio(page)).toBeChecked()
     await expect(box).toHaveCount(0)
     // A draft being edited is saved first, as a switch to All does.
     await card(page, 24).getByTestId('line-en').click()
     await card(page, 24).getByRole('textbox', { name: 'Translation' }).fill('Typed before Search.')
+    await openMore(page)
     await search.click()
     await expect(allRadio(page)).toBeChecked()
     await expect(box).toBeFocused()
@@ -687,6 +698,7 @@ test.describe('the check queue', () => {
     // Pressed again with something typed, it keeps the text and the focus.
     await box.fill('Line 5')
     await page.getByRole('heading', { level: 1 }).click()
+    await openMore(page)
     await search.click()
     await expect(box).toHaveValue('Line 5')
     await expect(box).toBeFocused()
@@ -695,6 +707,7 @@ test.describe('the check queue', () => {
     // From the Translate step's page it goes to the Check step's page and does the same there.
     await page.goto('/#/drama/3/translate')
     await expect(box).toHaveCount(0)
+    await openMore(page)
     await search.click()
     await expect(page).toHaveURL(/#\/drama\/3\/review$/)
     await expect(allRadio(page)).toBeChecked()
@@ -1206,7 +1219,7 @@ test.describe('the check queue', () => {
   test.describe('on title 1, with its long name', () => {
     test.afterAll(() => clearCheckLines(1))
 
-    test('the header is one row at 1440 with the menu docked, with the switch among the buttons and the kind chip under the long name', async ({ page }) => {
+    test('the header is one row at 1440 with the menu docked, with the switch beside More and the kind chip beside the long name', async ({ page }) => {
       seedCheckLines({ drama: 1 })
       await page.addInitScript(() => localStorage.setItem('baihe.navDock', 'docked'))
       await page.setViewportSize({ width: 1440, height: 900 })
@@ -1218,21 +1231,17 @@ test.describe('the check queue', () => {
       const kind = header.getByTestId('title-kind')
       await expect(kind).toHaveText('Audio drama · Chinese to English')
       const controls = page.locator('.title-top-actions')
-      await expect(controls.getByRole('link')).toHaveText(['Add media', 'Redo transcription', 'Glossary'])
-      await expect(controls.getByRole('link').or(controls.getByRole('button'))).toHaveText(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+      await expect(controls.getByRole('link').or(controls.getByRole('button'))).toHaveText(['More'])
       const switchBox = controls.getByRole('group', { name: 'Title view' })
       await expect(switchBox.getByRole('radio', { name: 'Guided', exact: true })).toBeChecked()
       const back = (await header.getByRole('link', { name: 'Back to Library' }).boundingBox())!
       const [n, k, c, h, sw] = [(await name.boundingBox())!, (await kind.boundingBox())!, (await controls.boundingBox())!, (await header.boundingBox())!, (await switchBox.boundingBox())!]
-      const search = (await controls.getByRole('button', { name: 'Search', exact: true }).boundingBox())!
       const more = (await controls.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       const sameRow = (a: { y: number; height: number }, b: { y: number; height: number }) => a.y < b.y + b.height && b.y < a.y + a.height
-      expect(sameRow(n, c) && sameRow(n, back) && sameRow(sw, search) && sameRow(sw, more), 'the back link, the name, the buttons and the switch share a row').toBe(true)
-      expect(search.x + search.width, 'the switch follows Search').toBeLessThanOrEqual(sw.x)
+      expect(sameRow(n, c) && sameRow(n, back) && sameRow(sw, more), 'the back link, the name, the buttons and the switch share a row').toBe(true)
       expect(sw.x + sw.width, 'More follows the switch').toBeLessThanOrEqual(more.x)
-      // The chip is what gives way: under the name, left-aligned with it, whole.
-      expect(k.y, 'the chip is under the name').toBeGreaterThanOrEqual(n.y + n.height - 1)
-      expect(Math.abs(k.x - n.x), 'the chip starts where the name starts').toBeLessThanOrEqual(1)
+      // With only the switch and More beside the name, the chip has room to stay beside it, whole.
+      expect(k.y + k.height, 'the chip is not pushed below the name').toBeLessThanOrEqual(n.y + n.height + 1)
       expect(h.height, 'the header\'s height: the name and its chip, one row of buttons').toBeLessThan(70)
       expect(k.height, 'the chip is one line').toBeLessThan(30)
       await page.setViewportSize({ width: 1280, height: 800 })
@@ -1240,13 +1249,11 @@ test.describe('the check queue', () => {
       await page.setViewportSize({ width: 1100, height: 800 })
       const cut = await header.evaluate((row) => [...row.querySelectorAll('a, button, label, h1, [data-testid="title-kind"]')].filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
       expect(cut, 'header text cut at 1100px').toEqual([])
-      for (const name of ['Add media', 'Redo transcription', 'Glossary']) await expect(controls.getByRole('link', { name, exact: true })).toBeInViewport()
-      await expect(controls.getByRole('button', { name: 'Search', exact: true })).toBeInViewport()
       await expect(switchBox).toBeInViewport()
       await expect(controls.getByRole('button', { name: 'More', exact: true })).toBeInViewport()
       // Where the group no longer fits beside the name it moves under it whole, not button by button.
       const tops = await controls.evaluate((row) => [...row.children].map((el) => Math.round(el.getBoundingClientRect().y)))
-      expect(Math.max(...tops) - Math.min(...tops), 'the buttons and the switch stay on one line at 1100px').toBeLessThanOrEqual(2)
+      expect(Math.max(...tops) - Math.min(...tops), 'the switch and More stay on one line at 1100px').toBeLessThanOrEqual(2)
       await expectNoSidewaysScroll(page)
     })
   })

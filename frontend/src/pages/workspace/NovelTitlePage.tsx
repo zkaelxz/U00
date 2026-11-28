@@ -13,8 +13,6 @@ import { buttonClass } from '../../components/uiClasses'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Tabs } from '../../components/Tabs'
 import { tabButtonId, tabPanelId } from '../../components/tabIds'
-import { browserStorage } from '../../hooks/usePersistedState'
-import { loadPrefs } from '../reader/readerPrefsStore'
 import { routeHref } from '../../router'
 import type { NovelChapterList, NovelChapterRow, NovelLineChapterRow } from '../../types/novelChapters'
 import { TitleViewSwitch } from './TitleViewSwitch'
@@ -25,7 +23,7 @@ import { NovelLinkStart } from './NovelLinkStart'
 import { NovelCastCard } from './stages/NovelCastCard'
 import { NovelChapterRetranslate } from './stages/NovelChapterRetranslate'
 import { mainButton } from './novelLinkChain'
-import { appendChapters, chaptersHeadline, lineProgress, readerPageOf, rowMeta, rowTitle } from './stages/novelChapters'
+import { appendChapters, chaptersHeadline, lineProgress, rowMeta, rowTitle } from './stages/novelChapters'
 import './stages/novelChapters.css'
 
 const PAGE = 100
@@ -132,7 +130,6 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
     })
   }
   const marks = !!list && list.translation_chars > 0
-  const readerSize = loadPrefs(browserStorage()).chapterSize
   // With no lines yet the Translate tab has nothing to translate, so Translate runs the link chain (lines, speakers, glossary scan) instead.
   const hasLines = lineCount !== null && lineCount > 0
   // Everything has English: the next move is Review, so it takes the primary styling.
@@ -220,7 +217,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
                 {lineRows.has(r.number) && (
                   <a
                     className="source-link"
-                    href={routeHref({ name: 'read', id, page: readerPageOf(lineRows.get(r.number)!.first_idx, readerSize) })}
+                    href={routeHref({ name: 'read', id, page: null, line: lineRows.get(r.number)!.first_idx })}
                     aria-label={`Read chapter ${r.number}: ${rowTitle(r)}`}
                   >
                     Read

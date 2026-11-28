@@ -49,3 +49,10 @@ export async function expectNoSidewaysScroll(page: Page) {
   }))
   expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
 }
+
+/** The Library's Filters menu (a computer): opens it unless it is already open, and returns its panel. */
+export async function openLibraryFilters(page: Page) {
+  const menu = page.locator('details.filters-menu')
+  if (!(await menu.evaluate((d) => (d as HTMLDetailsElement).open))) await menu.locator('summary').click()
+  return menu.locator('.filters-menu-panel')
+}

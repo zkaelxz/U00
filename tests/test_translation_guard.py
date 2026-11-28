@@ -323,16 +323,18 @@ class TestMatchedById:
         return engine, calls
 
     def test_a_reordered_reply_lands_on_the_right_lines(self):
-        first = {str(100 + i): GOOD[i] for i in range(6)}
-        first["101"] = "Why didn't you 给我打电话 yesterday?"
-        first["104"] = "Another 句子 left over."
-        redo = {"101": GOOD[1], "104": GOOD[4]}
+        first = {str(1 + i): GOOD[i] for i in range(6)}
+        first["2"] = "Why didn't you 给我打电话 yesterday?"
+        first["5"] = "Another 句子 left over."
+        # The redo is its own request, numbered from 1 again.
+        redo = {"1": GOOD[1], "2": GOOD[4]}
         engine, calls = self._engine([first, redo])
         lines = _lines()
         _run(engine, lines, check_replies=True)
         assert len(calls) == 2
-        asked = calls[1]["messages"][0]["content"]
-        assert "101. " in asked and "104. " in asked and "100. " not in asked
+        asked = calls[1]["messages"][0]["content"].split("Translate these lines:")[1]
+        assert f"1. {SOURCES[1]}" in asked and f"2. {SOURCES[4]}" in asked
+        assert SOURCES[0] not in asked
         assert [ln.en for ln in lines] == GOOD
 
 

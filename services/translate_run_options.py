@@ -3,11 +3,16 @@ services/translate_run_options.py -- the request checks of start_translate_run:
 which options may combine, and which lines a run will translate.
 """
 
+import hashlib
+import json
+import time
+
 from bulk import bulk_translate
 import db
 from engine_backends import local, engine_registry
 from engine_backends import fallback as engine_fallback
 from services import ownership_service, paid_job_service, settings_service
+from lib import http
 from lib.errors import (
     ConflictError,
     InvalidInputError,
@@ -215,3 +220,56 @@ def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_re
             "is above what's left of your cap once pending bulk jobs are counted. "
             "Raise the cap, or run a normal translation.")
     return est["estimated_usd"]
+
+
+DEEPSEEK_BALANCE_URL = "https://api.deepseek.com/user/balance"
+_BALANCE_CACHE_SECONDS = 60
+_balance_cache: dict = {}
+_clock = time.monotonic
+
+
+def deepseek_balance_usd():
+    """DeepSeek's prepaid balance in US dollars, or None when it can't be read (no key, no
+    answer, a balance kept in another currency). Asked at most once a minute per key, since
+    the estimate is asked again on every change to the Translate form."""
+    from services import translate_service
+    key = translate_service.resolve_api_key("deepseek")
+    if not key:
+        return None
+    fingerprint = hashlib.sha256(key.encode()).hexdigest()
+    cached = _balance_cache.get(fingerprint)
+    if cached and _clock() - cached[0] < _BALANCE_CACHE_SECONDS:
+        return cached[1]
+    balance = _read_deepseek_balance(key)
+    _balance_cache.clear()
+    _balance_cache[fingerprint] = (_clock(), balance)
+    return balance
+
+
+def _read_deepseek_balance(key: str):
+    try:
+        resp = http.get(DEEPSEEK_BALANCE_URL, headers={"Authorization": f"Bearer {key}",
+                                                       "Accept": "application/json"},
+                        timeout=(3, 5), max_bytes=64 * 1024)
+        data = json.loads(resp.text()) if resp.ok else None
+    except Exception:
+        return None  # a warning only: the run itself still finds out
+    if not isinstance(data, dict):
+        return None
+    if data.get("is_available") is False:
+        return 0.0
+    for info in data.get("balance_infos") or []:
+        if isinstance(info, dict) and info.get("currency") == "USD":
+            try:
+                return float(info.get("total_balance", ""))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def balance_too_low(engine_name: str, estimated_usd) -> bool:
+    """Whether DeepSeek's balance looks too small for a run estimated at `estimated_usd`."""
+    if engine_name != "deepseek" or not estimated_usd:
+        return False
+    balance = deepseek_balance_usd()
+    return balance is not None and balance < estimated_usd

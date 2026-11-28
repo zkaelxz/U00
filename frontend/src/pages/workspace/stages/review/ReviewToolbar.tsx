@@ -38,6 +38,8 @@ interface Props {
   searchRef: RefObject<HTMLInputElement | null>
   onSearch: (v: string) => void
   resultCount: number | null
+  resultMore: boolean
+  onLoadMore: () => void
   page: number
   pages: number
   showPager: boolean
@@ -116,6 +118,17 @@ function JumpInput({ value, max, label, describedBy, placeholder, className, onJ
         }
       }}
     />
+  )
+}
+
+export function SearchCount({ count, more, onLoadMore }: { count: number; more: boolean; onLoadMore: () => void }) {
+  return (
+    <>
+      <span className="muted review-count" role="status" data-testid="search-count">
+        {more ? `First ${count} matches shown; there may be more.` : `${count} match${count === 1 ? '' : 'es'}`}
+      </span>
+      {more && <button type="button" className={buttonClass('ghost', 'sm')} onClick={onLoadMore}>Load more matches</button>}
+    </>
   )
 }
 
@@ -240,13 +253,7 @@ export function ReviewToolbar({ searchRef, ...p }: Props) {
     </div>
   )
   const count =
-    p.resultCount !== null ? (
-      <span className="muted review-count" role="status" data-testid="search-count">
-        {p.resultCount >= 200
-          ? 'First 200 matches shown; more may exist. Type more of the line to narrow it.'
-          : `${p.resultCount} match${p.resultCount === 1 ? '' : 'es'}`}
-      </span>
-    ) : null
+    p.resultCount !== null ? <SearchCount count={p.resultCount} more={p.resultMore} onLoadMore={p.onLoadMore} /> : null
 
   // Phones: Search and More are buttons on the chip row; each opens its own
   // row inside the toolbar box. A wider screen draws Simple's first row above the box, with no box of its own; the box

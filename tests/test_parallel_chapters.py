@@ -588,6 +588,7 @@ def quick_slow_line(monkeypatch):
     monkeypatch.setattr(fb, "SLOW_REQUEST_SECONDS", 0.05)
     monkeypatch.setattr(fb, "SLOW_SECONDS_PER_LINE", 0.01)
     monkeypatch.setattr(fb, "_slow_until", {})
+    monkeypatch.setattr(fb, "_slow_reason", {})
 
 
 def _switching(primary_delay, fallback_error=None):
@@ -752,3 +753,56 @@ def test_the_budget_of_a_slow_switch_run_is_its_starting_engines():
     first, second = _Engine(), _Engine()
     assert tp._planning_engine(SlowSwitchEngine([first, second], ["deepseek", "ollama"])) is first
     assert tp._planning_engine(first) is first
+
+
+class _NoCredit(Exception):
+    status_code = 402
+
+
+def test_a_deepseek_out_of_credit_moves_the_run_to_the_fallback_at_once(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("ollama ") for ln in lines)
+    assert [e["reason"] for e in engine.events] == [fb.OUT_OF_CREDIT]
+    # The next run starts on the fallback and still says why.
+    after = _switching(primary_delay=0.0)
+    assert after.active == 1 and after.events[0]["reason"] == fb.OUT_OF_CREDIT
+
+
+def test_out_of_credit_after_a_slow_switch_is_still_reported(quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine._state.switched = True
+    engine._state.events.append({"from": "deepseek", "to": "ollama", "reason": "slow"})
+    # A lane whose chapter began before the slow switch still asks DeepSeek.
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    assert engine.translate_batch(["a"], {}) == ["ollama a"]
+    assert [e["reason"] for e in engine.events] == ["slow", fb.OUT_OF_CREDIT]
+
+
+def test_out_of_credit_with_no_fallback_says_deepseek_is_out_of_credit(quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 0 and engine._state.fallback_failed
+    # The next run asks DeepSeek again rather than an Ollama that isn't there.
+    assert _switching(primary_delay=0.0).active == 0
+
+
+def test_the_finished_job_says_deepseek_is_out_of_credit():
+    from services import jobs_service
+    result = jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": fb.OUT_OF_CREDIT,
+                       "detail": "Error code: 402 - Insufficient Balance"}]})
+    assert "Insufficient" not in str(result)
+    _, message = jobs_service.derive_outcome("done", None, result)
+    assert fb.OUT_OF_CREDIT_NOTICE in message
+    _, slow = jobs_service.derive_outcome("done", None, jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": "slow", "detail": "x"}]}))
+    assert fb.OUT_OF_CREDIT_NOTICE not in slow
