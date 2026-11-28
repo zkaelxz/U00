@@ -228,3 +228,66 @@ def test_the_artifact_redirect_is_followed_without_the_token(monkeypatch):
     assert ctt._get("https://api.github.com/x/zip", "tok", raw=True) == b"zip-bytes"
     assert seen["first"]["Authorization"] == "Bearer tok"
     assert seen["second"] == "https://blob/signed"  # a bare URL: no Authorization header goes with it
+
+
+# Turning auto-merge on starts a new run of the same PR head; it may skip only what the newest earlier
+# run of the identical merge tree already passed.
+DEFERRED = pr_outputs(run_e2e=False, e2e_deferred=True)
+APPROVED = pr_outputs()  # what ci_changes prints once the merge is approved
+THIS_RUN = 99
+
+
+def on_approval(get, merged=("services/x.py",), tree=None):
+    out = io.StringIO()
+    ctt.main(["--on-approval"], stdin=io.StringIO(lines(APPROVED)), stdout=out,
+             env={"GITHUB_REPOSITORY": REPO, "PR_HEAD_SHA": HEAD, "GITHUB_RUN_ID": str(THIS_RUN), "GITHUB_TOKEN": "tok"},
+             tree=tree or trees(), get=get, merged_files=lambda: list(merged))
+    return ctt.parse_outputs(out.getvalue())
+
+
+class TestOnApproval:
+    def test_a_green_run_of_the_same_tree_leaves_only_the_deferred_browser_tests(self):
+        get, _ = fake_github(DEFERRED)
+        out = on_approval(get)
+        assert out["run_e2e"] and not out["e2e_deferred"]
+        assert not out["run_full_pytest"] and not out["run_app_checks"]
+        assert not out["run_windows_scripts"] and not out["run_caddy"]
+
+    @pytest.mark.parametrize("tree,base_tree", [("x" * 40, BASE), (TREE, "y" * 40)])
+    def test_another_merge_tree_or_base_runs_everything(self, tree, base_tree):
+        get, _ = fake_github(DEFERRED, tree=tree, base_tree=base_tree)
+        assert on_approval(get) == APPROVED
+
+    @pytest.mark.parametrize("run", [
+        green_run(conclusion="failure"), green_run(conclusion="cancelled"), green_run(status="in_progress"),
+        green_run(head_repository={"full_name": "fork/r"})])
+    def test_a_run_that_is_not_green_or_is_a_forks_runs_everything(self, run):
+        get, _ = fake_github(DEFERRED, run=run)
+        assert on_approval(get) == APPROVED
+
+    def test_a_newer_failed_run_of_the_tree_outranks_an_older_green_one(self):
+        get, _ = fake_github(DEFERRED, runs=[
+            (green_run(id=7, run_number=3), record_of(DEFERRED)),
+            (green_run(id=8, run_number=4, conclusion="failure"), record_of(DEFERRED))])
+        assert on_approval(get) == APPROVED
+
+    def test_its_own_run_is_never_the_one_reused(self):
+        get, asked = fake_github(DEFERRED, runs=[
+            (green_run(id=THIS_RUN, run_number=9, status="in_progress", conclusion=None), record_of(APPROVED)),
+            (green_run(id=7, run_number=3), record_of(DEFERRED))])
+        assert not on_approval(get)["run_full_pytest"]
+        assert not any(f"/runs/{THIS_RUN}/" in u for u in asked)
+
+    def test_no_earlier_run_runs_everything(self):
+        get, _ = fake_github(DEFERRED, runs=[])
+        assert on_approval(get) == APPROVED
+
+    def test_a_pr_that_changes_ci_files_runs_everything(self):
+        get, asked = fake_github(DEFERRED)
+        assert on_approval(get, merged=(".github/workflows/tests.yml",)) == APPROVED
+        assert asked == []
+
+    def test_an_api_error_runs_everything(self):
+        def get(url, token, raw=False):
+            raise urllib.error.URLError("down")
+        assert on_approval(get) == APPROVED

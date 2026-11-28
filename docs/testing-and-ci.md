@@ -142,7 +142,7 @@ ordered to merge. On a pull request without auto-merge on, `changes` holds them 
 `browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
 cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
 `auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
-status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
+status turns green when they pass, or at once when the change needs none. That run skips what the newest earlier run of the same PR head already passed, by the same tree match as "After a merge" below (`tools/ci_tested_tree.py --on-approval`): only a green run from this repo that tested the identical merge tree on the identical base counts, never the run itself, and anything else (no such run, a newer run that failed or is still running, an API error, a PR that changes an "everything" file, the `full-ci` label) runs everything the PR needs. Its record lists what the tree needed, so the push after the merge can still shorten its run. The `full-ci` label runs them at once. Pushes to the
 base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
 order yet. The status is set by the workflow's token. A Dependabot PR's own runs have a read-only one and set none, but the run
 that a person starts by turning auto-merge on can set it. A fork's PR never can: run its tests on a branch of this repo instead. Re-running an older run that held
