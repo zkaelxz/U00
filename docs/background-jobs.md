@@ -541,7 +541,7 @@ The client reads the `job_records` row, never the in-memory dict, with these cha
 
 - **Result allow-list.** `RESULT_ALLOWED_KEYS` are the only result keys stored or
   returned. Values are scalars or short lists of scalars: strings are capped
-  (`_MAX_STR` 500) and URLs replaced with `[URL]`; lists are capped (`_MAX_LIST` 20); the
+  (`MAX_STR` 500) and URLs replaced with `[URL]`; lists are capped (`_MAX_LIST` 20); the
   JSON is capped (`_MAX_JSON` 8000 bytes). A key not on the list is dropped, also from
   older stored rows (re-projected on read). A new result key a client needs must be added
   to `RESULT_ALLOWED_KEYS`.
