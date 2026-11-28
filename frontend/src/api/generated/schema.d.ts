@@ -3262,7 +3262,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Send logs: a scrubbed zip of the support report, system info, recent job records and app.log (binary download) */
+        /** Send logs: a scrubbed zip of the support report, system info, recent job records and app.log (binary download; 409 while one is built) */
         get: operations["get_support_bundle_api_diagnostics_support_bundle_get"];
         put?: never;
         post?: never;
@@ -44452,6 +44452,25 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                    "application/zip": unknown;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
