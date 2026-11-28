@@ -12,7 +12,11 @@ from scanlate import scanlate_tuning
 _NOTE = (" Keep every fact: each name, number, place and what happens. Drop only filler words and "
          "soft phrasing, add nothing, and keep the tone of {tone}.")
 _KINDS = {"sign": ("signs", "a sign or notice", "the sign's band"),
-          "bubble": ("speech balloons", "the speaker", "the balloon")}
+          "bubble": ("speech balloons", "the speaker, in natural complete sentences someone would "
+                                        "say aloud, never a headline or fragment", "the balloon")}
+# Speech is trimmed, not cut to a telegram: a balloon keeps at least this share of its text, and a
+# line that would need more cut than that stays at the small size it fits at.
+_MIN_KEPT_SHARE = {"sign": 0.0, "bubble": 0.6}
 
 
 # A budget this small is a sound word or an exclamation ("Guh...") on a tiny band: there is
@@ -38,6 +42,8 @@ def condense_long_texts(bubbles: list, measure, ask, kind: str = "sign") -> list
         # Room for text grows with the square of the size, so this is the share that fits at the
         # readable size.
         budget = int(len(text) * (fitted / comfort) ** 2)
+        if budget < _MIN_KEPT_SHARE[kind] * len(text):
+            continue
         if budget >= _SMALLEST_USEFUL_BUDGET:
             wanted[str(key)] = (text, budget)
     if not wanted:

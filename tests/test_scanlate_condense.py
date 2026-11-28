@@ -140,7 +140,7 @@ def test_only_the_english_a_translation_call_wrote_is_up_for_shortening():
 
 def test_only_a_balloon_is_shortened_when_asked_for_balloons():
     bubbles = _signs()
-    sizes = {id(bubbles[0]): 9, id(bubbles[2]): 9}
+    sizes = {id(bubbles[0]): 9, id(bubbles[2]): 12}
     asked = {}
     changed = scanlate_condense.condense_long_texts(
         bubbles, lambda b: sizes.get(id(b)), lambda wanted: asked.update(wanted) or {"2": "Short line"}, "bubble")
@@ -185,10 +185,19 @@ def test_the_run_shortens_a_cramped_balloon_and_says_so(monkeypatch):
     monkeypatch.setattr(run.render_svc, "_custom_fonts", lambda drama_id: {})
     monkeypatch.setattr(scanlate_page_decode, "decode_page", lambda path: object())
     monkeypatch.setattr(scanlate_page_decode, "page_gray", lambda path, page: object())
-    monkeypatch.setattr(scanlate_render, "balloon_fitted_size", lambda *a, **k: 9)
+    monkeypatch.setattr(scanlate_render, "balloon_fitted_size", lambda *a, **k: 12)
     monkeypatch.setattr(scanlate_condense, "ask_for_shorter", lambda *a, **k: {"0": "Trains stopped"})
     bubbles = [{"kind": "bubble", "translated_text": "Traffic is jammed. All AB line trains have stopped."}]
     notes = []
     run._condense_signs(1, 2, bubbles, object(), "claude", {"source_language": "ko"}, notes)
     assert bubbles[0]["translated_text"] == "Trains stopped"
     assert "balloon" in notes[0][1] and "shortened" in notes[0][1]
+
+
+def test_a_balloon_that_would_need_more_than_a_trim_is_left_at_its_small_size():
+    bubbles = [{"kind": "bubble", "translated_text": "So, what's the deal with the Manticores at the pass?"}]
+    asked = []
+    scanlate_condense.condense_long_texts(bubbles, lambda b: 9, lambda wanted: asked.append(wanted) or {}, "bubble")
+    assert asked == []
+    scanlate_condense.condense_long_texts(bubbles, lambda b: 12, lambda wanted: asked.append(wanted) or {}, "bubble")
+    assert len(asked) == 1 and asked[0]["0"][1] >= 0.6 * len(bubbles[0]["translated_text"])
