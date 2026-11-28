@@ -145,9 +145,12 @@ def maybe_start_self_check(night: dict, now: float) -> bool:
         return False
     if job_launch.exclusive_active() or job_launch.maintenance_active() or library_admin_service.any_job_running():
         return False
-    db.set_app_setting(CHECK_KEY, {**state, "night": key})
-    return job_launch.start_job(CHECK_JOB_ID, run_self_check, gpu_touching=True,
-                                description="Nightly self-check", line_fields=())
+    if not job_launch.start_job(CHECK_JOB_ID, run_self_check, gpu_touching=True,
+                                description="Nightly self-check", line_fields=()):
+        return False    # left unrecorded, so a later tick of this night tries again
+    # Read again: the check's own record_results may write its streaks once it has started.
+    db.set_app_setting(CHECK_KEY, {**_state(), "night": key})
+    return True
 
 
 def _paid_check() -> Optional[dict]:

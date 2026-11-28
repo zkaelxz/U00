@@ -1264,6 +1264,96 @@ def test_bulk_and_all_steps_adds_can_wait_for_tonight(jobs):
     assert [i["tonight"] for i in _items()] == [True, True, True, True]
 
 
+def test_a_titles_later_steps_wait_behind_its_tonight_transcribe(jobs, idle, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.set_item_tonight(None, transcribe_a, True)
+    monkeypatch.setattr(q, "_clock", lambda: _at(15))
+    q.tick(now=_at(15))
+    # Title B goes ahead; A's Translate and Export must not start before A's Transcribe.
+    assert jobs.started == [f"transcribe_{b}"]
+    jobs.finish(f"transcribe_{b}")
+    q.tick(now=_at(15, 1))
+    assert jobs.started == [f"transcribe_{b}"]
+    assert _status() == [("transcribe", "waiting"), ("translate", "waiting"), ("export", "waiting"),
+                         ("transcribe", "done")]
+    assert [i["reason"] for i in _items()[1:3]] == ["Waits for this title's earlier step, which runs tonight."] * 2
+    q.tick(now=_at(1, 5, day=29))
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(1, 6, day=29))
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_run_now_on_a_later_step_is_refused_while_its_titles_earlier_step_waits_for_tonight(jobs, idle):
+    a = _drama("A")
+    q.add_all_steps(None, a, True, at_pc=True, tonight=True)
+    transcribe_a, translate_a, _export_a = (i["id"] for i in _items())
+    with pytest.raises(ConflictError, match="Press Run now on that step first"):
+        q.set_item_tonight(None, translate_a, False)
+    assert [i["tonight"] for i in _items()] == [True, True, True]
+    q.tick(now=_at(15))
+    assert jobs.started == []
+    # Run now on the Transcribe lets it, and then the Translate, run in turn by day.
+    q.set_item_tonight(None, transcribe_a, False)
+    q.set_item_tonight(None, translate_a, False)
+    q.tick(now=_at(15, 1))
+    assert jobs.started == [f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(15, 2))
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_a_titles_later_steps_wait_behind_its_paused_transcribe(jobs):
+    a, b = _drama("A"), _drama("B")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.hold_item(None, transcribe_a, True)
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}"]
+    jobs.finish(f"transcribe_{b}")
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}"]
+    assert [i["reason"] for i in _items()[1:3]] == ["Waits for this title's earlier step, which is paused."] * 2
+    q.hold_item(None, transcribe_a, False)
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}", f"translate_{a}"]
+
+
+@pytest.mark.parametrize("refusal", ["returns False", "raises"])
+def test_a_self_check_that_did_not_start_leaves_the_night_unrecorded(jobs, idle, monkeypatch, refusal):
+    from jobs import job_launch
+    from services import library_admin_service, queue_night
+    started = {"value": False}
+    ran = []
+
+    def start_job(job_id, target, *a, **kw):
+        ran.append(job_id)
+        if not started["value"] and refusal == "raises":
+            raise ConflictError("Baihe is stopping.")
+        return started["value"]
+    monkeypatch.setattr(job_launch, "start_job", start_job)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+    if refusal == "raises":
+        with pytest.raises(ConflictError):
+            q.night_tick(now=_at(2))
+    else:
+        q.night_tick(now=_at(2))
+    assert ran == ["nightly_check"]
+    assert queue_night._state()["night"] is None
+    started["value"] = True
+    q.night_tick(now=_at(2, 5))
+    q.night_tick(now=_at(2, 10))
+    assert ran == ["nightly_check"] * 2
+    assert queue_night._state()["night"] == "2026-11-28"
+
+
 def test_the_morning_summary_is_sent_once_after_the_window(jobs, idle, monkeypatch):
     from services import notification_service, queue_night
     told = []
