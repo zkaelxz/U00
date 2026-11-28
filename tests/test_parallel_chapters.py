@@ -781,6 +781,18 @@ def test_out_of_credit_after_a_slow_switch_is_still_reported(quick_slow_line):
     assert [e["reason"] for e in engine.events] == ["slow", fb.OUT_OF_CREDIT]
 
 
+def test_out_of_credit_with_no_fallback_says_deepseek_is_out_of_credit(quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 0 and engine._state.fallback_failed
+    # The next run asks DeepSeek again rather than an Ollama that isn't there.
+    assert _switching(primary_delay=0.0).active == 0
+
+
 def test_the_finished_job_says_deepseek_is_out_of_credit():
     from services import jobs_service
     result = jobs_service.project_result({

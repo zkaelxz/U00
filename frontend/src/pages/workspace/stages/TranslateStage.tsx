@@ -112,9 +112,7 @@ const REVIEW_GLOSSARY_HELP = `Changes what the Translate button does. ${REVIEW_G
 export function EstimateView({ e }: { e: TranslateRunEstimate }) {
   const check = e.alignment_check_usd ?? null
   const total = e.estimated_usd === null ? null : e.estimated_usd + (check ?? 0)
-  const cost = e.free ? 'free' : total === null ? 'unknown'
-    : e.estimate_is_lower_bound ? `at least $${total.toFixed(2)} (thinking adds hidden output, so the real cost is higher)`
-      : `about $${total.toFixed(2)}`
+  const cost = e.free ? 'free' : total === null ? 'unknown' : `about $${total.toFixed(2)}`
   const parts = check !== null && e.estimated_usd !== null && !e.free
     ? ` (translation $${e.estimated_usd.toFixed(2)}, Source match check ${check < 0.01 ? 'under $0.01' : `$${check.toFixed(2)}`})`
     : ''
@@ -162,7 +160,6 @@ function advancedSummary(f: RunForm, base: RunForm, reviewFirst: boolean): strin
   if (f.fallbacks.length) parts.push(`${f.fallbacks.length} fallback${f.fallbacks.length === 1 ? '' : 's'}`)
   if (f.reflect) parts.push('reflect')
   if (f.bulk) parts.push('bulk')
-  if (f.thinking !== base.thinking) parts.push(f.thinking ? 'thinking on' : 'thinking off')
   if (f.force) parts.push('re-translate existing')
   return parts.length ? parts.join(' · ') : 'defaults'
 }

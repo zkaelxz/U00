@@ -27,7 +27,7 @@ POLL_INTERVAL_SECONDS = 60
 
 
 def poll_job_id(bulk_job_id: int) -> str:
-    return f"bulkpoll_{bulk_job_id}"
+    return f"{background_jobs.BULK_POLL_JOB_PREFIX}{bulk_job_id}"
 
 
 def _polled_by_outer_job(job: dict) -> bool:
@@ -189,7 +189,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
                "scene_aware_batches": bool(args.get("scene_aware_batches"))}
     from services import line_provenance_service
     provenance = line_provenance_service.translate_run_tracker(
-        did, lines, engine, job["engine"], terms, thinking=args.get("thinking"),
+        did, lines, engine, job["engine"], terms,
         locale=args.get("locale", "en-US"), style_preset=args.get("style_preset", ""), reflect=False,
         context_window=args.get("context_window", 6), style_note=args.get("style_note", ""),
         style_guidelines=args.get("style_guidelines", ""), **options)
@@ -208,7 +208,6 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
             did, getattr(engine, "name", job["engine"]), getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
-        thinking=args.get("thinking"),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent),
         # An unattended run is the one nobody can stop, so the logged month
         # spend (other runs included) is re-read before each batch.

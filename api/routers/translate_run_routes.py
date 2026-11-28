@@ -20,7 +20,7 @@ The source-changed run (`jobs.start`, engine-checked the same way) re-translates
 the lines flagged source_changed (see source_change.py).
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Path, Query, Request
 from api.auth import (engine_for_caller, is_auth_enabled, holds_paid_engines, is_local_request,
@@ -35,18 +35,50 @@ from api.schemas import (TopicChaptersGenerated, TopicChaptersSave, TopicChapter
                          TranslatePresetApplied, TranslatePresetApply,
                          TranslatePresetDefault, TranslatePresetSave, TranslatePresetSaved,
                          TranslatePresetUpdate, TranslatePresetUpdated, TranslateRunConfig,
-                         TranslateRunEstimate, TranslateRunStart, TranslateRunStarted,
+                         TranslateRunEstimate, TranslateRunOptions, TranslateRunOptionsWithFallback,
+                         TranslateRunStart, TranslateRunStarted,
                          WorkflowTierApplied, WorkflowTierApply, error_responses)
 from api.llm_slots import llm_slot
 from services import (topic_chapter_service, episode_summary_service, failed_lines_service, glossary_flagged_service,
                       glossary_retranslate_service, novel_chapter_retranslate_service,
                       ownership_service, settings_service,
                       source_change_service,
-                      translate_preset_service, translate_run_service,
-                      translate_thinking_service)
+                      translate_preset_service, translate_run_service)
 from lib.errors import ForbiddenError
 
 router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
+
+
+def _require_run_engine_and_model(request: Request, drama_id: int,
+                                  body: TranslateRunOptions) -> tuple[str, Optional[str]]:
+    """The engine and model the run will use, refused (with any fallback) when
+    the caller may not use them."""
+    engine, model = engine_for_caller(
+        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
+    fallback_chain = getattr(body, "fallback_chain", None) or ()
+    require_engines_allowed(request, engine, *[f.engine for f in fallback_chain])
+    require_cloud_model_allowed(request, (engine, model),
+                                *[(f.engine, f.model) for f in fallback_chain])
+    return engine, model
+
+
+def _run_options(request: Request, body: TranslateRunOptions, engine: str,
+                 model: Optional[str]) -> Dict[str, Any]:
+    """The shared run options as the start functions' keyword arguments."""
+    options: Dict[str, Any] = dict(
+        engine_name=engine, model=model, style_preset=body.style_preset,
+        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
+        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
+        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
+        default_female_pronouns=body.default_female_pronouns,
+        include_genre_notes=body.include_genre_notes,
+        # The Settings episode-summary engine may be a cloud one: skipped
+        # for a caller without engines.paid rather than refusing the run.
+        allow_paid_summary=holds_paid_engines(request))
+    if isinstance(body, TranslateRunOptionsWithFallback):
+        options["fallback_chain"] = ([f.model_dump() for f in body.fallback_chain]
+                                     if body.fallback_chain else None)
+    return options
 
 
 @router.get("/dramas/{drama_id}/config", dependencies=[require_permission("library.read")], response_model=TranslateRunConfig,
@@ -55,7 +87,6 @@ router = APIRouter(prefix="/api/translate-run", tags=["translate-run"])
 def get_translate_run_config(drama_id: int = Path(ge=1)):
     with settings_service.read_once():
         return {**translate_run_service.get_translate_config(drama_id),
-                **translate_thinking_service.config_fields(drama_id),
                 **failed_lines_service.summarize(drama_id),
                 **glossary_flagged_service.config_fields(drama_id),
                 **glossary_flagged_service.doubtful_config_fields(drama_id)}
@@ -70,7 +101,6 @@ def get_translate_run_estimate(request: Request, drama_id: int = Path(ge=1),
                                reflect: bool = False,
                                force_retranslate: bool = False,
                                bulk: bool = False,
-                               thinking: Optional[bool] = None,
                                gemini_free_tier: Optional[bool] = None,
                                job_cost_cap_usd: Optional[float] = Query(None, ge=0),
                                batch_size: Optional[int] = Query(None, ge=1, le=translate_run_service.MAX_BATCH_SIZE),
@@ -78,51 +108,26 @@ def get_translate_run_estimate(request: Request, drama_id: int = Path(ge=1),
                                chapter_from: Optional[int] = Query(None, ge=1),
                                chapter_to: Optional[int] = Query(None, ge=1),
                                style_preset: Optional[str] = Query(None, max_length=40)):
-    return translate_thinking_service.annotate_estimate(
-        translate_run_service.estimate_translate_cost(
-            drama_id, engine_name=engine, model=model, reflect=reflect,
-            force_retranslate=force_retranslate, bulk=bulk,
-            gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
-            batch_size=batch_size, line_ids=line_ids,
-            chapter_from=chapter_from, chapter_to=chapter_to, style_preset=style_preset,
-            check_balance=holds_paid_engines(request)),
-        drama_id, thinking, reflect)
-
-
-def _may_remember(request: Request, body) -> bool:
-    return translate_thinking_service.may_remember(holds_paid_engines(request), body.thinking)
+    return translate_run_service.estimate_translate_cost(
+        drama_id, engine_name=engine, model=model, reflect=reflect,
+        force_retranslate=force_retranslate, bulk=bulk,
+        gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
+        batch_size=batch_size, line_ids=line_ids,
+        chapter_from=chapter_from, chapter_to=chapter_to, style_preset=style_preset,
+        check_balance=holds_paid_engines(request))
 
 
 @router.post("/dramas/{drama_id}/run", dependencies=[require_permission("jobs.start")], response_model=TranslateRunStarted,
              summary="Start a translation (normal, Reflect and/or bulk) as a background job",
              responses=error_responses(400, 404, 409, 422, 503))
 def start_translate_run(body: TranslateRunStart, request: Request, drama_id: int = Path(ge=1)):
-    engine, model = engine_for_caller(
-        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
-    require_engines_allowed(request, engine,
-                            *[f.engine for f in (body.fallback_chain or ())])
-    require_cloud_model_allowed(request, (engine, model),
-                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
-    return translate_thinking_service.start_with_thinking(
-        translate_run_service.start_translate_run, drama_id, body.thinking,
-        _may_remember(request, body),
-        engine_name=engine, model=model,
-        style_preset=body.style_preset, style_note=body.style_note,
-        locale=body.locale, force_retranslate=body.force_retranslate,
-        context_window=body.context_window,
-        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
-        line_ids=body.line_ids, gemini_free_tier=body.gemini_free_tier,
-        job_cost_cap_usd=body.job_cost_cap_usd,
-        fallback_chain=[f.model_dump() for f in body.fallback_chain]
-        if body.fallback_chain else None,
+    engine, model = _require_run_engine_and_model(request, drama_id, body)
+    return translate_run_service.start_translate_run(
+        drama_id, **_run_options(request, body, engine, model),
+        force_retranslate=body.force_retranslate, line_ids=body.line_ids,
         reflect=body.reflect, bulk=body.bulk,
-        default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes, memory_examples=body.memory_examples,
-        own_lines_only=body.own_lines_only,
-        chapter_from=body.chapter_from, chapter_to=body.chapter_to,
-        # The Settings episode-summary engine may be a cloud one: skipped
-        # for a caller without engines.paid rather than refusing the run.
-        allow_paid_summary=holds_paid_engines(request))
+        memory_examples=body.memory_examples, own_lines_only=body.own_lines_only,
+        chapter_from=body.chapter_from, chapter_to=body.chapter_to)
 
 
 @router.get("/dramas/{drama_id}/glossary-affected", dependencies=[require_permission("lines.read")],
@@ -150,25 +155,11 @@ def get_glossary_affected(drama_id: int = Path(ge=1),
              responses=error_responses(400, 404, 409, 422, 503))
 def start_glossary_affected_run(body: GlossaryAffectedRunStart, request: Request,
                                 drama_id: int = Path(ge=1)):
-    engine, model = engine_for_caller(
-        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
-    require_engines_allowed(request, engine,
-                            *[f.engine for f in (body.fallback_chain or ())])
-    require_cloud_model_allowed(request, (engine, model),
-                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
-    return translate_thinking_service.start_with_thinking(
-        glossary_retranslate_service.start_affected_retranslate, drama_id, body.thinking,
-        _may_remember(request, body), body.line_ids, body.preview_hash,
-        include_hand_edited=body.include_hand_edited, term_ids=body.term_ids,
-        engine_name=engine, model=model, style_preset=body.style_preset,
-        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
-        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
-        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
-        fallback_chain=[f.model_dump() for f in body.fallback_chain]
-        if body.fallback_chain else None,
-        reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
-        allow_paid_summary=holds_paid_engines(request))
+    engine, model = _require_run_engine_and_model(request, drama_id, body)
+    return glossary_retranslate_service.start_affected_retranslate(
+        drama_id, body.line_ids, body.preview_hash,
+        include_hand_edited=body.include_hand_edited, term_ids=body.term_ids, reflect=body.reflect,
+        **_run_options(request, body, engine, model))
 
 
 @router.get("/dramas/{drama_id}/chapters/{number}/retranslate", dependencies=[require_permission("lines.read")],
@@ -187,20 +178,9 @@ def get_chapter_retranslate(drama_id: int = Path(ge=1), number: int = Path(ge=1)
              responses=error_responses(400, 404, 409, 422, 503))
 def start_chapter_retranslate(body: NovelChapterRetranslateStart, request: Request,
                               drama_id: int = Path(ge=1), number: int = Path(ge=1)):
-    engine, model = engine_for_caller(
-        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
-    require_engines_allowed(request, engine)
-    require_cloud_model_allowed(request, (engine, model))
-    return translate_thinking_service.start_with_thinking(
-        novel_chapter_retranslate_service.start, drama_id, body.thinking,
-        _may_remember(request, body), number, body.include_hand_edited,
-        engine_name=engine, model=model, style_preset=body.style_preset,
-        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
-        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
-        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
-        default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
-        allow_paid_summary=holds_paid_engines(request))
+    engine, model = _require_run_engine_and_model(request, drama_id, body)
+    return novel_chapter_retranslate_service.start(
+        drama_id, number, body.include_hand_edited, **_run_options(request, body, engine, model))
 
 
 @router.post("/dramas/{drama_id}/source-changed/run", dependencies=[require_permission("jobs.start")],
@@ -209,24 +189,9 @@ def start_chapter_retranslate(body: NovelChapterRetranslateStart, request: Reque
              responses=error_responses(400, 404, 409, 422, 503))
 def start_source_changed_run(body: SourceChangedRetranslateStart, request: Request,
                              drama_id: int = Path(ge=1)):
-    engine, model = engine_for_caller(
-        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
-    require_engines_allowed(request, engine,
-                            *[f.engine for f in (body.fallback_chain or ())])
-    require_cloud_model_allowed(request, (engine, model),
-                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
-    return translate_thinking_service.start_with_thinking(
-        source_change_service.start_retranslate, drama_id, body.thinking,
-        _may_remember(request, body), body.line_ids,
-        engine_name=engine, model=model, style_preset=body.style_preset,
-        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
-        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
-        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
-        fallback_chain=[f.model_dump() for f in body.fallback_chain]
-        if body.fallback_chain else None,
-        reflect=body.reflect, default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
-        allow_paid_summary=holds_paid_engines(request))
+    engine, model = _require_run_engine_and_model(request, drama_id, body)
+    return source_change_service.start_retranslate(
+        drama_id, body.line_ids, reflect=body.reflect, **_run_options(request, body, engine, model))
 
 
 @router.post("/dramas/{drama_id}/retry-failed/run", dependencies=[require_permission("jobs.start")],
@@ -234,23 +199,8 @@ def start_source_changed_run(body: SourceChangedRetranslateStart, request: Reque
              summary="Translate again exactly the lines the last run failed on",
              responses=error_responses(400, 404, 409, 422, 503))
 def start_retry_failed(body: RetryFailedLinesStart, request: Request, drama_id: int = Path(ge=1)):
-    engine, model = engine_for_caller(
-        request, body.engine, body.engine or translate_run_service.run_engine_name(drama_id), body.model)
-    require_engines_allowed(request, engine,
-                            *[f.engine for f in (body.fallback_chain or ())])
-    require_cloud_model_allowed(request, (engine, model),
-                                *[(f.engine, f.model) for f in (body.fallback_chain or ())])
-    return translate_thinking_service.start_with_thinking(
-        failed_lines_service.start_retry, drama_id, body.thinking, _may_remember(request, body),
-        engine_name=engine, model=model, style_preset=body.style_preset,
-        style_note=body.style_note, locale=body.locale, context_window=body.context_window,
-        context_window_ahead=body.context_window_ahead, batch_size=body.batch_size,
-        gemini_free_tier=body.gemini_free_tier, job_cost_cap_usd=body.job_cost_cap_usd,
-        fallback_chain=[f.model_dump() for f in body.fallback_chain]
-        if body.fallback_chain else None,
-        default_female_pronouns=body.default_female_pronouns,
-        include_genre_notes=body.include_genre_notes,
-        allow_paid_summary=holds_paid_engines(request))
+    engine, model = _require_run_engine_and_model(request, drama_id, body)
+    return failed_lines_service.start_retry(drama_id, **_run_options(request, body, engine, model))
 
 
 @router.post("/dramas/{drama_id}/glossary-flagged/run", dependencies=[require_permission("jobs.start")],
@@ -263,8 +213,8 @@ def start_glossary_flagged_redo(request: Request, body: GlossaryFlaggedRedoStart
     require_engines_allowed(request, engine)
     require_cloud_model_allowed(request, (engine, None))
     # The checked name is passed on, so a Settings change in between is refused.
-    return translate_thinking_service.start_with_thinking(
-        glossary_flagged_service.start_redo, drama_id, None, False, engine,
+    return glossary_flagged_service.start_redo(
+        drama_id, engine,
         allow_paid_summary=holds_paid_engines(request),
         line_ids=body.line_ids if body else None, kind=body.kind if body else "glossary")
 

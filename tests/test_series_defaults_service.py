@@ -92,11 +92,10 @@ class TestDefaults:
         with pytest.raises(InvalidInputError):
             svc.set_defaults(people["a"], s, bad)
 
-    @pytest.mark.parametrize("key", ["use_groq", "translate_thinking"])
-    def test_paid_gated_title_settings_are_refused(self, people, key):
+    def test_paid_gated_title_settings_are_refused(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
         with pytest.raises(InvalidInputError):
-            svc.set_defaults(people["a"], s, {key: True})
+            svc.set_defaults(people["a"], s, {"use_groq": True})
 
     def test_rejects_a_non_dict(self, people):
         s = db.create_series("Saga", owner_user_id=people["a_id"])
@@ -340,10 +339,7 @@ def test_the_db_write_refuses_a_key_outside_the_whitelist(isolated_db):
 #   use_groq           -- api/routers/transcribe_routes.py post_transcribe_config:
 #                         require_paid_engines when use_groq (Groq cloud on the
 #                         owner's key; the run route checks it again).
-#   translate_thinking -- services/translate_thinking_service.may_remember: only an
-#                         engines.paid holder may turn a title's saved thinking on,
-#                         because later paid calls reuse it.
-PAID_GATED_TITLE_COLUMNS = {"use_groq", "translate_thinking"}
+PAID_GATED_TITLE_COLUMNS = {"use_groq"}
 # Checked and allowed: translation_engine (every run gates the engine it uses
 # with api.auth.require_engines_allowed, a missing engine counting as paid);
 # the transcribe tuning knobs and the other Translate toggles (lines.edit, no

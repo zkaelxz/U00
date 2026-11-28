@@ -130,26 +130,25 @@ describe('the header\'s buttons on a desktop', () => {
   const actions = (html: string) => html.slice(html.indexOf('class="title-top-actions"'), html.indexOf('class="title-top-more-row"'))
   const names = (html: string) => [...html.matchAll(/<(?:a|button)\b[^>]*>([^<]+)</g)].map((m) => m[1])
 
-  it('are Add media, Redo transcription, Glossary, Search and More, in that order', () => {
+  const moreRow = (html: string) => html.slice(html.indexOf('class="title-top-more-row"'), html.indexOf('class="title-steps"'))
+
+  it('are the Simple | Full switch and More, with the title\'s other controls in More\'s row', () => {
     browser(false)
-    expect(names(actions(render(AT.check, { home: true, onSearch: () => {} })))).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'More'])
+    const html = render(AT.check, { home: true, onSearch: () => {} })
+    expect(names(actions(html))).toEqual(['More'])
+    expect(actions(html).indexOf('Title view')).toBeLessThan(actions(html).indexOf('>More<'))
+    expect(names(moreRow(html))).toEqual(['Add media', 'Redo transcription', 'Glossary', 'Search', 'Open folder', 'Add a source link'])
   })
 
   it('offer Search only for a title with lines, and only where something can answer it', () => {
     browser(false)
-    expect(names(actions(render(AT.transcribe, { home: true, onSearch: () => {} })))).not.toContain('Search')
-    expect(names(actions(render(AT.check, { home: true })))).not.toContain('Search')
+    expect(names(moreRow(render(AT.transcribe, { home: true, onSearch: () => {} })))).not.toContain('Search')
+    expect(names(moreRow(render(AT.check, { home: true })))).not.toContain('Search')
   })
 
-  it('have the Simple | Full switch after Search and before More, and not in More\'s row', () => {
+  it('have the switch in the header row and not in More\'s row', () => {
     browser(false)
-    const html = render(AT.check, { home: true, onSearch: () => {} })
-    const row = actions(html)
-    expect(row.indexOf('>Search<')).toBeLessThan(row.indexOf('Title view'))
-    expect(row.indexOf('Title view')).toBeLessThan(row.indexOf('>More<'))
-    const more = html.slice(html.indexOf('class="title-top-more-row"'), html.indexOf('class="title-steps"'))
-    expect(more).not.toContain('Title view')
-    expect(names(more)).toEqual(['Open folder', 'Add a source link'])
+    expect(moreRow(render(AT.check, { home: true, onSearch: () => {} }))).not.toContain('Title view')
   })
 
   it('leave a slot in More\'s row where an audio title\'s Player button is drawn', () => {

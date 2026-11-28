@@ -1,0 +1,114 @@
+[
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "whisper",
+  "use_groq": false,
+  "separator_ready": true,
+  "separates": true
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "whisper",
+  "use_groq": false,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "whisper",
+  "use_groq": true,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "whisper",
+  "use_groq": true,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": false,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": false,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": true,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "breeze-asr-25",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": true,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "whisper",
+  "use_groq": false,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "whisper",
+  "use_groq": false,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "whisper",
+  "use_groq": true,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "whisper",
+  "use_groq": true,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": false,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": false,
+  "separator_ready": false,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": true,
+  "separator_ready": true,
+  "separates": false
+ },
+ {
+  "whisper_size": "large-v3",
+  "asr_backend_choice": "qwen3_asr",
+  "use_groq": true,
+  "separator_ready": false,
+  "separates": false
+ }
+]

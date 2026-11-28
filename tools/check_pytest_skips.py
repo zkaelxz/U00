@@ -14,7 +14,16 @@ import sys
 import xml.etree.ElementTree as ET
 
 ALLOWED = {
+    ("tests/test_benchmark_lab.py", "could not import 'jiwer': No module named 'jiwer'"),
+    ("tests/test_benchmark_lab.py", "could not import 'sacrebleu': No module named 'sacrebleu'"),
     ("tests/test_hardsub_ocr.py", "could not import 'paddleocr': No module named 'paddleocr'"),
+    ("tests/test_ocr.py", "could not import 'paddleocr': No module named 'paddleocr'"),
+    ("tests/test_ocr.py", "could not import 'pytesseract': No module named 'pytesseract'"),
+    ("tests/test_ocr.py", "could not import 'rapidocr': No module named 'rapidocr'"),
+    ("tests/test_ocr.py", "could not import 'torch': No module named 'torch'"),
+    ("tests/test_ocr.py", "could not import 'transformers': No module named 'transformers'"),
+    ("tests/test_scanlate_inpaint_gpu.py", "could not import 'torch': No module named 'torch'"),
+    ("tests/test_vtuber_name_packs.py", "could not import 'wordfreq': No module named 'wordfreq'"),
     ("tests/test_reader_service.py",
      "could not import 'playwright.sync_api': No module named 'playwright'"),
     ("tests/test_scanlate.py",

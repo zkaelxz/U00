@@ -24,7 +24,6 @@ from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_v
 from .prompts import (MALE_PRONOUN_WORD, build_stable_system_text, is_male_speaker_label,
                       known_male_names, pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
-from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
 from .translation_guard import (HEADER_NOTE, IMPERIAL_NOTE, NUMBER_NOTE, SCRIPT_LEAK_NOTE, added_chapter_header,
                                 allowed_source_runs, changed_number, converted_to_imperial, flag_unusable_replies,
@@ -47,23 +46,19 @@ from en_cleanup import SCENE_BREAK, drop_em_dashes, is_divider
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int | None = None, thinking: bool | None = None,
+                              ollama_num_ctx_override: int | None = None,
                               temperature: float | None = None, reasoning: str | None = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
     (live_cue_translation.build_live_context).
 
-    thinking: let a model that can reason do so. None means the title's
-    remembered choice, else off, so a run is fast and cheap by default;
-    engines without a request switch ignore it.
+    Thinking is switched off for the engines with a request switch, so a run
+    is fast and cheap; the others ignore it.
     reasoning: "less" asks Claude (Sonnet 5.5) or OpenAI (Luna) to reason less (see
     thinking.REASONING_MODES); None keeps the provider's default."""
-    if thinking is None:
-        thinking = title_thinking(drama_meta)
     return {
-        "reply_without_thinking": not thinking,
-        "reply_with_thinking": bool(thinking),
+        "reply_without_thinking": True,
         "drama_meta": drama_meta,
         "style_note": style_note,
         "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
@@ -307,7 +302,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  character_names: dict | None = None, ollama_num_ctx_override: int | None = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float | None = None,
                                  cap_cb=None, month_cap_spent_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False, thinking: bool | None = None,
+                                 scene_aware_batches: bool = False,
                                  translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
@@ -367,7 +362,7 @@ class _TranslateRun:
         self.context = build_translation_context(
             self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
             locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
-            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
+            ollama_num_ctx_override=a.ollama_num_ctx_override,
             temperature=a.temperature, reasoning=a.reasoning)
         self.context["check_replies"] = a.check_replies
         self.size = a.batch_size or default_batch_size(self.engine, reflect=a.reflect)
@@ -696,14 +691,17 @@ class _TranslateRun:
         # Recomputed each batch (not just once outside the loop) since
         # more lines have been translated -- including by this very
         # loop -- by the time later batches run.
+        self._add_neighbours(self.context, batch)
+
+    def _add_neighbours(self, context, chunk):
         recent, upcoming, around = neighbour_context(
-            self.lines, batch, self.args.context_window, self.args.context_window_ahead)
+            self.lines, chunk, self.args.context_window, self.args.context_window_ahead)
         if self.args.context_window > 0:
-            self.context["recent_context"] = recent
+            context["recent_context"] = recent
         # Also when empty after an "around" batch, which may have set source-only neighbours.
-        if self.args.context_window_ahead > 0 or around or self.context.get("upcoming_lines"):
-            self.context["upcoming_lines"] = upcoming
-        self.context["context_around"] = around
+        if self.args.context_window_ahead > 0 or around or context.get("upcoming_lines"):
+            context["upcoming_lines"] = upcoming
+        context["context_around"] = around
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         self.spent += estimate_cost_for_engine(self.engine, inp, out, cache_read, cache_write)
@@ -719,8 +717,10 @@ class _TranslateRun:
         self._report(self.last_frac, f"{self.batch_label} - Engine busy, waiting {delay:.0f} s to retry "
                                      f"(attempt {next_attempt} of {max_retries})")
 
-    def _context_for(self, chunk):
+    def _context_for(self, chunk, own_neighbours=False):
         chunk_context = dict(self.context)
+        if own_neighbours:
+            self._add_neighbours(chunk_context, chunk)
         chunk_context["speaker_labels"] = [self.character_names.get(ln.speaker) for ln in chunk]
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
@@ -764,13 +764,14 @@ class _TranslateRun:
                 out[p] = text
         return out
 
-    def _translate_chunk(self, chunk):
+    def _translate_chunk(self, chunk, own_neighbours=False):
         """Runs one translate attempt for chunk (the whole batch, or
-        one bisected half of it). Returns
+        one bisected half of it). own_neighbours: the chunk is shown the lines
+        around its own lines, not those around the batch. Returns
         (translations, critiques) -- critiques is None outside Reflect
         mode. A ContentModerationBlocked (or any other exception)
         propagates to the caller, which decides what to do about it."""
-        chunk_context = self._context_for(chunk)
+        chunk_context = self._context_for(chunk, own_neighbours)
         if self.args.reflect:
             sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
             finished_passes = {}  # a retry must not pay again for a pass that finished
@@ -850,7 +851,27 @@ class _TranslateRun:
         # ids missing from the reply with "", so a cut-off reply still
         # matches in length; an empty result must not overwrite
         # anything or look like a success.
-        empty, fresh = [], []
+        fresh = []
+        empty = self._keep_replies(chunk, translations, fresh)
+        # Before the retry: a re-asked line is shown its neighbours' English, which must
+        # already be the guarded reply, not a shifted one the guard would replace.
+        self._check_replies(fresh, allow_bisect)
+        # A forced rerun keeps the old English on a line the reply omitted (it may be the
+        # user's own edit), so re-asking it would be the only path that rewrites it.
+        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
+            retried = []
+            empty = self._retry_smaller(empty, retried, depth=0)
+            self._check_replies(retried, allow_bisect)
+        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
+        if empty:
+            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
+                                   f"translation (reply may have been cut off; "
+                                   f"try a smaller batch size)")
+
+    def _keep_replies(self, chunk, translations, fresh):
+        """Writes each non-empty reply to its line, appending those lines to fresh;
+        returns the lines whose reply was empty."""
+        empty = []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
                 ln.en = drop_em_dashes(keep_first_alternative(
@@ -861,15 +882,9 @@ class _TranslateRun:
                 fresh.append(ln)
             else:
                 empty.append(ln)
-        # A forced rerun keeps the old English on a line the reply omitted (it may be the
-        # user's own edit), so re-asking it would be the only path that rewrites it.
-        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
-            empty = self._retry_smaller(empty, fresh, depth=0)
-        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
-        if empty:
-            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
-                                   f"translation (reply may have been cut off; "
-                                   f"try a smaller batch size)")
+        return empty
+
+    def _check_replies(self, fresh, allow_bisect):
         # Sentence mode redistributes one sentence over its fragments, so
         # fragment lengths say nothing there.
         if (allow_bisect and not self.args.reflect and not self.groups
@@ -906,7 +921,9 @@ class _TranslateRun:
                 still.extend(part)
                 continue
             try:
-                translations, _ = self._translate_chunk(part)
+                # The batch's context is the lines before its first line; a line left out
+                # near its end needs its own, now translated, neighbours.
+                translations, _ = self._translate_chunk(part, own_neighbours=True)
             except Exception as e:
                 # The first attempt's gap is what gets reported; a failed retry adds
                 # nothing, unless it must end the run (a timed-out request may still
@@ -920,16 +937,7 @@ class _TranslateRun:
             if len(translations) != len(part):
                 still.extend(part)
                 continue
-            missed = []
-            for ln, tr in zip(part, translations):
-                if (tr or "").strip():
-                    ln.en = drop_em_dashes(tr, ln.zh)
-                    source_change.clear_for_new_english(ln, self.args.replace_flags)
-                    self._flag_if_split(ln)
-                    self.translated.append(ln)
-                    fresh.append(ln)
-                else:
-                    missed.append(ln)
+            missed = self._keep_replies(part, translations, fresh)
             still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
         return still
 

@@ -426,7 +426,7 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
         require_cap_for_after_import(engine, None)
         return scanlate_run_service.start_run(drama_id, mode="missing", engine=engine)["job_id"]
     if step == q.RUN_TRANSLATE:
-        from services import translate_run_service, translate_thinking_service
+        from services import translate_run_service
         engine = settings.get("engine") or ""
         model = settings.get("model") or (
             translate_run_service.run_model_and_batch_size(drama_id, engine)[0] if engine == "ollama" else None)
@@ -444,8 +444,8 @@ def start_step(principal, drama: dict, step: str, settings: dict) -> Optional[st
             if not ids:
                 return None
             scope = {"line_ids": ids, "own_lines_only": True}
-        return translate_thinking_service.start_with_thinking(
-            translate_run_service.start_translate_run, drama_id, None, False, engine_name=engine,
+        return translate_run_service.start_translate_run(
+            drama_id, engine_name=engine,
             locale=settings.get("locale"), model=model, allow_paid_summary=paid, **scope)["job_id"]
     return _start_lines(principal, drama_id, settings)
 

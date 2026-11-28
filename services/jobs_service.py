@@ -759,6 +759,15 @@ def sweep_stale_job_records(records=None) -> int:
     return job_store.sweep_dead_owners(STALE_JOB_SECONDS, records=records)
 
 
+def sweep_at_startup() -> list:
+    """The startup sweep: closes what the last run left running, as
+    sweep_stale_job_records does, and returns those rows for the restart
+    notice."""
+    closed = []
+    job_store.sweep_dead_owners(STALE_JOB_SECONDS, closed_out=closed)
+    return closed
+
+
 def _still_active_here(job_id) -> bool:
     return (background_jobs.get_status(job_id) or {}).get("status") in job_store.ACTIVE
 

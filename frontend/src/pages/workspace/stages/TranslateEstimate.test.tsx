@@ -6,8 +6,8 @@ import { EstimateView } from './TranslateStage'
 
 const estimate = (over: Partial<TranslateRunEstimate> = {}): TranslateRunEstimate => ({
   engine: 'claude', model: null, estimated_usd: 0.42, alignment_check_usd: null, target_line_count: 427, free: false,
-  cap_applies: true, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false, thinking: false,
-  estimate_is_lower_bound: false, balance_too_low: false, ...over,
+  cap_applies: true, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false,
+  balance_too_low: false, ...over,
 })
 const text = (e: TranslateRunEstimate) => renderToStaticMarkup(<EstimateView e={e} />).replace(/<[^>]+>/g, '')
 
