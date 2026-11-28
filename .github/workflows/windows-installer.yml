@@ -379,6 +379,60 @@ jobs:
       # only a fresh install takes it: an update keeps the stored port, so a
       # variable set (or left) for the launcher never moves the service.
       # 8611 is neither the household default nor one of Baihe's own ports.
+
+      # The queued-install path: pending_install writes the queue the way Diagnostics does, the
+      # server's own poller asks BaiheUpdate to restart the service, and the helper installs and
+      # starts it again (installer/service_update.py restart_for_packages). A runner is
+      # disposable, so nothing of anyone's PC is touched.
+      - name: Service -- a queued package install is run by the update helper and rolled back when pip fails
+        shell: pwsh
+        run: |
+          $py = "$env:APP_DIR3\python\python.exe"
+          $result = "$env:APP_DIR3\app-update\package-restart-result.json"
+          $env:BAIHE_DATA_DIR = $env:DATA_DIR3
+          function Queue($pins) {
+            $code = "import time, pending_install as p; p.write_pending(['budoux'], {}, now=lambda: time.time() - 600, pins=$pins)"
+            & $py -s -c $code
+            if ($LASTEXITCODE -ne 0) { Write-Error "couldn't queue the install"; exit 1 }
+            return (Get-Content "$env:DATA_DIR3\pending_install\pending.json" -Raw | ConvertFrom-Json).payload.created
+          }
+          function WaitResult($created) {
+            for ($i = 0; $i -lt 180; $i++) {
+              Start-Sleep -Seconds 3
+              if (Test-Path $result) {
+                $r = Get-Content $result -Raw | ConvertFrom-Json
+                if ($r.queued_created -eq $created) { return $r }
+              }
+            }
+            Write-Host (Get-Content "$env:DATA_DIR3\library\logs\service\*.log" -Tail 40 -ErrorAction SilentlyContinue | Out-String)
+            Write-Error "no package-restart result for the queued install"; exit 1
+          }
+          function Healthy() {
+            for ($i = 0; $i -lt 60; $i++) {
+              try { if ((Invoke-WebRequest -Uri http://127.0.0.1:8600/api/health -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) { return } } catch { }
+              Start-Sleep -Seconds 2
+            }
+            Write-Error "the app didn't answer after the package install"; exit 1
+          }
+          if (& $py -s -m pip show budoux 2>$null) { Write-Error "budoux is already installed"; exit 1 }
+          $created = Queue "None"
+          $r = WaitResult $created
+          Healthy
+          if ($r.outcome -ne 'ok' -or $r.install_status -ne 'ok' -or $r.packages -lt 1 -or $r.downtime_seconds -lt 1) { $r | Format-List; Write-Error "unexpected result"; exit 1 }
+          if (-not (& $py -s -m pip show budoux 2>$null)) { Write-Error "budoux was not installed"; exit 1 }
+          $status = Invoke-RestMethod -Uri http://127.0.0.1:8600/api/diagnostics/pending-install -TimeoutSec 20
+          if ($status.last_restart.outcome -ne 'ok' -or $status.packages.Count -ne 0) { $status | ConvertTo-Json -Depth 5; Write-Error "the app didn't settle the queue"; exit 1 }
+          Write-Host "Installed $($r.packages) package(s); the app was away $($r.downtime_seconds) s."
+          $before = (& $py -s -m pip show budoux | Select-String '^Version:').ToString()
+          # A version that does not exist: pip fails and the earlier packages stay.
+          $created = Queue "{'budoux': '0.0.0'}"
+          $r = WaitResult $created
+          Healthy
+          if ($r.outcome -ne 'ok' -or $r.install_status -ne 'failed') { $r | Format-List; Write-Error "a failing install wasn't reported as failed"; exit 1 }
+          $after = (& $py -s -m pip show budoux | Select-String '^Version:').ToString()
+          if ($before -ne $after) { Write-Error "the failed install changed budoux: $before -> $after"; exit 1 }
+          Write-Host "A failing install was rolled back; the app came back after $($r.downtime_seconds) s."
+
       - name: Service -- an update with BAIHE_API_PORT set keeps the stored port
         shell: pwsh
         run: |
