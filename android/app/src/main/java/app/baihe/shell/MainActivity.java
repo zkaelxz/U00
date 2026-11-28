@@ -870,8 +870,9 @@ public class MainActivity extends Activity {
 
     private void install(File apk) {
         new Thread(() -> {
-            if (!AppUpdate.install(getApplicationContext(), apk)) {
-                runOnUiThread(() -> updateFailed("Android would not start installing the update. "
+            String reason = AppUpdate.install(getApplicationContext(), apk);
+            if (reason != null) {
+                runOnUiThread(() -> updateFailed("Android would not start installing the update (" + reason + "). "
                         + "Press Check for updates in Settings > Phone app to try again."));
             }
         }).start();
