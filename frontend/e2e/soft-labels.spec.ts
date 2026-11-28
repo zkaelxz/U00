@@ -39,6 +39,9 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/#/drama/3/review')
     const search = page.getByPlaceholder('Search source or translation')
     await expect(search).toBeVisible()
+    // Until the lines and their counts arrive the chips are shorter, so the box shares their row and is narrower than it stays.
+    await expect(page.getByText('All 4', { exact: true })).toBeVisible()
+    await expect(page.locator('.review-line').first()).toBeVisible()
     expect(await placeholderFits(search)).toBeGreaterThanOrEqual(0)
   })
 }
