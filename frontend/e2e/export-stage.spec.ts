@@ -161,12 +161,24 @@ test('the readiness warning links to Review checks instead of hosting flag butto
     route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 10, fully_translated: true, overlap_count: 2, auto_qc_issue_count: 0, dense_line_count: 1 } }))
   await page.goto('/#/drama/1/export')
   const warnings = page.getByTestId('readiness-warnings')
-  await expect(warnings).toContainText('all 10 lines translated · 2 cues overlap · 1 dense line')
+  await expect(warnings.locator('[aria-hidden="true"]')).toHaveText(' · 2 cues overlap · 1 dense line')
+  await expect(page.getByTestId('readiness')).toHaveText('Audio title · all 10 lines translated')
   await expect(warnings).toHaveAttribute('title', /2 cues overlap; both stay fully visible in ASS and VTT and are shortened in SRT\./)
   await expect(warnings.getByRole('link', { name: 'Open Review checks' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Flag overlapping lines' })).toHaveCount(0)
   await warnings.getByRole('link', { name: 'Open Review checks' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
+})
+
+test('the readiness bar counts translated lines and says untranslated ones export empty', async ({ page }) => {
+  await page.route('**/api/export/dramas/1/readiness', (route) =>
+    route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 4, fully_translated: false, overlap_count: 0, auto_qc_issue_count: 0, dense_line_count: 0 } }))
+  await page.goto('/#/drama/1/export')
+  const warnings = page.getByTestId('readiness-warnings')
+  await expect(page.getByTestId('readiness')).toHaveText('Audio title · 4 of 10 lines translated')
+  await expect(warnings).toContainText('untranslated lines export empty')
+  await expect(warnings).toContainText('English exports will have empty cues for them.')
+  await expect(warnings.getByRole('link')).toHaveCount(0)
 })
 
 test('the ASS style shows at the top only when ASS is chosen', async ({ page }) => {

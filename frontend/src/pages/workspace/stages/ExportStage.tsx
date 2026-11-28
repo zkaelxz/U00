@@ -178,10 +178,12 @@ export default function ExportStage() {
         {r && (notes.length > 0 ? (
           <WarnBar
             testId="readiness-warnings"
-            title={[counts, ...notes.map((n) => n.full)].join(' ')}
+            title={notes.map((n) => n.full).join(' ')}
             action={reviewLink && <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks ›</a>}
           >
-            <span data-testid="readiness">{counts}</span>{notes.map((n) => ` · ${n.short}`).join('')}
+            <span data-testid="readiness">{counts}</span>
+            <span aria-hidden="true">{notes.map((n) => ` · ${n.short}`).join('')}</span>
+            <span className="visually-hidden">. {notes.map((n) => n.full).join(' ')}</span>
           </WarnBar>
         ) : (
           <p className="muted export-line" data-testid="readiness">{counts}</p>
