@@ -231,10 +231,21 @@ def drop_removed_model(engine_name: "str | None", model):
     return model
 
 
+def drop_saved_local_model(engine_name: "str | None", model):
+    """drop_removed_model, and None for any other Ollama tag that runs on this PC:
+    a setting saved before local models were removed falls back to the hosted
+    default instead of failing every call. get_engine still refuses a local tag
+    it is handed explicitly."""
+    model = drop_removed_model(engine_name, model)
+    if engine_name == "ollama" and isinstance(model, str) and not is_ollama_cloud_model(model):
+        return None
+    return model
+
+
 def model_override_for_default(engine_name: str):
     """The user's chosen model for `engine_name`'s built-in default, or None.
     An override for an engine this build no longer has is ignored."""
-    model = drop_removed_model(
+    model = drop_saved_local_model(
         engine_name, _read_overrides(MODEL_OVERRIDE_DEFAULTS_KEY, ENGINES).get(engine_name))
     # Re-checked on read: a restored backup bypasses the write-time check, and
     # switching the opt-in off must stop a stored hosted default at once.
@@ -242,7 +253,7 @@ def model_override_for_default(engine_name: str):
 
 
 def model_override_for_tier(tier_key: str):
-    model = drop_removed_model(
+    model = drop_saved_local_model(
         (WORKFLOW_TIERS.get(tier_key) or {}).get("translation_engine"),
         _read_overrides(MODEL_OVERRIDE_TIERS_KEY, WORKFLOW_TIERS).get(tier_key))
     tier = WORKFLOW_TIERS.get(tier_key) or {}
