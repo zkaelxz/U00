@@ -24,6 +24,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_KEYS = {
     "auto_backup.state": "run bookkeeping for auto_backup_service, rewritten on every run",
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
+    "auto_backup.same_drive_note_dismissed": "the owner closed the one-time note that backups share the library's drive (auto_backup_settings.py)",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
     "nightly_check": "the nightly self-check's last night and failed-night counts (services/queue_night.py)",
