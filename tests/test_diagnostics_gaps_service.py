@@ -131,7 +131,7 @@ def test_pyannote_readiness_booleans_no_token(monkeypatch):
                    "models": None, "ready": True}
 
     class FakeApi:
-        def model_info(self, model, token=None):
+        def get_hf_file_metadata(self, url, token=None, timeout=None):
             assert token == HF_TOKEN
             raise RuntimeError(f"403 for {token} at {ABS_PATH}")
 
@@ -161,15 +161,15 @@ def test_pyannote_readiness_with_hf_hub_returns_list(monkeypatch):
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
 
     class FakeHfApi:
-        def model_info(self, model, token=None, timeout=None):
+        def get_hf_file_metadata(self, url, token=None, timeout=None):
             return object()
 
     fake_hub = types.ModuleType("huggingface_hub")
     fake_hub.HfApi = FakeHfApi
     monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hub)
     out = svc.get_pyannote_readiness(check_access=True)
-    assert out["models"] == [{"model": m, "accessible": True}
-                             for m in diarize.DIARIZATION_MODELS]
+    assert out["models"] == [{"model": m, "accessible": True, "status": "ok"}
+                             for m in diarize.GATED_MODELS]
     assert out["ready"] is True
 
 

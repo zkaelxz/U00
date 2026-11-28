@@ -524,23 +524,58 @@ class TestPyannoteGatedAccessCheck:
             self.calls = []
             self.timeouts = []
 
-        def model_info(self, model, token=None, timeout=None):
+        def get_hf_file_metadata(self, url, token=None, timeout=None):
+            model = url.split("https://huggingface.co/")[1].split("/resolve/")[0]
             self.calls.append((model, token))
             self.timeouts.append(timeout)
             if model in self.gated:
-                raise RuntimeError(f"Access to model {model} is restricted. You must be "
-                                   "authenticated to access it.")
+                err = RuntimeError(f"403 Forbidden: access to {model} is restricted")
+                err.response = types.SimpleNamespace(status_code=403)
+                raise err
 
     def test_accessible_and_gated_models_both_reported(self):
         import diarize
         gated_model = diarize.DIARIZATION_MODELS[1]
         api = self._FakeApi(gated=(gated_model,))
-        results = diagnostics_report.check_pyannote_gated_access(api=api)
-        assert len(results) == len(diarize.DIARIZATION_MODELS)
+        results = diagnostics_report.check_pyannote_gated_access("hf_faketoken", api=api)
+        assert [r["model"] for r in results] == list(diarize.GATED_MODELS)
         by_model = {r["model"]: r for r in results}
-        assert by_model[diarize.DIARIZATION_MODELS[0]]["accessible"] is True
+        assert by_model[diarize.DIARIZATION_MODELS[0]]["status"] == "ok"
         assert by_model[gated_model]["accessible"] is False
+        assert by_model[gated_model]["status"] == "terms_needed"
         assert "restricted" in by_model[gated_model]["error"]
+
+    def test_segmentation_repo_the_fallback_needs_is_covered(self):
+        import diarize
+        assert "pyannote/segmentation-3.0" in diarize.GATED_MODELS
+
+    def test_no_token_makes_no_network_call_and_says_so(self):
+        api = self._FakeApi()
+        results = diagnostics_report.check_pyannote_gated_access(None, api=api)
+        assert api.calls == []
+        assert results and all(r["status"] == "token_missing" and not r["accessible"] for r in results)
+
+    def test_rejected_token_and_unreachable_hub_are_told_apart(self):
+        class Api:
+            def get_hf_file_metadata(self, url, token=None, timeout=None):
+                if "community-1" in url:
+                    err = RuntimeError("401")
+                    err.response = types.SimpleNamespace(status_code=401)
+                    raise err
+                raise ConnectionError("offline")
+
+        by_model = {r["model"]: r["status"]
+                    for r in diagnostics_report.check_pyannote_gated_access("hf_faketoken", api=Api())}
+        assert by_model["pyannote/speaker-diarization-community-1"] == "token_rejected"
+        assert by_model["pyannote/speaker-diarization-3.1"] == "error"
+
+    def test_one_log_line_with_counts_and_no_token(self, monkeypatch):
+        import applog
+        lines = []
+        monkeypatch.setattr(applog.get_logger(), "info", lambda msg, *a: lines.append(msg % a))
+        diagnostics_report.check_pyannote_gated_access(
+            "hf_faketoken", api=self._FakeApi(gated=("pyannote/segmentation-3.0",)))
+        assert lines == ["gated model check: 2 ok, 1 need terms, 0 token rejected, 0 other (of 3)"]
 
     def test_hf_token_is_passed_through(self):
         api = self._FakeApi()
@@ -549,17 +584,17 @@ class TestPyannoteGatedAccessCheck:
 
     def test_every_hub_call_has_a_timeout(self):
         api = self._FakeApi()
-        diagnostics_report.check_pyannote_gated_access(api=api)
+        diagnostics_report.check_pyannote_gated_access("hf_faketoken", api=api)
         assert api.timeouts and all(t == 10 for t in api.timeouts)
 
-    def test_real_hfapi_model_info_accepts_timeout(self):
+    def test_real_hfapi_file_metadata_accepts_timeout(self):
         hub = pytest.importorskip("huggingface_hub")
         import inspect
-        assert "timeout" in inspect.signature(hub.HfApi.model_info).parameters
+        assert "timeout" in inspect.signature(hub.HfApi.get_hf_file_metadata).parameters
 
     def test_huggingface_hub_not_installed_returns_empty(self, monkeypatch):
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
-        assert diagnostics_report.check_pyannote_gated_access() == []
+        assert diagnostics_report.check_pyannote_gated_access("hf_faketoken") == []
 
 
 class TestCheckEngineReachable:

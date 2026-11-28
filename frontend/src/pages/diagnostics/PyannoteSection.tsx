@@ -65,13 +65,19 @@ export function PyannoteSection({ openSignal }: { openSignal?: number }) {
                 <li key={m.model}>
                   {m.accessible ? (
                     `${m.model}: open`
-                  ) : (
+                  ) : m.status === 'token_missing' ? (
+                    <span className="warn">{m.model}: add a Hugging Face token in Settings first</span>
+                  ) : m.status === 'terms_needed' ? (
                     <>
-                      <span className="warn">{m.model}: can’t open it (check the connection and token, or accept its terms)</span>{' '}
+                      <span className="warn">{m.model}: accept its terms on Hugging Face</span>{' '}
                       <a className="hf-terms" href={hfModelUrl(m.model)} target="_blank" rel="noopener noreferrer">
                         Accept terms ↗
                       </a>
                     </>
+                  ) : (
+                    <span className="warn">
+                      {m.model}: {m.status === 'token_rejected' ? 'Hugging Face rejected the token' : 'couldn’t reach Hugging Face'}
+                    </span>
                   )}
                 </li>
               ))}

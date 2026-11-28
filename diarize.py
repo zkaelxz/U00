@@ -41,6 +41,9 @@ from typing import Literal, Optional, overload
 SPEAKER_MODELS = ("pyannote", "nemotron")
 DIARIZATION_MODELS = ("pyannote/speaker-diarization-community-1",
                       "pyannote/speaker-diarization-3.1")
+# The 3.1 pipeline also loads this separate gated repo, whose terms are accepted on its own page: a token
+# that opened 3.1 alone still fails the fallback run.
+GATED_MODELS = DIARIZATION_MODELS + ("pyannote/segmentation-3.0",)
 TURNS_FILE = "diarization_turns.json"
 CONFIDENCE_BIN_SECONDS = 0.1
 # A line whose speaker the model was less sure of than this is left blank: a blank

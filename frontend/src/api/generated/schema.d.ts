@@ -5121,6 +5121,11 @@ export interface components {
             accessible: boolean;
             /** Model */
             model: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "token_missing" | "terms_needed" | "token_rejected" | "error";
         };
         /**
          * DiagnosticsPyannoteReadiness

@@ -128,15 +128,45 @@ def get_model_engine_versions(ollama_model: str | None = None) -> list:
 # ---------------------------------------------------------------------------
 
 PYANNOTE_CHECK_TIMEOUT_S = 10  # a hung Hub must not pin the request thread
+# A gated repo's model_info answers for anyone, so only a file request tells whether the
+# terms were accepted; asking for the file's headers downloads nothing.
+_ACCESS_PROBE_FILE = "config.yaml"
+
+
+def _access_status(exc) -> str:
+    """terms_needed / token_rejected / error for a refused or failed probe."""
+    todo, seen = [exc], set()
+    while todo:
+        e = todo.pop()
+        if e is None or id(e) in seen:
+            continue
+        seen.add(id(e))
+        if "GatedRepoError" in {c.__name__ for c in type(e).__mro__}:
+            return "terms_needed"
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status == 403:
+            return "terms_needed"
+        if status in (401, 404):
+            return "token_rejected"
+        todo += [e.__cause__, e.__context__]
+    return "error"
 
 
 def check_pyannote_gated_access(hf_token: str | None = None, api=None) -> list:
-    """[{"model", "accessible", "error"}, ...] for every entry in
-    diarize.DIARIZATION_MODELS. This DOES reach the network (a lightweight
-    HfApi().model_info() call per model) -- unlike everything else in this
+    """[{"model", "accessible", "status", "error"}, ...] for every entry in
+    diarize.GATED_MODELS. status is ok, token_missing (no network call is
+    made), terms_needed, token_rejected or error. This DOES reach the network
+    (a headers-only request per model) -- unlike everything else in this
     module, so call it only from an explicit button, never on every
     Diagnostics page load. [] if huggingface_hub isn't installed.
     api: injected HfApi-shaped object for tests; a real HfApi() otherwise."""
+    import applog
+    if not hf_token:
+        results = [{"model": m, "accessible": False, "status": "token_missing", "error": None}
+                   for m in diarize.GATED_MODELS]
+        applog.get_logger().info("gated model check: 0 ok, %d token missing, 0 other (of %d)",
+                    len(results), len(results))
+        return results
     if api is None:
         try:
             from huggingface_hub import HfApi
@@ -144,12 +174,19 @@ def check_pyannote_gated_access(hf_token: str | None = None, api=None) -> list:
             return []
         api = HfApi()
     results = []
-    for model in diarize.DIARIZATION_MODELS:
+    for model in diarize.GATED_MODELS:
         try:
-            api.model_info(model, token=hf_token or None, timeout=PYANNOTE_CHECK_TIMEOUT_S)
-            results.append({"model": model, "accessible": True, "error": None})
+            api.get_hf_file_metadata(f"https://huggingface.co/{model}/resolve/main/{_ACCESS_PROBE_FILE}",
+                                     token=hf_token, timeout=PYANNOTE_CHECK_TIMEOUT_S)
+            results.append({"model": model, "accessible": True, "status": "ok", "error": None})
         except Exception as e:
-            results.append({"model": model, "accessible": False, "error": str(e)})
+            results.append({"model": model, "accessible": False, "status": _access_status(e),
+                            "error": str(e)})
+    counts = {s: sum(r["status"] == s for r in results)
+              for s in ("ok", "terms_needed", "token_rejected", "error")}
+    applog.get_logger().info("gated model check: %d ok, %d need terms, %d token rejected, %d other (of %d)",
+                counts["ok"], counts["terms_needed"], counts["token_rejected"], counts["error"],
+                len(results))
     return results
 
 
