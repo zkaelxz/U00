@@ -362,6 +362,37 @@ class TestARefusedStartChangesNothing:
         assert [c["voice_design"] for c in isolated_db.list_characters(did)] == [dub.DEFAULT_VOICE_DESCRIPTIONS[0]]
 
 
+class TestClipTranscriptsWhisperWrote:
+    def test_whisper_is_used_only_when_on_this_pc_and_from_the_settings_folder(self, isolated_db, monkeypatch, tmp_path):
+        asked = []
+        monkeypatch.setattr(listen_service.model_readiness_service, "whisper_ready",
+                            lambda size, local=None: asked.append((size, local)) or local is not None)
+        monkeypatch.setattr(listen_service.settings_service, "get",
+                            lambda key: str(tmp_path) if key == "whisper_model_path" else None)
+        assert listen_service._clip_whisper() == {"local_model_path": str(tmp_path)}
+        monkeypatch.setattr(listen_service.settings_service, "get", lambda key: None)
+        # large-v3 not downloaded and no folder set: no transcript, not a silent download.
+        assert listen_service._clip_whisper() is None
+        assert asked == [("large-v3", str(tmp_path)), ("large-v3", None)]
+
+    def _speakers(self, db, did):
+        for label, clip, text in (("A", "voice_refs/a.wav", ""), ("B", "voice_refs/b.wav", ""),
+                                  ("C", "voice_refs/c.wav", "Typed meanwhile.")):
+            db.upsert_character(did, label, ref_audio_filename=clip, ref_text=text)
+        # B's clip was replaced while the run went.
+        db.upsert_character(did, "B", ref_audio_filename="voice_refs/b2.wav")
+
+    def test_saved_only_where_the_clip_is_the_same_and_no_transcript_was_typed(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        self._speakers(isolated_db, did)
+        at_start = {"A": "voice_refs/a.wav", "B": "voice_refs/b.wav", "C": "voice_refs/c.wav"}
+        listen_service.apply_narration_result(
+            did, {"lines": [], "errors": [], "clip_transcripts": {"A": "你好。", "B": "别的。", "C": "听到的。"}},
+            at_start)
+        texts = {c["speaker_label"]: c["ref_text"] for c in isolated_db.list_characters(did)}
+        assert texts == {"A": "你好。", "B": "", "C": "Typed meanwhile."}
+
+
 class TestPartSpokenSoFar:
     def test_its_times_are_saved_and_the_job_says_how_many_lines_play(self, isolated_db, monkeypatch):
         did = _drama(isolated_db, [_line(0, "A"), _line(1, "A"), _line(2, "A")], status="translated")
