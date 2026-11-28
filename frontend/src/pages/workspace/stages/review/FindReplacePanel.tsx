@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { previewFindReplace } from '../../../../api/review'
+import { previewFindReplace, unsentNote } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
@@ -46,7 +46,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
     applyAfterEdit(dramaId, matches).then((r) => {
       setHeld(typeof r === 'string' ? r : null)
       if (typeof r === 'string') return
-      setError(null)
+      setError(r.error ?? null)
       setResult({ r, tried: matches })
       setMatches(null)
       onChanged()
@@ -96,7 +96,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
       )}
       {result && (
         <div role="status" data-testid="fr-result">
-          Applied {result.r.applied}; skipped {result.r.stale} that changed since the preview.
+          Applied {result.r.applied}; skipped {result.r.stale} that changed since the preview.{unsentNote(result.r)}
           {result.r.stale > 0 && (
             <div data-testid="fr-stale">Skipped: {staleLabels(result.r.stale_ids, result.tried).join(', ')}</div>
           )}

@@ -1,6 +1,6 @@
 // One correction to a line's English, as a find and replace other lines can take ("Same fix in N lines?").
 
-import { previewFindReplace } from '../../../../api/review'
+import { previewFindReplace, unsentNote } from '../../../../api/review'
 import { saveWordReplacement } from '../../../../api/translateStage'
 import type { ReviewMatch } from '../../../../types/review'
 import { applyAfterEdit } from './linesController'
@@ -104,7 +104,7 @@ export async function applySameFix(
   }
   const stale = r.stale ? `; ${r.stale} changed meanwhile and ${r.stale === 1 ? 'was' : 'were'} left` : ''
   return {
-    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.${rule}`,
+    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.${rule}${unsentNote(r)}`,
     changed: n > 0,
   }
 }

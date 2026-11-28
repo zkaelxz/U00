@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReviewMatch } from '../../../../types/review'
 import { applySameFix, findSameFix, literalReplacement, sameFixOf, wholeWordPattern } from './sameFix'
 
-vi.mock('../../../../api/review', () => ({ previewFindReplace: vi.fn(), applyFindReplace: vi.fn() }))
+vi.mock('../../../../api/review', async (real) => ({
+  ...(await real<typeof import('../../../../api/review')>()), previewFindReplace: vi.fn(), applyFindReplace: vi.fn(),
+}))
 vi.mock('../../../../api/translateStage', () => ({ saveWordReplacement: vi.fn() }))
 
 describe('sameFixOf', () => {
@@ -76,6 +78,12 @@ describe('applySameFix', () => {
     expect(apply).toHaveBeenCalledWith(7, offer.matches)
     expect(saveReplacement).not.toHaveBeenCalled()
     expect(done).toEqual({ text: 'Fixed 1 more line; 1 changed meanwhile and was left.', changed: true })
+  })
+
+  it('says when the apply stopped partway and how many lines are left', async () => {
+    const apply = vi.fn().mockResolvedValue({ applied: 1000, stale: 0, applied_ids: [], stale_ids: [], unsent: 1500, error: new Error('x') })
+    const done = await applySameFix(7, offer, false, { apply, saveReplacement: vi.fn() })
+    expect(done.text).toBe('Fixed 1000 more lines. Stopped partway: 1500 lines were not changed. Preview again and apply to finish them.')
   })
 
   it('"always" also saves the fix as a series word replacement', async () => {

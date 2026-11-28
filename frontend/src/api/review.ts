@@ -89,20 +89,27 @@ export const previewFindReplace = (id: number, req: FindReplaceRequest, f?: Fetc
 export const MAX_APPLY_MATCHES = 1000
 
 /** Applies the matches in requests of MAX_APPLY_MATCHES, so a rename across a whole novel goes through.
- *  If a later request fails the earlier ones are already saved; applying the same matches again is
- *  safe, since lines already changed come back as stale. */
+ *  A failed first request throws (nothing was changed). A later one cannot undo the requests already
+ *  saved, so the result says how many were not sent (`unsent`) and why (`error`) instead of throwing;
+ *  applying the same matches again is safe, since lines already changed come back as stale. */
 export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: Fetch): Promise<ApplyResult> {
   const total: ApplyResult = { applied: 0, stale: 0, applied_ids: [], stale_ids: [] }
   for (let start = 0; start < matches.length; start += MAX_APPLY_MATCHES) {
-    const r = await postJson<ApplyResult>(
-      `${lines(id)}/find-replace/apply`,
-      {
-        matches: matches
-          .slice(start, start + MAX_APPLY_MATCHES)
-          .map(({ id: lineId, old_text, new_text }) => ({ id: lineId, old_text, new_text })),
-      },
-      f,
-    )
+    let r: ApplyResult
+    try {
+      r = await postJson<ApplyResult>(
+        `${lines(id)}/find-replace/apply`,
+        {
+          matches: matches
+            .slice(start, start + MAX_APPLY_MATCHES)
+            .map(({ id: lineId, old_text, new_text }) => ({ id: lineId, old_text, new_text })),
+        },
+        f,
+      )
+    } catch (e) {
+      if (start === 0) throw e
+      return { ...total, unsent: matches.length - start, error: e }
+    }
     total.applied += r.applied
     total.stale += r.stale
     total.applied_ids.push(...r.applied_ids)
@@ -110,6 +117,12 @@ export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: F
   }
   return total
 }
+
+/** The sentence for an Apply that stopped partway, or '' when every match was sent. */
+export const unsentNote = (r: ApplyResult): string =>
+  r.unsent
+    ? ` Stopped partway: ${r.unsent} line${r.unsent === 1 ? ' was' : 's were'} not changed. Preview again and apply to finish ${r.unsent === 1 ? 'it' : 'them'}.`
+    : ''
 
 export const patchLine = (id: number, lineId: number, patch: LinePatch, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}`, patch, f)

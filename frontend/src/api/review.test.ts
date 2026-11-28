@@ -96,6 +96,25 @@ describe('review api', () => {
     expect(r.stale_ids).toEqual([1, 1001, 2001])
     expect(r.applied_ids).toHaveLength(2497)
   })
+  it('a failed later request reports what was applied and what is left instead of throwing', async () => {
+    let n = 0
+    const f = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      n += 1
+      if (n === 2) return new Response(JSON.stringify({ error: { code: 'internal_error', message: 'boom' } }), { status: 500 })
+      const ids = (JSON.parse(String(init?.body)) as { matches: { id: number }[] }).matches.map((m) => m.id)
+      return new Response(JSON.stringify({ applied: ids.length, stale: 0, applied_ids: ids, stale_ids: [] }), { status: 200 })
+    }) as typeof fetch
+    const matches = Array.from({ length: 2500 }, (_, i) => ({ id: i + 1, idx: i, old_text: 'Lin', new_text: 'Lyn' }))
+    const r = await review.applyFindReplace(1, matches, f)
+    expect(n).toBe(2)
+    expect(r.applied).toBe(1000)
+    expect(r.unsent).toBe(1500)
+    expect(r.error).toBeInstanceOf(ApiError)
+    expect(review.unsentNote(r)).toBe(' Stopped partway: 1500 lines were not changed. Preview again and apply to finish them.')
+    // Nothing applied yet: the error is the answer.
+    n = 1
+    await expect(review.applyFindReplace(1, matches, f)).rejects.toBeInstanceOf(ApiError)
+  })
   it('starts a job and deletes a note', async () => {
     const calls: { url: string; init?: RequestInit }[] = []
     await review.startReviewJob(1, 'fix-flagged', undefined, fakeFetch(200, {}, calls))

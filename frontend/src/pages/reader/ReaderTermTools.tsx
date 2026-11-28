@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, type RefObject } from 'react'
 
-import { applyFindReplace, previewFindReplace } from '../../api/review'
+import { applyFindReplace, previewFindReplace, unsentNote } from '../../api/review'
 import { getGlossaryCatalogues, getGlossaryTerms, saveGlossaryTerm, deleteGlossaryTerms } from '../../api/translateStage'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { Field } from '../../components/Field'
@@ -131,7 +131,7 @@ export function ReplaceEverywhere({ dramaId, selected, onClose, onApplied, onAdd
     if (!matches?.length) return
     const r = await applyFindReplace(dramaId, matches)
     setMatches(null)
-    setDone(r.stale > 0 ? `Replaced in ${r.applied} lines; ${r.stale} changed since and were skipped.` : `Replaced in ${r.applied} lines.`)
+    setDone((r.stale > 0 ? `Replaced in ${r.applied} lines; ${r.stale} changed since and were skipped.` : `Replaced in ${r.applied} lines.`) + unsentNote(r))
     if (r.applied > 0) onApplied()
   })
   const busy = preview.busy || apply.busy

@@ -69,6 +69,9 @@ export interface ApplyResult {
   stale: number
   applied_ids: number[]
   stale_ids: number[]
+  // Set by the client when a chunked Apply stopped partway: matches never sent, and why.
+  unsent?: number
+  error?: unknown
 }
 
 export interface LineNoteCreate {
