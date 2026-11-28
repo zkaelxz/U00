@@ -481,6 +481,20 @@ def previous_page_block(lines) -> str:
             "line without '=>' was not translated yet:\n" + "\n".join(rows))
 
 
+
+def _log_lost_picture(regions: int, failure: str) -> None:
+    # Without these lines a page that lost its picture (worth 1-3 chrF) and
+    # paid a second call looked the same in the log as any other page.
+    import applog
+    logger = applog.get_logger()
+    if regions > REGIONS_PER_CALL:
+        logger.info("Comic translate: %d regions is over %d, page sent without its picture",
+                    regions, REGIONS_PER_CALL)
+    else:
+        logger.warning("Comic translate: no usable answer with the picture (%s), "
+                       "translating the page again from its text only",
+                       failure or "answer did not match the regions")
+
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None, character_notes: str = "",
                            page_image: dict | None = None, previous_lines=None,
@@ -533,6 +547,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     by_key = {str(i): b for i, b in enumerate(eligible)}
     result = None
     new_context = previous_context
+    failure = ""
     if page_image is not None and len(by_key) <= REGIONS_PER_CALL:
         scale = page_image["scale"]
         regions = [{"id": k, "text": b["source_text"],
@@ -549,12 +564,15 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
                     usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
                     character_notes=character_notes, names_out=found_names)
             except Exception as exc:
+                failure = type(exc).__name__
                 on_failure = reader.get("on_failure")
                 if on_failure is not None:
                     on_failure(exc)
                 result, new_context = None, previous_context
             if result is not None:
                 break
+    if page_image is not None and result is None and by_key:
+        _log_lost_picture(len(by_key), failure)
     if result is None:
         result, new_context = translate_regions_by_id(
             {k: b["source_text"] for k, b in by_key.items()}, engine, drama_meta,
