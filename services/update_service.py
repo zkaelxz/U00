@@ -43,12 +43,14 @@ hand and each hop is checked, and no credentials are sent (not even from
 filesystem path.
 """
 
+import contextlib
 import hashlib
 import hmac
 import json
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -73,8 +75,13 @@ DEFAULT_REPO = "zkaelxz/U00"
 AUTO_CHECK_KEY = "update.auto_check"
 AUTO_SETUP_TRIED_KEY = "update.auto_setup_tried"
 LAST_CHECK_KEY = "update.last_check_at"
+CHECK_FAILED_KEY = "update.last_check_failed"
+FIRST_VERIFIED_INSTALLER_KEY = "update.installer_first_verified"
 INCLUDE_PRERELEASES_KEY = "update.include_prereleases"
 AUTO_CHECK_SECONDS = 24 * 3600
+# A failed daily check (offline at that minute, GitHub's rate limit) is tried again
+# this soon, not a day later.
+CHECK_RETRY_SECONDS = 3600
 
 API_HOSTS = frozenset({"api.github.com"})
 DOWNLOAD_HOSTS = frozenset({"github.com", "objects.githubusercontent.com",
@@ -456,7 +463,9 @@ def check() -> dict:
                 else _plain_error(exc)
             with _lock:
                 _state.update(checked_at=time.time(), check_error=message)
+            _remember_check_failed(True)
             raise DependencyUnavailableError(message) from None
+    _remember_check_failed(False)
     # The highest version, not the first listed: GitHub lists by creation date,
     # so a later-created older beta would otherwise hide a newer release.
     # Whether it is newer than this copy is decided in status() and download().
@@ -499,12 +508,59 @@ def periodic_tick(now=time.time) -> None:
         last = 0.0
     if now() - last < AUTO_CHECK_SECONDS:
         return
+    _scheduled_check(now)
+
+
+def _scheduled_check(now) -> None:
     # Recorded first, so a failing check isn't retried on every tick.
     db.set_app_setting(LAST_CHECK_KEY, now())
     try:
         check()
     except ServiceError:
-        pass
+        db.set_app_setting(LAST_CHECK_KEY, now() - AUTO_CHECK_SECONDS + CHECK_RETRY_SECONDS)
+
+
+def _remember_check_failed(failed: bool) -> None:
+    # Losing it only costs one check at the next start, or skips one.
+    with contextlib.suppress(sqlite3.Error):
+        db.set_app_setting(CHECK_FAILED_KEY, failed)
+
+
+def at_start() -> None:
+    """At app start: the leftover sweep, then the check a failed last check asks for."""
+    try:
+        cleanup_leftovers()
+    finally:
+        check_at_start()
+
+
+def check_at_start():
+    """At app start: when the last check failed (the PC was offline, GitHub's
+    rate limit), check again now rather than only on the hourly retry. After a
+    good check the daily schedule stands. Runs in its own thread so startup
+    doesn't wait on GitHub; returns that thread, or None when no check is due."""
+    if not get_auto_check():
+        return None
+    try:
+        failed = db.get_app_setting(CHECK_FAILED_KEY, False) is True
+    except (sqlite3.Error, ValueError):
+        return None
+    if not failed:
+        return None
+    thread = threading.Thread(target=_check_in_background, daemon=True,
+                              name="update-check-at-start")
+    thread.start()
+    return thread
+
+
+def _check_in_background() -> None:
+    try:
+        _scheduled_check(time.time)
+    except Exception as exc:
+        # Uncaught, it would reach only stderr, and unredacted.
+        from applog import get_logger
+        from engine_backends.shared import redact_secrets
+        get_logger().warning("update check at start failed: %s", redact_secrets(str(exc)))
 
 
 def _silent_setup_possible() -> bool:
@@ -630,10 +686,12 @@ def cleanup_leftovers() -> None:
     _clear_setup_copies()
     from services import app_update_service
     app_update_service.cleanup_leftovers()
+    current, allow_pre = current_version(), include_prereleases()
+    for key in (FIRST_VERIFIED_INSTALLER_KEY, app_update_service.FIRST_VERIFIED_APP_KEY):
+        _forget_stale_first_verified(key, current, allow_pre)
     folder = updates_dir()
     if not os.path.isdir(folder):
         return
-    current, allow_pre = current_version(), include_prereleases()
     for name in os.listdir(folder):
         m = re.match(r"^BaiheStudio-(?:Setup-(.+)\.exe|App-(.+)\.zip)(\.part)?$", name)
         if m and (m.group(3) or not is_newer(m.group(1) or m.group(2), current, allow_pre)):
@@ -641,6 +699,21 @@ def cleanup_leftovers() -> None:
                 os.remove(os.path.join(folder, name))
             except OSError:
                 pass
+
+
+def _forget_stale_first_verified(key, current, allow_pre) -> None:
+    def forget(record):
+        version = record.get("version") if isinstance(record, dict) else None
+        return record if is_newer(version, current, allow_pre) else None
+    # One write step, so a newer version's record saved by a download meanwhile is kept.
+    try:
+        db.update_app_setting(key, forget)
+    except ValueError:
+        # Unreadable: nothing in it can be used.
+        with contextlib.suppress(sqlite3.Error):
+            db.set_app_setting(key, None)
+    except sqlite3.Error:
+        pass
 
 
 def _expected_hash(release) -> str:
@@ -728,6 +801,24 @@ def _progress(n):
         _state["downloaded_bytes"] = n
 
 
+def first_verified_at(record, version, name, sha256, now) -> float:
+    """When this same file (version, name and SHA-256) was first verified, in this
+    run or an earlier one, so an app start doesn't restart the day an automatic
+    update waits for the quiet hours. Only the time carries over: the file is
+    always downloaded and checked again."""
+    if (isinstance(record, dict) and record.get("version") == version
+            and record.get("name") == name and record.get("sha256") == sha256):
+        at = record.get("at")
+        # A clock set back, or a damaged row, must not make the update look older.
+        if not isinstance(at, bool) and isinstance(at, (int, float)) and 0 < at <= now:
+            return float(at)
+    return now
+
+
+def first_verified_record(verified) -> dict:
+    return {k: verified[k] for k in ("version", "name", "sha256", "at")}
+
+
 def download_deadline_seconds(cap: int) -> float:
     return max(DOWNLOAD_DEADLINE_SECONDS, cap / MIN_DOWNLOAD_BYTES_PER_SECOND)
 
@@ -798,6 +889,11 @@ def download() -> dict:
     final = os.path.join(folder, release["exe_name"])
     fetch_verified(release["exe_url"], final, release["exe_size"], MAX_INSTALLER_BYTES, expected,
                    public_key, signature, release["exe_name"], _progress)
+    try:
+        record = db.get_app_setting(FIRST_VERIFIED_INSTALLER_KEY, None)
+    except (sqlite3.Error, ValueError):
+        record = None       # only the wait restarts; the verified download still counts
+    at = first_verified_at(record, release["version"], release["exe_name"], expected, time.time())
     with _lock:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. "
@@ -805,9 +901,12 @@ def download() -> dict:
         # Set in the same step: no reader sees a verified file the state still calls
         # downloading, and a check() can't clear it in between.
         _verified = {"version": release["version"], "name": release["exe_name"],
-                     "path": final, "sha256": expected, "signature": signature,
-                     "at": time.time()}
+                     "path": final, "sha256": expected, "signature": signature, "at": at}
         _state.update(download="verified", download_error=None)
+        held = _verified
+    # Losing it only restarts the wait, so a failed write is ignored.
+    with contextlib.suppress(sqlite3.Error):
+        db.set_app_setting(FIRST_VERIFIED_INSTALLER_KEY, first_verified_record(held))
     return status()
 
 

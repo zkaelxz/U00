@@ -6,6 +6,7 @@ import {
 } from '../../api/libraryAdmin'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { TypedConfirm } from '../../components/TypedConfirm'
 import { useJobs } from '../../hooks/useJobs'
 import type { AdminUser } from '../../types/adminUsers'
@@ -29,7 +30,7 @@ export function ExportBlock({ exportable, job }: { exportable: number; job: Admi
           Export all translated ({exportable})
         </button>
         <label className="muted" title={ORIGINALS_HELP}>
-          <input type="checkbox" checked={withOriginals} onChange={(e) => setWithOriginals(e.target.checked)} />{' '}
+          <Toggle checked={withOriginals} onChange={setWithOriginals} />{' '}
           {ORIGINALS_LABEL}
         </label>
       </div>

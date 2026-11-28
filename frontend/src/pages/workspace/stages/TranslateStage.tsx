@@ -129,6 +129,11 @@ export function EstimateView({ e }: { e: TranslateRunEstimate }) {
       {e.estimate_above_cap && !e.monthly_refusal && (
         <span className="error" role="alert">The estimate is above the cap, so the run would stop early.</span>
       )}
+      {e.balance_too_low && (
+        <span className="warn" role="status" data-testid="balance-low">
+          DeepSeek's balance looks too low for this run. Top up at platform.deepseek.com, or Gemma will take over when it runs out.
+        </span>
+      )}
     </span>
   )
 }

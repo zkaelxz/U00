@@ -1,5 +1,5 @@
 /** The top of an audio or video title's Simple pages: the header with the title's controls, the step links and the one main button. */
-// On a phone the steps fold behind one "Step N of 5" button and the other controls behind More, so the page's own content starts high.
+// The title's other controls sit behind More, and on a phone the steps also fold behind one "Step N of 5" button, so the page's own content starts high.
 import { useId, useRef, useState, type ReactNode } from 'react'
 
 import { nameLang } from '../../hanScript'
@@ -122,7 +122,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
   const [moreOpen, setMoreOpen] = useState(false)
   const [foldOpen, setFoldOpen] = useState(false)
   const moreId = useId()
-  const phoneMore = useRef<HTMLButtonElement>(null)
+  const moreButton = useRef<HTMLButtonElement>(null)
   const foldId = useId()
   const steps = titleSteps(progress)
   const current = steps.find((s) => s.state === 'current')
@@ -139,8 +139,8 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         <button type="button" className={buttonClass('secondary')} onClick={() => {
           setFoldOpen(false)
           setMoreOpen(false)
-          // A phone's Search is inside More's panel, which this press closes. The lines move the focus to their search box once they are on All; until then, and if a draft they cannot save refuses the change, it stays on the button that opened the panel.
-          phoneMore.current?.focus()
+          // Search is inside More's panel, which this press closes. The lines move the focus to their search box once they are on All; until then, and if a draft they cannot save refuses the change, it stays on the button that opened the panel.
+          moreButton.current?.focus()
           onSearch()
         }}>Search</button>
       )}
@@ -182,7 +182,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
         <JobPill dramaId={id} onFinished={onJobFinished} />
         {phone ? (
           <>
-            <button type="button" ref={phoneMore} className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
+            <button type="button" ref={moreButton} className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => { setFoldOpen(false); setMoreOpen((o) => !o) }}>
               More
             </button>
             <button type="button" className={buttonClass('secondary', undefined, 'steps-fold-toggle')} aria-expanded={foldOpen} aria-controls={foldId} onClick={() => { setMoreOpen(false); setFoldOpen((o) => !o) }}>
@@ -199,9 +199,8 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
           </>
         ) : (
           <div className="title-top-actions">
-            {secondary}
             {switchView}
-            <button type="button" className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen((o) => !o)}>
+            <button type="button" ref={moreButton} className={buttonClass('secondary', undefined, 'title-top-more')} aria-expanded={moreOpen} aria-controls={moreId} onClick={() => setMoreOpen((o) => !o)}>
               More
             </button>
           </div>
@@ -227,6 +226,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
       ) : (
         <>
           <div id={moreId} className="title-top-more-row" hidden={!moreOpen}>
+            {secondary}
             {source}
             {playerButton}
           </div>

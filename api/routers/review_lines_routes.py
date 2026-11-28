@@ -41,8 +41,10 @@ def get_review_lines(drama_id: int = Path(ge=1), page: int = Query(1, ge=1),
             responses=_404_422)
 def search_review_lines(drama_id: int = Path(ge=1),
                         term: str = Query(..., min_length=1, max_length=500),
-                        limit: int = Query(50, ge=1, le=200)):
-    return review_lines_service.search_lines(drama_id, term, limit)
+                        limit: int = Query(50, ge=1, le=200),
+                        after: Optional[int] = Query(None, ge=-1, description="Only lines after this line "
+                                                                                 "position (Load more).")):
+    return review_lines_service.search_lines(drama_id, term, limit, after)
 
 
 @router.post("/dramas/{drama_id}/find-replace/preview", dependencies=[require_permission("lines.read")], response_model=List[ReviewLinesMatch],

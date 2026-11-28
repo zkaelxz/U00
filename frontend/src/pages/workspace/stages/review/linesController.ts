@@ -1,11 +1,11 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
 
 import { hasStatus } from '../../../../api/client'
-import { applyFindReplace, patchLine } from '../../../../api/review'
+import { applyFindReplace, patchLine, type ApplyOutcome } from '../../../../api/review'
 import { listAllLines } from '../../../../api/restructure'
 import { lineNumber } from '../../../../lineNumber'
 import type { SpeakerChangeEntry } from '../../../../types/characters'
-import type { ApplyResult, LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
+import type { LineFilter, ReviewLine, ReviewLinesPage, ReviewMatch } from '../../../../types/review'
 import { buildRowActions } from './lineRowActions'
 import { createMoveFlagged } from './lineFlaggedMove'
 import { createTiming } from './lineTiming'
@@ -378,7 +378,7 @@ export const linesLoaded = (dramaId: number, lines: ReviewLine[]): void => void 
  *  left on its old text). A string says why nothing was applied. */
 export async function applyAfterEdit(
   dramaId: number, matches: ReviewMatch[], apply = applyFindReplace,
-): Promise<ApplyResult | string> {
+): Promise<ApplyOutcome | string> {
   const ids = matches.map((m) => m.id)
   const blocked = await beforeLinesWrite(dramaId, ids)
   if (blocked) return blocked

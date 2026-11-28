@@ -2709,23 +2709,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/diagnostics/gpu": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** GPU name and memory only (nvidia-smi), without the full overview */
-        get: operations["get_gpu_api_diagnostics_gpu_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/diagnostics/gpu-torch": {
         parameters: {
             query?: never;
@@ -5235,24 +5218,6 @@ export interface paths {
         get: operations["get_name_consistency_api_glossary_dramas__drama_id__name_consistency_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/glossary/dramas/{drama_id}/name-fixes": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Sound-alike spellings of glossary names that could be fixed (read-only, offline) */
-        get: operations["get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get"];
-        put?: never;
-        /** Confirm spellings: save them as aliases and rewrite the title's source lines */
-        post: operations["apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -11385,8 +11350,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A group's terms */
-        get: operations["list_terms_api_shared_glossaries__group_id__terms_get"];
+        get?: never;
         put?: never;
         /** Create or update a group term (update when id is given) */
         post: operations["save_term_api_shared_glossaries__group_id__terms_post"];
@@ -14044,8 +14008,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** A watch party's current play state */
-        get: operations["get_room_api_watch_party_rooms__code__get"];
+        get?: never;
         put?: never;
         post?: never;
         /** End a watch party */
@@ -22218,17 +22181,6 @@ export interface components {
             /** Used Bytes */
             used_bytes: number | null;
         };
-        /** GpuReading */
-        GpuReading: {
-            /** Found */
-            found: boolean;
-            /** Name */
-            name: string | null;
-            /** Vram Total Gb */
-            vram_total_gb: number | null;
-            /** Vram Used Gb */
-            vram_used_gb: number | null;
-        };
         /** GpuRuntimeStatus */
         GpuRuntimeStatus: {
             /** Reason */
@@ -25476,59 +25428,6 @@ export interface components {
             line_idx: number;
             /** Source */
             source: string;
-        };
-        /** NameFixCandidate */
-        NameFixCandidate: {
-            /** Count */
-            count: number;
-            /** Examples */
-            examples: components["schemas"]["GlossaryVariantExample"][];
-            /** Score */
-            score: number;
-            /** Spelling */
-            spelling: string;
-            /** Term */
-            term: string;
-            /** Term Id */
-            term_id: number;
-        };
-        /** NameFixItem */
-        NameFixItem: {
-            /** Spelling */
-            spelling: string;
-            /** Term Id */
-            term_id: number;
-        };
-        /** NameFixPreview */
-        NameFixPreview: {
-            /** Available */
-            available: boolean;
-            /** Fixes */
-            fixes: components["schemas"]["NameFixCandidate"][];
-            /**
-             * Reason
-             * @default
-             */
-            reason: string;
-            /** Truncated */
-            truncated: boolean;
-        };
-        /** NameFixRequest */
-        NameFixRequest: {
-            /** Fixes */
-            fixes: components["schemas"]["NameFixItem"][];
-        };
-        /** NameFixResult */
-        NameFixResult: {
-            /**
-             * Aliases Added
-             * @default 0
-             */
-            aliases_added: number;
-            /** Lines Changed */
-            lines_changed: number;
-            /** Replacements */
-            replacements: number;
         };
         /** NameReport */
         NameReport: {
@@ -34809,6 +34708,11 @@ export interface components {
         TranslateRunEstimate: {
             /** Alignment Check Usd */
             alignment_check_usd: number | null;
+            /**
+             * Balance Too Low
+             * @default false
+             */
+            balance_too_low: boolean;
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */
@@ -43345,26 +43249,6 @@ export interface operations {
             };
         };
     };
-    get_gpu_api_diagnostics_gpu_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GpuReading"];
-                };
-            };
-        };
-    };
     get_gpu_torch_api_diagnostics_gpu_torch_get: {
         parameters: {
             query?: never;
@@ -49973,90 +49857,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NameConsistency"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_name_fixes_api_glossary_dramas__drama_id__name_fixes_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NameFixPreview"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    apply_name_fixes_api_glossary_dramas__drama_id__name_fixes_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                drama_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NameFixRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["NameFixResult"];
                 };
             };
             /** @description Not Found */
@@ -64851,6 +64651,8 @@ export interface operations {
             query: {
                 term: string;
                 limit?: number;
+                /** @description Only lines after this line position (Load more). */
+                after?: number | null;
             };
             header?: never;
             path: {
@@ -69030,64 +68832,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SharedGlossaryDeleteResult"];
-                };
-            };
-            /** @description Forbidden */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Conflict */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    list_terms_api_shared_glossaries__group_id__terms_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_id: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SharedGlossaryTerm"][];
                 };
             };
             /** @description Forbidden */
@@ -77842,46 +77586,6 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-        };
-    };
-    get_room_api_watch_party_rooms__code__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                code: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WatchPartyRoom"];
-                };
-            };
-            /** @description Not Found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorResponse"];
-                };
-            };
-            /** @description Unprocessable Content */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };

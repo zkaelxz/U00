@@ -113,6 +113,14 @@ const STATUS_MS = 8000
 // player, and a phone action bar. Rows are stateless; every write goes through
 // here so a dirty draft is saved (or kept, if the save fails) before moving on.
 
+function LineCounts({ data, matching }: { data: { total: number; flagged_count: number; untranslated_count: number; unreviewed_count?: number | null }; matching: string | null }) {
+  return (
+    <p className="sr-only" data-testid="line-counts">
+      {matching !== null ? `${matching} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
+    </p>
+  )
+}
+
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, hasAudio = false, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null, watchDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
   const simple = useSimple(), titleLang = useTitleTextLang()
@@ -168,7 +176,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
-  const { data, setData, found, setFound, allTotal, error, setError, retry, dataFilter, settled, ownPickRef } = useLinesLoad({
+  const { data, setData, found, setFound, foundMore, loadMoreFound, allTotal, error, setError, retry, dataFilter, settled, ownPickRef } = useLinesLoad({
     dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage,
   })
 
@@ -404,6 +412,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           searchRef={searchRef}
           onSearch={(v) => void changeSearch(v)}
           resultCount={searching && found ? found.length : null}
+          resultMore={searching && foundMore}
+          onLoadMore={() => void loadMoreFound().catch(setError)}
           page={page}
           pages={pages}
           showPager={showPager && !pagerInPlayer}
@@ -439,11 +449,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         )}
         {looseMedia && mediaKind && !emptyDrama && <div className="review-player-dock" ref={setPlayerDock} />}
         {looseMedia && waveform}
-        {data && (
-          <p className="sr-only" data-testid="line-counts">
-            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
-          </p>
-        )}
+        {data && <LineCounts data={data} matching={searching && found ? `${found.length}${foundMore ? '+' : ''}` : null} />}
         {suspectOpen && suspects.count > 0 && (
           <SourceSuspectPanel dramaId={dramaId} items={suspects.items} misheard={suspects.misheard} onGoTo={(n) => void goToNumber(n)} onListen={mediaKind ? (l) => player.current?.playLine(l) : undefined} onChanged={onChanged} onClose={() => setSuspectOpen(false)} />
         )}

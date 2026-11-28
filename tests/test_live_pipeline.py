@@ -233,6 +233,58 @@ class TestTranslationOnItsOwnThread:
             assert c["text"].startswith("c") and c["translated"].startswith("[translation failed")
             assert "sk-ant" not in c["translated"]
 
+    def test_chunks_that_waited_go_together_in_one_request_by_id(self, job, monkeypatch):
+        stream, start = job
+        seen, whisper_started = _whisper_by_chunk(monkeypatch)
+        engine = Gate(held=["c0l0"])
+        stream.add(2)
+        assert start("live_merge", engine)
+        assert engine.entered["c0l0"].wait(PROMPT)
+        for idx in (1, 2):
+            stream.add(1)
+            assert whisper_started(idx).wait(PROMPT)
+        assert _wait(lambda: len(_result("live_merge")) == 6)
+        engine.open["c0l0"].set()
+        assert _wait(lambda: [c["translation"] for c in _result("live_merge")] == ["done"] * 6)
+        assert [c["translated"] for c in _result("live_merge")] == [
+            "EN c0l0", "EN c0l1", "EN c1l0", "EN c1l1", "EN c2l0", "EN c2l1"]
+        # Chunk 0 alone, then chunks 1 and 2 in one request whose lines carry their own ids.
+        assert [lines for lines, _ in engine.calls] == [["c0l0", "c0l1"], ["c1l0", "c1l1", "c2l0", "c2l1"]]
+        assert len(set(engine.calls[1][1])) == 4
+        assert start.stats[-1]["translations_skipped"] == 0
+        assert _wait(lambda: start.stats[-1]["chunks_measured"] == 3)
+
+    def test_a_failing_sentence_in_merged_chunks_fails_only_its_own_chunk(self, job, monkeypatch):
+        from live import live_cue_translation
+        stream, start = job
+        _, whisper_started = _whisper_by_chunk(monkeypatch)
+
+        class NoMergedReply(Gate):
+            def translate_batch(self, lines, context):
+                replies = super().translate_batch(lines, context)
+                return [] if len(lines) > 2 else replies
+        real = live_cue_translation.CueTranslator.translate
+
+        def translate(self, text):
+            if text == "c1l0":
+                raise RuntimeError("term lookup broke")
+            return real(self, text)
+        monkeypatch.setattr(live_cue_translation.CueTranslator, "translate", translate)
+        engine = NoMergedReply(held=["c0l0"])
+        stream.add(2)
+        assert start("live_merge_fail", engine)
+        assert engine.entered["c0l0"].wait(PROMPT)
+        for idx in (1, 2):
+            stream.add(1)
+            assert whisper_started(idx).wait(PROMPT)
+        assert _wait(lambda: len(_result("live_merge_fail")) == 6)
+        engine.open["c0l0"].set()
+        assert _wait(lambda: "pending" not in [c["translation"] for c in _result("live_merge_fail")])
+        result = _result("live_merge_fail")
+        assert [c["translation"] for c in result] == ["done", "done", "failed", "failed", "done", "done"]
+        assert [c["translated"] for c in result[4:]] == ["EN c2l0", "EN c2l1"]
+        assert "term lookup broke" in result[2]["translated"]
+
     def test_a_full_queue_skips_the_oldest_waiting_chunk_and_whisper_never_waits(
             self, job, monkeypatch):
         stream, start = job
@@ -450,8 +502,7 @@ class IdKeyedEngine:
         def call_model(numbered):
             self.requests.append(numbered)
             return self.reply(numbered)
-        return request_translations_with_retry(lines, None, call_model, max_retries=0,
-                                               line_ids=context.get("line_ids"))
+        return request_translations_with_retry(lines, None, call_model, max_retries=0)
 
 
 class TestChunkTranslator:

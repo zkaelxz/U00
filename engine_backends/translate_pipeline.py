@@ -346,6 +346,7 @@ class _TranslateRun:
         self.english = []
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
+        self._one_by_one_left = 0
         self.character_names = args.character_names or {}
         self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
         self.required_glossary = stream_recipe.required_terms(args.glossary_terms,
@@ -691,14 +692,17 @@ class _TranslateRun:
         # Recomputed each batch (not just once outside the loop) since
         # more lines have been translated -- including by this very
         # loop -- by the time later batches run.
+        self._add_neighbours(self.context, batch)
+
+    def _add_neighbours(self, context, chunk):
         recent, upcoming, around = neighbour_context(
-            self.lines, batch, self.args.context_window, self.args.context_window_ahead)
+            self.lines, chunk, self.args.context_window, self.args.context_window_ahead)
         if self.args.context_window > 0:
-            self.context["recent_context"] = recent
+            context["recent_context"] = recent
         # Also when empty after an "around" batch, which may have set source-only neighbours.
-        if self.args.context_window_ahead > 0 or around or self.context.get("upcoming_lines"):
-            self.context["upcoming_lines"] = upcoming
-        self.context["context_around"] = around
+        if self.args.context_window_ahead > 0 or around or context.get("upcoming_lines"):
+            context["upcoming_lines"] = upcoming
+        context["context_around"] = around
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         self.spent += estimate_cost_for_engine(self.engine, inp, out, cache_read, cache_write)
@@ -714,8 +718,10 @@ class _TranslateRun:
         self._report(self.last_frac, f"{self.batch_label} - Engine busy, waiting {delay:.0f} s to retry "
                                      f"(attempt {next_attempt} of {max_retries})")
 
-    def _context_for(self, chunk):
+    def _context_for(self, chunk, own_neighbours=False):
         chunk_context = dict(self.context)
+        if own_neighbours:
+            self._add_neighbours(chunk_context, chunk)
         chunk_context["speaker_labels"] = [self.character_names.get(ln.speaker) for ln in chunk]
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
@@ -759,13 +765,14 @@ class _TranslateRun:
                 out[p] = text
         return out
 
-    def _translate_chunk(self, chunk):
+    def _translate_chunk(self, chunk, own_neighbours=False):
         """Runs one translate attempt for chunk (the whole batch, or
-        one bisected half of it). Returns
+        one bisected half of it). own_neighbours: the chunk is shown the lines
+        around its own lines, not those around the batch. Returns
         (translations, critiques) -- critiques is None outside Reflect
         mode. A ContentModerationBlocked (or any other exception)
         propagates to the caller, which decides what to do about it."""
-        chunk_context = self._context_for(chunk)
+        chunk_context = self._context_for(chunk, own_neighbours)
         if self.args.reflect:
             sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
             finished_passes = {}  # a retry must not pay again for a pass that finished
@@ -845,7 +852,31 @@ class _TranslateRun:
         # ids missing from the reply with "", so a cut-off reply still
         # matches in length; an empty result must not overwrite
         # anything or look like a success.
-        empty, fresh = [], []
+        fresh = []
+        empty = self._keep_replies(chunk, translations, fresh)
+        # Before the retry: a re-asked line is shown its neighbours' English, which must
+        # already be the guarded reply, not a shifted one the guard would replace.
+        self._check_replies(fresh, allow_bisect)
+        # A forced rerun keeps the old English on a line the reply omitted (it may be the
+        # user's own edit), so re-asking it would be the only path that rewrites it; a line
+        # with no English yet would stay blank, so it is still asked again.
+        keep = [ln for ln in empty if self.args.force_retranslate and (ln.en or "").strip()]
+        reask = [ln for ln in empty if not any(ln is k for k in keep)]
+        if reask and (len(chunk) > 1 or len(reask) < len(chunk)):
+            self._one_by_one_left = self._ONE_BY_ONE_MAX
+            retried = []
+            empty = keep + self._retry_smaller(reask, retried, depth=0)
+            self._check_replies(retried, allow_bisect)
+        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
+        if empty:
+            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
+                                   f"translation (the reply left them out or its English failed "
+                                   f"the reply check)")
+
+    def _keep_replies(self, chunk, translations, fresh):
+        """Writes each non-empty reply to its line, appending those lines to fresh;
+        returns the lines whose reply was empty."""
+        empty = []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
                 ln.en = drop_em_dashes(keep_first_alternative(
@@ -856,15 +887,9 @@ class _TranslateRun:
                 fresh.append(ln)
             else:
                 empty.append(ln)
-        # A forced rerun keeps the old English on a line the reply omitted (it may be the
-        # user's own edit), so re-asking it would be the only path that rewrites it.
-        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
-            empty = self._retry_smaller(empty, fresh, depth=0)
-        flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
-        if empty:
-            self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
-                                   f"translation (reply may have been cut off; "
-                                   f"try a smaller batch size)")
+        return empty
+
+    def _check_replies(self, fresh, allow_bisect):
         # Sentence mode redistributes one sentence over its fragments, so
         # fragment lengths say nothing there.
         if (allow_bisect and not self.args.reflect and not self.groups
@@ -887,21 +912,37 @@ class _TranslateRun:
             ln.flag_note = sentence_groups.SPLIT_BY_LENGTH_NOTE
 
     _EMPTY_RETRY_DEPTH = 2
+    # Gemma leaves the same ids out of a reply again when they are re-asked in a group (on a
+    # 5,131-line novel, 83 of 132 empty lines after both halving rounds), so the lines still
+    # empty then are asked one at a time, at most this many per batch, so a model refusing a
+    # whole batch costs at most this many extra requests.
+    _ONE_BY_ONE_MAX = 12
 
     def _retry_smaller(self, empty, fresh, depth):
         """Re-asks lines a reply left empty in halves, so a cut-off reply on a
-        big batch doesn't leave a hole until the user reruns by hand. Bounded
-        by depth; returns the lines that are still empty."""
-        if not empty or depth >= self._EMPTY_RETRY_DEPTH:
+        big batch doesn't leave a hole until the user reruns by hand, then the
+        lines still empty one at a time. Bounded by depth; returns the lines
+        that are still empty."""
+        if not empty:
             return empty
-        parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
         still = []
+        if depth >= self._EMPTY_RETRY_DEPTH:
+            # One budget for the whole batch: up to four quarters reach this depth.
+            asked = empty[:max(0, self._one_by_one_left)]
+            self._one_by_one_left -= len(asked)
+            parts = [[ln] for ln in asked]
+            still = empty[len(asked):]
+        else:
+            parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
         for part in parts:
             if self._should_stop():
+                self._log_reask(part, depth, "not asked: the run is stopping")
                 still.extend(part)
                 continue
             try:
-                translations, _ = self._translate_chunk(part)
+                # The batch's context is the lines before its first line; a line left out
+                # near its end needs its own, now translated, neighbours.
+                translations, _ = self._translate_chunk(part, own_neighbours=True)
             except Exception as e:
                 # The first attempt's gap is what gets reported; a failed retry adds
                 # nothing, unless it must end the run (a timed-out request may still
@@ -910,23 +951,24 @@ class _TranslateRun:
                     self.stop_run = True
                     self.errors.append({"batch_index": self.bi, "lines": [],
                                         "error": redact_secrets(str(e))})
+                self._log_reask(part, depth, f"failed: {type(e).__name__}: {redact_secrets(str(e))[:200]}")
                 still.extend(part)
                 continue
             if len(translations) != len(part):
+                self._log_reask(part, depth, f"got {len(translations)} answers")
                 still.extend(part)
                 continue
-            missed = []
-            for ln, tr in zip(part, translations):
-                if (tr or "").strip():
-                    ln.en = drop_em_dashes(tr, ln.zh)
-                    source_change.clear_for_new_english(ln, self.args.replace_flags)
-                    self._flag_if_split(ln)
-                    self.translated.append(ln)
-                    fresh.append(ln)
-                else:
-                    missed.append(ln)
+            missed = self._keep_replies(part, translations, fresh)
+            if missed:
+                self._log_reask(part, depth, f"{len(missed)} still empty")
             still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
         return still
+
+    def _log_reask(self, part, depth, outcome):
+        # Blank lines carry no note, so this is the only record of why a re-ask didn't fill them.
+        import applog
+        applog.get_logger().warning(
+            f"translate batch {self.bi}: re-asking {len(part)} empty line(s) (round {depth + 1}): {outcome}")
 
     def _should_stop(self):
         a = self.args

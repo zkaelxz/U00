@@ -19,7 +19,7 @@ from bulk.bulk_reflect import (_advance_pipeline, _fail_keeping_drafts, apply_re
 from bulk.bulk_translate import _character_names, _utcnow, resolve_novel_reference
 import db
 import job_force_stop
-from engine_backends import shared, translate_pipeline, pricing
+from engine_backends import fallback as engine_fallback, shared, translate_pipeline, pricing
 from translation_finish import finish_translation_run, own_lines_callbacks
 import paid_limits
 
@@ -27,7 +27,7 @@ POLL_INTERVAL_SECONDS = 60
 
 
 def poll_job_id(bulk_job_id: int) -> str:
-    return f"bulkpoll_{bulk_job_id}"
+    return f"{background_jobs.BULK_POLL_JOB_PREFIX}{bulk_job_id}"
 
 
 def _polled_by_outer_job(job: dict) -> bool:
@@ -170,6 +170,10 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
     and whose English hasn't changed since scheduling, as a normal run,
     and finishes it as one (finish_translation_run). Stops at the next
     batch once cancel_check_cb() is true or window_open() is false."""
+    if isinstance(engine, engine_fallback.SlowSwitchEngine):
+        # Built at scheduling, hours before the window may open: a switch remembered then,
+        # or made on an earlier night, must not decide this run.
+        engine = engine.fresh_run()
     gate = WindowGate(window_open)
     job = require_bulk_job(bulk_job_id)
     args = job.get("translate_args") or {}
@@ -201,7 +205,7 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
         save_cb=save, cancel_check_cb=cancel_check_cb, stop_before_batch=gate, **options,
         check_replies=args.get("check_replies"),
         usage_cb=lambda inp, out, cache_read=0, cache_write=0: db.log_usage(
-            did, job["engine"], getattr(engine, "model", job["model"]), "translate_offpeak",
+            did, getattr(engine, "name", job["engine"]), getattr(engine, "model", job["model"]), "translate_offpeak",
             inp, out, pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write),
             cache_read_tokens=cache_read),
         cost_cap_usd=cost_cap_usd, cap_cb=lambda spent: cap.update(spent=spent),
@@ -215,7 +219,10 @@ def run_scheduled_job(bulk_job_id: int, engine, cost_cap_usd: float | None = Non
                            errors, cancelled=bool(cancel_check_cb and cancel_check_cb()) or gate.closed, enforce_ids={ln.id for ln in lines})
     return {"translated": len(eligible), "skipped_changed": len(rows) - len(eligible),
             "kept_your_edit": len(kept), "batch_errors": len(errors), "cap_reached": cap.get("spent"),
-            "window_closed": gate.closed}
+            "window_closed": gate.closed,
+            # Names and reason codes only: the summary is stored and shown on the Bulk jobs panel.
+            **({"fallbacks": [{k: ev.get(k) for k in ("from", "to", "to_model", "reason") if ev.get(k) is not None} for ev in engine.events]}
+               if getattr(engine, "events", None) else {})}
 
 
 def run_bulk_poller(job_id: str, bulk_job_id: int, provider=None, engine=None,
