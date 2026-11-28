@@ -75,6 +75,13 @@ class TestBuiltInFiles:
                                          "https://hololive.hololivepro.com/", "https://www.nijisanji.jp/"))
                    for e in generated)
 
+    @pytest.mark.parametrize("pack_id, text, term", [("zh-comic", "本少爷今天不高兴", "少爷"),
+                                                    ("zh-comic", "公主殿下来了", "殿下"),
+                                                    ("ja-address", "旦那様が来た", "様")])
+    def test_name_packs_switched_off_do_not_hide_another_packs_term(self, pack_id, text, term):
+        # Every pack's entries claim their text even when the pack is off.
+        assert term in [e["source"] for e in lp.matching_entries({pack_id: None}, text)]
+
     def test_vtuber_style_defaults(self):
         packs = lp.all_packs()
         assert packs["ja-vtuber-core"]["styles"]["default"] == "romanised"
@@ -129,6 +136,7 @@ class TestValidation:
         ({"entries": [{"source": "a", "en": "b" * 500}]}, "longer than"),
         ({"entries": [{"source": "a", "en": "b", "link": "http://example.com/a/"}]}, "'link'"),
         ({"entries": [{"source": "a", "en": "b", "link": "https://example.com/a/?q=1"}]}, "'link'"),
+        ({"entries": [{"source": "\u200ba", "en": "b"}]}, "invisible"),
     ])
     def test_errors_name_the_problem(self, change, message):
         with pytest.raises(lp.PackError, match=message):

@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import threading
+import unicodedata
 from typing import Optional
 
 PACK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "language_pack_data")
@@ -55,6 +56,9 @@ def _text(value, where: str, field: str, max_len: int, *, required: bool = False
     value = value.strip()
     if len(value) > max_len:
         raise PackError(f"{where}: '{field}' is longer than {max_len} characters.")
+    # A zero-width or control character makes a source never match a transcript and is invisible in review.
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value):
+        raise PackError(f"{where}: '{field}' has an invisible or control character.")
     return value
 
 

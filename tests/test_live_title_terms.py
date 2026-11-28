@@ -185,6 +185,25 @@ def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_d
     assert korean(["嘉然和某某"]) == []
 
 
+def test_default_hints_keep_glossary_terms_first_under_the_prompt_cap(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: ["某某"] if "某某" in text else [])
+    own = [{"original": f"测试词{i:02d}", "translation": f"Term {i}"} for i in range(59)]
+    hints = live_service._hint_function(None, None, "zh", own_terms=own, default_packs=live_service._default_packs("zh"))
+    rows = hints([" ".join(t["original"] for t in own) + " 彩虹社 某某"])
+    assert len(rows) == 60 and rows[0][0] == "测试词00"
+    # The pack entry still fits; the downloaded list's name is the one the cap cuts.
+    assert "彩虹社" in [r[0] for r in rows] and "某某" not in [r[0] for r in rows]
+
+
+def test_a_fixed_name_beats_the_built_in_names_pack(isolated_db, monkeypatch):
+    sid, seen = _started(monkeypatch)
+    assert ("彩虹社", "NIJISANJI") in [r[:2] for r in seen["term_hints"](["彩虹社"])]
+    live_service.add_name_fix(sid, "彩虹社", "Rainbow Agency", principal=OWNER)
+    assert [r[:2] for r in seen["term_hints"](["彩虹社"]) if r[0] == "彩虹社"] == [("彩虹社", "Rainbow Agency")]
+    live_service._sessions.clear()
+
+
 def test_nothing_is_written_to_the_title(isolated_db, monkeypatch):
     did, sid = _title()
     packs.set_title_packs(did, {"packs": {"ja-address": None}})

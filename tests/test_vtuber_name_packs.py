@@ -43,6 +43,9 @@ class _Words:
     def zipf(self, word, language):
         return 4.0 if word in self.common else 0.0
 
+    def is_compound(self, word, language):
+        return word in ("小松鼠",)
+
 
 def test_names_nicknames_and_fans_become_entries_in_both_scripts_and_risky_ones_are_held():
     pytest.importorskip("opencc")
@@ -162,13 +165,38 @@ def test_a_name_listed_twice_by_its_owner_still_beats_a_rivals_nickname():
     assert {e["source"]: e for e in kept["zh"]}["範例鈴"]["link"].endswith("/a/")
 
 
-def test_a_nickname_ending_in_an_address_term_is_held_back():
+def test_a_nickname_holding_another_packs_term_is_held_but_an_own_name_keeps_it():
     pytest.importorskip("opencc")
-    row = {**vnp.parse_profile("a", "jp", PROFILE), "original": "範例りん", "nicknames": ["Rin-chan (りんりんちゃん)"]}
+    row = {**vnp.parse_profile("a", "jp", PROFILE), "original": "姫森りん",
+           "nicknames": ["Rin-chan (りんりんちゃん)", "Danna (旦那様)", "Waka (若様だよ)"]}
     kept, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()},
-                                       {"ja": {"ちゃん"}})
-    assert ("りんりんちゃん", "ends with an address term") in [(h[1], h[4]) for h in held]
-    assert "範例りん" in {e["source"] for e in kept["ja"]}
+                                       {"ja": {"ちゃん", "様", "姫"}})
+    reasons = {h[1]: h[4] for h in held}
+    assert reasons["りんりんちゃん"] == "holds another pack's term ちゃん" and reasons["旦那様"].endswith("様")
+    # A one-character term counts only at the end, and a VTuber's own name is the name, not the word.
+    assert {"姫森りん", "若様だよ"} <= {e["source"] for e in kept["ja"]}
+
+
+def test_wikidata_only_names_holding_another_packs_term_are_held():
+    pytest.importorskip("opencc")
+    wikidata = [{"qid": "Q5", "gender": "", "labels": {"en": ["Young Master"], "zh-hans": ["本少爷"]}}]
+    _, held = vnp.filter_candidates(vnp.candidates([], (), wikidata), _Words(), {"zh": set(), "ja": set()},
+                                    {"zh": {"少爷"}})
+    assert ("本少爷", "holds another pack's term 少爷") in [(h[1], h[4]) for h in held]
+
+
+def test_badges_hidden_characters_brackets_and_risky_nicknames():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("a", "tw", PROFILE), "original": "\u200b範例·鈴",
+           "nicknames": ["Wang Xiao Ming (王小明)", "Friend (友人A（えー）)"],
+           "fanbase": "Squirrels", "fanbase_native": "小松鼠"}
+    official = [{"native": "範例鈴", "en": "[Alum] Sample Rin", "link": "https://example.com/t/", "agency": "A"}]
+    kept, held = vnp.filter_candidates(vnp.candidates([row], official), _Words(), {"zh": set(), "ja": set()})
+    by_source = {e["source"]: e for e in kept["zh"]}
+    assert by_source["範例·鈴"]["en"] == by_source["範例鈴"]["en"] == "Sample Rin"
+    reasons = {h[1]: h[4] for h in held}
+    assert reasons["王小明"] == "may be a personal name" and reasons["友人A（えー）"] == "has brackets"
+    assert reasons["小松鼠"] == "fan name made of ordinary words"
 
 
 def test_a_failed_list_page_does_not_wipe_cached_profiles(tmp_path, monkeypatch):
@@ -196,10 +224,49 @@ def test_a_build_that_the_app_would_refuse_fails_instead_of_writing(tmp_path, mo
     (cache / "profiles.jsonl").write_text(json.dumps(long_name, ensure_ascii=False) + "\n", encoding="utf-8")
     monkeypatch.setattr(vnp, "PACK_DIR", packs)
     monkeypatch.setattr(vnp, "_Words", _Words)
-    before = (packs / "zh-vtuber-names.json").read_text(encoding="utf-8")
+    before = {lang: (packs / f"{lang}-vtuber-names.json").read_text(encoding="utf-8") for lang in ("ja", "zh")}
+    good = {**long_name, "slug": "ja-one", "category": "jp", "name": "Rin", "original": "範例りん"}
+    (cache / "profiles.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in (good, long_name)),
+                                          encoding="utf-8")
     with pytest.raises(vnp.language_packs.PackError):
         vnp.build(cache, None)
-    assert (packs / "zh-vtuber-names.json").read_text(encoding="utf-8") == before
+    # The Japanese pack was fine, but a failed build writes neither.
+    assert {lang: (packs / f"{lang}-vtuber-names.json").read_text(encoding="utf-8") for lang in before} == before
+
+
+def test_a_build_that_would_drop_most_generated_entries_needs_force(tmp_path, monkeypatch):
+    pytest.importorskip("opencc")
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    old = [{"source": f"名字{i}", "en": f"N{i}", "link": "https://hololist.net/x/"} for i in range(vnp.GUARDED_FROM)]
+    for language in ("ja", "zh"):
+        (packs / f"{language}-vtuber-names.json").write_text(json.dumps({
+            "id": f"{language}-vtuber-names", "version": 1, "language": language, "title": "T",
+            "description": "D", "entries": [{"source": "手寫", "en": "Hand"}] + old}), encoding="utf-8")
+    cache = tmp_path / "empty-cache"
+    cache.mkdir()
+    monkeypatch.setattr(vnp, "PACK_DIR", packs)
+    monkeypatch.setattr(vnp, "_Words", _Words)
+    def sources():
+        return [e["source"] for e in json.loads((packs / "zh-vtuber-names.json").read_text(encoding="utf-8"))["entries"]]
+    with pytest.raises(SystemExit, match="--force"):
+        vnp.build(cache, None)
+    assert "名字0" in sources()
+    vnp.build(cache, None, force=True)
+    assert sources() == ["手寫"]
+
+
+def test_a_failed_agency_page_keeps_that_agencys_last_list(tmp_path, monkeypatch):
+    old = [{"native": "甲", "en": "A", "link": "https://example.com/a", "agency": "hololive production"},
+           {"native": "乙", "en": "B", "link": "https://example.com/b", "agency": "NIJISANJI"}]
+    (tmp_path / "official.json").write_text(json.dumps(old, ensure_ascii=False), encoding="utf-8")
+    fresh = {"native": "丙", "en": "C", "link": "https://example.com/c", "agency": "NIJISANJI"}
+    monkeypatch.setattr(vnp, "_official", lambda session: [fresh])
+    monkeypatch.setattr(vnp, "_wikidata", lambda session: [])
+    pytest.importorskip("requests")
+    vnp.fetch_reference(tmp_path)
+    saved = json.loads((tmp_path / "official.json").read_text(encoding="utf-8"))
+    assert {o["native"] for o in saved} == {"甲", "丙"}
 
 
 def test_each_of_several_fan_names_is_an_entry_and_a_two_character_one_is_held():
@@ -231,3 +298,27 @@ def test_excluded_terms_never_reach_the_pack_or_the_review_file(tmp_path, monkey
     text = (packs / "zh-vtuber-names.json").read_text(encoding="utf-8")
     assert "Sample Rin" not in text and "Ling Dang" not in text and "手寫" in text
     assert "sample-rin" not in (tmp_path / "review.md").read_text(encoding="utf-8")
+
+
+def test_an_excluded_vtubers_wikidata_label_in_the_other_script_is_left_out(tmp_path, monkeypatch):
+    pytest.importorskip("opencc")
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    for language in ("ja", "zh"):
+        (packs / f"{language}-vtuber-names.json").write_text(json.dumps({
+            "id": f"{language}-vtuber-names", "version": 1, "language": language, "title": "T",
+            "description": "D", "entries": [{"source": "手寫", "en": "Hand"}]}), encoding="utf-8")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "profiles.jsonl").write_text(
+        json.dumps(vnp.parse_profile("sample-rin", "tw", PROFILE), ensure_ascii=False) + "\n", encoding="utf-8")
+    (cache / "wikidata.json").write_text(json.dumps(
+        [{"qid": "Q9", "gender": "", "labels": {"en": ["Rin Sample"], "zh-hans": ["范例铃"]}}], ensure_ascii=False),
+        encoding="utf-8")
+    exclude = tmp_path / "private.txt"
+    exclude.write_text("Sample Rin\n範例鈴\n", encoding="utf-8")
+    monkeypatch.setattr(vnp, "PACK_DIR", packs)
+    monkeypatch.setattr(vnp, "_Words", _Words)
+    vnp.build(cache, None, exclude)
+    text = (packs / "zh-vtuber-names.json").read_text(encoding="utf-8")
+    assert "范例铃" not in text and "Rin Sample" not in text and "Q9" not in text
