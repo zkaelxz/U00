@@ -56,7 +56,7 @@ function classes() {
            remove: (c) => on.delete(c), contains: (c) => on.has(c) };
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true, onProgress = null }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -123,7 +123,10 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
             return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
           if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
-          if (message.type === "progress") progress.push(message);
+          if (message.type === "progress") {
+            progress.push(message);
+            if (onProgress) onProgress(message);
+          }
           if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
         },
@@ -367,6 +370,21 @@ async function content(scenario) {
       return run(capture, { images: [img()], fetchImage: okImage() });
     case "capture_tainted_img_needs_permission":
       return run(capture, { images: [img()], fetchImage: needsPermission });
+    case "capture_waits_for_a_page_still_loading":
+    case "capture_gives_up_on_a_page_that_never_loads": {
+      // At the end of the sweep a picture is still loading; the reader only mounts page 2 once it has.
+      const arrives = scenario === "capture_waits_for_a_page_still_loading";
+      const loading = Object.assign(fakeImg(""), { complete: false, naturalWidth: 0, addEventListener() {} });
+      const images = [placed(fakeImg(IMG_URL), 0), loading];
+      container(images);
+      const onProgress = (m) => {
+        if (!arrives || !/ — waiting for more pages/.test(m.text) || loading.complete) return;
+        loading.complete = true;
+        images.push(placed(fakeImg(IMG_URL_2), 1200));
+      };
+      const result = await run(capture, { images, fetchImage: byUrl, onProgress });
+      return { ok: result.ok, fetched: result.fetched };
+    }
     case "capture_tainted_canvas_no_url": {
       const canvas = fakeCanvas(800, 1200);
       container([canvas]);
@@ -1014,6 +1032,7 @@ async function novel(scenario) {
       return {
         revoked: await run({ ok: false, status: 401, error: "a valid token header is required" }),
         refused: await run({ ok: false, status: 403, error: "no" }),
+        refusedLine: await run({ ok: false, status: 403, error: "Your account can't send pages from this device." }, {}, true),
         down: await run({ ok: false, error: "Couldn't reach Baihe" }),
         downLine: await run({ ok: false, error: "Couldn't reach Baihe" }, {}, true),
         downRemoteLine: await run({ ok: false, error: "Couldn't reach Baihe" }, { serverUrl: "https://baihe.example" }, true),

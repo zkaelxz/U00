@@ -48,7 +48,7 @@ test('groups by series: oldest first inside, No series last, collapse is remembe
 
 test('search applies inside groups and an empty group disappears', async ({ page }) => {
   await page.getByLabel('Group by').selectOption('series')
-  await page.getByLabel('Search title or summary').fill('zeta')
+  await page.getByLabel('Search titles, people, tags and series').fill('zeta')
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   const groups = page.getByTestId('title-group')
   await expect(groups).toHaveCount(1)

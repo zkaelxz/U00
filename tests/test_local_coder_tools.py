@@ -48,8 +48,16 @@ def test_check_change_always_adds_guards_and_caps_shared_modules():
 def test_check_change_frontend_steps_name_changed_tests():
     steps = cc.frontend_steps(["frontend/src/pages/x/Card.test.tsx", "frontend/src/pages/x/Card.tsx"])
     assert steps[0].endswith("npx tsc -b")
-    assert steps[1].endswith("npx vitest run src/pages/x/Card.test.tsx")
+    assert steps[1].endswith("npm run lint")
+    assert steps[2].endswith("npx vitest run src/pages/x/Card.test.tsx")
     assert cc.frontend_steps(["docs/user-guide.md"]) == []
+
+
+def test_check_change_frontend_steps_cover_browser_tests():
+    steps = cc.frontend_steps(["frontend/e2e/jobs.spec.ts", "frontend/e2e/pageShellHelpers.ts"])
+    assert any(s.endswith("npm run lint") for s in steps)   # type-checks the e2e folder
+    assert steps[-1].endswith("npx playwright test --trace off e2e/jobs.spec.ts")
+    assert not any("vitest" in s for s in steps)
 
 
 def test_check_change_adds_the_type_check_only_for_checked_python_files():
