@@ -51,7 +51,7 @@ export function LinkCheckCard({ pc }: { pc: PcMode }) {
       <ErrorBanner error={job.startError ?? error} onDismiss={() => { job.clearError(); setError(null) }} />
       {rows && !job.active && !rows.length && <p className="muted">No title needs details from its link.</p>}
       {rows && rows.length > 0 && (
-        <ul className="tool-list" aria-label="What the links say">
+        <ul className="tool-list scroll-box" tabIndex={0} aria-label="What the links say">
           {rows.map((row) => (
             <LinkCheckRow key={row.drama_id} row={row} onRow={(next) => setRows((all) => all && all.map((r) => (r.drama_id === next.drama_id ? next : r)))} onError={setError} />
           ))}
