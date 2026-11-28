@@ -81,6 +81,8 @@ import './comic/comic.css'
 import { browserStorage } from '../hooks/usePersistedState'
 
 const PROGRESS_DELAY_MS = 1000
+// A page with no text boxes has nothing to fetch, and its picture is described as having no text.
+const NO_REGIONS = { regions: [] }
 
 // In-viewer moves replace the history entry, so Back leaves the comic
 // instead of stepping back through every page.
@@ -502,7 +504,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
               eager={paged || Math.abs(n - (current ?? 1)) <= 1}
               mounted={paged || inRenderWindow(n, current ?? 1)}
               regions={overlayFor(p)}
-              described={loadedText(p)}
+              described={p.has_regions ? loadedText(p) : NO_REGIONS}
               boxText={!phone}
               flashBoxes={flash?.page === n ? flash.boxes : undefined}
               onLineTap={canEdit ? (idx) => setEditing({ pageId: p.id, number: n, idx }) : undefined}
