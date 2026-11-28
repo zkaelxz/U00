@@ -79,7 +79,7 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-test\n")
     overview = settings_service.get_settings_overview(env_path)
     assert set(overview) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
-                             "desktop_popups", "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads",
+                             "desktop_popups", "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads", "remote_uploads_since", "remote_uploads_auto_off",
                              "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
@@ -148,19 +148,45 @@ def test_overview_reports_which_ocr_backends_can_run_and_why_not(isolated_db, mo
     assert "auto" not in status
 
 
-def test_remote_uploads_switch_lapses_and_does_not_need_developer_mode(isolated_db):
+def test_remote_uploads_switch_stays_on_until_turned_off(isolated_db):
     import db
     assert settings_service.remote_uploads_on() is False
     assert not settings_service.get("developer_mode")
     overview = settings_service.set_settings({"remote_uploads": True})
     assert overview["remote_uploads"] is True
+    assert overview["remote_uploads_auto_off"] is False
     on_at = db.get_app_setting("remote_uploads.since")
-    days = settings_service.REMOTE_UPLOADS_DAYS * 86400
-    assert settings_service.remote_uploads_on(on_at + days - 1) is True
-    assert settings_service.remote_uploads_on(on_at + days) is False
+    assert overview["remote_uploads_since"] == on_at
+    year = 365 * 86400
+    assert settings_service.remote_uploads_on(on_at + year) is True
     assert settings_service.remote_uploads_on(on_at - 1) is False
     settings_service.set_settings({"remote_uploads": False})
     assert settings_service.remote_uploads_on(on_at) is False
+    assert settings_service.get_settings_overview()["remote_uploads_since"] is None
+
+
+def test_remote_uploads_auto_off_is_opt_in_and_lapses_after_seven_days(isolated_db):
+    import db
+    settings_service.set_settings({"remote_uploads": True})
+    settings_service.set_settings({"remote_uploads_auto_off": True})
+    start = max(db.get_app_setting("remote_uploads.since"), db.get_app_setting("remote_uploads.auto_off_from"))
+    days = settings_service.REMOTE_UPLOADS_DAYS * 86400
+    assert settings_service.remote_uploads_on(start + days - 1) is True
+    assert settings_service.remote_uploads_on(start + days) is False
+    settings_service.set_settings({"remote_uploads_auto_off": False})
+    assert settings_service.remote_uploads_on(start + days * 10) is True
+
+
+def test_a_switch_from_before_auto_off_existed_keeps_its_seven_day_lapse(isolated_db):
+    import db
+    on_at = time.time() - 8 * 86400
+    db.set_app_setting("remote_uploads", True)
+    db.set_app_setting("remote_uploads.since", on_at)
+    assert db.get_app_setting("remote_uploads_auto_off") is None
+    assert settings_service.remote_uploads_on() is False
+    assert settings_service.remote_uploads_on(on_at + 86400) is True
+    settings_service.set_settings({"remote_uploads": True})
+    assert settings_service.remote_uploads_on(time.time() + 30 * 86400) is True
 
 
 def test_a_remote_uploads_stamp_from_the_developer_mode_days_does_not_count(isolated_db):
@@ -184,3 +210,13 @@ def test_a_failing_choices_list_still_reads_as_the_default(isolated_db, monkeypa
     monkeypatch.setattr(stored_settings, "_warned_unreadable_keys", set())
     expected = settings_schema.default_of(settings_schema.BY_KEY["default_engine"])
     assert settings_service.get("default_engine") == expected
+
+
+@pytest.mark.parametrize("choice", [True, False])
+def test_choosing_auto_off_does_not_bring_a_lapsed_switch_back(isolated_db, choice):
+    import db
+    db.set_app_setting("remote_uploads", True)
+    db.set_app_setting("remote_uploads.since", time.time() - 30 * 86400)
+    settings_service.set_settings({"remote_uploads_auto_off": choice})
+    assert settings_service.remote_uploads_on() is False
+    assert settings_service.remote_uploads_on(time.time() + 365 * 86400) is False

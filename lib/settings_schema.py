@@ -546,6 +546,11 @@ SETTINGS = (
     # older "remote_uploads.on_at": a stamp from when the switch also needed Developer Mode must
     # not count, or a PC with that mode off would start allowing uploads on its own.
     _own("remote_uploads.since", "float", 0.0, min=0),
+    # Opt-in: the switch lapses REMOTE_UPLOADS_DAYS after it was last turned on, or after this
+    # was last turned on if later. Off means the switch stays on until the owner turns it off.
+    _own("remote_uploads_auto_off", "bool", False, label="Turn off uploads from away after 7 days",
+         custom=True, tab="system", section="Uploads from away"),
+    _own("remote_uploads.auto_off_from", "float", 0.0, min=0),
 )
 
 BY_KEY = {s.key: s for s in SETTINGS}

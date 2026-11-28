@@ -617,10 +617,10 @@ class TestAdminOverrideIsPcOnly:
 
 # --- admin uploads from away (media.upload) ---------------------------------------
 
-def _remote_uploads(on=True, on_at=None):
+def _remote_uploads(on=True, on_at=None, auto_off=False):
     from services import settings_service
     if on:
-        settings_service.set_settings({"remote_uploads": True})
+        settings_service.set_settings({"remote_uploads": True, "remote_uploads_auto_off": auto_off})
     else:
         db.set_app_setting("remote_uploads", on)
     if on_at is not None:
@@ -629,7 +629,7 @@ def _remote_uploads(on=True, on_at=None):
 
 class TestRemoteUploads:
     """An admin may upload from away only while the PC's switch is on
-    (turned on in the last 7 days); members never may, and
+    (and, with the opt-in auto-off, turned on in the last 7 days); members never may, and
     a refused upload is refused before its body is read."""
 
     @pytest.fixture
@@ -692,6 +692,28 @@ class TestRemoteUploads:
         assert "remote_uploads.on" in actions
         assert "raw-novel/text" in next(r["detail_redacted"] for r in rows if r["action"] == "upload.away")
 
+    def test_an_accepted_away_upload_logs_counts_only(self, isolated_db, caplog):
+        import logging
+        _remote_uploads()
+        s = _admin_session()
+        remote_uploads.away_counts.admin = remote_uploads.away_counts.member = 0
+        with caplog.at_level(logging.INFO, logger=remote_uploads.log.name):
+            assert self._paste(s).status_code == 200
+        line = next(r.getMessage() for r in caplog.records if "upload from away accepted" in r.getMessage())
+        assert "1 by admins and 0 by members" in line
+        assert "raw-novel" not in line
+
+    def test_a_stay_on_switch_still_allows_an_admin_after_a_month(self, isolated_db):
+        _remote_uploads()
+        db.set_app_setting("remote_uploads.since", time.time() - 30 * 86400)
+        assert self._paste(_admin_session()).status_code == 200
+
+    def test_the_auto_off_choice_refuses_after_seven_days(self, isolated_db):
+        from services import settings_service
+        _remote_uploads(auto_off=True, on_at=time.time() - 8 * 86400)
+        db.set_app_setting("remote_uploads.auto_off_from", time.time() - 8 * 86400)
+        assert self._paste(_admin_session()).status_code == 403
+
     def test_switch_on_allows_an_admin(self, isolated_db, parsed):
         _remote_uploads()
         s = _admin_session()
@@ -706,7 +728,7 @@ class TestRemoteUploads:
 
     @pytest.mark.parametrize("state", [
         dict(on=False),
-        dict(on_at=time.time() - 8 * 86400),
+        dict(on_at=time.time() - 8 * 86400, auto_off=True),
         dict(on_at=0.0),
     ], ids=["switch-off", "lapsed", "never-stamped"])
     def test_switch_off_or_lapsed_refuses(self, isolated_db, state):

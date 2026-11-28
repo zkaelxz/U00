@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures'
 import { guardWrites } from './mockHelpers'
 
-// People and access > Remote access > Uploads from away (PC only): one switch, off until turned on, sent through the settings save.
+// People and access > Remote access > Uploads from away (PC only): a switch off until turned on, plus an opt-in 7-day auto-off, sent through the settings save.
 
 test('Uploads from away is a switch on People and access that saves remote_uploads', async ({ page }) => {
   const unmocked = await guardWrites(page)
@@ -19,5 +19,6 @@ test('Uploads from away is a switch on People and access that saves remote_uploa
   await sw.click()
   await expect(sw).toHaveAttribute('aria-checked', 'true')
   expect(bodies).toEqual([{ remote_uploads: true }])
+  await expect(page.getByRole('switch', { name: 'Turn off automatically after 7 days' })).toHaveAttribute('aria-checked', 'false')
   expect(unmocked).toEqual([])
 })
