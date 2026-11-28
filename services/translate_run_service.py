@@ -311,7 +311,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
-    if style_preset is not None and style_preset not in translation_guide.STYLE_PRESETS:
+    if style_preset and style_preset not in translation_guide.STYLE_PRESETS:
         raise InvalidInputError("Unknown style preset.")
 
     free_tier = engine_name == "gemini" and gemini_free_tier

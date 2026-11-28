@@ -415,6 +415,7 @@ def test_the_estimate_prices_a_style_picked_on_the_form(isolated_db, monkeypatch
     monkeypatch.setattr(workspace_job_service, "build_run_style_context",
                         lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
     translate_run_service.estimate_translate_cost(did, "claude", style_preset="audio_drama")
-    assert presets == ["audio_drama"]
+    translate_run_service.estimate_translate_cost(did, "claude", style_preset="")
+    assert presets == ["audio_drama", "novel"]
     with pytest.raises(InvalidInputError):
         translate_run_service.estimate_translate_cost(did, "claude", style_preset="no-such-style")
