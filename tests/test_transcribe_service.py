@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 import tempfile
 import time
 
@@ -1103,7 +1104,8 @@ class TestRunTranscribeAndApplyJob:
         assert background_jobs.get_status(job_id)["result"]["failed_reason"] == "vocal_separation"
         _clear(job_id)
 
-    def _preload_run(self, isolated_db, monkeypatch, fits, separation_fails=False, gpu_error=None):
+    def _preload_run(self, isolated_db, monkeypatch, fits, separation_fails=False, gpu_error=None,
+                     separation_raises=None):
         """Runs a separated Whisper job with the model on disk; returns the order of events."""
         import threading
         import audio_preprocess
@@ -1114,6 +1116,7 @@ class TestRunTranscribeAndApplyJob:
         events, loaded = [], threading.Event()
         monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
         monkeypatch.setattr(memory_headroom, "fits_beside_separation", lambda *a: fits)
+        monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
         monkeypatch.setattr(whisper_models, "get_whisper_device_info",
                             lambda *a, **k: {"device": "cuda", "gpu_error": gpu_error})
         monkeypatch.setattr(whisper_models, "forget_whisper_model", lambda *a, **k: events.append("forget"))
@@ -1128,6 +1131,8 @@ class TestRunTranscribeAndApplyJob:
             if fits:
                 assert loaded.wait(5), "Whisper did not start loading during the separation"
             events.append("separated")
+            if separation_raises is not None:
+                raise separation_raises
             if separation_fails:
                 raise audio_preprocess.VocalSeparationError("no audio-separator")
             with open(out_path, "wb") as f:
@@ -1159,10 +1164,21 @@ class TestRunTranscribeAndApplyJob:
         events, _ = self._preload_run(isolated_db, monkeypatch, fits=True, gpu_error="out of memory")
         assert "forget" in events
 
-    def test_a_failed_separation_frees_the_early_model(self, isolated_db, monkeypatch):
+    def test_a_failed_separation_frees_the_early_model_and_tries_once_more_alone(self, isolated_db, monkeypatch):
         events, result = self._preload_run(isolated_db, monkeypatch, fits=True, separation_fails=True)
         assert result["failed_reason"] == "vocal_separation"
-        assert events.index("release") > events.index("separated")
+        assert events.count("separated") == 2
+        assert events.index("release") < events.index("separated", events.index("separated") + 1)
+
+    def test_an_unexpected_separation_error_still_frees_the_early_model(self, isolated_db, monkeypatch):
+        with pytest.raises(RuntimeError, match="driver crashed"):
+            self._preload_run(isolated_db, monkeypatch, fits=True, separation_raises=RuntimeError("driver crashed"))
+
+    def test_reused_vocals_load_whisper_after_as_before(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(transcribe_pipeline, "_reusable_vocals", lambda *a: True)
+        events, _ = self._preload_run(isolated_db, monkeypatch, fits=True)
+        assert "separated" not in events
+        assert all(e[1] != "whisper-preload" for e in events if isinstance(e, tuple))
 
     def test_vocal_separation_cancel_never_starts_transcription(self, isolated_db, monkeypatch):
         import audio_preprocess

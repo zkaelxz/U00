@@ -308,7 +308,11 @@ class _PipelineRun:
                 if preload is not None:
                     self._finish_whisper_preload(preload)
                     if failed:
-                        whisper_models.release_gpu_models()   # the run stops here: free the early model
+                        whisper_models.release_gpu_models()   # free the early model
+            # The memory check rests on estimates: a separation that failed beside the early
+            # model gets one more try alone, as it would have run before.
+            if preload is not None and failed and failed.get("failed_reason") == "vocal_separation":
+                failed = self._separate_vocals()
             if failed:
                 return failed
         if rep.cancelled():
@@ -378,6 +382,14 @@ class _PipelineRun:
         if not memory_headroom.fits_beside_separation("whisper", o.local_model_path or o.whisper_size,
                                                       bool(o.use_gpu)):
             return None
+        if o.use_gpu:
+            # The separator brings torch and its own CUDA libraries; loaded first, as before this
+            # overlap, so Whisper's CUDA runtime never takes their place (Windows reuses a DLL
+            # already loaded under the same name).
+            try:
+                import torch  # noqa: F401
+            except Exception:
+                return None
 
         def load():
             try:
