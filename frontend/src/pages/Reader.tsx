@@ -181,6 +181,27 @@ function NotesSection({ dramaId }: { dramaId: number }) {
   )
 }
 
+/** The title's audio or video, glossary, saved words and the engines a line can be translated with. */
+function useReaderLists(id: number, loadTick: number, vocabTick: number) {
+  const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
+  const [terms, setTerms] = useState<GlossaryTerm[]>([])
+  const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
+  const [engines, setEngines] = useState<TranslateEngine[]>([])
+  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
+  useEffect(() => {
+    readerApi.media(id).then(setMedia, () => setMedia(null))
+    getGlossaryTerms(id).then(setTerms, () => setTerms([]))
+    translateApi.engines().then((all) => {
+      setEngines(readerEngines(all))
+      setEnginesOff(readerEnginesOff(all))
+    }, () => setEngines([]))
+  }, [id, loadTick])
+  useEffect(() => {
+    readerApi.vocab(id).then(setVocab, () => setVocab(null))
+  }, [id, vocabTick])
+  return { vocab, engines, enginesOff, media, setMedia, terms, setTerms }
+}
+
 export default function ReaderPage({ id, page: routePage, line: routeLine = null }: { id: number; page: number | null; line?: number | null }) {
   const phone = useMediaQuery('(max-width: 640px)')
   // The Reader's "auto" theme follows the app theme (the header theme button).
@@ -206,11 +227,6 @@ export default function ReaderPage({ id, page: routePage, line: routeLine = null
   const [pageFailure, setPageFailure] = useState<{ page: number; error: unknown } | null>(null)
   const [resumed, setResumed] = useState<number | null>(null)
   const [lastIdx, setLastIdx] = useState<{ page: number; size: number; idx: number } | null>(null)
-  const [media, setMedia] = useState<ReaderMediaAvailability | null>(null)
-  const [vocab, setVocab] = useState<ReaderVocabList | null>(null)
-  const [terms, setTerms] = useState<GlossaryTerm[]>([])
-  const [engines, setEngines] = useState<TranslateEngine[]>([])
-  const [enginesOff, setEnginesOff] = useState<TranslateEngine[]>([])
   const [enginePref, setEngine] = usePersistedState('reader.engine', '')
   const [pageTick, setPageTick] = useState(0)
   const [loadTick, setLoadTick] = useState(0)
@@ -243,21 +259,12 @@ export default function ReaderPage({ id, page: routePage, line: routeLine = null
       },
     )
     readerApi.overview(id).then(setOverview, setLoadError)
-    readerApi.media(id).then(setMedia, () => setMedia(null))
-    getGlossaryTerms(id).then(setTerms, () => setTerms([]))
-    translateApi.engines().then((all) => {
-      setEngines(readerEngines(all))
-      setEnginesOff(readerEnginesOff(all))
-    }, () => setEngines([]))
     return () => {
       cancelled = true
     }
   }, [id, loadTick])
 
-  useEffect(() => {
-    readerApi.vocab(id).then(setVocab, () => setVocab(null))
-  }, [id, vocabTick])
-
+  const { vocab, engines, enginesOff, media, setMedia, terms, setTerms } = useReaderLists(id, loadTick, vocabTick)
   const empty = overview !== null && overview.line_count === 0
 
   // A manga/manhua/manhwa with no lines is read as pages (History links carry no type).
