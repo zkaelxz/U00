@@ -239,7 +239,8 @@ def authenticated():
     device tokens (`GET /api/auth/device-tokens` and
     `POST /api/auth/device-tokens/{device_token_id}/revoke`), and removing
     the caller's own Ollama key (`DELETE /api/auth/ollama-key`, so a member
-    who lost `jobs.start` can still take their key back); the static test
+    who lost `jobs.start` can still take their key back), and saving the caller's
+    own account preferences (`PUT /api/auth/preferences`); the static test
     pins it to those.
     With auth off, the caller is the local owner as usual."""
     def dependency(request: Request):

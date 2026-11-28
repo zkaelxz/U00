@@ -70,6 +70,7 @@ def test_deleting_an_account_deletes_its_reading_data(isolated_db):
     db.save_progress(d, last_line_idx=0, percent_complete=40.0, user_id=a)
     db.save_personal_notes(d, "x", user_id=a)
     db.set_app_setting(f"quick_video.profile_id.{a}", 5)
+    db.set_app_setting(f"account_prefs.{a}", {"theme": "dark"})
     db.save_progress(d, last_line_idx=0, percent_complete=10.0)
     conn = db.get_conn()
     conn.execute("UPDATE users SET is_active = 0 WHERE id = ?", (a,))
@@ -86,6 +87,7 @@ def test_deleting_an_account_deletes_its_reading_data(isolated_db):
     finally:
         conn.close()
     assert db.get_app_setting(f"quick_video.profile_id.{a}") is None
+    assert db.get_app_setting(f"account_prefs.{a}") is None
 
 
 def test_upgrade_gives_each_active_admin_a_copy_of_the_shared_data(isolated_db):
