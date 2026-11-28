@@ -586,7 +586,7 @@ export default function LibraryToolsPage() {
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}
         >
-          <ul className="tool-list">
+          <ul className="tool-list tool-list-scroll" tabIndex={0} aria-label="Cost by title list">
             {costs.data?.items.map((c) => (
               <li key={c.id}>
                 <span className="tool-row">
@@ -601,7 +601,7 @@ export default function LibraryToolsPage() {
           </ul>
         </ToolSection>
         <ToolSection card="history" ready={activityReady} first={firstOf(activityShown) === 1} count={grouped?.length} error={history.error}>
-          <ul className="tool-list">
+          <ul className="tool-list tool-list-scroll" tabIndex={0} aria-label="Reading history list">
             {grouped?.map(({ entry: h, count }) => (
               <li key={`${h.drama_id}-${h.accessed_at}`}>
                 <span className="tool-row">
