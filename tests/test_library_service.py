@@ -79,6 +79,15 @@ class TestListLibraryDramas:
         row = library_service.list_library_dramas()[0]
         assert (row["line_count"], row["translated_count"]) == (2, 1)
 
+    def test_the_line_count_reads_only_its_covering_index(self, isolated_db):
+        # Without it SQLite reads every line row, word timings included, on each Library visit.
+        import contextlib
+        import sqlite3
+        from db import dramas
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            plan = " ".join(r[-1] for r in conn.execute("EXPLAIN QUERY PLAN " + dramas.LINE_PROGRESS_SQL))
+        assert "COVERING INDEX idx_lines_drama_translated" in plan, (plan, sqlite3.sqlite_version)
+
     def test_sql_filters_pass_through(self, isolated_db):
         _make(isolated_db, title_en="Moon", status="translated", source_language="ja")
         _make(isolated_db, title_en="Sun", status="aligned", source_language="zh")

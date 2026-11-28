@@ -811,6 +811,10 @@ def _create_core_indexes(conn):
     conn.executescript("""
 
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
+        -- Lets line_progress_by_drama count from the index alone instead of reading every
+        -- row (and its word timings); the expression must match that query's text exactly.
+        CREATE INDEX IF NOT EXISTS idx_lines_drama_translated
+            ON lines(drama_id, (TRIM(COALESCE(en, '')) != ''));
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
         CREATE INDEX IF NOT EXISTS idx_bubbles_page ON bubbles(page_id);
