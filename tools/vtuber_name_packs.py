@@ -155,14 +155,22 @@ def fetch(cache_dir: Path, refresh_max: int):
     rows = load_cache(cache_dir)
     session = requests.Session()
     session.headers["User-Agent"] = "glossary-builder (low-rate; respects robots.txt)"
-    listed, complete = {}, True
-    for category in CATEGORIES:
-        slugs, whole = _category_slugs(session, category)
-        complete = complete and whole
-        for slug in slugs:
-            listed.setdefault(slug, category)
-        print(f"{category}: {sum(1 for c in listed.values() if c == category)} listed", flush=True)
     today = datetime.now(timezone.utc)
+    listing = cache_dir / "listed.json"
+    saved = json.loads(listing.read_text(encoding="utf-8")) if listing.exists() else {}
+    if saved.get("date") == today.strftime("%Y-%m-%d") and saved.get("complete"):
+        # A run that was stopped part-way resumes without walking every list page again.
+        listed, complete = saved["listed"], saved["complete"]
+    else:
+        listed, complete = {}, True
+        for category in CATEGORIES:
+            slugs, whole = _category_slugs(session, category)
+            complete = complete and whole
+            for slug in slugs:
+                listed.setdefault(slug, category)
+            print(f"{category}: {sum(1 for c in listed.values() if c == category)} listed", flush=True)
+        listing.write_text(json.dumps({"date": today.strftime("%Y-%m-%d"), "complete": complete,
+                                       "listed": listed}), encoding="utf-8")
     stale = sorted((r["fetched"], s) for s, r in rows.items() if s in listed
                    and (today - datetime.strptime(r["fetched"], "%Y-%m-%d").replace(tzinfo=timezone.utc)).days
                    >= REFRESH_AFTER_DAYS)
@@ -171,7 +179,7 @@ def fetch(cache_dir: Path, refresh_max: int):
         body = _get(session, f"{SITE}/{slug}/")
         if body:
             rows[slug] = parse_profile(slug, listed[slug], body)
-        if n % 50 == 0 or n == len(todo):
+        if n % 10 == 0 or n == len(todo):
             _save_cache(cache_dir, rows)
             print(f"fetched {n}/{len(todo)}", flush=True)
     # A profile no longer listed in any category was removed or moved off these countries. Only a
