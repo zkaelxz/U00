@@ -33,6 +33,11 @@ const floatingNav = (port: number) => ({
       { name: 'baihe.pref.title.view', value: '"full"' },
       { name: 'baihe.pref.title.view.comic', value: '"full"' },
       { name: 'baihe.pref.ui.mode', value: '"advanced"' },
+      // These blocks start folded for a newcomer; the specs were written against them open, and fold-defaults.spec.ts clears them.
+      ...['diagnostics.packages', 'diagnostics.models', 'diagnostics.omnivoice', 'diagnostics.qwen3-tts', 'diagnostics.chatterbox',
+        'diagnostics.modelgroup.whisper', 'diagnostics.modelgroup.speech', 'diagnostics.modelgroup.translation', 'diagnostics.modelgroup.other',
+        'benchmark.addCorrections', 'benchmark.buildSet', 'benchmark.importSet', 'benchmark.addCase', 'benchmark.handRuns']
+        .map((k) => ({ name: `baihe.section.${k}`, value: '1' })),
     ],
   }],
 })

@@ -11,6 +11,6 @@ export async function openBenchTab(page: Page, title: BenchPane): Promise<void> 
   await expect(page.getByRole('tabpanel')).toBeVisible()
 }
 
-// A flat section inside a pane, found by its heading.
+// A section inside a pane (flat or a fold), found by its heading.
 export const flatSection = (page: Page, heading: string) =>
-  page.locator('.section-flat').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })
+  page.locator('.section').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })

@@ -5,12 +5,15 @@ import type { BenchmarkRun } from '../../types/benchmark'
 import { Badge } from '../../components/Badge'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { buttonClass } from '../../components/uiClasses'
+import { usePersistedState } from '../../hooks/usePersistedState'
 import { BenchSection } from './BenchSection'
 import { pickScore, pickTotalsLine } from './blindPickText'
 import {
   STAGE_LABELS, arenaGroups, compareProblem, formatCost, formatLatency, formatScore, formatWhen, judgeRunLine, runConfigLabel,
   plainError, runExtraLabel, runStatusLabel, runStatusTone, stageLabel, toggleCompare,
 } from './benchmarkForm'
+import { bestValueRunIds, runQualityRanks, sortRuns, type SortKey } from './runRanking'
+import { SortBar } from './SortBar'
 
 type Props = {
   runs: BenchmarkRun[]
@@ -31,6 +34,11 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
   const [picked, setPicked] = useState<number[]>([])
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [storedSort, setSort] = usePersistedState<string>('benchmark.runsSort', 'quality')
+  const sort: SortKey = storedSort === 'speed' || storedSort === 'cost' ? storedSort : 'quality'
+  const ranks = runQualityRanks(runs)
+  const ranking: Ranking = { ranks, bestValue: bestValueRunIds(runs) }
+  const sorted = sortRuns(runs, sort, ranks)
   // Only runs still listed stay picked (a stage filter change hides some).
   const selected = picked.filter((id) => runs.some((r) => r.id === id))
   const problem = compareProblem(selected, runs, maxCompare)
@@ -68,7 +76,7 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
   )
 
   return (
-    <BenchSection id="runs" meta={runs.length ? `${runs.length} shown, newest first` : undefined} actions={filter} className="bench-runs">
+    <BenchSection id="runs" meta={runs.length ? `${runs.length} shown, best ${sort} first` : undefined} actions={filter} className="bench-runs">
       {runs.length === 0 ? (
         <p className="muted">No runs yet. Estimate and start one above; every run is kept here with its score.</p>
       ) : (
@@ -88,10 +96,14 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
               ))}
             </ul>
           )}
+          <SortBar name="runs" value={sort} onChange={setSort} />
+          <p className="muted bench-rank-note">
+            Quality rank is by score within each stage (1 = best); a run with no score has none. Best value: the most score per dollar among a stage&apos;s top runs.
+          </p>
           {phone ? (
-            <RunCards runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
+            <RunCards runs={sorted} ranking={ranking} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
           ) : (
-            <RunTable runs={runs} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
+            <RunTable runs={sorted} ranking={ranking} selected={selected} onToggle={toggle} onOpen={onOpen} del={del} />
           )}
           <div className="actions">
             <button type="button" className={buttonClass('secondary')} disabled={!!problem} onClick={() => onCompare(selected)}>
@@ -110,13 +122,18 @@ export function RunsCard({ runs, stageFilter, onStageFilter, maxCompare, phone, 
   )
 }
 
+type Ranking = { ranks: Map<number, number>; bestValue: Set<number> }
+
 type ListProps = {
   runs: BenchmarkRun[]
+  ranking: Ranking
   selected: number[]
   onToggle: (id: number) => void
   onOpen: (id: number) => void
   del: (r: BenchmarkRun) => ReactNode
 }
+
+const BestValue = () => <Badge tone="ok" title="Most score per dollar among the top runs of its stage">Best value</Badge>
 
 const runName = (r: BenchmarkRun) => r.label || runConfigLabel(r)
 
@@ -142,9 +159,9 @@ function ScoreCell({ r }: { r: BenchmarkRun }) {
   )
 }
 
-function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
+function RunTable({ runs, ranking, selected, onToggle, onOpen, del }: ListProps) {
   return (
-    <div className="table-scroll">
+    <div className="table-scroll scroll-box">
       <table className="bench-table bench-run-table" aria-label="Runs">
         <thead>
           <tr>
@@ -153,6 +170,7 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
             <th>Engine</th>
             <th>Prompt</th>
             <th>Status</th>
+            <th className="num">Quality rank</th>
             <th className="num">Score</th>
             <th className="num">Passed</th>
             <th className="num">Avg time</th>
@@ -177,6 +195,7 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
                 <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
                 {r.note && <div className="muted bench-note-text">{r.note}</div>}
               </td>
+              <td className="num">{ranking.ranks.get(r.id) ?? <span className="muted">—</span>}</td>
               <td className="num"><ScoreCell r={r} /></td>
               <td className="num">
                 {r.passed_count}/{r.scored_count}
@@ -186,6 +205,7 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
               <td className="num">
                 {formatCost(r.total_cost_usd)}
                 {r.judge && <div className="muted">+ {formatCost(r.judge.cost_usd)} judge</div>}
+                {ranking.bestValue.has(r.id) && <div><BestValue /></div>}
               </td>
               <td className="num">{formatWhen(r.created_at)}</td>
               <td className="bench-cell-action">
@@ -202,9 +222,9 @@ function RunTable({ runs, selected, onToggle, onOpen, del }: ListProps) {
   )
 }
 
-function RunCards({ runs, selected, onToggle, onOpen, del }: ListProps) {
+function RunCards({ runs, ranking, selected, onToggle, onOpen, del }: ListProps) {
   return (
-    <ul className="bench-run-cards" aria-label="Runs">
+    <ul className="bench-run-cards scroll-box" aria-label="Runs">
       {runs.map((r) => (
         <li key={r.id} className={selected.includes(r.id) ? 'selected' : undefined}>
           <label className="bench-run-pick">
@@ -217,6 +237,8 @@ function RunCards({ runs, selected, onToggle, onOpen, del }: ListProps) {
           <p className="pill-row">
             <Badge tone={runStatusTone(r.status)}>{runStatusLabel(r.status)}</Badge>
             <Badge tone="neutral">{stageLabel(r.stage)}</Badge>
+            {ranking.ranks.has(r.id) && <Badge tone="accent">Quality rank {ranking.ranks.get(r.id)}</Badge>}
+            {ranking.bestValue.has(r.id) && <BestValue />}
             {r.prompt_version && <Badge tone="neutral">{r.prompt_version}</Badge>}
           </p>
           <p className="num">

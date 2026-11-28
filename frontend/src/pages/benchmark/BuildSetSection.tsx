@@ -57,7 +57,7 @@ export function BuildSetSection({ pc, onDone }: { pc: PcMode; onDone: () => void
   }
 
   return (
-    <Section title="Build a set from a reviewed title" summary="Your corrections as references">
+    <Section title="Build a set from a reviewed title" summary="Your corrections as references" storageKey="benchmark.buildSet" keepFold>
       <p className="muted">{BUILD_SET_HELP}</p>
       <div className="field-row">
         <Field label="Title">

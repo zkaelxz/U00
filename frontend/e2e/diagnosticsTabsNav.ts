@@ -43,9 +43,9 @@ export async function openTabFor(page: Page, title: RegExp) {
   if (hit) await openDiagTab(page, hit[1])
 }
 
-/** A section of the pane on show, by the start of its heading; panes draw their sections flat, with no fold to open. */
+/** A section of the pane on show, by the start of its heading; panes draw their sections flat, except Packages, Models and the voice engines, which fold. */
 export const diagSection = (page: Page, title: RegExp) =>
-  page.locator('.diag-panel:not([hidden]) div.section-flat', { has: page.locator('> .section-flat-head > .section-title', { hasText: title }) }).first()
+  page.locator('.diag-panel:not([hidden]) .section', { has: page.locator('> .section-flat-head > .section-title, > summary > .section-title', { hasText: title }) }).first()
 
 /** The heading row of that section: title, count and its one-line state. */
-export const diagSectionHead = (page: Page, title: RegExp) => diagSection(page, title).locator('> .section-flat-head')
+export const diagSectionHead = (page: Page, title: RegExp) => diagSection(page, title).locator('> .section-flat-head, > summary')

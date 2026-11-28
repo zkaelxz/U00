@@ -45,7 +45,7 @@ export function GoldenSetsCard({ sets, pc, phone, onChanged }: Props) {
           corrected lines), then run engines against it.
         </p>
       ) : phone ? (
-        <ul className="bench-set-cards" aria-label="Golden sets list">
+        <ul className="bench-set-cards scroll-box" aria-label="Golden sets list">
           {sets.map((s) => (
             <li key={setKey(s)}>
               <div className="bench-set-title">
@@ -60,7 +60,7 @@ export function GoldenSetsCard({ sets, pc, phone, onChanged }: Props) {
           ))}
         </ul>
       ) : (
-        <div className="table-scroll">
+        <div className="table-scroll scroll-box">
           <table className="bench-table" aria-label="Golden sets list">
             <thead>
               <tr>
@@ -278,7 +278,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
   }
 
   return (
-    <Section title="Import golden set" summary="Paste JSONL or TSV">
+    <Section title="Import golden set" summary="Paste JSONL or TSV" storageKey="benchmark.importSet" keepFold>
       <p className="muted">
         Paste a test set you already have (e.g. a FLORES-200 or WMT slice you downloaded, or your own corrected lines).
         Nothing is downloaded. Only import sets whose licence allows your use (FLORES-200 is CC BY-SA 4.0; check the WMT terms for each year). At most 500 cases per import; a case already in the set is skipped.
@@ -364,7 +364,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   }
 
   return (
-    <Section title="Add one case" summary="A translation case by hand">
+    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase" keepFold>
       <div className="field-row">
         <Field label="Label">
           <input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />

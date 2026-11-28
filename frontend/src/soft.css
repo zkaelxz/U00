@@ -75,3 +75,9 @@ html[data-style='soft'] .ws-strip::before { display: none; }
 html[data-style='soft'] input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color']),
 html[data-style='soft'] select,
 html[data-style='soft'] textarea { border-radius: var(--radius-sm); }
+
+/* Benchmark Lab sections are plain headings in Frost; Soft boxes each one like a Card. */
+html[data-style='soft'] .bench-panel > :is(.bench-section, .section-flat) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); padding: var(--space-4) var(--space-5); }
+/* A fold inside a boxed Benchmark Lab section stays flat, so the box does not hold another box; the repeated class
+   outranks the top-level fold rule the Soft style gives a fold. */
+html[data-style='soft'] .bench-panel .bench-section details.section.section.section { background: none; box-shadow: none; border-radius: 0; padding: 0; border-top: 1px solid var(--border); }

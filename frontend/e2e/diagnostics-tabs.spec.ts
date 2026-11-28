@@ -8,7 +8,7 @@ import { enableDeveloperMode } from './sourceHelpers'
 // links that name a card, attention badges, and Reset library last and set apart.
 
 const heading = (page: import('@playwright/test').Page, title: RegExp) =>
-  page.locator('.diag-panel .section-flat-head .section-title', { hasText: title }).first()
+  page.locator('.diag-panel .section-flat-head .section-title, .diag-panel summary .section-title', { hasText: title }).first()
 
 const PANES: DiagnosticsTabName[] = ['Setup', 'Packages and installs', 'Speaker detection', 'Model status', 'Models on disk', 'Loaded now', 'Test models',
   'Resources and ports', 'Log', 'Reset library']

@@ -15,6 +15,7 @@ import { getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns } from '../api
 import type { BenchmarkOptions, BenchmarkRun, BenchmarkRunStarted, BenchmarkSet } from '../types/benchmark'
 import { cancelJob } from '../api/jobs'
 import { PageShell } from '../components/PageShell'
+import { Section } from '../components/Section'
 import { DeveloperModeOff } from '../components/DeveloperModeOff'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
@@ -271,7 +272,11 @@ function BenchmarkContent({ compare }: { compare?: string }) {
       ))}
       {panel('runs', (
         <>
-          {runs && <ModelSummaryCard runs={runs} />}
+          {runs && (
+            <Section title="Average per model" summary="One row per model over the finished runs below" storageKey="benchmark.modelSummary" defaultOpen keepFold>
+              <ModelSummaryCard runs={runs} />
+            </Section>
+          )}
           <HandRunResultsCard />
           {runs && (
             <RunsCard

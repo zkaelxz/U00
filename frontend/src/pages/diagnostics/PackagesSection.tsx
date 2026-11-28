@@ -394,7 +394,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
     )
 
   return (
-    <Section title="Packages" defaultOpen openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
+    <Section title="Packages" keepFold openSignal={openSignal} storageKey="diagnostics.packages" summary={`${deps.installed.length} installed, ${deps.missing.length} missing.`}>
       <div ref={(el) => { openRef(el); panelRef.current = el }} data-testid="dependency-panel" className="diag-stack">
         {local && (
           <p className="banner banner-prose" role="note" data-testid="services-off-notice">
