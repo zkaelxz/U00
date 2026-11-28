@@ -80,7 +80,7 @@ export function checkForUpdates(): void {
 const pageKey = (): unknown => (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
 
 /** True in an app build that can change its Baihe address from here. */
-export const canChangeAddress = (): boolean => typeof bridge()?.changeAddress === 'function'
+export const canChangeAddress = (): boolean => typeof bridge()?.changeAddress === 'function' && typeof pageKey() === 'string'
 
 /** Opens the app's own Baihe address dialog. */
 export function changeShellAddress(): void {

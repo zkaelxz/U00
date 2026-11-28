@@ -74,10 +74,11 @@ describe('changing the address', () => {
   it('asks the app with the page key, and not without one', () => {
     const changeAddress = vi.fn()
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), changeAddress } })
-    expect(canChangeAddress()).toBe(true)
+    expect(canChangeAddress()).toBe(false)
     changeShellAddress()
     expect(changeAddress).not.toHaveBeenCalled()
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), changeAddress }, __baiheSaveKey: 'k' })
+    expect(canChangeAddress()).toBe(true)
     changeShellAddress()
     expect(changeAddress).toHaveBeenCalledWith('k')
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })

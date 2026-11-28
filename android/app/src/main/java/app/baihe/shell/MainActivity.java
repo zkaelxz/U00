@@ -47,6 +47,7 @@ public class MainActivity extends Activity {
     private TextView failureMessage;
     private Button failureRetry;
     private Button failureChange;
+    private AlertDialog addressDialog;
     private boolean loadFailed;
     private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -608,7 +609,9 @@ public class MainActivity extends Activity {
                     + "(http:// only for an address on your home network).");
         }
         if (current != null) dialog.setNegativeButton("Cancel", null);
-        dialog.show();
+        // A second tap or long-press would otherwise stack another dialog on top.
+        if (addressDialog != null && addressDialog.isShowing()) addressDialog.dismiss();
+        addressDialog = dialog.show();
     }
 
     /**
