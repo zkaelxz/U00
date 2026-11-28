@@ -9,7 +9,7 @@ from lib.errors import InvalidInputError, NotFoundError
 from services import auth_service, queue_service as q, settings_service, translate_run_service
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 def _drama(engine="ollama", **fields):

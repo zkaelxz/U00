@@ -18,7 +18,7 @@ from services import (translate_run_service as run,
 from tests.job_helpers import wait_for_job
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 def _ctx(**kw):
