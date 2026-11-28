@@ -27,13 +27,13 @@ test('phone rules: Fast is disabled and says so where unvetted, a change posts, 
 
   const settings = await openManage(page)
 
-  const alpha = settings.getByRole('combobox', { name: 'Rules: Alpha Comics' })
+  const alpha = settings.getByRole('combobox', { name: 'Pace: Alpha Comics' })
   await expect(alpha).toHaveValue('normal')
   await expect(alpha.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast (not available)'])
   await expect(alpha.locator('option[value="fast"]')).toBeDisabled()
   await expect(settings.getByText("Fast is only available for sites whose rules we've checked.")).toHaveCount(1)
   await expect(settings.locator('.source-cards li', { hasText: 'Alpha Comics' })).not.toContainText('Fast is')
-  const beta = settings.getByRole('combobox', { name: 'Rules: Beta Novels' })
+  const beta = settings.getByRole('combobox', { name: 'Pace: Beta Novels' })
   await expect(beta.locator('option[value="fast"]')).toBeEnabled()
 
   for (const sel of [alpha, beta]) expect(await sel.evaluate((e) => window.hitHeight(e as HTMLElement))).toBeGreaterThanOrEqual(44)

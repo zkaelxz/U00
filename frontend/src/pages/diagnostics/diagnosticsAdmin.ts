@@ -51,9 +51,8 @@ export function resetBlockedReason(jobsActive: boolean, busy: AdminBusy): string
 /** The aria-live line while an install or upgrade runs. */
 export function busyLine(busy: AdminBusy): string | null {
   if (!busy || busy.kind === 'reset') return null
-  // An install is a server job: it carries on if the tab closes, and can be cancelled.
-  if (busy.kind === 'install') return `Installing ${busy.name}… this can take several minutes. Cancel it below if needed.`
-  return `Updating ${busy.name}… this can take several minutes. Keep this tab open.`
+  // An install or update is a server job: it carries on if the tab closes, and can be cancelled.
+  return `${busy.kind === 'install' ? 'Installing' : 'Updating'} ${busy.name}… this can take several minutes. Cancel it below if needed.`
 }
 
 export function installResultText(kind: 'install' | 'upgrade', name: string, ok: boolean): string {
