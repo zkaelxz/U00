@@ -37,7 +37,7 @@ from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFou
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, queue_night, settings_service,
-                      transcribe_service, transcribe_options_service, translate_run_service, translate_thinking_service)
+                      transcribe_service, transcribe_options_service, translate_run_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
 from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,  # noqa: F401  (_NO_CAP is read from here)
@@ -389,8 +389,6 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
     novel = drama.get("content_mode") == "novel_narration"
     preset = translation_guide.STYLE_PRESETS[last.get("style_preset") or ("novel" if novel else "audio_drama")]
     options = translate_run_service.get_translate_config_defaults(novel, engine, model)
-    thinking = translate_thinking_service.effective(
-        [engine], translate_thinking_service.get_title_choice(drama_id))
     terms = len(db.list_run_glossary_terms(drama))
     packs = [p["name"] for p in language_pack_service.get_title_packs(drama_id)["packs"] if p["enabled"]]
     override = settings_service.reply_guard_override()
@@ -402,7 +400,6 @@ def _translate_rows(drama: dict, settings: Optional[dict] = None) -> list:
         _row("English variant", args["locale"]),
         _row("Style note", "Set" if args["style_note"] else "None"),
         _row("Batch size", saved_batch or options["batch_size"]),
-        _row("Thinking", _on(thinking)),
         _row("Glossary", f"On, {terms} terms" if terms else "Off, no glossary terms yet"),
         _row("Language packs", ", ".join(packs) if packs else "Off"),
         _row("VTuber names", _on(vdb_names_service.is_enabled(drama_id))),
@@ -847,12 +844,11 @@ def _start_translate(principal, drama: dict, settings: Optional[dict] = None,
     _check_translate_spend(drama["id"], settings.get("model", saved[0]), settings.get("batch_size", saved[1]),
                            series_left=left, style_preset=settings.get("style_preset"))
     own = {k: settings[k] for k in ("style_preset", "batch_size") if k in settings}
-    return translate_thinking_service.start_with_thinking(
-        translate_run_service.start_translate_run, drama["id"], None, False,
-        model=settings.get("model"), style_note=args["style_note"],
+    return translate_run_service.start_translate_run(
+        drama["id"], model=settings.get("model"), style_note=args["style_note"],
         locale=settings.get("locale", args["locale"]), record_run=not settings, **own,
         allow_paid_summary=holds_paid and settings_service.get_monthly_cap_usd() > 0,
-        **({"job_cost_cap_usd": left} if left is not None else {}))["job_id"]
+        job_cost_cap_usd=left)["job_id"]
 
 
 def _require_chain_finished(item: dict, items: list) -> None:

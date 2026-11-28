@@ -21698,11 +21698,6 @@ export interface components {
             skipped_hand_edited_count: number;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /** GlossaryAffectedTerm */
         GlossaryAffectedTerm: {
@@ -21828,11 +21823,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * GlossaryImportRequest
@@ -29023,11 +29013,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * ReviewJobStart
@@ -31879,11 +31864,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * SourceConfig
@@ -34658,11 +34638,6 @@ export interface components {
              * @default false
              */
             doubtful_redo_above_cap: boolean;
-            /**
-             * Doubtful Redo Estimate Is Lower Bound
-             * @default false
-             */
-            doubtful_redo_estimate_is_lower_bound: boolean;
             /** Doubtful Redo Estimate Usd */
             doubtful_redo_estimate_usd: number | null;
             /**
@@ -34722,16 +34697,6 @@ export interface components {
             series_instructions: string | null;
             /** Style Presets */
             style_presets: components["schemas"]["TranslateRunStylePreset"][];
-            /**
-             * Thinking Switch Engines
-             * @default []
-             */
-            thinking_switch_engines: string[];
-            /**
-             * Title Thinking
-             * @default false
-             */
-            title_thinking: boolean;
             /** Translate By Sentence */
             translate_by_sentence: boolean | null;
             /** Translate Start */
@@ -34769,11 +34734,6 @@ export interface components {
             engine: string;
             /** Estimate Above Cap */
             estimate_above_cap: boolean;
-            /**
-             * Estimate Is Lower Bound
-             * @default false
-             */
-            estimate_is_lower_bound: boolean;
             /** Estimated Usd */
             estimated_usd: number | null;
             /** Free */
@@ -34784,11 +34744,6 @@ export interface components {
             monthly_refusal: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * TranslateRunStart
@@ -34888,11 +34843,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /** TranslateRunStylePreset */
         TranslateRunStylePreset: {
@@ -76076,7 +76026,6 @@ export interface operations {
                 reflect?: boolean;
                 force_retranslate?: boolean;
                 bulk?: boolean;
-                thinking?: boolean | null;
                 gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;
