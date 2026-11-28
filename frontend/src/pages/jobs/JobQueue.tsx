@@ -308,7 +308,7 @@ export function JobQueue({ titles }: Props) {
             <Field label="Night from">
               <input type="time" value={night?.start ?? queue.night.start} onChange={(e) => setNight({ start: e.target.value, end: night?.end ?? queue.night.end })} />
             </Field>
-            <Field label="to">
+            <Field label="Night until">
               <input type="time" value={night?.end ?? queue.night.end} onChange={(e) => setNight({ start: night?.start ?? queue.night.start, end: e.target.value })} />
             </Field>
             {night && (
