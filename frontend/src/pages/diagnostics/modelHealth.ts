@@ -129,7 +129,7 @@ export function lastCheckedLine(checkedAt: string | null | undefined): string {
 
 export const OFFER_MODELS_LABEL = "Offer models the app doesn't know yet"
 export const OFFER_MODELS_HELP =
-  'Also offers models Claude, Gemini and DeepSeek list that this app doesn\'t know yet. Their cost is estimated at the provider\'s highest rate until the app is updated. Uses the list from your last "Check providers now".'
+  'Also offers models Claude, Gemini, DeepSeek and OpenAI list that this app doesn\'t know yet. Their cost is estimated at the provider\'s highest rate until the app is updated. Uses the list from your last "Check providers now".'
 
 /** The line under the opt-in: what it adds now, or what to do first. */
 export function offerModelsNote(status: Pick<ModelStatus, 'checked_at' | 'offer_provider_models' | 'extra_models'>): string | null {

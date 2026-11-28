@@ -13,7 +13,7 @@ describe('resourcesFormat', () => {
     expect(readingText(metric({}))).toBe('70 °C')
     expect(readingText(metric({ name: 'ram', unit: '%', value: 95.4 }))).toBe('95%')
     expect(readingText(metric({ name: 'disk_free', unit: 'GB', value: 12.34 }))).toBe('12.3 GB')
-    expect(readingText(metric({ name: 'gpu_throttle', unit: '', value: 1 }))).toBe('Cutting clocks')
+    expect(readingText(metric({ name: 'gpu_throttle', unit: '', value: 1 }))).toBe('Slowing down to stay cool')
     expect(readingText(metric({ value: null }))).toBe('Not available')
   })
 
@@ -37,6 +37,9 @@ describe('resourcesFormat', () => {
     expect(sampledText(none)).toContain('while Baihe is running')
     const hot = { ...none, sampled_seconds_ago: 4, metrics: [metric({ alerting: true }), metric({})] }
     expect(resourcesSummary(hot)).toBe('1 alerting')
+    const past = { ...none, sampled_seconds_ago: 4, metrics: [metric({ enabled: true, past_seconds: 120 }), metric({})] }
+    expect(resourcesSummary(past)).toBe('1 past its limit')
+    expect(resourcesSummary({ ...none, sampled_seconds_ago: 4 })).toBe('All within limits')
     expect(sampledText(hot)).toBe('Read 4 s ago. The monitor reads this PC every 30 s.')
   })
 

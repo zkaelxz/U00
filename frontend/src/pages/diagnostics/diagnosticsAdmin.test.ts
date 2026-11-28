@@ -221,9 +221,10 @@ describe('reconcileModels', () => {
 describe('other sections', () => {
   it('summarises speaker detection', () => {
     const base = { pyannote_installed: true, hf_token_configured: true, models: null, ready: true }
-    expect(pyannoteSummary(base)).toBe('Ready')
-    expect(pyannoteSummary({ ...base, ready: false, pyannote_installed: false })).toBe('Not ready: pyannote missing')
-    expect(pyannoteSummary({ ...base, ready: false, hf_token_configured: false })).toBe('Not ready: no Hugging Face token')
+    expect(pyannoteSummary(base)).toBe('Nemotron (default) needs no token · pyannote: ready')
+    expect(pyannoteSummary({ ...base, ready: false, pyannote_installed: false })).toBe('Nemotron (default) needs no token · pyannote: not installed')
+    expect(pyannoteSummary({ ...base, ready: false, hf_token_configured: false })).toBe('Nemotron (default) needs no token · pyannote: no Hugging Face token')
+    expect(pyannoteSummary({ ...base, ready: false })).toBe('Nemotron (default) needs no token · pyannote: a model can’t be opened')
   })
 
   it('summarises the model cache', () => {
@@ -241,7 +242,7 @@ describe('other sections', () => {
   })
 
   it('log and copy copy', () => {
-    expect(logEmptyText('ERROR')).toBe('No lines match.')
+    expect(logEmptyText('ERROR')).toBe('No match in the last 5,000 lines.')
     expect(logEmptyText('  ')).toBe('Nothing logged yet.')
     expect(copyFallbackText(false)).toBe('Press Ctrl+C to copy.')
     expect(copyFallbackText(true)).toBe('Long-press to copy.')

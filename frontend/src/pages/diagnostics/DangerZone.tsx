@@ -129,7 +129,7 @@ function ResetBlock({ jobsActive, busy, onBusy, onReset, onOpenChange }: {
             ) : blocked}
             onConfirm={reset}
           >
-            <p>Deletes every title, line, glossary, series, progress and file, and also every account, sign-in session and the audit log. Can’t be undone.</p>
+            <p>Empties the library: every title, line, glossary, series, progress and file, and every account, sign-in session and the audit log. A copy of the old library stays on this PC (Library tools &gt; Storage &gt; Previous library) until you delete it there, so no space is freed until then.</p>
           </TypedConfirm>
           {error != null && (
             <p className="error" role="alert">

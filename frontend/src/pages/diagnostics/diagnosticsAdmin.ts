@@ -174,11 +174,17 @@ export function headerBadges(
 
 // ---- Speaker detection ----
 
+// The checks below are pyannote's only: Nemotron, the default model, needs no token, so a missing
+// pyannote must not read as speaker detection being unavailable.
 export function pyannoteSummary(r: DiagnosticsPyannoteReadiness): string {
-  if (r.ready) return 'Ready'
-  if (!r.pyannote_installed) return 'Not ready: pyannote missing'
-  if (!r.hf_token_configured) return 'Not ready: no Hugging Face token'
-  return 'Not ready: a model needs its terms accepted'
+  const pyannote = r.ready
+    ? 'ready'
+    : !r.pyannote_installed
+      ? 'not installed'
+      : !r.hf_token_configured
+        ? 'no Hugging Face token'
+        : 'a model can’t be opened'
+  return `Nemotron (default) needs no token · pyannote: ${pyannote}`
 }
 
 export const hfModelUrl = (model: string) => `https://huggingface.co/${model.split('/').map(encodeURIComponent).join('/')}`
@@ -276,7 +282,7 @@ export function modelCacheSummary(c: DiagnosticsModelCache): string {
 
 export const LOG_LINE_CHOICES = [50, 100, 200] as const
 export const LOG_DEBOUNCE_MS = 300
-export const logEmptyText = (keyword: string) => (keyword.trim() ? 'No lines match.' : 'Nothing logged yet.')
+export const logEmptyText = (keyword: string) => (keyword.trim() ? 'No match in the last 5,000 lines.' : 'Nothing logged yet.')
 export const copyFallbackText = (touch: boolean) => (touch ? 'Long-press to copy.' : 'Press Ctrl+C to copy.')
 export const COPIED_MS = 2000
 
