@@ -383,6 +383,88 @@ def test_a_live_playlist_that_stops_growing_ends_as_stalled(serve, monkeypatch):
     assert s.hits.count("/live.m3u8") >= 2  # it kept polling until then
 
 
+def _run_settled(url, timeout=10, **kw):
+    sink = _Sink()
+    pump = live_fetch.StreamPump(url, sink, **kw)
+    pump.settle()
+    pump.start()
+    try:
+        assert sink.closed.wait(timeout), "the pump never closed ffmpeg's stdin"
+    finally:
+        pump.halt()
+        pump.join(5)
+    return pump, sink
+
+
+def _then_refused(status):
+    """The playlist once, then `status` on every reload (an expired link)."""
+    hits = []
+
+    def route():
+        hits.append(1)
+        if len(hits) == 1:
+            return 200, _M3U8, _segments(["a.ts"], end=False)
+        return status, {}, b""
+    return route
+
+
+@pytest.mark.parametrize("status", [403, 404, 410])
+def test_a_settled_pump_ends_after_three_refused_reloads(serve, monkeypatch, status):
+    _only_request_deadline(monkeypatch)
+    s = serve({"/live.m3u8": _then_refused(status), **_seg_routes(["a.ts"])})
+    started = time.monotonic()
+    pump, sink = _run_settled(f"{s.base}/live.m3u8")
+    assert pump.error == live_fetch.LINK_REFUSED
+    assert time.monotonic() - started < 6
+    assert s.hits.count("/live.m3u8") == 1 + live_fetch.SETTLED_REFUSALS
+
+
+def test_before_settling_refused_reloads_wait_for_the_full_stall(serve, monkeypatch):
+    _only_request_deadline(monkeypatch)
+    s = serve({"/live.m3u8": _then_refused(404), **_seg_routes(["a.ts"])})
+    pump, sink = _run(f"{s.base}/live.m3u8", stall_timeout=2.5)
+    assert pump.error == live_fetch.STALLED
+    assert s.hits.count("/live.m3u8") > 1 + live_fetch.SETTLED_REFUSALS
+
+
+def test_a_refusal_between_good_reloads_does_not_count_towards_three(serve, monkeypatch):
+    _only_request_deadline(monkeypatch)
+    hits = []
+
+    def route():
+        hits.append(1)
+        if len(hits) % 3 == 0:
+            return 404, {}, b""
+        names = [f"s{i}.ts" for i in range(len(hits))]
+        return 200, _M3U8, _segments(names, end=len(hits) >= 9)
+    s = serve({"/live.m3u8": route, **_seg_routes([f"s{i}.ts" for i in range(10)])})
+    pump, sink = _run_settled(f"{s.base}/live.m3u8", timeout=15)
+    assert pump.error is None
+
+
+def test_a_settled_pump_notices_a_frozen_playlist_sooner(serve, monkeypatch):
+    _only_request_deadline(monkeypatch)
+    monkeypatch.setattr(live_fetch, "SETTLED_STALL_MIN", 1.5)
+    s = serve({"/live.m3u8": (200, _M3U8, _segments(["a.ts"], end=False)),
+               **_seg_routes(["a.ts"])})
+    started = time.monotonic()
+    pump, sink = _run_settled(f"{s.base}/live.m3u8")  # stall_timeout stays 60 s
+    assert pump.error == live_fetch.STALLED
+    assert time.monotonic() - started < 8
+
+
+def test_the_settled_stall_is_a_few_segment_lengths_with_a_floor_and_the_full_stall_as_cap():
+    pump = live_fetch.StreamPump("http://x.example/", _Sink())
+    assert pump._hls_stall(2) == live_fetch.STALL_TIMEOUT
+    pump.settle()
+    assert pump._hls_stall(2) == 15.0
+    assert pump._hls_stall(6) == 24.0
+    assert pump._hls_stall(30) == live_fetch.STALL_TIMEOUT
+    short = live_fetch.StreamPump("http://x.example/", _Sink(), stall_timeout=1.5)
+    short.settle()
+    assert short._hls_stall(6) == 1.5
+
+
 def test_a_body_that_stops_arriving_ends_as_stalled(serve, monkeypatch):
     monkeypatch.setattr(live_fetch, "READ_TIMEOUT", 0.5)
 
