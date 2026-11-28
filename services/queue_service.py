@@ -685,14 +685,74 @@ def cancel_item(principal, item_id: int) -> dict:
     return get_queue(principal)
 
 
+def _back_to_waiting(item: dict, at_pc: bool) -> None:
+    item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+
+
 def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+        _back_to_waiting(item, at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
+
+
+def interrupted_since(since: float) -> int:
+    """How many items a restart stopped (running, or a page run not started)
+    at or after `since`: what the restart notice counts."""
+    with _lock:
+        doc = _load()
+    return sum(1 for i in doc["items"] if i["status"] == INTERRUPTED
+               and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since)
+
+
+def _may_use_paid(item: dict) -> bool:
+    """Could this item run on a paid engine? Judged on what it would run
+    with now: its own settings, else the title's saved choice."""
+    settings = item.get("settings") or {}
+    engine = settings.get("engine")
+    if settings.get("use_groq") or (engine and engine not in engine_registry.FREE_ENGINES):
+        return True
+    if item["step"] not in ("translate", "transcribe"):
+        return False
+    drama = db.get_drama(item["drama_id"])
+    if not drama:
+        return False
+    if item["step"] == "translate":
+        return _translate_engine(drama) not in engine_registry.FREE_ENGINES
+    return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+
+
+def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
+    """The restart notice's "Run them again": every interrupted item the
+    caller may change goes back to waiting, as Retry does, and the queue
+    starts when the caller may start it. An item that could run on a paid
+    engine is left as it is unless the caller holds engines.paid, even
+    though it would run with its adder's rights: the press is what starts it."""
+    retried = skipped_paid = 0
+    with _lock:
+        doc = _load()
+        for item in doc["items"]:
+            if item["status"] != INTERRUPTED or not _sees(principal, item) \
+                    or not _may_change(principal, item):
+                continue
+            if not holds_paid and _may_use_paid(item):
+                skipped_paid += 1
+                continue
+            _back_to_waiting(item, at_pc)
+            retried += 1
+        if retried and _controls(principal):
+            doc["state"], doc["notice"] = ACTIVE, None
+            if doc["schedule"] and doc["schedule"]["missed"]:
+                doc["schedule"] = None
+        elif retried:
+            _auto_start(doc, ownership_service.user_id(principal))
+        started = doc["state"] == ACTIVE
+        _save(doc)
+    _wake.set()
+    return {"retried": retried, "skipped_paid": skipped_paid, "started": bool(retried) and started}
 
 
 def clear_finished(principal) -> dict:

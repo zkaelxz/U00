@@ -102,6 +102,14 @@ export function startsAtText(startsAt: number | null | undefined): string | null
   return `Starts at ${new Date(startsAt * 1000).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
 }
 
+/** What "Run them again" did, in one sentence. */
+export function retriedText(r: { retried: number; skipped_paid: number; started: boolean }): string {
+  const plural = (n: number) => (n === 1 ? '1 item' : `${n} items`)
+  const parts = [r.retried === 0 ? 'Nothing was put back in the queue.' : `${plural(r.retried)} put back in the queue${r.started ? ', and the queue started.' : '. Start the queue on the Jobs page.'}`]
+  if (r.skipped_paid > 0) parts.push(`${plural(r.skipped_paid)} left as they were: they may use a paid engine your account can't use.`)
+  return parts.join(' ')
+}
+
 export function kindBadge(kind: string): { tone: BadgeTone; label: string } {
   return KIND_BADGE[kind as NotificationKind] ?? { tone: 'neutral', label: 'Update' }
 }

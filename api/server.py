@@ -26,6 +26,7 @@ import app_tools
 app_tools.activate()
 
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -187,8 +188,10 @@ async def _lifespan(app: FastAPI):
     from jobs import job_store
     from services import jobs_service
     job_store.register_exit_flush()
+    started_at = time.time()
+    cut_off = []
     try:
-        jobs_service.sweep_stale_job_records()
+        cut_off = jobs_service.sweep_at_startup()
     except Exception:
         logging.getLogger(__name__).warning("Stale job-record sweep failed", exc_info=True)
     from jobs import gpu_slots
@@ -224,8 +227,12 @@ async def _lifespan(app: FastAPI):
     start_gpu_queue_poller()
     start_reeval_scheduler()
     start_resource_monitor(app.state.settings)
-    from services import live_follow_poller, queue_service
+    from services import live_follow_poller, notification_service, queue_service
     queue_service.start_runner()
+    try:
+        notification_service.notify_restart(cut_off, queue_service.interrupted_since(started_at))
+    except Exception:
+        logging.getLogger(__name__).warning("Restart notice failed", exc_info=True)
     try:
         live_follow_poller.start_if_needed()
     except Exception:

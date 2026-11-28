@@ -1476,3 +1476,63 @@ def test_a_page_started_step_offers_no_run_tonight(jobs):
     q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1", now=True)
     q._append_items(None, _drama("B"), [("transcribe", {})], True)
     assert [i["page_run"] for i in q.get_queue(None)["items"]] == [True, True, False]
+
+
+def _restart(jobs):
+    """Two items, the first running, then a restart in this test's process."""
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    db.save_job_record(f"transcribe_{a}", "cancelled", error=background_jobs.INTERRUPTED_MESSAGE)
+    jobs.finish(f"transcribe_{a}")
+    return a, b
+
+
+def test_a_restart_counts_the_items_it_stopped(jobs):
+    import time
+    before = time.time() - 1
+    _restart(jobs)
+    q.restore_at_startup()
+    assert q.interrupted_since(before) == 1
+    assert q.interrupted_since(time.time() + 60) == 0
+
+
+def test_run_them_again_puts_interrupted_items_back_and_starts_the_queue(jobs):
+    a, _b = _restart(jobs)
+    q.restore_at_startup()
+    assert q.get_queue(None)["state"] == "idle"
+    out = q.retry_interrupted(None, holds_paid=True, at_pc=True)
+    assert out == {"retried": 1, "skipped_paid": 0, "started": True}
+    state = q.get_queue(None)
+    assert state["state"] == "running"
+    assert [i["status"] for i in state["items"]] == ["waiting", "waiting"]
+
+
+def test_run_them_again_leaves_a_paid_item_for_a_presser_without_engines_paid(jobs):
+    free, paid = _drama("Free", engine="echo"), _drama("Paid", engine="claude")
+    q.add_item(None, free, "translate", True, at_pc=True)
+    q.add_item(None, paid, "translate", True, at_pc=True)
+    with q._lock:
+        doc = q._load()
+        for item in doc["items"]:
+            q._finish(item, q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_paid"] == 1
+    by_title = {i["title"]: i["status"] for i in q.get_queue(None)["items"]}
+    assert by_title == {"Free": "waiting", "Paid": "interrupted"}
+
+
+def test_run_them_again_touches_only_the_callers_items(jobs):
+    member = auth_service.add_user("member@example.com")
+    theirs = _drama("Theirs")
+    q.add_item(None, theirs, "transcribe", True, at_pc=True)
+    with q._lock:
+        doc = q._load()
+        q._finish(doc["items"][0], q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+    principal = {"user_id": member["id"], "is_admin": False, "permissions": ("jobs.start",)}
+    assert q.retry_interrupted(principal, holds_paid=True, at_pc=False)["retried"] == 0
+    assert q.get_queue(None)["items"][0]["status"] == "interrupted"

@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr
 
 from api.schemas.common import QueueSettingRow
 
-__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
+__all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove", "QueueRetriedInterrupted",
            "QueueScheduleSet", "QueuePolicy", "QueueNight", "QueueNightSet", "QueueTonight", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings", "TitleFlowRun", "NovelFlowStart", "FileRunStart"]
 
@@ -104,6 +104,12 @@ class QueueBulkAdded(BaseModel):
     queue: "QueueState"
     added: List[int]
     skipped: List[QueueBulkSkip]
+
+
+class QueueRetriedInterrupted(BaseModel):
+    retried: int          # items put back to waiting
+    skipped_paid: int     # left interrupted: they could run on a paid engine the caller may not use
+    started: bool         # the queue is running now
 
 
 class QueueMove(BaseModel):

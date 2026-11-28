@@ -1701,3 +1701,36 @@ def test_job_card_footer_names_the_requesting_device_else_the_pc(monkeypatch):
         assert acting.acting_device() == "Browser extension"
     finally:
         acting.unbind_request(token)
+
+
+class TestRestartNotice:
+    """After a restart: one entry for the PC owner and admins naming what was cut off."""
+
+    @pytest.fixture(autouse=True)
+    def _bell(self):
+        ns.reset_for_tests()
+        yield
+        ns.reset_for_tests()
+
+    def test_names_the_jobs_and_offers_run_them_again_for_queue_items(self, env, monkeypatch):
+        sent = []
+        monkeypatch.setattr(ns, "configured_channels", lambda: ["discord"])
+        monkeypatch.setattr(ns, "_enqueue", sent.append)
+        did = db.create_drama(title_en="Signal")
+        ns.notify_restart([{"description": f"Transcription (drama #{did})"},
+                           {"description": "Library export"}], 3)
+        [entry] = ns.list_recent(None)
+        assert entry["kind"] == "waiting" and entry["action"] == "retry_queue"
+        assert entry["target"] == {"page": "jobs"}
+        assert "2 jobs were cut off (Transcription - Signal; Library export)" in entry["text"]
+        assert "3 queue items stopped" in entry["text"]
+        assert len(sent) == 1
+        member = {"user_id": 99, "is_admin": False, "is_local_owner": False}
+        assert ns.list_recent(member) == []
+
+    def test_jobs_only_has_no_queue_button_and_nothing_cut_off_says_nothing(self, env):
+        ns.notify_restart([], 0)
+        assert ns.list_recent(None) == []
+        ns.notify_restart([{"description": "Library export"}], 0)
+        [entry] = ns.list_recent(None)
+        assert entry.get("action") is None and "1 job was cut off" in entry["text"]
