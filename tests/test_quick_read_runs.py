@@ -202,3 +202,16 @@ def test_another_account_cannot_add_pages_to_a_run_id():
     _start("run-aaaaaaaa", owner=7, pages=2)
     _start("run-aaaaaaaa", owner=8, pages=9)
     assert quick_read_runs._runs["run-aaaaaaaa"]["received"] == 2
+
+
+def test_a_finished_run_logs_its_counts_and_timings(monkeypatch):
+    lines = []
+    monkeypatch.setattr(quick_read_runs, "get_logger", lambda: type(
+        "L", (), {"info": staticmethod(lambda msg, *args: lines.append(msg % args))})())
+    _start("run-bbbbbbbb", pages=2)
+    quick_read_runs.page_finished("run-bbbbbbbb", cached=True)
+    assert not [line for line in lines if "finished" in line]
+    quick_read_runs.page_finished("run-bbbbbbbb")
+    [line] = [line for line in lines if "finished" in line]
+    assert "2 pages (1 from cache)" in line and "first page after" in line
+    assert "site.example" not in line and "token" not in line

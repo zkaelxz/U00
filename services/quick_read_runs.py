@@ -62,7 +62,7 @@ def begin(run_id: str, owner, source_url: str, pages: int, cancel, device=None) 
             site, chapter = _label(source_url)
             run = _runs[run_id] = {"owner": owner, "device": device, "source": source_url, "site": site,
                                    "chapter": chapter, "received": 0, "done": 0, "started": now,
-                                   "finished_at": 0.0}
+                                   "finished_at": 0.0, "first_done_at": 0.0, "cached": 0}
         run["received"] += pages
         run["finished_at"] = 0.0
     get_logger().info("Quick read run %s: %d more pages (%s)", run_id[:8], pages, run["site"] or "no site")
@@ -73,14 +73,22 @@ def begin(run_id: str, owner, source_url: str, pages: int, cancel, device=None) 
         get_logger().info("Quick read run %s dropped: run %s started for the same reader", old[:8], run_id[:8])
 
 
-def page_finished(run_id: str) -> None:
+def page_finished(run_id: str, cached: bool = False) -> None:
+    summary = None
     with _lock:
         run = _runs.get(run_id)
         if run is None:
             return
+        now = time.monotonic()
         run["done"] = min(run["done"] + 1, run["received"])
+        run["cached"] += bool(cached)
+        run["first_done_at"] = run["first_done_at"] or now
         if run["done"] >= run["received"]:
-            run["finished_at"] = time.monotonic()
+            run["finished_at"] = now
+            summary = (run["received"], run["cached"], run["first_done_at"] - run["started"], now - run["started"])
+    if summary:
+        get_logger().info("Quick read run %s finished: %d pages (%d from cache), first page after %.1fs, "
+                          "all pages after %.1fs", run_id[:8], *summary)
 
 
 def finish(run_id: str) -> None:

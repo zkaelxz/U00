@@ -900,7 +900,8 @@ def _translate_all(decoded: list, job: dict, on_page=None) -> list:
         finally:
             order.finish(index)
             page_turns.set_priority(None)   # a reused request thread must not keep this page's place
-            quick_read_runs.page_finished(job["run_id"])
+            outcome = outcomes[index]
+            quick_read_runs.page_finished(job["run_id"], cached=bool(outcome[1] and outcome[1].get("cached")))
 
     if len(decoded) == 1:
         work(0)
