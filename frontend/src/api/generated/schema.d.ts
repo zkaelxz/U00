@@ -7096,6 +7096,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/live/sessions/{session_id}/extend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Give a running session 60 more minutes before its time limit (its starter only) */
+        post: operations["post_extend_api_live_sessions__session_id__extend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/live/sessions/{session_id}/names": {
         parameters: {
             query?: never;
@@ -24331,6 +24348,13 @@ export interface components {
             /** Ok */
             ok: boolean;
         };
+        /** LiveSessionExtended */
+        LiveSessionExtended: {
+            /** Session Id */
+            session_id: string;
+            /** Time Left Seconds */
+            time_left_seconds: number;
+        };
         /**
          * LiveSessionStart
          * @description Keys are resolved server-side; no browser cookies over the API.
@@ -24433,6 +24457,11 @@ export interface components {
         /** LiveSessionStatus */
         LiveSessionStatus: {
             /**
+             * Can Extend
+             * @default false
+             */
+            can_extend: boolean;
+            /**
              * Can Fix Names
              * @default false
              */
@@ -24528,6 +24557,8 @@ export interface components {
             /** Stop Reason */
             stop_reason: string | null;
             stream: components["schemas"]["LiveStreamRef"] | null;
+            /** Time Left Seconds */
+            time_left_seconds: number | null;
             /**
              * Translate Queue
              * @default 0
@@ -55314,6 +55345,64 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_extend_api_live_sessions__session_id__extend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveSessionExtended"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
