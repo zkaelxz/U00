@@ -53,6 +53,29 @@ def test_lettering_in_the_strip_between_a_box_and_the_page_edge_is_erased():
     assert page[60, 50].min() == 255                # the rest of the page is left alone
 
 
+@pytest.mark.parametrize("box, edge", [({"x": 10, "y": 79, "w": 20, "h": 20}, "bottom"),
+                                       ({"x": 10, "y": 1, "w": 20, "h": 20}, "top"),
+                                       ({"x": 79, "y": 10, "w": 20, "h": 20}, "right"),
+                                       ({"x": 1, "y": 10, "w": 20, "h": 20}, "left")])
+def test_the_balloon_inside_runs_on_to_each_page_edge_a_box_stops_short_of(box, edge):
+    left, top = max(0, box["x"] - 4), max(0, box["y"] - 4)
+    width, height = min(100 - left, box["w"] + 8), min(100 - top, box["h"] + 8)
+    keep = np.zeros((height, width), bool)
+    keep[box["y"] - top:box["y"] - top + box["h"], box["x"] - left:box["x"] - left + box["w"]] = True
+    scanlate_inpaint._extend_inside_to_page_edge(keep, box, left, top, (100, 100))
+    strip = {"bottom": keep[-1], "top": keep[0], "right": keep[:, -1], "left": keep[:, 0]}[edge]
+    assert strip.sum() == 20
+
+
+def test_the_balloon_inside_is_not_extended_for_a_box_away_from_the_page_edge():
+    box = {"x": 30, "y": 30, "w": 20, "h": 20}
+    keep = np.zeros((28, 28), bool)
+    keep[4:24, 4:24] = True
+    before = keep.copy()
+    scanlate_inpaint._extend_inside_to_page_edge(keep, box, 26, 26, (100, 100))
+    assert (keep == before).all()
+
+
 def test_storage_cleanup_forgets_the_typeset_files_it_deleted(isolated_db):
     did = db.create_drama(title_en="t")
     pid = db.create_page(did, 0, "pages/a.png", 10, 10)
