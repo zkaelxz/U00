@@ -32,7 +32,7 @@ test('nav, header, empty-state and disabled reasons', async ({ page }) => {
   await expect(page.getByRole('tabpanel').getByRole('link', { name: 'Manage sources' })).toBeVisible()
   await page.getByRole('tab', { name: 'Manage sources' }).click()
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
-  await expect(page.getByTestId('sources-summary')).toHaveText('3 sources on · 2 searchable · 1 paused')
+  await expect(page.getByTestId('sources-summary')).toHaveText('3 sources on · 2 searchable · 1 paused · 3–8 s gap · cache: Keep originals')
   await expect(page.getByTestId('sources-summary').locator('.pill-warn')).toHaveText('1 paused')
   await page.getByRole('tab', { name: 'Find' }).click()
   await expect(page).toHaveURL(/#\/sources$/)
@@ -384,7 +384,7 @@ test('manage sources, Sites: status text, On rollback, the Fast sentence once, A
     return route.fulfill({ status: enabledStatus, contentType: 'application/json', body: JSON.stringify({ error: { code: 'internal_error', message: 'boom' } }) })
   })
   const manage = await openManage(page)
-  await expect(page.getByTestId('manage-summary')).toHaveText('3 of 3 sources on · 3–8 s gap · cache: Keep originals')
+  await expect(page.getByTestId('sources-summary')).toHaveText('3 sources on · 2 searchable · 1 paused · 3–8 s gap · cache: Keep originals')
   const table = manage.locator('table.sources-table')
   await expect(table.getByText('Working')).toBeVisible()
   await expect(table.getByText('Slow')).toBeVisible()
@@ -481,9 +481,9 @@ test('manage sources, Timing & cache: one Save, validation, cache limit, Clear c
 
   // Clear cache: two presses, then the line updates.
   await expect(manage.getByText('Saved pages: 120 items · 45.2 MB')).toBeVisible()
-  await manage.getByRole('button', { name: 'Clear cache raw-content cache' }).click()
+  await manage.getByRole('button', { name: 'Clear cache saved pages' }).click()
   expect(posted(s, '/api/sources/cache/clear')).toHaveLength(0)
-  await manage.getByRole('button', { name: 'Confirm clear raw-content cache' }).click()
+  await manage.getByRole('button', { name: 'Confirm clear saved pages' }).click()
   await expect(manage.getByText('Saved pages: empty')).toBeVisible()
   expect(posted(s, '/api/sources/cache/clear')[0].body).toEqual({ confirm: true })
 

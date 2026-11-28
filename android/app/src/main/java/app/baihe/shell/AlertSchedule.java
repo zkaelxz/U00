@@ -31,10 +31,12 @@ final class AlertSchedule {
             cancelAlarm(context);
             return;
         }
-        if (jobs.getPendingJob(JOB_ID) != null) return;
+        JobInfo pending = jobs.getPendingJob(JOB_ID);
+        // A job scheduled by an older build is not persisted and would be lost at the next restart.
+        if (pending != null && pending.isPersisted()) return;
         jobs.schedule(new JobInfo.Builder(JOB_ID, new ComponentName(context, AlertJob.class))
                 .setPeriodic(JOB_EVERY_MS)
-                .setPersisted(false)
+                .setPersisted(true)
                 .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
                 .build());
     }

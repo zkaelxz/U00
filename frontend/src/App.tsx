@@ -1,31 +1,24 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { accountWords, loginHref, nameWidth, type AuthUser } from './api/auth'
-import { api } from './api/client'
+import { loginHref } from './api/auth'
 import { featureOn } from './api/features'
 import { useFeatures } from './hooks/useFeatures'
 import { useMediaQuery } from './hooks/useMediaQuery'
-import { useDetailsMenu } from './hooks/useDetailsMenu'
 import { JobsProvider } from './hooks/JobsProvider'
-import { canSignOut, gateView, menuUser, recheckSession, sessionExpired, signOut, useSession } from './hooks/useSession'
+import { gateView, menuUser, recheckSession, sessionExpired, useSession } from './hooks/useSession'
 import { useAccountTheme } from './hooks/useAccountTheme'
 import { RouteErrorBoundary } from './components/ErrorBoundary'
 import { usePersistedState } from './hooks/usePersistedState'
-import { ViewModeSwitch } from './nav/ViewModeSwitch'
 import { VIEW_MODE_PREF, ViewModeContext, asViewMode } from './nav/viewMode'
 import { useDeveloperMode } from './pages/assistant/developerMode'
-import { HelpTip } from './components/HelpTip'
-import { JobsMenu } from './components/JobsMenu'
-import { NotificationBell } from './components/NotificationBell'
 import { BackupHealthBanner } from './components/BackupHealthBanner'
 import { PaidLimitBanner } from './components/PaidLimitBanner'
 import { RemoteHealthBanner } from './components/RemoteHealthBanner'
-import { ThemeMenu } from './components/ThemeMenu'
 import LibraryPage from './pages/Library'
 import LoginPage from './pages/Login'
 import './pages/login.css'
-import { CommandPalette } from './nav/CommandPalette'
-import { GlobalShortcuts, KeyboardHelpButton } from './nav/GlobalShortcuts'
+import { GlobalShortcuts } from './nav/GlobalShortcuts'
+import { HeaderEnd } from './nav/HeaderEnd'
 import { useDocumentTitle } from './nav/documentTitle'
 import { useHiddenNav } from './nav/hiddenNav'
 import { BackButton } from './nav/BackButton'
@@ -38,13 +31,10 @@ import { DOCK_MIN_WIDTH } from './nav/navItems'
 import { useNavDock, useNavPosition } from './nav/navDock'
 import { SideNav } from './nav/SideNav'
 import { useHeaderHeight } from './nav/useHeaderHeight'
-import { ReportProblemButton } from './report/ReportProblem'
 import { usePcOnly } from './hooks/usePcOnly'
 import { usePcProfile } from './hooks/usePcProfile'
-import { lockPcProfile, profilePicked, rememberProfilePicked } from './api/pcProfile'
-import { buttonClass } from './components/uiClasses'
+import { profilePicked } from './api/pcProfile'
 import { routeHref, useRoute } from './router'
-import { watchApiReachability, type ApiState } from './apiReachability'
 
 // Each page is its own chunk, so the first load downloads only the shell and the Library.
 const PcProfilePicker = lazy(() => import('./pages/PcProfilePicker'))
@@ -73,96 +63,6 @@ const SharePage = lazy(() => import('./pages/SharePage'))
 const TranslatePage = lazy(() => import('./pages/Translate'))
 const WorkspaceShell = lazy(() => import('./pages/workspace/WorkspaceShell'))
 
-
-// "Can't reach Baihe" everywhere once a check has failed. With room for words (a wide window or a pop-out) the
-// last answered check also shows "Connected", and before the first answer nothing shows, so a slow start never
-// claims a state it hasn't checked. Not a live region: it would be read out on every page. The version lives in
-// Diagnostics and in problem reports, where it is useful.
-function ApiStatus({ showConnected }: { showConnected: boolean }) {
-  const [state, setState] = useState<ApiState>('unknown')
-
-  useEffect(() => watchApiReachability(() => api.meta(), setState, window, document), [])
-
-  if (state === 'up' && showConnected) {
-    return (
-      <span className="api-connected" data-testid="api-connected">
-        <span aria-hidden="true">●</span> Connected
-      </span>
-    )
-  }
-  if (state !== 'down') return null
-  return (
-    <span className="badge bad api-down" data-testid="api-status">
-      Can't reach Baihe
-      <HelpTip label="Can't reach Baihe" id="api-status-help">Check that Baihe Studio is still running on this PC.</HelpTip>
-    </span>
-  )
-}
-
-// The header's words steps are sized for a name this wide (Latin-letter units, see nameWidth); a wider one asks for more room (index.css, .has-long-name).
-const LONG_ACCOUNT_NAME = 12
-
-// The display name wins over the email: an address's first letter is rarely the person's.
-function accountInitial(user: AuthUser | null): string | null {
-  const first = (user?.display_name || user?.email || '').trim().charAt(0)
-  return /\p{L}|\p{N}/u.test(first) ? first.toLocaleUpperCase() : null
-}
-
-// Signed in with auth on: the account and "Sign out". Absent with auth off.
-// With /me unavailable the user is unknown, but Sign out stays reachable.
-function UserMenu({ user }: { user: AuthUser | null }) {
-  const ref = useDetailsMenu()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const label = user ? (user.email ?? user.display_name ?? 'Signed in') : 'Account'
-  const initial = accountInitial(user)
-  // Never the address: it is long and private enough that it only shows inside the open panel.
-
-  async function onSignOut() {
-    setBusy(true)
-    setError(null)
-    try {
-      await signOut()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't sign out. Please try again.")
-      setBusy(false)
-    }
-  }
-
-  return (
-    <details className="user-menu" ref={ref}>
-      <summary className="hb-box" aria-label={`Account: ${user?.display_name ?? label}`} title={user?.display_name ?? label}>
-        <span className="user-menu-avatar hb-icon" aria-hidden="true">
-          {initial ?? (
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <circle cx="12" cy="8" r="4" />
-              <path d="M4 21c0-4 3.6-7 8-7s8 3 8 7" />
-            </svg>
-          )}
-        </span>
-      </summary>
-      <div className="user-menu-panel">
-        {user ? (
-          <>
-            <p className="muted">Signed in as</p>
-            {user.email && user.display_name?.trim() && <p className="user-menu-fullname" data-testid="user-name">{user.display_name.trim()}</p>}
-            <p className="user-menu-email" data-testid="user-email">{label}</p>
-          </>
-        ) : (
-          <p className="muted">Can't check who is signed in right now.</p>
-        )}
-        <button type="button" onClick={onSignOut} disabled={busy}>
-          {busy ? 'Signing out…' : 'Sign out'}
-        </button>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
-      </div>
-    </details>
-  )
-}
 
 // A 401 after the app was on screen. Signing in here in a new tab keeps this
 // tab's unsaved drafts; a same-tab redirect to Google would unload them.
@@ -230,24 +130,6 @@ function skipToLines(e: React.MouseEvent) {
 // are held to the 1200px column by .app-bounded.
 const BOUNDED_ROUTES: ReadonlySet<string> = new Set(['drama', 'read', 'comic', 'comic-edit', 'manga-read'])
 
-// Locks the PC window back to Guest and asks again, so a title stays hidden after the owner walks away.
-function ProfileSwitch({ guest }: { guest: boolean }) {
-  const switchProfile = async () => {
-    try {
-      await lockPcProfile()
-    } catch {
-      return
-    }
-    rememberProfilePicked(false)
-    window.location.reload()
-  }
-  return (
-    <button type="button" className={buttonClass()} data-testid="profile-switch" onClick={() => void switchProfile()}>
-      {guest ? 'Guest · Switch profile' : 'Owner · Switch profile'}
-    </button>
-  )
-}
-
 export default function App() {
   const route = useRoute()
   const session = useSession()
@@ -300,7 +182,6 @@ export default function App() {
   const signInConfigured = session.status !== 'ready' || session.me.sign_in_configured
   const signedOut = sessionExpired(session)
   if (view === 'login' && !signedOut) return <LoginPage configured={signInConfigured} />
-  const user = menuUser(session)
   const navContext = { session, pcMode, developerMode, hidden, features, simple: viewMode === 'simple' }
   // Title workspaces and readers keep the header's Menu button: their bottom edge belongs to their own actions. The one
   // exception is a page that makes room for the menu under its own bar and asks for it.
@@ -315,24 +196,8 @@ export default function App() {
     (wide ? navPosition !== 'left' : phoneBar && navPosition === 'top') && `nav-${navPosition}`,
   ].filter(Boolean).join(' ')
 
-  // Wide windows and pop-outs have room for the controls' words. The PIN profile button and the account use up some of it, so their steps come earlier (index.css).
-  const room = wide || popOut
-  const longName = canSignOut(session) && nameWidth(accountWords(user?.display_name)) > LONG_ACCOUNT_NAME
-  const headerEndClass = ['header-end', room && 'has-room', room && (profile.status?.pin_set || canSignOut(session)) && 'has-extras', room && longName && 'has-long-name'].filter(Boolean).join(' ')
-
   const headerEnd = (
-    <div className={headerEndClass}>
-      {room && <ViewModeSwitch mode={viewMode} onChange={storeMode} />}
-      <CommandPalette route={route} context={navContext} />
-      <ReportProblemButton hidden={!room} />
-      <JobsMenu />
-      <NotificationBell />
-      {room && <KeyboardHelpButton />}
-      {room && <ThemeMenu />}
-      <ApiStatus showConnected={room} />
-      {profile.status?.pin_set && <ProfileSwitch guest={profile.status.guest} />}
-      {canSignOut(session) && <UserMenu user={user} />}
-    </div>
+    <HeaderEnd route={route} context={navContext} room={wide || popOut} session={session} viewMode={viewMode} onViewMode={storeMode} />
   )
 
   const routes = (
@@ -392,7 +257,7 @@ export default function App() {
     </>
   )
 
-  // One tree at every width, so crossing 600px keeps the open page (and a playing video) mounted.
+  // One tree at every width, so crossing the dock width keeps the open page (and a playing video) mounted.
   return (
     <ViewModeContext.Provider value={viewMode}>
     <JobsProvider>

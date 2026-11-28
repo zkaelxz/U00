@@ -100,14 +100,16 @@ _VOICE_BANK_TEXT = {"name": 300, "ref_text": 20_000, "clone_engine": 100, "voice
                     "language": 40, "notes": 20_000, "source_drama": 300, "source_speaker": 300}
 _VOICE_BANK_DIRNAME = "voice_bank"
 # Settings an import may take from the file: the Translation and Preferences
-# pages' own fields. Not the System page (GPU, memory, voice detection: this
-# PC's hardware), not App updates (how this PC's install updates), not a card
-# with its own UI or state the app keeps for itself (no tab), and never a key,
-# a path or anything a whole-library restore keeps from this library.
+# pages' own fields. Not the system tab (GPU, memory, voice detection: this
+# PC's hardware), not App updates (how this PC's install updates), not this
+# PC's spending cap, keys (the Gemini free-tier switch describes this PC's key),
+# pop-up or sharing default, not a card with its own UI or state the app keeps for
+# itself (no tab), and never a key, a path or anything a whole-library restore
+# keeps from this library.
 _SETTINGS_TABS = ("translation", "preferences")
-_SETTINGS_SKIPPED_SECTIONS = ("App updates",)
+_SETTINGS_SKIPPED_SECTIONS = ("App updates", "Spending", "Keys", "Notifications", "Sharing")
 KEYS_NOT_IMPORTED = ("API keys are never in a backup: enter them again in Settings > "
-                     "Translation and keys.")
+                     "Engines and keys.")
 
 
 def _importable_settings() -> dict:

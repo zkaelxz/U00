@@ -303,9 +303,8 @@ def _check_translate() -> str:
             raise _Failed(exc.message) from None
         raise _Skip(exc.message) from None
     except requests.exceptions.HTTPError:
-        # Ollama answers 500 when the model does not fit in GPU memory. The
-        # exception text ends with the request URL, so it is never shown.
-        raise _Failed(f"Ollama refused the request or ran out of memory loading {model}.") from None
+        # The exception text ends with the request URL, so it is never shown.
+        raise _Failed(f"Ollama refused the request for {model}.") from None
     except requests.exceptions.InvalidURL:
         raise _Failed("The Ollama address in Settings is not valid.") from None
     except (requests.exceptions.InvalidSchema, requests.exceptions.MissingSchema):

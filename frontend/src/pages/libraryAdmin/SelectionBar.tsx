@@ -17,7 +17,7 @@ import { NEW_SERIES } from '../workspace/detailsForm'
 import {
   ADMIN_JOB_IDS, LIBRARY_LIST_TAGS, LIBRARY_STATUSES, type LibraryListTag, type LibraryStatus,
 } from '../../types/libraryAdmin'
-import { ADD_STEP_LABELS, type AddStep } from '../jobs/queueModel'
+import { ADD_STEP_LABELS, QUEUE_REPLACES_LINES, type AddStep } from '../jobs/queueModel'
 import { AdminJobLine } from './AdminJobLine'
 import {
   EXPORT_NEEDS, ORIGINALS_HELP, ORIGINALS_LABEL, TRANSLATE_NEEDS, describeBulkResult, describeDeleteResult, describeNoKeySkips, describeQueueAdd, describeTranslateSkips,
@@ -70,7 +70,7 @@ export function SelectionBar({
   const [skips, setSkips] = useState<string | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [withOriginals, setWithOriginals] = useState(false)
-  const [queueStep, setQueueStep] = useState<AddStep>('transcribe')
+  const [queueStep, setQueueStep] = useState<AddStep>('translate')
   const [queueMsg, setQueueMsg] = useState<string | null>(null)
   const [queueError, setQueueError] = useState<unknown>(null)
   const menuRef = useRef<HTMLDetailsElement>(null)
@@ -156,7 +156,6 @@ export function SelectionBar({
     )
   }
 
-  // Adds only: the queue starts when the person presses Start queue on the Jobs page.
   const addToQueue = () => {
     closeMenu(false)
     setBusy(true)
@@ -286,6 +285,7 @@ export function SelectionBar({
             ))}
           </select>
           <button type="button" disabled={busy || !n} onClick={addToQueue}>Add to queue</button>
+          {(queueStep === 'transcribe' || queueStep === 'all') && <span className="muted">{QUEUE_REPLACES_LINES}</span>}
         </div>
       )}
       <div className="bar-group">
@@ -320,7 +320,7 @@ export function SelectionBar({
         {local && (
           <button
             type="button"
-            className="danger"
+            className={buttonClass('danger')}
             disabled={busy || !n}
             onClick={() => {
               closeMenu(false)

@@ -42,8 +42,8 @@ import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
-import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MonthRecap } from './libraryParity/MonthRecap'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -243,6 +243,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
   const [invalid, setInvalid] = useState<{ message: string; field: 'source_language' | 'title_en' | null } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [busy, setBusy] = useState(false)
+  const canFillIn = useHolds('admin.library')
   const profile = chosenProfile(extras.preset, presets.data?.items)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
@@ -364,7 +365,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
-        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
+        {canFillIn && <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>}
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Clear and close</button>
       </div>
       <p className="muted">Closing the sheet keeps what you typed; Clear and close erases it.</p>
@@ -388,8 +389,6 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
-  const canSeeGpu = useHolds('admin.diagnostics.read')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
@@ -517,7 +516,6 @@ export default function LibraryPage() {
               <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
             </details>
           )}
-          {canSeeGpu && <GpuLine />}
         </>
       )}
       actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
@@ -537,6 +535,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
+      <MonthRecap />
       {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (

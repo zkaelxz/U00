@@ -354,7 +354,7 @@ What they skip or keep:
   restore result as `folders_left_behind`). Disk usage lists it, an unfinished
   `.restore_staging_*` folder and the copy kept before a Reset library
   (`<library>.pre_reset_<time>`, the last one only) as one entry, "Previous
-  library kept after restore", deleted after typing `DELETE`
+  library kept after a restore or reset", deleted after typing `DELETE`
   (`services/previous_library_service.py`). The delete is refused while the live
   `library.db` is missing, fails `quick_check`, or holds no titles while a
   `.pre_restore_*` copy does (a start during a restore can create a fresh, empty

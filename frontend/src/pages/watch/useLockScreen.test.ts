@@ -22,22 +22,22 @@ class FakeMedia extends EventTarget {
 const media = () => new FakeMedia()
 const asEl = (m: FakeMedia) => m as unknown as HTMLMediaElement
 const meta = () => ({ title: 'Moonlit Hall 3', artist: 'Example Studio' })
-type ShellWin = { BaiheShell?: unknown; __baiheMedia?: (action: string, value?: number) => void }
+type ShellWin = { BaiheShell?: unknown; __baiheMedia?: (action: string, value?: number) => void; __baiheSaveKey?: string }
 
 function inShell() {
   const mediaState = vi.fn()
-  const win: ShellWin = { BaiheShell: { get: () => false, set: vi.fn(), mediaState } }
+  const win: ShellWin = { BaiheShell: { get: () => false, set: vi.fn(), mediaState }, __baiheSaveKey: 'page-key' }
   vi.stubGlobal('window', win)
   vi.stubGlobal('navigator', {})
-  const reports = () => mediaState.mock.calls.map(([json]) => JSON.parse(json as string))
-  return { win, reports }
+  const reports = () => mediaState.mock.calls.map(([, json]) => JSON.parse(json as string))
+  return { win, reports, mediaState }
 }
 
 afterEach(() => { vi.unstubAllGlobals() })
 
 describe('lock-screen controls in the phone app', () => {
   it('reports play, pause and the end, and stops the controls on leaving', () => {
-    const { reports } = inShell()
+    const { reports, mediaState } = inShell()
     const m = media()
     const controls = attachLockScreen(asEl(m), meta)
     expect(reports()).toEqual([])
@@ -46,6 +46,7 @@ describe('lock-screen controls in the phone app', () => {
     void m.play()
     expect(reports().at(-1)).toMatchObject({ state: 'playing', position: 12.5, duration: 100, rate: 1.5, title: 'Moonlit Hall 3', artist: 'Example Studio' })
     expect(typeof reports().at(-1).at).toBe('number')
+    expect(mediaState.mock.calls.at(-1)?.[0]).toBe('page-key')
     m.pause()
     expect(reports().at(-1).state).toBe('paused')
     m.ended = true

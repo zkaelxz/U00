@@ -28,11 +28,18 @@ final class SavedChapters {
         final File dir;
         final String title;
         final int pages;
+        /** Older chapters deleted to stay within MAX_CHAPTERS when this one was saved. */
+        final int removed;
 
         Saved(File dir, String title, int pages) {
+            this(dir, title, pages, 0);
+        }
+
+        Saved(File dir, String title, int pages, int removed) {
             this.dir = dir;
             this.title = title;
             this.pages = pages;
+            this.removed = removed;
         }
     }
 
@@ -60,8 +67,7 @@ final class SavedChapters {
             delete(dir);
             throw e;
         }
-        trim(root);
-        return new Saved(dir, clean(title), copied);
+        return new Saved(dir, clean(title), copied, trim(root));
     }
 
     /** Saved chapters, newest first. */
@@ -108,9 +114,10 @@ final class SavedChapters {
         dir.delete();
     }
 
-    private static void trim(File root) {
+    private static int trim(File root) {
         List<Saved> all = list(root);
         for (int i = MAX_CHAPTERS; i < all.size(); i++) delete(all.get(i).dir);
+        return Math.max(0, all.size() - MAX_CHAPTERS);
     }
 
     private static String clean(String title) {

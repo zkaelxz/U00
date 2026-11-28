@@ -151,7 +151,7 @@ test('a member gets the link, language and glossary only; Start sends the defaul
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ engine: 'deepseek', segment_seconds: 3, source_language: 'ja' })))
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url'] })
   const live = await openLive(page)
-  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and the rest of the caption settings are chosen for you.')
+  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and the rest of the caption settings are chosen for you. Each session stops after 60 minutes.')
   await expect(live.getByText('Advanced')).toHaveCount(0)
   await expect(live.getByRole('radio', { name: 'Japanese' })).toBeChecked()
   await expect(live.getByTestId('live-glossary-title')).toBeVisible()
@@ -692,4 +692,15 @@ test('a stopped session with many lines keeps them in a scroll box instead of st
   const { client, scroll } = await box.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight }))
   expect(scroll).toBeGreaterThan(client)
   expect(client).toBeLessThanOrEqual(520)
+})
+
+test("Show everyone's sessions is a switch that lists every account's sessions", async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  const everyone = live.getByRole('switch', { name: "Show everyone's sessions" })
+  await expect(everyone).toHaveAttribute('aria-checked', 'false')
+  const asked = page.waitForRequest((r) => r.url().endsWith('/api/live/sessions?everyone=true'))
+  await everyone.click()
+  await asked
+  await expect(everyone).toHaveAttribute('aria-checked', 'true')
 })

@@ -124,8 +124,9 @@ test('"/" focuses the page search and "?" lists the keys, neither while typing',
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toBeHidden()
 })
 
-test('the header Keyboard shortcuts button opens the same list, comic reader keys included', async ({ page }) => {
+test('Keyboard shortcuts in the You menu opens the same list, comic reader keys included', async ({ page }) => {
   await page.goto('/#/settings')
+  await page.locator('details.you-menu > summary').click()
   await page.getByRole('button', { name: 'Keyboard shortcuts' }).click()
   const sheet = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(sheet).toContainText('Zoom in / out / reset')

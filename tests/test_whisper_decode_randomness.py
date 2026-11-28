@@ -21,6 +21,7 @@ def model(monkeypatch):
     m = _Model()
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: m)
     monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda *a, **k: None)
+    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
     return m
 
 
@@ -41,3 +42,22 @@ def test_temperature_0_is_passed_to_the_decode(model):
 def test_unknown_choice_is_refused(model):
     with pytest.raises(ValueError):
         _run(decode_randomness="wild")
+
+
+def test_the_file_is_decoded_once_for_the_decode_and_the_fit_to_speech(monkeypatch):
+    import numpy as np
+    heard, decoded = [], []
+
+    class Model:
+        def transcribe(self, audio, **kwargs):
+            heard.append(audio)
+            return iter([]), types.SimpleNamespace(duration=1.0)
+
+    samples = np.zeros(16000, dtype=np.float32)
+    monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
+    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: decoded.append(path) or samples)
+    monkeypatch.setattr(whisper_transcribe, "_fit_to_speech",
+                        lambda result, path, trim_starts=True, audio=None: heard.append(audio))
+    _run()
+    assert decoded == ["a.wav"]
+    assert heard[0] is samples and heard[1] is samples

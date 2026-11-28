@@ -817,6 +817,8 @@ def _translate_one(image: dict, job: dict, turn):
 
 
 def _translate_fresh(image: dict, job: dict, turn, cache_key: str | None, started: float):
+    # An earlier page on this thread that failed after its read step left its regions behind.
+    quick_read_keep.take()
     try:
         if job["flat_pages"].undrawn(image):
             raise page_server.EndpointError(422, "the page was blank (the reader had not drawn it yet)")

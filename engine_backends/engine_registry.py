@@ -92,7 +92,7 @@ ENGINE_CAPABILITIES = {
     "gemini": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT, CAP_CHEAP,
                          CAP_GROUNDED_SEARCH}),
     "openai": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LONG_CONTEXT}),
-    "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_LOCAL, CAP_CHEAP}),
+    "ollama": frozenset({CAP_TRANSLATE, CAP_INSTRUCTIONS, CAP_CHEAP}),
 }
 
 

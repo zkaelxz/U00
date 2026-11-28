@@ -479,12 +479,11 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     fallback chain (Reflect calls call_llm_json, which FallbackEngine does
     not wrap; a batch is bound to one provider); bulk takes no line_ids.
 
-    default_female_pronouns / include_genre_notes: the "Default
-    ambiguous pronouns to she/her" and "Include baihe/GL genre guidance"
-    toggles (a preset's values, which the client holds; nothing links a
-    drama to a preset in the DB). None means the title's saved choice, or
-    without one the defaults: she/her off, genre guidance on. A value passed
-    is saved for the title once the run starts.
+    default_female_pronouns / include_genre_notes: the "Default ambiguous pronouns to she/her" and
+    "Include baihe/GL genre guidance" toggles (a preset's values, which the client holds; nothing links a
+    drama to a preset in the DB). None means the title's saved choice, or without one the defaults: she/her
+    off, genre guidance on. A value passed, like the run's engine settings, is saved for the title once the
+    run starts, except for a redo of picked lines (line_ids; a chapter range is still a normal run).
 
     own_lines_only (with line_ids): run_translate_job's own_lines_only -- a
     line edited while the job runs keeps the edit. replace_flags: translate_pipeline's, for a redo of flagged lines.
@@ -501,6 +500,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
     reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
+    record_run = record_run and line_ids is None
     line_ids = translate_run_options.chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids)
     opts = _resolve_run_options(
         drama, engine_name, model, style_preset, style_note, locale, context_window,

@@ -17,8 +17,11 @@ type Bridge = {
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
+  saveFile?: (key: string, name: string, mime: string, base64: string) => boolean
+  changeAddress?: (key: string) => void
+  notificationsBlocked?: () => boolean
   // Added with the lock-screen controls: an older app build lacks it.
-  mediaState?: (json: string) => void
+  mediaState?: (key: string, json: string) => void
 }
 
 const bridge = (): Bridge | null => {
@@ -76,6 +79,60 @@ export function checkForUpdates(): void {
   }
 }
 
+// Set by the app on Baihe's own top page only, so a frame inside it cannot call the calls that need it.
+const pageKey = (): unknown => (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
+
+/** True in an app build that can change its Baihe address from here. */
+export const canChangeAddress = (): boolean => typeof bridge()?.changeAddress === 'function' && typeof pageKey() === 'string'
+
+/** Opens the app's own Baihe address dialog. */
+export function changeShellAddress(): void {
+  try {
+    const key = pageKey()
+    if (typeof key === 'string') bridge()?.changeAddress?.(key)
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
+// The app's MAX_FILE_BYTES (SaveDownload.java); a bigger file is left to the browser path, where the app says why.
+const SHELL_SAVE_MAX_BYTES = 30 * 1024 * 1024
+
+/**
+ * Hands a file the page built to the app, which saves it in Downloads: the app's WebView cannot follow a
+ * blob: link. True when the app took it (it then says itself whether the save worked).
+ */
+export function saveInShell(blob: Blob, filename: string): boolean {
+  const b = bridge()
+  if (typeof b?.saveFile !== 'function' || blob.size > SHELL_SAVE_MAX_BYTES) return false
+  if (typeof pageKey() !== 'string') return false
+  void blob.arrayBuffer().then((buffer) => {
+    try {
+      // Read again: the app hands out a new key on each page load.
+      b.saveFile?.(String(pageKey()), filename, blob.type, toBase64(new Uint8Array(buffer)))
+    } catch {
+      // The shell went away with the page.
+    }
+  })
+  return true
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let text = ''
+  // In slices: String.fromCharCode with one argument per byte overflows the call stack on a large file.
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(text)
+}
+
+/** True when Android blocks the app's notifications; false in a browser or an older app build, which can't tell. */
+export function shellNotificationsBlocked(): boolean {
+  try {
+    return bridge()?.notificationsBlocked?.() ?? false
+  } catch {
+    return false
+  }
+}
+
 /** Hides or shows the app's own Studio | Grab strip for a full-screen reader. Quiet where the app cannot. */
 export function setShellBarsHidden(hidden: boolean): void {
   try {
@@ -121,7 +178,7 @@ export type ShellMediaState = {
 /** Tells the app what the player is doing; the time it was read goes with it, so the lock screen's clock can run on from there. */
 export function reportMediaState(s: ShellMediaState): void {
   try {
-    bridge()?.mediaState?.(JSON.stringify({ ...s, at: Date.now() }))
+    bridge()?.mediaState?.(String(pageKey()), JSON.stringify({ ...s, at: Date.now() }))
   } catch {
     // The shell went away with the page.
   }
