@@ -44,7 +44,7 @@ export function firstRunSteps({ canSetUp, canCreate, readiness, totalDramas }: F
   })
   // Only when known to be missing: most installs have it, and a first audio or video title needs it.
   if (readiness && !readiness.ffmpeg) {
-    steps.push({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: canSetUp ? routeHref({ name: 'diagnostics', card: 'recommended' }) : null })
+    steps.push({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: canSetUp ? routeHref({ name: 'diagnostics', card: 'ffmpeg' }) : null })
   }
   if (canCreate) steps.push({ id: 'subtitles', label: 'Add your first title', done: totalDramas > 0, href: routeHref({ name: 'make-subtitles' }) })
   return steps

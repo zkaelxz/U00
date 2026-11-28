@@ -35,7 +35,7 @@ describe('firstRunSteps', () => {
 
   it('adds an FFmpeg step only when FFmpeg is known to be missing', () => {
     const missing = firstRunSteps({ canSetUp: true, canCreate: true, readiness: { ...NONE, ffmpeg: false }, totalDramas: 0 })
-    expect(missing.find((s) => s.id === 'ffmpeg')).toEqual({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: '#/diagnostics?card=recommended' })
+    expect(missing.find((s) => s.id === 'ffmpeg')).toEqual({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: '#/diagnostics?card=ffmpeg' })
     const member = firstRunSteps({ canSetUp: false, canCreate: false, readiness: { ...NONE, ffmpeg: false }, totalDramas: 0 })
     expect(member.find((s) => s.id === 'ffmpeg')?.href).toBeNull()
     expect(ids(firstRunSteps({ canSetUp: true, canCreate: true, readiness: null, totalDramas: 0 }))).not.toContain('ffmpeg')
