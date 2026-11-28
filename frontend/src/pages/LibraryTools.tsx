@@ -217,8 +217,9 @@ function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
 }
 
 // A Library list whose rows have a rename and a PC-only two-step delete (presets, voice bank).
-function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
+function DeletableList({ pc, label, help, items, remove, rename, onDeleted, extra }: {
   pc: PcMode
+  label: string
   help: string
   items: { id: number; name: string; meta: string | null }[] | undefined
   remove: (id: number) => Promise<unknown>
@@ -242,7 +243,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
   }
   return (
     <>
-      <ul className="deletable-list">
+      <ul className="deletable-list scroll-box" tabIndex={0} aria-label={label}>
         {items?.map((x) => (
           <li key={x.id}>
             {renamingId === x.id ? (
@@ -390,6 +391,7 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
       )}
       <DeletableList
         pc={pc}
+        label="Voice bank list"
         help="Characters that used it keep their own copy."
         items={shown.map((v) => ({
           id: v.id, name: v.name,
@@ -493,7 +495,7 @@ export default function LibraryToolsPage() {
         {panel('organize', (
           <>
         <ToolSection card="series" ready={organizeReady} first={firstOf(organizeShown) === 0} count={shared?.length} summary={SERIES_HELP} error={series.error}>
-          <ul className="tool-list series-list">
+          <ul className="tool-list series-list scroll-box" tabIndex={0} aria-label="Series list">
             {shared?.map((x) => (
               <li key={x.id} className="series-item">
                 <span className="tool-row"><strong>{x.name}</strong> <span className="muted">{countDramas(x.dramas.length)}</span></span>
@@ -528,6 +530,7 @@ export default function LibraryToolsPage() {
             list={(props) => (
               <DeletableList
                 pc={pc}
+                label="Profiles list"
                 help="Titles that used it keep their settings."
                 remove={deletePreset}
                 rename={renamePreset}
@@ -586,7 +589,7 @@ export default function LibraryToolsPage() {
           summary={totalCost !== undefined ? `$${totalCost.toFixed(2)} in all` : undefined}
           error={costs.error}
         >
-          <ul className="tool-list">
+          <ul className="tool-list scroll-box" tabIndex={0} aria-label="Cost by title list">
             {costs.data?.items.map((c) => (
               <li key={c.id}>
                 <span className="tool-row">
@@ -601,7 +604,7 @@ export default function LibraryToolsPage() {
           </ul>
         </ToolSection>
         <ToolSection card="history" ready={activityReady} first={firstOf(activityShown) === 1} count={grouped?.length} error={history.error}>
-          <ul className="tool-list">
+          <ul className="tool-list scroll-box" tabIndex={0} aria-label="Reading history list">
             {grouped?.map(({ entry: h, count }) => (
               <li key={`${h.drama_id}-${h.accessed_at}`}>
                 <span className="tool-row">

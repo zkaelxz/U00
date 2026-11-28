@@ -766,30 +766,46 @@ def time_left(job_id: str) -> float | None:
         return None if box is None else max(0.0, box[0] - time.monotonic())
 
 
+class _Abortable:
+    """fn() started on a helper thread; result() waits for it. The thread is
+    abandoned (daemon), not killed: for a call like yt-dlp's in-process
+    lookup, which has no cancel point of its own."""
+
+    def __init__(self, fn):
+        self._box = {}
+
+        def work():
+            try:
+                self._box["value"] = fn()
+            except BaseException as exc:
+                self._box["error"] = exc
+
+        self._worker = threading.Thread(target=work, daemon=True, name="live-resolve")
+        self._worker.start()
+
+    def running(self) -> bool:
+        return self._worker.is_alive()
+
+    def failed(self) -> bool:
+        return not self._worker.is_alive() and "error" in self._box
+
+    def result(self, should_stop, poll: float = 0.25):
+        """fn()'s result, or background_jobs.JobCancelled as soon as should_stop() is true."""
+        while True:
+            self._worker.join(poll)
+            if not self._worker.is_alive():
+                break
+            if should_stop():
+                raise background_jobs.JobCancelled("live")
+        if "error" in self._box:
+            raise self._box["error"]
+        return self._box["value"]
+
+
 def _run_abortable(fn, should_stop, poll: float = 0.25):
     """Runs fn() on a helper thread and returns its result, or raises
-    background_jobs.JobCancelled as soon as should_stop() is true. The
-    thread is abandoned (daemon), not killed: for a call like yt-dlp's
-    in-process lookup, which has no cancel point of its own."""
-    box = {}
-
-    def work():
-        try:
-            box["value"] = fn()
-        except BaseException as exc:
-            box["error"] = exc
-
-    worker = threading.Thread(target=work, daemon=True, name="live-resolve")
-    worker.start()
-    while True:
-        worker.join(poll)
-        if not worker.is_alive():
-            break
-        if should_stop():
-            raise background_jobs.JobCancelled("live")
-    if "error" in box:
-        raise box["error"]
-    return box["value"]
+    background_jobs.JobCancelled as soon as should_stop() is true."""
+    return _Abortable(fn).result(should_stop, poll)
 
 
 class _LiveRun(ChunkCaptioner):
@@ -876,30 +892,42 @@ class _LiveRun(ChunkCaptioner):
 
     def run(self):
         self.report("Resolving the stream address...")
+        # The lookup is network only and the load disk and GPU only, so the lookup
+        # runs on its own thread meanwhile; the model is still loaded through the
+        # runner, as when the two ran one after the other. A failed lookup gives
+        # the load up at once, so a bad link is not reported only after the load.
+        lookup = _Abortable(self._look_up)
+        if not self._warm_whisper(give_up=lookup.failed):
+            return
+        if lookup.running():
+            self.report("Resolving the stream address...")
         try:
-            self.source_url = _run_abortable(
-                lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
-                                           cookies_file=self.cookies_file, proxy=self.proxy,
-                                           on_title=self._check_title),
-                self.should_stop)
+            self.source_url = lookup.result(self.should_stop)
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
             return
+        self._capture_and_caption()
+
+    def _look_up(self):
+        url = resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
+                                 cookies_file=self.cookies_file, proxy=self.proxy,
+                                 on_title=self._check_title)
+        # Set here, on the lookup's thread, so it is when the address was found and not when
+        # the Whisper load running alongside let the session collect it.
         self.resolved_at = time.monotonic()
         self.timeline.mark("stream address found")
         if self.stream_url_check is not None:
-            self.stream_url_check(self.source_url)
-        if not self._warm_whisper():
-            return
-        self._capture_and_caption()
+            self.stream_url_check(url)
+        return url
 
     def _check_title(self, title):
         notice = title_language_notice(title, self.source_language)
         if notice:
             self.note(notice, "title-language")
 
-    def _warm_whisper(self):
-        """False when a cancel ended the job during the load."""
+    def _warm_whisper(self, give_up=None):
+        """False when a cancel ended the job during the load; True, the load
+        given up, once give_up() is true."""
         # Before capture starts, so the load and first CUDA call don't put chunk 1
         # behind the live edge.
         self.report(
@@ -908,9 +936,11 @@ class _LiveRun(ChunkCaptioner):
             slow_after=60, slow_note="Still loading after {secs} s: the model may be "
                                      "downloading for the first time.")
         try:
-            self.note(f"Whisper {self.whisper_size} ready in "
-                      f"{live_whisper.warm_start(self.runner, self.whisper_size, self.use_gpu):.1f} s.")
+            secs = live_whisper.warm_start(self.runner, self.whisper_size, self.use_gpu, give_up)
+            self.note(f"Whisper {self.whisper_size} ready in {secs:.1f} s.")
         except background_jobs.JobCancelled:
+            if give_up is not None and give_up() and not self.should_stop():
+                return True
             background_jobs.update_progress(self.job_id, 1.0, self.runner.finish())
             return False
         except Exception as exc:

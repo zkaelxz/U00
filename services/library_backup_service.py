@@ -198,6 +198,16 @@ _BACKUP_FILES_SHARE = 0.95
 BACKUP_CHECK_FAILED = ("The backup failed its check, so it was removed. Earlier backups are "
                        "as they were.")
 _BACKUP_PROGRESS_INTERVAL = 0.25
+# Already compressed: deflate costs CPU time on these (about 34 minutes for 100 GB on one
+# core) and makes them no smaller. The database, text and wav files still shrink.
+_STORED_SUFFIXES = frozenset({
+    ".mp4", ".mkv", ".webm", ".mov", ".m4v", ".flac", ".mp3", ".m4a", ".aac", ".ogg", ".opus",
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".zip", ".cbz", ".epub", ".7z", ".gz"})
+
+
+def backup_compress_type(arcname: str) -> int:
+    return (zipfile.ZIP_STORED if os.path.splitext(arcname)[1].lower() in _STORED_SUFFIXES
+            else zipfile.ZIP_DEFLATED)
 
 
 def _sources_snapshot(dest: str, left_out):
@@ -262,7 +272,7 @@ def write_backup_zip(dest: str, include_media: bool = True, manifest=None,
                 for n, (full, arcname, size) in enumerate(files, 1):
                     check_cancel()
                     try:
-                        zf.write(full, arcname)
+                        zf.write(full, arcname, compress_type=backup_compress_type(arcname))
                     except FileNotFoundError:
                         skipped.append(arcname)
                     done_bytes += size
