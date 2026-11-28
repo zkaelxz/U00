@@ -161,3 +161,16 @@ def _parent_watchdog():
     while _worker_parent_pid is not None:
         time.sleep(PARENT_CHECK_INTERVAL)
         exit_if_parent_gone()
+
+
+# Set by a warm transcription worker for one job (jobs/warm_worker.py): work for the queued job
+# after this one, started once this job no longer needs the GPU stage they share.
+_ahead_start = None
+
+
+def start_ahead_work() -> None:
+    """A job calls this once it is done with the vocal separator; outside a warm worker, or
+    with nothing queued behind the job, it does nothing."""
+    start, globals()["_ahead_start"] = _ahead_start, None
+    if start is not None:
+        start()

@@ -187,6 +187,28 @@ def _reusable_vocals(vocals_path, audio_path) -> bool:
             and abs(vocals_seconds - audio_seconds) <= _VOCALS_LENGTH_SLACK_SECONDS)
 
 
+def separate_ahead(audio_path, backend, use_gpu) -> None:
+    """Separates audio_path's vocals into the vocals.wav its own run will reuse
+    (_reusable_vocals), while the episode before it transcribes in the same warm worker.
+    Quiet: the run it is for reports its own separation, and a failure here only means that
+    run separates as before. A worker killed mid-write leaves a short file, which that run's
+    length check redoes."""
+    import audio_preprocess
+    vocals_path = os.path.join(os.path.dirname(audio_path), "vocals.wav")
+    if _reusable_vocals(vocals_path, audio_path) or not memory_headroom.fits_separation_now(bool(use_gpu)):
+        return
+    try:
+        separated = _to_speech_format(audio_preprocess.separate_vocals(
+            audio_path, vocals_path, backend=backend, use_gpu=use_gpu))
+        if os.path.abspath(separated) != os.path.abspath(vocals_path):
+            _move_into_place(separated, vocals_path)
+    except Exception as exc:   # noqa: BLE001 -- see the docstring
+        import applog
+        from engine_backends import shared
+        applog.get_logger().warning("Separating the next episode's vocals early failed: %s",
+                                    shared.redact_secrets(str(exc)))
+
+
 def _tuning_for_preset(tuning, backend, preset):
     """The speech-detection backends use their own threshold, not the title's VAD
     threshold, so the Sensitive preset (also set by Difficult audio) must lower theirs
@@ -308,6 +330,7 @@ class _PipelineRun:
                       else self._separate_vocals())
             if failed:
                 return failed
+        process_worker.start_ahead_work()
         if rep.cancelled():
             return {"failed_reason": "cancelled"}
         if self.vad_run:

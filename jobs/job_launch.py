@@ -365,7 +365,7 @@ def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_use
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str | None = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str | None = None, run_settings: dict | None = None,
-                      initial_result=None, line_fields=None, cpu_retry_args=None, warm_key=None) -> bool:
+                      initial_result=None, line_fields=None, cpu_retry_args=None, warm_key=None, ahead=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -437,7 +437,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     start_job's; it limits what on_done writes.
 
     on_done/on_finish/kill_whole_tree/start_method/cpu_retry_args (one CPU run after a native
-    crash: jobs/crash_retry.py)/warm_key (jobs/warm_worker.py) are carried through the GPU queue
+    crash: jobs/crash_retry.py)/warm_key/ahead (jobs/warm_worker.py) are carried through the GPU queue
     like target/args. Records its starter, applies the per-user caps and refuses during a clean
     stop like start_job().
     """
@@ -457,7 +457,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
-                                "on_done": on_done, "on_finish": on_finish, "warm_key": warm_key,
+                                "on_done": on_done, "on_finish": on_finish, "warm_key": warm_key, "ahead": ahead,
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method,
                                 "cpu_retry": cpu_retry, "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)

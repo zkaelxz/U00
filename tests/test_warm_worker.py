@@ -55,6 +55,20 @@ def waits_for_file(path, tag, result_queue):
     result_queue.put(("ok", {"tag": tag, "pid": os.getpid(), "runs_here": _runs_here}))
 
 
+def waits_then_starts_ahead(path, result_queue):
+    deadline = time.monotonic() + 30
+    while not os.path.exists(path) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    process_worker.start_ahead_work()
+    result_queue.put(("ok", {"pid": os.getpid()}))
+
+
+def writes_ahead(path):
+    time.sleep(0.3)   # still running when the job that started it returns
+    with open(path, "w") as f:
+        f.write(str(os.getpid()))
+
+
 def crashes_on_gpu(use_gpu, result_queue):
     if use_gpu:
         os.kill(os.getpid(), signal.SIGSEGV)
@@ -421,6 +435,36 @@ def test_the_last_jobs_own_utilization_is_waited_out_instead_of_retiring_the_wor
     status = _run("warm_util_b", tagged_worker, ("b", False), gpu_touching=True)
     assert status["status"] == "done", status
     assert busy_reads and status["result"]["pid"] == pid
+
+
+B_KEY = ("b", KEY[1])
+
+
+def test_the_next_queued_jobs_ahead_work_runs_in_the_worker_before_that_job(tmp_path):
+    go, ahead_out = str(tmp_path / "go"), str(tmp_path / "ahead")
+    _start("warm_ahead_a", waits_then_starts_ahead, (go,), key=B_KEY, gpu_touching=True)
+    _start("warm_ahead_b", tagged_worker, ("b", False), key=B_KEY, gpu_touching=True,
+           ahead=(writes_ahead, (ahead_out,)))
+    assert bg.get_status("warm_ahead_b")["status"] == "queued"
+    open(go, "w").close()
+    first = _wait_end("warm_ahead_a")
+    assert first["status"] == "done", first
+    with open(ahead_out) as f:
+        assert int(f.read()) == first["result"]["pid"]
+    second = _wait_end("warm_ahead_b")
+    bg.clear_job("warm_ahead_a")
+    bg.clear_job("warm_ahead_b")
+    assert second["status"] == "done" and second["result"]["pid"] == first["result"]["pid"]
+
+
+def test_with_nothing_queued_the_parent_answers_at_once(tmp_path):
+    go = str(tmp_path / "go")
+    open(go, "w").close()
+    _run("warm_no_ahead_warmup", waits_then_starts_ahead, (go,), key=B_KEY, gpu_touching=True)
+    started = time.monotonic()
+    assert _run("warm_no_ahead", waits_then_starts_ahead, (go,), key=B_KEY,
+                gpu_touching=True)["status"] == "done"
+    assert time.monotonic() - started < warm_worker.AHEAD_ANSWER_S
 
 
 def test_a_worker_the_parent_stopped_retiring_exits_by_itself(monkeypatch):

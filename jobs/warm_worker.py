@@ -12,6 +12,7 @@ another program's, so it is retired before any GPU work it cannot run.
 """
 
 import contextvars
+import functools
 import multiprocessing
 import os
 import queue
@@ -19,6 +20,7 @@ import signal
 import tempfile
 import threading
 import time
+import types
 
 import gpu_probe
 import job_process_result
@@ -48,6 +50,12 @@ UTIL_SETTLE_S = 2.0
 # about to run it; it has finished the job and is ready for the next.
 _BEGAN = "warm-began"
 _IDLE = "warm-idle"
+# The worker asks, once its job is done with the separator, for the ahead work of the job
+# queued next; the parent answers on the job pipe with (_AHEAD, (fn, args) or None). Asked
+# then, not at launch: when episodes are queued together the first starts with none behind it.
+_AHEAD_ASK = "warm-ahead?"
+_AHEAD = "warm-ahead"
+AHEAD_ANSWER_S = 5.0
 
 
 def arm() -> str:
@@ -214,6 +222,36 @@ def _kill_leftover_children():
         pass
 
 
+class _Ahead:
+    """In the worker: once the current job calls process_worker.start_ahead_work, asks the
+    parent for the next queued job's ahead work and runs it on a side thread."""
+
+    def __init__(self, jobs_conn, tagged):
+        self.thread = None
+        if jobs_conn is not None:
+            process_worker._ahead_start = functools.partial(self._start, jobs_conn, tagged)
+
+    def _start(self, jobs_conn, tagged):
+        def run():
+            try:
+                tagged.put(_AHEAD_ASK)
+                if not jobs_conn.poll(AHEAD_ANSWER_S):
+                    return
+                kind, ahead = jobs_conn.recv()
+                if kind == _AHEAD and ahead is not None:
+                    fn, args = ahead
+                    fn(*args)
+            except Exception as exc:   # noqa: BLE001 -- only an early start of the next job's own work
+                _log(f"work ahead for the next job failed: {exc}")
+        self.thread = threading.Thread(target=run, name="baihe-warm-ahead", daemon=True)
+        self.thread.start()
+
+    def finish(self):
+        process_worker._ahead_start = None
+        if self.thread is not None:
+            self.thread.join()
+
+
 def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
     """The worker process: runs the jobs it is sent, strictly one at a time,
     until it has been idle idle_exit_s, the parent closes the pipe, or a job
@@ -224,11 +262,16 @@ def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
     try:
         while jobs_conn.poll(idle_exit_s):
             try:
-                seq, path, target, args = jobs_conn.recv()
+                message = jobs_conn.recv()
             except (EOFError, OSError):
                 return
+            if message[0] == _AHEAD:
+                continue   # an answer that came after its job stopped waiting for it
+            seq, path, target, args = message
             raw_queue.put((seq, _BEGAN))
-            channel = _JobChannel(_Tagged(raw_queue, seq), os.path.dirname(path), "", path=path)
+            tagged = _Tagged(raw_queue, seq)
+            channel = _JobChannel(tagged, os.path.dirname(path), "", path=path)
+            side = _Ahead(jobs_conn, tagged) if current_arm in ("b", "c") else _Ahead(None, None)
             try:
                 # A fresh copy per job: a context variable a target sets (the
                 # offline switch, the member key) must not reach the next job.
@@ -236,6 +279,8 @@ def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
             except BaseException as exc:
                 channel.put(process_worker.error_item(exc))
             finally:
+                # Done before the job reports idle: the next job is the one it is for.
+                side.finish()
                 # The target points temp files at its own scratch folder, which the
                 # parent removes once the job ends.
                 tempfile.tempdir = base_tempdir
@@ -263,7 +308,7 @@ def _card_used_mb():
         return None
 
 
-def _vram_note(used=...) -> str:
+def _vram_note(used: "float | None | types.EllipsisType" = ...) -> str:
     """For the measurement: the card's used memory, whoever uses it."""
     used = _card_used_mb() if used is ... else used
     return f", VRAM used {used:.0f} MB" if used is not None else ""
@@ -400,6 +445,17 @@ def claim(job_id, target, args, key):
         return WarmJob(worker, worker.jobs, job_id, target, args, stale)
 
 
+def _next_ahead(key):
+    """The ahead work of the job queued next, when it will run in this worker (same settings)
+    and the worker keeps the separator that work uses loaded."""
+    if key[0] not in ("b", "c"):
+        return None
+    from jobs import gpu_queue, job_table
+    with job_table._lock:
+        nxt = gpu_queue._gpu_queue[0] if gpu_queue._gpu_queue else None
+        return nxt.get("ahead") if nxt is not None and nxt.get("warm_key") == key else None
+
+
 def idle_key():
     """The idle warm worker's key, or None when there is no idle one."""
     with _lock:
@@ -488,6 +544,9 @@ class _JobQueue:
             if item == _IDLE:
                 self._job.went_idle()
                 break
+            if item == _AHEAD_ASK:
+                self._job.answer_ahead()
+                continue
             return item
         raise queue.Empty
 
@@ -587,6 +646,12 @@ class WarmJob:
             if _current is None:
                 _current = fresh
         self._worker, self.seq = fresh, 1
+
+    def answer_ahead(self):
+        try:
+            self._worker.conn.send((_AHEAD, _next_ahead(self._worker.key)))
+        except OSError:
+            pass   # the worker is going; its job's own end reports that
 
     def went_idle(self):
         self._state = "done"

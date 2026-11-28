@@ -290,6 +290,17 @@ def fits_beside_separation(kind: str, name: str, use_gpu: bool) -> bool:
     return reading[1] - reserved_mb(memory) >= need[slot] + separation[slot] + _SIDE_BY_SIDE_MARGIN_MB
 
 
+def fits_separation_now(use_gpu: bool) -> bool:
+    """Whether vocal separation can run beside what is loaded now, without eating into the
+    reserve. As fits_beside_separation, anything unknown says no."""
+    memory = "vram" if use_gpu else "ram"
+    separation = estimate_mb("separation", "separator")
+    reading = read_memory_mb(memory, at_load=True)
+    if separation is None or reading is None:
+        return False
+    return reading[1] - reserved_mb(memory) >= separation[0 if use_gpu else 1] + _SIDE_BY_SIDE_MARGIN_MB
+
+
 def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:
     """The ASR / aligner loaders' one hook; a cached model needs no check."""
     if not cached:

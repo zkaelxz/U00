@@ -1380,6 +1380,69 @@ class TestRunTranscribeAndApplyJob:
             assert fh.read() == (b"new vocals" if separates else b"earlier vocals")
         _clear(job_id)
 
+    def test_the_next_episodes_work_starts_once_this_run_is_done_separating(self, isolated_db, monkeypatch):
+        import audio_preprocess
+        from jobs import process_worker
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        events = []
+
+        def fake_separate(in_path, out_path, **k):
+            events.append("separated")
+            with open(out_path, "wb") as fh:
+                fh.write(b"vocals")
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+        monkeypatch.setattr(process_worker, "start_ahead_work", lambda: events.append("ahead"))
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
+                            lambda path, *a, **k: events.append("heard") or [
+                                {"start": 0.0, "end": 1.0, "text": "hi"}])
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "medium", 5, 300, 0.5, True, "auto", False, False, False, None, None, None)
+        assert events == ["separated", "ahead", "heard"]
+        _clear(job_id)
+
+    def test_vocals_separated_ahead_are_the_ones_the_episodes_own_run_reuses(self, tmp_path, monkeypatch):
+        import audio_preprocess
+        import memory_headroom
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"audio")
+        calls = []
+
+        def fake_separate(in_path, out_path, **k):
+            calls.append((in_path, out_path, k["backend"], k["use_gpu"]))
+            with open(out_path, "wb") as fh:
+                fh.write(b"vocals")
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fake_separate)
+        monkeypatch.setattr(transcribe_pipeline, "_to_speech_format", lambda p: p)
+        monkeypatch.setattr(transcribe_pipeline, "_audio_duration_seconds", lambda p: 600.0)
+        monkeypatch.setattr(memory_headroom, "fits_separation_now", lambda use_gpu: False)
+        transcribe_pipeline.separate_ahead(str(audio), "auto", True)
+        assert calls == []   # no room beside the running episode
+        monkeypatch.setattr(memory_headroom, "fits_separation_now", lambda use_gpu: True)
+        transcribe_pipeline.separate_ahead(str(audio), "auto", True)
+        vocals = str(tmp_path / "vocals.wav")
+        assert calls == [(str(audio), vocals, "auto", True)]
+        assert transcribe_pipeline._reusable_vocals(vocals, str(audio))
+        transcribe_pipeline.separate_ahead(str(audio), "auto", True)
+        assert len(calls) == 1   # already there
+
+    def test_a_failed_separation_ahead_is_only_logged(self, tmp_path, monkeypatch):
+        import audio_preprocess
+        import memory_headroom
+        audio = tmp_path / "audio.wav"
+        audio.write_bytes(b"audio")
+
+        def fails(*a, **k):
+            raise audio_preprocess.VocalSeparationError("no model")
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", fails)
+        monkeypatch.setattr(memory_headroom, "fits_separation_now", lambda use_gpu: True)
+        transcribe_pipeline.separate_ahead(str(audio), "auto", True)
+        assert not (tmp_path / "vocals.wav").exists()
+
     def test_separated_vocals_are_kept_as_16k_mono_speech_audio(self, isolated_db, monkeypatch):
         sf = pytest.importorskip("soundfile")
         import shutil

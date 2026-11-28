@@ -526,6 +526,11 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
             warm_key=warm_worker.transcription_key(
                 run.whisper_size, run.use_gpu, args[18], run.separation_backend,
                 run.asr_backend_choice, run.transcript_mode),
+            # Vocals the warm worker may separate while the episode queued before this one
+            # transcribes; this run then reuses them.
+            ahead=((transcribe_pipeline.separate_ahead,
+                    (run.audio_path, run.separation_backend, run.use_gpu))
+                   if effective_separate_vocals(drama) else None),
             on_done=functools.partial(
                 _apply_on_done, drama_id=drama_id, source_language=run.source_language,
                 whisper_size=run.whisper_size, use_gpu=run.use_gpu,
