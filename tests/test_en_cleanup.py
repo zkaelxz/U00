@@ -182,3 +182,36 @@ def test_many_glossary_terms_match_like_one_at_a_time():
 def test_a_plan_without_glossary_terms_passes_none():
     assert ec.compile_terms([]) is None
     assert clean("a ,b", protected_terms=ec.compile_terms([]))[0] == "a, b"
+
+
+@pytest.mark.parametrize("before,after", [
+    ("I knew—no, I hoped.", "I knew, no, I hoped."),
+    ("He—the king—said so.", "He, the king, said so."),
+    ("I told him — run!", "I told him, run!"),
+    ("Wait – what?", "Wait, what?"),
+    ("Wait—", "Wait..."),
+    ('"Wait—" he said.', '"Wait..." he said.'),
+    ("Wait…—", "Wait…"),
+    ("— Hello there.", "Hello there."),
+    ('He said—"Run!"', 'He said, "Run!"'),
+    ("Well,—that's it.", "Well, that's it."),
+    ("No—!", "No!"),
+    ("I told him—Look out!", "I told him... Look out!"),
+    ("There is only one thing he wants—revenge.", "There is only one thing he wants: revenge."),
+    ("I thought—never mind.", "I thought, never mind."),
+    ("Pages 1—3", "Pages 1-3"),
+    ("Line one—\nLine two——", "Line one...\nLine two..."),
+    ("—", "..."),
+])
+def test_drop_em_dashes(before, after):
+    assert ec.drop_em_dashes(before) == after
+
+
+@pytest.mark.parametrize("text", ["1–3 and Paris–London", "她说——不要 means no", "A well-known fact", ""])
+def test_drop_em_dashes_leaves_ranges_hyphens_and_cjk_alone(text):
+    assert ec.drop_em_dashes(text) == text
+
+
+def test_em_dash_rule_follows_the_title_ellipsis_style():
+    assert only("em_dash", "Wait—") == "Wait..."
+    assert clean("Wait——", CHAR_CURLY)[0] == "Wait…"

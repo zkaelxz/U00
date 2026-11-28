@@ -540,6 +540,16 @@ class TestFirstAlternative:
         translate_pipeline.translate_lines_with_engine(lines, Listy(), NOVEL, batch_size=1)
         assert lines[0].en == "Strange."
 
+    def test_the_pipeline_saves_no_em_dashes(self):
+        lines = [Line(idx=0, start=0, end=1, zh="我知道——不，我希望", id=302)]
+
+        class Dashy(Scripted):
+            def translate_batch(self, zh_lines, context):
+                self.calls.append(list(context["line_ids"]))
+                return ["I knew—no, I hoped."]
+        translate_pipeline.translate_lines_with_engine(lines, Dashy(), {}, batch_size=1)
+        assert lines[0].en == "I knew, no, I hoped."
+
 
 class TestNovelImperialUnits:
     def test_metric_source_turned_imperial_is_detected(self):

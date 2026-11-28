@@ -42,6 +42,7 @@ from .shared import (
 )
 from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
+from en_cleanup import drop_em_dashes
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
@@ -775,7 +776,8 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
+                ln.en = drop_em_dashes(keep_first_alternative(
+                    strip_echoed_label(self.character_names.get(ln.speaker), tr)))
                 source_change.clear_for_new_english(ln, self.args.replace_flags)
                 self._flag_if_split(ln)
                 self.translated.append(ln)

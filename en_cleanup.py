@@ -14,12 +14,13 @@ from typing import Iterable, Optional
 # Order matters: CJK leakage runs first so its output (",", "...") is
 # normalised by the later rules, and capitalisation runs after spacing so it
 # sees the final sentence boundaries.
-RULES = ("cjk_punctuation", "ellipsis", "extra_space", "repeated_punctuation",
+RULES = ("cjk_punctuation", "em_dash", "ellipsis", "extra_space", "repeated_punctuation",
          "space_before_punctuation", "space_inside_brackets", "space_after_punctuation",
          "quotes", "doubled_word", "pronoun_i", "capitalize_sentence")
 
 RULE_LABELS = {
     "cjk_punctuation": "Full-width / CJK punctuation",
+    "em_dash": "Em dashes",
     "ellipsis": "Ellipsis style",
     "extra_space": "Double or stray spaces",
     "repeated_punctuation": "Repeated punctuation",
@@ -147,6 +148,66 @@ def _cjk_punctuation(text: str, style):
     return _FULLWIDTH_ASCII_RE.sub(lambda m: chr(ord(m.group(0)) - 0xFEE0), text)
 
 
+# An em dash, a horizontal bar, a run of them (CJK ——), or an en dash that
+# isn't joining two words or numbers ("1–3" and "Paris–London" stay).
+_DASH_RE = re.compile(r"[ \t]*(?:[\u2014\u2015]+|(?<!\w)\u2013|\u2013(?!\w))[ \t]*")
+# Words that open a new sentence far more often than they continue a name or title.
+_SENTENCE_STARTERS = frozenset(
+    "look wait stop run no yes come go get help hey listen please don't do what why how who "
+    "where when this that it we you they he she there here never forget".split())
+# Afterthoughts that keep the comma: "I thought—never mind." is not an explanation.
+_NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
+_OPENERS = "\"'“‘([{"
+_CLOSERS = "”’)]}"
+
+
+def _dash_replacement(text: str, m) -> str:
+    before, after = text[:m.start()], text[m.end():]
+    prev, nxt = before[-1:], after[:1]
+    if _CJK_LETTER_RE.match(prev or " ") and _CJK_LETTER_RE.match(nxt or " "):
+        return m.group(0)  # quoted source text, not English punctuation
+    if not prev or prev == "\n" or prev in _OPENERS:
+        return ""
+    closes_quote = nxt in _CLOSERS or (nxt in "\"'" and not re.match(r".\w", after))
+    if not nxt or nxt == "\n" or closes_quote:
+        return "" if prev in ".!?…,;:" else ("…" if "…" in text else "...")
+    if nxt in ".!?…,;:":
+        return ""
+    if prev in ",;:.!?…":
+        return " "
+    if prev.isdigit() and nxt.isdigit() and m.group(0).strip() == m.group(0):
+        return "-"
+    # "I told him—Look out!": a capital that isn't "I" or a name starts a new
+    # sentence, so the dash was a break-off.
+    word = re.match(r"[A-Za-z']+", after)
+    if word and word.group(0)[0].isupper() and word.group(0) != "I" and not before.rstrip().endswith(
+            ("said", "says", "asked", "told")) and word.group(0).lower() in _SENTENCE_STARTERS:
+        return "... "
+    # "One thing he wants—revenge.": a short phrase closing the sentence after a
+    # single dash reads as an explanation, which a colon carries better than a comma.
+    tail = re.match(r"([^.!?…\u2013\u2014\u2015,;:\n]{1,25})\.$", after)
+    if (tail and len(tail.group(1).split()) <= 2 and len(before.split()) >= 4
+            and tail.group(1).split()[0].lower() not in _NOT_A_COLON_TAIL and not _DASH_RE.search(before)):
+        return ": "
+    return ", "
+
+
+def drop_em_dashes(text: str) -> str:
+    """English with its dashes swapped for the punctuation the owner prefers:
+    a comma mid-sentence, an ellipsis for a cut-off line, nothing at a line's
+    start. Dashes between two CJK letters are left alone."""
+    if not text or not _DASH_RE.search(text):
+        return text
+    cleaned = _DASH_RE.sub(lambda m: _dash_replacement(text, m), text)
+    # A reply that was only a dash (a cut-off or silent line) must not turn blank,
+    # which reads as untranslated.
+    return cleaned if cleaned.strip() else "..."
+
+
+def _em_dash(text, style):
+    return drop_em_dashes(text)
+
+
 def _ellipsis(text, style):
     target = "…" if style["ellipsis"] == "char" else "..."
     return _ELLIPSIS_RE.sub(target, text)
@@ -265,7 +326,7 @@ def _capitalize_sentence(text, style):
 
 
 _RULE_FUNCS = {
-    "cjk_punctuation": _cjk_punctuation, "ellipsis": _ellipsis, "extra_space": _extra_space,
+    "cjk_punctuation": _cjk_punctuation, "em_dash": _em_dash, "ellipsis": _ellipsis, "extra_space": _extra_space,
     "repeated_punctuation": _repeated_punctuation,
     "space_before_punctuation": _space_before_punctuation,
     "space_inside_brackets": _space_inside_brackets,
