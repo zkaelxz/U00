@@ -77,7 +77,8 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
     'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
   notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
-  use_gpu: 'Transcribe on the GPU when there is one (faster).',
+  use_gpu:
+    'Transcription, speaker detection and comic text removal run on the GPU when there is one (much faster). Off runs them on the processor, and a title with Separate vocals first turned on stops, because that step needs the GPU.',
   bulk_auto_resume:
     'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
 }

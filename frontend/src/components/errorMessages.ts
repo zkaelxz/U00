@@ -97,7 +97,7 @@ export function keyWritesRefused(): string {
   const atPc = getPcMode() === 'local'
   const holdsSettings = s.status === 'ready' && (!s.me.auth_enabled || s.me.permissions.includes('admin.settings'))
   if (s.status === 'ready' && !holdsSettings && !atPc) return 'Ask the PC owner to change this.'
-  const base = 'Change this on the Baihe PC with key writes on.'
+  const base = 'Change this on the Baihe PC, with saving keys allowed.'
   return atPc || holdsSettings
     ? `${base} Details: start.bat turns them on; otherwise set BAIHE_API_ALLOW_KEY_WRITES=1. For an installed copy, add that line to the .env in the Baihe data folder and run Setup again.`
     : base
