@@ -74,3 +74,14 @@ class TestSecretRedaction:
         under background_jobs' lock)."""
         applog.get_logger().warning("bad %d", "not a number")   # must not raise
         assert "could not be formatted" in self._log_text()
+
+
+def test_a_module_loggers_warning_reaches_the_app_log(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    logging.getLogger("some_module_example").warning("module warning reaches the file")
+    logging.getLogger("some_module_example").info("module info stays out")
+    lines = "\n".join(applog.tail(50))
+    assert "module warning reaches the file" in lines
+    assert "module info stays out" not in lines

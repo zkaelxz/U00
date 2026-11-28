@@ -50,13 +50,19 @@ class _RedactSecretsFilter(logging.Filter):
         return True
 
 
+def _detach(logger) -> None:
+    root = logging.getLogger()
+    for h in list(logger.handlers):
+        logger.removeHandler(h)
+        root.removeHandler(h)
+        h.close()
+
+
 def get_logger():
     logger = logging.getLogger(_LOGGER_NAME)
     log_path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
     if getattr(logger, "_baihe_log_path", None) != log_path:
-        for h in list(logger.handlers):
-            logger.removeHandler(h)
-            h.close()
+        _detach(logger)
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         handler = logging.handlers.RotatingFileHandler(
             log_path, maxBytes=5_000_000, backupCount=3, encoding="utf-8")
@@ -64,6 +70,10 @@ def get_logger():
             "%(asctime)s %(levelname)s %(name)s: %(message)s"))
         handler.addFilter(_RedactSecretsFilter())
         logger.addHandler(handler)
+        # Most modules log through logging.getLogger(__name__), which reaches no
+        # handler of ours; the root logger's WARNING level lets their warnings and
+        # errors into app.log too, without their INFO chatter.
+        logging.getLogger().addHandler(handler)
         logger.setLevel(logging.INFO)
         logger.propagate = False
         setattr(logger, "_baihe_log_path", log_path)
@@ -75,9 +85,7 @@ def release_log_file():
     refuses to rename a directory with an open file inside (WinError 5).
     The next get_logger() call opens it again."""
     logger = logging.getLogger(_LOGGER_NAME)
-    for h in list(logger.handlers):
-        logger.removeHandler(h)
-        h.close()
+    _detach(logger)
     setattr(logger, "_baihe_log_path", None)
 
 
