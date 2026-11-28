@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { nameLang } from '../../hanScript'
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
 import { getNovelGlossary } from '../../api/autotuneGlossary'
@@ -146,7 +147,7 @@ export function NovelTitlePage({ id, drama, onView }: { id: number; drama: Drama
           <span aria-hidden="true">‹</span>
           <span className="ws-back-text" aria-hidden="true">Library</span>
         </ButtonLink>
-        <h1 data-testid="drama-title" title={title}>{title}</h1>
+        <h1 data-testid="drama-title" title={title} lang={nameLang(title, drama)}>{title}</h1>
         <div className="ws-badges">
           <Badge kind="mediaType" value={drama.media_type} />
         </div>
