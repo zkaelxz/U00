@@ -172,6 +172,9 @@ export function headerBadges(
   return out
 }
 
+/** "Loading…" in place of the badges only while a read is still out: once one failed, its error banner says why. */
+export const headerLoading = (badges: HeaderBadge[], failed: boolean) => !badges.length && !failed
+
 // ---- Speaker detection ----
 
 export function pyannoteSummary(r: DiagnosticsPyannoteReadiness): string {
