@@ -95,11 +95,11 @@ public class GrabLogicTest {
     @Test
     public void aSavedSendCountsPagesThatCameBackWithoutEnglish() throws Exception {
         org.json.JSONObject answer = new org.json.JSONObject("{\"pages\":["
-                + "{\"regions\":[{\"untranslated\":false}],\"notes\":[]},"
-                + "{\"regions\":[{\"untranslated\":true}],\"notes\":[[\"info\",\"cover page\"],"
+                + "{\"untranslated_lines\":0,\"regions\":[{\"untranslated\":true,\"left_alone\":true}],\"notes\":[]},"
+                + "{\"untranslated_lines\":2,\"notes\":[[\"info\",\"cover page\"],"
                 + "[\"warning\",\"translation failed (the key was refused); the source text below was still read\"]]},"
                 + "{\"regions\":[],\"notes\":[[\"warning\",\"no text found\"]]},"
-                + "{\"regions\":[{\"untranslated\":true}]}]}");
+                + "{\"untranslated_lines\":1}]}");
         assertEquals(2, BaiheClient.pagesWithoutEnglish(answer));
         assertEquals("translation failed (the key was refused); the source text below was still read",
                 BaiheClient.englishProblem(answer));

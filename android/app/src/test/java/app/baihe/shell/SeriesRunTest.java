@@ -91,4 +91,13 @@ public class SeriesRunTest {
         assertFalse(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 3 pages to Owl. Not sent: 17")));
         assertFalse(SeriesRun.isDone(new GrabQueue.Done(1, "c", "Sent 12 pages to Owl. 12 pages saved without English")));
     }
+
+    @Test
+    public void aRunToTheEndIsNotStoppedByTheChapterItJustGrabbed() {
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/chapter.php?id=1"));
+        assertFalse(SeriesRun.stopsBefore("https://site.test/chapter.php?id=2", "https://site.test/chapter.php?id=1",
+                done, new ArrayList<>()));
+        done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://site.test/c/2"));
+        assertTrue(SeriesRun.stopsBefore("https://site.test/c/2", "https://site.test/c/1", done, new ArrayList<>()));
+    }
 }

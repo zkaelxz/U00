@@ -157,6 +157,15 @@ final class SeriesRun {
         return false;
     }
 
+    /**
+     * Whether a run to the last chapter should stop before `next`. A site that names its chapters
+     * only in the query (chapter.php?id=N) gives every chapter the same key, so a next chapter that
+     * looks like the one just grabbed is not taken as grabbed before.
+     */
+    static boolean stopsBefore(String next, String current, Set<String> done, List<GrabQueue.Done> history) {
+        return !key(next).equals(key(current)) && alreadyDone(next, done, history);
+    }
+
     static Plan plan(List<GrabQueue.Item> links, Set<String> done, List<GrabQueue.Done> history,
                      List<GrabQueue.Item> queue) {
         Set<String> finished = new HashSet<>(done);

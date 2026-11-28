@@ -743,7 +743,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             try {
                 String title = new BaiheClient(server, token).follow(link);
                 say("Following " + (title.isEmpty() ? "this series" : title)
-                        + ". While you are signed in on the Studio tab, your phone tells you when a new chapter comes out.", GrabUi.Kind.OK);
+                        + ". With alerts on and the Studio tab signed in, your phone tells you when a new chapter comes out.", GrabUi.Kind.OK);
             } catch (BaiheClient.BridgeException e) {
                 say(e.getMessage(), GrabUi.Kind.BAD);
             }
@@ -1279,7 +1279,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
                 if (next == null) {
                     message = message + (toEnd ? ". That was the last chapter." : ". No next chapter link was found.");
-                } else if (toEnd && SeriesRun.alreadyDone(next, GrabStore.doneChapters(prefs()), GrabStore.history(prefs()))) {
+                } else if (toEnd && SeriesRun.stopsBefore(next, pageUrl, GrabStore.doneChapters(prefs()), GrabStore.history(prefs()))) {
                     // An earlier run already sent everything from here on; going further would only repeat it.
                     next = null;
                     message = message + ". The next chapter was grabbed before, so it stopped here.";

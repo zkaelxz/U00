@@ -67,7 +67,7 @@ public class GrabSettingsActivity extends Activity {
                 prefs().getBoolean(GrabActivity.KEY_READ_AHEAD, true),
                 on -> prefs().edit().putBoolean(GrabActivity.KEY_READ_AHEAD, on).apply()));
         reading.addView(text("Starts once you are halfway through a chapter, or three pages from its end if that is sooner. "
-                + "It uses your engine and spending limit like Read now: with a billed engine, the next chapter is paid for even if you stop reading.",
+                + "It uses your engine and spending limit like a saved Grab: with a billed engine, the next chapter is paid for even if you stop reading.",
                 13, false, palette.muted, 8));
         list.addView(reading);
 
