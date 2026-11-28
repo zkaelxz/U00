@@ -354,3 +354,16 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
   }
   expect(unmocked).toEqual([])
 })
+
+test('on the boot service the pop-up switch says it can\'t show, and the summary leaves it out', async ({ page }) => {
+  await guard(page)
+  await mockNotifications(page, OFF)
+  await page.route(/\/api\/settings$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const res = await route.fetch()
+    return route.fulfill({ response: res, json: { ...(await res.json()), desktop_popups: false } })
+  })
+  const section = await open(page)
+  await expect(section.getByText('Baihe is running as the Windows boot service')).toBeVisible()
+  await expect(section.locator('.card-meta')).toHaveText('Off')
+})

@@ -40,6 +40,7 @@ import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { NO_DESKTOP_POPUPS } from './settings/notifications'
 import { PcAlertsCard } from './settings/PcAlertsCard'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
@@ -402,7 +403,15 @@ export default function SettingsPage() {
           <>
             {shown('notifications') && (
               <SettingsCard id="notifications">
-                <NotificationsSection popupOn={settings.notify_on_completion} notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+                <NotificationsSection
+                  popupOn={settings.notify_on_completion && settings.desktop_popups !== false}
+                  notifyToggle={
+                    <div className="setting-list">
+                      {toggleField('notify_on_completion')}
+                      {settings.desktop_popups === false && <p className="muted">{NO_DESKTOP_POPUPS}</p>}
+                    </div>
+                  }
+                />
               </SettingsCard>
             )}
             {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}
