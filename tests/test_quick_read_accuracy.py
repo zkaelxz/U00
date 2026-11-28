@@ -152,13 +152,21 @@ def test_quick_read_rereads_before_matching_the_glossary(isolated_db, monkeypatc
                         lambda *a: {"page_image": {"readers": [{"engine": object()}]}})
     monkeypatch.setattr(reread.vision, "ask_about_image",
                         lambda *a, **k: ("勇者が来た", {"input_tokens": 1, "output_tokens": 1}))
+    monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+    sent = []
+
+    def translate(bubbles, engine, meta, **kwargs):
+        sent.append(([b["source_text"] for b in bubbles], kwargs.get("character_notes", "")))
+        return ""
+
+    monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
     bubbles = [_bubble("勇有が来た", 0.4)]
-    extras = page_server._page_extras(None, {}, None, _png(), bubbles, "ja", None, reread=True)
+    page_server._translate_read_page(bubbles, {}, None, None, "", [], False, _png(), False, "ja")
     assert bubbles[0]["source_text"] == "勇者が来た"
-    assert "勇者 → default: Hero" in extras["character_notes"]
+    assert sent[1][0] == ["勇者が来た"] and "勇者 → default: Hero" in sent[1][1]
     # A saved page keeps the read it stored, so it is not corrected.
     other = [_bubble("勇有が来た", 0.4)]
-    page_server._page_extras(None, {}, None, _png(), other, "ja", None)
+    page_server._translate_read_page(other, {}, None, None, "", [], False, _png(), True, "ja")
     assert other[0]["source_text"] == "勇有が来た"
 
 
@@ -426,6 +434,7 @@ class TestTranslateBesideReread:
             asked.append([b["source_text"] for b in bubbles])
             started.set()
             chapter_names.setdefault(bubbles[0]["source_text"], f"Name{len(asked)}")
+            cast.setdefault(f"Name{len(asked)}", {})["she"] = 1
             for b in bubbles:
                 b["translated_text"] = f"English {len(asked)}"
             return f"ctx {len(asked)}"
@@ -439,11 +448,24 @@ class TestTranslateBesideReread:
         monkeypatch.setattr(extension_service, "page_extras",
                             lambda *a: {"page_image": {"readers": [{"engine": object()}]}})
         monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        from collections import OrderedDict
+
+        class Summaries(OrderedDict):
+            def __setitem__(self, key, value):
+                self.written = [*getattr(self, "written", []), value]
+                super().__setitem__(key, value)
+
+        monkeypatch.setattr(page_turns, "_contexts", Summaries())
+        monkeypatch.setattr(page_turns, "_chapter_names", {})
+        monkeypatch.setattr(page_turns, "_cast", {})
         return page_server, asked, overlapped
 
-    def _memory(self):
+    def _memory(self, part="names"):
         from services import quick_read_cache
-        return page_turns.title_memory(None, quick_read_cache.title_key(self.URL))["names"]
+        return page_turns.title_memory(None, quick_read_cache.title_key(self.URL))[part]
+
+    def _cast(self):
+        return self._memory("cast")
 
     def test_a_reread_that_changes_nothing_keeps_the_answer_started_beside_it(self, isolated_db, monkeypatch):
         page_server, asked, overlapped = self._setup(monkeypatch, "勇者が来た")
@@ -463,11 +485,16 @@ class TestTranslateBesideReread:
         bubbles = [_bubble("勇有が来た", 0.4)]
         page_server._translate_read_page(bubbles, {}, None, None, self.URL, [], False, _png(),
                                          False, "ja")
+        for thread in threading.enumerate():
+            if thread.name == "quick-read-early-translate":
+                thread.join(5)
         assert overlapped == [True]
         assert asked == [["勇有が来た"], ["勇者が来た"]]
         assert bubbles[0]["source_text"] == "勇者が来た"
         assert bubbles[0]["translated_text"] == "English 2"
         assert "勇有が来た" not in self._memory()
+        assert self._cast() == {"Name2": {"she": 1}}
+        assert page_turns._contexts.written == ["ctx 2"]
 
     def test_a_page_with_no_hard_text_translates_once_after_no_reread(self, isolated_db, monkeypatch):
         page_server, asked, overlapped = self._setup(monkeypatch, "x")

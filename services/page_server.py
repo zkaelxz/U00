@@ -404,17 +404,12 @@ def _store_page(drama_id: int, data: bytes, ext: str):
 
 
 def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language: str = "",
-                 glossary=None, reread: bool = False, split: dict | None = None) -> dict:
+                 glossary=None) -> dict:
     """Character notes and the page picture, as a Scanlate run sends them, with the built-in
-    comic glossary's entries for this page appended to the notes. `reread` first gives
-    hard-to-read text a second look with the picture model (page_reread_service), before the
-    glossary is matched against it. A failure here only costs that quality, never the
-    translation."""
+    comic glossary's entries for this page appended to the notes. A failure here only costs
+    that quality, never the translation."""
     language = _page_source_language(drama, language)
-    extras = _picture_extras(drama, config, engine, image)
-    if reread:
-        _timed_reread(bubbles, image, language, extras, split)
-    return _with_page_notes(extras, drama, language, bubbles, glossary)
+    return _with_page_notes(_picture_extras(drama, config, engine, image), drama, language, bubbles, glossary)
 
 
 def _picture_extras(drama, config: dict, engine, image: bytes) -> dict:
@@ -430,6 +425,8 @@ def _page_readers(extras: dict):
 
 
 def _timed_reread(bubbles, image: bytes, language: str, extras: dict, split: dict | None) -> int:
+    """page_reread_service.reread: hard-to-read text gets a second look with the picture model,
+    before the glossary is matched against it."""
     from services import page_reread_service
     reread_started = time.monotonic()
     try:
@@ -437,7 +434,7 @@ def _timed_reread(bubbles, image: bytes, language: str, extras: dict, split: dic
     except Exception:
         changed = 0
     if split is not None:
-        # Whether the reread changed anything decides if translating beside it would pay off.
+        # How often the reread changes text is how often the answer started beside it is dropped.
         split["reread"] = round(time.monotonic() - reread_started, 2)
         split["reread_changed"] = changed
     return changed
@@ -464,9 +461,11 @@ def _translate_beside_reread(bubbles, image: bytes, language: str, picture: dict
     """Translates a page whose hard text the picture model rereads. Returns the extras the kept
     answer was asked with and its failure, or None. The OCR reading starts translating at once,
     beside the reread.
-    When the reread changed nothing, that early answer is what the serial order would have asked
-    for, so it is kept and the page saves a round trip; otherwise it is dropped (it leaves no names
-    or summary behind) and the page is translated again from the corrected text, as before."""
+    When the reread changed nothing, the early answer was asked for the same page text and notes as
+    the serial order would have, so it is kept and the page saves a round trip. Its previous page's
+    lines and summary are the ones in hand a reread earlier, the same looseness pages translated
+    side by side already have. Otherwise it is dropped (it leaves no names or summary behind) and
+    the page is translated again from the corrected text, as before."""
     import contextvars
     import copy
     early = copy.deepcopy(bubbles)
@@ -500,8 +499,9 @@ def _translate_beside_reread(bubbles, image: bytes, language: str, picture: dict
     worker.join()
     if "extras" not in outcome:
         return _translate_now(bubbles, notes_for, translate)
+    # The next page may be reading these dicts for its previous lines, so they are never emptied;
+    # translating only adds or changes keys.
     for bubble, answered in zip(bubbles, early):
-        bubble.clear()
         bubble.update(answered)
     return outcome["extras"], outcome.get("error")
 
@@ -610,28 +610,27 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         return {**_with_page_notes(picture, drama, notes_language, page, glossary),
                 "previous_lines": turn.previous_lines()}
 
-    def translate(page, page_extras, keep_result):
-        page_engine, page_usage = engine, usage
-        if keep_result is not None:
-            # The early answer runs beside the page's own engine calls, so it gets its own engine.
-            page_engine = _build_engine(config) or engine
-            page_usage = _usage_cb(drama, config, page_engine)
-        page_turns.translate_in_chain(drama_id, chain_url, page, page_engine, meta, glossary, page_usage,
-                                      wait_for_turn=in_order, keep_result=keep_result, **page_extras)
-
+    if split is not None:
+        split["extras"] = round(time.monotonic() - extras_started, 2)
     from services import page_reread_service
     # A stored page already saved its read, so a corrected reading would disagree with the copy
     # the library keeps; only a page nothing is saved for (Quick read) gets the second look.
-    if not in_order and image and _page_readers(picture) and page_reread_service.hard_regions(bubbles):
-        if split is not None:
-            split["extras"] = round(time.monotonic() - extras_started, 2)
+    rereads = not in_order and image and _page_readers(picture) and page_reread_service.hard_regions(bubbles)
+    # The early answer runs beside the page's own engine calls, so it gets its own engine.
+    early_engine = _build_engine(config) if rereads else None
+
+    def translate(page, page_extras, keep_result):
+        page_engine, page_usage = (engine, usage) if keep_result is None else (
+            early_engine, _usage_cb(drama, config, early_engine))
+        page_turns.translate_in_chain(drama_id, chain_url, page, page_engine, meta, glossary, page_usage,
+                                      wait_for_turn=in_order, keep_result=keep_result, **page_extras)
+
+    if early_engine is not None:
         extras, failure = _translate_beside_reread(bubbles, image, notes_language, picture, split,
                                                    notes_for, translate)
     else:
         if not in_order:
             _timed_reread(bubbles, image, notes_language, picture, split)
-        if split is not None:
-            split["extras"] = round(time.monotonic() - extras_started, 2)
         extras, failure = _translate_now(bubbles, notes_for, translate)
     if failure is not None:
         # The OCR text is still real and still useful, so it is returned rather than thrown
