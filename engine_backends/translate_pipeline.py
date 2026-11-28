@@ -89,10 +89,6 @@ SCENE_BREAK_GAP_SECONDS = 3.0
 # A pause this long is a cut between scenes, where a subtitle run may start another lane: the
 # line after it loses only the English of a scene that is over.
 SCENE_LANE_GAP_SECONDS = 20.0
-# When no long pause sits near an even split, a shorter one may cut instead: the parts' speed is
-# set by the longest part, so an off-centre cut wastes most of a lane.
-SCENE_SHORT_PAUSE_FALLBACK = False
-SCENE_SHORT_PAUSE_SECONDS = 10.0
 
 
 def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
@@ -501,29 +497,15 @@ class _TranslateRun:
         Only between neighbouring lines of the title, since a jump over lines not being sent
         is not a pause."""
         a, n = self.args, len(target_lines)
-
-        def pauses_of(seconds):
-            # A part shorter than a batch costs a request and a lane start for almost no speed.
-            return [i for i in range(self.size, n - self.size + 1)
-                    if target_lines[i].idx == target_lines[i - 1].idx + 1
-                    and target_lines[i].start - target_lines[i - 1].end >= seconds]
-        pauses = pauses_of(SCENE_LANE_GAP_SECONDS)
-        short = pauses_of(SCENE_SHORT_PAUSE_SECONDS) if SCENE_SHORT_PAUSE_FALLBACK else []
-        near = n / a.parallel_chapters / 4
+        # A part shorter than a batch costs a request and a lane start for almost no speed.
+        pauses = [i for i in range(self.size, n - self.size + 1)
+                  if target_lines[i].idx == target_lines[i - 1].idx + 1
+                  and target_lines[i].start - target_lines[i - 1].end >= SCENE_LANE_GAP_SECONDS]
         chosen = set()
         for k in range(1, a.parallel_chapters):
-            target = n * k / a.parallel_chapters
-
-            def best(candidates):
-                free = [i for i in candidates if all(abs(i - c) >= self.size for c in chosen)]
-                return min(free, key=lambda i: abs(i - target)) if free else None
-            pick = best(pauses)
-            if short and (pick is None or abs(pick - target) > near):
-                fallback = best(short)
-                if fallback is not None and (pick is None or abs(fallback - target) < abs(pick - target)):
-                    pick = fallback
-            if pick is not None:
-                chosen.add(pick)
+            free = [i for i in pauses if all(abs(i - c) >= self.size for c in chosen)]
+            if free:
+                chosen.add(min(free, key=lambda i: abs(i - n * k / a.parallel_chapters)))
         return {target_lines[i].idx for i in chosen}
 
     def _scene_groups(self, batches):

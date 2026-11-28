@@ -458,12 +458,3 @@ def test_a_later_parts_first_batch_is_shown_the_source_lines_before_it(subtitles
     first_sends = [upcoming for zh, _recent, upcoming in engine.seen if zh[0] == "s9"]
     assert "s8" in first_sends[0]
 
-
-def test_a_shorter_pause_cuts_when_no_long_one_is_near_an_even_split(subtitles, monkeypatch):
-    pauses = {4: 25.0, 15: 12.0}
-    _run_subtitles(_subtitles(pauses), 2)
-    monkeypatch.setattr(tp, "SCENE_SHORT_PAUSE_FALLBACK", True)
-    _run_subtitles(_subtitles(pauses), 2)
-    _run_subtitles(_subtitles({14: 25.0, 15: 12.0}), 2)   # a long pause near the middle still wins
-    assert subtitles == [[list(range(4)), list(range(4, 30))], [list(range(15)), list(range(15, 30))],
-                         [list(range(14)), list(range(14, 30))]]
