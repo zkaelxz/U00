@@ -39,7 +39,7 @@ def chapter_line_ids(drama_id, chapter_from, chapter_to, line_ids=None):
         return None
     picked = [i for ids in chapters[first - 1:last] for i in ids]
     if not picked:
-        raise InvalidInputError("Those chapters have no lines yet. Make their lines with Chunk & tag first.")
+        raise InvalidInputError("Those chapters have no lines yet. Make their lines with Split and name speakers first.")
     return picked
 
 

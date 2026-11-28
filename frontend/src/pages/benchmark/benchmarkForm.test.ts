@@ -2,10 +2,9 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError } from '../../api/client'
 import type { BenchmarkEstimate, BenchmarkOptions, BenchmarkRun, BenchmarkSet } from '../../types/benchmark'
-import { sectionStorageKey, writeSectionOpen } from '../../components/sectionStorage'
 import type { JobRecord } from '../../types/jobs'
 import {
-  arenaGroups, arenaRunNames, benchSectionOpen, benchSectionStorageKey, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, engineBlockReason, estimateKey,
+  arenaGroups, arenaRunNames, casesInSelection, compareParam, comparePrefill, compareProblem, configLabel, defaultConfig, deltaTone, enginesMissingKey, engineBlockReason, estimateKey,
   formatCost, formatDelta, formatLatency, formatScore, formatWhen, metricName, metricNote, mixedMetricNote, mixedScorerNote, parseCompareParam, plainError, restoreConfigs,
   formatJudgeScore, leftOutLine, judgeOverlap, judgeRunLine, runRequestBody, runningStatus, selectionProblems, setOptions, startState, benchmarkTierLabel,
   caseTimingLine, optionValue, runConfigLabel, runExtraLabel, scriptCountsLine, timingLine, toggleCompare, whisperChoiceGroups, withOption, type RunSelection,
@@ -336,30 +335,6 @@ describe('mixedMetricNote', () => {
 })
 
 describe('page sections', () => {
-  const store = (init: Record<string, string> = {}) => {
-    const data = { ...init }
-    return { getItem: (k: string) => data[k] ?? null, setItem: (k: string, v: string) => void (data[k] = v) }
-  }
-
-  it('opens every section on a first visit: each is the first card of its tab', () => {
-    const s = store()
-    for (const id of ['sets', 'run', 'sweep', 'reeval', 'runs'] as const) expect(benchSectionOpen(s, id)).toBe(true)
-  })
-
-  it('remembers a choice over the default, per section', () => {
-    const s = store()
-    writeSectionOpen(s, benchSectionStorageKey('sets'), false)
-    writeSectionOpen(s, benchSectionStorageKey('run'), false)
-    expect(benchSectionOpen(s, 'sets')).toBe(false)
-    expect(benchSectionOpen(s, 'run')).toBe(false)
-    expect(benchSectionOpen(s, 'runs')).toBe(true)
-  })
-
-  it('falls back to the default without storage or with junk in it', () => {
-    expect(benchSectionOpen(null, 'sets')).toBe(true)
-    expect(benchSectionOpen(store({ [sectionStorageKey(benchSectionStorageKey('run'))]: 'maybe' }), 'run')).toBe(true)
-  })
-
   it('shows the percentage while a job runs', () => {
     expect(runningStatus(null)).toBe('Running…')
     expect(runningStatus({ progress: 0.4 } as JobRecord)).toBe('Running · 40%')

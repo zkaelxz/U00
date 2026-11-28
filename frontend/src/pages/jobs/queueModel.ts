@@ -28,6 +28,9 @@ export const ADD_STEP_LABELS: Record<AddStep, string> = {
   all: 'All steps', transcribe: STEP_LABELS.transcribe, translate: STEP_LABELS.translate, export: STEP_LABELS.export,
 }
 
+export const QUEUE_REPLACES_LINES =
+  'Transcribe replaces the current lines of every ticked title (the old ones stay in line History). The queue starts by itself.'
+
 export const STEP_HELP: Record<AddStep, string> = {
   all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. The queue starts by itself unless it is paused or has a start time.",
   transcribe: "Uses the title's saved Transcribe options. Replaces its current lines; the old ones stay in line History.",

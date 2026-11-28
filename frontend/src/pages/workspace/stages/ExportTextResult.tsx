@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { copyText } from '../../../components/clipboard'
+import { saveInShell } from '../../../phoneShell'
 
 // Generated text shown in full, with Copy and a real download link
 // (Blob URL + the anchor's download attribute). fileText is what the link
@@ -33,7 +34,8 @@ export function ExportTextResult({ text, fileText = text, filename, mime }: {
         <button type="button" onClick={() => void copy()}>
           Copy
         </button>
-        <a href={url} download={filename} data-testid="export-download">
+        <a href={url} download={filename} data-testid="export-download"
+          onClick={(e) => { if (saveInShell(new Blob([fileText], { type: `${mime};charset=utf-8` }), filename)) e.preventDefault() }}>
           Download {filename}
         </a>
         {status !== null && (

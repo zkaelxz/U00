@@ -4,7 +4,7 @@ Part of the [user guide](user-guide.md).
 
 ## Install details
 
-The README has the short version. This section has every install and start option for a source checkout; the Windows installer needs none of it.
+The README links here. This section has every install and start option for a source checkout; the Windows installer needs none of it.
 
 If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other optional packages from Diagnostics afterwards.
 
@@ -93,4 +93,4 @@ On Windows `cmd`, run `set BAIHE_API_ENV=development` first. The API reads `BAIH
 
 ## Resetting for testing
 
-Diagnostics > **Reset library** deletes every drama, translation, glossary, series, progress record and file, and also every account, sign-in session and the audit log, then reinitializes an empty database. You confirm by typing RESET; there is no undo. Followed Sources series stay followed but are unlinked from their titles, so new chapters are not imported into a new title that happens to get the old id; link them again. Restoring a backup that has no sources.db unlinks them the same way. To remove one drama, use its delete button.
+Diagnostics > **Reset library** deletes every drama, translation, glossary, series, progress record and file, and also every account, sign-in session and the audit log, then reinitializes an empty database. You confirm by typing RESET. A copy of the old library is kept on the PC (Library tools > Storage > Previous library) until you delete it there or reset again (only the newest copy is kept), so most of the space is freed only then. Followed Sources series stay followed but are unlinked from their titles, so new chapters are not imported into a new title that happens to get the old id; link them again. Restoring a backup that has no sources.db unlinks them the same way. To remove one drama, use its delete button.

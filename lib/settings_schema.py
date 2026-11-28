@@ -299,7 +299,7 @@ SETTINGS = (
           help="GPU temperature. Jobs wait at this or above, and go again once the GPU is 5 °C cooler.",
           tab="system", section="Advanced"),
     _pref("gpu_guard_stop_minutes", "int", 2, min=0, max=60, label="Stop a running job after", unit="min",
-          placeholder="Never",
+          placeholder="2",
           help="If the GPU stays short of memory or hot this long, a running transcription, speaker detection or local-model translation stops and starts again by itself once the card is clear. 0 never stops a running job.",
           tab="system", section="Advanced"),
     _pref("ollama_num_ctx_override", "int", 0, min=0, max=_NUM_CTX_MAX,

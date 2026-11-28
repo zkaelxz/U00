@@ -97,11 +97,12 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     title: 'Model re-evaluation',
     purpose: 'Check whether a newer model beats the one you use now.',
     steps: [
-      'Production is the model you use now.',
+      'Production is the model later re-evaluations compare against.',
       'Add up to 3 candidates: models you want to try.',
       'Run now scores production and every candidate on a golden set.',
       'Read the Latest report. Differences are candidate minus production.',
       'Promote makes a candidate production, after you confirm.',
+      'Translations keep their model: change it in Diagnostics > Model status.',
       'Promote also changes your default engine if its engine differs.',
       'Reject leaves a candidate out of later runs.',
       'The schedule is off by default. Nothing changes by itself.',
@@ -119,7 +120,5 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
   },
 }
 
-// Each section is the first card of its own tab (the sweep sits under Run a benchmark), so it starts open.
-export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, sweep: true, tsweep: true, reeval: true, runs: true }
 
-export const NO_CASES_HINT = 'No cases match yet. Import a golden set above, or widen Tier and Golden set.'
+export const NO_CASES_HINT = 'No cases match yet. Import a golden set under Add cases, or widen Tier and Golden set.'

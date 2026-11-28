@@ -12,7 +12,7 @@ import { engineOptionLabel } from '../translatePage'
 import { BenchSection } from './BenchSection'
 import { JobProgress } from './RunCard'
 import { DecisionHistory, LatestSweep, type SweepWording } from './SweepCard'
-import { plainError, runningStatus } from './benchmarkForm'
+import { plainError } from './benchmarkForm'
 import { SWEEP_LANGUAGES, sweepStatusLabel } from './sweepForm'
 import {
   chrfPoints, costLine, translateStartLabel, translateStartProblem, translateStepLabel, translateSweepKey, translateSweepSets,
@@ -112,7 +112,6 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
     <BenchSection
       id="tsweep"
       meta={sweep ? `Latest: ${sweep.set_name} (${sweep.language}) · ${sweepStatusLabel(sweep.status)}` : undefined}
-      status={sweeping ? runningStatus(job) : null}
       className="sweep"
     >
       <p className="muted sweep-intro">
@@ -121,7 +120,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
         until you approve it.
       </p>
       {names.length === 0 || !engine ? (
-        <p className="muted">No golden set has translation cases with a reference yet. Upload clips with a translation under Golden sets.</p>
+        <p className="muted">No golden set has translation cases with a reference yet. Upload clips with a translation under Add cases.</p>
       ) : (
         <div className="sweep-block" role="group" aria-label="Sweep a translation engine">
           <div className="field-row">
