@@ -524,9 +524,9 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     Mutates `bubbles` in place and returns the new rolling context for the
     next page. Answers are matched to bubbles by explicit id
     (translate_regions_by_id). When no answer could be applied (unreadable,
-    short, padded, reordered-by-position or naming an unknown id) no bubble is
-    touched; when only some chunks of a dense page failed, the rest are
-    applied. Either way it raises ValueError, naming how many regions were
+    short, padded, reordered or with unknown ids) only the punctuation-only
+    bubbles get their local answer; when only some chunks of a dense page
+    failed, the rest are applied. Either way it raises ValueError, naming how many regions were
     left untranslated.
 
     `page_image` ({"data", "mime", "scale"}, optionally "engine" and "usage_cb" for
