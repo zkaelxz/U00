@@ -87,3 +87,57 @@ def test_a_thin_strip_between_two_lines_is_not_a_panel():
     _rect(img, 378, 620, 30, 540)     # a 30 px wide strip: part of the panel beside it
     _rect(img, 416, 620, 344, 540)
     assert len(find_panels(img)) == 3
+
+
+def test_white_sky_inside_a_panel_keeps_the_panel_whole():
+    img = _page()
+    cv2.rectangle(img, (40, 40), (760, 580), (0, 0, 0), 4)
+    cv2.rectangle(img, (40, 620), (760, 1160), (0, 0, 0), 4)
+    img[300:580, 44:756] = 120        # ground under white sky
+    img[800:1156, 44:756] = 120
+    boxes = in_reading_order(find_panels(img), False)
+    assert _near([(b["x"], b["y"], b["w"], b["h"]) for b in boxes],
+                 [(38, 38, 724, 544), (38, 618, 724, 544)], tol=6)
+
+
+@pytest.mark.parametrize("fill,gutter", [((200, 120, 40), 40), ((100, 100, 100), 8)])
+def test_art_to_both_page_edges_is_split_at_its_gutter(fill, gutter):
+    img = _page()
+    for top in (300, 580 + gutter):
+        img[top:top + 280] = 0
+        img[top + 4:top + 276] = fill
+    assert len(find_panels(img)) == 2
+
+
+def test_a_wide_strip_is_measured_without_blowing_it_up(monkeypatch):
+    import scanlate.scanlate_reader_panels as panels
+    sizes = []
+    real = panels._Cutter.__init__
+
+    def spy(self, ink, slanted):
+        sizes.append(ink.shape)
+        real(self, ink, slanted)
+    monkeypatch.setattr(panels._Cutter, "__init__", spy)
+    img = np.full((300, 3000, 3), 255, np.uint8)
+    for x in (20, 1520):
+        _rect(img, x, 20, 1460, 260)
+    assert len(find_panels(img)) == 2
+    assert max(sizes[0]) == 1000
+
+
+def test_dark_jpeg_noise_does_not_count_as_colour():
+    img = _page()
+    _panel(img, [(40, 40), (760, 40), (760, 500), (40, 640)])
+    _panel(img, [(40, 680), (760, 540), (760, 1160), (40, 1160)])
+    cv2.rectangle(img, (100, 800), (400, 1100), (25, 20, 28), -1)   # a night scene
+    assert len(find_panels(img)) == 2
+
+
+@pytest.mark.parametrize("width", [781, 782, 793, 794])
+def test_boxes_stay_inside_the_page(width):
+    img = np.full((H, width, 3), 255, np.uint8)
+    _rect(img, 0, 40, width // 2 - 10, 1120)
+    _rect(img, width // 2 + 10, 40, width - width // 2 - 10, 1120)
+    boxes = find_panels(img)
+    assert len(boxes) == 2
+    assert all(b["x"] + b["w"] <= width and b["y"] + b["h"] <= H for b in boxes)

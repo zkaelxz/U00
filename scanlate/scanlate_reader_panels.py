@@ -3,8 +3,9 @@ import numpy as np
 
 from scanlate import scanlate_tuning
 
-# The page is measured at this height, so the fractions below mean the same on any scan.
-_WORK_H = 1000
+# The page is measured with its longer side this long, so the fractions below mean the same on
+# any scan and a wide strip isn't blown up.
+_WORK_SIZE = 1000
 # A gutter line may cross this share of ink: a caption or a balloon laid over it.
 _GUTTER_INK = 0.15
 # A gutter is a gutter only with a straight edge on both sides: a panel frame, or art cut
@@ -22,8 +23,10 @@ _MAX_SLANT, _SLANT_STEP = 0.36, 0.01
 # A sheared line that crosses less than this share of the region says nothing.
 _MIN_LINE = 0.6
 # Pages with more of their area in colour than this are webtoon art, where a slanted light
-# band is a beam, not a gutter; manga scans come in at 0.
+# band is a beam, not a gutter; manga scans come in at 0. Near-black pixels don't count:
+# their hue is JPEG noise.
 _COLOUR_SHARE = 0.01
+_COLOUR_MIN_VALUE = 60
 _MAX_DEPTH = 10
 
 
@@ -34,16 +37,22 @@ def find_panels(image) -> list:
     import cv2
 
     h, w = image.shape[:2]
-    scale = _WORK_H / h
-    small = cv2.resize(image, (max(1, round(w * scale)), _WORK_H), interpolation=cv2.INTER_AREA)
-    sat = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[:, :, 1]
-    cutter = _Cutter(_ink(small), slanted=float((sat > 60).mean()) <= _COLOUR_SHARE)
+    scale = _WORK_SIZE / max(h, w)
+    sw, sh = max(1, round(w * scale)), max(1, round(h * scale))
+    small = cv2.resize(image, (sw, sh), interpolation=cv2.INTER_AREA)
+    hsv = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)
+    colour = (hsv[:, :, 1] > 60) & (hsv[:, :, 2] > _COLOUR_MIN_VALUE)
+    cutter = _Cutter(_ink(small), slanted=float(colour.mean()) <= _COLOUR_SHARE)
     leaves = cutter.split(np.ones(cutter.ink.shape, bool), ())
     if len(leaves) < 2:
         return []
-    return [{"x": round(x0 / scale), "y": round(y0 / scale), "w": round((x1 - x0) / scale),
-             "h": round((y1 - y0) / scale), "order": order}
-            for (x0, y0, x1, y1), order in leaves]
+    fx, fy = w / sw, h / sh
+    out = []
+    for (x0, y0, x1, y1), order in leaves:
+        left, top = round(x0 * fx), round(y0 * fy)
+        out.append({"x": left, "y": top, "w": min(w, round(x1 * fx)) - left,
+                    "h": min(h, round(y1 * fy)) - top, "order": order})
+    return out
 
 
 def in_reading_order(boxes: list, right_to_left: bool) -> list:
@@ -76,26 +85,27 @@ def _runs(flags) -> list:
 
 
 def _sheared(ink, mask, slant):
-    """Each pixel's line when lines drop `slant` pixels per column, and each line's ink share
-    (1 for a line too short to judge)."""
+    """Each line's ink share when lines drop `slant` pixels per column, which lines are long
+    enough to judge (a short one's share is set to 1), and each pixel's line."""
     h, w = ink.shape
     off = np.round(np.arange(w) * slant).astype(int)
     line = np.arange(h)[:, None] - off[None, :] + off.max()
     n = h + off.max() - off.min()
     inked = np.bincount(line.ravel(), weights=(ink & mask).ravel(), minlength=n)
     crossed = np.bincount(line.ravel(), weights=mask.ravel(), minlength=n)
-    share = np.where(crossed > 0, inked / np.maximum(crossed, 1), 1.0)
-    share[crossed < _MIN_LINE * crossed.max()] = 1.0
-    return share, line
+    judged = crossed >= _MIN_LINE * crossed.max()
+    share = np.where(judged, inked / np.maximum(crossed, 1), 1.0)
+    return share, judged, line
 
 
 class _Cutter:
     def __init__(self, ink, slanted: bool):
         self.ink = ink
         self.h, self.w = ink.shape
+        size = max(self.h, self.w)
         self.slants = int(_MAX_SLANT / _SLANT_STEP) if slanted else 0
-        self.thick = max(3, round(_THICK * self.h))
-        self.depth = max(2, round(_EDGE_DEPTH * self.h))
+        self.thick = max(3, round(_THICK * size))
+        self.depth = max(2, round(_EDGE_DEPTH * size))
 
     def split(self, mask, order) -> list:
         """[(box, order)] of the panels in `mask`, cut along gutters until none is left."""
@@ -127,8 +137,8 @@ class _Cutter:
         if across:
             ink, sub = ink.T, sub.T
         for k in [0] + [s for i in range(1, self.slants + 1) for s in (i, -i)]:
-            share, line = _sheared(ink, sub, k * _SLANT_STEP)
-            gutters = self._gutters(share)
+            share, judged, line = _sheared(ink, sub, k * _SLANT_STEP)
+            gutters = self._gutters(share, judged)
             if not gutters:
                 continue
             bounds = [0] + [g for run in gutters for g in run] + [len(share)]
@@ -138,39 +148,66 @@ class _Cutter:
                 part = np.zeros_like(mask)
                 part[y0:y1, x0:x1] = local.T if across else local
                 parts.append(part)
-            parts = self._join_small(parts)
+            parts = self._join_small(parts, [self._inside_frame(ink, sub, line, g)
+                                             for g in gutters])
             if len(parts) >= 2:
                 return parts
         return []
 
-    def _gutters(self, share) -> list:
+    def _gutters(self, share, judged) -> list:
         out = []
-        for a, b in _runs(share <= _GUTTER_INK):
+        for a, b in _runs(judged & (share <= _GUTTER_INK)):
             # A one-pixel white line is part of the drawing, not a gutter.
             if a == 0 or b == len(share) or b - a < 2:
                 continue
-            before = share[max(0, a - self.depth):a]
-            after = share[b:b + self.depth]
-            before, after = before[before < 1].max(initial=0), after[after < 1].max(initial=0)
+            lo, hi = max(0, a - self.depth), b + self.depth
+            before = share[lo:a][judged[lo:a]].max(initial=0)
+            after = share[b:hi][judged[b:hi]].max(initial=0)
             need = _EDGE if b - a >= self.thick else _THIN_EDGE
             if before >= need and after >= need:
                 out.append((int(a), int(b)))
         return out
+
+    def _inside_frame(self, ink, sub, line, gutter) -> bool:
+        """True when ink runs the whole length of the gap at both ends, as a panel's own side
+        frames do round white sky inside it; a gutter between panels is open at its ends."""
+        a, b = gutter
+        sel = sub & (line >= a) & (line < b)
+        width = sel.shape[1]
+
+        def closed(cols):
+            n, inked = sel[:, cols].sum(axis=0), (sel & ink)[:, cols].sum(axis=0)
+            return bool(((n > 0) & (inked == n)).any())
+        band = min(self.depth, width // 2)
+        return band > 0 and closed(slice(0, band)) and closed(slice(width - band, width))
 
     def _small(self, box) -> bool:
         x0, y0, x1, y1 = box
         return (x1 - x0 < _MIN_W * self.w or y1 - y0 < _MIN_H * self.h
                 or (x1 - x0) * (y1 - y0) < _MIN_AREA * self.w * self.h)
 
-    def _join_small(self, parts) -> list:
-        boxed = [(p, b) for p in parts if (b := self._content(p)) is not None]
+    def _join_small(self, parts, inside) -> list:
+        """`inside[k]` says the gap between parts k and k+1 lies inside one panel's frame.
+        A small part joins across such a gap, so a frame line goes with the panel it
+        frames; otherwise it joins the nearer neighbour."""
+        boxed, joins, gap_inside = [], [], False
+        for k, p in enumerate(parts):
+            gap_inside = gap_inside or (k > 0 and inside[k - 1])
+            b = self._content(p)
+            if b is None:
+                continue
+            if boxed:
+                joins.append(gap_inside)
+            boxed.append((p, b))
+            gap_inside = False
         while len(boxed) > 1:
             i = next((i for i, (_, b) in enumerate(boxed) if self._small(b)), None)
             if i is None:
                 break
             part, box = boxed.pop(i)
-            near = [n for n in (i - 1, i) if 0 <= n < len(boxed)]
-            j = min(near, key=lambda n: _gap(boxed[n][1], box))
+            near = {n: joins[i - 1 if n < i else i] for n in (i - 1, i) if 0 <= n < len(boxed)}
+            j = min(near, key=lambda n: (not near[n], _gap(boxed[n][1], box)))
+            joins.pop(i - 1 if j < i else i)
             joined = boxed[j][0] | part
             boxed[j] = (joined, self._content(joined) or box)
         return [p for p, _ in boxed] if len(boxed) > 1 else []
