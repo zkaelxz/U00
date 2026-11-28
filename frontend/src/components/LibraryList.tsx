@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type SyntheticEvent } from 'react'
 
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
@@ -581,8 +581,15 @@ function SearchBox({ lines, value, onChange }: { lines: boolean; value: string; 
 function FiltersMenu({ count, children }: { count: number; children: (open: boolean) => ReactNode }) {
   const ref = useDetailsMenu()
   const [open, setOpen] = useState(false)
+  const [alignEnd, setAlignEnd] = useState(false)
+  const onToggle = (e: SyntheticEvent<HTMLDetailsElement>) => {
+    const d = e.currentTarget
+    setOpen(d.open)
+    // On a narrow window the toolbar wraps and puts Filters near the right edge, where a left-anchored panel runs off screen.
+    if (d.open) setAlignEnd(d.getBoundingClientRect().left + (d.lastElementChild?.scrollWidth ?? 0) > window.innerWidth - 16)
+  }
   return (
-    <details ref={ref} className="filters-menu" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+    <details ref={ref} className={alignEnd ? 'filters-menu align-end' : 'filters-menu'} onToggle={onToggle}>
       <summary className={buttonClass('secondary')}>Filters{count > 0 && ` (${count})`}</summary>
       <div className="filters-menu-panel" role="group" aria-label="Filters">{children(open)}</div>
     </details>

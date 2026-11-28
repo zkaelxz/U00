@@ -26,6 +26,7 @@ import { buttonClass } from '../components/uiClasses'
 import { useLoad, type Loaded } from '../hooks/useLoad'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { menuUser, useSession } from '../hooks/useSession'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { nameLang } from '../hanScript'
@@ -203,16 +204,14 @@ const NO_EXTRAS: CreateExtras = { series: '', newSeriesName: '', preset: DEFAULT
 // successful create or Cancel clears it.
 type CreateDraft = { form: DramaCreateRequest; extras: CreateExtras }
 
-// New title is opened again from Find & Add, which leaves this page, so what was typed is kept outside it.
-let keptDraft: CreateDraft | null = null
+// New title is opened again from Find & Add, which leaves this page, so what was typed is kept outside it,
+// for the account that typed it only: a shared browser must not show the next person someone else's draft.
+let kept: { user: number | null; draft: CreateDraft | null } = { user: null, draft: null }
 
-// The Add box's "Only add it" keeps what was typed and adds the link, or the title and type a file gives.
-function draftFor(start: NonNullable<NewTitleStart>, draft: CreateDraft | null): CreateDraft {
-  const extras = draft?.extras ?? NO_EXTRAS
-  if ('link' in start) return { form: { ...(draft?.form ?? formForLink(start.link)), source_url: start.link }, extras }
-  const form = draft?.form ?? formForLink('')
-  const title = (form.title_en ?? '').trim() ? form.title_en : titleFor(start.fileName, '')
-  return { form: { ...form, title_en: title, media_type: mediaTypeFor(start.fileName) }, extras }
+// The Add box's "Only add it": the link, or the title and type a file gives.
+function draftFor(start: NonNullable<NewTitleStart>): CreateDraft {
+  if ('link' in start) return { form: { ...formForLink(start.link), source_url: start.link }, extras: NO_EXTRAS }
+  return { form: { ...formForLink(''), title_en: titleFor(start.fileName, ''), media_type: mediaTypeFor(start.fileName) }, extras: NO_EXTRAS }
 }
 
 // The "New drama" Sheet body. Language and type remember the last choice.
@@ -377,9 +376,15 @@ export default function LibraryPage() {
   const [handoff] = useState(() => peekHandoff('new-title'))
   useEffect(() => clearHandoff(handoff), [handoff])
   const [creating, setCreating] = useState(handoff !== null)
-  const [draft, setDraftState] = useState<CreateDraft | null>(() => (handoff?.start ? draftFor(handoff.start, keptDraft) : keptDraft))
+  const user = menuUser(useSession())?.id ?? null
+  const [draft, setDraftState] = useState<CreateDraft | null>(() => {
+    // A new link or file starts a fresh title rather than filling in one typed for something else.
+    const start = handoff?.start ? draftFor(handoff.start) : kept.user === user ? kept.draft : null
+    kept = { user, draft: start }
+    return start
+  })
   const setDraft = (next: CreateDraft | null) => {
-    keptDraft = next
+    kept = { user, draft: next }
     setDraftState(next)
   }
   const [draftFile, setDraftFile] = useState(() => (handoff?.start && 'fileName' in handoff.start ? handoff.start.fileName : null))
@@ -399,6 +404,8 @@ export default function LibraryPage() {
   const phone = useMediaQuery('(max-width: 640px)')
   const stats = useLoad(getStats, reloadKey)
   const getStarted = showGetStarted(stats.data?.total_dramas, startedDismissed)
+  const showFirstSteps = canCreate && startedDismissed && stats.data?.total_dramas === 0
+  const showAdd = (canCreate || canLinkRun) && !phone && !getStarted
   const recent = useLoad(getRecent, reloadKey)
   const continuing = useLoad(getContinueReading, reloadKey)
   const continuingIds = useMemo(() => new Set((continuing.data?.items ?? []).map((x) => x.drama_id)), [continuing.data])
@@ -518,14 +525,14 @@ export default function LibraryPage() {
           )}
         </>
       )}
-      actions={(
+      actions={(showFirstSteps || showAdd) && (
         <>
-          {canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
+          {showFirstSteps && (
             <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setStartedDismissed(false)}>Show first steps</button>
           )}
           {/* Find & Add holds the link box, Choose a file, Add a title by hand and Open Text; a phone reaches it from its
               bar. While the first-steps card shows, it is the page's one call to action. */}
-          {(canCreate || canLinkRun) && !phone && !getStarted && <ButtonLink variant="primary" href={addHref}>+ Add</ButtonLink>}
+          {showAdd && <ButtonLink variant="primary" href={addHref}>+ Add</ButtonLink>}
         </>
       )}
     >

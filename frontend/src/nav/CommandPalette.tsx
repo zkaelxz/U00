@@ -36,10 +36,12 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
     opener.current = active instanceof HTMLElement && active !== document.body && active !== document.documentElement ? active : button.current
     setOpen(true)
   }
+  const pageSearch = () => document.querySelector<HTMLElement>('main input[type="search"], main [role="searchbox"]')
   const close = () => {
     setOpen(false)
     // After the dialog closes: the page is inert while a modal is open.
-    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : button.current)?.focus())
+    // A page with its own search has no header button: its search box takes focus back instead of the page body.
+    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : button.current ?? pageSearch())?.focus())
   }
 
   // Held in a ref so the document listener is attached once.

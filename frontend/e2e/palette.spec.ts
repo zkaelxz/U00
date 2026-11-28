@@ -64,7 +64,7 @@ test('a plain k typed in a text field does not open it, and Ctrl+K again closes 
 })
 
 test('pages with their own search box have no header search button, and Ctrl+K still opens the dialog', async ({ page }) => {
-  for (const hash of ['#/library', '#/make-subtitles', '#/discover', '#/jobs', '#/settings']) {
+  for (const hash of ['#/library', '#/make-subtitles', '#/discover', '#/sources', '#/updates', '#/jobs', '#/settings']) {
     await page.goto(`/${hash}`)
     await headerReady(page)
     await expect(searchButton(page), hash).toHaveCount(0)

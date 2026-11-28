@@ -1087,11 +1087,16 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .filters-menu > summary::-webkit-details-marker { display: none; }
 .filters-menu > summary::after { content: '▾'; margin-left: var(--space-1); }
 .filters-menu-panel { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; display: grid; gap: var(--space-3); width: max-content; max-width: min(34rem, 90vw); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-pop); }
+/* Closed, the panel still has a box in Chrome's details layout and would widen the page. */
+.filters-menu:not([open]) .filters-menu-panel { display: none; }
+.filters-menu.align-end .filters-menu-panel { left: auto; right: 0; }
 .filters-menu-panel .toolbar-filters select, .filters-menu-panel .filters select { width: 15rem; }
 .quick-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
 .quick-row > .library-series-links { margin: 0 0 0 auto; }
 /* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
 .toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }
+/* The sort icon's select is an invisible layer over the 44px icon, so it takes the icon's size. */
+.toolbar-row .sort-icon select { min-width: 0; }
 .toolbar-end { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 /* More filters: a closed summary sits in the row; open, it becomes its own full-width row below. */
 .library-toolbar .more-filters { margin-bottom: 0; }
@@ -1112,6 +1117,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
 @media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
 .drama-tile { overflow: hidden; }
+.drama-grid .drama-tile { margin-left: 0; }
 .drama-tile img { width: 100%; height: 100%; object-fit: cover; }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
