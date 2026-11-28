@@ -709,7 +709,6 @@ class TestRemoteUploads:
         assert self._paste(_admin_session()).status_code == 200
 
     def test_the_auto_off_choice_refuses_after_seven_days(self, isolated_db):
-        from services import settings_service
         _remote_uploads(auto_off=True, on_at=time.time() - 8 * 86400)
         db.set_app_setting("remote_uploads.auto_off_from", time.time() - 8 * 86400)
         assert self._paste(_admin_session()).status_code == 403
