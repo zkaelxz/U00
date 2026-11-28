@@ -294,6 +294,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/quick-reads/drop` | device_token (extension.send) |
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
 | `GET /api/ext-bridge/sites` | device_token (extension.send) |
+| `POST /api/ext-bridge/subs` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `POST /api/ext-bridge/title-progress` | device_token (extension.send) |
@@ -551,6 +552,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
 | `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
+| `POST /api/queue/items/{item_id}/tonight` | jobs.start |
+| `POST /api/queue/night` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/pause` | jobs.start |

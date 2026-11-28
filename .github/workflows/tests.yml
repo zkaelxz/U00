@@ -83,8 +83,11 @@ jobs:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           # The event's own copy of the PR may predate the approval that triggered it.
           MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' }}
-          # Only the push lookup needs it; a PR run's step runs the PR's own code.
-          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          # Turning auto-merge on starts a new run; it reuses an earlier green run of the identical tree.
+          ON_APPROVAL: ${{ github.event.action == 'auto_merge_enabled' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Only the lookups need it (read-only); a PR run's step runs the PR's own code.
+          GITHUB_TOKEN: ${{ (github.event_name == 'push' || github.event.action == 'auto_merge_enabled') && github.token || '' }}
         run: |
           all_true=$'run_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false\ne2e_deferred=false'
           # The checkout is the merge commit; its first parent is the base.
@@ -93,9 +96,12 @@ jobs:
           # runs everything for any event but a pull request.
           out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS" --merge-approved "$MERGE_APPROVED") || out=$all_true
           # A squash merge of a tree a green PR run already tested runs only what that run skipped.
+          needed=$out
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             # A slow API must not time the job out (that would turn the run red, not run more).
             out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
+          elif [ "$ON_APPROVAL" = true ]; then
+            out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --on-approval) || out=$needed
           fi
           # Fail open: an empty or partial answer runs everything.
           printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
@@ -107,8 +113,10 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'e2e_deferred=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
           # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
+          # A reusing run records what the tree needed: the run it reused covered the rest, on the same tree.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --write tested.json || true
+            [ "$ON_APPROVAL" = true ] && [ "$out" != "$all_true" ] && record=$needed || record=$out
+            printf '%s\n' "$record" | python3 tools/ci_tested_tree.py --write tested.json || true
           fi
 
       - name: Keep the tested tree for the push after a merge
