@@ -34,38 +34,30 @@ def test_keeps_another_flag_and_clears_its_own_once_fixed():
     assert stale.flag is None and stale.flag_note == ""
 
 
-def test_a_meaning_doubt_takes_a_form_flags_place_and_keeps_its_note():
+def test_a_meaning_doubt_takes_a_reading_speed_flags_place_and_keeps_its_note():
+    import subtitle_formats
+    assert alignment_check.READING_SPEED_FLAG == subtitle_formats.READING_SPEED_FLAG
     fast = Line(idx=0, start=0, end=1, zh="明天见面", en="1.0,0.0", flag="reading_speed",
                 flag_note="22 characters a second")
     assert alignment_check.flag_mismatches([fast], _embed) == 1
     assert fast.flag == alignment_check.ALIGNMENT_FLAG
     assert fast.flag_note.startswith(alignment_check.FLAG_NOTE_PREFIX)
-    assert fast.flag_note.endswith("Also (too fast to read): 22 characters a second")
+    assert fast.flag_note.endswith(" Also (too fast to read): 22 characters a second")
     # A second run neither stacks the tail nor loses it.
     alignment_check.flag_mismatches([fast], _embed)
     assert fast.flag_note.count("Also") == 1
-
-
-def test_a_clean_check_gives_a_displaced_form_flag_back():
-    fast = Line(idx=0, start=0, end=1, zh="明天见面", en="1.0,0.0", flag="pronoun_check",
-                flag_note="Says he/him")
-    alignment_check.flag_mismatches([fast], _embed)
     fast.en = "0.1,0.9"
     alignment_check.flag_mismatches([fast], _embed)
-    assert (fast.flag, fast.flag_note) == ("pronoun_check", "Says he/him")
+    assert (fast.flag, fast.flag_note) == ("reading_speed", "22 characters a second")
 
 
-def test_a_serious_flag_keeps_its_slot_and_carries_the_doubt_in_its_note():
-    merged = Line(idx=0, start=0, end=1, zh="明天见面", en="1.0,0.0",
-                  flag="uncertain_translation", flag_note="Merged or shifted")
-    assert alignment_check.flag_mismatches([merged], _embed) == 0
-    assert merged.flag == "uncertain_translation"
-    assert merged.flag_note.startswith("Merged or shifted Also: Source match: ")
-    alignment_check.flag_mismatches([merged], _embed)
-    assert merged.flag_note.count("Also") == 1
-    merged.en = "0.1,0.9"
-    alignment_check.flag_mismatches([merged], _embed)
-    assert (merged.flag, merged.flag_note) == ("uncertain_translation", "Merged or shifted")
+def test_any_other_flag_keeps_its_slot_and_note_and_the_hidden_doubt_is_counted(caplog):
+    pronoun = Line(idx=0, start=0, end=1, zh="明天见面", en="1.0,0.0", flag="pronoun_check",
+                   flag_note="Says he/him")
+    with caplog.at_level("INFO", logger=alignment_check.__name__):
+        assert alignment_check.flag_mismatches([pronoun], _embed) == 0
+    assert (pronoun.flag, pronoun.flag_note) == ("pronoun_check", "Says he/him")
+    assert "1 doubted lines kept another flag" in caplog.text
 
 
 def test_short_sources_and_untranslated_lines_are_skipped():

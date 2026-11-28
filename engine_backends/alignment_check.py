@@ -10,6 +10,8 @@ from .shared import PROVIDER_RESPONSE_MAX_BYTES, redact_secrets
 log = logging.getLogger(__name__)
 
 ALIGNMENT_FLAG = "source_mismatch"
+# subtitle_formats.READING_SPEED_FLAG, which a test pins; nothing in engine_backends imports that module.
+READING_SPEED_FLAG = "reading_speed"
 FLAG_NOTE_PREFIX = "Source match: "
 EMBED_MODEL = "bge-m3"
 
@@ -231,70 +233,47 @@ def flag_mismatches(lines, embed_texts, min_similarity: float = MIN_SIMILARITY,
             doubtful.append(i)
     verdicts = (judge([_judge_item(i, todo[i], todo, pos) for i in doubtful])
                 if judge is not None and doubtful else {})
-    flagged = 0
+    flagged = hidden = 0
     for i, note in strict.items():
         ln = todo[i]
         if i in verdicts and (verdicts[i] != "ok" or borderline.get(i)):
             # "ok" only overrules a borderline neighbour doubt: a score under the bar stays
             # flagged, since a model that says "ok" to everything must not empty the check.
             note = JUDGED_NOTES.get(verdicts[i])
-        if note:
-            flagged += _set_flag(ln, note)
+        if note and _set_flag(ln, note):
+            flagged += 1
+        elif note:
+            hidden += 1
         else:
             _clear_flag(ln)
+    if hidden:
+        # How often the one flag slot still hides a doubt decides whether more flags may give way.
+        log.info("source-match check: %d doubted lines kept another flag", hidden)
     return flagged
 
 
-# Flags about how a line reads or sits in time, which a meaning doubt outranks: they are set
-# before this check runs (reading speed on every line, pronoun inside the translation), so
-# keeping the slot for them would leave exactly the long, swallowed-a-neighbour lines unchecked.
-# The label marks the displaced note so a later clean check can give the flag back.
-FORM_FLAG_LABELS = {
-    "reading_speed": "too fast to read",
-    "timing_overlap": "overlaps the next line",
-    "timing_drift": "timing",
-    "timing_uncertain": "timing uncertain",
-    "pronoun_check": "pronoun check",
-}
-_LABEL_FLAGS = {label: flag for flag, label in FORM_FLAG_LABELS.items()}
-_ALSO_MINE = " Also: " + FLAG_NOTE_PREFIX
+# Reading speed is set on every line before this check runs, so keeping the slot for it would
+# leave exactly the long, swallowed-a-neighbour lines unchecked. Its note is kept after this
+# tail, so a later clean check can give the flag back.
+_READING_SPEED_TAIL = " Also (too fast to read): "
 
 
-def _displaced(note: str):
-    """(own note, displaced flag, displaced note) from a source-match note that took a form
-    flag's place; the last two are None when it took a free slot."""
-    for label, flag in _LABEL_FLAGS.items():
-        tail = f" Also ({label}): "
-        if tail in note:
-            own, _, old = note.partition(tail)
-            return own, flag, old
-    return note, None, None
-
-
-def _set_flag(ln, note: str) -> int:
-    """Writes the source-match doubt into the line's one flag slot without hiding what is
-    there; 1 when the line now carries it as its flag."""
-    if not ln.flag or ln.flag == ALIGNMENT_FLAG:
-        _own, flag, old = _displaced(ln.flag_note or "") if ln.flag else ("", None, None)
-        ln.flag = ALIGNMENT_FLAG
-        ln.flag_note = note + (f" Also ({FORM_FLAG_LABELS[flag]}): {old}" if flag else "")
-        return 1
-    if ln.flag in FORM_FLAG_LABELS:
-        old = ln.flag_note or ""
-        ln.flag_note = f"{note} Also ({FORM_FLAG_LABELS[ln.flag]}): {old}"
-        ln.flag = ALIGNMENT_FLAG
-        return 1
-    # A flag as serious as this one keeps the slot (and the filters that find it); the doubt
-    # rides along in its note, replacing what an earlier run added.
-    ln.flag_note = (ln.flag_note or "").partition(_ALSO_MINE)[0] + " Also: " + note
-    return 0
+def _set_flag(ln, note: str) -> bool:
+    """True when the line now carries the doubt as its flag; another flag keeps its slot."""
+    if ln.flag == ALIGNMENT_FLAG:
+        _own, sep, old = (ln.flag_note or "").partition(_READING_SPEED_TAIL)
+        ln.flag_note = note + (sep + old if sep else "")
+    elif ln.flag == READING_SPEED_FLAG:
+        ln.flag, ln.flag_note = ALIGNMENT_FLAG, note + _READING_SPEED_TAIL + (ln.flag_note or "")
+    elif not ln.flag:
+        ln.flag, ln.flag_note = ALIGNMENT_FLAG, note
+    else:
+        return False
+    return True
 
 
 def _clear_flag(ln) -> None:
-    """Takes back a source-match doubt the English no longer earns, returning a displaced
-    form flag to its slot."""
+    """Takes back a doubt the English no longer earns, giving a displaced reading speed flag back."""
     if ln.flag == ALIGNMENT_FLAG:
-        _own, flag, old = _displaced(ln.flag_note or "")
-        ln.flag, ln.flag_note = (flag, old) if flag else (None, "")
-    elif ln.flag and _ALSO_MINE in (ln.flag_note or ""):
-        ln.flag_note = ln.flag_note.partition(_ALSO_MINE)[0]
+        _own, sep, old = (ln.flag_note or "").partition(_READING_SPEED_TAIL)
+        ln.flag, ln.flag_note = (READING_SPEED_FLAG, old) if sep else (None, "")
