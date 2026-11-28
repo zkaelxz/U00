@@ -55,3 +55,15 @@ def test_a_box_wholly_off_the_page_is_not_art_and_paints_nothing():
     assert not scanlate_halo.over_art(page, off)
     scanlate_halo.paint(page, Image.new("L", page.size, 255), (0, 0, 0), 20, off)
     assert np.array_equal(np.asarray(page), np.asarray(_page(120, noise=30)))
+
+
+def test_a_sign_is_set_where_its_lettering_stood_when_the_box_is_the_wide_balloon_round_it():
+    gray = np.full((200, 400), 200, np.uint8)
+    gray[:, :6] = 0                                  # the rim, touching the box edge
+    for row in (60, 100, 140):                        # three lines of lettering in the middle
+        gray[row:row + 18, 140:260] = 20
+    box = {"x": 0, "y": 0, "w": 400, "h": 200, "kind": "sign"}
+    narrowed = scanlate_render._lettering_box(gray, box)
+    assert narrowed["x"] > 60 and narrowed["x"] + narrowed["w"] < 340
+    assert scanlate_render._lettering_box(gray, dict(box, kind="bubble")) == dict(box, kind="bubble")
+    assert scanlate_render._lettering_box(None, box) == box

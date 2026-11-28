@@ -29,7 +29,7 @@ def colours(page, box: dict) -> tuple:
 
 
 def paint(page, text_mask: Image.Image, edge: tuple, size: int, box: dict) -> None:
-    """Pastes the soft glow of `edge` colour behind the lettering whose coverage is `text_mask` ("L"),
+    """Pastes a soft glow in the surrounding background colour, leaning slightly to `edge`, behind the lettering whose coverage is `text_mask` ("L"),
     limited to `box` with a feathered edge so it does not tint the art beside a disc the box fits.
     Only the box and the glow's reach are blurred: a long page has many such regions."""
     reach = max(2, size // 5)
@@ -44,4 +44,9 @@ def paint(page, text_mask: Image.Image, edge: tuple, size: int, box: dict) -> No
     inside = Image.new("L", halo.size, 0)
     inside.paste(255, (box["x"] - x0, box["y"] - y0, box["x"] + box["w"] - x0, box["y"] + box["h"] - y0))
     inside = inside.filter(ImageFilter.GaussianBlur(reach / 2))
-    page.paste(Image.new("RGB", halo.size, edge), (x0, y0), ImageChops.multiply(halo, inside))
+    # The glow takes the colour of the art round it, blurred so the smear the erase left is not carried
+    # into it, with only a slight lean toward the contrasting colour: a dark or white glow read as a
+    # patch laid over the page.
+    background = page.crop(window).filter(ImageFilter.GaussianBlur(max(reach * 3, size // 2)))
+    glow = Image.blend(background, Image.new("RGB", halo.size, edge), scanlate_tuning.HALO_TINT)
+    page.paste(glow, (x0, y0), ImageChops.multiply(halo, inside))
