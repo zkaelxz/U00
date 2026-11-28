@@ -96,21 +96,28 @@ def refund_daily_start(owner_user_id, day: str | None) -> None:
 # starting before the library drive is nearly full. The owner's and admins' own jobs are never
 # held back.
 MEMBER_MIN_FREE_GB = 10
-# resource_monitor_service's rules setting and the range its disk limit is accepted in.
+# However low the owner sets the alert, members never fill the drive past this: under a few GB
+# the database's own writes and every job's temp files start to fail, the owner's included.
+MEMBER_HARD_MIN_FREE_GB = 5
+# resource_monitor_service's rules setting and the range its disk limit is accepted in
+# (RULES_SETTING and METRICS["disk_free"]["range"] there; a test keeps them equal).
 ALERT_RULES_SETTING = "resource_alert_rules"
-_ALERT_LIMIT_RANGE = (1, 100000)
+ALERT_LIMIT_RANGE = (1, 100000)
 
 
 def member_min_free_gb() -> float:
-    """MEMBER_MIN_FREE_GB, or the owner's own low-disk alert limit when they set it lower:
-    members must not sit waiting for space at a level that never alerts the owner."""
+    """MEMBER_MIN_FREE_GB, or the owner's own low-disk alert limit when the alert is on and set
+    lower (never under MEMBER_HARD_MIN_FREE_GB): members must not sit waiting for space at a
+    level that never alerts the owner. An alert switched off leaves the floor where it was."""
     rules = stored_settings.read(ALERT_RULES_SETTING)
     disk = rules.get("disk_free") if isinstance(rules, dict) else None
-    limit = disk.get("limit") if isinstance(disk, dict) else None
-    if (isinstance(limit, bool) or not isinstance(limit, (int, float))
-            or not _ALERT_LIMIT_RANGE[0] <= limit <= _ALERT_LIMIT_RANGE[1]):
+    if not isinstance(disk, dict) or disk.get("enabled") is False:
         return MEMBER_MIN_FREE_GB
-    return min(MEMBER_MIN_FREE_GB, limit)
+    limit = disk.get("limit")
+    if (isinstance(limit, bool) or not isinstance(limit, (int, float))
+            or not ALERT_LIMIT_RANGE[0] <= limit <= ALERT_LIMIT_RANGE[1]):
+        return MEMBER_MIN_FREE_GB
+    return max(MEMBER_HARD_MIN_FREE_GB, min(MEMBER_MIN_FREE_GB, limit))
 
 
 def _is_admin_account(user_id) -> bool:

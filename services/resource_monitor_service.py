@@ -13,7 +13,6 @@ timers are in memory, so a restart restarts the clock.
 """
 
 import shutil
-import sqlite3
 import sys
 import threading
 import time
@@ -21,7 +20,6 @@ from typing import Any
 
 import db
 from engine_backends.shared import redact_secrets
-from lib.errors import ServiceError
 from lib.proc import run_captured
 
 RULES_SETTING = "resource_alert_rules"
@@ -437,7 +435,8 @@ def _cleanup_hint() -> str:
     from services import library_admin_service
     try:
         freed = library_admin_service.storage_scan()["would_free_bytes"]
-    except (ServiceError, OSError, sqlite3.Error):
+    except Exception:
+        # Only a hint: whatever the scan hits, the alert itself still goes out.
         return ""
     if not isinstance(freed, int) or freed < MIN_HINT_BYTES:
         return ""

@@ -357,13 +357,15 @@ def test_a_low_disk_alert_says_what_a_cleanup_would_free(isolated_db, monkeypatc
     assert "/" not in event["text"].replace("Library tools > Storage", "")
 
 
-@pytest.mark.parametrize("scan", ["little", "fails"])
+@pytest.mark.parametrize("scan", ["little", "fails", "breaks"])
 def test_a_low_disk_alert_names_no_figure_when_there_is_none_worth_naming(isolated_db, monkeypatch, scan):
     from services import library_admin_service
 
     def scanned():
         if scan == "fails":
             raise OSError("D:\\Baihe is gone")
+        if scan == "breaks":
+            raise KeyError("Baihe")       # anything a scan can hit must not cost the alert
         return {"would_free_bytes": 1024}
     monkeypatch.setattr(library_admin_service, "storage_scan", scanned)
     [event] = _low_disk_events()
