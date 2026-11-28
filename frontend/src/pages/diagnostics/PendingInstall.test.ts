@@ -147,9 +147,27 @@ describe('InstallPlanPanel', () => {
   })
 })
 
+it('says it installs by itself when the service helper restarts Baihe', () => {
+  const banner = PendingInstallBanner({
+    status: status({ packages: ['pypdf'], restart: { available: true, reason: null, running_jobs: [], other_jobs: false, service: true, automatic: true } }),
+    onCancel: () => undefined, onDismiss: () => undefined, onRestarted: () => undefined,
+  })
+  expect(JSON.stringify(banner)).toContain('install by themselves')
+})
+
+it('does not call a failed install a success after the helper restarted Baihe', () => {
+  const banner = PendingInstallBanner({
+    status: status({ last_restart: { outcome: 'install_failed', downtime_seconds: 40, restored: 2, at: 1, install_status: 'failed', packages: 1, restore_failed: 0 } }),
+    onCancel: () => undefined, onDismiss: () => undefined, onRestarted: () => undefined,
+  })
+  const text = JSON.stringify(banner)
+  expect(text).toContain('did not work')
+  expect(text).toContain('2 earlier packages were put back')
+})
+
 const status = (o: Partial<PendingInstallStatus> = {}): PendingInstallStatus => ({
-  packages: [], created: null, before: {}, problem: null, result: null, applying: false,
-  restart: { available: true, reason: null, running_jobs: [], other_jobs: false, service: false }, ...o,
+  packages: [], created: null, before: {}, problem: null, result: null, applying: false, last_restart: null,
+  restart: { available: true, reason: null, running_jobs: [], other_jobs: false, service: false, automatic: false }, ...o,
 })
 
 describe('PendingInstallBanner', () => {
@@ -161,7 +179,7 @@ describe('PendingInstallBanner', () => {
 
   it('says why Baihe cannot restart itself and keeps the manual steps', () => {
     const html = banner(status({ packages: ['sentencepiece'], restart: {
-      available: false, reason: 'This copy was installed with Setup.', running_jobs: [], other_jobs: false, service: false } }))
+      available: false, reason: 'This copy was installed with Setup.', running_jobs: [], other_jobs: false, service: false, automatic: false } }))
     expect(html).not.toContain('Restart and install now')
     expect(html).toContain('This copy was installed with Setup.')
     expect(html).toContain('Close Baihe')
@@ -170,7 +188,7 @@ describe('PendingInstallBanner', () => {
   it('tells a background-service copy its own way to restart, not to close the window', () => {
     const reason = 'Baihe runs as a background service on this PC, so closing its window doesn\'t restart it. Restart the PC to install it.'
     const html = banner(status({ packages: ['sentencepiece'], restart: {
-      available: false, reason, running_jobs: [], other_jobs: false, service: true } }))
+      available: false, reason, running_jobs: [], other_jobs: false, service: true, automatic: false } }))
     expect(html).toContain('Restart the PC to install it.')
     expect(html).not.toContain('Stop Baihe Studio')
   })

@@ -773,3 +773,21 @@ def test_a_browser_step_that_raises_keeps_the_updated_packages(env, monkeypatch)
         raise OSError("no")
     result = _run_outdated_with_browser(env, monkeypatch, ["playwright"], boom)
     assert result["ok"] is True and result["hint"] == "The browser download could not start."
+
+
+def test_outdated_upgrade_holds_back_gpu_onnxruntime_and_cpu_beside_it(env, monkeypatch):
+    _outdated(monkeypatch, ["budoux", "onnxruntime", "onnxruntime-gpu"])
+    monkeypatch.setattr(packages_svc.diagnostics, "get_installed_version",
+                        lambda dist: "1.19.2" if dist == "onnxruntime-gpu" else None)
+    assert packages_svc.outdated_upgrade_specs() == (["budoux"], ["budoux==2.0"])
+
+
+def test_outdated_upgrade_holds_back_an_opencv_major_the_app_does_not_need(env, monkeypatch):
+    _outdated(monkeypatch, ["budoux", "opencv-python"],
+              releases={"opencv-python": ["5.1.0.95", "6.0.0.1"]})
+    monkeypatch.setattr(packages_svc.dependency_updates, "installed_dist_version",
+                        lambda n: (n, "5.1.0.95") if "opencv" in n else (n, "1.0"))
+    monkeypatch.setattr(packages_svc.dependency_updates, "required_min_versions",
+                        lambda root=None: {"opencv-python": "5.1.0.95"})
+    names, _specs = packages_svc.outdated_upgrade_specs()
+    assert "opencv-python" not in names

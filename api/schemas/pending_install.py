@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 __all__ = [
     "PendingInstallChange",
+    "PendingInstallLastRestart",
     "PendingInstallOutcome",
     "PendingInstallPlan",
     "PendingInstallPlanRequest",
@@ -71,6 +72,8 @@ class PendingInstallRestart(BaseModel):
     reason: Optional[str] = Field(None, description="Plain words why it can't.")
     running_jobs: List[str] = Field(description="Jobs a restart would stop.")
     other_jobs: bool = Field(description="Another Baihe process has a job; a restart waits for it.")
+    automatic: bool = Field(False, description="Baihe restarts itself to run the queued install once "
+                            "no job or Live session is running.")
     service: bool = Field(False, description="The background service runs this copy: closing "
                           "its window doesn't restart it.")
 
@@ -86,6 +89,16 @@ class PendingInstallRestartStarted(BaseModel):
     stopped_jobs: List[str]
 
 
+class PendingInstallLastRestart(BaseModel):
+    outcome: str = Field(description="ok, install_failed, not_healthy, start_failed or stop_failed.")
+    downtime_seconds: Optional[int] = None
+    at: Optional[int] = None
+    packages: Optional[int] = None
+    restored: Optional[int] = None
+    restore_failed: Optional[int] = None
+    install_status: Optional[str] = None
+
+
 class PendingInstallStatus(BaseModel):
     packages: List[str]
     created: Optional[int] = None
@@ -94,3 +107,5 @@ class PendingInstallStatus(BaseModel):
     result: Optional[PendingInstallOutcome] = None
     applying: bool
     restart: PendingInstallRestart
+    last_restart: Optional[PendingInstallLastRestart] = Field(
+        None, description="The service helper's last automatic restart, until it is dismissed.")

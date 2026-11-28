@@ -546,8 +546,10 @@ def queue_outdated_upgrade(confirm: bool = False, accept_risk: bool = False) -> 
     if pending_install.read_pending()[0] is not None:
         raise ConflictError("An install is already waiting for the next start; "
                             "cancel it or restart Baihe first.")
+    pending_install_service.require_installable_here()
     names, specs = packages_svc.outdated_upgrade_specs()
     pins = {n: spec.partition("==")[2] for n, spec in zip(names, specs)}
+    pending_install_service.require_within_cap(names)
     with _plan_slot():
         plan = install_plan.build_plan(names, jobs_running=pending_install_service._jobs_running(),
                                        specs=specs)

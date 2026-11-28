@@ -20,17 +20,24 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import time
 import zipfile
 from pathlib import Path
 
 from installer import app_swap, ed25519_verify
 from installer.service_checks import health_ok, wait_until
-from installer.service_lock import hold_directory, locked_problem, owner_sid
+from installer.service_lock import (ADMINISTRATORS_SID, OWNER_SIDS, SYSTEM_SID, hold_directory, locked_problem, owner_sid,
+                                    security_sddl, write_access_problem)
 from installer.service_control import query_state, start_service, stop_service
 from installer.service_layout import APP_SERVICE, ServiceError, is_reparse_point, refuse_reparse_point
 
 REQUEST_NAME = "app-update-request.json"
+RESTART_REQUEST_NAME = "package-restart-request.json"
+RESTART_RESULT_NAME = "package-restart-result.json"   # in the locked install's app-update folder
+PACKAGE_WORK_NAME = "package-install"
+# pending_install.py's files: a spent restart is only worth doing for a queued install.
+PENDING_DIR, PENDING_FILE, PENDING_RESULT = "pending_install", "pending.json", "result.json"
 MAX_ZIP_BYTES = 400 * 1024 * 1024
 MAX_SMALL_FILE_BYTES = 4096
 HEALTH_WAIT_SECONDS = 300      # a new version may compile its .pyc files first
@@ -239,6 +246,9 @@ def apply_update(layout, run, port, health=health_ok, sleep=time.sleep, owner=ow
     version was put back; the outcome is also in app-update\\result.json,
     which the app reads."""
     root, updates = layout.root, layout.data / "library" / "updates"
+    if _restart_requested(layout) and _has_package_work(layout, owner, sddl):
+        return restart_for_packages(layout, run, port, health, sleep, owner=owner, hold=hold,
+                                    sddl=sddl)
     # Held first and for the whole update: the folder's parent may belong to
     # the user, who could otherwise rename the locked folder away and plant a
     # look-alike after the checks below.
@@ -347,3 +357,214 @@ def record_refusal(layout, run) -> None:
     with contextlib.suppress(OSError, app_swap.SwapError):
         app_swap.work_dir(root).mkdir(parents=True, exist_ok=True)
         app_swap.write_result(root, "not_started", old, version)
+
+
+MAX_QUEUED_KEYS = 40
+INSTALL_SECONDS = 3600 + 300      # pending_install's own overall limit plus its watchdog margin
+_KEY_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}")
+
+
+def _queued_install(layout):
+    """(raw file bytes, keys, created) of the queued install, or None when
+    nothing valid is queued. Only the count and shape are checked here:
+    pending_install re-derives every pip argument from the app's registry, so
+    nothing taken from this file reaches a command line. The bytes are copied
+    into the admin-only work folder: the data folder is writable by the user,
+    so LocalSystem never works in it."""
+    data = layout.data
+    folder = data / PENDING_DIR
+    if any(is_reparse_point(p) for p in (data, data / "library", folder, folder / PENDING_FILE)):
+        return None
+    try:
+        raw = _read_data_file(folder, PENDING_FILE, MAX_SMALL_FILE_BYTES * 16)
+        doc = json.loads(raw)
+    except (ServiceError, OSError, ValueError):
+        return None
+    payload = doc.get("payload") if isinstance(doc, dict) else None
+    keys = payload.get("packages") if isinstance(payload, dict) else None
+    created = payload.get("created") if isinstance(payload, dict) else None
+    if (not isinstance(keys, list) or not 0 < len(keys) <= MAX_QUEUED_KEYS
+            or not all(isinstance(k, str) and _KEY_RE.fullmatch(k) for k in keys)
+            or not isinstance(created, int) or isinstance(created, bool)):
+        return None
+    return raw, keys, created
+
+
+def _install_env(layout, state_root) -> dict:
+    """Built from nothing: no PIP_*, PYTHONPATH or proxy setting of the user
+    or the service account reaches pip. Wheels only, so no package runs a
+    build script as LocalSystem."""
+    windir = os.environ.get("SystemRoot", r"C:\Windows")
+    return {"SystemRoot": windir, "PATH": windir + r"\System32", "TEMP": windir + r"\Temp",
+            "TMP": windir + r"\Temp", "BAIHE_DATA_DIR": str(state_root),
+            # No machine-wide or user pip.ini (find-links, target=, log=) may steer a
+            # LocalSystem pip; --isolated would also drop PIP_ONLY_BINARY.
+            "PIP_CONFIG_FILE": os.devnull, "PYTHONNOUSERSITE": "1", "PIP_ONLY_BINARY": ":all:", "PIP_NO_INPUT": "1",
+            "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PYTHONUTF8": "1"}
+
+
+def _run_install_step(layout, run, argv, seconds, runner, state_root) -> int:
+    try:
+        done = runner([str(layout.python_exe), "-s", *argv], cwd=str(layout.app),
+                      env=_install_env(layout, state_root), capture_output=True, text=True,
+                      errors="replace", timeout=seconds)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        run.log(f"package install step {argv[:2]}: {type(exc).__name__}")
+        return -1
+    tail = (done.stdout + done.stderr).strip()[-600:]
+    run.log(f"package install step {' '.join(argv[:2])}: exit {done.returncode}"
+            + (f": {tail}" if tail else ""))
+    return done.returncode
+
+
+def _restart_requested(layout) -> bool:
+    """Whether a package-restart request is there (only looked at, never
+    deleted: LocalSystem doesn't delete by path in a folder the user can
+    redirect; the app removes its own request once the result names it).
+    The path is used only when no folder on the way is a link."""
+    updates = layout.data / "library" / "updates"
+    path = updates / RESTART_REQUEST_NAME
+    if any(is_reparse_point(p) for p in (layout.data, layout.data / "library", updates, path)):
+        return False
+    return path.is_file()
+
+
+def _already_handled(layout, created) -> bool:
+    """The last run was for this very queued install (its request is still lying
+    there because the app hasn't removed it yet), so it isn't run again."""
+    try:
+        doc = json.loads((app_swap.work_dir(layout.root) / RESTART_RESULT_NAME).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(doc, dict) and doc.get("queued_created") == created
+
+
+def _has_package_work(layout, owner, sddl) -> bool:
+    """A valid queue the helper hasn't run yet, in an install folder it would be
+    allowed to install into. Otherwise the start is for an app update (or nothing),
+    so a request that can't be served never keeps an update from being applied."""
+    queued = _queued_install(layout)
+    return (queued is not None and not _already_handled(layout, queued[2])
+            and _install_folder_problem(layout, owner, sddl) is None)
+
+
+def _outcome_from(state_root, since) -> dict:
+    """Counts from the result pending_install wrote in the admin-only work folder,
+    when it finished during this run (an earlier run's result stays there on
+    purpose: it is what tells the next run that a restore is owed)."""
+    try:
+        doc = json.loads((state_root / PENDING_DIR / PENDING_RESULT).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    finished = doc.get("finished") if isinstance(doc, dict) else None
+    if not isinstance(finished, int) or finished < since:
+        return {}
+    packages, restored, failed = doc.get("packages"), doc.get("restored"), doc.get("restore_failed")
+    status = doc.get("status")
+    return {"install_status": status if isinstance(status, str) and len(status) < 32 else None,
+            "packages": len(packages) if isinstance(packages, list) else 0,
+            "restored": len(restored) if isinstance(restored, list) else 0,
+            "restore_failed": len(failed) if isinstance(failed, list) else 0}
+
+
+def _write_restart_result(layout, outcome: str, seconds: int, created=None, **extra) -> None:
+    """In the locked install's app-update folder (the app reads it there, like an
+    update's result), never in the data folder the user can redirect."""
+    work = app_swap.work_dir(layout.root)
+    path = work / RESTART_RESULT_NAME
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        with open(str(path) + ".part", "w", encoding="utf-8") as fh:
+            json.dump({"outcome": outcome, "downtime_seconds": seconds, "at": int(time.time()),
+                       "queued_created": created, **extra}, fh)
+        os.replace(str(path) + ".part", path)
+    except OSError as exc:
+        # Unrecorded, the app would queue the same install again.
+        raise ServiceError(f"The package install's outcome couldn't be recorded ({outcome}): {exc}") from None
+
+
+def _install_folder_problem(layout, owner, sddl) -> str | None:
+    """LocalSystem writes into the Python's package folder, so, as for an app
+    update, only a folder Setup locked to administrators and that nobody has taken
+    back is written to: otherwise the account that could swap its contents
+    would run code as LocalSystem."""
+    root = layout.root
+    python = Path(root) / "python"
+    site = python / "Lib" / "site-packages"
+    for path in (root, root / "app", python, site, app_swap.work_dir(root)):
+        if is_reparse_point(path):
+            return f"{path} is a link; refusing to install packages through it."
+    problem = locked_problem(layout, owner, sddl)
+    if problem:
+        return problem
+    read = security_sddl if sddl is None else sddl
+    # Not the app's own service account, which locked_problem trusts for reading.
+    trusted = frozenset({"SY", "BA", SYSTEM_SID, ADMINISTRATORS_SID})
+    for path in (python, site):
+        if not os.path.lexists(path):
+            continue
+        if owner(path) not in OWNER_SIDS:
+            return f"{path} is not owned by administrators. Run the full installer to lock it again."
+        bad = write_access_problem(read(path), trusted, protected=False)
+        if bad:
+            return f"{path}: {bad}. Run the full installer to lock it again."
+    return None
+
+
+def restart_for_packages(layout, run, port, health=health_ok, sleep=time.sleep,
+                         clock=time.monotonic, owner=owner_sid, hold=hold_directory, sddl=None,
+                         runner=None) -> str:
+    """Runs the install the app queued, as LocalSystem, while the app is
+    stopped, then starts the app again. Fixed steps only: the module
+    `pending_install` of the locked install, which re-derives the pip command
+    from the app's registry and restores the earlier packages when pip fails.
+    It works on a copy of the queue in the admin-only app-update folder, so
+    nothing the user or the service account can change is read or written
+    as LocalSystem. Nothing in the request is read. Raises ServiceError when
+    nothing was installed or the app didn't come back; the outcome is also in
+    app-update\\package-restart-result.json, which the app reads."""
+    runner = runner or subprocess.run
+    queued = _queued_install(layout)
+    if queued is None:
+        raise ServiceError("No valid package install is queued, so the app was not restarted.")
+    raw, keys, created = queued
+    started, since = clock(), int(time.time())
+    # Held for the whole run, results included: the root's parent is the user's, and
+    # a result written after the hold ended could land wherever a swapped folder points.
+    with hold(layout.root):
+        problem = _install_folder_problem(layout, owner, sddl)
+        if problem:
+            raise ServiceError(problem)
+        if _already_handled(layout, created):
+            raise ServiceError("This queued install was already run; the app will remove it.")
+        state_root = app_swap.work_dir(layout.root) / PACKAGE_WORK_NAME
+        (state_root / PENDING_DIR).mkdir(parents=True, exist_ok=True)
+        (state_root / PENDING_DIR / PENDING_FILE).write_bytes(raw)
+        run.log(f"package install: stopping the app for {len(keys)} queued packages")
+        try:
+            stop_service(APP_SERVICE, run, sleep=sleep)
+        except ServiceError as exc:
+            _write_restart_result(layout, "stop_failed", 0, created, packages=len(keys))
+            raise ServiceError(f"The app couldn't be stopped, so nothing was installed: {exc}") from None
+        wait_until(lambda: not health(port), STOP_WAIT_SECONDS, sleep=sleep)
+        _run_install_step(layout, run, ["-m", "pending_install"], INSTALL_SECONDS, runner, state_root)
+        outcome = _outcome_from(state_root, since)
+        run.log(f"package install: status {outcome.get('install_status')}, "
+                f"{outcome.get('packages', 0)} packages, {outcome.get('restored', 0)} restored")
+        try:
+            start_service(APP_SERVICE, run, sleep=sleep)
+        except ServiceError as exc:
+            _write_restart_result(layout, "start_failed", int(clock() - started), created, **outcome)
+            raise ServiceError(f"The app didn't start again: {exc}") from None
+        healthy = wait_until(lambda: health(port), HEALTH_WAIT_SECONDS, sleep=sleep)
+        seconds = int(clock() - started)
+        if not healthy:
+            _write_restart_result(layout, "not_healthy", seconds, created, **outcome)
+            run.log(f"package install: the app did not answer after {seconds} s")
+            raise ServiceError("The app did not come back after the package install. Restart the PC, "
+                               "or run Setup again to repair it.")
+        _write_restart_result(layout, "ok" if outcome.get("install_status") == "ok" else "install_failed",
+                          seconds, created, **outcome)
+    run.log(f"package install: back after {seconds} s")
+    return (f"Installed {outcome.get('packages', 0)} queued packages "
+            f"({outcome.get('install_status')}); Baihe was back after {seconds} s.")

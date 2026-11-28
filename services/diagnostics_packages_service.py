@@ -251,11 +251,14 @@ def outdated_upgrade_specs() -> tuple:
         releases = dict(zip(dists, pool.map(dependency_updates.pypi_release_versions, dists)))
     constraints = dependency_updates.constraint_specifiers(default_project_root())
     required_by = dependency_updates.installed_requirements_on()
+    mins = dependency_updates.required_min_versions(default_project_root())
     keep, specs, held = [], [], []
     for n in names:
         dist, version = installed[n]
         info = dependency_updates.classify_update(n, version, releases.get(dist), constraints,
                                                   required_by)
+        if info["status"] == "update" and _batch_holds(dist, version, info["target"], mins):
+            info = {"status": "held_back"}
         if info["status"] == "update":
             keep.append(n)
             specs.append(f"{dist}=={info['target']}")
@@ -266,6 +269,32 @@ def outdated_upgrade_specs() -> tuple:
             "No update the app can use is allowed for " + ", ".join(held)
             + " right now (held back, or PyPI could not be reached).")
     return keep, specs
+
+
+# Flavours of cv2, which every one of them fills; a new major is a deliberate install.
+_MAJOR_JUMP_HELD = frozenset({"opencv-python", "opencv-python-headless", "opencv-contrib-python"})
+
+
+def _major(version) -> int | None:
+    match = re.match(r"\d+", str(version or ""))
+    return int(match.group()) if match else None
+
+
+def _batch_holds(dist: str, installed_version, target: str, mins: dict) -> bool:
+    """Whether the "update the outdated" batch must leave this package for a
+    deliberate install: a pinned GPU onnxruntime, a CPU onnxruntime beside the
+    GPU build (they share one folder), or a new OpenCV major past both the
+    installed one and the app's own minimum."""
+    canonical = diagnostics.canonical_dist(dist)
+    if canonical == "onnxruntime-gpu":
+        return True
+    if canonical == "onnxruntime" and diagnostics.get_installed_version("onnxruntime-gpu"):
+        return True
+    if canonical not in _MAJOR_JUMP_HELD:
+        return False
+    wanted = [m for m in (_major(installed_version), _major(mins.get(canonical))) if m is not None]
+    jump = _major(target)
+    return bool(wanted and jump is not None and jump > max(wanted))
 
 
 def upgrade_dependency(name: str, specs: list, job_id: str | None = None) -> dict:

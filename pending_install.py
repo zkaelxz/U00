@@ -156,6 +156,21 @@ def pins_arg(pins: dict | None) -> str:
     return ",".join(f"{k}={v}" for k, v in (pins or {}).items())
 
 
+def site_packages_writable() -> bool:
+    """Whether this process can write where pip installs. The boot service
+    can't (the install folder is locked): its queued install is run by the
+    BaiheUpdate helper instead, and pip run here would fail after removing files."""
+    import sysconfig
+    paths = sysconfig.get_paths()
+    for folder in dict.fromkeys((paths["purelib"], paths["platlib"])):
+        try:
+            with tempfile.TemporaryFile(dir=folder):
+                pass
+        except OSError:
+            return False
+    return True
+
+
 def cancel() -> bool:
     existed = os.path.exists(_path("pending"))
     _remove("pending")

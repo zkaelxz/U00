@@ -9,22 +9,34 @@ install.
 """
 
 import copy
+import logging
 import threading
 import time
 
 import background_jobs
+import db
 from jobs import job_launch
 import install_plan
 import install_registry
 import pending_install
 from services import diagnostics_admin_service as admin_svc
-from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
-from services import source_update_service
+from lib.errors import ConflictError, InvalidInputError, ServiceError, UnsupportedOperationError
+from services import app_update_service, auth_service, source_update_service
 
+log = logging.getLogger(__name__)
+DISMISSED_RESTART_KEY = "pending_install.dismissed_restart_at"
 PLAN_CACHE_SECONDS = 600
+MAX_QUEUED_KEYS = 40     # installer/service_update.MAX_QUEUED_KEYS
+# Time to press Cancel after confirming, before Baihe restarts itself.
+AUTO_GRACE_SECONDS = 180
+AUTO_RETRY_SECONDS = 3600
+OLD_HELPER = ("Baihe runs as a background service here, and its helper is from an older Setup. "
+              "Run the new Setup once (Windows asks for administrator approval); after that "
+              "queued installs restart Baihe by themselves.")
 _LOCK = threading.Lock()
 _PREVIEW_LOCK = threading.Lock()     # one pip dry-run at a time
 _CACHE = {"keys": None, "plan": None, "at": 0.0}
+_auto = {"created": None, "at": 0.0}
 
 _PROBLEMS = {
     "modified": "The queued install file was changed after Baihe wrote it, so it was not run.",
@@ -35,6 +47,23 @@ _PROBLEMS = {
 
 class PlanNeedsConfirm(admin_svc.AdminActionRefused, ConflictError):
     """The plan downgrades something Baihe needs; accept_risk=true is required (409)."""
+
+
+def require_installable_here() -> None:
+    """A queued install is run by this account at start-up, or, for the boot
+    service whose install folder is locked, by the BaiheUpdate helper. Without
+    either, pip would fail part-way after removing files, so queueing is refused."""
+    if service_can_restart():
+        return
+    from services import diagnostics_installs_service
+    diagnostics_installs_service._require_writable_site_packages()
+
+
+def require_within_cap(keys) -> None:
+    """The BaiheUpdate helper (installer/service_update.MAX_QUEUED_KEYS) refuses a longer queue."""
+    if len(keys) > MAX_QUEUED_KEYS:
+        raise admin_svc.AdminActionNotPossible(
+            f"At most {MAX_QUEUED_KEYS} packages can be queued at once; install the rest afterwards.")
 
 
 def _keys(packages) -> list:
@@ -107,11 +136,13 @@ def queue(packages, confirm: bool = False, accept_risk: bool = False) -> dict:
 
 
 def _queue(packages, accept_risk: bool) -> dict:
+    require_installable_here()
     current, _problem = pending_install.read_pending()
     queued = (current or {}).get("packages", [])
     # The queue runs as one pip command, so it is planned (clash check, risks)
     # as a whole: a package that is fine alone can clash with one already queued.
     keys = _keys(queued + list(packages))
+    require_within_cap(keys)
     plan = _plan(keys, fresh=bool(queued))
     if plan["blocked"]:
         raise admin_svc.AdminActionNotPossible(" ".join(plan["blocked"]))
@@ -133,15 +164,32 @@ def cancel() -> dict:
 
 def dismiss_result() -> dict:
     pending_install.clear_result()
+    last = app_update_service.read_package_restart_result()
+    if last and isinstance(last.get("at"), int):
+        db.set_app_setting(DISMISSED_RESTART_KEY, last["at"])
     return {"dismissed": True}
+
+
+def service_can_restart() -> bool:
+    """The boot service's BaiheUpdate helper can restart the app for a queued install."""
+    return (source_update_service.runs_as_service() and app_update_service.updater_present()
+            and app_update_service.updater_restarts_for_packages())
+
+
+def _restart_problem():
+    if source_update_service.runs_as_service():
+        return None if service_can_restart() else OLD_HELPER
+    return source_update_service.restart_problem()
 
 
 def restart_info() -> dict:
     """Whether Baihe can restart itself to run the queued install, and the jobs
     that would be stopped by it."""
     jobs = background_jobs.active_job_ids()
-    return {"available": source_update_service.restart_problem() is None,
-            "reason": source_update_service.restart_problem(),
+    problem = _restart_problem()
+    return {"available": problem is None,
+            "reason": problem,
+            "automatic": problem is None and service_can_restart(),
             "running_jobs": jobs,
             "service": source_update_service.runs_as_service(),
             # Another Baihe process's job can't be listed or stopped from here.
@@ -158,7 +206,7 @@ def restart_and_apply(confirm: bool, stop_jobs: bool, actor_id=None) -> dict:
         raise ConflictError("Nothing is waiting to be installed.")
     if pending_install.apply_running():
         raise ConflictError("An install is already running.")
-    problem = source_update_service.restart_problem()
+    problem = _restart_problem()
     if problem:
         raise UnsupportedOperationError(problem)
     info = restart_info()
@@ -167,8 +215,65 @@ def restart_and_apply(confirm: bool, stop_jobs: bool, actor_id=None) -> dict:
     if info["running_jobs"] and stop_jobs is not True:
         raise ConflictError("Jobs are running: " + ", ".join(info["running_jobs"])
                             + ". Restarting stops them; confirm that too, or wait for them to finish.")
-    source_update_service.restart_through_start_bat(actor_id, "queued package install")
+    if service_can_restart():
+        # The service has no running job to lose here, or the owner chose to stop them.
+        app_update_service.request_package_restart()
+        auth_service.write_audit(actor_id, "app.restart", "queued package install")
+    else:
+        source_update_service.restart_through_start_bat(actor_id, "queued package install")
     return {"restarting": True, "stopped_jobs": info["running_jobs"] if stop_jobs else []}
+
+
+def auto_apply_tick(now=None) -> None:
+    """From the background poller: a queued install the owner confirmed is
+    applied by restarting the service once nothing is running. Waits for jobs
+    and Live sessions (both are jobs), an install or restore in progress, and
+    the cancel grace; one attempt per queued install per hour. Never raises."""
+    now = time.time() if now is None else now
+    try:
+        if not service_can_restart():
+            return
+        settle_after_helper()
+        payload, _problem = pending_install.read_pending()
+        if payload is None or pending_install.apply_running():
+            return
+        if now - payload["created"] < AUTO_GRACE_SECONDS:
+            return
+        if _auto["created"] == payload["created"] and now - _auto["at"] < AUTO_RETRY_SECONDS:
+            return
+        if job_launch.exclusive_held() or background_jobs.active_job_ids() or _jobs_running():
+            return
+        _auto.update(created=payload["created"], at=now)
+        app_update_service.request_package_restart()
+        auth_service.write_audit(None, "app.restart", "queued package install (automatic)")
+    except ServiceError as exc:
+        log.warning("automatic package install restart waits: %s", type(exc).__name__)
+    except Exception as exc:
+        log.warning("automatic package install restart failed: %s", type(exc).__name__)
+
+
+def _visible_restart():
+    """The helper's last outcome unless the owner dismissed that very run."""
+    last = app_update_service.read_package_restart_result()
+    dismissed = db.get_app_setting(DISMISSED_RESTART_KEY, None)
+    if last and dismissed is not None and last.get("at") == dismissed:
+        return None
+    return last
+
+
+def settle_after_helper() -> None:
+    """The helper ran this queued install: its files in the data folder are the
+    app's to remove, since the helper never deletes there. This is also what stops
+    the automatic restart from asking again for the same install."""
+    payload, _problem = pending_install.read_pending()
+    last = app_update_service.read_package_restart_result()
+    if pending_install.apply_running():
+        return
+    if payload is None:
+        app_update_service.remove_package_restart_request()
+    elif last and last.get("queued_created") == payload["created"]:
+        pending_install.cancel()
+        app_update_service.remove_package_restart_request()
 
 
 def get_status() -> dict:
@@ -177,4 +282,5 @@ def get_status() -> dict:
     return {"packages": pending.get("packages", []), "created": pending.get("created"),
             "before": pending.get("before", {}),
             "problem": _PROBLEMS.get(state["problem"]),
-            "result": state["result"], "applying": state["applying"], "restart": restart_info()}
+            "result": state["result"], "applying": state["applying"], "restart": restart_info(),
+            "last_restart": _visible_restart()}

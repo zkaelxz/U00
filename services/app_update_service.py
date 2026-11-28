@@ -72,6 +72,8 @@ ZIP_TEMP_PREFIX = "baihe_appzip_"
 LAUNCHER_TOKEN_ENV = "BAIHE_SHUTDOWN_TOKEN"
 UPDATER_SERVICE = "BaiheUpdate"      # installer/service_layout.UPDATE_SERVICE
 REQUEST_NAME = "app-update-request.json"    # installer/service_update.REQUEST_NAME
+PACKAGE_RESTART_REQUEST_NAME = "package-restart-request.json"   # installer/service_update.RESTART_REQUEST_NAME
+PACKAGE_RESTART_RESULT_NAME = "package-restart-result.json"     # installer/service_update.RESTART_RESULT_NAME
 SC_TIMEOUT_SECONDS = 20
 ADMIN_FOLDER = "Baihe Studio Services"     # installer/service_layout.ADMIN_FOLDER_NAME
 SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
@@ -200,12 +202,21 @@ def _updater_takes_wheels() -> bool:
     Only Setup replaces the helper's code (the app layer can't reach the
     admin folder), so one from an older Setup still wants the same wheels;
     offering it such an update would only end in a refusal."""
+    return _helper_source_has(b"def base_accepts(", app_swap.HELPER_NAME)
+
+
+def updater_restarts_for_packages() -> bool:
+    """Whether the BaiheUpdate helper (replaced only by Setup) can restart the
+    app service for a queued package install."""
+    return _helper_source_has(b"def restart_for_packages(", "service_update.py")
+
+
+def _helper_source_has(marker: bytes, module: str) -> bool:
     program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    path = os.path.join(program_files, ADMIN_FOLDER, "helper", "lib", "installer",
-                        app_swap.HELPER_NAME)
+    path = os.path.join(program_files, ADMIN_FOLDER, "helper", "lib", "installer", module)
     try:
         with open(path, "rb") as fh:
-            return b"def base_accepts(" in fh.read(1024 * 1024)
+            return marker in fh.read(1024 * 1024)
     except OSError:
         return False
 
@@ -846,6 +857,51 @@ def _hand_to_updater(verified, installed) -> dict:
         _verified = None
         _state.update(download="idle", downloaded_bytes=0)
     return {"started": True, "version": verified["version"]}
+
+
+def request_package_restart() -> None:
+    """Asks BaiheUpdate to restart the app service so the queued package
+    install runs at its start. The request carries no data the helper reads:
+    the action is fixed in the helper, and it refuses when nothing is queued."""
+    folder = us.updates_dir()
+    request = os.path.join(folder, PACKAGE_RESTART_REQUEST_NAME)
+    try:
+        os.makedirs(folder, exist_ok=True)
+        with open(request, "w", encoding="ascii") as fh:
+            fh.write("{}")
+        started = run_captured([_system32("sc.exe"), "start", UPDATER_SERVICE], SC_TIMEOUT_SECONDS)
+    except OSError:
+        started = None
+    if started is None or started.returncode != 0:
+        with contextlib.suppress(OSError):
+            os.remove(request)
+        raise DependencyUnavailableError("Baihe couldn't ask its service to restart. "
+                                         "Nothing was changed.")
+
+
+def remove_package_restart_request() -> None:
+    """The app's own request, once the helper's result says it was handled."""
+    with contextlib.suppress(OSError):
+        os.remove(os.path.join(us.updates_dir(), PACKAGE_RESTART_REQUEST_NAME))
+
+
+def read_package_restart_result():
+    """The helper's last package-install outcome (a dict of numbers and a fixed
+    outcome word), or None. It is in the locked install's app-update folder,
+    where only the helper writes."""
+    if not us._is_installed():
+        return None
+    try:
+        with open(app_swap.work_dir(install_root()) / PACKAGE_RESTART_RESULT_NAME,
+                  encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("outcome"), str):
+        return None
+    keys = ("outcome", "downtime_seconds", "at", "packages", "restored", "restore_failed",
+            "install_status", "queued_created")
+    return {k: doc[k] for k in keys if isinstance(doc.get(k), (int, str)) and not isinstance(doc.get(k), bool)}
 
 
 def cleanup_leftovers() -> None:

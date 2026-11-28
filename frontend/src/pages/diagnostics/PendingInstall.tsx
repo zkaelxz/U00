@@ -158,6 +158,16 @@ export function RestartAndInstall({ status, onBack }: { status: PendingInstallSt
   )
 }
 
+/** What the update helper's last automatic restart did, in plain words. */
+function restartLine(r: NonNullable<PendingInstallStatus['last_restart']>): string {
+  const away = `${r.downtime_seconds ?? 0} seconds`
+  if (r.outcome === 'ok') return `Baihe restarted itself to install ${r.packages ?? 0} packages and was back after ${away}.`
+  if (r.outcome === 'install_failed') {
+    return `Baihe restarted itself, but the install did not work. ${r.restored ?? 0} earlier packages were put back${r.restore_failed ? `, ${r.restore_failed} could not be` : ''}. Baihe was back after ${away}; queue it again if you still want it.`
+  }
+  return 'Baihe tried to restart itself to install packages but it did not finish cleanly, and the queued install was removed. Check Packages, run Setup again to repair, then queue it again.'
+}
+
 /** The queued install (with Cancel) and the last start-up outcome (with Dismiss). */
 export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted }: {
   status: PendingInstallStatus
@@ -172,9 +182,11 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
         <div className="diag-stack" role="status" data-testid="pending-install">
           <p>
             <Badge tone="warn">pending install (restart)</Badge>{' '}
-            {status.packages.join(', ')} will install when you restart Baihe.
+            {status.restart.automatic
+              ? `${status.packages.join(', ')} will install by themselves: Baihe restarts once no job or Live session is running (a few minutes after you queued it).`
+              : `${status.packages.join(', ')} will install when you restart Baihe.`}
             {/* The service's reason, shown below, says how it restarts: closing a window doesn't. */}
-            {status.restart.service ? '' : ` ${RESTART_HELP}`}
+            {status.restart.service || status.restart.automatic ? '' : ` ${RESTART_HELP}`}
           </p>
           <div className="actions">
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={onCancel}>
@@ -183,6 +195,11 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
           </div>
           <RestartAndInstall status={status} onBack={onRestarted} />
         </div>
+      )}
+      {status.last_restart && (
+        <p className={status.last_restart.outcome === 'ok' ? undefined : 'error'} role="status" data-testid="pending-install-last-restart">
+          {restartLine(status.last_restart)}
+        </p>
       )}
       {status.problem && <p className="error" role="alert" data-testid="pending-install-problem">{status.problem}</p>}
       {result && (
