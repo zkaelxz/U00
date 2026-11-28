@@ -16,7 +16,7 @@ import pytest
 import background_jobs
 from jobs import job_launch
 import db
-from services import auth_service
+from services import auth_service, confidence_backfill_service
 from services import library_admin_service as las
 from services import library_backup_restore_service as lbr
 from services import library_user_backup_service as lub
@@ -316,8 +316,6 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
     assert db.list_dramas() == []
     background_jobs.clear_all_jobs()
     assert lbr.restore_backup(data, confirm=True, confirm_text="RESTORE")["restored"] is True
-    # The restore starts the line-score backfill on a thread; it writes its marker when done.
-    from services import confidence_backfill_service
     assert confidence_backfill_service.wait(10.0)
 
     conn = sqlite3.connect(db.DB_PATH)
@@ -366,7 +364,7 @@ def test_user_backup_round_trip(isolated_db, tmp_path):
             if rule == "empty" and t not in ("audit_log", "job_records", "app_settings"):
                 assert conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] == 0, t
         # Only what the restored library's first open writes: the version stamp and the
-        # data-migration and backfill markers, no carried-over setting.
+        # data-migration markers (the line rescoring's included), no carried-over setting.
         assert sorted(r[0] for r in conn.execute("SELECT key FROM app_settings")) == \
             [db.APP_VERSION_SETTING, "backfills.per_line_confidence", "migrations.members_library_create",
              "migrations.min_silence_unset", "migrations.separate_vocals_unset"]
