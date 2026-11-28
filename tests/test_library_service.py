@@ -317,3 +317,20 @@ class TestSearchLines:
         assert ids[0] in {h["drama_id"] for h in out["items"]}
         whole = library_service.search_lines("cat", limit=60)
         assert whole["count"] == 60 and whole["more"] is False
+
+
+    def test_the_search_can_stop_at_its_cap_without_sorting_every_match(self, isolated_db, monkeypatch):
+        # Ordered by an inner column, SQLite must find and sort every match before the first 51.
+        import contextlib
+        real, seen = isolated_db.get_conn, []
+
+        def traced():
+            conn = real()
+            conn.set_trace_callback(seen.append)
+            return conn
+        monkeypatch.setattr(isolated_db, "get_conn", traced)
+        library_service.search_lines("cat", limit=50)
+        [sql] = [s for s in seen if "CROSS JOIN lines l" in s]
+        with contextlib.closing(real()) as conn:
+            plan = [r[-1] for r in conn.execute("EXPLAIN QUERY PLAN " + sql)]
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan, plan
