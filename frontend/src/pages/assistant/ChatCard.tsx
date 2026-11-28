@@ -124,7 +124,7 @@ export function ChatCard({ settings, engine, model, onEngine, onModel, onSetting
 
   return (
     <section aria-label="Ask the assistant">
-      <Section title="Ask" summary="Questions about this app's code, logs and settings" storageKey="assistant.chat" defaultOpen>
+      <Section title="Ask">
       <p className="muted">Questions about this app&apos;s code, logs and settings. Answers can take a minute.</p>
       <div className="assistant-actions">
         <button
@@ -387,7 +387,7 @@ function LadderSection({ settings, onSettings }: { settings: AssistantSettings; 
   }
 
   return (
-    <Section title="Escalation order" summary={summary} storageKey="assistant.tiers">
+    <Section title="Escalation order" summary={summary} storageKey="assistant.tiers" keepFold>
       <p className="muted">
         When an answer isn’t enough, you can ask the next tier, one step at a time and only when you choose. Keep tier 1 on Ollama so questions start on this PC. Engines with no key are skipped. After the last tier, prepare a report for a developer.
       </p>
@@ -442,7 +442,7 @@ function Answer({ response, onAddToBacklog }: AnswerProps) {
         {response.model ? ` · ${response.model}` : ''}
       </p>
       {calls.length > 0 && (
-        <Section title={`Tools used (${calls.length})`}>
+        <Section title={`Tools used (${calls.length})`} keepFold>
           <ul className="assistant-calls" aria-label="Tools used">
             {calls.map((c) => (
               <li key={c.id}>
@@ -502,7 +502,7 @@ function Review({ review }: { review: NonNullable<AskResponse['review']> }) {
       <p className="muted">{info.text}</p>
       {review.notes && <div className="assistant-answer">{review.notes}</div>}
       {calls.length > 0 && (
-        <Section title={`Reviewer's tools (${calls.length})`}>
+        <Section title={`Reviewer's tools (${calls.length})`} keepFold>
           <ul className="assistant-calls" aria-label="Reviewer's tools">
             {calls.map((c) => (
               <li key={c.id}>
@@ -588,7 +588,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   }
 
   return (
-    <Section title="Engine" summary={summary} storageKey="assistant.engine">
+    <Section title="Engine" summary={summary} storageKey="assistant.engine" keepFold>
       <div className="assistant-engine">
         <Field label={AI_ENGINE_LABEL} help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
           <select

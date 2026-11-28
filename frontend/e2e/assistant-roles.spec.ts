@@ -32,7 +32,7 @@ test('turning on the review and picking a different engine saves both', async ({
   const s = await mockAssistant(page, { developerMode: true, engine: 'claude' })
   await page.goto('/#/assistant')
   await openTab(page, 'Tools')
-  const roles = page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Independent review' }) })
+  const roles = page.locator('.section-flat').filter({ has: page.getByRole('heading', { name: 'Independent review', exact: true }) })
   await roles.getByRole('switch', { name: 'Review each proposed fix' }).click()
   await expect(roles.getByText('Pick a review engine.')).toBeVisible()
   await roles.getByLabel('Review engine', { exact: true }).selectOption('claude')
