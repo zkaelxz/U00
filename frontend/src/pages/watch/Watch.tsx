@@ -852,7 +852,8 @@ const WatchList = memo(function WatchList({ lines, ears, currentId, sourceLangua
 }) {
   const slots = useMemo(() => speakerSlots(lines), [lines])
   return (
-    <ol className="watch-list" ref={listRef} {...scroll}>
+    // Without sound the rows are not buttons, so the list itself takes focus for the arrow keys to scroll it.
+    <ol className="watch-list" ref={listRef} tabIndex={canPlay ? undefined : 0} {...scroll}>
       {lines.map((l) => (
         <WatchRow key={l.id} line={l} ear={ears.get(l.id)} slot={l.speaker ? slots.get(l.speaker) ?? null : null} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
       ))}

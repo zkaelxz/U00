@@ -729,3 +729,26 @@ def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
     monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
     deepseek = _Timed("deepseek", "deepseek-flash")
     assert translate_run_options.with_slow_switch(deepseek) is deepseek
+
+
+def _first_batch_under_budget(monkeypatch, **kw):
+    monkeypatch.setattr(tp, "novel_batch_chars", lambda engine: 10)
+    engine = _Engine()
+    lines = [_Line(i, "第1章" if i == 0 else "字" * 4) for i in range(9)]
+    tp.translate_lines_with_engine(lines, engine, drama_meta={"id": 1}, batch_size=9, **kw)
+    # The first request is the first batch; later checks may ask again.
+    return len(engine.calls[0])
+
+
+def test_a_default_batch_size_still_keeps_the_novel_character_budget(novel, monkeypatch):
+    # The run service always passes a size; only one the user chose lifts the budget.
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=True) <= 3
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=False) == 9
+    assert _first_batch_under_budget(monkeypatch) == 9
+
+
+def test_the_budget_of_a_slow_switch_run_is_its_starting_engines():
+    from engine_backends.fallback import SlowSwitchEngine
+    first, second = _Engine(), _Engine()
+    assert tp._planning_engine(SlowSwitchEngine([first, second], ["deepseek", "ollama"])) is first
+    assert tp._planning_engine(first) is first

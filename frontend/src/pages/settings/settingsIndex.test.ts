@@ -65,7 +65,7 @@ describe('settings tabs', () => {
 
   it('keeps the cards of the My account and look tab in order', () => {
     // The tab members see: every card here works for any signed-in person.
-    expect(SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id)).toEqual(['sharing', 'display', 'phone-app', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
+    expect(SETTINGS_TABS.find((t) => t.id === 'account')!.cards.map((c) => c.id)).toEqual(['sharing', 'limits', 'display', 'phone-app', 'customize-menu', 'devices', 'extension-devices', 'ollama-key'])
   })
 })
 

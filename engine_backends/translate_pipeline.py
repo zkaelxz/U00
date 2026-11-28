@@ -285,6 +285,19 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
                             "check the pronoun")
 
 
+def _uses_char_budget(a) -> bool:
+    """A novel batch is also held to its model's character budget unless the user chose the
+    batch size. The run service always passes a size, so it says which one it passed."""
+    return not a.batch_size if a.novel_char_budget is None else a.novel_char_budget
+
+
+def _planning_engine(engine):
+    # A wrapper's own type names no model; the engine the run starts on sets the budget.
+    if isinstance(engine, FallbackEngine):
+        return engine.engines[engine.active]
+    return engine
+
+
 def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int | None = None,
                                  style_note: str = "", novel_reference=None, progress_cb=None,
                                  save_cb=None, force_retranslate: bool = False,
@@ -301,7 +314,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
                                  replace_flags: frozenset = frozenset(), parallel_chapters: int = 1,
-                                 lane_thread_scope=None, month_cap_left_cb=None):
+                                 lane_thread_scope=None, month_cap_left_cb=None,
+                                 novel_char_budget: bool | None = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -416,7 +430,8 @@ class _TranslateRun:
         # Planned part by part, so every scene cut is where a batch starts.
         cuts = [0, *(i for i, ln in enumerate(target_lines) if ln.idx in self.scene_starts), len(target_lines)]
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
-                                          max_chars=None if a.batch_size else novel_batch_chars(self.engine),
+                                          max_chars=novel_batch_chars(_planning_engine(self.engine))
+                                          if _uses_char_budget(a) else None,
                                           chapter_starts=chapter_starts,
                                           one_chapter_per_batch=side_by_side) if novel_ends
                    else [b for lo, hi in zip(cuts, cuts[1:]) for b in subtitle_batches(target_lines[lo:hi])])
