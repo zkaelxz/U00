@@ -186,6 +186,9 @@ def _process_rss_mb():
             counters.cb = ctypes.sizeof(_Counters)
             kernel32 = ctypes.windll.kernel32
             kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            # Without argtypes ctypes passes the 64-bit pseudo-handle as a 32-bit int and refuses.
+            kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters),
+                                                         wintypes.DWORD]
             if not kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(),
                                                     ctypes.byref(counters), counters.cb):
                 return None
@@ -199,16 +202,27 @@ def _process_rss_mb():
     return None
 
 
+def _never_raises(method):
+    """A log line that can't be written must not stop the narration it describes."""
+    def quiet(*args, **kwargs):
+        with contextlib.suppress(Exception):
+            method(*args, **kwargs)
+    return quiet
+
+
 class _RunLog:
     """Log lines for a narration run: what was reused, memory and disk every
     PROGRESS_LOG_SECONDS, and the track's length against the time it took. Lines carry
     counts and sizes only, never the title's text or paths."""
 
     def __init__(self, drama_dir: str):
-        import applog
-        self.log, self.drama_dir = applog.get_logger(), drama_dir
+        self.drama_dir, self.done = drama_dir, {}
         self.began = self.last = time.monotonic()
-        self.done = {}
+
+    @property
+    def log(self):
+        import applog
+        return applog.get_logger()
 
     def _resources(self) -> str:
         import memory_headroom
@@ -220,11 +234,13 @@ class _RunLog:
         return (f"process memory {'unknown' if rss is None else f'{rss:.0f} MB'}, "
                 f"free RAM {'unknown' if ram is None else f'{ram[1]:.0f} MB'}, free disk {disk}")
 
+    @_never_raises
     def started(self, units) -> None:
         to_speak = [u for u in units if not u["error"] and not os.path.exists(u["clip_path"])]
         self.log.info("Narration started: %d clips, %d reused from an earlier run, %d to speak; %s",
                       len(units), len(units) - len(to_speak), len(to_speak), self._resources())
 
+    @_never_raises
     def tick(self, stage: str, total: int) -> None:
         """One more unit through `stage`."""
         done = self.done[stage] = self.done.get(stage, 0) + 1
@@ -235,6 +251,7 @@ class _RunLog:
         self.log.info("Narration %s: %d of %d after %s; %s", stage, done, total,
                       _hours_minutes(now - self.began), self._resources())
 
+    @_never_raises
     def finished(self, expected_ms: float, track_path: str) -> None:
         actual_ms = _track_duration_ms(track_path)
         took = _hours_minutes(time.monotonic() - self.began)
@@ -245,10 +262,11 @@ class _RunLog:
         line = (f"Narration track made in {took}: {_hours_minutes(actual_ms / 1000)} long, "
                 f"expected {_hours_minutes(expected_ms / 1000)}; {self._resources()}")
         if expected_ms and abs(actual_ms - expected_ms) > 0.05 * expected_ms:
-            self.log.warning("%s (more than 5%% off)", line)
+            self.log.warning("%s (%+.0f%%, more than 5%% off)", line, 100 * (actual_ms - expected_ms) / expected_ms)
         else:
             self.log.info("%s", line)
 
+    @_never_raises
     def limit_hit(self, limit_seconds: float) -> None:
         self.log.warning("Narration stopped by the %s ffmpeg wait limit after %s; %s",
                          _hours_minutes(limit_seconds), _hours_minutes(time.monotonic() - self.began),

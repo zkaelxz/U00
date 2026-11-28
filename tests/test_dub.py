@@ -582,7 +582,21 @@ class TestNarrationRunLog:
         _pcm_pydub(monkeypatch)
         _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 100, "Two.": b"\x02\x00" * 50})
         monkeypatch.setattr(dub_narration, "_track_duration_ms", lambda path: 425)
-        assert self._run(monkeypatch, tmp_path)[-1][0] == "warning"
+        level, line = self._run(monkeypatch, tmp_path)[-1]
+        assert level == "warning" and "(-50%, more than 5% off)" in line
+
+    def test_a_log_that_cannot_be_written_does_not_stop_the_narration(self, monkeypatch, tmp_path):
+        import applog
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        monkeypatch.setattr(dub_narration, "PROGRESS_LOG_SECONDS", 0)
+
+        def full_disk():
+            raise OSError(28, "No space left on device")
+        monkeypatch.setattr(applog, "get_logger", full_disk)
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="One.", speaker="S0")]
+        out, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"S0": dict(VOICE)}, pace=0.8)
+        assert os.path.exists(out) and errors == [] and lines[0].end == pytest.approx(0.01 / 0.8)
 
     def test_memory_and_disk_are_logged_through_the_run(self, monkeypatch, tmp_path):
         _pcm_pydub(monkeypatch)
