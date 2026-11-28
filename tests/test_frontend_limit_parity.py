@@ -88,3 +88,16 @@ def test_add_a_person_caps_match_the_schema():
     ts = "pages/diagnostics/adminUsers.ts"
     assert _ts_number(ts, "MAX_EMAIL_CHARS") == cap("email")
     assert _ts_number(ts, "MAX_DISPLAY_NAME_CHARS") == cap("display_name")
+
+
+def test_find_replace_apply_chunk_matches_the_server_cap():
+    from api.schemas import LinesFindReplaceApplyRequest
+    from services import lines_service
+    max_length = next(m.max_length for m in LinesFindReplaceApplyRequest.model_fields["matches"].metadata
+                      if hasattr(m, "max_length"))
+    assert _ts_number("api/review.ts", "MAX_APPLY_MATCHES") == max_length == lines_service.MAX_MATCHES
+
+
+def test_review_search_page_is_within_the_server_cap():
+    from services import review_lines_service
+    assert _ts_number("api/review.ts", "SEARCH_LIMIT") == review_lines_service.MAX_SEARCH_LIMIT
