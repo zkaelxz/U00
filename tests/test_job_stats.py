@@ -19,6 +19,10 @@ from lib.error_kinds import error_kind
     ("12 of 12 lines got no translation (reply may have been cut off)", "blank"),
     ("reply was not valid JSON", "parse"),
     ("something odd", "other"),
+    ("invalid API key", "other"),
+    ("the empty folder was skipped", "other"),
+    ("failed on line 429 of the file", "other"),
+    ("the reply left them out", "blank"),
     (None, "other"),
 ])
 def test_error_kind(text, kind):
@@ -37,7 +41,7 @@ def test_a_finished_job_writes_one_stats_line_with_numbers_only(isolated_db):
         import job_timing
         job_timing.mark_stage("translate_1", "Translate 3 of 9 for Moonlit Garden /home/alex/x.mkv")
         time.sleep(0.05)
-        background_jobs.set_result("translate_1", {"errors": {"7": "429 Too Many Requests", "8": "no translation"}})
+        background_jobs.set_result("translate_1", {"errors": {"7": "429 Too Many Requests", "8": "2 of 2 lines got no translation"}})
 
     job_launch.start_job("translate_1", work, line_fields=(), description="Translate (Moonlit Garden)")
     deadline = time.time() + 10
