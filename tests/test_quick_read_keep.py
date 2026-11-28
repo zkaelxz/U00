@@ -49,3 +49,40 @@ def test_note_read_is_taken_once_and_json_safe(folder):
 def test_off_by_default(isolated_db, monkeypatch):
     monkeypatch.setattr(quick_read_keep, "_enabled_at", 0.0)
     assert quick_read_keep.enabled() is False
+
+
+def test_backups_leave_the_copies_out_and_a_restore_keeps_the_current_ones(isolated_db, tmp_path):
+    import zipfile
+    import db
+    from services import library_backup_service as lbs
+    from services import library_restore_service as lrs
+    os.makedirs(os.path.join(db.LIBRARY_DIR, quick_read_keep.DIRNAME))
+    with open(os.path.join(db.LIBRARY_DIR, quick_read_keep.DIRNAME, "page.jpg"), "wb") as f:
+        f.write(b"PIC")
+    dest = str(tmp_path / "b.zip")
+    lbs.write_backup_zip(dest, include_media=True)
+    assert not any(n.split("/")[0] == quick_read_keep.DIRNAME for n in zipfile.ZipFile(dest).namelist())
+    assert quick_read_keep.DIRNAME in lrs.restore_kept_names()
+
+
+def test_a_page_never_keeps_the_read_regions_of_a_page_that_failed_before_it(monkeypatch):
+    from types import SimpleNamespace
+    from services import extension_bridge_service as bridge
+    from services import page_server
+    kept = []
+
+    def translate(content, content_type, **kwargs):
+        if content == b"first":
+            quick_read_keep.note_read([{"source_text": "first page"}])
+            raise page_server.EndpointError(500, "the engine failed")
+        return {"regions": [], "seconds": {}}
+    monkeypatch.setattr(page_server, "translate_image", translate)
+    monkeypatch.setattr(quick_read_keep, "enabled", lambda: True)
+    monkeypatch.setattr(quick_read_keep, "save", lambda key, original, content_type, read, result: kept.append(read))
+    job = {"flat_pages": SimpleNamespace(undrawn=lambda image: False), "drama_id": None, "source_url": "",
+           "source_language": "", "store": False, "member": False, "typeset": False, "typeset_style": None,
+           "typeset_max_width": None, "single": False}
+    for content in (b"first", b"second"):
+        bridge._translate_fresh({"key": "p1", "url": "u", "content": content, "content_type": "image/png"},
+                                job, None, None, time.monotonic())
+    assert kept == [None]

@@ -86,7 +86,7 @@ export function BacklogCard({ items, loadError, onItems, onAdd }: Props) {
           {loadError}
         </p>
       )}
-      <Section title="Backlog" summary={items ? plural(count, 'item') : 'Notes for later'} storageKey="assistant.backlog" defaultOpen>
+      <Section title="Backlog" summary={items ? plural(count, 'item') : 'Notes for later'}>
       {count > 0 && (
         <div className="assistant-actions">
           <ConfirmButton label="Clear all…" ariaLabel="Clear all backlog items" name="all backlog items" verb="clear" busy={busyId === 'all'} disabled={busyId !== null && busyId !== 'all'} onConfirm={clearAll} />

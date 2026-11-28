@@ -432,10 +432,30 @@
   // Waiting for slow pictures shares one budget across the chapter, so a bad connection costs
   // a bounded amount of time in total and the grab ends inside the app's time limit.
   var drawBudget = 120000;
+  // Whole class words only: "lazyloading" and "lazyloaded" are a lazy loader's own marks on the
+  // picture, not a reader's sign that the page is still being drawn.
+  var LOADING = /(^|[\s_-])loading($|[\s_-])/, LOADED = /(^|[\s_-])loaded($|[\s_-])/;
+  // The first ancestor holding another page-wide picture is the list of pages, where a
+  // placeholder further down would hold every drawn page back. Icons, badges, spinners and the
+  // img inside an amp-img are not another page.
+  function isPageList(n, el) {
+    var pictures = n.querySelectorAll("img, canvas, amp-img");
+    for (var k = 0; k < pictures.length; k++) {
+      var p = pictures[k];
+      if (p === el || el.contains(p) || p.contains(el)) continue;
+      if (p.getBoundingClientRect().width >= MIN_SIDE) return true;
+    }
+    return false;
+  }
   function stillDrawing(el) {
     for (var n = el, d = 0; n && d < 3; n = n.parentElement, d++) {
-      if (/(^|[\s_-])loaded($|[\s_-])/.test(String(n.className || ""))) return false;
-      if (n.querySelector && n.querySelector('[class*="loading"]')) return true;
+      var cls = String(n.className || "");
+      if (LOADED.test(cls)) return false;
+      if (LOADING.test(cls)) return true;
+      if (n === el) continue;
+      if (isPageList(n, el)) return false;
+      var marked = n.querySelectorAll('[class*="loading"]');
+      for (var k = 0; k < marked.length; k++) if (LOADING.test(String(marked[k].className || ""))) return true;
     }
     return false;
   }
