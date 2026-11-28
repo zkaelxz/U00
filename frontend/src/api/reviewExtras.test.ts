@@ -110,6 +110,8 @@ describe('review extras api', () => {
       f,
     )
     await rx.getBurnPreviewInfo(6, f)
+    await rx.startBurnPreview(6, { line_id: 9, ear_placement: true }, f)
+    expect(sent(calls[4])).toEqual({ line_id: 9, ear_placement: true })
     expect(sent(calls[0])).toEqual({ line_id: 9 })
     expect(sent(calls[1])).toEqual({ line_id: 9, pad_seconds: 0, preset: 'Bold' })
     expect(sent(calls[2])).toEqual({

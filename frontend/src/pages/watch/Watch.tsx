@@ -29,7 +29,7 @@ import { formatClock } from '../../labels'
 import { Breadcrumbs } from '../../nav/BreadcrumbNav'
 import { routeCrumbs } from '../../nav/breadcrumbs'
 import { routeHref } from '../../router'
-import type { ReaderMediaAvailability } from '../../types/reader'
+import type { EarSide, ReaderMediaAvailability } from '../../types/reader'
 import type { ReviewLine } from '../../types/review'
 import { holds } from '../diagnostics/adminUsers'
 import { lineEditPatch } from '../reader/readerLineEdit'
@@ -38,6 +38,7 @@ import { LineFeedback } from './LineFeedback'
 import { queueReason } from '../workspace/stages/review/checkQueueModel'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
 import { CastCard } from './CastCard'
+import { EarMark } from './EarMark'
 import { NextCard } from './NextCard'
 import { SleepTimerCard } from './SleepTimerCard'
 import { useWatchSwipe } from './useWatchSwipe'
@@ -50,6 +51,7 @@ import { NowCard } from './NowCard'
 import { WatchParty } from './WatchParty'
 import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
+import { useEarMarks } from './useEarMarks'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
@@ -175,6 +177,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
     onSaved: () => setCaptionVersion((v) => v + 1),
   })
   const { markStatus, markBusy, mark, say } = useWatchMarks(id, setLines)
+  const ears = useEarMarks(id, holds(session, 'jobs.start'))
   // A fix's own message (Saved., a refused save) replaces a mark message that is still showing, not the other way round.
   useEffect(() => say(''), [status, say])
   const [swipeNote, setSwipeNote] = useState('')
@@ -386,6 +389,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
             {original && ordered.length > 0 && (
               <NowCard
                 line={fixLine ?? current}
+                ear={ears.get((fixLine ?? current)?.id ?? -1)}
                 dramaId={id}
                 sourceLanguage={sourceLanguage}
                 canEdit={canEdit}
@@ -441,6 +445,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
               ) : (
                 <WatchList
                   lines={ordered}
+                  ears={ears}
                   currentId={currentId}
                   sourceLanguage={sourceLanguage}
                   canPlay={original !== null}
@@ -832,8 +837,9 @@ function useLineFix({ id, ordered, lineIndex, canEdit, ready, setLines, player, 
   return { fix, busy, status, startFix, setDraft, cancel, save, fixButtonRef, fieldRef, cardRef }
 }
 
-const WatchList = memo(function WatchList({ lines, currentId, sourceLanguage, canPlay, onPick, scroll, listRef }: {
+const WatchList = memo(function WatchList({ lines, ears, currentId, sourceLanguage, canPlay, onPick, scroll, listRef }: {
   lines: ReviewLine[]
+  ears: ReadonlyMap<number, EarSide>
   currentId: number | null
   sourceLanguage: string
   canPlay: boolean
@@ -845,14 +851,15 @@ const WatchList = memo(function WatchList({ lines, currentId, sourceLanguage, ca
   return (
     <ol className="watch-list" ref={listRef} {...scroll}>
       {lines.map((l) => (
-        <WatchRow key={l.id} line={l} slot={l.speaker ? slots.get(l.speaker) ?? null : null} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
+        <WatchRow key={l.id} line={l} ear={ears.get(l.id)} slot={l.speaker ? slots.get(l.speaker) ?? null : null} current={l.id === currentId} sourceLanguage={sourceLanguage} canPlay={canPlay} onPick={onPick} />
       ))}
     </ol>
   )
 })
 
-const WatchRow = memo(function WatchRow({ line: l, slot, current, sourceLanguage, canPlay, onPick }: {
+const WatchRow = memo(function WatchRow({ line: l, ear, slot, current, sourceLanguage, canPlay, onPick }: {
   line: ReviewLine
+  ear: EarSide | undefined
   slot: number | null
   current: boolean
   sourceLanguage: string
@@ -864,6 +871,7 @@ const WatchRow = memo(function WatchRow({ line: l, slot, current, sourceLanguage
       <span className="watch-row-meta">
         {rowMeta(l)}
         {l.speaker && <span className="watch-row-speaker">{l.speaker}</span>}
+        <EarMark side={ear} />
         <LineMarkBadge line={l} />
         {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>

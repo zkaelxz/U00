@@ -114,15 +114,17 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
     the event for the in-app list, shown by `job_id`/`owner_user_id`
     visibility. `waiting`: the result's waiting note (jobs_service.waiting_note),
     which turns the bell entry and the push into "Waiting for you"."""
+    quiet = False
     try:
         from services import notification_service
         notification_service.notify_job_finished(description, status, job_id=job_id,
                                                  owner_user_id=owner_user_id,
                                                  with_errors=with_errors, reason=reason,
                                                  waiting=waiting)
+        quiet = notification_service.quiet_when_done(job_id, status)
     except Exception:
         pass
-    if not get_notify_on_completion() or not desktop_session.has_desktop():
+    if quiet or not get_notify_on_completion() or not desktop_session.has_desktop():
         return
     try:
         from plyer import notification
