@@ -6,7 +6,6 @@ import type { DramaSummary } from '../api/types'
 import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useDetailsMenu } from '../hooks/useDetailsMenu'
-import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { routeHref } from '../router'
@@ -31,7 +30,8 @@ import { countDramas, dramaName, hideLibraryBar, lineHitCount, lineHitHref, list
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { Paged, ShowMore } from './ShowMore'
-import { useShowMore } from '../hooks/useShowMore'
+import { SHOW_MORE_STEP, useShowMore } from '../hooks/useShowMore'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { buttonClass } from './uiClasses'
 import { useLatest } from '../hooks/useLatest'
 
@@ -173,7 +173,8 @@ export function LibraryList({
   const allGroups = shown ? groupTitles(shown, groupBy, sort, series ?? []) : []
   // A thousand cards on one page is slow to draw and endless to scroll; the rest come with Show more. The limit comes
   // back to one page when the list is filtered, searched or regrouped.
-  const page = useShowMore(`${titleSearch}|${status}|${quickFilter}|${reading}|${groupBy}|${sort}|${JSON.stringify(more)}`)
+  // 50 cards were over eleven phone screens of scrolling, so a phone's step is smaller.
+  const page = useShowMore(`${titleSearch}|${status}|${quickFilter}|${reading}|${groupBy}|${sort}|${JSON.stringify(more)}`, phone ? 20 : SHOW_MORE_STEP)
   const groups = limitGroups(allGroups, page.limit)
   const totals = new Map(allGroups.map((g) => [g.key, g.items.length]))
   // Select all, the bulk-action count and delete only ever see what is on screen: a collapsed group's titles are not.
