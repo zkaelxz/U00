@@ -121,6 +121,27 @@ class CueBoard:
         return len(changed)
 
 
+class StartTimeline:
+    """App-log line, once per milestone, with seconds since Start: where the
+    time goes before the first caption. Numbers and fixed text only."""
+
+    def __init__(self, clock=time.monotonic):
+        self._clock, self._t0 = clock, clock()
+        self._seen = set()
+        self._lock = threading.Lock()
+
+    def has(self, name: str) -> bool:
+        return name in self._seen
+
+    def mark(self, name: str) -> None:
+        with self._lock:
+            if name in self._seen:
+                return
+            self._seen.add(name)
+            took = self._clock() - self._t0
+        live_whisper._log("info", f"Live: start +{took:.1f} s: {name}")
+
+
 class Stage:
     """The one status line both threads report to. A stream outage wins while
     it lasts (the owner needs to know captions have paused); then Whisper's step
@@ -145,6 +166,7 @@ class Stage:
         # audio/took: seconds of audio Whisper was handed for the current / last chunk.
         self.audio, self._took, self._last_audio = 0.0, None, 0.0
         self._slow_noted = False
+        self.timeline: StartTimeline | None = None
 
     def _speed(self) -> str:
         return live_whisper.speed_text(self._took, self._last_audio)
@@ -249,6 +271,25 @@ class LagStats:
         self.overlap_fallback = 0
         # Which reconnect try is under way; 0 while the stream is connected.
         self.reconnect_attempt = 0
+        # For the session's log line only: every chunk's processing seconds, the worst lag and
+        # the translation failures by kind (lib.error_kinds), none of it shown to the viewer.
+        self._all_totals: list = []
+        self._worst_lag = 0.0
+        self.error_kinds: dict = {}
+
+    def log_figures(self) -> dict:
+        with self._lock:
+            totals = sorted(self._all_totals)
+            return {"chunks": self._measured,
+                    "median_s": round(totals[len(totals) // 2], 1) if totals else 0.0,
+                    "worst_lag_s": round(self._worst_lag, 1), "skipped": int(self.skipped),
+                    "errors": dict(self.error_kinds)}
+
+    def failed(self, exc) -> None:
+        from lib.error_kinds import error_kind
+        kind = error_kind(str(exc))
+        with self._lock:
+            self.error_kinds[kind] = self.error_kinds.get(kind, 0) + 1
 
     def figures(self) -> dict:
         with self._lock:
@@ -263,6 +304,9 @@ class LagStats:
         with self._lock:
             self._totals.append(float(total))
             self._lag = float(audio_seconds) + float(total)
+            self._worst_lag = max(self._worst_lag, self._lag)
+            if len(self._all_totals) < 5000:
+                self._all_totals.append(float(total))
             self._measured += 1
         self.send()
 
@@ -399,6 +443,8 @@ class TranslationWorker:
             for pos, work in enumerate(works):
                 if any(starts[pos] <= p < starts[pos + 1] for p in group):
                     self._fail(work.cues, work.idx, exc)
+        if self._stage.timeline is not None:
+            self._stage.timeline.mark("first translation request")
         try:
             live_cue_feed.translate_cues(
                 cues, self._translator, checkpoint,
@@ -412,6 +458,9 @@ class TranslationWorker:
         finally:
             self._stage.translated()
             self._wake.set()
+        if self._stage.timeline is not None and any(
+                c["translation"] not in (live_cue_feed.PENDING, live_cue_feed.FAILED) for c in cues):
+            self._stage.timeline.mark("first English")
         for pos, work in enumerate(works):
             if work.measured:
                 total = work.timing.report(work.idx, self._note, cues=len(work.cues),
@@ -422,6 +471,10 @@ class TranslationWorker:
 
     def _fail(self, cues: list, idx: int, exc: Exception) -> None:
         from engine_backends.shared import redact_secrets
+        try:
+            self._stats.failed(exc)
+        except Exception:
+            pass   # a stats slip must never stop the failure being shown
         live_whisper.log_failure(f"chunk {idx} translation failed", exc)
         note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
         with self._board.lock:
@@ -549,12 +602,19 @@ class SessionLog:
         if now >= self._next_stats:
             self._next_stats = now + STATS_LOG_SECONDS
             self.resources("10 min")
+            self.session_stats("10 min")
             if spend:
                 self._log(f"spent ${spend[0] - self._spent_at_last_log:.4f} in the last 10 min, "
                           f"${spend[0]:.4f} of the ${spend[1]:.2f} session cap")
                 self._spent_at_last_log = spend[0]
             else:
                 self._log("spend: no session cap (a free engine, or the monthly cap applies)")
+
+    def session_stats(self, when: str) -> None:
+        f = self._stats.log_figures()
+        errors = ", ".join(f"{k} {n}" for k, n in sorted(f["errors"].items())) or "none"
+        self._log(f"stats ({when}): {f['chunks']} chunks, median {f['median_s']} s each, worst lag "
+                  f"{f['worst_lag_s']} s, {f['skipped']} translations skipped, errors: {errors}")
 
     def resources(self, when: str) -> None:
         rss, gpu = _rss_mb(), _gpu_mb()
@@ -614,4 +674,5 @@ class SessionLog:
             self._log(f"timeline moved {moved:.0f} s across a {gap:.0f} s break", "warning")
 
     def ended(self, why: str) -> None:
+        self.session_stats("end")
         self._log(f"session ended: {why}")
