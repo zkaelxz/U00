@@ -24,7 +24,7 @@ test('tabs are 44px targets, the row scrolls inside itself, and every tab fits t
   await expectNoSidewaysScroll(page)
   for (const tab of ['packages', 'model-status', 'models', 'loaded', 'system', 'log']) {
     await page.goto(`/#/diagnostics?tab=${tab}`)
-    await expect(page.locator('.diag-panel:not([hidden]) .section-flat').first()).toBeVisible()
+    await expect(page.locator('.diag-panel:not([hidden]) .section').first()).toBeVisible()
     await expectNoSidewaysScroll(page)
   }
   // The row may scroll sideways on its own; the page never does.
