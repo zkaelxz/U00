@@ -155,7 +155,7 @@ describe('Run them again', () => {
   it('says what was put back and what was left for the paid-engine right', () => {
     expect(retriedText({ retried: 3, skipped_paid: 0, skipped_stale: 0, started: true })).toBe('3 items put back in the queue, and the queue started.')
     expect(retriedText({ retried: 1, skipped_paid: 0, skipped_stale: 0, started: false })).toBe('1 item put back in the queue. Start the queue on the Jobs page.')
-    expect(retriedText({ retried: 1, skipped_paid: 0, skipped_stale: 1, started: true })).toContain('1 item left as they were: their saved settings no longer apply.')
+    expect(retriedText({ retried: 1, skipped_paid: 0, skipped_stale: 1, started: true })).toContain('1 item left as it was: its saved settings no longer apply.')
     expect(retriedText({ retried: 0, skipped_paid: 2, skipped_stale: 0, started: false }))
       .toBe("Nothing was put back in the queue. 2 items left as they were: they may use a paid engine your account can't use.")
   })

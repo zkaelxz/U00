@@ -724,8 +724,8 @@ _ENGINE_STEPS = ("translate", NAMES, LINES, RUN_TRANSLATE, RUN_SCANLATE)
 def _may_use_paid(item: dict) -> bool:
     """Could this item run on an engine the caller may not use? Advisory, on
     what the item would run with now (its own engine, else the title's): the
-    real gate is still the start, with the adder's rights. Raises
-    InvalidInputError for transcribe settings that no longer apply."""
+    real gate is still the start, with the adder's rights. Raises a
+    ServiceError for transcribe settings that no longer apply."""
     settings = item.get("settings") or {}
     if settings.get("use_groq"):
         return True
@@ -737,7 +737,7 @@ def _may_use_paid(item: dict) -> bool:
         model = settings.get("model")
         if model is None and drama and not settings.get("engine"):
             model = _queued_model_and_batch(drama, engine)[0]
-        return _needs_paid(engine, model)
+        return _needs_paid(engine, model or engine_registry.effective_default_model(engine))
     if item["step"] == "transcribe" and drama:
         return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
     return False
@@ -749,8 +749,9 @@ def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
     starts when the caller may start it. An item that could run on a paid
     engine is left as it is unless the caller holds engines.paid, even
     though it would run with its adder's rights: the press is what starts it.
-    An item whose saved settings no longer apply is left too, for its own
-    Retry to explain."""
+    For such a caller an item whose saved settings no longer apply is left
+    too, for its own Retry to explain; a caller with engines.paid skips that
+    check, so the item goes back and fails at its start."""
     retried = skipped_paid = skipped_stale = 0
     with _lock:
         doc = _load()
@@ -761,7 +762,7 @@ def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
             if not holds_paid:
                 try:
                     paid = _may_use_paid(item)
-                except InvalidInputError:
+                except ServiceError:
                     skipped_stale += 1
                     continue
                 if paid:

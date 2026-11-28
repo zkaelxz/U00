@@ -12,7 +12,7 @@ from jobs import job_launch, job_runner
 import db
 from engine_backends import local
 from core import Line
-from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
                       translate_run_service)
 
@@ -1533,7 +1533,7 @@ def _interrupt_all():
         q._save(doc)
 
 
-def test_the_paid_check_follows_the_engine_the_item_would_run_on():
+def test_the_paid_check_follows_the_engine_the_item_would_run_on(monkeypatch):
     def item(step, settings=None, did=0):
         return {"step": step, "settings": settings or {}, "drama_id": did}
     paid_title = _drama("Paid", engine="claude")
@@ -1543,6 +1543,10 @@ def test_the_paid_check_follows_the_engine_the_item_would_run_on():
     # Ollama is open to every account on its members' hosted tag, not on another hosted tag.
     assert q._may_use_paid(item("names", {"engine": "ollama", "model": "gemma4:31b-cloud"}, paid_title)) is False
     assert q._may_use_paid(item("names", {"engine": "ollama", "model": "qwen3-coder:480b-cloud"}, paid_title)) is True
+    # An engine without a model is judged on that engine's default, as the start is.
+    monkeypatch.setattr(q.engine_registry, "effective_default_model",
+                        lambda e: "qwen3-coder:480b-cloud" if e == "ollama" else None)
+    assert q._may_use_paid(item("names", {"engine": "ollama"}, paid_title)) is True
     # Page-run steps count too.
     assert q._may_use_paid(item("run_scanlate", {"engine": "claude"}, paid_title)) is True
     assert q._may_use_paid(item("lines", {}, paid_title)) is True
@@ -1563,6 +1567,21 @@ def test_run_them_again_skips_an_item_whose_settings_no_longer_apply(jobs, monke
     out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
     assert out["retried"] == 1 and out["skipped_stale"] == 1 and out["skipped_paid"] == 0
     assert [i["status"] for i in q.get_queue(None)["items"]] == ["interrupted", "waiting"]
+
+
+def test_run_them_again_skips_an_item_whose_transcriber_is_gone(jobs, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    _interrupt_all()
+
+    def gone(drama, settings):
+        if drama["id"] == a:
+            raise UnsupportedOperationError("That transcriber isn't available on this PC.")
+        return dict(drama)
+    monkeypatch.setattr(q.transcribe_options_service, "apply_run_overrides", gone)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_stale"] == 1
 
 
 def test_run_them_again_touches_only_the_callers_items(jobs):
