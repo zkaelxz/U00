@@ -32,6 +32,7 @@ page's previous-page context are what a one-at-a-time loop gave.
 import contextlib
 import hashlib
 import itertools
+import re
 import heapq
 import threading
 import time
@@ -93,6 +94,23 @@ def _evict_idle_chains():
         _cast.pop(key, None)
 
 
+def _respell_names(bubbles, respell: dict) -> None:
+    """Pages translated side by side each pick a spelling for a name the chapter had not met yet;
+    the one that finished first is kept for later pages, so a page that spelled it otherwise is
+    brought into line. Whole words only (a possessive or an honorific suffix still matches), and
+    never where the page's spelling is part of the kept one ("Lan" inside "Lan Zhan")."""
+    patterns = [(re.compile(rf"(?<!\w){re.escape(old)}(?!\w)"), new) for old, new in respell.items()
+                if old and new and not re.search(rf"(?<!\w){re.escape(old)}(?!\w)", new)]
+    if not patterns:
+        return
+    for b in bubbles:
+        text = b.get("translated_text")
+        if text:
+            for pattern, new in patterns:
+                text = pattern.sub(lambda _m, new=new: new, text)
+            b["translated_text"] = text
+
+
 def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, usage_cb,
                        wait_for_turn: bool = True, **extras):
     """Translates one page as the next link of its title's context chain.
@@ -116,12 +134,15 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                 bubbles, engine, drama or {}, previous_context=previous,
                 glossary_terms=glossary, usage_cb=usage_cb, chapter_names=names, cast=cast, **extras)
         finally:
+            respell = {}
             # Names from an answer that applied only in part are still the model's spelling.
             with _context_lock:
                 if names:
                     kept = _chapter_names.setdefault(key, {})
                     for source, english in names.items():
-                        kept.setdefault(source, english)
+                        first = kept.setdefault(source, english)
+                        if first != english:
+                            respell[english] = first
                     while len(_chapter_names) > MAX_CHAINS:
                         _chapter_names.pop(next(iter(_chapter_names)))
                 # Only this page's own votes are added: pages in flight together each started
@@ -137,6 +158,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
                     _cast.pop(key, None)
                 while len(_cast) > MAX_CHAINS:
                     _cast.pop(next(iter(_cast)))
+        _respell_names(bubbles, respell)
         with _context_lock:
             _contexts[key] = new_context
             _contexts.move_to_end(key)

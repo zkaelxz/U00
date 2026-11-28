@@ -285,6 +285,30 @@ class TestTitleMemory:
                                           wait_for_turn=False)
         assert page_turns.title_memory(None, "t")["cast"] == {"Mira": {"she": 4}}
 
+    def test_pages_in_flight_together_end_up_with_one_spelling_of_a_new_name(self, monkeypatch):
+        """Two pages of a new chapter both start with no names. The second finishes first and sets
+        the spelling; the first is brought into line, possessive and honorific included."""
+        second = [_bubble("ミラ")]
+
+        def translate(bubbles, engine, meta, chapter_names=None, **kw):
+            english = "Mira" if bubbles is first else "Myra"
+            if bubbles is first:
+                page_turns.translate_in_chain(None, "n1", second, object(), None, None, None,
+                                              wait_for_turn=False)
+            chapter_names.setdefault("ミラ", english)
+            bubbles[0]["translated_text"] = f"{english}, wait! {english}'s bag. {english}-san. Miranda."
+            return "ctx"
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+        first = [_bubble("ミラ")]
+        page_turns.translate_in_chain(None, "n1", first, object(), None, None, None, wait_for_turn=False)
+        assert second[0]["translated_text"] == "Myra, wait! Myra's bag. Myra-san. Miranda."
+        assert first[0]["translated_text"] == "Myra, wait! Myra's bag. Myra-san. Miranda."
+
+    def test_a_spelling_inside_the_kept_one_is_left_alone(self):
+        bubbles = [{"translated_text": "Lan Zhan and Lan left."}]
+        page_turns._respell_names(bubbles, {"Lan": "Lan Zhan"})
+        assert bubbles[0]["translated_text"] == "Lan Zhan and Lan left."
+
     @pytest.mark.parametrize("url, title", [
         ("https://rawkuma.net/manga/psycho-eyes/chapter-1/", "rawkuma:psycho-eyes"),
         ("https://site.invalid/comic/abc-chapter-12", "site.invalid/comic/abc"),
