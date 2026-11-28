@@ -596,6 +596,22 @@ def test_lines_left_out_of_every_group_are_asked_alone(isolated_db):
     assert all(ln.en == f"T:z{i}" for i, ln in enumerate(lines))
 
 
+def test_a_forced_rerun_still_asks_again_for_lines_with_no_english(isolated_db):
+    engine = _CutOffWhenBig(limit=1)
+    asked_alone = []
+    real = engine.translate_batch
+    engine.translate_batch = lambda zh, ctx: (asked_alone.extend(zh) if len(zh) == 1 else None) or real(zh, ctx)
+    lines = [Line(idx=i, start=i, end=i + 1, zh=f"z{i}", id=70 + i) for i in range(8)]
+    lines[0].en = "kept"
+    _, errors = engine_translate_pipeline.translate_lines_with_engine(
+        lines, engine, drama_meta={"source_language": "zh"}, context_window=0,
+        context_window_ahead=0, force_retranslate=True)
+    # A line that already had English keeps it rather than being asked again.
+    assert lines[0].en == "kept" and "z0" not in asked_alone
+    assert all(ln.en == f"T:z{i}" for i, ln in enumerate(lines) if i)
+    assert len(errors) == 1 and errors[0]["lines"] == [0]
+
+
 def test_asking_alone_is_bounded_per_batch(isolated_db):
     engine = _CutOffWhenBig(limit=0)
     _run_big_batch(engine, n=30)

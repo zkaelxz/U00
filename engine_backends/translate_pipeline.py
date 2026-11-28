@@ -788,10 +788,13 @@ class _TranslateRun:
             else:
                 empty.append(ln)
         # A forced rerun keeps the old English on a line the reply omitted (it may be the
-        # user's own edit), so re-asking it would be the only path that rewrites it.
-        if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
+        # user's own edit), so re-asking it would be the only path that rewrites it; a line
+        # with no English yet would stay blank, so it is still asked again.
+        keep = [ln for ln in empty if self.args.force_retranslate and (ln.en or "").strip()]
+        reask = [ln for ln in empty if not any(ln is k for k in keep)]
+        if reask and (len(chunk) > 1 or len(reask) < len(chunk)):
             self._one_by_one_left = self._ONE_BY_ONE_MAX
-            empty = self._retry_smaller(empty, fresh, depth=0)
+            empty = keep + self._retry_smaller(reask, fresh, depth=0)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
             self._add_error(empty, f"{len(empty)} of {len(chunk)} lines got no "
