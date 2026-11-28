@@ -53,6 +53,8 @@ COMMON_WORD_ZIPF = 2.5
 # Longer names are counted in the word lists because the VTuber is famous (キズナアイ), not
 # because they are ordinary words.
 MAX_CHECKED_LEN = 4
+# Two-character diminutives anyone can be called (小梦, 阿水, 老王, 曉曉, 珞哥): they name no one in particular.
+GENERIC_NICKNAME = re.compile(r"[小阿老].|.[哥姐妹仔醬酱兒儿]|(.)\1")
 NAV_SLUGS = {"about", "affiliations", "anniversary", "announcement", "birthday", "category", "contact",
              "content", "cookie-policy", "debut", "feeds", "gender", "language", "latest", "live", "mbti",
              "membership", "model", "newest", "news", "privacy-policy", "random", "retirement", "tags",
@@ -366,8 +368,13 @@ def candidates(rows, official=(), wikidata=()):
             if pair:
                 names.append((pair[1], pair[0], "nickname"))
         if row["fanbase_native"] and row["fanbase"]:
-            fan_en = re.split(r"\s*[&/,]\s*", row["fanbase"])[0]
-            names.append((row["fanbase_native"], f"{fan_en} ({row['name']}'s fans)", "fans"))
+            fan_ens = [x for x in re.split(r"\s*[&/,]\s*", row["fanbase"]) if x]
+            fan_natives = [x for x in re.split(r"\s*[&/,、]\s*", row["fanbase_native"]) if x]
+            # "Ling Qiu & Ghost Ball" is one fan name and its meaning; two native names pair up
+            # with two English ones only when the counts agree.
+            pairs = zip(fan_natives, fan_ens) if len(fan_natives) == len(fan_ens) else [(fan_natives[0], fan_ens[0])]
+            for fan_native, fan_en in pairs:
+                names.append((fan_native, f"{fan_en} ({row['name']}'s fans)", "fans"))
         for native, en, kind in names:
             if kind == "name" and native in spelled:
                 en = spelled[native]["en"]
@@ -428,6 +435,11 @@ def filter_candidates(cands, words, taken, suffixes=None):
             reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"
         elif c[5] != "name" and any(source.endswith(x) and source != x for x in suffixes.get(language, ())):
             reason = "ends with an address term"
+        elif c[5] == "nickname" and len(source) == 2 and GENERIC_NICKNAME.fullmatch(source):
+            reason = "generic nickname form"
+        elif c[5] == "fans" and len(source) <= 2:
+            # Short fan names are often ordinary words the word lists are too small to know (墓守).
+            reason = "two-character fan name"
         if reason:
             held.append((language, source, c[2], c[4], reason))
         else:

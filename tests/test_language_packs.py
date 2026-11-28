@@ -64,7 +64,16 @@ class TestBuiltInFiles:
     @pytest.mark.parametrize("pack_id, count", [("ja-vtuber-core", 164), ("ja-vtuber-names", 42),
                                                 ("zh-vtuber-core", 139), ("zh-vtuber-names", 35)])
     def test_vtuber_pack_sizes(self, pack_id, count):
-        assert len(lp.all_packs()[pack_id]["entries"]) == count
+        # Name packs also hold generated entries (tools/vtuber_name_packs.py), each with a link.
+        assert len([e for e in lp.all_packs()[pack_id]["entries"] if not e["link"]]) == count
+
+    @pytest.mark.parametrize("pack_id", ["ja-vtuber-names", "zh-vtuber-names"])
+    def test_generated_name_entries_carry_a_source_page(self, pack_id):
+        generated = [e for e in lp.all_packs()[pack_id]["entries"] if e["link"]]
+        assert len(generated) > 1000
+        assert all(e["link"].startswith(("https://hololist.net/", "https://www.wikidata.org/wiki/",
+                                         "https://hololive.hololivepro.com/", "https://www.nijisanji.jp/"))
+                   for e in generated)
 
     def test_vtuber_style_defaults(self):
         packs = lp.all_packs()

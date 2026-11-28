@@ -13,13 +13,13 @@ PROFILE = """
 <section id="original-name" class="mb-4"><h2>Original Name</h2><p>
 範例·鈴</p></section>
 <section id="nickname" class="mb-4"><h2>Nickname(s)</h2><ul>
-<li>Ling Ling (鈴鈴)</li><li>Director (院長)</li><li>Rinny</li><li>S00 (S00)</li></ul></section>
+<li>Ling Dang (鈴鐺)</li><li>Ling Ling (鈴鈴)</li><li>Director (院長)</li><li>Rinny</li><li>S00 (S00)</li></ul></section>
 <section id="affiliation" class="mb-4"><h2>Affiliation</h2><a href="x">Independent</a></section>
 <section id="gender" class="mb-4"><h2>Gender</h2><a href="x">Female</a></section>
 <section id="fanbase" class="mb-4"><h2>Fanbase</h2>Ling Qiu &amp; Ghost Ball</section>
 <section id="status"><h2>Status</h2><p>Active<p></section>
 <section id="birthday" class="mb-4"><h2>Birthday</h2>May 4</section>
-<section id="description" class="mb-4"><h2>Description</h2><p>Her fanbase is called "Ling Qiu (靈球)", meaning "Ghost Ball".</p></section>
+<section id="description" class="mb-4"><h2>Description</h2><p>Her fanbase is called "Ling Qiu (靈球團)", meaning "Ghost Ball".</p></section>
 <section id="links" class="mb-4"><h2>Links</h2><h3>Channels</h3>
 <a href="https://www.twitch.tv/sample">t</a><a href="https://open.spotify.com/x">s</a>
 <h3>Socials</h3><a href="https://x.com/sample">x</a></section>
@@ -29,8 +29,8 @@ PROFILE = """
 def test_profile_keeps_only_the_naming_fields():
     row = vnp.parse_profile("sample-rin", "tw", PROFILE)
     assert row["name"] == "Sample Rin" and row["original"] == "範例·鈴"
-    assert row["nicknames"] == ["Ling Ling (鈴鈴)", "Director (院長)", "Rinny", "S00 (S00)"]
-    assert row["fanbase_native"] == "靈球" and row["platforms"] == ["twitch.tv"]
+    assert row["nicknames"] == ["Ling Dang (鈴鐺)", "Ling Ling (鈴鈴)", "Director (院長)", "Rinny", "S00 (S00)"]
+    assert row["fanbase_native"] == "靈球團" and row["platforms"] == ["twitch.tv"]
     assert "birthday" not in json.dumps(row).lower() and "May 4" not in json.dumps(row)
 
 
@@ -50,12 +50,14 @@ def test_names_nicknames_and_fans_become_entries_in_both_scripts_and_risky_ones_
     kept, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()})
     by_source = {e["source"]: e for e in kept["zh"]}
     assert by_source["範例·鈴"]["en"] == by_source["範例鈴"]["en"] == by_source["范例铃"]["en"] == "Sample Rin"
-    assert by_source["鈴鈴"]["en"] == by_source["铃铃"]["en"] == "Ling Ling"
-    assert by_source["靈球"]["en"] == "Ling Qiu (Sample Rin's fans)"
-    assert by_source["鈴鈴"]["link"] == "https://hololist.net/sample-rin/"
-    assert "she/her" in by_source["範例鈴"]["note"] and "Nickname of Sample Rin" in by_source["鈴鈴"]["note"]
-    # An ordinary word is held back; a nickname with no native-script form has no source at all.
-    assert ("院長", "ordinary word") in [(h[1], h[4].split(" (")[0]) for h in held]
+    assert by_source["鈴鐺"]["en"] == by_source["铃铛"]["en"] == "Ling Dang"
+    assert by_source["靈球團"]["en"] == "Ling Qiu (Sample Rin's fans)"
+    assert by_source["鈴鐺"]["link"] == "https://hololist.net/sample-rin/"
+    assert "she/her" in by_source["範例鈴"]["note"] and "Nickname of Sample Rin" in by_source["鈴鐺"]["note"]
+    # An ordinary word and a doubled diminutive are held back; a nickname with no native-script
+    # form has no source at all.
+    reasons = {h[1]: h[4].split(" (")[0] for h in held}
+    assert reasons["院長"] == "ordinary word" and reasons["鈴鈴"] == "generic nickname form"
     assert not any(e["source"] in ("Rinny", "S00") for e in kept["zh"])
 
 
@@ -88,9 +90,9 @@ def test_rebuild_keeps_hand_written_entries_and_applies_overrides(tmp_path, monk
             encoding="utf-8")
     (packs / "zh-common.json").write_text(json.dumps({
         "id": "zh-common", "version": 1, "language": "zh", "title": "T", "description": "D",
-        "entries": [{"source": "鈴鈴", "en": "Common"}]}), encoding="utf-8")
+        "entries": [{"source": "鈴鐺", "en": "Common"}]}), encoding="utf-8")
     overrides = tmp_path / "overrides.json"
-    overrides.write_text(json.dumps({"zh": {"靈球": {"en": "Ghost Balls"}, "範例鈴": {"drop": True}}}),
+    overrides.write_text(json.dumps({"zh": {"靈球團": {"en": "Ghost Balls"}, "範例鈴": {"drop": True}}}),
                          encoding="utf-8")
     cache = tmp_path / "cache"
     cache.mkdir()
@@ -104,9 +106,9 @@ def test_rebuild_keeps_hand_written_entries_and_applies_overrides(tmp_path, monk
     by_source = {e["source"]: e for e in pack["entries"]}
     assert pack["version"] == 4 and pack["entries"][0]["source"] == "手寫"
     assert "舊的" not in by_source and "範例鈴" not in by_source and "範例·鈴" in by_source
-    assert by_source["靈球"]["en"] == "Ghost Balls"
-    # Another pack of the language already has 鈴鈴, so its entry stays the only one, in both scripts.
-    assert "鈴鈴" not in by_source and "铃铃" not in by_source
+    assert by_source["靈球團"]["en"] == "Ghost Balls"
+    # Another pack of the language already has 鈴鐺, so its entry stays the only one, in both scripts.
+    assert "鈴鐺" not in by_source and "铃铛" not in by_source
     assert "院長" in (tmp_path / "review.md").read_text(encoding="utf-8")
 
 
@@ -198,3 +200,12 @@ def test_a_build_that_the_app_would_refuse_fails_instead_of_writing(tmp_path, mo
     with pytest.raises(vnp.language_packs.PackError):
         vnp.build(cache, None)
     assert (packs / "zh-vtuber-names.json").read_text(encoding="utf-8") == before
+
+
+def test_each_of_several_fan_names_is_an_entry_and_a_two_character_one_is_held():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("sample-rin", "jp", PROFILE), "original": "範例りん", "nicknames": [],
+           "fanbase": "Hakamori & Rinners", "fanbase_native": "墓守 & りんなーず"}
+    kept, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()})
+    assert {e["source"]: e["en"] for e in kept["ja"]}["りんなーず"] == "Rinners (Sample Rin's fans)"
+    assert ("墓守", "two-character fan name") in [(h[1], h[4]) for h in held]
