@@ -216,7 +216,7 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
                 continue
             if fixes_text:
                 translation = substitute_terms(translation, ln.zh)
-            ln.en = drop_em_dashes(translation)
+            ln.en = drop_em_dashes(translation, ln.zh)
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 
