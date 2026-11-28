@@ -51,6 +51,8 @@ import { PhoneAppCard } from './settings/PhoneAppCard'
 import { inPhoneShell } from '../phoneShell'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
+import { SchemaCard } from './settings/SchemaCard'
+import { blockedPhrasesSummary } from './settings/schemaValues'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { useDeveloperMode } from './assistant/developerMode'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -396,6 +398,18 @@ export default function SettingsPage() {
               </SettingsCard>
             )}
             {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('blocked-phrases') && (
+              <SettingsCard id="blocked-phrases">
+                <SchemaCard
+                  {...prefProps}
+                  section="Transcription experiments"
+                  keys={['blocked_phrases']}
+                  as="card"
+                  title="Blocked phrases"
+                  summary={blockedPhrasesSummary(settings.preferences.blocked_phrases)}
+                />
+              </SettingsCard>
+            )}
             {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
           </>
         ))}
