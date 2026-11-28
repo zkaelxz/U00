@@ -281,10 +281,10 @@ def test_fix_flagged_uses_the_titles_last_run_locale_and_style_note(monkeypatch)
     for name, value in {"default_locale": "en-GB", "default_style_note": "Keep honorifics."}.items():
         patch_setting(monkeypatch, name, value)
     did = _seed((("你好", "old", "uncertain"),))
-    db.update_drama(did, translate_start_json=json.dumps({"locale": "en-US", "style_note": "Plain and short."}))
+    db.update_drama(did, translate_start_json=json.dumps({"locale": "en-AU", "style_note": "Plain and short."}))
     prompts = _fake_fix_llm(monkeypatch)
     wait_for_job(svc.start_fix_flagged(did, engine_name="claude")["job_id"])
-    assert prompts and "Plain and short." in prompts[0]
+    assert prompts and "Plain and short." in prompts[0] and "Australian English" in prompts[0]
     assert "Keep honorifics." not in prompts[0] and "British English" not in prompts[0]
 
 
