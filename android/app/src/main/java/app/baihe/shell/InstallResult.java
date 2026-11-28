@@ -24,7 +24,7 @@ public class InstallResult extends BroadcastReceiver {
         }
         if (status != PackageInstaller.STATUS_PENDING_USER_ACTION) {
             // Install update reuses a saved file of the offered build, so one Android refused must go.
-            AppUpdate.savedApk(context).delete();
+            if (!keepsSavedApk(status)) AppUpdate.savedApk(context).delete();
             tell(context, failureText(status));
             return;
         }
@@ -51,7 +51,7 @@ public class InstallResult extends BroadcastReceiver {
                 return "The update did not install: the phone is short of free space. Free some space, then press Check for updates again.";
             case PackageInstaller.STATUS_FAILURE_CONFLICT:
             case PackageInstaller.STATUS_FAILURE_INCOMPATIBLE:
-                return "The update did not install: it is signed with a different key from the Baihe app on this phone, and Android refuses that. Keep to one way of building the app (the user guide's Android part explains).";
+                return "The update did not install: it is signed with a different key from the Baihe app on this phone, and Android refuses that. Uninstall the old Baihe app first, then install this build from the PC.";
             case PackageInstaller.STATUS_FAILURE_INVALID:
                 return "The update did not install: Android found the downloaded file damaged. Press Check for updates to download it again.";
             case PackageInstaller.STATUS_FAILURE_BLOCKED:
@@ -61,8 +61,13 @@ public class InstallResult extends BroadcastReceiver {
         }
     }
 
+    /** A key conflict is the installed app's fault, not the file's: the same file installs once the old app is gone. */
+    static boolean keepsSavedApk(int status) {
+        return status == PackageInstaller.STATUS_FAILURE_CONFLICT || status == PackageInstaller.STATUS_FAILURE_INCOMPATIBLE;
+    }
+
     /** A failure also shows as a toast, because a notification is silent when notifications are switched off. */
-    private static void tell(Context context, String text) {
+    static void tell(Context context, String text) {
         notify(context, text, null);
         try {
             Toast.makeText(context, text, Toast.LENGTH_LONG).show();

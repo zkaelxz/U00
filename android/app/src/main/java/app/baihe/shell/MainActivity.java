@@ -615,6 +615,7 @@ public class MainActivity extends Activity {
                         AlertPoller.forget(prefs());
                         // Another PC may hold a newer build than the one that last answered.
                         prefs().edit().remove(UPDATE_ANSWERED_AT).remove(UPDATE_CHECK_FAILED).apply();
+                        updateTriedAt = 0;
                     }
                     autoRetries = 0;
                     loadFailed = false;
@@ -697,10 +698,16 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             // The PC only looks at GitHub when asked, so an unforced ask would hear the old build first.
             long offered = AppUpdate.check(address, cookie, true);
+            if (!stillAddress(address)) return;
             noteCheck(offered);
             if (offered <= 0 || !AppUpdate.isNewer(installedVersion(), offered) || offered == declinedVersion) return;
             runOnUiThread(() -> offerUpdate(address, cookie, offered));
         }).start();
+    }
+
+    /** A check that was asked of a PC the person has since moved away from says nothing about the current one. */
+    private boolean stillAddress(String address) {
+        return address.equals(prefs().getString(ADDRESS, null));
     }
 
     private void noteCheck(long offered) {
@@ -720,6 +727,7 @@ public class MainActivity extends Activity {
         toast("Checking for updates…");
         new Thread(() -> {
             long offered = AppUpdate.check(address, cookie, true);
+            if (!stillAddress(address)) return;
             noteCheck(offered);
             if (offered == AppUpdate.CHECK_FAILED) {
                 runOnUiThread(() -> toast("Could not reach Baihe to check. Try again in a minute."));
@@ -787,7 +795,11 @@ public class MainActivity extends Activity {
         toast("Downloading the update…");
         new Thread(() -> {
             File apk = AppUpdate.savedApk(this);
-            String problem = apkVersion(apk) < offered ? AppUpdate.download(address, cookie, apk) : null;
+            String problem = null;
+            if (!AppUpdate.reuseSavedApk(apkVersion(apk), offered)) {
+                apk.delete();
+                problem = AppUpdate.download(address, cookie, apk);
+            }
             if (problem == null) problem = apkProblem(apk);
             if (problem != null) apk.delete();
             String failed = problem;
@@ -805,7 +817,12 @@ public class MainActivity extends Activity {
      * itself and continues from onResume.
      */
     private void installOrAskToAllow(File apk) {
-        if (isFinishing() || isDestroyed()) return;
+        if (isFinishing() || isDestroyed()) {
+            // The file is kept, and Install update reuses it while the PC still offers this build.
+            InstallResult.tell(getApplicationContext(),
+                    "Update downloaded. Open Baihe and press Check for updates in Settings > Phone app to install it.");
+            return;
+        }
         if (getPackageManager().canRequestPackageInstalls()) {
             install(apk);
             return;
@@ -861,10 +878,8 @@ public class MainActivity extends Activity {
     }
 
     private void updateFailed(String text) {
-        if (isFinishing() || isDestroyed()) {
-            toast(text);
-            return;
-        }
+        toast(text);
+        if (isFinishing() || isDestroyed()) return;
         new AlertDialog.Builder(this)
                 .setTitle("Update not installed")
                 .setMessage(text)

@@ -74,6 +74,11 @@ final class AppUpdate {
         return new File(dir, "baihe-shell.apk");
     }
 
+    /** Install update reuses a saved APK only when it is the very build the PC offers now. */
+    static boolean reuseSavedApk(long savedVersion, long offered) {
+        return savedVersion > 0 && savedVersion == offered;
+    }
+
     /** A saved APK has served its purpose once this app is on its build or newer; 0 is a file Android can't read. */
     static boolean savedApkDone(long savedVersion, long installed) {
         return savedVersion <= 0 || savedVersion <= installed;

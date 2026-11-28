@@ -78,6 +78,23 @@ public class AppUpdateTest {
     }
 
     @Test
+    public void onlyTheOfferedBuildIsReused() {
+        assertTrue(AppUpdate.reuseSavedApk(1200, 1200));
+        assertFalse(AppUpdate.reuseSavedApk(1100, 1200));
+        assertFalse(AppUpdate.reuseSavedApk(1300, 1200));
+        assertFalse(AppUpdate.reuseSavedApk(0, 1200));
+    }
+
+    @Test
+    public void aKeyConflictKeepsTheFileAndSaysToUninstall() {
+        assertTrue(InstallResult.keepsSavedApk(PackageInstaller.STATUS_FAILURE_CONFLICT));
+        assertTrue(InstallResult.keepsSavedApk(PackageInstaller.STATUS_FAILURE_INCOMPATIBLE));
+        assertFalse(InstallResult.keepsSavedApk(PackageInstaller.STATUS_FAILURE_INVALID));
+        assertFalse(InstallResult.keepsSavedApk(PackageInstaller.STATUS_FAILURE));
+        assertTrue(InstallResult.failureText(PackageInstaller.STATUS_FAILURE_CONFLICT).contains("Uninstall the old Baihe app first"));
+    }
+
+    @Test
     public void onlyANewerBuildOfThisAppGoesToTheInstaller() {
         assertNull(AppUpdate.apkProblem("app.baihe.shell", "app.baihe.shell", 1200, 1100));
         assertNotEquals(null, AppUpdate.apkProblem("app.baihe.shell", null, 0, 1100));
