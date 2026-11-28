@@ -456,7 +456,8 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await jobs.blur()
   await jobs.press('Enter')
   await expect.poll(() => bodies.filter(([what]) => what === 'job-limit').length).toBe(2)
-  // Esc puts the saved value back.
+  // Esc puts the saved value back; it is ignored while a save is on its way, so wait for the retry's answer.
+  await expect(jobs).not.toHaveAttribute('aria-busy', 'true')
   await jobs.press('Escape')
   await expect(jobs).toHaveValue('')
 
