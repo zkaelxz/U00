@@ -286,8 +286,8 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
         <h3 className="subhead">Add a person</h3>
         <HelpTip label="Add a person" id="admin-add-user-help">
           They sign in with Google using this email. They start with the household rights (see the library, read and
-          edit subtitles, start and stop jobs, use Review, play audio and video); switch on more in Rights once they
-          are added.
+          edit subtitles, start and stop jobs, use Review, play audio and video, add their own titles, and import
+          chapters from novel and comic sites); switch on more in Rights once they are added.
         </HelpTip>
       </div>
       {/* Left visible: without it the person's first sign-in fails before it reaches Baihe. */}
@@ -304,7 +304,7 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
         <input type="text" autoComplete="off" maxLength={MAX_DISPLAY_NAME_CHARS}
           value={name} disabled={adding} onChange={(e) => setName(e.target.value)} />
       </Field>
-      <Field label="Also allow the browser extension" help={rightAbout('extension.send') ?? undefined}>
+      <Field label="Also allow the browser extension and Baihe Grab" help={rightAbout('extension.send') ?? undefined}>
         <Toggle checked={extension} disabled={adding} onChange={setExtension} />
       </Field>
       <div className="actions">

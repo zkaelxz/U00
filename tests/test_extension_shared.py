@@ -45,7 +45,7 @@ class TestOptionsPage:
 
     def test_an_empty_token_is_refused_without_saving_or_asking_the_worker(self):
         out = _run("options", "empty_token_refused")
-        assert out["status"] == "Paste the token from Baihe's Settings first."
+        assert out["status"] == "Paste the token from Baihe first."
         assert out["bad"] is True
         assert out["set"] == [] and out["sent"] == []
 
@@ -54,7 +54,7 @@ class TestOptionsPage:
         assert out["set"] == [{"token": "tok", "serverUrl": ""}]
         assert out["asked"] == []
         assert out["sent"] == [{"type": "health"}]
-        assert out["status"] == "Connected to Baihe. 1 drama available."
+        assert out["status"] == "Connected to Baihe. 1 title available."
         assert out["bad"] is False
 
     def test_a_https_address_is_reduced_to_its_origin_granted_and_saved(self):
@@ -77,11 +77,11 @@ class TestOptionsPage:
         assert _run("options", "prefills_stored_address")["server"] == "https://baihe.example.com"
 
     def test_plural_dramas(self):
-        assert _run("options", "connected_two_dramas")["status"] == "Connected to Baihe. 2 dramas available."
+        assert _run("options", "connected_two_dramas")["status"] == "Connected to Baihe. 2 titles available."
 
     def test_missing_engine_is_called_out(self):
         status = _run("options", "connected_no_engine")["status"]
-        assert status.startswith("Connected to Baihe. 1 drama available. No translation engine is set")
+        assert status.startswith("Connected to Baihe. 1 title available. No translation engine is set")
 
     def test_the_workers_error_is_shown(self):
         out = _run("options", "worker_error_shown")

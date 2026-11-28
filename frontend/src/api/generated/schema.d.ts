@@ -76051,6 +76051,7 @@ export interface operations {
                 line_ids?: number[] | null;
                 chapter_from?: number | null;
                 chapter_to?: number | null;
+                style_preset?: string | null;
             };
             header?: never;
             path: {
