@@ -375,15 +375,18 @@ def _page_image(drama_id: int, page_id: int, engine_name: str, model=None):
             content = handle.read()
     except Exception:
         return None
-    return page_picture(content)
+    # Read the stored value, not the "zh" fallback used elsewhere: an unset language must
+    # send PNG, the safe format.
+    return page_picture(content, (db.get_drama(drama_id) or {}).get("source_language"))
 
 
-def page_picture(content: bytes):
+def page_picture(content: bytes, source_language=None):
     """_page_image's (bytes, mime, scale) for a page already in memory, or None
     when it can't be prepared. The caller has checked the setting and the engine."""
     try:
         _fmt, width, _height = page_import_limits.check_image(content)
-        data, mime, sent_width, _sent_height = image_text_service.prepare_picture(content)
+        data, mime, sent_width, _sent_height = image_text_service.prepare_picture(
+            content, source_language)
     except Exception:
         return None
     return data, mime, sent_width / width
