@@ -2,6 +2,7 @@
 routes under /api/transcribe/dramas/{id}/compare-transcription. ffmpeg, ASR
 and the translation engine are faked: no audio model, no network."""
 
+import json
 import os
 import subprocess
 import time
@@ -38,9 +39,11 @@ class FakeEngine:
 
     def __init__(self):
         self.calls = []
+        self.contexts = []
 
     def translate_batch(self, texts, ctx=None):
         self.calls.append(list(texts))
+        self.contexts.append(ctx)
         return [f"EN:{t}" for t in texts]
 
 
@@ -427,6 +430,14 @@ class TestTranslation:
         assert (p0["current_en"], p0["candidate_en"]) == ("EN:原0", "EN:新的1")
         assert (p1["current_en"], p1["candidate_en"]) == ("en1", "EN:新的2")
         assert db.get_month_spend() > 0
+
+    def test_uses_the_titles_last_run_locale_and_style_note(self, _env):
+        svc.settings_service.set_settings({"default_locale": "en-GB"})
+        did, _ = _drama(2, translate_start_json=json.dumps({"locale": "en-AU", "style_note": "Plain and short."}))
+        _run(did, translate=True, engine_name="claude",
+             selection={"kind": "range", "from_number": 1, "to_number": 2})
+        ctx = _env["engine"].contexts[0]
+        assert ctx["locale"] == "en-AU" and ctx["style_note"] == "Plain and short."
 
     def test_retranslate_current(self, _env):
         did, _ = _drama(2)

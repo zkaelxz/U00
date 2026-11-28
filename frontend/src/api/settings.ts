@@ -16,7 +16,7 @@ import { pcOnlyFetch } from './pcOnly'
 export const TOGGLES: { key: SettingsToggleKey; label: string }[] = [
   { key: 'gpu_limit_enabled', label: 'Limit GPU jobs running at once' },
   { key: 'notify_on_completion', label: 'Pop-up on this PC when a job finishes' },
-  { key: 'use_gpu', label: 'Use the GPU for transcription' },
+  { key: 'use_gpu', label: 'Use the GPU' },
   { key: 'bulk_auto_resume', label: 'Resume translation batches on start' },
 ]
 

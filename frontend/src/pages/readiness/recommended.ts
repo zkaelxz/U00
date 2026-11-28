@@ -46,7 +46,7 @@ export function recommendedRows(r: SetupReadiness): RecommendedRow[] {
     row('ocr', 'OCR (Tesseract or PaddleOCR)', false, 'Reads burned-in subtitles and text on comic pages.',
       'Tesseract is small; PaddleOCR is about 800 MB', [ocrNeed(r)]),
     row('ollama', 'Ollama test engine', false, 'Translates with hosted Gemma 4 31B through the Ollama program; paid, billed per token.',
-      'a separate program; models are 1 to 20 GB', [ollamaNeed(r)]),
+      'a separate program; the model runs on Ollama’s servers, so nothing more is downloaded', [ollamaNeed(r)]),
   )
   return rows
 }

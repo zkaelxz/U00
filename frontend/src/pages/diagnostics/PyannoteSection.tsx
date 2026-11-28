@@ -67,7 +67,7 @@ export function PyannoteSection({ openSignal }: { openSignal?: number }) {
                     `${m.model}: open`
                   ) : (
                     <>
-                      <span className="warn">{m.model}: terms not accepted</span>{' '}
+                      <span className="warn">{m.model}: can’t open it (check the connection and token, or accept its terms)</span>{' '}
                       <a className="hf-terms" href={hfModelUrl(m.model)} target="_blank" rel="noopener noreferrer">
                         Accept terms ↗
                       </a>

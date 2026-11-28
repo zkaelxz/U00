@@ -728,6 +728,88 @@ def test_a_member_past_their_daily_limit_waits_for_tomorrow_without_retrying_eve
     assert _items()[0]["status"] == "running" and jobs.started == [f"transcribe_{a}"]
 
 
+def test_a_nearly_full_drive_holds_back_only_members_not_an_admins_items(jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    member = _member()
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    admin = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    theirs = _drama("Theirs", owner_user_id=member["user_id"], is_private=1)
+    admins = _drama("Admin's", owner_user_id=admin_id, is_private=1)
+    q.add_item(member, theirs, "transcribe", False, at_pc=True)
+    q.add_item(admin, admins, "transcribe", False, at_pc=True)
+    q.start(None)
+
+    t0 = q._clock()
+    q.tick(now=t0)
+    members_item, admins_item = _items()
+    assert members_item["status"] == "waiting" and "almost out of disk space" in members_item["reason"]
+    assert admins_item["status"] == "running" and jobs.started == [f"transcribe_{admins}"]
+    with q._lock:
+        rests = {i["drama_id"]: i.get("not_before") for i in q._load()["items"]}
+    assert rests[theirs] == t0 + q.DISK_LOW_RETRY_SECONDS and not rests[admins]
+
+
+def test_a_failed_account_read_for_the_disk_hold_rests_the_item_instead_of_leaving_it_running(
+        jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    member = _member()
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    admin = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    q.add_item(member, _drama("A", owner_user_id=member["user_id"], is_private=1), "transcribe", False,
+               at_pc=True)
+    q.add_item(admin, _drama("B", owner_user_id=admin_id, is_private=1), "transcribe", False, at_pc=True)
+
+    def unreadable(_uid):
+        raise RuntimeError("database is locked")
+    monkeypatch.setattr(user_caps, "held_back_by_low_disk", unreadable)
+    q.start(None)
+    t0 = q._clock()
+    q.tick(now=t0)
+    with q._lock:
+        members_item, admins_item = q._load()["items"]
+    assert members_item["status"] == "waiting" and "almost out of disk space" in members_item["reason"]
+    # The admin's item could not be checked, so it rests too rather than escaping the hold.
+    assert admins_item["status"] == "waiting" and admins_item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+    assert jobs.started == []
+
+
+@pytest.mark.parametrize("added_by", ["device_token", "before_by_admin_was_recorded"])
+def test_an_admin_accounts_item_not_added_with_admin_rights_is_held_on_a_nearly_full_drive(
+        jobs, monkeypatch, added_by):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    session = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    # A device token acts for the admin account with member rights only.
+    token = {"user_id": admin_id, "is_admin": False, "device_token_id": 1, "permissions": ["jobs.start"]}
+    held = _drama("Held", owner_user_id=admin_id, is_private=1)
+    runs = _drama("Runs", owner_user_id=admin_id, is_private=1)
+    q.add_item(token if added_by == "device_token" else session, held, "transcribe", False, at_pc=True)
+    q.add_item(session, runs, "transcribe", False, at_pc=True)
+    if added_by == "before_by_admin_was_recorded":
+        with q._lock:
+            doc = q._load()
+            doc["items"][0].pop("by_admin")
+            q._save(doc)
+    q.start(None)
+
+    t0 = q._clock()
+    q.tick(now=t0)
+    with q._lock:
+        held_item, runs_item = q._load()["items"]
+    assert held_item["status"] == "waiting" and "almost out of disk space" in held_item["reason"]
+    assert held_item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+    assert runs_item["status"] == "running" and jobs.started == [f"transcribe_{runs}"]
+
+
 def test_a_full_drive_does_not_cut_short_a_members_daily_limit_rest(jobs, monkeypatch):
     from collections import namedtuple
     from jobs import user_caps
@@ -921,6 +1003,64 @@ def test_the_same_title_never_overlaps_itself(jobs, cap, monkeypatch):
     q.set_policy(None, overlap_online_translate=True)
     q.start(None)
     q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def _all_steps_queue(on):
+    a = _drama("A", engine="claude")
+    b = _drama("B", engine="claude")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_all_steps(None, b, True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=on)
+    q.start(None)
+    q.tick()
+    return a, b
+
+
+def test_the_next_titles_transcription_starts_beside_a_translation_in_an_all_steps_queue(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, b = _all_steps_queue(True)
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}", f"transcribe_{b}"]
+    assert _status() == [("transcribe", "done"), ("translate", "running"), ("export", "waiting"),
+                         ("transcribe", "running"), ("translate", "waiting"), ("export", "waiting")]
+
+
+def test_an_all_steps_queue_runs_one_at_a_time_with_the_switch_off(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, _b = _all_steps_queue(False)
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_a_transcription_never_starts_ahead_of_an_earlier_step_of_its_own_title(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a = _drama("A", engine="claude")
+    b = _drama("B", engine="claude")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, b, "translate", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=True)
+    q.start(None)
+    q.tick()
+    q.tick()
+    assert jobs.started == [f"translate_{a}"]
+
+
+def test_a_queue_transcription_never_overtakes_a_start_pressed_on_a_page(jobs, cap, monkeypatch):
+    _paid_ready(cap, monkeypatch)
+    a, b, c = (_drama(t, engine="claude") for t in "ABC")
+    q.add_item(None, a, "translate", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.set_policy(None, overlap_online_translate=True)
+    q.start(None)
+    q.tick()
+    q._append_items(None, c, [("translate", {})], True, now=True)
     q.tick()
     assert jobs.started == [f"translate_{a}"]
 
