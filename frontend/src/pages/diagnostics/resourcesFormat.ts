@@ -14,7 +14,7 @@ function duration(seconds: number): string {
 
 export function readingText(m: ResourceMetric): string {
   if (m.value == null) return 'Not available'
-  if (m.name === 'gpu_throttle') return m.value >= 1 ? 'Slowing down to stay cool' : 'No'
+  if (m.name === 'gpu_throttle') return m.value >= 1 ? 'Slowing down to stay safe' : 'No'
   return withUnit(m, m.value)
 }
 

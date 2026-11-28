@@ -13,7 +13,7 @@ describe('resourcesFormat', () => {
     expect(readingText(metric({}))).toBe('70 °C')
     expect(readingText(metric({ name: 'ram', unit: '%', value: 95.4 }))).toBe('95%')
     expect(readingText(metric({ name: 'disk_free', unit: 'GB', value: 12.34 }))).toBe('12.3 GB')
-    expect(readingText(metric({ name: 'gpu_throttle', unit: '', value: 1 }))).toBe('Slowing down to stay cool')
+    expect(readingText(metric({ name: 'gpu_throttle', unit: '', value: 1 }))).toBe('Slowing down to stay safe')
     expect(readingText(metric({ value: null }))).toBe('Not available')
   })
 

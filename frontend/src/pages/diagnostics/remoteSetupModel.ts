@@ -9,14 +9,16 @@ const BADGES: Record<RemoteSetupStep['state'], { tone: BadgeTone; label: string 
   manual: { tone: 'neutral', label: 'Yours to check' },
 }
 
+const OUTSIDE_STEPS = ['router', 'outside']
+
 export const stepBadge = (s: Pick<RemoteSetupStep, 'state'>) => BADGES[s.state]
 
 /** The closed-card line: how far along, and what comes next. */
 export function setupSummary(setup: RemoteSetup): string {
   const done = setup.steps.filter((s) => s.state === 'done').length
-  // Steps this PC can't see (the router, a check from a phone) stay "manual" for good.
-  if (setup.steps.every((s) => s.state === 'done' || s.state === 'manual') && done < setup.steps.length)
-    return 'All set on this PC · check once from a phone'
+  // The router and the check from a phone can never be "done" here, so they don't hold the line back.
+  if (setup.steps.every((s) => s.state === 'done' || OUTSIDE_STEPS.includes(s.id)) && done < setup.steps.length)
+    return 'PC steps done · check once from a phone'
   const next = setup.steps.find((s) => s.id === setup.next)
   return next ? `${done} of ${setup.steps.length} done · next: ${next.title}` : 'All steps done'
 }

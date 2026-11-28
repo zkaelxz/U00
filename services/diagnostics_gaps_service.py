@@ -195,8 +195,8 @@ def get_job_history() -> list:
 
 
 def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
-    """The last n (capped at LOG_TAIL_MAX) redacted log lines, optionally
-    filtered by keyword."""
+    """The last n (capped at LOG_TAIL_MAX) redacted log lines; with a keyword,
+    the newest n matches in the last LOG_FILTER_SCAN lines."""
     import applog
     try:
         n = int(n)
