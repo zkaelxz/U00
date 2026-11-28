@@ -1,7 +1,9 @@
 """The opt-in Breeze-ASR-25 model: registered like whisper-ja 1.5B (pinned CTranslate2 repo) but
 for Chinese titles only. Fakes only: no network, no weights."""
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +12,9 @@ import whisper_models as wm
 from lib.errors import InvalidInputError
 from services import compare_transcription_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from tests.test_whisper_ja_model import FakeHub, hf_home  # noqa: F401  (fixture)
+
+SEPARATE_VOCALS_DEFAULTS = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages" / "workspace"
+                            / "stages" / "separateVocalsDefaults.json")
 
 KEY = "breeze-asr-25"
 REPO, REVISION = wm.PINNED_CT2_REPOS[KEY]
@@ -167,6 +172,20 @@ class TestRegistry:
         transcribe_service.update_transcribe_config(
             did, whisper_size=KEY, separate_vocals_first=True, separate_vocals_touched=True)
         assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+
+    @pytest.mark.parametrize("case", json.loads(SEPARATE_VOCALS_DEFAULTS.read_text(encoding="utf-8")),
+                             ids=lambda c: "-".join(str(v) for v in c.values()))
+    def test_the_forms_default_matches_the_run(self, isolated_db, monkeypatch, case):
+        # The Transcribe form shows the switch for a title that never chose from its own copy of
+        # this rule (defaultSeparateVocals); its vitest reads the same table.
+        self._separation_setup(monkeypatch, case["separator_ready"])
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size=case["whisper_size"],
+                                       asr_backend_choice=case["asr_backend_choice"],
+                                       use_groq=int(case["use_groq"]))
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["separates_on_breeze_by_default"] is case["separator_ready"]
+        assert config["separate_vocals_first"] is case["separates"]
+        assert transcribe_options_service.effective_separate_vocals(isolated_db.get_drama(did)) is case["separates"]
 
     @pytest.mark.parametrize("ready", [True, False])
     def test_config_says_what_breeze_would_default_to(self, isolated_db, monkeypatch, ready):

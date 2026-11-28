@@ -65,13 +65,15 @@ KeyError. The only trace left is a DeepL key pattern in
 ### What `shared.py` provides
 
 - **Id-keyed requests.** `request_translations_with_retry(zh_lines,
-  speaker_names, call_model_fn, ..., line_ids=, engine_name=)` is the one loop
+  speaker_names, call_model_fn, ..., engine_name=)` is the one loop
   behind every engine's `translate_batch`. It numbers lines
   (`build_numbered_lines`), asks the model for a JSON object `{"<id>": "<text>"}`,
   and re-requests only the ids that came back missing (`max_retries`, default
-  1). Ids are the lines' permanent ids when every line has a unique int id,
-  else `1..n`. A line still missing after the retry stays blank; it never
-  borrows another line's text.
+  1). Ids are `1..n` for that one call, never the lines' database ids (a
+  model copying long near-identical ids slips a digit or skips one). Key k
+  is the k-th line passed in; the reply is still read by key, never by its
+  order. A line still missing after the retry stays blank; it never borrows
+  another line's text.
 - **`parse_id_keyed_json(text, expected_ids)`.** Returns `{id: text}` for ids
   that came back as strings. A bare JSON array is treated as malformed (`{}`)
   because positional matching is exactly the bug this exists to prevent.
@@ -240,10 +242,6 @@ reasoning: "less" (the saved choice `claude_reasoning` / `openai_reasoning`, rea
 claude-sonnet-5-5 (it refuses "disabled") and `reasoning_effort: "low"` to gpt-6-luna
 (`engine_backends/thinking.py`); every other model ignores it. Only the Workspace translate job and
 the bulk submit pass it, so Compare, the stronger-engine retry and Live keep the provider default.
-thinking: ask engines with a switch (DeepSeek, Ollama) to reason before
-answering; None = the title's remembered choice, else off. Its reasoning is
-never saved with a line.
-
 scene_aware_batches: start batches at scene breaks (plan_batches)
 instead of cutting fixed slices of batch_size. Same maximum size.
 scene_break_gap: the pause, in seconds, that counts as a scene break.
@@ -400,27 +398,20 @@ backward. 0 disables this.
    Ollama's hosted Gemma, or OpenAI (GPT-6 Luna) when Ollama does not answer and an OpenAI key is saved.
    `<think>` blocks in a reply are stripped before parsing; a separate
    `thinking` field is never read.
-8. **Thinking on translation runs.** Off by default for every run (Workspace,
-   bulk): `build_translation_context` sets `reply_without_thinking`, so
-   DeepSeek gets `thinking: disabled` and Ollama `think: false`
-   (`engine_backends/thinking.py`, shared with Live). A run that asks to "think
-   harder" (`thinking=True`, the Translate step's toggle) sends the explicit on form instead (`thinking: enabled`,
-   `think: true`). Engines without a request switch (Claude, Gemini, OpenAI,
+8. **Thinking on translation runs.** Off for every run (Workspace, bulk):
+   `build_translation_context` sets `reply_without_thinking`, so DeepSeek gets
+   `thinking: disabled` and Ollama `think: false` (`engine_backends/thinking.py`,
+   shared with Live). Engines without a request switch (Claude, Gemini, OpenAI,
    the translation-only engines) are unchanged, and so are Reflect's passes and
-   a Claude/Gemini batch; the form says so. Comics are not covered: Scanlate calls
-   `call_llm_json`, which has no switch. The title's choice is kept in
-   `dramas.translate_thinking` (NULL = never chosen = off), written by
-   `save_style_toggles` once a run is accepted and read by
-   `build_translation_context` when a run begins (so retries, line AI and the
-   DeepSeek off-peak job use it too). Reasoning is never saved: `<think>` blocks are stripped
-   and `reasoning_content` / `thinking` fields are never read. Hidden reasoning
-   is billed inside the provider's output token count, so `usage_log` and the
-   spend history (`spend_history_service`) already include it with no new
-   field; the pre-run estimate is made from the visible text and is shown as a
-   lower bound when thinking is on. There is no translation output cache; the
-   per-line provenance settings hash gains `thinking` only for a thinking run,
-   so earlier hashes are unchanged and `TRANSLATE_PROMPT_VERSION` is not bumped
-   (the prompt text is the same).
+   a Claude/Gemini batch. Comics are not covered: Scanlate calls `call_llm_json`,
+   which has no switch. The removed "Think harder" option left a `thinking`
+   field that run requests still accept and ignore, a `dramas.translate_thinking`
+   column nothing reads, and a `thinking` key in older off-peak jobs'
+   `translate_args`, also ignored. Reasoning is never saved: `<think>` blocks are
+   stripped and `reasoning_content` / `thinking` fields are never read. Hidden
+   reasoning is billed inside the provider's output token count, so `usage_log`
+   and the spend history (`spend_history_service`) already include it with no new
+   field.
 
 ## 3. Transcription (ASR)
 
@@ -532,8 +523,8 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
 
 1. **Class** in the matching `engine_backends/` module (or a new one), with
    `name`, `supports_reference`, `last_usage`, and `translate_batch(zh_lines,
-   context)` built on `request_translations_with_retry(..., line_ids=
-   context.get("line_ids"), engine_name=...)`. Raise
+   context)` built on `request_translations_with_retry(...,
+   engine_name=...)`. Raise
    `ContentModerationBlocked` on the provider's structural refusal signal.
 2. **Registry:** add it to `ENGINES`, `ENGINE_CAPABILITIES`, `ENGINE_NOTES`,
    and, if free or keyless, `FREE_ENGINES` / `KEYLESS_ENGINES`; if it cannot

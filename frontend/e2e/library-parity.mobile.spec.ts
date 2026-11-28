@@ -98,13 +98,14 @@ for (const width of [390, 320]) {
       const inner = li.getBoundingClientRect()
       const b = btn.getBoundingClientRect()
       const t = text.getBoundingClientRect()
-      const pad = parseFloat(getComputedStyle(li).paddingLeft) + parseFloat(getComputedStyle(li).paddingRight)
+      const cs = getComputedStyle(li)
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
       // The label's own box: the button's scrollWidth also counts the ::after that widens its tap area.
       const range = document.createRange()
       range.selectNodeContents(btn)
       const label = range.getBoundingClientRect()
       return {
-        below: b.top >= t.bottom, height: b.height, fullWidth: Math.abs(b.width - (inner.width - pad - 2)) <= 1,
+        below: b.top >= t.bottom, height: b.height, fullWidth: Math.abs(b.width - (inner.width - pad)) <= 1,
         insideItem: b.left >= inner.left && b.right <= inner.right,
         buttonCut: label.left < b.left || label.right > b.right || label.bottom > b.bottom, titleCut: title.scrollWidth > title.clientWidth,
       }

@@ -8,6 +8,8 @@ export interface ReaderPage {
   page: number
   page_count: number
   total_lines: number
+  // The line each page starts at: a novel's pages start at its chapters.
+  page_starts: number[]
 }
 
 export interface ReaderPageParams {
@@ -22,6 +24,8 @@ export interface ReaderPageParams {
   readings: boolean
   // Single lines with an edit button instead of joined paragraphs.
   edit?: boolean
+  // Answer with the page that holds this line instead of `page`.
+  line?: number
 }
 
 export type ReaderOverview = Schemas['ReaderOverview']

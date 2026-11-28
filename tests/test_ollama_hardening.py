@@ -228,19 +228,19 @@ _SOURCES = ["你好", "谢谢你", "再见了"]
 
 class TestCutOffReply:
     def test_complete_pairs_of_a_cut_off_reply_are_kept_and_only_the_rest_re_asked(self, batch_chat):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": "Thank you.", "13": "Good', done_reason="length"),
-                          _reply('{"13": "Goodbye."}'))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": "Thank you.", "3": "Good', done_reason="length"),
+                          _reply('{"3": "Goodbye."}'))
         out = _engine().translate_batch(_SOURCES, dict(_IDS))
         assert out == ["Hello.", "Thank you.", "Goodbye."]
         retry = _user_text(fake.bodies[1])
-        assert "13." in retry and "11." not in retry and "12." not in retry
+        assert "3." in retry and "1." not in retry and "2." not in retry
 
     def test_a_cut_off_reply_re_asks_the_missing_lines_in_halves(self, batch_chat):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": "Tha', done_reason="length"),
-                          _reply('{"12": "Thank you."}'), _reply('{"13": "Goodbye."}'))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": "Tha', done_reason="length"),
+                          _reply('{"2": "Thank you."}'), _reply('{"3": "Goodbye."}'))
         out = _engine().translate_batch(_SOURCES, dict(_IDS))
         assert out == ["Hello.", "Thank you.", "Goodbye."]
-        assert [("12." in _user_text(b), "13." in _user_text(b)) for b in fake.bodies[1:]] == [
+        assert [("2." in _user_text(b), "3." in _user_text(b)) for b in fake.bodies[1:]] == [
             (True, False), (False, True)]
 
     def test_other_engines_still_lose_a_cut_off_reply(self):
@@ -250,13 +250,13 @@ class TestCutOffReply:
 
 class TestLeakedDraft:
     def test_the_last_object_wins_over_a_reasoning_draft(self, batch_chat):
-        batch_chat(_reply('Draft: {"11": "Hi.", "12": "Thanks.", "13": "Bye."}\n'
-                          'Final: {"11": "Hello.", "12": "Thank you.", "13": "Goodbye."}'))
+        batch_chat(_reply('Draft: {"1": "Hi.", "2": "Thanks.", "3": "Bye."}\n'
+                          'Final: {"1": "Hello.", "2": "Thank you.", "3": "Goodbye."}'))
         assert _engine().translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
 
     def test_a_channel_reasoning_block_is_never_the_translation(self, batch_chat):
-        batch_chat(_reply('<|channel>thought\n{"11": "wrong", "12": "wrong", "13": "wrong"}<channel|>'
-                          '{"11": "Hello.", "12": "Thank you.", "13": "Goodbye."}'))
+        batch_chat(_reply('<|channel>thought\n{"1": "wrong", "2": "wrong", "3": "wrong"}<channel|>'
+                          '{"1": "Hello.", "2": "Thank you.", "3": "Goodbye."}'))
         assert _engine().translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
 
     def test_other_engines_keep_the_first_object(self):
@@ -266,24 +266,24 @@ class TestLeakedDraft:
 
 class TestValuesAreChecked:
     @pytest.mark.parametrize("bad", [
-        "12. Thank you.",
+        "2. Thank you.",
         '["Thank you."]',
         "[Xiaoling] Thank you.",
         "谢谢你",
         "Okay, the user wants me to translate this line. " * 6,
     ])
     def test_a_bad_value_is_re_asked_then_left_untranslated(self, batch_chat, bad):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": %s, "13": "Goodbye."}' % _json(bad)))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": %s, "3": "Goodbye."}' % _json(bad)))
         engine = _engine()
         out = engine.translate_batch(_SOURCES, dict(_IDS, speaker_labels=[None, "Xiaoling", None]))
         assert out == ["Hello.", "", "Goodbye."]
-        assert len(fake.bodies) == 2 and "12." in _user_text(fake.bodies[1])
+        assert len(fake.bodies) == 2 and "2." in _user_text(fake.bodies[1])
         assert set(engine.last_rejected) == {12}
 
     @pytest.mark.parametrize("line", ["I won't leave you.", "I can't do this anymore.",
                                       "I cannot lose you.", "[Sighs] Fine."])
     def test_dialogue_that_only_sounds_like_a_refusal_is_written(self, batch_chat, line):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": %s, "13": "Goodbye."}' % _json(line)))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": %s, "3": "Goodbye."}' % _json(line)))
         engine = _engine()
         assert engine.translate_batch(["你好", "我不会离开你", "再见了"], dict(_IDS))[1] == line
         assert len(fake.bodies) == 1 and engine.last_rejected == {}
@@ -295,8 +295,8 @@ class TestValuesAreChecked:
             _engine().translate_batch(_SOURCES, dict(_IDS))
 
     def test_rejections_from_a_later_call_do_not_erase_earlier_ones(self, batch_chat):
-        batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'),
-                   _reply('{"12": "谢谢你"}'), _reply('{"13": "Bye."}'))
+        batch_chat(_reply('{"1": "Hello.", "2": "谢谢你", "3": "Goodbye."}'),
+                   _reply('{"2": "谢谢你"}'), _reply('{"1": "Bye."}'))
         engine = _engine()
         engine.translate_batch(_SOURCES, dict(_IDS))
         assert set(engine.last_rejected) == {12}
@@ -304,14 +304,14 @@ class TestValuesAreChecked:
         assert set(engine.last_rejected) == {12}
 
     def test_reply_guard_off_skips_the_value_checks(self, batch_chat):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": "谢谢你", "3": "Goodbye."}'))
         out = _engine().translate_batch(_SOURCES, dict(_IDS, check_replies=False))
         assert out == ["Hello.", "谢谢你", "Goodbye."] and len(fake.bodies) == 1
 
     def test_the_run_passes_reply_guard_off_to_the_engine(self, monkeypatch):
         from core import Line
         from engine_backends import translate_pipeline
-        monkeypatch.setattr(local, "_ollama_chat", _Chat(_reply('{"11": "谢谢你"}')))
+        monkeypatch.setattr(local, "_ollama_chat", _Chat(_reply('{"1": "谢谢你"}')))
         line = Line(idx=0, start=0, end=1, zh="谢谢你", en="")
         line.id = 11
         out, _ = translate_pipeline.translate_lines_with_engine(
@@ -319,14 +319,14 @@ class TestValuesAreChecked:
         assert out[0].en == "谢谢你"
 
     def test_a_bad_value_that_comes_back_good_is_written(self, batch_chat):
-        batch_chat(_reply('{"11": "Hello.", "12": "谢谢你", "13": "Goodbye."}'),
-                   _reply('{"12": "Thank you."}'))
+        batch_chat(_reply('{"1": "Hello.", "2": "谢谢你", "3": "Goodbye."}'),
+                   _reply('{"2": "Thank you."}'))
         engine = _engine()
         assert engine.translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thank you.", "Goodbye."]
         assert engine.last_rejected == {}
 
     def test_a_glossary_term_kept_in_source_script_is_allowed(self, batch_chat):
-        batch_chat(_reply('{"11": "Hello, 白鹤.", "12": "Thank you.", "13": "Goodbye."}'))
+        batch_chat(_reply('{"1": "Hello, 白鹤.", "2": "Thank you.", "3": "Goodbye."}'))
         ctx = dict(_IDS, glossary_terms=[{"term_original": "白鹤", "term_translation": "白鹤"}])
         assert _engine().translate_batch(_SOURCES, ctx)[0] == "Hello, 白鹤."
 
@@ -334,7 +334,8 @@ class TestValuesAreChecked:
         from core import Line
         from engine_backends import translate_pipeline
         monkeypatch.setattr(local, "_ollama_chat", _Chat(
-            _reply('{"11": "Hello.", "12": "谢谢你"}')))
+            _reply('{"1": "Hello.", "2": "谢谢你"}'), _reply('{"2": "谢谢你"}'),
+            _reply('{"1": "谢谢你"}')))  # the run asks the bad line again on its own
         lines = [Line(idx=0, start=0, end=1, zh="你好", en=""),
                  Line(idx=1, start=1, end=2, zh="谢谢你", en="")]
         lines[0].id, lines[1].id = 11, 12
@@ -347,12 +348,12 @@ class TestValuesAreChecked:
 
 class TestPerBatchSchema:
     def test_the_schema_requires_exactly_this_batchs_ids(self, batch_chat):
-        fake = batch_chat(_reply('{"11": "Hello.", "12": "Thanks."}'), _reply('{"13": "Bye."}'))
+        fake = batch_chat(_reply('{"1": "Hello.", "2": "Thanks."}'), _reply('{"3": "Bye."}'))
         _engine().translate_batch(_SOURCES, dict(_IDS))
         first, retry = fake.bodies[0]["format"], fake.bodies[1]["format"]
-        assert first["required"] == ["11", "12", "13"] and first["additionalProperties"] is False
-        assert set(first["properties"]) == {"11", "12", "13"}
-        assert retry["required"] == ["13"]
+        assert first["required"] == ["1", "2", "3"] and first["additionalProperties"] is False
+        assert set(first["properties"]) == {"1", "2", "3"}
+        assert retry["required"] == ["3"]
 
     def test_a_server_that_rejects_the_schema_gets_plain_json(self, batch_chat):
         resp = requests.Response()
@@ -360,7 +361,7 @@ class TestPerBatchSchema:
         resp._content = b'{"error": "invalid JSON schema in format"}'
         err = requests.HTTPError("400", response=resp)
         err.body_text = resp._content.decode()
-        fake = batch_chat(err, _reply('{"11": "Hello.", "12": "Thanks.", "13": "Bye."}'))
+        fake = batch_chat(err, _reply('{"1": "Hello.", "2": "Thanks.", "3": "Bye."}'))
         engine = _engine()
         assert engine.translate_batch(_SOURCES, dict(_IDS)) == ["Hello.", "Thanks.", "Bye."]
         assert fake.bodies[1]["format"] == "json"
@@ -373,7 +374,7 @@ class TestPerBatchSchema:
         resp._content = b'{"error": "invalid date format in keep_alive"}'
         err = requests.HTTPError("400", response=resp)
         err.body_text = resp._content.decode()
-        batch_chat(err, _reply('{"11": "Hello.", "12": "Thanks.", "13": "Bye."}'))
+        batch_chat(err, _reply('{"1": "Hello.", "2": "Thanks.", "3": "Bye."}'))
         engine = _engine()
         with pytest.raises(requests.HTTPError):
             engine.translate_batch(_SOURCES, dict(_IDS))

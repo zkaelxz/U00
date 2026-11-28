@@ -4,7 +4,7 @@ import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
 import type { DramaSummary } from '../api/types'
 import type { ReviewLine } from '../types/review'
-import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
+import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, pageHasOwnSearch, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
 import type { NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
@@ -208,5 +208,15 @@ describe('line search', () => {
     expect(a.label).toBe('月亮')
     expect(b.label).toHaveLength(81)
     expect(filterEntries([a, b], 'x')).toContain(a)
+  })
+})
+
+describe('pageHasOwnSearch', () => {
+  it('drops the header search on Library, Find & Add, Jobs and Settings only', () => {
+    for (const name of ['library', 'make-subtitles', 'discover', 'sources', 'updates', 'jobs', 'settings'] as const) {
+      expect(pageHasOwnSearch({ name } as never)).toBe(true)
+    }
+    expect(pageHasOwnSearch({ name: 'translate' } as never)).toBe(false)
+    expect(pageHasOwnSearch({ name: 'drama', id: 1, stage: 'review' } as never)).toBe(false)
   })
 })

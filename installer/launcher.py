@@ -67,6 +67,9 @@ FORCE_WAIT_SECONDS = 10.0
 START_LOCK_NAME = "starting.lock"
 START_LOCK_STALE_SECONDS = HEALTH_TRIES + 30
 SERVER_LOG_NAME = "server.log"
+START_REFUSAL_NAME = "start_refused.txt"
+START_REFUSAL_ENV = "BAIHE_START_REFUSAL_FILE"   # api/__main__.py
+MAX_REFUSAL_CHARS = 2000
 
 # pip settings from the user's own environment that would make the
 # bundled interpreter's installs (Diagnostics' Install buttons run
@@ -242,7 +245,9 @@ def start_server(python_exe: str, env: dict, headless: bool):
     ldir.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
     _write_private(ldir / TOKEN_FILE_NAME, token)
-    env = dict(env, **{SHUTDOWN_TOKEN_ENV: token})
+    refusal = ldir / START_REFUSAL_NAME
+    refusal.unlink(missing_ok=True)   # an old one would explain this start wrongly
+    env = dict(env, **{SHUTDOWN_TOKEN_ENV: token, START_REFUSAL_ENV: str(refusal)})
     kwargs = {"cwd": str(APP_DIR), "env": env, "close_fds": True}
     log = None
     if os.name == "nt":
@@ -385,6 +390,21 @@ def wait_for_health(port: int, proc=None, tries: int = HEALTH_TRIES, sleep=time.
             return False   # the server already exited; waiting longer won't help
         sleep(1)
     return health_ok(port)
+
+
+def take_start_refusal():
+    """The sentence the server left when it refused to start, or None. Read
+    once: the file is removed so a later failure is not explained by it."""
+    path = launcher_dir() / START_REFUSAL_NAME
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return text[:MAX_REFUSAL_CHARS] or None
 
 
 def browser_candidates(env=None) -> list:
@@ -674,6 +694,9 @@ def launch(headless: bool = False) -> int:
             print("Baihe Studio is already starting; waiting for it.", flush=True)
             healthy = wait_for_health(port)
         if not healthy:
+            refusal = take_start_refusal()
+            if refusal:
+                raise LaunchError(refusal)
             where = (launcher_dir() / SERVER_LOG_NAME) if headless else "the minimized server window"
             raise LaunchError(
                 f"Baihe Studio's server didn't answer at {url}api/health. "

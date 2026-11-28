@@ -129,6 +129,19 @@ test('a page that fails to load stays on the last good page and offers Retry', a
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0)
 })
 
+test('changing lines per page keeps the first line in view', async ({ page }) => {
+  await page.goto('/#/read/2?page=3')
+  await expect(label(page)).toHaveText('Page 3 of 3')
+  await page.getByRole('button', { name: 'Reading settings' }).click()
+  const perPage = page.getByRole('spinbutton', { name: 'Lines per page' })
+  await perPage.fill('20')
+  await perPage.press('Enter')
+  // Line 80 opened page 3 at 40 a page; at 20 a page it is on page 5.
+  await expect(page).toHaveURL(/#\/read\/2\?page=5$/)
+  await expect(label(page)).toHaveText('Page 5 of 5')
+  await expect(frameRows(page)).toHaveCount(10)
+})
+
 test('text size and lines per page persist across a reload', async ({ page }) => {
   await page.goto('/#/read/2?page=1')
   await expect(frameRows(page)).toHaveCount(40)

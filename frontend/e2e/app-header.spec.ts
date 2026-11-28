@@ -79,7 +79,7 @@ test('docked at 1440 the header is search, Jobs, Alerts as icons with their word
   await dock(page)
   await quietHeader(page)
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   const end = page.locator('.header-end')
   await expect(end).toBeVisible()
   for (const [selector, name] of [
