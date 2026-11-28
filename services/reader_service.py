@@ -429,6 +429,24 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
 # Progress and length
 # ---------------------------------------------------------------------------
 
+# The overview is fetched on every Reader visit, so a track is probed once per version of the
+# file, and a failed probe is remembered too.
+_TRACK_SECONDS: dict = {}
+
+
+def _track_seconds(path: str):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _TRACK_SECONDS:
+        if len(_TRACK_SECONDS) >= 256:
+            _TRACK_SECONDS.clear()
+        _TRACK_SECONDS[key] = media_inspect.duration_seconds(path, timeout=5)
+    return _TRACK_SECONDS[key]
+
+
 def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
     """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
@@ -440,7 +458,7 @@ def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
         display = story_context.listening_time(last_end)["display"] if count else "0m"
     else:
         narration = _media_paths(drama_id, drama).get("narration")
-        seconds = media_inspect.duration_seconds(narration[1]) if narration else None
+        seconds = _track_seconds(narration[1]) if narration else None
         display = (story_context.listening_time(seconds) if seconds
                    else story_context.reading_time(words))["display"]
     prog = db.get_progress(drama_id, user_id=user_id) or {}
