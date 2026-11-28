@@ -44,13 +44,14 @@ class NotificationCategoriesRequest(BaseModel):
 class NotificationEvent(BaseModel):
     id: int
     at: float
-    kind: Literal["job_done", "job_failed", "chapters", "remote", "resource", "live", "waiting"]
+    kind: Literal["job_done", "job_failed", "chapters", "remote", "resource", "live", "waiting",
+                  "device_token"]
     text: str
     # A followed Live channel's entry: which follow, a "Start Live" action
     # (POST /api/live/follows/{follow_id}/start) and a scheduled start (Unix
     # seconds, shown in the viewer's own time).
     follow_id: Optional[int] = None
-    action: Optional[Literal["start_live"]] = None
+    action: Optional[Literal["start_live", "retry_queue"]] = None
     starts_at: Optional[float] = None
     # A "waiting" entry: the page its Open link goes to.
     target: Optional[NotificationTarget] = None

@@ -349,12 +349,7 @@ class SlowSwitchEngine(FallbackEngine):
                 raise
             # The fallback can't serve this PC (Ollama not running or not signed in): the
             # slow engine is still better than none.
-            with self._state.lock:
-                self._state.fallback_failed = True
-                self._state.events.append({"from": self.choices[1], "to": self.choices[0],
-                                           "reason": type(e).__name__,
-                                           "detail": redact_secrets(str(e))[:200]})
-            self.active = 0
+            self._hand_back(e)
             return self.engines[0].translate_batch(zh_lines, context)
         if on_primary:
             self._note_primary_time(_clock() - started, len(zh_lines))
@@ -369,9 +364,27 @@ class SlowSwitchEngine(FallbackEngine):
             if not any(ev.get("reason") == OUT_OF_CREDIT for ev in s.events):
                 s.events.append({"from": self.choices[0], "to": self.choices[1],
                                  "reason": OUT_OF_CREDIT, "detail": redact_secrets(str(e))[:200]})
-        _remember_slow(self.engines[0], OUT_OF_CREDIT)
         self.active = 1
-        return self.engines[1].translate_batch(zh_lines, context)
+        try:
+            result = self.engines[1].translate_batch(zh_lines, context)
+        except Exception as fallback_error:
+            if not _cannot_serve(fallback_error):
+                raise
+            # With no fallback the user's problem is DeepSeek's credit, not a stopped Ollama.
+            self._hand_back(fallback_error)
+            raise e from None
+        # Only once the fallback has served: otherwise the next run would skip DeepSeek and
+        # waste a call on a fallback that isn't there before getting the same 402.
+        _remember_slow(self.engines[0], OUT_OF_CREDIT)
+        return result
+
+    def _hand_back(self, fallback_error):
+        with self._state.lock:
+            self._state.fallback_failed = True
+            self._state.events.append({"from": self.choices[1], "to": self.choices[0],
+                                       "reason": type(fallback_error).__name__,
+                                       "detail": redact_secrets(str(fallback_error))[:200]})
+        self.active = 0
 
     def _note_primary_time(self, seconds, n_lines):
         s = self._state

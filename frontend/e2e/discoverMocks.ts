@@ -1,4 +1,4 @@
-import type { Page, Route } from '@playwright/test'
+import { expect, type Page, type Route } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { json } from './mockHelpers'
@@ -213,5 +213,11 @@ export const posts = (s: DiscoverMock, suffix: string) =>
   s.calls.filter((c) => c.method === 'POST' && c.path.endsWith(suffix))
 
 // The Discover page's task tabs: Catalogue (default while enabled), Find a title, Add titles.
-export const openTab = (page: Page, name: 'Catalogue' | 'Find a title' | 'Add titles') =>
-  page.getByRole('tab', { name, exact: true }).click()
+// Without the Catalogue the page is Find a title alone, with no tab row to click.
+export const openTab = async (page: Page, name: 'Catalogue' | 'Find a title' | 'Add titles') => {
+  if (name === 'Find a title') {
+    await expect(page.getByRole('heading', { name: 'Find on official platforms', includeHidden: true })).toBeAttached()
+    if (!(await page.getByRole('tablist', { name: 'Discover tasks' }).count())) return
+  }
+  await page.getByRole('tab', { name, exact: true }).click()
+}

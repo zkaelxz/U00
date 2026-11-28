@@ -945,3 +945,110 @@ class TestStreamBreaks:
         assert _wait(lambda: len(b.captures) == 2)
         assert _wait(lambda: running[-1] is False)
         assert len(started) == 1 and started[0].stopped
+
+    # The app log is what a user's report of a long session is read from.
+
+    def test_a_reconnect_resolves_again_and_logs_it_without_any_url(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.resolve_outcomes[:] = ["http://stream/first?sig=SECRET1", "http://stream2/next?sig=SECRET2"]
+        b.stream.add(2)
+        assert b.start("live_log", Gate())
+        assert _wait(lambda: len(_result("live_log")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        # The new capture fetches the newly resolved address, not the expired one.
+        assert len(b.resolves) == 2 and b.captures[1][0] == "http://stream2/next?sig=SECRET2"
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_log")) == 3)
+        assert live_pipeline.request_finish("live_log")
+        assert _ended("live_log")
+        log = _app_log()
+        assert "Live: stream broke off (The stream stopped sending audio.)" in log
+        assert "Live: re-resolved stream address after 0 min" in log
+        assert "Live: after reconnect: chunk 2" in log
+        assert "Live: resources (reconnect): RSS" in log
+        assert "Live: session ended: Stop" in log
+        assert "://" not in log and "SECRET" not in log and "stream2" not in log
+
+    def test_the_end_reason_names_the_time_limit(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(1)
+        assert b.start("live_limit", Gate(), max_seconds=0.3)
+        assert _ended("live_limit")
+        assert "Live: session ended: max-minutes" in _app_log()
+
+    def test_the_end_reason_names_a_real_stream_end(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_over_log", Gate())
+        assert _wait(lambda: len(_result("live_over_log")) == 1)
+        b.start.proc.code = 0
+        assert _ended("live_over_log")
+        assert "Live: session ended: the stream ended" in _app_log()
+
+
+def _app_log():
+    import db
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class TestSessionLog:
+    """Notes for the long-session risks, on a fake clock."""
+
+    class Clock:
+        def __init__(self):
+            self.now = 1000.0
+
+        def __call__(self):
+            return self.now
+
+    def _log(self, spend=None):
+        notes, clock = [], self.Clock()
+        stats = live_pipeline.LagStats(None)
+        log = live_pipeline.SessionLog(lambda text, key=None: notes.append(text), stats,
+                                       spend=spend, clock=clock)
+        return log, stats, notes, clock
+
+    def test_more_than_three_reconnects_in_ten_minutes_shows_the_stalling_note(self):
+        log, _, notes, clock = self._log()
+        for n in range(1, 4):
+            log.broke("The stream stopped sending audio.", n, n, 10.0 * n, 0)
+            clock.now += 60
+        assert live_pipeline.STALLING_NOTE not in notes
+        log.broke("The stream stopped sending audio.", 4, 4, 40.0, 0)
+        assert notes.count(live_pipeline.STALLING_NOTE) == 1
+
+    def test_reconnects_spread_over_more_than_ten_minutes_show_no_note(self):
+        log, _, notes, clock = self._log()
+        for n in range(1, 6):
+            log.broke("The stream stopped sending audio.", n, n, 10.0 * n, 0)
+            clock.now += 301
+        assert live_pipeline.STALLING_NOTE not in notes
+
+    def test_lag_past_thirty_seconds_shows_the_falling_behind_note(self):
+        log, stats, notes, _ = self._log()
+        stats.chunk_done(10.0, 15.0)
+        log.tick()
+        assert live_pipeline.LAG_NOTE not in notes
+        stats.chunk_done(10.0, 25.0)
+        log.tick()
+        log.tick()
+        assert notes.count(live_pipeline.LAG_NOTE) == 1
+
+    def test_spend_shows_a_note_once_it_reaches_eighty_percent(self):
+        spent = {"usd": 1.0}
+        log, _, notes, _ = self._log(spend=lambda: (spent["usd"], 2.0))
+        log.tick()
+        assert not any("spend limit" in n for n in notes)
+        spent["usd"] = 1.6
+        log.tick()
+        log.tick()
+        assert [n for n in notes if "spend limit" in n] == [
+            "This session has used 80% of its spend limit ($1.60 of $2.00)."]
