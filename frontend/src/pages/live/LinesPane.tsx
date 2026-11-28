@@ -1,8 +1,9 @@
 /** The lines of a session in a scroll box that fills the height it is given, newest first. */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { fmtTs } from '../../api/live'
 import type { LiveCue } from '../../types/live'
+import { canSpeak, newestEnglish, speakLine } from './newestLine'
 import type { TextSize } from './ViewingOptions'
 
 /** The translation, or why there is none yet: the transcript under it always stays. */
@@ -17,6 +18,24 @@ function TranslationText({ cue, waiting }: { cue: LiveCue; waiting: boolean }) {
     return <span className="live-en muted" data-testid="live-untranslated">Not translated: the session stopped first.</span>
   }
   return <span className={cue.translation === 'failed' ? 'live-en warn' : 'live-en'}>{cue.translated}</span>
+}
+
+function useSpokenNewest(newest: LiveCue | null, on: boolean) {
+  const said = useRef<number | null>(null)
+  useEffect(() => {
+    if (!on || !canSpeak()) return
+    // Turned on mid-session: start from the next line, not one that went by before.
+    if (said.current === null) said.current = newest?.id ?? -1
+    if (!newest || newest.id === said.current) return
+    said.current = newest.id
+    speakLine(window.speechSynthesis, newest.translated)
+  }, [newest, on])
+  useEffect(() => {
+    if (on || !canSpeak()) return
+    said.current = null
+    window.speechSynthesis.cancel()
+  }, [on])
+  useEffect(() => () => { if (canSpeak()) window.speechSynthesis.cancel() }, [])
 }
 
 function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiting: boolean }) {
@@ -34,8 +53,10 @@ function CueFeed({ cues, lang, waiting }: { cues: LiveCue[]; lang: string; waiti
 }
 
 /** `total`: every line so far, which keeps counting after the box stops showing the oldest. */
-export function LinesPane({ cues, total, lang, waiting, size = 'm', tvSize, showOriginal = true }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: TextSize; tvSize?: TextSize; showOriginal?: boolean }) {
+export function LinesPane({ cues, total, lang, waiting, size = 'm', tvSize, showOriginal = true, speak = false }: { cues: LiveCue[]; total: number; lang: string; waiting: boolean; size?: TextSize; tvSize?: TextSize; showOriginal?: boolean; speak?: boolean }) {
   const box = useRef<HTMLDivElement>(null)
+  const newest = newestEnglish(cues)
+  useSpokenNewest(newest, speak)
   // The line count when the reader scrolled away from the newest; null while the newest is in view.
   const [awayAt, setAwayAt] = useState<number | null>(null)
   const fresh = awayAt === null ? 0 : Math.max(0, total - awayAt)
@@ -45,6 +66,8 @@ export function LinesPane({ cues, total, lang, waiting, size = 'm', tvSize, show
       <div className="live-cues-box" ref={box} tabIndex={0} aria-label="Live lines" onScroll={(e) => onScroll(e.currentTarget.scrollTop)}>
         <CueFeed cues={cues} lang={lang} waiting={waiting} />
       </div>
+      {/* Holds only the newest English, so a screen reader says each line once as it arrives. */}
+      <p className="visually-hidden" role="log" aria-live="polite" data-testid="live-newest">{newest?.translated ?? ''}</p>
       {fresh > 0 && (
         <button type="button" className="live-new-lines" data-testid="live-new-lines" onClick={() => box.current?.scrollTo({ top: 0, behavior: 'smooth' })}>
           {fresh} new {fresh === 1 ? 'line' : 'lines'}

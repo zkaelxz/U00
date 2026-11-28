@@ -18,6 +18,8 @@ type Props = {
   onTextSize: (s: TextSize) => void
   showOriginal: boolean
   onShowOriginal: (v: boolean) => void
+  /** Read each new English line aloud with the browser's voice; null where the browser has none. */
+  speak: { on: boolean; onChange: (v: boolean) => void } | null
   captionsOn: boolean
   onCaptions: (v: boolean) => void
   showVideo: boolean
@@ -34,7 +36,7 @@ type Props = {
   onTv: () => void
 }
 
-export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat, onTv }: Props) {
+export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOriginal, speak, captionsOn, onCaptions, showVideo, onShowVideo, dataSaver, onDataSaver, hasPicture, delay, onFloat, onTv }: Props) {
   return (
     <Section storageKey="live.viewing" title="Viewing options" defaultOpen>
       <Field label="Text size" help="How large the lines are in the list. For a TV across the room, use TV mode. It does not change the captions drawn over the picture.">
@@ -53,6 +55,11 @@ export function ViewingOptions({ textSize, onTextSize, showOriginal, onShowOrigi
       <Field label="Show original" help="Keeps the spoken-language line under each translation. Turn it off to read the translation alone.">
         <Toggle checked={showOriginal} onChange={onShowOriginal} />
       </Field>
+      {speak && (
+        <Field label="Speak the English" help="Reads each new line aloud with your browser's own voice, so you can follow without looking. When lines come faster than it can read, it skips ahead to the newest.">
+          <Toggle checked={speak.on} onChange={speak.onChange} data-testid="live-speak" />
+        </Field>
+      )}
       {hasPicture && (
         <>
           <Field label="Captions over video" help="Draws the current line over the picture, the translation once it is ready and the transcript until then.">
