@@ -465,13 +465,14 @@ def close_stale(job_id: str, cutoff: float) -> bool:
     return _close_one(job_id, "COALESCE(updated_at, 0) < ? AND owner_pid IS ?", (cutoff, pid))
 
 
-def sweep_dead_owners(stale_seconds: float, records=None) -> int:
+def sweep_dead_owners(stale_seconds: float, records=None, closed_out=None) -> int:
     """Closes every queued/running row that is not live in this process and
     whose owner is gone (close_if_owner_gone) or has not heartbeated for
     `stale_seconds`. Also marks this process's own running jobs whose
     worker thread is gone (job_runner.reconcile_dead_workers). `records`:
     the job_records rows the caller has just read, so they aren't read
-    twice. Returns how many rows it closed."""
+    twice. `closed_out`: a list each closed row is appended to. Returns how
+    many rows it closed."""
     import background_jobs as bj
     from jobs import job_runner
     job_runner.reconcile_dead_workers()
@@ -484,6 +485,8 @@ def sweep_dead_owners(stale_seconds: float, records=None) -> int:
         if close_if_owner_gone(rec) or (
                 (rec.get("updated_at") or 0) < cutoff and close_stale(job_id, cutoff)):
             closed += 1
+            if closed_out is not None:
+                closed_out.append(rec)
     return closed
 
 

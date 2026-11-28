@@ -14,7 +14,7 @@ from services import settings_service
 def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_reference,
                     glossary_terms, style_guidelines, style_note, locale, style_preset,
                     context_window, context_window_ahead, batch_size, force_retranslate,
-                    job_cost_cap_usd, series_id, thinking, estimated_usd=None):
+                    job_cost_cap_usd, series_id, estimated_usd=None):
     """A zero-arg callable that submits the bulk translation (or bulk
     Reflect) batch (same translate_args, context and character names as a
     normal run) and returns the bulk job id. Called inside the job so the provider
@@ -35,13 +35,12 @@ def bulk_submitter(drama_id, drama, engine, engine_name, reflect, novel_referenc
                 batch_size=batch_size, force_retranslate=force_retranslate,
                 estimated_usd=estimated_usd)
         if engine_name == "deepseek":
-            # the run's own thinking: the job starts later
             return bulk_translate.schedule_offpeak_translation(
                 drama_id, lines, engine_name, getattr(engine, "model", ""),
                 {"style_note": style_note, "locale": locale, "glossary_terms": glossary_terms,
                  "style_guidelines": style_guidelines, "style_preset": style_preset,
                  "context_window": context_window, "cost_cap_usd": job_cost_cap_usd or None,
-                 "novel_reference": novel_reference, "thinking": thinking, "batch_size": batch_size,
+                 "novel_reference": novel_reference, "batch_size": batch_size,
                  "context_window_ahead": context_window_ahead,
                  **settings_service.run_options()},
                 force_retranslate=force_retranslate)

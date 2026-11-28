@@ -102,8 +102,7 @@ test('the cast card lists the people the scan found and applies only the ticked 
 test('Translate again previews one chapter, counts hand edits, and runs only after confirming', async ({ page }) => {
   const posted: unknown[] = []
   const est = (usd: number) => ({ estimated_usd: usd, target_line_count: 40, engine: 'fake', model: null, free: false,
-    cap_applies: false, effective_cap_usd: null, estimate_above_cap: false, estimate_is_lower_bound: false,
-    monthly_refusal: false, thinking: false })
+    cap_applies: false, effective_cap_usd: null, estimate_above_cap: false, monthly_refusal: false })
   await mockChapters(page, listBody([row(1), row(2)]))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(80) }))
   await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({ json: {
