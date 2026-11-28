@@ -2,13 +2,13 @@
 
 A prompt can only ask a model to use the glossary; a small local model often
 doesn't, and nothing looked at the result. Terms are matched on the source
-text exactly (the term or a recorded alias), the required English is looked
+text (the term or a recorded alias, in either Chinese script), the required English is looked
 for case-insensitively, and only the lines that miss go back for one more
 request. What is still wrong afterwards is flagged for Review."""
 
 import re
 
-from .llm_feature_prompts import glossary_term_forms
+from .llm_feature_prompts import glossary_term_forms, source_spellings
 from .llm_tasks import matching_glossary_terms
 from .translation_guard import line_problems, unusable_reply
 
@@ -48,7 +48,7 @@ def required_terms(zh: str, terms) -> list:
     matched = matching_glossary_terms(zh, [t for t in (terms or [])
                                            if (t.get("term_translation") or "").strip()
                                            and not _is_ambiguous_source(t)])
-    spans_of = {id(t): [(m.start(), m.end()) for f in glossary_term_forms(t) if f
+    spans_of = {id(t): [(m.start(), m.end()) for f in source_spellings(t)
                         for m in re.finditer(re.escape(f), zh)] for t in matched}
     longest_first = sorted(matched, key=lambda t: -max(len(f) for f in glossary_term_forms(t)))
     covered, kept = [], set()

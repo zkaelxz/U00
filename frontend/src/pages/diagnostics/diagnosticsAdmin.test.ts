@@ -5,7 +5,7 @@ import type { DiagnosticsSetupChecks, GpuStatus, ModelEngineVersion } from '../.
 import {
   LOST_CONTACT_INSTALL, adminErrorText, busyLine, copyFallbackText,
   extensionEngineNote, extensionSummary, extensionToggleNote,
-  headerBadges, installBlockedReason, installConfirmLabel, installResultText,
+  headerBadges, headerLoading, installBlockedReason, installConfirmLabel, installResultText,
   isInstallable, libraryStatsLine, logEmptyText, MODEL_DOWNLOAD_IDS, modelCacheSummary, modelDownloadProblem, pyannoteSummary, reconcileModels, resetBlockedReason,
   setupRows, setupSummary,
 } from './diagnosticsAdmin'
@@ -134,6 +134,12 @@ describe('header', () => {
     expect(texts(0, 22, 25, 0, { kind: 'install', name: 'yt-dlp' })[3]).toBe('Installing yt-dlp (info)')
     expect(texts(0, 22, 25, 0, { kind: 'upgrade', name: 'jieba' })[3]).toBe('Updating jieba (info)')
     expect(texts(0, 22, 25, 0, { kind: 'reset', name: 'library' })).toHaveLength(3)
+  })
+
+  it('stops saying Loading once every read failed', () => {
+    expect(headerLoading(headerBadges(null, null, null, null), false)).toBe(true)
+    expect(headerLoading(headerBadges(null, null, null, null), true)).toBe(false)
+    expect(headerLoading(headerBadges(0, null, null, null), false)).toBe(false)
   })
 })
 
