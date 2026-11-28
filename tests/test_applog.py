@@ -3,6 +3,7 @@ tests/test_applog.py -- applog.py's log-line keyword filter (Step 18
 item 4) and its secret-redaction filter. tail()/get_logger() themselves are already exercised indirectly
 via tests/test_background_jobs.py and tests/test_word_align.py.
 """
+import logging
 import os
 import sys
 
@@ -62,6 +63,13 @@ class TestSecretRedaction:
         text = self._log_text()
         assert "direct" in text and "via args" in text
         assert "RuntimeError: 401 Unauthorized for key" in text   # traceback still written
+        assert self.KEY not in text
+
+    def test_a_key_logged_through_another_modules_logger_is_redacted(self, isolated_db):
+        applog.get_logger()
+        logging.getLogger("some.lib").warning("key %s", self.KEY)
+        text = self._log_text()
+        assert "some.lib: key" in text
         assert self.KEY not in text
 
     def test_a_record_without_secrets_is_unchanged(self, isolated_db):
