@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, queueSummary, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
@@ -38,6 +38,14 @@ describe('queueModel', () => {
     expect(runStateText(queue())).toBeNull()
     expect(runStateText(queue({ items: [item({ status: 'done' })] }))).toBe('Nothing waiting.')
     expect(runStateText(queue({ items: [item()] }))).toBe('Not running.')
+  })
+
+  it('sums the folded queue up in one line', () => {
+    expect(queueSummary(queue())).toBe('Nothing waiting')
+    expect(queueSummary(queue({ state: 'running', items: [item({ status: 'running' }), item(), item()] }))).toBe('Running · 2 waiting')
+    expect(queueSummary(queue({ state: 'paused', items: [item()] }))).toBe('Paused · 1 waiting')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: false } }))).toBe('1 waiting · starts at 23:30')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: true } }))).toBe('1 waiting · start time missed')
   })
 
   it('shows a missed schedule as a question, never as a run', () => {
