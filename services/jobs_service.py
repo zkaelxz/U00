@@ -548,8 +548,11 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
         parts.extend(dict.fromkeys(
-            engine_fallback.out_of_credit_notice(str(f.get("from")), str(f.get("to")), f.get("to_model"))
-            for f in fallbacks if f.get("reason") == engine_fallback.OUT_OF_CREDIT))
+            engine_fallback.out_of_credit_notice(
+                str(f.get("from")), str(f.get("to")), f.get("to_model"),
+                handed_back=any(later.get("from") == f.get("to") and later.get("to") == f.get("from")
+                                for later in fallbacks[n + 1:]))
+            for n, f in enumerate(fallbacks) if f.get("reason") == engine_fallback.OUT_OF_CREDIT))
     if cap is not None or errors or stopped or result.get("partial") or warnings:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
