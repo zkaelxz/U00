@@ -412,3 +412,67 @@ class TestEnglishOnlyAnswers:
         bubbles = [_bubble("予告犯は誰？")]
         scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
         assert bubbles[0]["translated_text"] == "Who is the Notice Criminal?"
+
+
+class TestTranslateBesideReread:
+    URL = "https://site.invalid/comic/race/chapter-1"
+
+    def _setup(self, monkeypatch, reading):
+        from services import extension_service, page_server
+        started = threading.Event()
+        asked, overlapped = [], []
+
+        def translate(bubbles, engine, meta, chapter_names=None, cast=None, **kw):
+            asked.append([b["source_text"] for b in bubbles])
+            started.set()
+            chapter_names.setdefault(bubbles[0]["source_text"], f"Name{len(asked)}")
+            for b in bubbles:
+                b["translated_text"] = f"English {len(asked)}"
+            return f"ctx {len(asked)}"
+
+        def ask(*a, **k):
+            overlapped.append(started.wait(5))
+            return reading, {"input_tokens": 1, "output_tokens": 1}
+
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", translate)
+        monkeypatch.setattr(reread.vision, "ask_about_image", ask)
+        monkeypatch.setattr(extension_service, "page_extras",
+                            lambda *a: {"page_image": {"readers": [{"engine": object()}]}})
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        return page_server, asked, overlapped
+
+    def _memory(self):
+        from services import quick_read_cache
+        return page_turns.title_memory(None, quick_read_cache.title_key(self.URL))["names"]
+
+    def test_a_reread_that_changes_nothing_keeps_the_answer_started_beside_it(self, isolated_db, monkeypatch):
+        page_server, asked, overlapped = self._setup(monkeypatch, "勇者が来た")
+        bubbles = [_bubble("勇者が来た", 0.4)]
+        split = {}
+        page_server._translate_read_page(bubbles, {}, None, None, self.URL, [], False, _png(),
+                                         False, "ja", split=split)
+        assert overlapped == [True]
+        assert asked == [["勇者が来た"]]
+        assert bubbles[0]["translated_text"] == "English 1"
+        assert split["reread_changed"] == 0
+        assert self._memory() == {"勇者が来た": "Name1"}
+
+    def test_a_corrected_reading_is_translated_again_and_the_early_answer_leaves_nothing(
+            self, isolated_db, monkeypatch):
+        page_server, asked, overlapped = self._setup(monkeypatch, "勇者が来た")
+        bubbles = [_bubble("勇有が来た", 0.4)]
+        page_server._translate_read_page(bubbles, {}, None, None, self.URL, [], False, _png(),
+                                         False, "ja")
+        assert overlapped == [True]
+        assert asked == [["勇有が来た"], ["勇者が来た"]]
+        assert bubbles[0]["source_text"] == "勇者が来た"
+        assert bubbles[0]["translated_text"] == "English 2"
+        assert "勇有が来た" not in self._memory()
+
+    def test_a_page_with_no_hard_text_translates_once_after_no_reread(self, isolated_db, monkeypatch):
+        page_server, asked, overlapped = self._setup(monkeypatch, "x")
+        bubbles = [_bubble("勇者が来た", 0.99)]
+        page_server._translate_read_page(bubbles, {}, None, None, self.URL, [], False, _png(),
+                                         False, "ja")
+        assert asked == [["勇者が来た"]]
+        assert overlapped == []
