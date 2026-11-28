@@ -41,6 +41,7 @@ __all__ = [
     "SourceTrackRequest",
     "DiscoverTranslateQueryRequest",
     "DiscoverTranslateQueryResult",
+    "ExtensionSite",
     "DiscoverBaihehubSearchRequest",
     "DiscoverBaihehubHit",
     "DiscoverBaihehubResult",
