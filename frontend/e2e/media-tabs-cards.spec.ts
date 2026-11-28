@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { ME } from './authMocks'
 import { expectFitsScreens, gotoMedia, mediaPanel, topCards, selectMediaTab } from './mediaTabs'
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 
@@ -235,6 +236,17 @@ test.describe('Details and Credits share one draft', () => {
     await expect(credits.getByRole('region', { name: 'Fill in details' })).toBeVisible()
     await fold(credits, 'Cover and romanized credits').locator(':scope > summary').click()
     await expect(credits.getByLabel('Cover image', { exact: true })).toBeVisible()
+  })
+
+  test('Fill in details offers only the audio to an account that cannot save details', async ({ page }) => {
+    await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read', 'lines.edit', 'media.import_url'] } }))
+    await gotoMedia(page, 'credits')
+    const fill = mediaPanel(page, 'credits').getByRole('region', { name: 'Fill in details' })
+    await fill.locator('summary').first().click()
+    const modes = fill.getByRole('radiogroup', { name: 'Fill in from' }).getByRole('radio')
+    await expect(modes).toHaveCount(1)
+    await expect(fill.getByRole('radio', { name: 'From the audio' })).toBeChecked()
+    await expect(fill.getByRole('textbox', { name: 'Listing URL' })).toHaveCount(0)
   })
 
   test('a draft survives switching tabs, shows a dot on its tab, and one Save persists both', async ({ page }) => {

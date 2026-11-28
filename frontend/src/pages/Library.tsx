@@ -242,6 +242,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
   const [invalid, setInvalid] = useState<{ message: string; field: 'source_language' | 'title_en' | null } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [busy, setBusy] = useState(false)
+  const canFillIn = useHolds('admin.library')
   const profile = chosenProfile(extras.preset, presets.data?.items)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
@@ -363,7 +364,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
-        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
+        {canFillIn && <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>}
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Clear and close</button>
       </div>
       <p className="muted">Closing the sheet keeps what you typed; Clear and close erases it.</p>
