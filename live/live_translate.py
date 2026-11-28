@@ -356,6 +356,9 @@ MAX_NAME_FIXES = 50
 MAX_FIX_SOURCE_CHARS = 40
 MAX_FIX_ENGLISH_CHARS = 80
 MAX_PROMPTED_FIXES = 10
+# Names in Whisper's prompt made Live's Whisper ~60% slower and heard fewer of them (3/9 vs 5/9
+# on one title); the translator still gets the glossary either way.
+NAMES_IN_WHISPER_PROMPT = False
 
 
 class TermHints:
@@ -1302,7 +1305,7 @@ class _LiveRun(ChunkCaptioner):
         new_cues = process_chunk(
             window.path, idx, self.segment_seconds, self.source_language, self.whisper_size,
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],
-            name_prompt=getattr(self.term_hints, "names", ""), translator=self.translator, first_id=len(self.board.cues), translate=False,
+            name_prompt=getattr(self.term_hints, "names", "") if NAMES_IN_WHISPER_PROMPT else "", translator=self.translator, first_id=len(self.board.cues), translate=False,
             overlap_seconds=window.pad_seconds, overlap_tail_text=window.tail_text,
             audio_shift=window.trimmed_seconds + shift, overlap_covered_seconds=covered,
             on_overlap=self.stats.overlap_joined, on_repeats_dropped=self.log.dropped,
