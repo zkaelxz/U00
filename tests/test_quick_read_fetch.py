@@ -341,6 +341,21 @@ def test_an_entry_that_keeps_being_read_still_expires(isolated_db, monkeypatch):
     assert quick_read_cache.get("busy") is None
 
 
+def test_a_titles_memory_outlives_a_page_but_not_180_days(isolated_db, monkeypatch):
+    start = time.time()
+    clock = [start]
+    monkeypatch.setattr(quick_read_cache.time, "time", lambda: clock[0])
+    real_utime = os.utime
+    monkeypatch.setattr(os, "utime", lambda path, times=None: real_utime(path, times or (clock[0], clock[0])))
+    quick_read_cache.put("page", {"a": 1})
+    quick_read_cache.remember_title("series", {"names": {"A": "Alex"}})
+    clock[0] = start + 100 * 24 * 3600
+    assert quick_read_cache.get("page") is None
+    assert quick_read_cache.title_memory("series") == {"names": {"A": "Alex"}}
+    clock[0] = start + 181 * 24 * 3600
+    assert quick_read_cache.title_memory("series") == {}
+
+
 def test_a_blank_picture_is_not_stored(pipeline, monkeypatch):
     from PIL import Image
     buf = io.BytesIO()

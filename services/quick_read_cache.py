@@ -15,6 +15,8 @@ from lib import atomic_write
 
 MAX_BYTES = 400 * 1024 * 1024
 MAX_AGE_SECONDS = 14 * 24 * 3600
+# Names and he/she cost a read of the whole series to relearn, and hold no pages.
+MEMORY_MAX_AGE_SECONDS = 180 * 24 * 3600
 DIRNAME = "quick_read_cache"
 _lock = threading.Lock()
 
@@ -71,7 +73,7 @@ def get(key: str | None) -> dict | None:
             stored = json.load(f)
         # Age counts from the first save: the touch below only orders the size sweep, so an entry
         # that keeps being read still expires and its page is read again with current code.
-        if time.time() - float(stored["saved_at"]) > MAX_AGE_SECONDS:
+        if time.time() - float(stored["saved_at"]) > float(stored.get("max_age", MAX_AGE_SECONDS)):
             return None
         os.utime(path)   # the sweep drops the least recently used first
         return stored["result"]
@@ -79,7 +81,7 @@ def get(key: str | None) -> dict | None:
         return None
 
 
-def put(key: str | None, result: dict) -> None:
+def put(key: str | None, result: dict, max_age: int = MAX_AGE_SECONDS) -> None:
     if not key:
         return
     path = _path(key)
@@ -87,7 +89,7 @@ def put(key: str | None, result: dict) -> None:
     try:
         with _lock:
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"saved_at": time.time(), "result": result}, f)
+                json.dump({"saved_at": time.time(), "max_age": max_age, "result": result}, f)
             atomic_write.replace_file(tmp, path)
             _sweep()
     except OSError:
@@ -104,7 +106,9 @@ def _sweep() -> None:
             stat = os.stat(full)
         except OSError:
             continue
-        if name.endswith(".part") or now - stat.st_mtime > MAX_AGE_SECONDS:
+        # A file's own limit is inside it; the sweep only needs the longest one, and get() refuses
+        # a page entry once it is past its own.
+        if name.endswith(".part") or now - stat.st_mtime > MEMORY_MAX_AGE_SECONDS:
             try:
                 os.remove(full)
             except OSError:
@@ -179,4 +183,4 @@ def title_memory(title: str) -> dict:
 
 def remember_title(title: str, memory: dict) -> None:
     if title:
-        put(_memory_key(title), memory)
+        put(_memory_key(title), memory, MEMORY_MAX_AGE_SECONDS)
