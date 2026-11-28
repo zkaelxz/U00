@@ -115,7 +115,9 @@ const OPTION_LABELS: Record<string, string> = {
   auto: 'Automatic',
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
-  audio_separator: 'Audio separator',
+  audio_separator: 'Automatic (older setting)',
+  mel_roformer_fv4: 'Mel-Band RoFormer FV4',
+  mel_roformer_original: 'Mel-Band RoFormer (original)',
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }
