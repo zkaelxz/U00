@@ -4537,6 +4537,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/subs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the English lines of your title made from this video page, for its own player */
+        post: operations["post_subs_api_ext_bridge_subs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -47518,6 +47535,26 @@ export interface operations {
         };
     };
     get_sites_api_ext_bridge_sites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_subs_api_ext_bridge_subs_post: {
         parameters: {
             query?: never;
             header?: never;
