@@ -545,7 +545,7 @@ and Reset library are left out away from the main PC.
   folder is locked: an install you confirm is queued, and a few minutes later, once no job or Live session
   is running, the update helper stops Baihe, installs the packages (wheels only) and starts it again by
   itself; Diagnostics then says how many packages and how many seconds Baihe was away. A PC whose helper
-  is from an older Setup says so and needs the new Setup run once. Turning the services off does not unlock
+  is from an older Setup says so and needs the new Setup run once (Windows asks for administrator permission). Anyone who can write to Baihe's data folder can start such an install of a listed package, and that package's code then runs as the system account, so keep that folder to people you trust. Turning the services off does not unlock
   the folder (see "Locked install folder" in the runbook). **Packages** has installed versions, install-by-task presets
   (on an NVIDIA PC without PyTorch, a task that needs it sets up GPU PyTorch first, then installs the rest),
   per-package Install / Update (PC only) with "Check for package updates", a "Test first" upgrade check and
