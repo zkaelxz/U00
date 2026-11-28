@@ -268,6 +268,8 @@ describe('preset start values', () => {
       engine: 'claude', force_retranslate: true, style_preset: 'wuxia', line_ids: [4, 5],
     })
     expect(savedRunEstimateParams(config, 4, '', 'm', [])).toEqual({ model: 'm', force_retranslate: true, style_preset: 'natural' })
+    const batched = { ...config, translate_start: { batch_size: 12 } } as TranslateRunConfig
+    expect(savedRunEstimateParams(batched, 4, '', '', [])).toMatchObject({ batch_size: 12 })
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {

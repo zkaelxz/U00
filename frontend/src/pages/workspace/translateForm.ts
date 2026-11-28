@@ -452,13 +452,15 @@ export function savedRunForm(c: TranslateRunConfig, dramaId: number): RunForm {
   return applyStartToForm(initialForm(c, loadPresetStart(dramaId)), c.translate_start, c)
 }
 
-/** The estimate for a Review redo of `lineIds` (every line when empty), priced with the Style that run uses. */
+/** The estimate for a Review redo of `lineIds` (every line when empty), priced with the Style and batch size that run uses. */
 export function savedRunEstimateParams(
   c: TranslateRunConfig, dramaId: number, engine: string, model: string, lineIds: number[],
 ): EstimateParams {
+  const f = savedRunForm(c, dramaId)
   return {
     engine: engine || undefined, model: model || undefined, force_retranslate: true,
-    style_preset: savedRunForm(c, dramaId).style_preset,
+    style_preset: f.style_preset,
+    ...(intIn(f.batch_size, BATCH_SIZE_MIN, BATCH_SIZE_MAX) !== null ? { batch_size: Number(f.batch_size) } : {}),
     ...(lineIds.length ? { line_ids: lineIds } : {}),
   }
 }

@@ -409,6 +409,18 @@ def test_the_estimate_prices_the_titles_last_run_style(isolated_db, monkeypatch)
     assert presets == ["novel"]
 
 
+def test_a_blank_batch_size_is_estimated_at_the_plain_stream_default_the_run_uses(isolated_db, monkeypatch):
+    did = _seeded()
+    plain = translate_run_service.get_translate_config_defaults(False, "claude", None, True)["batch_size"]
+    assert plain != translate_run_service.get_translate_config_defaults(False, "claude", None)["batch_size"]
+    monkeypatch.setattr(translate_run_service, "_plain_stream", lambda *a: True)
+    sizes = []
+    monkeypatch.setattr(translate_run_service, "_estimate_run_calls",
+                        lambda d, dr, e, t, z, batch_size, *a, **k: sizes.append(batch_size) or None)
+    translate_run_service.estimate_translate_cost(did, "claude")
+    assert sizes == [plain]
+
+
 def test_the_estimate_prices_a_style_picked_on_the_form(isolated_db, monkeypatch):
     did = _seeded(translate_start_json='{"style_preset": "novel"}')
     presets, real = [], workspace_job_service.build_run_style_context

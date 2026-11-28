@@ -330,7 +330,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         # constructing a real engine (SDK import, key, network).
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         is_novel = drama.get("content_mode") == "novel_narration"
-        defaults = get_translate_config_defaults(is_novel, engine_name, model)
+        defaults = get_translate_config_defaults(is_novel, engine_name, model,
+                                                 _plain_stream(drama, engine_name, model))
         if batch_size is None:
             batch_size = defaults["batch_size"]
         zh_lines = [ln["zh"] for ln in targets]
