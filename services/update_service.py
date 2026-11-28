@@ -75,6 +75,7 @@ DEFAULT_REPO = "zkaelxz/U00"
 AUTO_CHECK_KEY = "update.auto_check"
 AUTO_SETUP_TRIED_KEY = "update.auto_setup_tried"
 LAST_CHECK_KEY = "update.last_check_at"
+CHECK_FAILED_KEY = "update.last_check_failed"
 FIRST_VERIFIED_INSTALLER_KEY = "update.installer_first_verified"
 INCLUDE_PRERELEASES_KEY = "update.include_prereleases"
 AUTO_CHECK_SECONDS = 24 * 3600
@@ -462,7 +463,9 @@ def check() -> dict:
                 else _plain_error(exc)
             with _lock:
                 _state.update(checked_at=time.time(), check_error=message)
+            _remember_check_failed(True)
             raise DependencyUnavailableError(message) from None
+    _remember_check_failed(False)
     # The highest version, not the first listed: GitHub lists by creation date,
     # so a later-created older beta would otherwise hide a newer release.
     # Whether it is newer than this copy is decided in status() and download().
@@ -505,12 +508,49 @@ def periodic_tick(now=time.time) -> None:
         last = 0.0
     if now() - last < AUTO_CHECK_SECONDS:
         return
+    _scheduled_check(now)
+
+
+def _scheduled_check(now) -> None:
     # Recorded first, so a failing check isn't retried on every tick.
     db.set_app_setting(LAST_CHECK_KEY, now())
     try:
         check()
     except ServiceError:
         db.set_app_setting(LAST_CHECK_KEY, now() - AUTO_CHECK_SECONDS + CHECK_RETRY_SECONDS)
+
+
+def _remember_check_failed(failed: bool) -> None:
+    # Losing it only costs one check at the next start, or skips one.
+    with contextlib.suppress(sqlite3.Error):
+        db.set_app_setting(CHECK_FAILED_KEY, failed)
+
+
+def at_start() -> None:
+    """At app start: the leftover sweep, then the check a failed last check asks for."""
+    try:
+        cleanup_leftovers()
+    finally:
+        check_at_start()
+
+
+def check_at_start():
+    """At app start: when the last check failed (the PC was offline, GitHub's
+    rate limit), check again now rather than only on the hourly retry. After a
+    good check the daily schedule stands. Runs in its own thread so startup
+    doesn't wait on GitHub; returns that thread, or None when no check is due."""
+    if not get_auto_check():
+        return None
+    try:
+        failed = db.get_app_setting(CHECK_FAILED_KEY, False) is True
+    except (sqlite3.Error, ValueError):
+        return None
+    if not failed:
+        return None
+    thread = threading.Thread(target=_scheduled_check, args=(time.time,), daemon=True,
+                              name="update-check-at-start")
+    thread.start()
+    return thread
 
 
 def _silent_setup_possible() -> bool:
@@ -636,10 +676,12 @@ def cleanup_leftovers() -> None:
     _clear_setup_copies()
     from services import app_update_service
     app_update_service.cleanup_leftovers()
+    current, allow_pre = current_version(), include_prereleases()
+    for key in (FIRST_VERIFIED_INSTALLER_KEY, app_update_service.FIRST_VERIFIED_APP_KEY):
+        _forget_stale_first_verified(key, current, allow_pre)
     folder = updates_dir()
     if not os.path.isdir(folder):
         return
-    current, allow_pre = current_version(), include_prereleases()
     for name in os.listdir(folder):
         m = re.match(r"^BaiheStudio-(?:Setup-(.+)\.exe|App-(.+)\.zip)(\.part)?$", name)
         if m and (m.group(3) or not is_newer(m.group(1) or m.group(2), current, allow_pre)):
@@ -647,6 +689,21 @@ def cleanup_leftovers() -> None:
                 os.remove(os.path.join(folder, name))
             except OSError:
                 pass
+
+
+def _forget_stale_first_verified(key, current, allow_pre) -> None:
+    try:
+        record = db.get_app_setting(key, None)
+    except ValueError:
+        record = {}         # unreadable: nothing in it can be used
+    except sqlite3.Error:
+        return
+    if record is None:
+        return
+    version = record.get("version") if isinstance(record, dict) else None
+    if not is_newer(version, current, allow_pre):
+        with contextlib.suppress(sqlite3.Error):
+            db.set_app_setting(key, None)
 
 
 def _expected_hash(release) -> str:

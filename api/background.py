@@ -14,7 +14,8 @@ drama folders older than a day (`drama_service.cleanup_stale_tombstones`), plus
 leftover partial snapshots and restore staging folders
 (`auto_backup_service.cleanup_stale_leftovers`), and lightnovel-crawler work
 folders a crash left behind (`lncrawl_service.cleanup_stale_workdirs`), and
-update installers no longer needed (`update_service.cleanup_leftovers`).
+update installers no longer needed, and, when the last update check failed,
+a check in its own thread (`update_service.at_start`).
 Bulk batches a stopped app left mid-apply are recovered, never applied twice
 (`bulk_poll.reconcile_stranded_applies`; it contacts no provider).
 Also, only when the owner turned "Resume interrupted translation batches"
@@ -317,9 +318,9 @@ def start_background_services(features_off=frozenset()) -> dict:
         log_warning("automatic backup check failed: %s", exc)
     try:
         from services import update_service
-        update_service.cleanup_leftovers()
+        update_service.at_start()
     except Exception as exc:
-        log_warning("leftover update installers were not swept: %s", exc)
+        log_warning("leftover update installers were not swept, or the update check didn't start: %s", exc)
     try:
         from bulk import bulk_poll
         bulk_poll.reconcile_stranded_applies()

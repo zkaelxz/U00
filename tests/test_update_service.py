@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import threading
+import time
 import os
 import types
 
@@ -932,6 +933,29 @@ def test_cleanup_leftovers_after_an_upgrade(http, monkeypatch):
     assert os.listdir(folder) == ["notes.txt"]
 
 
+def test_start_forgets_first_verified_times_once_this_copy_has_that_version(http, monkeypatch):
+    from services import app_update_service as aus
+    folder = us.updates_dir()
+    os.makedirs(folder)
+    for name in ("BaiheStudio-Setup-0.2.0.exe", "BaiheStudio-App-0.2.0.zip"):
+        open(os.path.join(folder, name), "wb").close()
+    for key, name in ((us.FIRST_VERIFIED_INSTALLER_KEY, "BaiheStudio-Setup-0.2.0.exe"),
+                      (aus.FIRST_VERIFIED_APP_KEY, "BaiheStudio-App-0.2.0.zip")):
+        db.set_app_setting(key, {"version": "0.2.0", "name": name, "sha256": "a" * 64, "at": 5.0})
+    us.cleanup_leftovers()                        # current is 0.1.0: 0.2.0 is still to come
+    assert sorted(os.listdir(folder)) == ["BaiheStudio-App-0.2.0.zip",
+                                          "BaiheStudio-Setup-0.2.0.exe"]
+    assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY)["at"] == 5.0
+    assert db.get_app_setting(aus.FIRST_VERIFIED_APP_KEY)["at"] == 5.0
+    for current in ("0.2.0", "0.3.0"):            # on that version, or past it
+        monkeypatch.setattr(us, "current_version", lambda current=current: current)
+        db.set_app_setting(aus.FIRST_VERIFIED_APP_KEY, {"version": "0.2.0", "at": 5.0})
+        us.cleanup_leftovers()
+        assert os.listdir(folder) == []
+        assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY) is None
+        assert db.get_app_setting(aus.FIRST_VERIFIED_APP_KEY) is None
+
+
 def test_install_launch_failure_names_the_file_only(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: True)
 
@@ -1422,6 +1446,60 @@ def _restart(monkeypatch):
                                            latest=None))
     monkeypatch.setattr(us, "_release", None)
     monkeypatch.setattr(us, "_verified", None)
+
+
+def _start_check():
+    thread = us.check_at_start()
+    if thread is not None:
+        thread.join(DOWNLOAD_WAIT_SECONDS)
+        assert not thread.is_alive()
+    return thread
+
+
+def test_after_a_failed_check_the_next_start_checks_again(http, monkeypatch):
+    us.set_auto_check(True)
+    assert _start_check() is None            # never checked: the daily schedule decides
+    http.add(API_URL, status=503)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    _serve_release(http)
+    assert _start_check() is not None
+    assert len(http.calls) == 2 and us.status()["latest"] == "0.2.0"
+    assert all(u == API_URL for u, _ in http.calls)
+
+
+def test_after_a_good_check_the_next_start_does_not_check(http, monkeypatch):
+    _serve_release(http)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    assert _start_check() is None and len(http.calls) == 1
+
+
+def test_no_start_check_while_the_daily_check_is_off(http, monkeypatch):
+    http.add(API_URL, status=503)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    us.set_auto_check(False)
+    _restart(monkeypatch)
+    assert _start_check() is None and len(http.calls) == 1
+
+
+def test_a_failed_start_check_is_still_retried_after_an_hour(http, monkeypatch):
+    http.add(API_URL, status=503)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    started = time.time()
+    _start_check()
+    assert len(http.calls) == 2
+    us.periodic_tick(now=lambda: started + us.CHECK_RETRY_SECONDS - 60)
+    assert len(http.calls) == 2
+    _serve_release(http)
+    us.periodic_tick(now=lambda: started + us.CHECK_RETRY_SECONDS + 60)
+    assert len(http.calls) == 3 and us.status()["latest"] == "0.2.0"
+    _restart(monkeypatch)
+    assert _start_check() is None
 
 
 def test_after_a_restart_the_installer_is_fetched_again_but_keeps_its_first_time(http, monkeypatch):
