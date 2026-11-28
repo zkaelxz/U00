@@ -99,13 +99,21 @@ def region_problems(original, rendered, erased_only, box: dict, interior) -> lis
     return problems
 
 
-def text_extent(rendered, erased_only, box: dict):
+def text_extent(rendered, erased_only, box: dict, interior=None):
     """(x0, y0, x1, y1) in page pixels of the English drawn in `box`: dark pixels that the render
-    added to the erase-only page, or all dark ones when there is none. None when nothing was drawn."""
+    added to the erase-only page, or all dark ones when there is none. With `interior`, only those
+    in or just round the balloon count, so a neighbour's text inside an overlapping box is not
+    taken for this balloon's. None when nothing was drawn."""
+    import cv2
+
     b = _crop(rendered, box)
     ink = b < _DARK
     if erased_only is not None:
         ink &= _crop(erased_only, box)[:b.shape[0], :b.shape[1]] >= _DARK
+    if interior is not None:
+        mask = (np.asarray(interior)[:b.shape[0], :b.shape[1]] > 0).astype(np.uint8)
+        grown = cv2.dilate(mask, np.ones((2 * EDGE_SLACK_PX + 1,) * 2, np.uint8))
+        ink &= grown[:ink.shape[0], :ink.shape[1]] > 0
     if not ink.any():
         return None
     ys, xs = np.nonzero(ink)

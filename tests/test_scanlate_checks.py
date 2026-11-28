@@ -84,3 +84,14 @@ def test_two_balloons_whose_english_runs_into_each_other_are_both_flagged():
     assert checks.colliding_texts([far, (100, 100, 150, 120), None]) == set()
     assert checks.colliding_texts([far, (25, 5, 80, 25), (300, 300, 320, 310)]) == {0, 1}
     assert checks.colliding_texts([far, (49, 19, 90, 40)]) == set()
+
+
+def test_a_neighbours_text_inside_an_overlapping_box_is_not_this_balloons():
+    erased = np.full((300, 200), 255, np.uint8)
+    rendered = erased.copy()
+    rendered[20:40, 20:60] = 0      # this balloon's English
+    rendered[200:220, 20:60] = 0    # a neighbour's, inside this box but outside this interior
+    interior = np.zeros(erased.shape, np.uint8)
+    interior[10:60, 10:80] = 1
+    assert checks.text_extent(rendered, erased, BOX, interior) == (20, 20, 60, 40)
+    assert checks.text_extent(rendered, erased, BOX) == (20, 20, 60, 220)
