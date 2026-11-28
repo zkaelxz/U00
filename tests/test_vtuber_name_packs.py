@@ -209,3 +209,25 @@ def test_each_of_several_fan_names_is_an_entry_and_a_two_character_one_is_held()
     kept, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()})
     assert {e["source"]: e["en"] for e in kept["ja"]}["りんなーず"] == "Rinners (Sample Rin's fans)"
     assert ("墓守", "two-character fan name") in [(h[1], h[4]) for h in held]
+
+
+def test_excluded_terms_never_reach_the_pack_or_the_review_file(tmp_path, monkeypatch):
+    pytest.importorskip("opencc")
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    for language in ("ja", "zh"):
+        (packs / f"{language}-vtuber-names.json").write_text(json.dumps({
+            "id": f"{language}-vtuber-names", "version": 1, "language": language, "title": "T",
+            "description": "D", "entries": [{"source": "手寫", "en": "Hand"}]}), encoding="utf-8")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "profiles.jsonl").write_text(
+        json.dumps(vnp.parse_profile("sample-rin", "tw", PROFILE), ensure_ascii=False) + "\n", encoding="utf-8")
+    exclude = tmp_path / "private.txt"
+    exclude.write_text("# names not to publish\nsample rin\n", encoding="utf-8")
+    monkeypatch.setattr(vnp, "PACK_DIR", packs)
+    monkeypatch.setattr(vnp, "_Words", _Words)
+    vnp.build(cache, tmp_path / "review.md", exclude)
+    text = (packs / "zh-vtuber-names.json").read_text(encoding="utf-8")
+    assert "Sample Rin" not in text and "Ling Dang" not in text and "手寫" in text
+    assert "sample-rin" not in (tmp_path / "review.md").read_text(encoding="utf-8")

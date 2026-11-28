@@ -3,7 +3,7 @@ the hololive and NIJISANJI talent lists, and Wikidata.
 
     python tools/vtuber_name_packs.py fetch --cache DIR [--refresh-max N]
     python tools/vtuber_name_packs.py reference --cache DIR
-    python tools/vtuber_name_packs.py build --cache DIR [--review FILE]
+    python tools/vtuber_name_packs.py build --cache DIR [--review FILE] [--exclude FILE]
 
 `fetch` keeps a resumable cache of the public profile fields a names glossary needs
 (DIR/profiles.jsonl); birthdays, heights, likes and the site's own prose are not kept.
@@ -20,7 +20,9 @@ without a `link` are hand-written and kept as they are; the generated ones are r
 A name or nickname that is also an ordinary word, a single character, or used by two
 VTubers is held back and listed in the review file instead, because packs match by plain
 substring. tools/vtuber_name_overrides.json is applied last, so a hand fix survives every
-rebuild.
+rebuild. `--exclude` names a file kept outside the repository, one term per line: an entry
+whose text holds one as a whole word (any case) is left out, for names that must not be
+published.
 
 Needs `requests`, `opencc-python-reimplemented` and `wordfreq` (build only).
 """
@@ -448,7 +450,12 @@ def filter_candidates(cands, words, taken, suffixes=None):
     return kept, held
 
 
-def build(cache_dir: Path, review: Path):
+def _excluded(entry, patterns) -> bool:
+    text = " ".join((entry["source"], entry["en"], entry["note"], entry["link"]))
+    return any(p.search(text) for p in patterns)
+
+
+def build(cache_dir: Path, review: Path, exclude: Path = None):
     rows = list(load_cache(cache_dir).values())
     overrides = json.loads(OVERRIDES.read_text(encoding="utf-8")) if OVERRIDES.exists() else {}
     packs, hand, taken = {}, {}, {"ja": set(), "zh": set()}
@@ -472,8 +479,23 @@ def build(cache_dir: Path, review: Path):
                     suffixes[language].add(e["source"])
     reference = {name: json.loads((cache_dir / f"{name}.json").read_text(encoding="utf-8"))
                  if (cache_dir / f"{name}.json").exists() else [] for name in ("official", "wikidata")}
+    terms = [t.strip() for t in exclude.read_text(encoding="utf-8").splitlines()] if exclude else []
+    patterns = [re.compile(rf"(?<!\w){re.escape(t)}(?!\w)", re.I) for t in terms if t and not t.startswith("#")]
+
+    def keep(record):
+        return not any(p.search(json.dumps(record, ensure_ascii=False)) for p in patterns)
+
+    # A left-out VTuber is dropped whole, nicknames and review lines included.
+    rows = [r for r in rows if keep(r)]
+    reference = {name: [r for r in records if keep(r)] for name, records in reference.items()}
     kept, held = filter_candidates(candidates(rows, reference["official"], reference["wikidata"]),
                                    _Words(), taken, suffixes)
+    left_out = 0
+    for language in kept:
+        before = len(kept[language])
+        kept[language] = [e for e in kept[language] if not _excluded(e, patterns)]
+        left_out += before - len(kept[language])
+    held = [h for h in held if not any(p.search(" ".join(h)) for p in patterns)]
     for language, pack in packs.items():
         fixes = overrides.get(language, {})
         generated = []
@@ -495,6 +517,8 @@ def build(cache_dir: Path, review: Path):
             raise SystemExit(f"{language}-vtuber-names.json would be larger than the app loads.")
         (PACK_DIR / f"{language}-vtuber-names.json").write_text(text, encoding="utf-8")
         print(f"{language}: {len(hand[language])} hand-written + {len(generated)} generated", flush=True)
+    if patterns:
+        print(f"left out by --exclude: {left_out}", flush=True)
     if review:
         lines = ["| language | source | English | reason | profile |", "|---|---|---|---|---|"]
         lines += [f"| {lang} | {src} | {en} | {why} | {link} |" for lang, src, en, link, why in sorted(held)]
@@ -513,13 +537,14 @@ def main(argv=None):
     b = sub.add_parser("build")
     b.add_argument("--cache", type=Path, required=True)
     b.add_argument("--review", type=Path)
+    b.add_argument("--exclude", type=Path)
     args = parser.parse_args(argv)
     if args.command == "fetch":
         fetch(args.cache, args.refresh_max)
     elif args.command == "reference":
         fetch_reference(args.cache)
     else:
-        build(args.cache, args.review)
+        build(args.cache, args.review, args.exclude)
 
 
 if __name__ == "__main__":
