@@ -407,3 +407,25 @@ def test_lines_already_translated_between_two_are_not_a_pause(subtitles):
     engine, errors, _ = _run_subtitles(lines, 3)
     assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
     assert all(ln.en == "kept" for ln in lines[10:20])
+
+
+def test_a_line_already_in_english_is_saved_when_scenes_run_side_by_side(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    lines[4].lang, lines[4].zh = "en", "Hello there."
+    saved = []
+    _run_subtitles(lines, 3, save_cb=lambda ls: saved.extend(ln.id for ln in ls if ln.en))
+    assert len(subtitles) == 1 and lines[4].en == "Hello there."
+    assert lines[4].id in saved
+
+
+def test_no_part_is_shorter_than_a_batch(subtitles):
+    _run_subtitles(_subtitles({1: 30.0, 2: 30.0}, n=60), 3)
+    _run_subtitles(_subtitles({30: 30.0, 31: 30.0}, n=60), 3)
+    assert subtitles == [[list(range(30)), list(range(30, 60))]]
+
+
+def test_a_picked_range_is_not_cut_even_across_a_long_pause(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    engine, errors, _ = _run_subtitles(lines, 3, force_retranslate=True,
+                                       target_ids={ln.id for ln in lines[5:25]})
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1

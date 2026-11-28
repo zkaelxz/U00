@@ -326,6 +326,7 @@ class _TranslateRun:
         self.batch_label = ""
         self.groups = []
         self.lane_label = "Chapter"
+        self.english = []
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
         self.character_names = args.character_names or {}
@@ -375,6 +376,7 @@ class _TranslateRun:
             ln.en = ln.zh
             source_change.clear_for_new_english(ln, a.replace_flags)
         target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        self.english = english
         if not target_lines:
             if english and a.save_cb:
                 a.save_cb(self.lines)
@@ -495,12 +497,13 @@ class _TranslateRun:
         Only between neighbouring lines of the title, since a jump over lines not being sent
         is not a pause."""
         a, n = self.args, len(target_lines)
-        pauses = [i for i in range(1, n)
+        # A part shorter than a batch costs a request and a lane start for almost no speed.
+        pauses = [i for i in range(self.size, n - self.size + 1)
                   if target_lines[i].idx == target_lines[i - 1].idx + 1
                   and target_lines[i].start - target_lines[i - 1].end >= SCENE_LANE_GAP_SECONDS]
         chosen = set()
         for k in range(1, a.parallel_chapters):
-            free = [i for i in pauses if i not in chosen]
+            free = [i for i in pauses if all(abs(i - c) >= self.size for c in chosen)]
             if free:
                 chosen.add(min(free, key=lambda i: abs(i - n * k / a.parallel_chapters)))
         return {target_lines[i].idx for i in chosen}
@@ -532,6 +535,9 @@ class _TranslateRun:
             callback = getattr(a, name)
             if callback:
                 setattr(a, name, self._locked(callback))
+        # A lane saves only its own batch, and lines carried over as English are in none.
+        if self.english and a.save_cb:
+            a.save_cb(self.english)
         self.stopped = False
         self.in_flight = 0
         self.max_batch_cost = 0.0
