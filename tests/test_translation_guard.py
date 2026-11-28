@@ -679,3 +679,10 @@ class TestNovelNumbersAndHeaders:
         lines = [Line(idx=0, start=0, end=1, zh="外面气温35度，街上没有人动", id=501)]
         translate_pipeline.translate_lines_with_engine(lines, Eng(), NOVEL, batch_size=1)
         assert lines[0].flag == FLAG and lines[0].flag_note == guard.NUMBER_NOTE
+
+
+def test_the_merged_or_shifted_re_ask_saves_no_em_dashes():
+    lines = [Line(idx=0, start=0, end=1, zh="他来了", id=1), Line(idx=1, start=1, end=2, zh="好", id=2)]
+    lines[0].en, lines[1].en = "他来了", "Fine."
+    guard.guard_batch(lines, lambda part: ["He—the king—came."] * len(part), lambda: False)
+    assert lines[0].en == "He, the king, came."

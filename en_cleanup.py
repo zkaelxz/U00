@@ -152,8 +152,9 @@ def _cjk_punctuation(text: str, style):
 # isn't joining two words or numbers ("1–3" and "Paris–London" stay).
 # Private-use sentinels stand in for masked words, tags and labels in clean_text.
 _WORDISH = r"\w\uE000-\uF8FF"
-_DASH_RE = re.compile(r"[ \t]*(?:[\u2014\u2015]+[\u2013\u2014\u2015]*|[\u2013\u2014\u2015]{2,}"
-                      rf"|(?<![{_WORDISH}])\u2013|\u2013(?![{_WORDISH}]))[ \t]*")
+_DASH = rf"(?:[\u2014\u2015]|(?<![{_WORDISH}])\u2013|\u2013(?![{_WORDISH}]))"
+# A run ("——", "– –", "–—") is one dash.
+_DASH_RE = re.compile(rf"[ \t]*{_DASH}(?:[ \t]*[\u2013\u2014\u2015])*[ \t]*")
 # Words that open a new sentence far more often than they continue a name or title.
 _SENTENCE_STARTERS = frozenset(
     "look wait stop run no yes come go get help hey listen please don't do what why how who "
@@ -162,19 +163,19 @@ _SENTENCE_STARTERS = frozenset(
 _NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
 # A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
 _TAG_END_RE = re.compile(r"(?:^|\n)[ \t]*(?:<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\})+[ \t]*$")
-_SENTINEL_PREFIX_RE = re.compile("(?:^|\n)[ \t]*[\uE000-\uF8FF]+[ \t]*$")
 _OPENERS = "\"'“‘([{"
 _CLOSERS = "”’)]}"
 
 
-def _dash_replacement(text: str, m) -> str:
+def _dash_replacement(text: str, m, line_prefixes) -> str:
     before, after = text[:m.start()], text[m.end():]
     prev, nxt = before[-1:], after[:1]
     if _CJK_LETTER_RE.match(prev or " ") and _CJK_LETTER_RE.match(nxt or " "):
         return m.group(0)  # quoted source text, not English punctuation
     if not prev or prev == "\n" or prev in _OPENERS:
         return ""
-    if _TAG_END_RE.search(before) or _SENTINEL_PREFIX_RE.search(before):
+    line_head = before.rsplit("\n", 1)[-1].strip(" \t")
+    if _TAG_END_RE.search(before) or (line_head and all(c in line_prefixes for c in line_head)):
         return " " if m.group(0)[:1] in " \t" else ""
     closes_quote = nxt in _CLOSERS or (nxt in "\"'" and not re.match(r".\w", after))
     if not nxt or nxt == "\n" or closes_quote:
@@ -187,7 +188,7 @@ def _dash_replacement(text: str, m) -> str:
         return "-" if m.group(0).strip() == m.group(0) else " - "
     # "I—I can't": a stutter repeats the word before the dash.
     last = re.search(r"([A-Za-z']+)\W*$", before)
-    if last and re.match(re.escape(last.group(1)) + r"\b", after, re.I):
+    if last and re.match(re.escape(last.group(1)) + r"(?![\w'’])", after, re.I):
         return "... "
     # "I told him—Look out!": a capital that isn't "I" or a name starts a new
     # sentence, so the dash was a break-off.
@@ -204,20 +205,21 @@ def _dash_replacement(text: str, m) -> str:
     return ", "
 
 
-def drop_em_dashes(text: str) -> str:
+def drop_em_dashes(text: str, line_prefixes=frozenset()) -> str:
     """English with its dashes swapped for the punctuation the owner prefers:
     a comma mid-sentence, an ellipsis for a cut-off line, nothing at a line's
-    start. Dashes between two CJK letters are left alone."""
+    start. Dashes between two CJK letters are left alone. `line_prefixes`:
+    clean_text's sentinels for masked tags and labels, which a line may start with."""
     if not text or not _DASH_RE.search(text):
         return text
-    cleaned = _DASH_RE.sub(lambda m: _dash_replacement(text, m), text)
+    cleaned = _DASH_RE.sub(lambda m: _dash_replacement(text, m, line_prefixes), text)
     # A reply that was only a dash (a cut-off or silent line) must not turn blank,
     # which reads as untranslated.
     return cleaned if cleaned.strip() else "..."
 
 
 def _em_dash(text, style):
-    return drop_em_dashes(text)
+    return drop_em_dashes(text, style.get("line_prefixes", frozenset()))
 
 
 def _ellipsis(text, style):
@@ -361,6 +363,10 @@ def clean_text(text: str, style: Optional[dict] = None,
     if protected is None:
         return text, []
     masked, spans = protected
+    # Masked glossary terms are words; masked tags and speaker labels can open a line.
+    style = dict(style, line_prefixes=frozenset(
+        chr(_SENTINEL_BASE + i) for i, span in enumerate(spans)
+        if _TAG_RE.fullmatch(span) or span.rstrip().endswith(":")))
     wanted = set(rules)
     applied = []
     for name in RULES:
