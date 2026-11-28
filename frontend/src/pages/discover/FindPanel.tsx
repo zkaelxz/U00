@@ -182,7 +182,7 @@ function PlatformList() {
       </div>
       <ErrorBanner error={error} />
       {platforms && (
-        <ul className="discover-links" data-testid="platforms">
+        <ul className="discover-links scroll-box" data-testid="platforms" tabIndex={0} aria-label="Platforms">
           {platforms.length === 0 && <li className="muted">No platform matches.</li>}
           {platforms.map((p) => (
             <li key={p.url}>

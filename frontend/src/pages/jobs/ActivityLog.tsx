@@ -53,7 +53,7 @@ export function ActivityLog() {
       {gpu && gpu.total_gpu_seconds > 0 && <GpuChart data={gpu} />}
       {items !== null && items.length === 0 && <p className="muted">Nothing has finished yet. Finished jobs show up here and stay after you clear the list above.</p>}
       {items !== null && items.length > 0 && (
-        <ul className="activity-list">
+        <ul className="activity-list scroll-box" tabIndex={0} aria-label="Finished jobs">
           {items.map((a) => (
             <li key={a.id}>
               <span className="activity-when muted">{new Date(a.ended_at * 1000).toLocaleString()}</span>
