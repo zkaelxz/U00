@@ -26,6 +26,8 @@ __all__ = [
     "TranslateRunDefaults",
     "TranslateRunConfig",
     "TranslateRunEstimate",
+    "TranslateRunOptions",
+    "TranslateRunOptionsWithFallback",
     "TranslateRunStart",
     "TranslateRunStarted",
     "TranslateFallbackEngine",
@@ -237,29 +239,43 @@ class TranslateRunEstimate(BaseModel):
     estimate_above_cap: bool
 
 
-class TranslateRunStart(BaseModel):
-    """Start a normal translation. No keys/URLs."""
+class TranslateFallbackEngine(BaseModel):
+    """One entry of TranslateRunStart.fallback_chain."""
+    model_config = ConfigDict(extra="forbid")
+    engine: str = Field(max_length=40)
+    model: Optional[str] = Field(None, max_length=200)
+
+
+class TranslateRunOptions(BaseModel):
+    """The Translate form's run options that every translate-run start takes."""
     model_config = ConfigDict(extra="forbid")
     engine: Optional[str] = Field(None, max_length=40)
     model: Optional[str] = Field(None, max_length=200)
     style_preset: Optional[str] = Field(None, max_length=40)
     style_note: str = Field("", max_length=4000)
     locale: str = Field("en-US", max_length=10)
-    force_retranslate: bool = False
     context_window: Optional[int] = Field(None, ge=0, le=100)
     context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
     batch_size: Optional[int] = Field(None, ge=1, le=200)
-    line_ids: Optional[List[int]] = Field(None, max_length=100000)
     gemini_free_tier: Optional[bool] = None  # None: the saved setting
     job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List["TranslateFallbackEngine"]] = Field(None, max_length=2)
-    reflect: bool = False  # Three-pass Reflect mode
-    bulk: bool = False  # Batch API / DeepSeek off-peak, job bulk_translate_{id}
     # A preset's prompt toggles; None = the defaults (she/her off, genre notes on).
     default_female_pronouns: Optional[bool] = None
     include_genre_notes: Optional[bool] = None
     # Accepted and ignored: older clients and saved profiles still send it.
     thinking: Optional[bool] = None
+
+
+class TranslateRunOptionsWithFallback(TranslateRunOptions):
+    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
+
+
+class TranslateRunStart(TranslateRunOptionsWithFallback):
+    """Start a normal translation. No keys/URLs."""
+    force_retranslate: bool = False
+    line_ids: Optional[List[int]] = Field(None, max_length=100000)
+    reflect: bool = False  # Three-pass Reflect mode
+    bulk: bool = False  # Batch API / DeepSeek off-peak, job bulk_translate_{id}
     # Add approved translation-memory pairs of the title's series to the prompt as examples.
     memory_examples: bool = False
     # With line_ids: glossary substitution and flags touch only those lines, not their neighbours.
@@ -278,13 +294,6 @@ class TranslateRunStarted(BaseModel):
     fallback_engines: List[str] = []
     reflect: bool = False
     bulk: bool = False
-
-
-class TranslateFallbackEngine(BaseModel):
-    """One entry of TranslateRunStart.fallback_chain."""
-    model_config = ConfigDict(extra="forbid")
-    engine: str = Field(max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
 
 
 class GlossaryAffectedTerm(BaseModel):
@@ -329,29 +338,14 @@ class GlossaryAffectedPreview(BaseModel):
     estimate_with_hand_edited: TranslateRunEstimate
 
 
-class GlossaryAffectedRunStart(BaseModel):
+class GlossaryAffectedRunStart(TranslateRunOptionsWithFallback):
     """Re-translate the chosen affected lines. line_ids and preview_hash come
     from the preview; the server recomputes the set and refuses a stale one."""
-    model_config = ConfigDict(extra="forbid")
     line_ids: List[int] = Field(min_length=1, max_length=100000)
     preview_hash: str = Field(min_length=1, max_length=64)
     include_hand_edited: bool = False
     term_ids: Optional[List[int]] = Field(None, max_length=10000)
-    engine: Optional[str] = Field(None, max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
-    style_preset: Optional[str] = Field(None, max_length=40)
-    style_note: str = Field("", max_length=4000)
-    locale: str = Field("en-US", max_length=10)
-    context_window: Optional[int] = Field(None, ge=0, le=100)
-    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
-    batch_size: Optional[int] = Field(None, ge=1, le=200)
-    gemini_free_tier: Optional[bool] = None
-    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
     reflect: bool = False
-    default_female_pronouns: Optional[bool] = None
-    include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class GlossaryAffectedRunStarted(TranslateRunStarted):
@@ -370,52 +364,20 @@ class NovelChapterRetranslatePreview(BaseModel):
     estimate_with_hand_edited: TranslateRunEstimate
 
 
-class NovelChapterRetranslateStart(BaseModel):
+class NovelChapterRetranslateStart(TranslateRunOptions):
     """Translate one chapter again with the Translate form's run options."""
-    model_config = ConfigDict(extra="forbid")
     include_hand_edited: bool = False
-    engine: Optional[str] = Field(None, max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
-    style_preset: Optional[str] = Field(None, max_length=40)
-    style_note: str = Field("", max_length=4000)
-    locale: str = Field("en-US", max_length=10)
-    context_window: Optional[int] = Field(None, ge=0, le=100)
-    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
-    batch_size: Optional[int] = Field(None, ge=1, le=200)
-    gemini_free_tier: Optional[bool] = None
-    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    default_female_pronouns: Optional[bool] = None
-    include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
-class SourceChangedRetranslateStart(BaseModel):
+class SourceChangedRetranslateStart(TranslateRunOptionsWithFallback):
     """Review's "Retranslate these": the lines flagged source_changed the
     client showed, and the run options (the Translate form's, never bulk)."""
-    model_config = ConfigDict(extra="forbid")
     line_ids: List[int] = Field(min_length=1, max_length=100000)
-    engine: Optional[str] = Field(None, max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
-    style_preset: Optional[str] = Field(None, max_length=40)
-    style_note: str = Field("", max_length=4000)
-    locale: str = Field("en-US", max_length=10)
-    context_window: Optional[int] = Field(None, ge=0, le=100)
-    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
-    batch_size: Optional[int] = Field(None, ge=1, le=200)
-    gemini_free_tier: Optional[bool] = None
-    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
     reflect: bool = False
-    default_female_pronouns: Optional[bool] = None
-    include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class SourceChangedRetranslateStarted(TranslateRunStarted):
     line_ids: List[int]
-
-
-TranslateRunStart.model_rebuild()
 
 
 class TranslateBulkResumeEntry(BaseModel):
@@ -574,24 +536,9 @@ class TranslatePresetDefault(BaseModel):
 
 
 # Follow-ups after a run: retry failed lines, glossary redo, episode summary.
-class RetryFailedLinesStart(BaseModel):
+class RetryFailedLinesStart(TranslateRunOptionsWithFallback):
     """The Translate form's run options. The lines are the last run's failed
     ones, chosen server-side."""
-    model_config = ConfigDict(extra="forbid")
-    engine: Optional[str] = Field(None, max_length=40)
-    model: Optional[str] = Field(None, max_length=200)
-    style_preset: Optional[str] = Field(None, max_length=40)
-    style_note: str = Field("", max_length=4000)
-    locale: str = Field("en-US", max_length=10)
-    context_window: Optional[int] = Field(None, ge=0, le=100)
-    context_window_ahead: Optional[int] = Field(None, ge=0, le=100)
-    batch_size: Optional[int] = Field(None, ge=1, le=200)
-    gemini_free_tier: Optional[bool] = None
-    job_cost_cap_usd: Optional[float] = Field(None, ge=0)
-    fallback_chain: Optional[List[TranslateFallbackEngine]] = Field(None, max_length=2)
-    default_female_pronouns: Optional[bool] = None
-    include_genre_notes: Optional[bool] = None
-    thinking: Optional[bool] = None  # accepted and ignored: older clients still send it
 
 
 class RetryFailedLinesStarted(TranslateRunStarted):
