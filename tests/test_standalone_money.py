@@ -13,7 +13,7 @@ from engine_backends.shared import LLMTaskTimeout
 from services import translate_run_service, translate_service
 from lib.errors import InvalidInputError
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 PARAGRAPH = "段" * 1400  # one chunk each; 8 chunks go out per request

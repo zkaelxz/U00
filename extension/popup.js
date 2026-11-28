@@ -385,9 +385,13 @@ async function load() {
     if (health && health.error && health.error.startsWith(NO_TOKEN_PREFIX)) {
       showNotice("Paste your token to get started.", "Open options", () => chrome.runtime.openOptionsPage());
       say("Actions are off until a token is saved.");
-    } else if (health && (health.status === 401 || health.status === 403)) {
+    } else if (health && health.status === 401) {
       showNotice("Baihe didn't accept this token.", "Open options", () => chrome.runtime.openOptionsPage());
       say("Paste a new token from Baihe's Settings (Browser extension on the PC, Remote access keys on another computer).");
+    } else if (health && health.status === 403) {
+      // The token is good but the account lacks the right, so a new token would not help: show Baihe's own reason.
+      showNotice("Baihe refused this browser.", "Retry", load);
+      say(health.error || "Ask the PC owner to turn on “Browser extension and Baihe Grab” for you in People and access.");
     } else {
       showNotice("Can't reach Baihe.", "Retry", load);
       // The Browser extension switch is on the PC's own Settings and does not gate a copy on another computer.

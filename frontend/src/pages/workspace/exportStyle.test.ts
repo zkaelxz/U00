@@ -23,11 +23,11 @@ describe('buildAssRequest full style mapping', () => {
       ...emptyAssForm('Loud'), font: ' Noto Sans ', size: '40', outlineWidth: '0', shadow: '3',
       primary: '#abcdef', outline: '#123456', bold: 'no' as const, italic: 'yes' as const,
       alignment: 'top-left', sfxAlignment: 'bottom-center', notesAlignment: 'top-left',
-      speakerColors: 'A = #FF0000\nB=#00FF00', perSpeakerColors: false, field: 'bilingual' as const,
+      speakerColors: 'A = #FF0000\nB=#00FF00', perSpeakerColors: true, field: 'bilingual' as const,
       includeNotes: true, notesAsSeparateLine: true, wrapEn: '42', wrapSource: '20', baseName: 'ep1',
     }
     expect(buildAssRequest(f, opts).request).toEqual({
-      field: 'bilingual', preset: 'Loud', per_speaker_colors: false, include_notes: true,
+      field: 'bilingual', preset: 'Loud', per_speaker_colors: true, include_notes: true,
       notes_as_separate_line: true, wrap_chars_en: 42, wrap_chars_source: 20,
       speaker_colors: { A: '#FF0000', B: '#00FF00' },
       style: {
@@ -35,6 +35,12 @@ describe('buildAssRequest full style mapping', () => {
         bold: false, italic: true, alignment: 'top-left', sfx_alignment: 'bottom-center', notes_alignment: 'top-left',
       },
     })
+  })
+  it('neither checks nor sends speaker colours while Colour each speaker is off', () => {
+    const r = buildAssRequest({ ...emptyAssForm('Clean'), perSpeakerColors: false, speakerColors: 'A = #FF0000\nnot a colour' }, opts)
+    expect(r.error).toBeUndefined()
+    expect(r.request).not.toHaveProperty('speaker_colors')
+    expect(r.request?.per_speaker_colors).toBe(false)
   })
   it('never sends the client-only file name or notes-on-own-line without notes', () => {
     const r = buildAssRequest({ ...emptyAssForm('Clean'), baseName: 'x', notesAsSeparateLine: true }, opts).request

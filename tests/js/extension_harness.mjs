@@ -1014,6 +1014,7 @@ async function novel(scenario) {
       return {
         revoked: await run({ ok: false, status: 401, error: "a valid token header is required" }),
         refused: await run({ ok: false, status: 403, error: "no" }),
+        refusedLine: await run({ ok: false, status: 403, error: "Your account can't send pages from this device." }, {}, true),
         down: await run({ ok: false, error: "Couldn't reach Baihe" }),
         downLine: await run({ ok: false, error: "Couldn't reach Baihe" }, {}, true),
         downRemoteLine: await run({ ok: false, error: "Couldn't reach Baihe" }, { serverUrl: "https://baihe.example" }, true),
