@@ -193,7 +193,7 @@ def get_logged_user_month_spend(user_id: int, now: datetime.datetime | None = No
 def get_user_month_spend(user_id: int, now: datetime.datetime | None = None) -> float:
     """What a member's own monthly limit is checked against: their logged
     spend since an active reset plus their bulk batches not billed yet."""
-    return db.get_logged_user_month_spend(user_id, now) + db.unbilled_bulk_usd_by_user().get(user_id, 0.0)
+    return db.get_logged_user_month_spend(user_id, now) + db.unbilled_bulk_usd_for_user(user_id)
 
 
 def usage_recost_candidates(models) -> list:

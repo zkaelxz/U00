@@ -24683,7 +24683,8 @@ export interface components {
         MeResponse: {
             /** Auth Enabled */
             auth_enabled: boolean;
-            limits: components["schemas"]["MemberLimits"] | null;
+            /** Limits */
+            limits?: components["schemas"]["MemberLimits"];
             /**
              * Own Ollama Key
              * @default false
@@ -24696,7 +24697,8 @@ export interface components {
             paid_limit_reached: boolean;
             /** Permissions */
             permissions: string[];
-            preferences: components["schemas"]["AccountPreferences"] | null;
+            /** Preferences */
+            preferences?: components["schemas"]["AccountPreferences"];
             /** Sign In Configured */
             sign_in_configured: boolean;
             /** Signed In */

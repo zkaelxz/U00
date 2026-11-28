@@ -55,6 +55,7 @@ import requests
 import core as core_module
 from lib import ids as lib_ids
 import db
+import media_inspect
 import novel_text
 import reader
 import storage
@@ -412,17 +413,38 @@ def get_media_availability(drama_id: int) -> dict:
 # Progress and length
 # ---------------------------------------------------------------------------
 
+# The overview is fetched on every Reader visit, so a track is probed once per version of the
+# file, and a failed probe is remembered too.
+_TRACK_SECONDS: dict = {}
+
+
+def _track_seconds(path: str):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _TRACK_SECONDS:
+        if len(_TRACK_SECONDS) >= 256:
+            _TRACK_SECONDS.clear()
+        _TRACK_SECONDS[key] = media_inspect.duration_seconds(path, timeout=5)
+    return _TRACK_SECONDS[key]
+
+
 def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
     """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
-    last_line_idx}. Timed media use the real duration, text a reading-time
-    estimate."""
+    last_line_idx}. Timed media use the real duration, a narrated text its
+    narration track's length, other text a reading-time estimate."""
     drama = _require_drama(drama_id)
     count, last_end, words = db.line_reading_stats(drama_id)
     if drama.get("media_type") in _LISTENING_MEDIA_TYPES:
         display = story_context.listening_time(last_end)["display"] if count else "0m"
     else:
-        display = story_context.reading_time(words)["display"]
+        narration = _media_paths(drama_id, drama).get("narration")
+        seconds = _track_seconds(narration[1]) if narration else None
+        display = (story_context.listening_time(seconds) if seconds
+                   else story_context.reading_time(words))["display"]
     prog = db.get_progress(drama_id, user_id=user_id) or {}
     return {"drama_id": drama_id, "length_display": display, "line_count": count,
             "percent_complete": float(prog.get("percent_complete") or 0.0),
