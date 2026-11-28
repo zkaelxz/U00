@@ -595,6 +595,67 @@ class TestListenWhileItIsMade:
         assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
         assert track.read_bytes() == made and not waiting.exists()
 
+    @pytest.fixture
+    def logged(self, monkeypatch):
+        import applog
+        seen = []
+        log = types.SimpleNamespace(warning=lambda msg: seen.append(("warning", msg)),
+                                    info=lambda msg: seen.append(("info", msg)))
+        monkeypatch.setattr(applog, "get_logger", lambda: log)
+        return seen
+
+    def _hold(self, monkeypatch, *held_names):
+        real = dub_narration.replace_file
+
+        def held(src, dst):
+            if os.path.basename(dst) in held_names:
+                raise PermissionError(13, "The process cannot access the file", dst)
+            return real(src, dst)
+        monkeypatch.setattr(dub_narration, "replace_file", held)
+
+    def _work(self, monkeypatch, tmp_path, lines):
+        import queue
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+        result_queue = queue.Queue()
+        dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), NARRATORS, result_queue)
+        items = []
+        while not result_queue.empty():
+            items.append(result_queue.get_nowait())
+        return items[-1]
+
+    def test_a_held_final_track_is_logged_and_the_job_says_what_to_do(
+            self, monkeypatch, fake_pydub, tmp_path, logged):
+        from services import jobs_service
+        (tmp_path / "narration_track.flac").write_bytes(b"playing")
+        os.utime(tmp_path / "narration_track.flac", (1, 1))
+        self._hold(monkeypatch, "narration_track.flac")
+        kind, result = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert kind == "ok" and result["track_waiting"] == dub_narration.TRACK_IN_USE_NOTICE
+        assert logged == [("warning", "narration: the finished track could not replace the old one, which is "
+                           "in use (the Reader may be playing it); it waits as narration_track.next.flac until "
+                           "the old file is free (PermissionError: The process cannot access the file)")]
+        outcome, message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+        assert outcome == "ok" and dub_narration.TRACK_IN_USE_NOTICE in message
+        logged.clear()
+        assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"
+        assert logged == [("info", "narration: the finished track that waited while the old one was in use "
+                           "was swapped in now that the old track is free")]
+
+    def test_a_track_swapped_in_at_once_has_no_note(self, monkeypatch, fake_pydub, tmp_path, logged):
+        kind, result = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert kind == "ok" and "track_waiting" not in result and logged == []
+
+    def test_a_track_that_cannot_wait_beside_it_either_fails_the_run_saying_what_to_do(
+            self, monkeypatch, fake_pydub, tmp_path, logged):
+        (tmp_path / "narration_track.flac").write_bytes(b"playing")
+        self._hold(monkeypatch, "narration_track.flac", novel_text.NARRATION_WAITING_NAME)
+        kind, name, message, _trace = self._work(monkeypatch, tmp_path, self._chapters(2))
+        assert (kind, name, message) == ("error", "RuntimeError", dub_narration.TRACK_IN_USE_ERROR)
+        assert [level for level, _msg in logged] == ["warning"]
+        assert "could not be saved beside it either, so the run failed" in logged[0][1]
+        assert str(tmp_path) not in logged[0][1]
+        assert (tmp_path / "narration_track.flac").read_bytes() == b"playing"
+
     def test_a_waiting_track_older_than_the_title_track_is_dropped(self, tmp_path):
         import novel_text
         waiting = tmp_path / novel_text.NARRATION_WAITING_NAME

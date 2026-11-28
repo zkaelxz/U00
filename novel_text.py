@@ -503,11 +503,19 @@ def _swap_in_waiting_track(drama_dir: str) -> bool:
         # A track made after the waiting one took the usual name: the waiting one is stale.
         if os.path.isfile(current) and os.path.getmtime(current) > os.path.getmtime(waiting):
             os.remove(waiting)
+            _log_waiting_track("was dropped: a newer track took the usual name")
             return False
         os.replace(waiting, current)
+        _log_waiting_track("was swapped in now that the old track is free")
         return False
     except OSError:
+        # Not logged: every read while the old track still plays lands here.
         return os.path.isfile(waiting)
+
+
+def _log_waiting_track(outcome: str) -> None:
+    import applog
+    applog.get_logger().info(f"narration: the finished track that waited while the old one was in use {outcome}")
 # Chapter-move bookkeeping in a title's folder. Title copies leave out both: a copied journal
 # would have the copy's start-up recovery act on files that aren't the move's. Backups leave out
 # only the lock; they keep the journal so a restore can finish or undo the move.

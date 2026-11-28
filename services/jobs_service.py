@@ -69,6 +69,8 @@ RESULT_ALLOWED_KEYS = (
     "judge_skipped",
     # Translate: why the Source match check did not run (Ollama or bge-m3 missing; a fixed sentence).
     "source_match_skipped",
+    # Narration: the finished track waits because the old one was in use (a fixed sentence).
+    "track_waiting",
 )
 _MAX_STR = 500
 _MAX_LIST = 20
@@ -534,6 +536,8 @@ def _summary_outcome(result: dict) -> tuple:
         parts.append(str(result["judge_skipped"]))
     if result.get("source_match_skipped"):
         parts.append(str(result["source_match_skipped"]))
+    if result.get("track_waiting"):
+        parts.append(str(result["track_waiting"]))
     if result.get("speaker_count_hint"):
         # A suggestion, not a failure, so it doesn't make the outcome partial.
         parts.append(str(result["speaker_count_hint"]))

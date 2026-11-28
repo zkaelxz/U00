@@ -479,18 +479,19 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
     _refuse_mostly_failed(units, drama_dir, checkpoints.joined_any)
-    errors = _join_track(steps, lines, drama_dir, pace, narrate_original, final=True)
+    errors, waiting = _join_track(steps, lines, drama_dir, pace, narrate_original, final=True)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
     if os.path.isfile(legacy):
         os.remove(legacy)
-    return os.path.join(drama_dir, NARRATION_TRACK_NAMES[0]), errors
+    return os.path.join(drama_dir, NARRATION_WAITING_NAME if waiting else NARRATION_TRACK_NAMES[0]), errors
 
 
 def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: bool,
-                final: bool = False) -> list:
+                final: bool = False) -> tuple:
     """Joins the clips of `steps` (all of the title's, or the part spoken so far) into the
-    title's track and sets the times and clip of `lines` (theirs). Returns the failed lines' errors.
+    title's track and sets the times and clip of `lines` (theirs). Returns (the failed lines'
+    errors, whether the track waits under NARRATION_WAITING_NAME).
     final: the whole track, which is kept under NARRATION_WAITING_NAME when the old one stays held."""
     from types import SimpleNamespace
     from pydub import AudioSegment
@@ -540,28 +541,53 @@ def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: boo
             # Shortened by the pace, so the gap is the same length once the track is slowed.
             cursor_ms = end_ms + round(CLIP_GAP_MS * pace)
         stream.finish(cursor_ms)
-        _put_track_in_place(part_path, out_path, drama_dir, final)
+        waiting = _put_track_in_place(part_path, out_path, drama_dir, final)
     finally:
         stream.abort()
         remove_partial_track(drama_dir)
 
     _stretch_times(lines, pace)
-    return errors
+    return errors, waiting
 
 
-def _put_track_in_place(part_path: str, out_path: str, drama_dir: str, final: bool) -> None:
+# The job's note when the finished track had to wait: users quote it when they report a stale track.
+TRACK_IN_USE_NOTICE = ("The new narration is finished, but the old track was in use (the Reader may be "
+                       "playing it), so it could not be replaced yet. Stop playback and open the Reader "
+                       "again to hear the new one; it is swapped in once the old file is free.")
+TRACK_IN_USE_ERROR = ("The new narration was finished but could not be saved, because the old track was "
+                      "in use (the Reader may be playing it). Stop playback and choose Make again; the "
+                      "clips already spoken are reused.")
+
+
+def _put_track_in_place(part_path: str, out_path: str, drama_dir: str, final: bool) -> bool:
+    """Whether the finished track waits under NARRATION_WAITING_NAME."""
     try:
         # Retries for about a second while the Reader is still streaming the old track on Windows.
         replace_file(part_path, out_path)
-    except PermissionError:
+    except PermissionError as exc:
         if not final:
             raise
         # A listener can keep the old track open for as long as it plays; failing the run here
         # would throw away hours of narration, so the track waits for find_narration_track.
-        replace_file(part_path, os.path.join(drama_dir, NARRATION_WAITING_NAME))
-        return
+        try:
+            replace_file(part_path, os.path.join(drama_dir, NARRATION_WAITING_NAME))
+        except PermissionError as again:
+            _log_track_in_use("could not be saved beside it either, so the run failed", again)
+            raise RuntimeError(TRACK_IN_USE_ERROR) from again
+        _log_track_in_use(f"waits as {NARRATION_WAITING_NAME} until the old file is free", exc)
+        return True
     with contextlib.suppress(OSError):
         os.remove(os.path.join(drama_dir, NARRATION_WAITING_NAME))
+    return False
+
+
+def _log_track_in_use(outcome: str, exc: OSError) -> None:
+    # strerror, not str(exc): the latter names the title's folder.
+    import applog
+    from engine_backends.shared import redact_secrets
+    reason = redact_secrets(f"{type(exc).__name__}: {exc.strerror or 'file in use'}")
+    applog.get_logger().warning(f"narration: the finished track could not replace the old one, "
+                                f"which is in use (the Reader may be playing it); it {outcome} ({reason})")
 
 
 # A join of the part spoken so far reads all of its clips again, so the next join waits this many
@@ -805,7 +831,9 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
             narrate_original=narrate_original, source_language=source_language,
             on_partial=lambda times: process_worker.report_partial(result_queue, {"times": times}))
         # failed_count: the job result lists only the first errors.
-        result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors,
-                                 "failed_count": len(errors)}))
+        result = {"lines": lines, "out_path": out_path, "errors": errors, "failed_count": len(errors)}
+        if os.path.basename(out_path) == NARRATION_WAITING_NAME:
+            result["track_waiting"] = TRACK_IN_USE_NOTICE
+        result_queue.put(("ok", result))
     except Exception as exc:
         result_queue.put(process_worker.error_item(exc))
