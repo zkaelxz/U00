@@ -128,7 +128,7 @@ def _write_row(job_id, job, result_json, timeout=None):
 
 def _result_json(job_id, job):
     try:
-        from services.jobs_service import project_result_json
+        from jobs.job_results import project_result_json
         return project_result_json(job.get("result"), job.get("run_settings"))
     except Exception:
         import applog

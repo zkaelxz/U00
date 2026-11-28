@@ -165,6 +165,8 @@ const ACTIONS: Record<string, string> = {
   'upload.away': 'Upload from away',
   'remote_uploads.on': 'Uploads from away turned on',
   'remote_uploads.off': 'Uploads from away turned off',
+  'remote_uploads.auto_off': 'Uploads from away set to turn off after 7 days',
+  'remote_uploads.stay_on': 'Uploads from away set to stay on until turned off',
   'library.restore': 'Library restored',
   'library.restore_drama': 'Title restored from backup',
   'audit.prune': 'Old activity cleared',

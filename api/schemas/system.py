@@ -274,7 +274,7 @@ class JobRecord(BaseModel):
     finished_at: Optional[float] = None
     updated_at: float
     # A redacted, allowlisted projection of the job's result dict
-    # (services/jobs_service.project_result) plus a normalised outcome
+    # (jobs/job_results.project_result) plus a normalised outcome
     # (ok | failed | cancelled | interrupted | partial | kept_existing), so a
     # "done" job that actually failed or was cancelled does not look like a
     # success.
@@ -296,7 +296,7 @@ class JobRecord(BaseModel):
     # may also cancel it (admins may cancel every job).
     owned_by_me: bool = False
     # The title a drama-scoped job runs on, and a fixed-vocabulary label for
-    # what it does (services/jobs_service.JOB_KIND_BY_PREFIX), so clients
+    # what it does (jobs/job_results.JOB_KIND_BY_PREFIX), so clients
     # never parse job ids. Only set for jobs the caller may already see.
     drama_id: Optional[int] = None
     kind: Literal["transcribe", "translate", "align", "dub", "export", "review",
@@ -395,6 +395,9 @@ class SettingsOverview(BaseModel):
     offer_provider_models: bool = False
     # On and not lapsed (settings_service.remote_uploads_on).
     remote_uploads: bool = False
+    # When it was turned on (Unix seconds); None while off.
+    remote_uploads_since: Optional[float] = None
+    remote_uploads_auto_off: bool = False
     preferences: SettingsPreferences
     endpoints: Dict[str, Optional[str]]
     # BAIHE_MAX_UPLOAD_MB set: it wins over preferences.max_upload_mb.
@@ -439,6 +442,7 @@ class SettingsUpdateRequest(TimingPreferencesUpdate):
     bulk_auto_resume: Optional[StrictBool] = None
     offer_provider_models: Optional[StrictBool] = None
     remote_uploads: Optional[StrictBool] = None
+    remote_uploads_auto_off: Optional[StrictBool] = None
     default_engine: Optional[StrictStr] = Field(None, max_length=40)
     default_locale: Optional[StrictStr] = Field(None, max_length=8)
     default_style_note: Optional[StrictStr] = Field(None, max_length=2000)

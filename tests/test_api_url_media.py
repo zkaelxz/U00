@@ -25,7 +25,8 @@ import video_export
 from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, jobs_service, media_upload_service
+from services import auth_service, media_upload_service
+from jobs import job_results
 from lib import url_guard
 from services import site_captions_service
 from services import url_media_service as svc
@@ -193,7 +194,7 @@ def test_audio_only_download(client, env):
     j = client.get(f"/api/jobs/urlmedia_{did}")
     assert j.status_code == 200
     assert SECRET not in j.text and "video.example" not in j.text and "Clip" not in j.text
-    assert jobs_service.project_result(st["result"]) == {}
+    assert job_results.project_result(st["result"]) == {}
 
 
 _VTT = "WEBVTT\n\n00:00:01.000 --> 00:00:03.000\n你好，小明\n\n00:00:04.000 --> 00:00:06.000\n再见\n"

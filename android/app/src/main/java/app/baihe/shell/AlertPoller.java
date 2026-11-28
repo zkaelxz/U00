@@ -6,6 +6,9 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Build;
 import android.webkit.CookieManager;
 import java.util.List;
@@ -15,6 +18,10 @@ final class AlertPoller {
     static final String CHANNEL = "alerts";
     private static final String MARK_ID = "alerts_mark_id";
     private static final String MARK_AT = "alerts_mark_at";
+    private static final String OUTAGE_SINCE = "outage_since";
+    private static final String OUTAGE_NETWORK = "outage_network";
+    private static final String OUTAGE_ANNOUNCED = "outage_announced";
+    private static final int OUTAGE_NOTE_ID = 2;
 
     private AlertPoller() {}
 
@@ -27,6 +34,7 @@ final class AlertPoller {
         String cookie = CookieManager.getInstance().getCookie(address);
         if (cookie == null) return;
         String body = AppUpdate.fetchText(address + "/api/notifications", cookie);
+        watchOutage(context, prefs, AppUpdate.lastFetchAnswered);
         if (body == null) return;
         List<AlertFeed.Item> items = AlertFeed.parse(body);
         if (!prefs.contains(MARK_ID)) {
@@ -44,6 +52,34 @@ final class AlertPoller {
             return;
         }
         for (AlertFeed.Item item : fresh) show(context, (int) (item.id % 100000) + 100, item.text, item.route);
+    }
+
+    private static void watchOutage(Context context, SharedPreferences prefs, boolean answered) {
+        OutageWatch.State state = new OutageWatch.State();
+        state.failingSince = prefs.getLong(OUTAGE_SINCE, 0);
+        state.network = prefs.getString(OUTAGE_NETWORK, null);
+        state.announced = prefs.getBoolean(OUTAGE_ANNOUNCED, false);
+        OutageWatch.Action action = OutageWatch.next(state, answered, networkId(context), System.currentTimeMillis());
+        prefs.edit().putLong(OUTAGE_SINCE, state.failingSince).putString(OUTAGE_NETWORK, state.network)
+                .putBoolean(OUTAGE_ANNOUNCED, state.announced).apply();
+        if (action == OutageWatch.Action.NONE) return;
+        ensureChannel(context);
+        show(context, OUTAGE_NOTE_ID, action == OutageWatch.Action.DOWN
+                ? "Baihe's PC has not answered for an hour" : "Baihe's PC is answering again", null);
+    }
+
+    /** The active network's handle and kind, or null when offline; a change means the phone moved. */
+    private static String networkId(Context context) {
+        try {
+            ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
+            Network network = manager.getActiveNetwork();
+            if (network == null) return null;
+            NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+            boolean wifi = caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+            return (wifi ? "wifi:" : "other:") + network.getNetworkHandle();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /** The next check only learns where the list stands, as on the first one. */

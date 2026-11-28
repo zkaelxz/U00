@@ -1493,7 +1493,7 @@ def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatc
                                                                       detail, text):
     """The bell and the Jobs list read the server's status: a worker that
     returned a failure reason must not read as Finished."""
-    from services import jobs_service
+    from jobs import job_results
     calls = []
     monkeypatch.setattr(job_runner, "_notify_job_finished", lambda *a, **k: calls.append((a, k)))
     job_id = f"test_thread_failed_{reason}"
@@ -1505,7 +1505,7 @@ def test_a_thread_job_whose_worker_reports_a_failure_ends_as_an_error(monkeypatc
     assert status["status"] == "error"
     assert status["error"] == text
     assert status["result"]["failed_reason"] == reason
-    assert jobs_service.derive_outcome(status["status"], status["error"], status["result"]) == (
+    assert job_results.derive_outcome(status["status"], status["error"], status["result"]) == (
         "failed", text)
     _wait_for(lambda: calls)
     (args, kwargs), = calls

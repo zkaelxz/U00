@@ -713,8 +713,8 @@ away" is on. Then an admin signed in on another device can upload audio or video
 import a subtitle file, attach novel text or an EPUB, save the raw novel or the English reference, and add
 comic pages or a cover, under the Settings upload limit. An upload from away is refused before it starts when
 the PC's temporary folder hasn't room for it alongside the other uploads from away still arriving. The switch
-turns itself off after 7 days. It no longer needs Developer Mode; after the update that changed this, the
-switch starts off until you turn it on again. A member can send audio or video from their phone into titles
+stays on, showing "On since" the date, until you turn it off; "Turn off automatically after 7 days" (off by
+default) brings the old 7-day limit back. A switch that was on before this change keeps its old 7-day limit until you turn it on again. It no longer needs Developer Mode. Each upload accepted from away adds one log line with the running counts for admins and members, and an activity-log row. A member can send audio or video from their phone into titles
 they own once you turn on People > Rights > "Upload audio and video" for them (off by default, no switch
 needed, and it covers only audio and video, not covers, subtitles, novel text or comic pages). Their files are
 held to Settings > Advanced > Uploads > "Member upload limit" (1 GB unless you change it, never above the
