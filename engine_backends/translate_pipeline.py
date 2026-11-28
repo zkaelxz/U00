@@ -86,6 +86,9 @@ TRANSLATE_PROMPT_VERSION = "6"
 # A pause this long between two lines is treated as a scene break. Matches
 # core.diagnose_line_coverage's large-gap default so both agree on "large".
 SCENE_BREAK_GAP_SECONDS = 3.0
+# A pause this long is a cut between scenes, where a subtitle run may start another lane: the
+# line after it loses only the English of a scene that is over.
+SCENE_LANE_GAP_SECONDS = 20.0
 
 
 def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
@@ -322,6 +325,7 @@ class _TranslateRun:
         self.bi = 0
         self.batch_label = ""
         self.groups = []
+        self.lane_label = "Chapter"
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
         self.character_names = args.character_names or {}
@@ -349,7 +353,7 @@ class _TranslateRun:
         batches = self._plan(target_lines)
         self.n_batches = len(batches)
         self._seed_first_batch_estimate(target_lines, batches)
-        chapters = self._chapter_groups(batches)
+        chapters = self._chapter_groups(batches) or self._scene_groups(batches)
         finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
         if finished:
             self._recheck_pronouns()
@@ -389,12 +393,19 @@ class _TranslateRun:
         # A chapter start in a batch's first half does not cut it, so chapters shorter than
         # a batch share requests and the lanes find fewer chapters than the book has.
         side_by_side = a.parallel_chapters >= 2 and can_run_in_parallel(self.engine)
+        self.scene_starts = (self._scene_starts(target_lines)
+                             if side_by_side and not novel_ends and a.target_ids is None else set())
+
+        def subtitle_batches(part):
+            return (plan_batches(part, size, a.scene_break_gap) if a.scene_aware_batches
+                    else [part[i:i + size] for i in range(0, len(part), size)])
+        # Planned part by part, so every scene cut is where a batch starts.
+        cuts = [0, *(i for i, ln in enumerate(target_lines) if ln.idx in self.scene_starts), len(target_lines)]
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
                                           max_chars=None if a.batch_size else novel_batch_chars(self.engine),
                                           chapter_starts=chapter_starts,
                                           one_chapter_per_batch=side_by_side) if novel_ends
-                   else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
-                   else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
+                   else [b for lo, hi in zip(cuts, cuts[1:]) for b in subtitle_batches(target_lines[lo:hi])])
         by_sentence = a.translate_by_sentence
         if by_sentence is None:
             by_sentence = bool((a.drama_meta or {}).get("translate_by_sentence"))
@@ -477,6 +488,36 @@ class _TranslateRun:
                 groups.append([])
             groups[-1].append(batch)
         return groups if len(groups) > 1 else None
+
+    def _scene_starts(self, target_lines) -> set:
+        """Where a subtitle run's lines are cut into up to `parallel_chapters` parts to run side by
+        side like chapters: the pauses of SCENE_LANE_GAP_SECONDS or more nearest an even split.
+        Only between neighbouring lines of the title, since a jump over lines not being sent
+        is not a pause."""
+        a, n = self.args, len(target_lines)
+        pauses = [i for i in range(1, n)
+                  if target_lines[i].idx == target_lines[i - 1].idx + 1
+                  and target_lines[i].start - target_lines[i - 1].end >= SCENE_LANE_GAP_SECONDS]
+        chosen = set()
+        for k in range(1, a.parallel_chapters):
+            free = [i for i in pauses if i not in chosen]
+            if free:
+                chosen.add(min(free, key=lambda i: abs(i - n * k / a.parallel_chapters)))
+        return {target_lines[i].idx for i in chosen}
+
+    def _scene_groups(self, batches):
+        """The batches grouped by the scene parts _plan cut, or None when it cut none."""
+        if not self.scene_starts:
+            return None
+        groups = []
+        for batch in batches:
+            if not groups or batch[0].idx in self.scene_starts:
+                groups.append([])
+            groups[-1].append(batch)
+        if len(groups) < 2:
+            return None
+        self.lane_label = "Part"
+        return groups
 
     def _run_chapter_lanes(self, groups) -> bool:
         """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
@@ -1064,7 +1105,7 @@ class _LaneRun(_TranslateRun):
         self.context = dict(parent.context)
         self.n_batches = len(batches)
         self.bi_offset = bi_offset
-        self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
+        self.chapter_label = f"{parent.lane_label} {number + 1} of {parent.chapters_total}, "
         first_error = len(self.errors)
         try:
             return self._run_batches(batches)

@@ -1,4 +1,5 @@
-"""Chapter-parallel novel translation: order inside a chapter, usage and cap, eligibility."""
+"""Chapter-parallel novel translation and scene-parallel subtitle translation: order inside a
+lane, usage and cap, eligibility, where scenes are cut."""
 import threading
 import time
 from types import SimpleNamespace
@@ -329,3 +330,80 @@ def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
     engine = _Engine()
     _lines, _errors, usage, _ = _run(engine, 1, cost_cap_usd=0.5)
     assert len(usage) == 1
+
+
+def _subtitles(pauses, n=30):
+    """`n` timed lines two seconds apart, with a pause of `pauses[i]` seconds before line i."""
+    lines, t = [], 0.0
+    for i in range(n):
+        t += pauses.get(i, 0.0)
+        line = _Line(i, f"s{i}")
+        line.start, line.end = t, t + 1.5
+        lines.append(line)
+        t += 2.0
+    return lines
+
+
+@pytest.fixture
+def subtitles(monkeypatch):
+    monkeypatch.setattr(tp, "novel_paragraph_ends", lambda meta, lines: None)
+    monkeypatch.setattr(tp, "estimate_cost_for_engine", lambda *a, **k: 1.0)
+    parts = []
+    run_lanes = tp._TranslateRun._run_chapter_lanes
+
+    def spy(self, groups):
+        parts.append([[ln.idx for batch in g for ln in batch] for g in groups])
+        return run_lanes(self, groups)
+    monkeypatch.setattr(tp._TranslateRun, "_run_chapter_lanes", spy)
+    return parts
+
+
+def _run_subtitles(lines, parallel, **kw):
+    engine = _Engine()
+    details = []
+    _, errors = tp.translate_lines_with_engine(
+        lines, engine, drama_meta={"id": 1}, batch_size=3, parallel_chapters=parallel,
+        detail_cb=lambda frac, message: details.append(message), **kw)
+    return engine, errors, details
+
+
+def test_a_subtitle_run_translates_its_scenes_side_by_side(subtitles):
+    lines = _subtitles({9: 25.0, 21: 30.0})
+    engine, errors, details = _run_subtitles(lines, 3)
+    assert errors == []
+    assert all(ln.en == f"EN {ln.zh}" for ln in lines)
+    assert subtitles == [[list(range(9)), list(range(9, 21)), list(range(21, 30))]]
+    assert 1 < engine.stats["peak"] <= 3
+    assert any(m.startswith("Part 2 of 3, ") for m in details)
+
+
+def test_scenes_are_cut_at_the_long_pauses_nearest_an_even_split(subtitles):
+    lines = _subtitles({3: 40.0, 15: 21.0, 27: 60.0})
+    _run_subtitles(lines, 2)
+    assert subtitles == [[list(range(15)), list(range(15, 30))]]
+
+
+@pytest.mark.parametrize("pauses,parallel,kw", [
+    ({9: 19.0, 21: 15.0}, 3, {}),                       # no pause is long enough
+    ({9: 25.0, 21: 30.0}, 1, {}),                       # one at a time chosen
+    ({9: 25.0, 21: 30.0}, 3, {"target_ids": {109, 110, 121, 122}}),  # picked lines, not scenes
+])
+def test_a_subtitle_run_stays_in_one_lane_when_it_should(subtitles, pauses, parallel, kw):
+    engine, errors, _ = _run_subtitles(_subtitles(pauses), parallel, force_retranslate=True, **kw)
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
+
+
+def test_a_long_pause_inside_a_batch_still_cuts_and_the_batches_start_again_there(subtitles):
+    lines = _subtitles({10: 25.0})
+    engine, errors, _ = _run_subtitles(lines, 3)
+    assert errors == [] and subtitles == [[list(range(10)), list(range(10, 30))]]
+    assert ["s10", "s11", "s12"] in engine.calls
+
+
+def test_lines_already_translated_between_two_are_not_a_pause(subtitles):
+    lines = _subtitles({}, n=30)
+    for ln in lines[10:20]:
+        ln.en = "kept"
+    engine, errors, _ = _run_subtitles(lines, 3)
+    assert errors == [] and subtitles == [] and engine.stats["peak"] == 1
+    assert all(ln.en == "kept" for ln in lines[10:20])
