@@ -306,12 +306,15 @@ test('People and access: a list down the left, People first, the pane remembered
   await page.reload()
   await expect(list.getByRole('tab', { name: 'Remote access' })).toHaveAttribute('aria-selected', 'true')
 
-  // ?card=remote is new; the older card links still land on their part of a pane.
+  // ?card=remote is new; the older card links still land on their part of a pane, once: switching back later leaves focus alone.
   for (const [card, tab, heading] of [['people', /^People/, 'People'], ['remote', 'Remote access', 'Set up remote access'], ['address', 'Remote access', 'Public address check'], ['activity', 'Activity', 'Activity log']] as const) {
     await page.goto(`/#/admin?card=${card}`)
     await expect(list.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true')
     await expect(page.getByRole('heading', { name: heading, level: 2 })).toBeFocused()
   }
+  await openPane(page, 'People')
+  await openPane(page, 'Activity')
+  await expect(list.getByRole('tab', { name: 'Activity' })).toBeFocused()
   expect(unmocked).toEqual([])
 })
 
@@ -419,13 +422,13 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await name.fill('Kid Example')
   await name.press('Enter')
   await expect(row.getByText('Saving…')).toBeVisible()
+  // Enter then leaving the field while it saves sends it once.
+  await name.blur()
   // Nothing claims to be saved until the PC has answered.
   await expect(row.getByText('✓ Saved')).toHaveCount(0)
   release()
   await expect(row.getByText('✓ Saved')).toBeVisible()
   await expect(row.locator('summary')).toContainText('Kid Example')
-  // Enter then leaving the field sends it once.
-  await name.blur()
 
   const paid = row.getByRole('textbox', { name: 'Paid limit a month (USD)' })
   await paid.fill('0')
@@ -435,7 +438,11 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await paid.fill('12.50')
   await paid.blur()
   await expect(row.locator('summary')).toContainText('$12.50 a month')
+  // Emptied and left, a limit stays: only Enter removes it.
   await paid.fill('')
+  await paid.blur()
+  await expect(row.getByText('Press Enter to remove the limit')).toBeVisible()
+  await expect(row.locator('summary')).toContainText('$12.50 a month')
   await paid.press('Enter')
   await expect(row.locator('summary')).not.toContainText('a month')
 
@@ -445,6 +452,9 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await expect(row.getByText('The daily job limit is too high.')).toBeVisible()
   await expect(jobs).toHaveValue('9000')
   await expect(jobs).toHaveAttribute('aria-invalid', 'true')
+  // Leaving the field doesn't send the refused value again.
+  await jobs.blur()
+  await jobs.focus()
   // Esc puts the saved value back.
   await jobs.press('Escape')
   await expect(jobs).toHaveValue('')

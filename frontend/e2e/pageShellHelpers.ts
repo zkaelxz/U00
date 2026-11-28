@@ -71,7 +71,7 @@ const measure = (page: Page): Promise<Measure> =>
     const blockGaps: number[] = []
     const stacks = [
       shell.querySelector('[data-page-body]')!,
-      ...shell.querySelectorAll('[data-page-body] [role="tabpanel"]:not([hidden]), [data-page-body] .diag-folds'),
+      ...shell.querySelectorAll('[data-page-body] [role="tabpanel"]:not([hidden])'),
     ]
     for (const stack of stacks) {
       const kids = [...stack.children].filter(visible)

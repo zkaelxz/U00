@@ -78,25 +78,34 @@ function AdminContent() {
     setStored(p)
   }, [setStored])
   const [seen, setSeen] = useState<AdminCard | undefined>(wanted)
+  // The part a link names, until it has been scrolled to once: switching panes later must not pull focus back.
+  const [target, setTarget] = useState<AdminCard | null>(wanted ?? null)
   if (seen !== wanted) {
     setSeen(wanted)
-    if (wanted) setPane(CARD_PANE[wanted])
+    if (wanted) {
+      setPane(CARD_PANE[wanted])
+      setTarget(wanted)
+    }
   }
   const [count, setCount] = useState<number | undefined>(undefined)
 
   const shown = PANES.filter((p) => !(p.pcOnly && pc === 'remote') && !(p.id === 'pc-profiles' && !profiles))
   const active = shown.some((p) => p.id === pane) ? pane : 'people'
 
-  // `pc` and `active` are dependencies because the PC-only parts are drawn only once the page knows it is at the PC.
+  // `pc`, `profiles` and `active` are dependencies because the PC-only parts are drawn only once the page knows
+  // it is at the PC; the target is kept until its part is on screen.
   useEffect(() => {
-    if (!wanted) return
+    if (!target) return
     const frame = requestAnimationFrame(() => {
-      const el = document.getElementById(`admin-card-${wanted}`)
-      el?.scrollIntoView({ block: 'start' })
-      el?.querySelector<HTMLElement>('.section-title')?.focus({ preventScroll: true })
+      const el = document.getElementById(`admin-card-${target}`)
+      const heading = el?.querySelector<HTMLElement>('.section-title')
+      if (!el || !heading || el.offsetParent === null) return
+      el.scrollIntoView({ block: 'start' })
+      heading.focus({ preventScroll: true })
+      setTarget(null)
     })
     return () => cancelAnimationFrame(frame)
-  }, [wanted, pc, active])
+  }, [target, pc, profiles, active])
 
   // Panes stay mounted (hidden) so a half-typed field or an armed confirm survives switching.
   const panel = (id: AdminPane, children: ReactNode) => (

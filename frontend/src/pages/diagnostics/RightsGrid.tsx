@@ -13,7 +13,7 @@ export function RightsGrid({ members, rights, canChange, pending, onRight }: {
   members: AdminUser[]
   rights: string[]
   canChange: boolean
-  /** The cell being saved, "‹user id›:‹right›". */
+  /** The cell being saved, "‹user id›:‹right›", or any other value while a row action runs; taps wait for it. */
   pending: string | null
   onRight: (user: AdminUser, permission: string, granted: boolean) => void
 }) {

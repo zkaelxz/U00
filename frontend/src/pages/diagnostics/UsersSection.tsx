@@ -169,7 +169,7 @@ function UsersBody({ signInOff, pc, canChange, onCount }: { signInOff: boolean; 
         )}
         <span className="muted" aria-live="polite">{note}</span>
         <RightsGrid members={members.filter((u) => matchesPerson(u, find))} rights={rights} canChange={canChange}
-          pending={pendingRight} onRight={(u, p, on) => void setRight(u, p, on)} />
+          pending={pendingRight ?? (busy ? 'row' : null)} onRight={(u, p, on) => void setRight(u, p, on)} />
       </div>
     </Section>
   )
@@ -287,10 +287,14 @@ function AddPersonForm({ busy, onAdded }: { busy: boolean; onAdded: (user: Admin
         <HelpTip label="Add a person" id="admin-add-user-help">
           They sign in with Google using this email. They start with the household rights (see the library, read and
           edit subtitles, start and stop jobs, use Review, play audio and video); switch on more in Rights once they
-          are added. While your Google app is in testing, also add the same email to its test users (Google Cloud
-          Console, OAuth consent screen), or Google refuses the sign-in before it reaches Baihe.
+          are added.
         </HelpTip>
       </div>
+      {/* Left visible: without it the person's first sign-in fails before it reaches Baihe. */}
+      <p className="muted">
+        While your Google app is in testing, also add the same email to its test users (Google Cloud Console, OAuth
+        consent screen), or Google refuses the sign-in before it reaches Baihe.
+      </p>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       <Field label="Email">
         <input type="email" required autoComplete="off" spellCheck={false} maxLength={MAX_EMAIL_CHARS}
