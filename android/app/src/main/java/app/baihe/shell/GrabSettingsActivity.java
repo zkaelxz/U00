@@ -76,7 +76,7 @@ public class GrabSettingsActivity extends Activity {
         style.addView(choices(TextStyle.FONTS, now.font, i -> prefs().edit().putInt("text_font", i).apply()));
         style.addView(toggle("Outline the letters", now.outline, on -> prefs().edit().putBoolean("text_outline", on).apply()));
         style.addView(text("Larger text can get tight in small bubbles. Applies to pages you read with Read now from now on; "
-                + "saved chapters use the title's own lettering on the PC.", 13, false, palette.muted, 8));
+                + "pages saved into Baihe with Save use the title's own lettering on the PC.", 13, false, palette.muted, 8));
         list.addView(style);
 
         list.addView(section("Block more sites"));

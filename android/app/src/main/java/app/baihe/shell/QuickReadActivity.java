@@ -52,6 +52,8 @@ public class QuickReadActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         list = new ListView(this);
         list.setDivider(null);
+        // The theme's window colour is white for sepia; the gaps between pages take the look's own.
+        list.setBackgroundColor(GrabUi.Palette.saved(this).bg);
         adapter = new PageAdapter();
         list.setAdapter(adapter);
         list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
