@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react'
 
 import { getActivity, getGpuDaily, type ActivityItem, type GpuDaily } from '../../api/activity'
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { ChartReadout } from '../../components/ChartReadout'
+import { useChartReadout } from '../../hooks/useChartReadout'
 import { Section } from '../../components/Section'
 import { buttonClass } from '../../components/uiClasses'
 import { activityDuration, barFractions, gpuHours } from './activityFormat'
@@ -14,21 +16,24 @@ const OUTCOME_TEXT = { done: 'Finished', error: 'Failed', cancelled: 'Cancelled'
 
 export function GpuChart({ data }: { data: GpuDaily }) {
   const fractions = barFractions(data.days.map((d) => d.gpu_seconds))
+  const readout = useChartReadout()
   return (
     <figure className="activity-chart" data-testid="gpu-chart">
       <figcaption>
         GPU time per day, last {data.days.length} days: {gpuHours(data.total_gpu_seconds)} in total
       </figcaption>
-      <div className="activity-bars" role="img" aria-label={`GPU hours per day, ${gpuHours(data.total_gpu_seconds)} in total`}>
+      <div className="activity-bars" role="group" aria-label={`GPU hours per day, ${gpuHours(data.total_gpu_seconds)} in total`}>
         {data.days.map((d, i) => (
           <span
             key={d.day}
             className="activity-bar"
-            style={{ height: `${Math.max(2, Math.round(fractions[i] * 100))}%` }}
-            title={`${d.day}: ${gpuHours(d.gpu_seconds)} on the GPU, ${d.jobs} job${d.jobs === 1 ? '' : 's'}`}
-          />
+            {...readout.point(`${d.day}: ${gpuHours(d.gpu_seconds)} on the GPU, ${d.jobs} job${d.jobs === 1 ? '' : 's'}`)}
+          >
+            <i style={{ height: `${Math.max(2, Math.round(fractions[i] * 100))}%` }} />
+          </span>
         ))}
       </div>
+      <ChartReadout text={readout.text} />
       <div className="activity-axis muted"><span>{data.days[0]?.day}</span><span>{data.days[data.days.length - 1]?.day}</span></div>
     </figure>
   )
