@@ -60,6 +60,10 @@ describe('buildAssRequest', () => {
     expect(emptyAssForm('Clean').speakerNames).toBe(false)
     expect(assFormFromDraft({ form: { speakerNames: true } })?.speakerNames).toBe(true)
   })
+  it('sends sound captions only when turned on', () => {
+    expect(emptyAssForm('Clean').soundCaptions).toBe(false)
+    expect(buildAssRequest({ ...emptyAssForm('Clean'), soundCaptions: true }, opts).request).toMatchObject({ sound_captions: true })
+  })
   it('maps overrides', () => {
     const f = { ...emptyAssForm('Clean'), size: '48', bold: 'yes' as const, primary: '#FFFFFF', wrapEn: '30', includeNotes: true, notesAsSeparateLine: true }
     expect(buildAssRequest(f, opts).request).toMatchObject({

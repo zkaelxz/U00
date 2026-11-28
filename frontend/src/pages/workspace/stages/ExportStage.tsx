@@ -141,6 +141,7 @@ export default function ExportStage() {
           setForm={setForm}
           options={options}
           totalLines={r ? r.total_lines : null}
+          soundLines={r ? r.sound_captioned_lines : null}
         />
         {fmt === 'ass' && assStyle}
         <div className="actions">
