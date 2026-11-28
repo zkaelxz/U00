@@ -1107,13 +1107,15 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
         behind_paused, behind_tonight = _behind_earlier_step(doc["items"])
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
-                   and not i.get("held") and i["chain"] not in held_chains and i["id"] not in behind_paused]
+                   and not i.get("held") and i["chain"] not in held_chains]
         # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
         night_ok = any(i.get("tonight") for i in waiting) and queue_night.in_window(doc["night"], now) \
             and queue_night.pc_idle()
         # A Tonight step holds back its whole run: a later step started now would only be skipped for it.
         tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
-        ready = [i for i in waiting if (i.get("not_before") or 0) <= now
+        # Behind a paused step, but still waiting: the queue must not go idle, as Resume can't restart it
+        # while another account's items wait.
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now and i["id"] not in behind_paused
                  and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains or i["id"] in behind_tonight))]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         ordered = [i for i in ready if i["now"]]

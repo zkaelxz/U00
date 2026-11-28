@@ -1326,6 +1326,22 @@ def test_a_titles_later_steps_wait_behind_its_paused_transcribe(jobs):
     assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}", f"translate_{a}"]
 
 
+def test_resuming_a_paused_step_restarts_the_queue_when_another_accounts_later_step_waits(jobs):
+    member = _member()
+    a = _drama("A", owner_user_id=member["user_id"], is_private=1)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(member, a, "translate", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.hold_item(None, transcribe_a, True)
+    q.tick()
+    assert jobs.started == []
+    # The member's Translate still waits, so the queue stays running and Resume needs no Start.
+    assert q.get_queue(None)["state"] == "running"
+    q.hold_item(None, transcribe_a, False)
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}"]
+
+
 @pytest.mark.parametrize("refusal", ["returns False", "raises"])
 def test_a_self_check_that_did_not_start_leaves_the_night_unrecorded(jobs, idle, monkeypatch, refusal):
     from jobs import job_launch
