@@ -76,7 +76,7 @@ export default defineConfig({
       name: 'phone',
       testMatch: /mobile\.spec\.ts/,
       use: {
-        browserName: 'chromium',
+        browserName: 'chromium' as const,
         storageState: floatingNav(WEB_PORT),
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 3,
