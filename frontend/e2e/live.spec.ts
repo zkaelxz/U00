@@ -693,3 +693,14 @@ test('a stopped session with many lines keeps them in a scroll box instead of st
   expect(scroll).toBeGreaterThan(client)
   expect(client).toBeLessThanOrEqual(520)
 })
+
+test("Show everyone's sessions is a switch that lists every account's sessions", async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  const everyone = live.getByRole('switch', { name: "Show everyone's sessions" })
+  await expect(everyone).toHaveAttribute('aria-checked', 'false')
+  const asked = page.waitForRequest((r) => r.url().endsWith('/api/live/sessions?everyone=true'))
+  await everyone.click()
+  await asked
+  await expect(everyone).toHaveAttribute('aria-checked', 'true')
+})

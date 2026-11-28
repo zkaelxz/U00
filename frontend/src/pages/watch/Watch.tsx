@@ -13,6 +13,7 @@ import { readerApi } from '../../api/reader'
 import { listAllLines, listRiskLineIds, patchLine } from '../../api/review'
 import { browserSession } from '../../api/sessionStore'
 import type { DramaDetail } from '../../api/types'
+import { chineseLang, nameLang, titleTextLang } from '../../hanScript'
 import { Badge } from '../../components/Badge'
 import { ButtonLink } from '../../components/Button'
 import { parseTime, readHref } from '../../components/libraryView'
@@ -288,13 +289,14 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
   const verb = kind ? watchVerb(kind, original) : 'Watch'
   const sourceStage = kind ? stageLabel('source', kind) : undefined
   const badge = drama ? titleKindAndLanguages(drama.media_type, drama.source_language) : ''
-  const sourceLanguage = drama?.source_language || 'und'
+  // A lang attribute only: Chinese titles name their script here so Traditional lines get Taiwan fonts.
+  const sourceLanguage = useMemo(() => (drama?.source_language ? titleTextLang(drama) : 'und'), [drama])
 
   return (
     <PageShell
       width="wide"
       className="watch-page"
-      title={title}
+      title={drama ? <span className="title-name" lang={nameLang(title, drama)}>{title}</span> : title}
       back={phone ? (
         // One row for the way back and the menu, so the header takes no extra row and the spoken line is on the first screen.
         <div className="watch-back-row">
@@ -872,7 +874,7 @@ const WatchRow = memo(function WatchRow({ line: l, ear, slot, current, sourceLan
         <LineMarkBadge line={l} />
         {l.flag && <span className="watch-row-flag" role="img" aria-label="Flagged" title="Flagged">⚑</span>}
       </span>
-      {l.zh && <span className="watch-row-zh" lang={l.lang || sourceLanguage}>{l.zh}</span>}
+      {l.zh && <span className="watch-row-zh" lang={chineseLang(l.lang || sourceLanguage, l.zh, sourceLanguage)}>{l.zh}</span>}
       <span className={l.en ? 'watch-row-en' : 'watch-row-en is-empty'} lang={l.en ? 'en' : undefined}>{l.en || 'No English yet'}</span>
     </>
   )

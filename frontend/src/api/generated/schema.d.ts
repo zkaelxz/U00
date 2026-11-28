@@ -46860,6 +46860,7 @@ export interface operations {
         parameters: {
             query?: {
                 field?: string;
+                readings?: boolean;
             };
             header?: never;
             path: {
