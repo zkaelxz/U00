@@ -51,6 +51,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
       { id: 'jellyfin' },
       { id: 'web-search' },
       { id: 'inbox' },
+      { id: 'log-copy' },
       { id: 'extension' },
     ],
   },
@@ -91,7 +92,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
 export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'pc-alerts',
-  'jellyfin', 'web-search', 'inbox', 'extension',
+  'jellyfin', 'web-search', 'inbox', 'log-copy', 'extension',
   'performance', 'advanced', 'keys-file', 'timing-splitting', 'blocked-phrases', 'transcription-experiments', 'developer-mode',
 ])
 
@@ -135,6 +136,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
   e('inbox', 'Watch folder', 'inbox drop files folder import automatically audio video'),
+  e('log-copy', 'Weekly log copy', 'logs send logs scrubbed copy weekly folder support problems'),
   e('extension', 'Browser extension', 'bridge capture'),
 
   e('performance', 'Jobs and GPU', 'performance gpu use gpu limit jobs at once parallel ollama graphics'),

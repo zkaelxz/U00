@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr, String
 from api.schemas.common import ConfirmRequest, DiagnosticsTorchVerify, UpgradeRequest
 
 __all__ = [
+    "LogCopySettings",
+    "LogCopyUpdate",
     "DiagnosticsModelDownload",
     "DiagnosticsModelDownloads",
     "DiagnosticsSetupPython",
@@ -316,3 +318,16 @@ class DiagnosticsModelDownload(BaseModel):
 
 class DiagnosticsModelDownloads(BaseModel):
     models: List[DiagnosticsModelDownload]
+
+
+class LogCopySettings(BaseModel):
+    enabled: bool
+    folder_name: str = Field(description='The saved folder\'s own name ("" while off), never its path.')
+    keep: int = Field(description="How many weekly copies are kept.")
+    last_copy_at: Optional[float] = Field(None, description="Epoch seconds of the last copy.")
+
+
+class LogCopyUpdate(BaseModel):
+    """folder "" turns the weekly copy off."""
+    model_config = ConfigDict(extra="forbid")
+    folder: str = Field(max_length=1024)

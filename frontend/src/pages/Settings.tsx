@@ -39,6 +39,7 @@ import { ExtensionSection } from './settings/ExtensionSection'
 import { LanguagePacksCard } from './settings/LanguagePacksCard'
 import { KeysFileCard } from './settings/KeysFileCard'
 import { InboxCard } from './settings/InboxCard'
+import { LogCopyCard } from './settings/LogCopyCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
@@ -443,6 +444,7 @@ export default function SettingsPage() {
             {shown('jellyfin') && <SettingsCard id="jellyfin"><JellyfinSection /></SettingsCard>}
             {shown('web-search') && <SettingsCard id="web-search"><WebSearchSection /></SettingsCard>}
             {shown('inbox') && <SettingsCard id="inbox"><InboxCard /></SettingsCard>}
+            {shown('log-copy') && <SettingsCard id="log-copy"><LogCopyCard /></SettingsCard>}
             {shown('extension') && <SettingsCard id="extension"><ExtensionSection /></SettingsCard>}
           </>
         ))}

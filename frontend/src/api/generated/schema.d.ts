@@ -10509,6 +10509,34 @@ export interface components {
             memory: components["schemas"]["MemoryHeadroom"];
             ollama: components["schemas"]["OllamaLoaded"];
         };
+        /** LogCopySettings */
+        LogCopySettings: {
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Folder Name
+             * @description The saved folder's own name ("" while off), never its path.
+             */
+            folder_name: string;
+            /**
+             * Keep
+             * @description How many weekly copies are kept.
+             */
+            keep: number;
+            /**
+             * Last Copy At
+             * @description Epoch seconds of the last copy.
+             */
+            last_copy_at: number | null;
+        };
+        /**
+         * LogCopyUpdate
+         * @description folder "" turns the weekly copy off.
+         */
+        LogCopyUpdate: {
+            /** Folder */
+            folder: string;
+        };
         /** LogoutResponse */
         LogoutResponse: {
             /** Signed In */
