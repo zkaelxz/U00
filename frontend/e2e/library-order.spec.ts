@@ -1,6 +1,8 @@
 import { expect, test } from './fixtures'
 import { cardTitles, mockLibraryOrder } from './libraryOrderMocks'
 
+const GROUP_BTN = { none: 'No grouping', series: 'By series', media: 'By media type', status: 'By status' }
+
 test.beforeEach(async ({ page }) => {
   await mockLibraryOrder(page)
   await page.goto('/')
@@ -27,7 +29,7 @@ test('List view shows the date as a column', async ({ page }) => {
 })
 
 test('groups by series: oldest first inside, No series last, collapse is remembered', async ({ page }) => {
-  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: GROUP_BTN.series }).click()
   const groups = page.getByTestId('title-group')
   await expect(groups).toHaveCount(3)
   await expect(groups.nth(0).locator('.title-group-name')).toHaveText('Alpha')
@@ -41,13 +43,13 @@ test('groups by series: oldest first inside, No series last, collapse is remembe
   await groups.nth(1).getByRole('button', { name: /Saga/ }).click()
   await expect(groups.nth(1).locator('.drama-card-title')).toHaveCount(0)
   await page.reload()
-  await expect(page.getByLabel('Group by')).toHaveValue('series')
+  await expect(page.getByRole('button', { name: GROUP_BTN.series })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('title-group').nth(1).locator('.drama-card-title')).toHaveCount(0)
   await expect(page.getByTestId('title-group').nth(0).locator('.drama-card-title')).toHaveCount(1)
 })
 
 test('search applies inside groups and an empty group disappears', async ({ page }) => {
-  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: GROUP_BTN.series }).click()
   await page.getByLabel('Search titles, people, tags and series').fill('zeta')
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
   const groups = page.getByTestId('title-group')
@@ -59,14 +61,14 @@ test('search applies inside groups and an empty group disappears', async ({ page
 })
 
 test('groups by media type and by status', async ({ page }) => {
-  await page.getByLabel('Group by').selectOption('media')
+  await page.getByRole('button', { name: GROUP_BTN.media }).click()
   await expect(page.getByTestId('title-group').locator('.title-group-name')).toHaveText(['Anime', 'Manga', 'Novel'])
-  await page.getByLabel('Group by').selectOption('status')
+  await page.getByRole('button', { name: GROUP_BTN.status }).click()
   await expect(page.getByTestId('title-group')).toHaveCount(1)
 })
 
 test('select all in a grouped Library never takes titles hidden in a collapsed group', async ({ page }) => {
-  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: GROUP_BTN.series }).click()
   const groups = page.getByTestId('title-group')
   await expect(groups).toHaveCount(3)
   await groups.nth(1).getByRole('button', { name: /Saga/ }).click()
@@ -81,7 +83,7 @@ test('select all in a grouped Library never takes titles hidden in a collapsed g
 })
 
 test('a group header selects only its own rows, and collapsing drops its titles from the selection', async ({ page }) => {
-  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: GROUP_BTN.series }).click()
   await page.getByRole('button', { name: 'Select', exact: true }).click()
   await page.getByRole('checkbox', { name: 'Select all in Saga' }).check()
   const bar = page.getByRole('region', { name: 'Selection' })
@@ -96,13 +98,13 @@ test('when the series list fails, grouping by series falls back to the plain lis
     fail ? r.fulfill({ status: 500, json: { error: { code: 'x', message: 'down' } } }) : r.fallback())
   await page.reload()
   await expect(page.getByTestId('drama-count')).toHaveText('5 titles')
-  await page.getByLabel('Group by').selectOption('series')
+  await page.getByRole('button', { name: GROUP_BTN.series }).click()
   await expect(page.getByTestId('series-load-failed')).toContainText('Series could not be loaded; showing the plain list.')
-  await expect(page.getByLabel('Group by')).toHaveValue('none')
+  await expect(page.getByRole('button', { name: GROUP_BTN.none })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('title-group')).toHaveCount(0)
   fail = false
   await page.getByRole('button', { name: 'Retry' }).click()
   await expect(page.getByTestId('title-group')).toHaveCount(3)
-  await expect(page.getByLabel('Group by')).toHaveValue('series')
+  await expect(page.getByRole('button', { name: GROUP_BTN.series })).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('series-load-failed')).toHaveCount(0)
 })

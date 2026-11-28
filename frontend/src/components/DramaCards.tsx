@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useContext, useState } from 'react'
 
 import { coverThumbUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
@@ -6,7 +6,7 @@ import { nameLang } from '../hanScript'
 import { mediaTypeLabel } from '../labels'
 import { Badge } from './Badge'
 import { ButtonLink } from './Button'
-import { cardNext, cardProgress, dramaName, newChaptersText, unreadChaptersText, readAction, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
+import { cardNext, cardProgress, dramaName, newChaptersText, unreadChaptersText, readAction, ShowCoversContext, shownTags, tileHue, tileText, workspaceHref } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { buttonClass } from './uiClasses'
 
@@ -29,6 +29,7 @@ interface Props {
 // Watch, Listen or Read / Details buttons above it. No primaries.
 // On phones the CSS turns each card into a row (tile left, text right).
 export function DramaCards({ items, selectedId, onSelect, selectMode, checked, onToggle, continuing }: Props) {
+  const showCovers = useContext(ShowCoversContext)
   if (selectMode && onToggle) return <SelectCards items={items} checked={checked} onToggle={onToggle} />
   return (
     <ul className="drama-grid">
@@ -38,7 +39,7 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
         const read = readAction(d, continuing?.has(d.id))
         return (
           <li key={d.id} className={d.id === selectedId ? 'drama-card selected' : 'drama-card'}>
-            <DramaTile d={d} />
+            {showCovers && <DramaTile d={d} />}
             <div className="drama-card-main">
               <a className="drama-card-title" href={workspaceHref(d.id)} title={title} lang={nameLang(title, d)}>{title}</a>
               <CardText d={d} />
@@ -67,9 +68,10 @@ export function DramaCards({ items, selectedId, onSelect, selectMode, checked, o
 // A cover that fails to load falls back to the letter tile, so a missing file never leaves a blank card.
 export function DramaTile({ d }: { d: DramaSummary }) {
   const [broken, setBroken] = useState(false)
+  const showCovers = useContext(ShowCoversContext)
   return (
     <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true" lang={d.title_zh ? nameLang(d.title_zh, d) : undefined}>
-      {d.has_cover_art && !broken
+      {showCovers && d.has_cover_art && !broken
         ? <img src={coverThumbUrl(d.id)} alt="" loading="lazy" onError={() => setBroken(true)} />
         : tileText(d)}
     </div>

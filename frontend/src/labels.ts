@@ -62,12 +62,14 @@ export const LANGUAGE_LABELS: Record<string, string> = {
   en: 'English',
 }
 
-// The stored list tags ('On Hold' ...) are API values; show these instead.
+// The stored list tags are API values; show these instead.
 export const TAG_LABELS: Record<string, string> = {
   Favorite: 'Favorite',
-  'On Hold': 'On hold',
-  'Plan to Translate': 'Plan to translate',
 }
+
+// List tags the owner retired from the Library: titles keep them in the database, but no screen shows or offers them.
+const RETIRED_TAGS = new Set(['On Hold', 'Plan to Translate'])
+export const visibleTags = (tags: readonly string[]): string[] => tags.filter((t) => !RETIRED_TAGS.has(t))
 
 export const ENGINE_LABELS: Record<string, string> = {
   claude: 'Claude',

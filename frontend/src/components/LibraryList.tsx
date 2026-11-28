@@ -5,10 +5,11 @@ import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { Toggle } from './Toggle'
 import { useDetailsMenu } from '../hooks/useDetailsMenu'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { useMediaQuery } from '../hooks/useMediaQuery'
-import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
+import { languageLabel, mediaTypeLabel, statusLabel, tagLabel, visibleTags } from '../labels'
 import { lineNumber } from '../lineNumber'
 import { routeHref } from '../router'
 import { MAX_SELECTION, allSelected, selectAllVisible, selectIds, toggleLibraryId, visibleTitles } from '../pages/libraryAdmin/libraryAdmin'
@@ -28,7 +29,7 @@ import {
   NO_MORE_FILTERS, listQuery, moreFilterCount, toggleTag, withCurrent,
   type MoreFilters,
 } from './libraryFilters'
-import { countDramas, dramaName, hideLibraryBar, lineHitCount, lineHitHref, listDelay, matchesReading, READING_FILTERS, readAction, workspaceHref, type ReadingFilter } from './libraryView'
+import { countDramas, dramaName, hideLibraryBar, lineHitCount, lineHitHref, listDelay, matchesReading, READING_FILTERS, readAction, ShowCoversContext, workspaceHref, type ReadingFilter } from './libraryView'
 import { SharingControl } from './SharingControl'
 import { Sheet } from './Sheet'
 import { Paged, ShowMore } from './ShowMore'
@@ -38,7 +39,7 @@ import { useLatest } from '../hooks/useLatest'
 
 // Status and quick-filter choices; '' means no filter.
 const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exported']
-const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
+const QUICK_FILTERS = ['', 'Favorite']
 
 type Scope = 'titles' | 'lines'
 // 'grid' is the card list (tile left, text right); 'covers' is the big-cover shelf; 'list' is the desktop table.
@@ -102,6 +103,7 @@ export function LibraryList({
   const [reading, setReading] = useState<ReadingFilter>('')
   const [scope, setScope] = useState<Scope>('titles')
   const [view, setView] = usePersistedState<View>('library.view', 'grid')
+  const [showCovers, setShowCovers] = usePersistedState<boolean>('library.showCovers', true)
   const [more, setMore] = useState<MoreFilters>(NO_MORE_FILTERS)
   // Remembered in this browser; the suffix is the storage version, bumped if the meaning of a value changes.
   const [storedSort, setSort] = usePersistedState<string>('library.sort.v1', 'added')
@@ -298,7 +300,7 @@ export function LibraryList({
                             <td>{languageLabel(d.source_language)}</td>
                             <td>{d.release_date}</td>
                             <td>{d.status && <Badge kind="status" value={d.status} />}</td>
-                            <td className="tags-col">{d.custom_tags.join(', ')}</td>
+                            <td className="tags-col">{visibleTags(d.custom_tags).join(', ')}</td>
                             <td className="row-actions">
                               <a className={buttonClass('ghost', 'sm')} href={read.href} aria-label={`${read.label} ${title}`}>{read.label}</a>
                               <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => onSelect(d.id)} aria-label={`Details: ${title}`}>
@@ -344,19 +346,8 @@ export function LibraryList({
     />
   )
   const sortIcon = <SortIcon sort={sort} onSort={setSort} />
-  const groupSelect = (
-    <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
-      {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
-    </select>
-  )
   const quickChips = scope === 'titles' && !emptyLibrary && (
-    <div className="quick-chips" role="group" aria-label="Quick filter">
-      {QUICK_FILTERS.map((q) => (
-        <button key={q} type="button" className="quick-chip" aria-pressed={quickFilter === q} onClick={() => setQuickFilter(q)}>
-          {q ? tagLabel(q) : 'All titles'}
-        </button>
-      ))}
-    </div>
+    <QuickChips filter={quickFilter} onFilter={setQuickFilter} group={shownGroup} onGroup={setGroupBy} />
   )
   const searchBox = <SearchBox lines={scope === 'lines'} value={search} onChange={setSearch} />
   const viewControl = (
@@ -365,8 +356,11 @@ export function LibraryList({
       options={phone ? [['grid', 'Cards'], ['covers', 'Covers']] : [['grid', 'Cards'], ['covers', 'Covers'], ['list', 'List']]}
     />
   )
+  // The List view has no pictures, so the switch shows only for Cards and Covers.
+  const coversControl = (phone || view !== 'list') && <CoversSwitch on={showCovers} onChange={setShowCovers} />
 
   return (
+    <ShowCoversContext.Provider value={showCovers}>
     <section className="library-list" aria-labelledby="library-heading">
       <h2 id="library-heading" className="visually-hidden">Titles</h2>
       <form className="library-toolbar" role="search" onSubmit={submit} hidden={emptyLibrary}>
@@ -378,11 +372,11 @@ export function LibraryList({
               <>
                 {filtersMenu}
                 {sortIcon}
-                {groupSelect}
               </>
             )}
             <div className="toolbar-end">
               {scope === 'titles' && viewControl}
+              {scope === 'titles' && coversControl}
               {selectControls}
             </div>
           </div>
@@ -394,6 +388,7 @@ export function LibraryList({
             </button>
             {scope === 'titles' && sortIcon}
             {scope === 'titles' && viewControl}
+            {scope === 'titles' && coversControl}
             <div className="toolbar-end">{selectControls}</div>
           </div>
         )}
@@ -410,7 +405,6 @@ export function LibraryList({
           {scope === 'titles' && (
             <>
               {statusSelects}
-              {groupSelect}
               {moreFilters}
             </>
           )}
@@ -487,6 +481,7 @@ export function LibraryList({
         </>
       )}
     </section>
+    </ShowCoversContext.Provider>
   )
 }
 
@@ -563,6 +558,41 @@ function SkeletonGrid() {
 }
 
 // The select sits invisibly over the icon, so a tap opens the platform's own picker.
+// The quick filters, then the grouping choices, in one chip row.
+function QuickChips({ filter, onFilter, group, onGroup }: {
+  filter: string
+  onFilter: (next: string) => void
+  group: string
+  onGroup: (next: string) => void
+}) {
+  return (
+    <div className="quick-chips" role="group" aria-label="Quick filter">
+      {QUICK_FILTERS.map((q) => (
+        <button key={q} type="button" className="quick-chip" aria-pressed={filter === q} onClick={() => onFilter(q)}>
+          {q ? tagLabel(q) : 'All titles'}
+        </button>
+      ))}
+      <span className="quick-sep" aria-hidden="true" />
+      <span role="group" aria-label="Group by" className="quick-group">
+        {GROUP_BYS.map(([id, label]) => (
+          <button key={id} type="button" className="quick-chip" aria-pressed={group === id} onClick={() => onGroup(id)}>
+            {id === 'none' ? 'No grouping' : `By ${label.toLowerCase()}`}
+          </button>
+        ))}
+      </span>
+    </div>
+  )
+}
+
+function CoversSwitch({ on, onChange }: { on: boolean; onChange: (next: boolean) => void }) {
+  return (
+    <span className="covers-switch">
+      <Toggle id="library-show-covers" checked={on} onChange={onChange} />
+      <label htmlFor="library-show-covers">Show covers</label>
+    </span>
+  )
+}
+
 function SortIcon({ sort, onSort }: { sort: TitleSort; onSort: (next: string) => void }) {
   return (
     <label className="sort-icon" title="Sort order">
@@ -685,10 +715,10 @@ function MoreFilterFields({ value, onChange, reloadKey, active }: {
           ))}
         </select>
       </div>
-      {options && options.custom_tags.length > 0 && (
+      {options && visibleTags(options.custom_tags).length > 0 && (
         <fieldset className="tag-filter">
           <legend>Custom tags (all must match)</legend>
-          {options.custom_tags.map((t) => (
+          {visibleTags(options.custom_tags).map((t) => (
             <label key={t} className="check">
               <input
                 type="checkbox"

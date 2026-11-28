@@ -163,3 +163,35 @@ test('title names use the text font; Traditional Chinese takes Taiwan fonts', as
   expect(families.lineHans).toContain('PingFang SC')
   expect(families.lineHans).not.toContain('PingFang TC')
 })
+
+test('Show covers off drops the card pictures, asks for no cover, and is remembered', async ({ page }) => {
+  await page.route('**/api/library/dramas*', async (route) => {
+    const res = await route.fetch()
+    const body = await res.json()
+    return route.fulfill({ response: res, json: { ...body, items: body.items.map((d: object) => ({ ...d, has_cover_art: true })) } })
+  })
+  const coverAsks: string[] = []
+  await page.route('**/api/dramas/*/cover*', (route) => {
+    coverAsks.push(route.request().url())
+    return route.fulfill({ status: 404, body: '' })
+  })
+  await page.goto('/')
+  await page.getByRole('radio', { name: 'Cards' }).check()
+  const toggle = page.getByRole('switch', { name: 'Show covers' })
+  await expect(toggle).toHaveAttribute('aria-checked', 'true')
+  await expect(dramas(page).locator('.drama-card .drama-tile')).toHaveCount(3)
+
+  await toggle.click()
+  await expect(dramas(page).locator('.drama-card .drama-tile')).toHaveCount(0)
+  await expect(dramas(page).getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
+
+  coverAsks.length = 0
+  await page.reload()
+  await expect(page.getByRole('switch', { name: 'Show covers' })).toHaveAttribute('aria-checked', 'false')
+  await expect(dramas(page).locator('.drama-card')).toHaveCount(3)
+  await page.getByRole('radio', { name: 'Covers' }).check()
+  await expect(dramas(page).locator('.drama-tile img')).toHaveCount(0)
+  await page.getByRole('radio', { name: 'List' }).check()
+  await expect(page.getByRole('switch', { name: 'Show covers' })).toHaveCount(0)
+  expect(coverAsks).toEqual([])
+})

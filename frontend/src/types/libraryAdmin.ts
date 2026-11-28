@@ -6,7 +6,7 @@ type Schemas = components['schemas']
 
 // services/library_admin_service.py STATUSES and db.ORGANIZATIONAL_TAGS.
 export const LIBRARY_STATUSES = ['not started', 'aligned', 'translated', 'dubbed', 'exported'] as const
-export const LIBRARY_LIST_TAGS = ['Favorite', 'On Hold', 'Plan to Translate'] as const
+export const LIBRARY_LIST_TAGS = ['Favorite'] as const
 // storage.STORAGE_QUALITY_PRESETS, with its own labels.
 export const STORAGE_PRESETS = [
   ['archival', 'Archival: keep everything'],
