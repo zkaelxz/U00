@@ -66,12 +66,12 @@ def test_names_nicknames_and_fans_become_entries_in_both_scripts_and_risky_ones_
 
 def test_a_source_used_by_two_vtubers_is_held_unless_one_owns_it_as_a_name():
     pytest.importorskip("opencc")
-    a = {**vnp.parse_profile("a", "jp", PROFILE), "original": "ふたりめ", "nicknames": ["Mochi (おもち)"]}
-    b = {**vnp.parse_profile("b", "jp", PROFILE), "original": "おもち", "nicknames": ["Fu (ふたりめ)", "Mo (もちもち)"]}
+    a = {**vnp.parse_profile("a", "jp", PROFILE), "original": "ふたりめ", "nicknames": ["Mochi (おもちこ)"]}
+    b = {**vnp.parse_profile("b", "jp", PROFILE), "original": "おもちこ", "nicknames": ["Fu (ふたりめ)", "Mo (もちもち)"]}
     c = {**vnp.parse_profile("c", "jp", PROFILE), "original": "さんにんめ", "nicknames": ["Mo (もちもち)"]}
     kept, held = vnp.filter_candidates(vnp.candidates([a, b, c]), _Words(), {"zh": set(), "ja": set()})
     owners = {e["source"]: e["link"] for e in kept["ja"]}
-    assert owners["おもち"].endswith("/b/") and owners["ふたりめ"].endswith("/a/")
+    assert owners["おもちこ"].endswith("/b/") and owners["ふたりめ"].endswith("/a/")
     assert "もちもち" not in owners and any(h[1] == "もちもち" for h in held)
 
 
@@ -175,6 +175,15 @@ def test_a_nickname_holding_another_packs_term_is_held_but_an_own_name_keeps_it(
     assert reasons["りんりんちゃん"] == "holds another pack's term ちゃん" and reasons["旦那様"].endswith("様")
     # A one-character term counts only at the end, and a VTuber's own name is the name, not the word.
     assert {"姫森りん", "若様だよ"} <= {e["source"] for e in kept["ja"]}
+
+
+def test_short_hiragana_names_need_an_agency_or_wikidata_listing():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("a", "jp", PROFILE), "original": "はお", "nicknames": ["Hino (ひの)"]}
+    wikidata = [{"qid": "Q3", "gender": "", "labels": {"en": ["Hino"], "ja": ["ひの"]}}]
+    kept, held = vnp.filter_candidates(vnp.candidates([row], (), wikidata), _Words(), {"zh": set(), "ja": set()})
+    assert ("はお", "short hiragana name") in [(h[1], h[4]) for h in held]
+    assert "ひの" in {e["source"] for e in kept["ja"]}
 
 
 def test_wikidata_only_names_holding_another_packs_term_are_held():

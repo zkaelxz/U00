@@ -82,6 +82,9 @@ class TestBuiltInFiles:
         # Every pack's entries claim their text even when the pack is off.
         assert term in [e["source"] for e in lp.matching_entries({pack_id: None}, text)]
 
+    def test_everyday_japanese_does_not_match_a_name(self):
+        assert lp.matching_entries({"ja-vtuber-names": None}, "今日はお休みです。それはおかしい。かしこまりました") == []
+
     def test_vtuber_style_defaults(self):
         packs = lp.all_packs()
         assert packs["ja-vtuber-core"]["styles"]["default"] == "romanised"

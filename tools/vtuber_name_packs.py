@@ -74,6 +74,12 @@ SURNAMES = set("王李张張刘劉陈陳杨楊黄黃赵趙吴吳周徐孙孫马�
                "祁蒲房滕屈饶饒解牟艾尤阳陽时時穆农農司卓古吉缪繆简簡车車项項连連芦蘆麦麥褚娄婁窦竇戚岑景党"
                "宫宮费費卜冷晏席卫衛米柏宗瞿桂全佟应應臧闵閔苟邬鄔边邊卞姬师師和仇栾欒隋商刁沙荣榮巫寇桑郎"
                "甄丛叢仲虞敖巩鞏明佘池查麻苑迟遲邝鄺")
+# A hiragana-only name this short (はお, ひの) turns up inside everyday sentences, since packs match
+# plain substrings; only an agency or Wikidata listing it vouches for it.
+HIRAGANA = re.compile(r"[ぁ-ゖー]+")
+KANA = re.compile(r"[ぁ-ゖァ-ヺー]+")
+MAX_UNCONFIRMED_KANA = 3
+CONFIRMING = ("https://www.wikidata.org/", "https://hololive.hololivepro.com/", "https://www.nijisanji.jp/")
 HANZI3 = re.compile(r"[㐀-鿿豈-﫿]{3}")
 BRACKETS = re.compile(r"[()（）「」【】\[\]]")
 INVISIBLE = ("Cc", "Cf")
@@ -468,7 +474,7 @@ def filter_candidates(cands, words, taken, inner_terms=None):
     inner_terms = inner_terms or {}
     by_source = {}
     for c in cands:
-        c = (c[0], _visible(c[1]), _visible(c[2]), _visible(c[3])) + tuple(c[4:])
+        c = (c[0], _visible(c[1]).rstrip("。．"), _visible(c[2]), _visible(c[3])) + tuple(c[4:])
         by_source.setdefault((c[0], c[1]), []).append(c)
     kept, held = {"ja": [], "zh": []}, []
     for (language, source), group in by_source.items():
@@ -485,7 +491,11 @@ def filter_candidates(cands, words, taken, inner_terms=None):
             reason = "used by " + ", ".join(sorted(owners))
         elif BRACKETS.search(source):
             reason = "has brackets"
-        elif (len(source) <= MAX_CHECKED_LEN or c[5] != "name") and words.is_common(source, language):
+        elif (len(source) <= MAX_UNCONFIRMED_KANA and HIRAGANA.fullmatch(source)
+              and not any(g[4].startswith(CONFIRMING) for g in group)):
+            reason = "short hiragana name"
+        elif (len(source) <= MAX_CHECKED_LEN or c[5] != "name" or KANA.fullmatch(source)) and words.is_common(
+                source, language):
             reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"
         elif (c[5] != "name" or c[4].startswith(WIKIDATA_ITEM)) and (
                 inner := next((x for x in sorted(inner_terms.get(language, ())) if x != source and (
