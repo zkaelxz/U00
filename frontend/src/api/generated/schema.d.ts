@@ -4537,6 +4537,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/subs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the English lines of your title made from this video page, for its own player */
+        post: operations["post_subs_api_ext_bridge_subs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -8461,6 +8478,40 @@ export interface paths {
         put?: never;
         /** Put a failed, skipped or interrupted item back to waiting */
         post: operations["retry_item_api_queue_items__item_id__retry_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/items/{item_id}/tonight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Make a waiting item wait for the night window, or run it in turn (Run now) */
+        post: operations["set_item_tonight_api_queue_items__item_id__tonight_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/queue/night": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The night window Tonight items wait for, and the nightly self-check switch */
+        post: operations["set_night_api_queue_night_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -17377,6 +17428,13 @@ export interface components {
              * @default false
              */
             ear_placement?: boolean;
+            /** Field */
+            field?: ("en" | "zh" | "bilingual") | null;
+            /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -17388,6 +17446,11 @@ export interface components {
             per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -26773,6 +26836,11 @@ export interface components {
         QueueAddAllSteps: {
             /** Drama Id */
             drama_id: number;
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueAddBulk */
         QueueAddBulk: {
@@ -26783,6 +26851,11 @@ export interface components {
              * @enum {string}
              */
             step: "transcribe" | "translate" | "export" | "all";
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueAddItem */
         QueueAddItem: {
@@ -26797,6 +26870,11 @@ export interface components {
              * @enum {string}
              */
             step: "transcribe" | "translate" | "export";
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight?: boolean;
         };
         /** QueueBulkAdded */
         QueueBulkAdded: {
@@ -26840,6 +26918,11 @@ export interface components {
             /** Mine */
             mine: boolean;
             /**
+             * Page Run
+             * @default false
+             */
+            page_run: boolean;
+            /**
              * Paid
              * @default false
              */
@@ -26860,6 +26943,11 @@ export interface components {
             step: "download" | "transcribe" | "translate" | "export" | "names" | "import" | "text" | "append" | "lines" | "follow" | "run_translate" | "run_scanlate";
             /** Title */
             title: string;
+            /**
+             * Tonight
+             * @default false
+             */
+            tonight: boolean;
         };
         /** QueueMove */
         QueueMove: {
@@ -26868,6 +26956,27 @@ export interface components {
              * @enum {string}
              */
             direction: "up" | "down";
+        };
+        /** QueueNight */
+        QueueNight: {
+            /** End */
+            end: string;
+            /** Self Check */
+            self_check: boolean;
+            /** Start */
+            start: string;
+        };
+        /** QueueNightSet */
+        QueueNightSet: {
+            /** End */
+            end: string;
+            /**
+             * Self Check
+             * @default true
+             */
+            self_check?: boolean;
+            /** Start */
+            start: string;
         };
         /** QueuePolicy */
         QueuePolicy: {
@@ -26947,6 +27056,7 @@ export interface components {
             max_items: number;
             /** Monthly Cap Usd */
             monthly_cap_usd: number;
+            night: components["schemas"]["QueueNight"];
             /** Notice */
             notice: string | null;
             /** Overlap Online Translate */
@@ -26980,6 +27090,11 @@ export interface components {
             step: "transcribe" | "translate" | "export";
             /** Title */
             title: string;
+        };
+        /** QueueTonight */
+        QueueTonight: {
+            /** Tonight */
+            tonight: boolean;
         };
         /** QuickReadDropResult */
         QuickReadDropResult: {
@@ -47785,6 +47900,26 @@ export interface operations {
             };
         };
     };
+    post_subs_api_ext_bridge_subs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
     post_text_api_ext_bridge_text_post: {
         parameters: {
             query?: never;
@@ -59514,6 +59649,128 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_item_tonight_api_queue_items__item_id__tonight_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueTonight"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    set_night_api_queue_night_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["QueueNightSet"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

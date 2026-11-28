@@ -28,6 +28,25 @@ test('add items, with the engine and cost shown for a paid Translate', async ({ 
   expect(mock.calls).toEqual(['/items', '/items'])
 })
 
+test('a step added for tonight shows it, Run now clears it, and the night hours save', async ({ page }) => {
+  await mockJobsApi(page, [], true)
+  const mock = await mockQueueApi(page)
+  await page.goto('/#/jobs')
+  const card = page.getByRole('region', { name: 'Queue' })
+  await card.getByLabel('Title').selectOption({ label: 'Signal' })
+  await card.getByRole('switch', { name: 'Tonight' }).click()
+  await card.getByRole('button', { name: 'Add to queue' }).click()
+  await expect(items(page).nth(0)).toContainText('Tonight')
+  expect(mock.addBodies).toEqual([{ drama_id: 3, step: 'transcribe', tonight: true }])
+  await card.getByRole('button', { name: 'Run now Transcribe Signal' }).click()
+  await expect(card.getByRole('button', { name: 'Run tonight Transcribe Signal' })).toBeVisible()
+  await card.getByLabel('Night from').fill('23:30')
+  await card.getByRole('button', { name: 'Save night hours' }).click()
+  await expect(card.getByRole('button', { name: 'Save night hours' })).toHaveCount(0)
+  await expect(card.getByLabel('Night from')).toHaveValue('23:30')
+  expect(mock.calls).toEqual(['/items', '/items/100/tonight', '/night'])
+})
+
 test('All steps adds Transcribe, Translate and Export in one call and starts nothing', async ({ page }) => {
   await mockJobsApi(page, [], true)
   const mock = await mockQueueApi(page)
