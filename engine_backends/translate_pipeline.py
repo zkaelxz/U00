@@ -843,6 +843,7 @@ class _TranslateRun:
             parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
         for part in parts:
             if self._should_stop():
+                self._log_reask(part, depth, "not asked: the run is stopping")
                 still.extend(part)
                 continue
             try:
@@ -855,13 +856,11 @@ class _TranslateRun:
                     self.stop_run = True
                     self.errors.append({"batch_index": self.bi, "lines": [],
                                         "error": redact_secrets(str(e))})
-                import applog
-                applog.get_logger().warning(
-                    f"translate batch {self.bi}: re-asking {len(part)} empty line(s) failed: "
-                    f"{type(e).__name__}: {redact_secrets(str(e))[:200]}")
+                self._log_reask(part, depth, f"failed: {type(e).__name__}: {redact_secrets(str(e))[:200]}")
                 still.extend(part)
                 continue
             if len(translations) != len(part):
+                self._log_reask(part, depth, f"got {len(translations)} answers")
                 still.extend(part)
                 continue
             missed = []
@@ -874,8 +873,16 @@ class _TranslateRun:
                     fresh.append(ln)
                 else:
                     missed.append(ln)
+            if missed:
+                self._log_reask(part, depth, f"{len(missed)} still empty")
             still.extend(self._retry_smaller(missed, fresh, depth + 1) if len(part) > 1 else missed)
         return still
+
+    def _log_reask(self, part, depth, outcome):
+        # Blank lines carry no note, so this is the only record of why a re-ask didn't fill them.
+        import applog
+        applog.get_logger().warning(
+            f"translate batch {self.bi}: re-asking {len(part)} empty line(s) (round {depth + 1}): {outcome}")
 
     def _should_stop(self):
         a = self.args
