@@ -49,7 +49,7 @@ import { GpuBanner } from '../../diagnostics/GpuBanner'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
-import { QWEN3_BACKENDS, nemotronWillRun, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
+import { QWEN3_BACKENDS, nemotronWillRun, whisperSizeCached, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
 import { useSimple, useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
@@ -72,6 +72,13 @@ import { promptFields } from './transcribePrompt'
 import { replacementModel, runLine, runSettingsLine, whisperOnlyControlReason } from './transcribeRun'
 import './source.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+
+// Tools was a tab of its own: an old link to it opens the Tools fold, also when the stage is already showing.
+function linksToTools(dramaId: number): boolean {
+  const hash = window.location.hash
+  const r = parseRoute(hash)
+  return r.name === 'drama' && r.id === dramaId && new URLSearchParams(hash.split('?')[1] ?? '').get('tab') === 'tools'
+}
 
 // The value stays the model name; the option leads with what the choice means and the name sits in muted text beside the picker.
 const WHISPER_LABELS: Record<string, string> = {
@@ -173,15 +180,9 @@ export default function TranscribeStage({
   } = form
   const useGpu = settingsGpu ?? config?.use_gpu ?? null
   const panelRef = useRef<HTMLDivElement>(null)
-  // Tools was a tab of its own: an old link to it opens the Tools fold, also when the stage is already showing.
-  const linksToTools = () => {
-    const hash = window.location.hash
-    const r = parseRoute(hash)
-    return r.name === 'drama' && r.id === dramaId && new URLSearchParams(hash.split('?')[1] ?? '').get('tab') === 'tools'
-  }
-  const [toolsLinked, setToolsLinked] = useState(() => (linksToTools() ? 1 : 0))
+  const [toolsLinked, setToolsLinked] = useState(() => (linksToTools(dramaId) ? 1 : 0))
   useEffect(() => {
-    const onHash = () => { if (linksToTools()) setToolsLinked((n) => n + 1) }
+    const onHash = () => { if (linksToTools(dramaId)) setToolsLinked((n) => n + 1) }
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dramaId is fixed for the stage's life
@@ -551,13 +552,14 @@ export default function TranscribeStage({
   const qwenWarnings = [qwen3Chosen && qwen3Warning(), aligning && qwen3Warning(true)].filter((w): w is string => !!w)
   const gpuUnavailable = useGpu === true && config?.gpu_runtime.status === 'missing'
   const showBeforeYouRun = notInstalled || listed.length > 0 || qwenWarnings.length > 0
+  const pickedCached = cf ? whisperSizeCached(readiness, cf.whisper_size, config ? { size: config.whisper_size, cached: config.whisper_model_cached } : null) : null
   const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
         whisperSize: cf.whisper_size,
         useGpu,
         fastMode: cf.whisper_fast_mode,
-        modelCached: config?.whisper_model_cached,
+        modelCached: pickedCached ?? undefined,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         measuredRuns: config?.measured_speed_runs,
         measuredStages: config?.whisper_size === cf.whisper_size ? config.measured_stage_seconds : undefined,
@@ -683,7 +685,7 @@ export default function TranscribeStage({
         <Section title="More options" storageKey="transcribe.more" summary={moreSummary}>
           <div className="source-grid">
             {cf && (
-              <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
+              <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, pickedCached === false, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
                 <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                   {whisperChoices.map((o) => (
                     <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>

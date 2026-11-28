@@ -32,6 +32,7 @@ import { ActivityLog } from './jobs/ActivityLog'
 import { JobQueue } from './jobs/JobQueue'
 import { QuickReadRuns } from './jobs/QuickReadRuns'
 import { Tabs } from '../components/Tabs'
+import { Toggle } from '../components/Toggle'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { RunSettings } from './jobs/RunSettings'
 import {
@@ -70,6 +71,8 @@ export default function JobsPage() {
   const sort = useMemo(() => normalizeSort(storedSort), [storedSort])
   const [limit, setLimit] = useState(PAGE)
   const [tab, setTab] = useState<'jobs' | 'quick'>('jobs')
+  const [queueShown, setQueueShown] = useState(false)
+  const [addSignal, setAddSignal] = useState(0)
   const [titles, setTitles] = useState<ReadonlyMap<number, string>>(new Map())
   const [actionError, setActionError] = useState<unknown>(null)
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set())
@@ -154,8 +157,7 @@ export default function JobsPage() {
     onDelete: (id: string) => void run(() => deleteJob(id)),
   }
 
-  const noJobsYet = jobs !== null && all.length === 0 && refused === null
-  const tabs = <Tabs label="Jobs" idPrefix="jobs" tabs={JOB_TABS} active={tab} onSelect={setTab} />
+  const tabs = <Tabs label="Jobs" idPrefix="jobs" tabs={JOB_TABS} active={tab} onSelect={(t) => { setTab(t); setAddSignal(0) }} />
   if (tab === 'quick') {
     return (
       <PageShell width="wide" title="Jobs" label="Jobs" className="jobs-page" tabs={tabs}>
@@ -172,12 +174,12 @@ export default function JobsPage() {
       label="Jobs"
       className="jobs-page"
       meta={jobs ? `${counts.active} active · ${counts.all} in all` : undefined}
+      actions={queueShown && (
+        <button type="button" className={buttonClass('primary')} onClick={() => setAddSignal((n) => n + 1)}>+ Add to queue</button>
+      )}
       tabs={tabs}
     >
       <div id={tabPanelId('jobs', 'jobs')} role="tabpanel" aria-labelledby={tabButtonId('jobs', 'jobs')} className="page-shell-body">
-      {/* A person with no jobs yet reads the empty state before the queue form. */}
-      {!noJobsYet && <JobQueue titles={titles} />}
-
       {refused !== null ? (
         <p className="muted" role="status" data-testid="jobs-refused">{REFUSED_TEXT[refused]}</p>
       ) : (
@@ -234,10 +236,10 @@ export default function JobsPage() {
                   </select>
                 </label>
                 {authOn && (
-                  <label className="jobs-mine">
-                    <input type="checkbox" checked={filters.mine} onChange={(e) => patch({ mine: e.target.checked })} />
-                    Mine
-                  </label>
+                  <span className="jobs-mine">
+                    <Toggle id="jobs-mine" checked={filters.mine} onChange={(mine) => patch({ mine })} />
+                    <label htmlFor="jobs-mine">Mine</label>
+                  </span>
                 )}
               </div>
 
@@ -302,7 +304,7 @@ export default function JobsPage() {
           )}
         </>
       )}
-      {noJobsYet && <JobQueue titles={titles} />}
+      <JobQueue titles={titles} addSignal={addSignal} onShown={setQueueShown} />
       <ActivityLog />
       </div>
     </PageShell>
