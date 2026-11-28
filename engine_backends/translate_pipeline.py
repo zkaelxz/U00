@@ -681,14 +681,17 @@ class _TranslateRun:
         # Recomputed each batch (not just once outside the loop) since
         # more lines have been translated -- including by this very
         # loop -- by the time later batches run.
+        self._add_neighbours(self.context, batch)
+
+    def _add_neighbours(self, context, chunk):
         recent, upcoming, around = neighbour_context(
-            self.lines, batch, self.args.context_window, self.args.context_window_ahead)
+            self.lines, chunk, self.args.context_window, self.args.context_window_ahead)
         if self.args.context_window > 0:
-            self.context["recent_context"] = recent
+            context["recent_context"] = recent
         # Also when empty after an "around" batch, which may have set source-only neighbours.
-        if self.args.context_window_ahead > 0 or around or self.context.get("upcoming_lines"):
-            self.context["upcoming_lines"] = upcoming
-        self.context["context_around"] = around
+        if self.args.context_window_ahead > 0 or around or context.get("upcoming_lines"):
+            context["upcoming_lines"] = upcoming
+        context["context_around"] = around
 
     def _record_usage(self, inp, out, cache_read=0, cache_write=0):
         self.spent += estimate_cost_for_engine(self.engine, inp, out, cache_read, cache_write)
@@ -704,8 +707,10 @@ class _TranslateRun:
         self._report(self.last_frac, f"{self.batch_label} - Engine busy, waiting {delay:.0f} s to retry "
                                      f"(attempt {next_attempt} of {max_retries})")
 
-    def _context_for(self, chunk):
+    def _context_for(self, chunk, own_neighbours=False):
         chunk_context = dict(self.context)
+        if own_neighbours:
+            self._add_neighbours(chunk_context, chunk)
         chunk_context["speaker_labels"] = [self.character_names.get(ln.speaker) for ln in chunk]
         chunk_context["line_ids"] = [getattr(ln, "id", None) for ln in chunk]
         chunk_context["batch_source_lines"] = [ln.zh for ln in chunk]
@@ -749,13 +754,14 @@ class _TranslateRun:
                 out[p] = text
         return out
 
-    def _translate_chunk(self, chunk):
+    def _translate_chunk(self, chunk, own_neighbours=False):
         """Runs one translate attempt for chunk (the whole batch, or
-        one bisected half of it). Returns
+        one bisected half of it). own_neighbours: the chunk is shown the lines
+        around its own lines, not those around the batch. Returns
         (translations, critiques) -- critiques is None outside Reflect
         mode. A ContentModerationBlocked (or any other exception)
         propagates to the caller, which decides what to do about it."""
-        chunk_context = self._context_for(chunk)
+        chunk_context = self._context_for(chunk, own_neighbours)
         if self.args.reflect:
             sources = pronoun_neutral_texts(self.context, [ln.zh for ln in chunk])
             finished_passes = {}  # a retry must not pay again for a pass that finished
@@ -891,7 +897,9 @@ class _TranslateRun:
                 still.extend(part)
                 continue
             try:
-                translations, _ = self._translate_chunk(part)
+                # The batch's context is the lines before its first line; a line left out
+                # near its end needs its own, now translated, neighbours.
+                translations, _ = self._translate_chunk(part, own_neighbours=True)
             except Exception as e:
                 # The first attempt's gap is what gets reported; a failed retry adds
                 # nothing, unless it must end the run (a timed-out request may still

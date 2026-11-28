@@ -631,6 +631,25 @@ class TestScatteredLinesGetTheirOwnNeighbours:
         assert ("l9", "E9") in call["recent_context"]
         assert call["upcoming_lines"] == ["l18", "l19"]
 
+    def test_a_line_the_reply_left_out_is_re_asked_with_its_own_neighbours(self):
+        class LeavesOut(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                out = super().translate_batch(zh_lines, context)
+                return ["" if len(zh_lines) > 1 and z in ("l7", "l15") else t
+                        for z, t in zip(zh_lines, out)]
+
+        engine = LeavesOut()
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", id=100 + i) for i in range(20)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=20, context_window=2, context_window_ahead=1)
+        assert [c["zh_lines"] for c in engine.calls[1:]] == [["l7"], ["l15"]]
+        # The batch began at l0, so its own context was empty; the retry sees the lines
+        # around each left-out line, with the English the first reply gave them.
+        assert engine.calls[0]["recent_context"] == []
+        assert engine.calls[2]["recent_context"] == [("l13", "EN:l13"), ("l14", "EN:l14")]
+        assert engine.calls[2]["upcoming_lines"] == ["l16"]
+        assert [ln.en for ln in lines] == [f"EN:l{i}" for i in range(20)]
+
     def test_a_contiguous_batch_gets_the_same_context_as_before(self):
         engine = ContextCapturingEngine()
         translate_pipeline.translate_lines_with_engine(
