@@ -270,7 +270,7 @@ def phone_progress(principal, drama_id: int) -> dict:
     """What the phone's status line shows for a title it just saved to. Only comic and novel titles
     have a translate run; any other title reads as idle rather than an error. A stopped run carries
     its reason, so a refusal is never silent on the phone."""
-    from services import jobs_service
+    from jobs import job_results
     from engine_backends.shared import redact_secrets
     try:
         run = after_import_run(principal, drama_id)
@@ -280,7 +280,7 @@ def phone_progress(principal, drama_id: int) -> dict:
     reason = None
     if run["state"] == "stopped" and run["reason"]:
         # Stored reasons are already redacted, but this leaves the PC: no URL, path or key, and one line's worth.
-        text = redact_secrets(jobs_service.scrub_text(run["reason"])).removeprefix("Skipped: ")
+        text = redact_secrets(job_results.scrub_text(run["reason"])).removeprefix("Skipped: ")
         reason = " ".join(text.split())[:_PHONE_REASON_CHARS] or None
     return {"state": run["state"], "step": run["step"], "kind": kind, "reason": reason}
 

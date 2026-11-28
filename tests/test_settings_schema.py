@@ -38,6 +38,8 @@ STATE_KEYS = {
     "logs.weekly_copy_folder": "the folder the weekly scrubbed log copy is written to; empty = off (log_copy_service)",
     "logs.weekly_copy_tried": "epoch seconds of the last weekly log copy attempt, so a failing folder is retried hourly (log_copy_service)",
     "logs.weekly_copy_last": "epoch seconds of the last weekly log copy (log_copy_service)",
+    "models.preferred_fetched_version": "app version after which every preferred default model was on disk, so the overnight fetch runs once per update (model_download_service)",
+    "models.preferred_tried_on": "local date of the last overnight default-model fetch try, so a failed one waits for the next night (model_download_service)",
     "update.app_first_verified": "version, name, SHA-256 and first-verified time of the app update download, so a restart doesn't restart its day's wait (app_update_service)",
     "update.installer_first_verified": "the same for the full installer download (update_service)",
     "update.last_check_failed": "whether the last update check failed, so the next app start checks again (update_service)",

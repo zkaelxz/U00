@@ -31,7 +31,8 @@ from services.source_service import drama_audio_path
 import raw_transcript
 import vad_segments
 import video_export
-from services import jobs_service, ownership_service, timing_settings_service
+from services import ownership_service, timing_settings_service
+from jobs import job_results
 from lib.errors import (ConflictError, InvalidInputError, UnsupportedOperationError)
 from engine_backends.shared import redact_secrets
 from lib.no_window import NO_WINDOW
@@ -316,4 +317,4 @@ def get_speech_coverage(drama_id: int) -> dict:
     result = job.get("result") if status == "done" and isinstance(job.get("result"), dict) else None
     message = job.get("error") if status == "error" else job.get("message")
     return {"job_id": job_id, "status": status, "progress": job.get("progress"),
-            "message": jobs_service.scrub_text(str(message)) if message else "", "result": result}
+            "message": job_results.scrub_text(str(message)) if message else "", "result": result}

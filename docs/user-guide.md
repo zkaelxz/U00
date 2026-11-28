@@ -222,7 +222,8 @@ docked menu (not floating, minimized, top or bottom) **Jobs** shows a quiet 0 un
   two hours after you leave the app; Android 13 and later asks once to allow notifications. Alerts need you to
   be signed in on the phone's Studio tab; after a sign-out none arrive. Settings > My account and look > Phone
   app > **Alerts on this phone** turns it off. In the alerts bell, a finished job has an **Open** link to the
-  same page, a failed job one to Jobs and new chapters one to Updates.
+  same page, a failed job one to Jobs and new chapters one to Updates. If the PC does not answer for a whole
+  hour on the network of the last good check, the phone says so once, and once more when it answers again.
 - **Copied links (Android app).** Copy a video link (YouTube, Bilibili, Twitch and similar) or a link to a
   comic or novel on a site Baihe supports, then open Baihe: it asks **Subtitle this?** (opens the share
   choices) or **Read this?** (Quick read) once for that link. Settings > My account and look > Phone app >

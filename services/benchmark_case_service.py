@@ -38,8 +38,8 @@ def redact(text, key=None):
     text = str(text)
     if key and len(key) >= 8:
         text = text.replace(key, "[redacted]")
-    from services import jobs_service
-    return jobs_service.redact_text(text)
+    from jobs import job_results
+    return job_results.redact_text(text)
 
 
 # Recognisers the Lab offers besides Whisper, as asr_backend names. Qwen3-ASR is the

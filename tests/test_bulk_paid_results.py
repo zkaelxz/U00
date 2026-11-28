@@ -1157,7 +1157,8 @@ class TestBulkJobOutcome:
     ])
     def test_a_run_that_did_not_finish_cleanly_is_not_finished(
             self, isolated_db, monkeypatch, poller_result, summary, says):
-        from services import jobs_service, translate_run_service
+        from services import translate_run_service
+        from jobs import job_results
         monkeypatch.setattr(bp, "make_provider", lambda name, engine: object())
         monkeypatch.setattr(bulk_poll, "run_bulk_poller",
                             lambda job_id, current, **kw: background_jobs.set_result(job_id, poller_result))
@@ -1169,8 +1170,8 @@ class TestBulkJobOutcome:
                                     object(), "deepseek", lambda: 7)
         _wait_for(job_id)
         status = background_jobs.get_status(job_id)
-        outcome, message = jobs_service.derive_outcome(status["status"], status["error"],
-                                                       jobs_service.project_result(status["result"]))
+        outcome, message = job_results.derive_outcome(status["status"], status["error"],
+                                                       job_results.project_result(status["result"]))
         background_jobs.clear_job(job_id)
         assert outcome == "partial" and says in message
 

@@ -376,14 +376,15 @@ class TestRunOutcome:
         self.tmp_path = tmp_path
 
     def _run(self, isolated_db, drama, language, choice="auto"):
-        from services import jobs_service, transcribe_pipeline
+        from services import transcribe_pipeline
+        from jobs import job_results
         asr_options_service.set_asr_options(voice_detector=choice)
         detector = asr_options_service.resolve_voice_detector(drama, language)
         out = transcribe_pipeline._transcribe_pipeline(
             _Rep(), str(self.tmp_path / "a.wav"), "whisper", None, language, "simplified",
             "medium", 5, 300, 0.5, False, "auto", False, False, False, None, "", False,
             "qwen3_asr_vad", "whisper_diff", voice_detector=detector)
-        return out, jobs_service.derive_outcome("done", None, out)[0]
+        return out, job_results.derive_outcome("done", None, out)[0]
 
     def test_auto_without_the_model_is_silent_and_the_outcome_is_ok(self, isolated_db, data_dir):
         out, outcome = self._run(isolated_db, {"media_type": "asmr"}, "ja")
