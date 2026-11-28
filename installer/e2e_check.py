@@ -228,6 +228,8 @@ def cmd_serve(args) -> int:
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ctx.load_cert_chain(args.cert, args.key)
     server.tls = ctx
+    if args.pid_file:
+        Path(args.pid_file).write_text(str(os.getpid()), encoding="ascii")
     print(f"Fake GitHub proxy on 127.0.0.1:{args.port}", flush=True)
     server.serve_forever()
     return 0
@@ -431,6 +433,7 @@ def main(argv=None) -> int:
     for a in ("--root", "--repo", "--cert", "--key"):
         s.add_argument(a, required=True)
     s.add_argument("--port", type=int, required=True)
+    s.add_argument("--pid-file")
     s.set_defaults(func=cmd_serve)
     s = sub.add_parser("setting")
     s.add_argument("db")

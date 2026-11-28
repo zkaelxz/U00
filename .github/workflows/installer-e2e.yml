@@ -196,13 +196,18 @@ jobs:
           python installer/e2e_check.py publish --root $gh --repo $env:E2E_REPO --version $env:NEW_VERSION --file $env:NEW_SETUP --key "$key\test_release_private_key.txt"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           $log = Join-Path $env:RUNNER_TEMP "fake-github.log"
-          $serveArgs = @("installer/e2e_check.py", "serve", "--root", "`"$gh`"", "--repo", $env:E2E_REPO, "--cert", "`"$tls\leaf.pem`"", "--key", "`"$tls\leaf.key`"", "--port", $env:E2E_PROXY_PORT)
-          $p = Start-Process -FilePath python -ArgumentList $serveArgs -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+          $pidFile = Join-Path $env:RUNNER_TEMP "fake-github.pid"
+          # Started through WMI, outside this step's job object, which the
+          # runner ends with the step; the app's own server leaves it the same way.
+          $cmd = "cmd.exe /s /c `"`"$((Get-Command python).Source)`" -u `"$env:GITHUB_WORKSPACE\installer\e2e_check.py`" serve --root `"$gh`" --repo $env:E2E_REPO --cert `"$tls\leaf.pem`" --key `"$tls\leaf.key`" --port $env:E2E_PROXY_PORT --pid-file `"$pidFile`" >> `"$log`" 2>&1`""
+          "FAKE_GITHUB_CMD=$cmd" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $cmd; CurrentDirectory = $env:GITHUB_WORKSPACE }
+          if ($r.ReturnValue -ne 0) { Write-Error "couldn't start the fake GitHub ($($r.ReturnValue))"; exit 1 }
           for ($i = 0; $i -lt 30 -and -not (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
-          if (-not (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue)) { Get-Content "$log.err"; Write-Error "the fake GitHub didn't start"; exit 1 }
+          if (-not (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue)) { if (Test-Path $log) { Get-Content $log }; Write-Error "the fake GitHub didn't start"; exit 1 }
           # From here on every step, so every app start and the Setup the app
           # starts, reaches only the fake GitHub.
-          @("FAKE_GITHUB_PID=$($p.Id)", "FAKE_GITHUB_ARGS=$($serveArgs -join ' ')", "FAKE_GITHUB_LOG=$log",
+          @("FAKE_GITHUB_PID_FILE=$pidFile", "FAKE_GITHUB_LOG=$log",
             "E2E_GITHUB=$gh", "E2E_KEY=$key",
             "HTTPS_PROXY=http://127.0.0.1:$env:E2E_PROXY_PORT", "NO_PROXY=127.0.0.1,localhost",
             "REQUESTS_CA_BUNDLE=$tls\ca.pem", "BAIHE_UPDATE_REPO=$env:E2E_REPO") | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -262,11 +267,15 @@ jobs:
         run: |
           $py = "$env:E2E_APP\python\python.exe"; $launcher = "$env:E2E_APP\app\installer\launcher.py"
           function Restart-App { & $py -s $launcher --stop | Out-Null; & $py -s $launcher --no-browser; if ($LASTEXITCODE -ne 0) { Write-Error "launcher exited $LASTEXITCODE"; exit 1 } }
-          function Start-Fake { $p = Start-Process -FilePath python -ArgumentList $env:FAKE_GITHUB_ARGS -RedirectStandardOutput "$env:FAKE_GITHUB_LOG.2" -RedirectStandardError "$env:FAKE_GITHUB_LOG.2.err" -PassThru -WindowStyle Hidden
+          function Start-Fake {
+            $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $env:FAKE_GITHUB_CMD; CurrentDirectory = $env:GITHUB_WORKSPACE }
+            if ($r.ReturnValue -ne 0) { Write-Error "couldn't restart the fake GitHub"; exit 1 }
             for ($i = 0; $i -lt 30 -and -not (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
-            "FAKE_GITHUB_PID=$($p.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8 }
+            if (-not (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue)) { Write-Error "the fake GitHub didn't restart"; exit 1 } }
           # The source goes dead: nothing answers at the proxy's address.
-          Stop-Process -Id $env:FAKE_GITHUB_PID -Force
+          Stop-Process -Id ([int](Get-Content $env:FAKE_GITHUB_PID_FILE)) -Force
+          for ($i = 0; $i -lt 15 -and (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Seconds 1 }
+          if (Get-NetTCPConnection -State Listen -LocalPort $env:E2E_PROXY_PORT -ErrorAction SilentlyContinue) { Write-Error "the fake GitHub is still listening"; exit 1 }
           python installer/e2e_check.py api POST /api/system/update/check
           python installer/e2e_check.py wait-setting $env:E2E_DB update.last_check_failed --equals true --timeout 10
           if ($LASTEXITCODE -ne 0) { Write-Error "a failed check didn't set update.last_check_failed"; exit 1 }
@@ -411,7 +420,7 @@ jobs:
       - name: Logs on failure
         if: failure() || cancelled()
         run: |
-          foreach ($f in @("$env:RUNNER_TEMP\setup-fresh.log", "$env:RUNNER_TEMP\setup-base.log", "$env:FAKE_GITHUB_LOG", "$env:FAKE_GITHUB_LOG.err", "$env:FAKE_GITHUB_LOG.2", "$env:FAKE_GITHUB_LOG.2.err", "$env:E2E_DATA\launcher\install.log", "$env:E2E_DATA\launcher\server.log", "$env:E2E_DATA\library\logs\app.log")) {
+          foreach ($f in @("$env:RUNNER_TEMP\setup-fresh.log", "$env:RUNNER_TEMP\setup-base.log", "$env:FAKE_GITHUB_LOG", "$env:E2E_DATA\launcher\install.log", "$env:E2E_DATA\launcher\server.log", "$env:E2E_DATA\library\logs\app.log")) {
             if ($f -and (Test-Path $f)) { Write-Host "===== $f"; Get-Content $f -Tail 200 }
           }
           Get-ChildItem $env:TEMP -Filter "Setup Log*.txt" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "===== $($_.FullName)"; Get-Content $_.FullName -Tail 200 }
@@ -420,4 +429,4 @@ jobs:
         if: always()
         run: |
           if ($env:E2E_APP -and (Test-Path "$env:E2E_APP\app\installer\launcher.py")) { & "$env:E2E_APP\python\python.exe" -s "$env:E2E_APP\app\installer\launcher.py" --stop }
-          if ($env:FAKE_GITHUB_PID) { Stop-Process -Id $env:FAKE_GITHUB_PID -Force -ErrorAction SilentlyContinue }
+          if ($env:FAKE_GITHUB_PID_FILE -and (Test-Path $env:FAKE_GITHUB_PID_FILE)) { Stop-Process -Id ([int](Get-Content $env:FAKE_GITHUB_PID_FILE)) -Force -ErrorAction SilentlyContinue }
