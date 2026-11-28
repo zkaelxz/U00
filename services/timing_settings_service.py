@@ -38,7 +38,7 @@ def values() -> dict:
         if out[lower] >= out[upper]:
             for key in (lower, upper):
                 out[key] = settings_schema.default_of(settings_schema.BY_KEY[key])
-    # Not a Timing row (it has a card of its own), but a run is handed it with the rest.
+    # Not a Timing row (no field on that card), but a run is handed it with the rest.
     out["blocked_phrases"] = settings_service.get("blocked_phrases")
     return out
 
