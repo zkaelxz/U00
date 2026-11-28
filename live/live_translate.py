@@ -834,6 +834,7 @@ class _LiveRun(ChunkCaptioner):
         self.outage = None
         self.breaks = 0
         self.resolved_at = time.monotonic()
+        self.timeline = live_pipeline.StartTimeline()
         # Why the session ended, for the app log; set by _ended.
         self.end_reason = None
         # Last, so an __init__ that raises leaves no deadline behind for extend to find.
@@ -879,6 +880,7 @@ class _LiveRun(ChunkCaptioner):
             background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
             return
         self.resolved_at = time.monotonic()
+        self.timeline.mark("stream address found")
         if self.stream_url_check is not None:
             self.stream_url_check(self.source_url)
         if not self._warm_whisper():
@@ -909,6 +911,7 @@ class _LiveRun(ChunkCaptioner):
             # The first chunk repeats the load and shows the real error.
             live_whisper.log_failure("Whisper warm-up failed", exc)
             self.note("Whisper could not be warmed up; chunk 0 will try loading it.")
+        self.timeline.mark("Whisper ready")
         return True
 
     def _capture_and_caption(self):
@@ -918,6 +921,7 @@ class _LiveRun(ChunkCaptioner):
         self.limit = live_whisper.chunk_timeout(self.segment_seconds)
         self.stage = live_pipeline.Stage(self.report, self.note, self.whisper_size, self.device,
                                          self.limit, self.engine, self.segment_seconds)
+        self.stage.timeline = self.timeline
         self.board = live_pipeline.CueBoard(
             self.job_id, lambda: current_generation(self.job_id) == self.my_generation)
         self.stats = live_pipeline.LagStats(self.report_stats)
@@ -964,6 +968,12 @@ class _LiveRun(ChunkCaptioner):
                 pass   # a logging slip must never skip stopping ffmpeg below
             self._wind_down()
 
+    def _out_dir_has_files(self):
+        try:
+            return bool(os.listdir(self.out_dir))
+        except OSError:
+            return False
+
     def _capture_loop(self, control, worker):
         """Captions one waiting chunk per pass. True when it ended by finish,
         time limit or stream end, False on cancel."""
@@ -981,6 +991,8 @@ class _LiveRun(ChunkCaptioner):
             if watched is not self.player:
                 self._set_player(watched)
             code = proc.poll()
+            if not self.timeline.has("first stream data") and self._out_dir_has_files():
+                self.timeline.mark("first stream data")
             if self.captured_any and hasattr(proc, "settle"):
                 # A break now reconnects rather than ending the session, so the
                 # fetcher may notice a dead link sooner (live_fetch.SETTLED_*).
@@ -1010,6 +1022,7 @@ class _LiveRun(ChunkCaptioner):
                 self.state["context"] = ""
             # One chunk per pass, so the backlog is looked at again after each.
             if waiting:
+                self.timeline.mark("first chunk closed")
                 after_break = self.outage is not None
                 self._resumed()
                 try:
@@ -1299,6 +1312,7 @@ class _LiveRun(ChunkCaptioner):
         def whisper_done(took):
             timing.whisper_done(took)
             self.stage.transcribed(idx, took)
+            self.timeline.mark("first chunk transcribed")
         new_cues = process_chunk(
             window.path, idx, self.segment_seconds, self.source_language, self.whisper_size,
             self.engine, use_gpu=self.use_gpu, context_prompt=self.state["context"],

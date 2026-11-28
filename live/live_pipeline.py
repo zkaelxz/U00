@@ -121,6 +121,27 @@ class CueBoard:
         return len(changed)
 
 
+class StartTimeline:
+    """App-log line, once per milestone, with seconds since Start: where the
+    time goes before the first caption. Numbers and fixed text only."""
+
+    def __init__(self, clock=time.monotonic):
+        self._clock, self._t0 = clock, clock()
+        self._seen = set()
+        self._lock = threading.Lock()
+
+    def has(self, name: str) -> bool:
+        return name in self._seen
+
+    def mark(self, name: str) -> None:
+        with self._lock:
+            if name in self._seen:
+                return
+            self._seen.add(name)
+            took = self._clock() - self._t0
+        live_whisper._log("info", f"Live: start +{took:.1f} s: {name}")
+
+
 class Stage:
     """The one status line both threads report to. A stream outage wins while
     it lasts (the owner needs to know captions have paused); then Whisper's step
@@ -145,6 +166,7 @@ class Stage:
         # audio/took: seconds of audio Whisper was handed for the current / last chunk.
         self.audio, self._took, self._last_audio = 0.0, None, 0.0
         self._slow_noted = False
+        self.timeline = None
 
     def _speed(self) -> str:
         return live_whisper.speed_text(self._took, self._last_audio)
@@ -412,6 +434,9 @@ class TranslationWorker:
         finally:
             self._stage.translated()
             self._wake.set()
+        if self._stage.timeline is not None and any(
+                c["translation"] not in (live_cue_feed.PENDING, live_cue_feed.FAILED) for c in cues):
+            self._stage.timeline.mark("first English")
         for pos, work in enumerate(works):
             if work.measured:
                 total = work.timing.report(work.idx, self._note, cues=len(work.cues),

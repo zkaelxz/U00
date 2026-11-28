@@ -1103,3 +1103,15 @@ class TestSessionLog:
         log.tick()
         assert [n for n in notes if "spend limit" in n] == [
             "This session has used 80% of its spend limit ($1.60 of $2.00)."]
+
+
+def test_start_timeline_logs_each_milestone_once_with_seconds_since_start(monkeypatch):
+    lines = []
+    monkeypatch.setattr(live_whisper, "_log", lambda level, text: lines.append(text))
+    ticks = iter([0.0, 2.5, 9.0])
+    timeline = live_pipeline.StartTimeline(clock=lambda: next(ticks))
+    timeline.mark("Whisper ready")
+    timeline.mark("Whisper ready")
+    timeline.mark("first English")
+    assert lines == ["Live: start +2.5 s: Whisper ready", "Live: start +9.0 s: first English"]
+    assert timeline.has("first English") and not timeline.has("first chunk closed")
