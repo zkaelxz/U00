@@ -7,7 +7,7 @@ import { gpuLine } from './libraryParity'
 
 const REFRESH_MS = 30_000
 
-/** The Library header's GPU readings, admin only (the caller checks). Hidden when this PC has no readable GPU. */
+/** The Jobs panel's GPU readings, admin only (the caller checks). Hidden when this PC has no readable GPU. */
 export function GpuLine() {
   const [data, setData] = useState<ResourceReadings | null>(null)
   const [failed, setFailed] = useState(false)
