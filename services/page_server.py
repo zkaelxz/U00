@@ -869,13 +869,16 @@ def _start_from_link(route: str, payload: dict) -> dict:
     """/video and /live for the PC's own extension: what the device-token routes do, as the PC owner.
     Only the link is sent, so the run uses no saved logins, as from any other device."""
     from lib.errors import ForbiddenError
-    from services import extension_bridge_service, live_service
+    from services import auth_service, extension_bridge_service, live_service
     from services.extension_novel_service import _BRIDGE_PRINCIPAL
+    # The queue checks each step's permissions (an edited step needs lines.edit), so the owner
+    # needs them all, as api.auth's local owner has.
+    owner = {**_BRIDGE_PRINCIPAL, "is_admin": True, "permissions": list(auth_service.PERMISSIONS)}
     try:
         if route == "/video":
-            return extension_bridge_service.send_video(payload, _BRIDGE_PRINCIPAL, holds_paid=True)
+            return extension_bridge_service.send_video(payload, owner, holds_paid=True)
         return extension_bridge_service.start_live(extension_bridge_service.live_choices(payload),
-                                                   live_service.LIVE_DEFAULT_ENGINE, None, _BRIDGE_PRINCIPAL)
+                                                   live_service.LIVE_DEFAULT_ENGINE, None, owner)
     except ForbiddenError as e:
         raise EndpointError(403, e.message) from None
 

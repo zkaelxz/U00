@@ -479,7 +479,10 @@ def _video_key(raw: str) -> str:
         host = (parts.hostname or "").casefold()
     except ValueError:
         return ""
-    query = dict(parse_qsl(parts.query))
+    query = {}
+    for name, value in parse_qsl(parts.query):
+        # The first, as players and yt-dlp take it: the last would match another video's title.
+        query.setdefault(name, value)
     segments = [s for s in parts.path.split("/") if s]
     video = ""
     if _on_site(host, "youtu.be"):
@@ -494,11 +497,31 @@ def _video_key(raw: str) -> str:
     if _on_site(host, "bilibili.com"):
         found = _BILIBILI_VIDEO.match(parts.path)
         if found:
-            name = found.group(1)
-            name = "BV" + name[2:] if name[:2].upper() == "BV" else name.lower()
+            aid = _bilibili_aid(found.group(1))
             part = query.get("p", "1")
-            return f"bilibili:{name}:{int(part) if part.isdigit() else part}"
+            # isdigit alone passes "²", which int() refuses.
+            part = int(part) if part.isascii() and part.isdecimal() else part
+            return f"bilibili:av{aid}:{part}" if aid is not None else ""
     return ""
+
+
+_BV_TABLE = "FcwAPNKTMug3GV5Lj7EJnHpWsx4tb8haYeviqBz6rkCy12mUSDQX9RdoZf"
+
+
+def _bilibili_aid(name: str):
+    """The av number of an av or BV id, so a title saved from an old av link matches the BV page
+    bilibili.com now redirects to. Bilibili's public BV encoding; None if `name` isn't one."""
+    if name[:2].lower() == "av":
+        return int(name[2:]) if name[2:].isascii() and name[2:].isdecimal() else None
+    chars = list(name)
+    if len(chars) != 12 or name[:3].upper() != "BV1" or any(c not in _BV_TABLE for c in chars[3:]):
+        return None
+    chars[3], chars[9] = chars[9], chars[3]
+    chars[4], chars[7] = chars[7], chars[4]
+    value = 0
+    for c in chars[3:]:
+        value = value * 58 + _BV_TABLE.index(c)
+    return (value & ((1 << 51) - 1)) ^ 23442827791579
 
 
 def page_key(row_or_url) -> str:

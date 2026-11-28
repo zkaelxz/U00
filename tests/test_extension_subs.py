@@ -91,6 +91,8 @@ class TestMatching:
         ("https://m.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD/"),
         ("https://www.bilibili.com/video/BV1xx411c7mD/?p=1", "https://www.bilibili.com/video/BV1xx411c7mD"),
         ("https://www.bilibili.com/video/BV1xx411c7mD?p=2&spm=x", "https://m.bilibili.com/video/BV1xx411c7mD/?p=2"),
+        ("https://www.bilibili.com/video/av170001", "https://www.bilibili.com/video/BV17x411w7KC"),
+        ("https://www.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/av2/"),
     ])
     def test_every_address_of_one_video_finds_its_title(self, isolated_db, saved, page):
         _title(saved)
@@ -100,10 +102,17 @@ class TestMatching:
         ("https://youtu.be/AAAAAAAAAAA", VIDEO_B),
         ("https://www.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD?p=2"),
         ("https://www.bilibili.com/video/BV1xx411c7mD", "https://www.bilibili.com/video/BV1yy411c7mD"),
+        ("https://www.youtube.com/watch?v=BBBBBBBBBBB", VIDEO_A + "&v=BBBBBBBBBBB"),
+        ("https://www.bilibili.com/video/BV1xx411c7mD?p=2", "https://www.bilibili.com/video/BV1xx411c7mD?p=1&p=2"),
     ])
     def test_another_video_or_part_is_not_a_match(self, isolated_db, saved, page):
         _title(saved)
         assert _ask(page) == {"found": False}
+
+    def test_a_digit_like_part_number_answers_instead_of_failing(self, isolated_db):
+        _title("https://www.bilibili.com/video/BV1xx411c7mD?p=%C2%B2")
+        assert _ask(VIDEO_A) == {"found": False}
+        assert _ask("https://www.bilibili.com/video/BV1xx411c7mD?p=%C2%B2")["found"] is True
 
     def test_the_duplicate_check_still_tells_the_addresses_apart(self):
         from services import drama_service
