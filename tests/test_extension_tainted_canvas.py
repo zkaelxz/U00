@@ -25,6 +25,17 @@ def _run(kind, scenario):
     return json.loads(done.stdout)
 
 
+class TestChapterCapture:
+    def test_the_capture_keeps_reading_pages_while_its_first_small_batch_is_out(self):
+        out = _run("content", "capture_keeps_reading_while_a_batch_is_out")
+        assert out["ok"] is True
+        assert out["readWhileOut"] is True
+        urls = [f"https://s1.bzcdn.net/p/{n}.jpg" for n in range(1, 6)]
+        # The first batch goes at three pages; the rest follow in reading order, one batch at a time.
+        assert out["batches"] == [urls[:3], urls[3:]]
+        assert any("translating 1-3 of 3" in p for p in out["progress"]), out["progress"]
+
+
 class TestPageSideFallback:
     def test_a_tainted_img_is_downloaded_by_the_worker_and_sent(self):
         out = _run("content", "img_tainted_fetches_in_worker")

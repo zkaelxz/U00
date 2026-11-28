@@ -1618,6 +1618,10 @@
   // again, a bounded number of times so a wrong counter only costs a few seconds.
   const CAPTURE_PATIENT_WAIT_MS = 3000;
   const CAPTURE_PATIENT_TRIES = 3;
+  // The first batch of a capture goes out at this many pages, so English shows
+  // early; later ones fill the request. Scrolling and reading go on while a batch
+  // is out, at most one more batch ahead, so the page images held stay bounded.
+  const CAPTURE_FIRST_BATCH = 3;
   // Attributes a list renderer uses to number its rows. Used only to order
   // pages, and only when every page in the comparison has one.
   const READER_INDEX_KEYS = ["pageIndex", "pageNum", "pageNumber", "page", "index", "idx"];
@@ -1992,6 +1996,8 @@
 
     let line = "";
     let fraction = null;
+    // What the batch out for translation says while the scroll goes on.
+    let sendingNote = "";
     const emit = () => {
       // After a cancel the line stays "Cancelling…" however late a batch reports back.
       if (run.cancelled) return;
@@ -2002,7 +2008,7 @@
     run.tick = emit;
     line = fromHere ? "Looking for pages from here" : "Scrolling to the top to start";
     emit();
-    const report = (suffix = "") => {
+    const report = (suffix = sendingNote) => {
       const counter = readerCounter();
       line = (counter ? `Page ${counter.current} of ${counter.total}`
                       : `${seen.size} page${seen.size === 1 ? "" : "s"} found`) + suffix;
@@ -2072,7 +2078,8 @@
     // same sendInBatches the visible-pages path uses. Returns a failure
     // reason, or "".
     const sendRange = async (items, range) => {
-      report(` — translating ${range.from}-${range.to} of ${range.total}`);
+      sendingNote = ` — translating ${range.from}-${range.to} of ${range.total}`;
+      report();
       return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
     };
     const onBatch = async (items, data) => {
@@ -2144,10 +2151,12 @@
       }
     }
 
-    async function flush(force) {
-      while (!run.cancelled && (queue.length >= limit || (force && queue.length))) {
+    async function flush(force, first = 0) {
+      let size = first || limit;
+      while (!run.cancelled && (queue.length >= size || (force && queue.length))) {
         queue.sort(byReadingOrder);
-        const batch = queue.splice(0, limit);
+        const batch = queue.splice(0, size);
+        size = limit;
         const outcome = await sendInBatches(batch, sendRange, onBatch, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
@@ -2177,6 +2186,22 @@
       await sleep(stepDelay());
     }
 
+    // The batch out for translation while the scroll goes on: batches still go one at a
+    // time and in reading order, so saved pages keep chapter order.
+    let sending = null;
+    let sendFailure = "";
+    let sentAny = false;
+    const startSending = () => {
+      const size = sentAny ? limit : Math.min(limit, CAPTURE_FIRST_BATCH);
+      if (sending || queue.length < size) return;
+      sentAny = true;
+      sending = flush(false, size).then((r) => {
+        sendFailure = r;
+        sendingNote = "";
+        sending = null;
+      });
+    };
+
     let reason = "";
     let stalls = 0;
     let steps = 0;
@@ -2203,11 +2228,10 @@
       const counter = readerCounter();
       if (counter) expected = Math.max(expected, counter.total);
       report();
-      if (queue.length >= limit) {
-        failure = await flush(false);
-        if (failure) { reason = "error"; break; }
-        if (run.cancelled) { reason = "cancelled"; break; }
-      }
+      startSending();
+      if (sending && queue.length >= 2 * limit) await sending;
+      if (sendFailure) { failure = sendFailure; reason = "error"; break; }
+      if (run.cancelled) { reason = "cancelled"; break; }
       const atBottom = scroller.top() >= scroller.max() - 4;
       // A page that cannot be moved by scrollTop (or stopped short of its end) may still answer
       // the reader's own wheel and key handling; a few tries, so a real end costs nothing extra.
@@ -2243,6 +2267,11 @@
       lastMoved = scroller.top() !== before;
     }
 
+    if (sending) await sending;
+    if (sendFailure && reason !== "cancelled" && reason !== "error") {
+      failure = sendFailure;
+      reason = "error";
+    }
     // Cancelled means stop sending as well as scrolling; any other stop
     // still delivers the pages already read.
     if (reason !== "cancelled" && reason !== "error") {
