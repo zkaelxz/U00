@@ -75,7 +75,7 @@ export default defineConfig({
     // Only the @catalogue tests, against the build that has the Catalogue tab on.
     {
       name: 'catalogue',
-      testMatch: /discover\.spec\.ts/,
+      testMatch: /discover(-pasted)?\.spec\.ts/,
       grep: /@catalogue/,
       use: { baseURL: `http://127.0.0.1:${CATALOGUE_PORT}`, storageState: floatingNav(CATALOGUE_PORT) },
     },

@@ -3,14 +3,15 @@ import { expect, test, type Page } from '@playwright/test'
 import { mockDiscover, openTab, posts } from './discoverMocks'
 
 // Desktop: Discover bulk import's manual fallback (DI07): paste the listing
-// text a plain fetch couldn't read; the same review and add follow.
+// text a plain fetch couldn't read; the same review and add follow. Add titles is shown only
+// with the Catalogue, so these run in the 'catalogue' project (playwright.config.ts).
 
 const openSection = async (page: Page, title: string) => {
   const summary = page.locator('summary').filter({ has: page.locator('.section-title', { hasText: new RegExp(`^${title}$`) }) })
   if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }
 
-test('pasted listing text: extract, review, add', async ({ page }) => {
+test('pasted listing text: extract, review, add @catalogue', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   await openTab(page, 'Add titles')
@@ -32,7 +33,7 @@ test('pasted listing text: extract, review, add', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('pasted listing: too long is refused before sending', async ({ page }) => {
+test('pasted listing: too long is refused before sending @catalogue', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   await openTab(page, 'Add titles')

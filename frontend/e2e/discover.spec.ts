@@ -59,7 +59,8 @@ test('opening the page makes no 404 request to /api/discover', async ({ page }) 
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   if (CATALOGUE_TAB_ENABLED) await expect(page.getByTestId('catalog-count')).toBeVisible()
-  await expect.poll(() => s.calls.some((c) => c.path.endsWith('/bulk-extract/result'))).toBe(true)
+  // Bulk import sits under Add titles, which is shown only with the Catalogue.
+  if (CATALOGUE_TAB_ENABLED) await expect.poll(() => s.calls.some((c) => c.path.endsWith('/bulk-extract/result'))).toBe(true)
   await expect.poll(() => s.calls.some((c) => c.path.endsWith('/navigation-help/result'))).toBe(true)
   expect(notFound).toEqual([])
 })
@@ -162,7 +163,7 @@ test('baihehub search falls back to a browser link; navigation helper shows step
   expect(s.unmocked).toEqual([])
 })
 
-test('add a title from a URL suggestion, then by hand', async ({ page }) => {
+catalogueTest('add a title from a URL suggestion, then by hand @catalogue', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   await openTab(page, 'Add titles')
@@ -186,7 +187,7 @@ test('add a title from a URL suggestion, then by hand', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('bulk import: pattern, extract job, review, add', async ({ page }) => {
+catalogueTest('bulk import: pattern, extract job, review, add @catalogue', async ({ page }) => {
   const s = await mockDiscover(page)
   await page.goto('/#/discover')
   await openTab(page, 'Add titles')
@@ -218,35 +219,34 @@ test('bulk import: pattern, extract job, review, add', async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('no configured engine: AI actions say what is missing', async ({ page }) => {
-  await mockDiscover(page, { engines: [{ name: 'fake_mt', label: 'Fake MT', free: false, models: null, key_configured: true }] })
+const noEngine = [{ name: 'fake_mt', label: 'Fake MT', free: false, models: null, key_configured: true }]
+
+test('no configured engine: finding a title says what is missing', async ({ page }) => {
+  await mockDiscover(page, { engines: noEngine })
   await page.goto('/#/discover')
   await expect(page.getByTestId('no-engine')).toBeVisible()
   await openTab(page, 'Find a title')
   await expect(page.getByText('No AI engine is set up, so the title is searched as typed.')).toBeVisible()
+})
+
+catalogueTest('no configured engine: bulk import cannot extract @catalogue', async ({ page }) => {
+  await mockDiscover(page, { engines: noEngine })
+  await page.goto('/#/discover')
   await openTab(page, 'Add titles')
   await openSection(page, 'Bulk import from listing pages')
   await expect(page.getByRole('button', { name: 'Extract entries' })).toBeDisabled()
 })
 
-test('tabs: first tab by default, remembered choice, one panel at a time', async ({ page }) => {
+catalogueTest('tabs: first tab by default, remembered choice, one panel at a time @catalogue', async ({ page }) => {
   await mockDiscover(page)
   await page.goto('/#/discover')
   const tabs = page.getByRole('tablist', { name: 'Discover tasks' }).getByRole('tab')
-  await expect(tabs).toHaveText(CATALOGUE_TAB_ENABLED ? ['Catalogue', 'Find a title', 'Add titles'] : ['Find a title', 'Add titles'])
+  await expect(tabs).toHaveText(['Catalogue', 'Find a title', 'Add titles'])
   await expect(tabs.first()).toHaveAttribute('aria-selected', 'true')
-  if (CATALOGUE_TAB_ENABLED) {
-    await expect(page.getByTestId('catalog-list')).toBeVisible()
-    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
-    await openTab(page, 'Find a title')
-    await expect(page.getByTestId('catalog-list')).toBeHidden()
-  } else {
-    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
-    await expect(page.getByTestId('catalog-list')).toHaveCount(0)
-    await openTab(page, 'Add titles')
-    await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
-    await openTab(page, 'Find a title')
-  }
+  await expect(page.getByTestId('catalog-list')).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeHidden()
+  await openTab(page, 'Find a title')
+  await expect(page.getByTestId('catalog-list')).toBeHidden()
   await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
@@ -255,16 +255,19 @@ test('tabs: first tab by default, remembered choice, one panel at a time', async
   await expect(page.getByLabel('Fill from a page (optional)')).toBeVisible()
 })
 
-test('a saved Catalogue tab choice falls back to the first visible tab', async ({ page }) => {
-  test.skip(CATALOGUE_TAB_ENABLED, 'only meaningful while the tab is hidden')
+// Add titles only fills the Catalogue, so both are hidden together and Find a title is the whole page.
+test('with the Catalogue hidden there are no tabs, and Find a title shows whatever tab was saved', async ({ page }) => {
+  test.skip(CATALOGUE_TAB_ENABLED, 'only meaningful while the Catalogue is hidden')
   await mockDiscover(page)
-  await page.addInitScript(() => window.localStorage.setItem('baihe.discover.tab', 'catalogue'))
+  await page.addInitScript(() => window.localStorage.setItem('baihe.discover.tab', 'add'))
   await page.goto('/#/discover')
-  await expect(page.getByRole('tab', { name: 'Find a title' })).toHaveAttribute('aria-selected', 'true')
   await expect(page.getByRole('searchbox', { name: 'Title to find' })).toBeVisible()
+  await expect(page.getByRole('tablist', { name: 'Discover tasks' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Add a title' })).toHaveCount(0)
+  await expect(page.getByTestId('catalog-list')).toHaveCount(0)
 })
 
-test('the chosen Discover tab is remembered, and an old saved choice is still read', async ({ page }) => {
+catalogueTest('the chosen Discover tab is remembered, and an old saved choice is still read @catalogue', async ({ page }) => {
   await mockDiscover(page)
   await page.goto('/#/discover')
   await page.getByRole('tab', { name: 'Add titles' }).click()
