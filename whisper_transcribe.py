@@ -492,8 +492,8 @@ def _decode_randomness_kwargs(choice: str) -> dict:
 
 
 def _transcribe(model, audio, kwargs: dict, standalone_extra_speech: bool):
-    """standalone_extra_speech stays off by default until a confirm run on real titles; on, the
-    detector also keeps the stand-alone stretches only Silero v6.2 hears (vad_model.gated)."""
+    """standalone_extra_speech: the detector also keeps the stand-alone stretches only Silero v6.2
+    hears (vad_model.gated). Live turns it off: it was measured on whole titles, not short chunks."""
     if not standalone_extra_speech:
         return model.transcribe(audio, **kwargs)
     import vad_model
@@ -512,7 +512,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float | None = None,
                            log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
-                           on_notice=None, chinese_script: str | None = None, standalone_extra_speech: bool = False,
+                           on_notice=None, chinese_script: str | None = None, standalone_extra_speech: bool = True,
                            resume_segments=None, on_unit=None, decode_randomness: str = DECODE_DEFAULT):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
