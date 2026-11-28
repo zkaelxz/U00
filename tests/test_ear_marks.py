@@ -1,10 +1,11 @@
 """Ear marks: per-line left/right balance from synthetic stereo PCM, the sidecar cache and its
 stamp, windowed decoding, failures, busy checks and alerts, the Watch routes' permission and
-ownership, and ASS placement. ffmpeg and ffprobe are mocked."""
+ownership, and ASS placement. ffmpeg and ffprobe are mocked, except in TestRealDecode."""
 
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -27,8 +28,10 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (auth_service, drama_service, export_service, media_playback_service,
-                      notification_service)
+from jobs import job_launch
+from lib.errors import ConflictError
+from services import (auth_service, delete_service, drama_service, export_service,
+                      media_playback_service, media_upload_service, notification_service)
 from services import ear_marks_service as ears
 from tests.job_helpers import wait_for_job
 
@@ -199,7 +202,8 @@ class TestWindows:
     def test_one_window_at_a_time_on_disk_with_the_same_marks(self, title, decoder, monkeypatch):
         monkeypatch.setattr(ears, "WINDOW_SECONDS", 1.0)
         _run(title)
-        assert [start for _, start in decoder.calls] == [0.0, 1.0, 2.0, 3.0]
+        # The read that comes back empty, not the probed length, ends it.
+        assert [start for _, start in decoder.calls] == [0.0, 1.0, 2.0, 3.0, 4.0]
         assert decoder.largest <= RATE * FRAME
         ids = [ln.id for ln in db.load_line_objects(title)]
         assert ears.fresh_sides(title) == {ids[0]: "left", ids[1]: "right"}
@@ -217,6 +221,16 @@ class TestWindows:
         ids = [ln.id for ln in db.load_line_objects(title)]
         assert ears.fresh_sides(title) == {ids[0]: "left", ids[1]: "right"}
 
+    def test_a_probed_length_shorter_than_the_sound_still_reads_to_the_end(self, title, decoder,
+                                                                          monkeypatch):
+        # ffprobe guesses an MP3 with no Xing header from its first frames.
+        monkeypatch.setattr(ears, "WINDOW_SECONDS", 1.0)
+        monkeypatch.setattr(ears, "_probe", lambda path: (True, 0.5))
+        _run(title)
+        ids = [ln.id for ln in db.load_line_objects(title)]
+        assert ears.fresh_sides(title) == {ids[0]: "left", ids[1]: "right"}
+        assert [start for _, start in decoder.calls][-1] == 4.0
+
     def test_an_unknown_length_ends_at_the_first_short_window(self, title, decoder, monkeypatch):
         monkeypatch.setattr(ears, "WINDOW_SECONDS", 1.5)
         monkeypatch.setattr(ears, "_probe", lambda path: (True, 0.0))
@@ -230,14 +244,6 @@ class TestFailures:
             raise exc
         monkeypatch.setattr(ears, "_decode_window", boom)
 
-    def test_an_unreadable_file_gets_no_marks_quietly(self, title, decoder, monkeypatch):
-        self._failing(monkeypatch, subprocess.CalledProcessError(1, ["ffmpeg", "-i", "/x/source.flac"]))
-        job = wait_for_job(ears.start_ear_marks(title)["job_id"])
-        assert job["status"] == "done"
-        got = ears.get_ear_marks(title)
-        assert got["state"] == "ready" and got["marks"] == []
-        assert _sidecar(title)["failed"] is True
-
     def test_a_file_ffprobe_cannot_read_gets_no_marks(self, title, decoder, monkeypatch):
         def probe(path):
             raise media_inspect.ProbeError("bad /x/source.flac", "unreadable")
@@ -245,9 +251,12 @@ class TestFailures:
         assert wait_for_job(ears.start_ear_marks(title)["job_id"])["status"] == "done"
         assert _sidecar(title)["failed"] is True
 
+    # A full disk makes ffmpeg exit non-zero too, so a failed decode is not stored as final.
     @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired(["ffmpeg", "/x/source.flac"], 600),
+                                     subprocess.CalledProcessError(1, ["ffmpeg", "-i", "/x/source.flac"]),
+                                     OSError(28, "No space left on device", "/x/window.pcm"),
                                      media_inspect.ProbeError("slow", "timeout")])
-    def test_a_timeout_stores_nothing_and_waits_before_trying_again(self, title, decoder, monkeypatch, exc):
+    def test_a_failed_or_slow_read_stores_nothing_and_waits_before_trying_again(self, title, decoder, monkeypatch, exc):
         if isinstance(exc, media_inspect.ProbeError):
             def probe(path):
                 raise exc
@@ -308,15 +317,60 @@ class TestBusy:
         assert background_jobs.get_status(job_id)["status"] == "cancelled"
 
     def test_removing_the_media_stops_the_job_first(self, title, slow_decoder):
-        from services import delete_service
         job_id = ears.start_ear_marks(title)["job_id"]
         assert slow_decoder.wait(5)
         delete_service.remove_media(title, confirm=True)
         assert background_jobs.get_status(job_id)["status"] == "cancelled"
         assert not os.path.exists(os.path.join(db.drama_dir(title), "source.flac"))
 
+    def test_no_restart_while_the_media_is_being_removed(self, title, decoder, monkeypatch):
+        refused = []
+        real_remove = delete_service._remove_file
+
+        def remove(path):
+            if path:
+                with pytest.raises(ConflictError):
+                    ears.start_ear_marks(title)
+                refused.append(path)
+            return real_remove(path)
+        monkeypatch.setattr(delete_service, "_remove_file", remove)
+        delete_service.remove_media(title, confirm=True)
+        assert refused and decoder.calls == []
+
+    def test_replacing_the_audio_stops_the_job_and_starts_none_meanwhile(self, title, slow_decoder,
+                                                                        monkeypatch):
+        job_id = ears.start_ear_marks(title)["job_id"]
+        assert slow_decoder.wait(5)
+        seen = []
+        real_install = media_upload_service.install_media
+
+        def install(*a, **k):
+            seen.append((background_jobs.get_status(job_id)["status"],
+                         ears.start_ear_marks(title)["started"]))
+            return real_install(*a, **k)
+        monkeypatch.setattr(media_upload_service, "install_media", install)
+        media_upload_service.upload_media(title, "new.flac", io.BytesIO(b"fLaC2"),
+                                          confirm_replace_audio=True)
+        assert seen == [("cancelled", False)]
+
+    def test_no_start_while_an_upload_or_another_job_may_replace_the_file(self, title, decoder):
+        with media_upload_service.claims_lock:
+            media_upload_service.claimed.add(title)
+        try:
+            assert ears.start_ear_marks(title)["started"] is False
+        finally:
+            with media_upload_service.claims_lock:
+                media_upload_service.claimed.discard(title)
+        gate = threading.Event()
+        assert job_launch.start_job(f"extract_audio_{title}", gate.wait, 5, line_fields=())
+        try:
+            assert ears.start_ear_marks(title)["started"] is False
+        finally:
+            gate.set()
+            wait_for_job(f"extract_audio_{title}")
+        assert _run(title)["started"] is True
+
     def test_a_job_that_will_not_stop_keeps_the_delete_off(self, title, slow_decoder, monkeypatch):
-        from jobs import job_launch
         job_id = ears.start_ear_marks(title)["job_id"]
         assert slow_decoder.wait(5)
         monkeypatch.setattr(background_jobs, "request_cancel", lambda *a, **k: True)
@@ -331,6 +385,67 @@ class TestBusy:
 
     def test_nothing_to_stop_is_at_once(self):
         assert background_jobs.stop_side_jobs(987654, wait_seconds=0) is True
+
+
+_BURSTS = [3.0 + 10 * k for k in range(8)]   # left at 3, 23, 43, 63; right at 13, 33, 53, 73
+
+
+def _vbr_mp3(path):
+    """80 s VBR MP3 with no Xing header (so no seek table and a guessed length): quiet
+    noise, plus a tone, a new pitch each time, in one ear for a second every 10 s."""
+    burst = "lt(mod(t+7,10),1)*0.5*sin(2*PI*(300+50*floor(t/10))*t)"
+    left = f"0.02*random(0)+{burst}*eq(mod(floor(t/10),2),0)"
+    right = f"0.02*random(1)+{burst}*eq(mod(floor(t/10),2),1)"
+    subprocess.run(["ffmpeg", "-y", "-v", "error", "-f", "lavfi",
+                    "-i", f"aevalsrc='{left}|{right}':s=16000:d=80",
+                    "-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0", path],
+                   check=True, timeout=60)
+
+
+def _onsets(loud):
+    return np.flatnonzero(loud[1:] & ~loud[:-1]) + 1
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
+                    reason="needs ffmpeg and ffprobe")
+class TestRealDecode:
+    def test_windows_of_a_vbr_mp3_line_up_with_one_pass(self, isolated_db, monkeypatch, tmp_path):
+        # Input-side -ss on an MP3 with no seek table is ffmpeg's estimate; the windows join
+        # up only if each starts within a block of where one pass puts it.
+        did = db.create_drama(title_en="Binaural Example", source_language="ja")
+        path = os.path.join(db.drama_dir(did), "source.mp3")
+        try:
+            _vbr_mp3(path)
+        except subprocess.CalledProcessError:
+            pytest.skip("this ffmpeg has no libmp3lame")
+        db.update_drama(did, audio_filename="source.mp3")
+        db.save_lines(did, [Line(idx=i, start=b + 0.1, end=b + 0.9, zh=f"台词{i}", en=f"Line {i}")
+                            for i, b in enumerate(_BURSTS)])
+        one_pass = str(tmp_path / "all.pcm")
+        subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", path, "-ac", "2",
+                        "-ar", str(RATE), "-f", "s16le", one_pass], check=True, timeout=60)
+        with open(one_pass, "rb") as f:
+            l1, r1, _, _ = ears.block_energies(f)
+
+        monkeypatch.setattr(ears, "WINDOW_SECONDS", 25.0)
+        seen = {}
+        real_classify = ears.classify
+
+        def classify(left, right, side, mid, timed):
+            seen["lr"] = (left, right)
+            return real_classify(left, right, side, mid, timed)
+        monkeypatch.setattr(ears, "classify", classify)
+        _run(did)
+
+        l2, r2 = (a[:len(l1)] for a in seen["lr"])
+        for a1, b1, a2, b2 in ((l1, r1, l2, r2), (r1, l1, r2, l2)):
+            want = _onsets((a1 > 10 * b1) & (a1 > 1e-3 * a1.max()))
+            got = _onsets((a2 > 10 * b2) & (a2 > 1e-3 * a2.max()))
+            assert len(want) == len(got) == 4
+            assert np.abs(got - want).max() <= 1
+        ids = [ln.id for ln in db.load_line_objects(did)]
+        assert ears.fresh_sides(did) == {i: ("left" if n % 2 == 0 else "right")
+                                         for n, i in enumerate(ids)}
 
 
 class TestAlerts:

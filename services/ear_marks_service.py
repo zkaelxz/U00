@@ -20,7 +20,7 @@ from engine_backends.shared import redact_secrets
 from jobs import job_launch
 from lib.atomic_write import atomic_write
 from lib.errors import NotFoundError, UnsupportedOperationError
-from services import media_playback_service, ownership_service
+from services import drama_service, media_playback_service, media_upload_service, ownership_service
 
 EAR_MARKS_FILE = "ear_marks.json"
 JOB_PREFIX = "earmarks_"   # in background_jobs.SIDE_JOB_PREFIXES
@@ -35,8 +35,11 @@ READ_BLOCKS = 3000                  # one minute of sound per read
 BYTES_PER_FRAME = 4                 # s16le, two channels
 WINDOW_SECONDS = 600.0              # a whole number of blocks
 WINDOW_TIMEOUT_SECONDS = 600        # only stops a hung ffmpeg
-# A file whose length ffprobe can't tell is read until a window comes back short, at most this far.
+# The file is read until a window comes back short (by more than a second), at most this far.
+# Input-side -ss keeps windows in step with one pass even on VBR MP3 with no seek table
+# (measured: within one 20 ms block over 35-62 minute files), so only one window is on disk.
 MAX_SECONDS = 48 * 3600
+END_SLACK_BLOCKS = 50
 # After a run that could not finish (a timeout, an error), Watch's own start waits this long
 # before trying the same file and timings again, so a broken file doesn't fail on every visit.
 RETRY_AFTER_SECONDS = 6 * 3600
@@ -160,8 +163,12 @@ def start_ear_marks(drama_id: int) -> dict:
     if path is None or not timed:
         raise UnsupportedOperationError("This title has no sound file and timed lines to place.")
     job_id = _job_id(drama_id)
-    # Without ffmpeg the marks wait, unasked for, until it is installed.
-    if data is not None or not _tools_present() or _failed_lately(drama_id, stamp):
+    # Without ffmpeg the marks wait, unasked for, until it is installed. While another job or an
+    # upload may be replacing the file they wait for a later visit: reading it then would keep
+    # it open (on Windows the replace fails) and measure a file about to go.
+    if (data is not None or not _tools_present() or _failed_lately(drama_id, stamp)
+            or drama_service.job_running_for_drama(drama_id)
+            or media_upload_service.upload_in_progress(drama_id)):
         return {"job_id": job_id, "drama_id": drama_id, "started": False}
     started = job_launch.start_job(
         job_id, _run_job, job_id, drama_id, path, timed, stamp, db.drama_dir(drama_id),
@@ -257,12 +264,13 @@ def measure(job_id: str, path: str, timed) -> dict:
     start = 0.0
     with storage.job_workdir(job_id) as work:
         pcm = os.path.join(work, "window.pcm")
-        while start < (seconds or MAX_SECONDS):
+        while start < MAX_SECONDS:
             if background_jobs.is_cancel_requested(job_id):
                 raise background_jobs.JobCancelled(job_id)
             if seconds:
-                background_jobs.update_progress(job_id, 0.95 * start / seconds,
-                                                f"Measuring left and right... {100 * start / seconds:.0f}%")
+                done = min(start / seconds, 1.0)
+                background_jobs.update_progress(job_id, 0.95 * done,
+                                                f"Measuring left and right... {100 * done:.0f}%")
             _decode_window(job_id, path, start, pcm)
             with open(pcm, "rb") as f:
                 l_blocks, r_blocks, s_energy, m_energy = block_energies(f)
@@ -270,8 +278,10 @@ def measure(job_id: str, path: str, timed) -> dict:
             left.append(_fit(l_blocks, window_blocks))
             right.append(_fit(r_blocks, window_blocks))
             side, mid = side + s_energy, mid + m_energy
-            # A file whose length ffprobe can't tell ends at its first short window.
-            if got == 0 or (not seconds and got < window_blocks):
+            # The end is where the sound runs out, never ffprobe's length: an MP3 with no
+            # Xing header gets a length guessed from its first frames (35 minutes probed
+            # as 27, an hour as 36). A window a frame or two short is still a middle one.
+            if got == 0 or got < window_blocks - min(END_SLACK_BLOCKS, window_blocks // 10):
                 break
             start += WINDOW_SECONDS
     empty = np.zeros(0)
@@ -285,20 +295,21 @@ def _run_job(job_id, drama_id, path, timed, stamp, drama_dir):
         found = measure(job_id, path, timed)
     except background_jobs.JobCancelled:
         raise
-    except (subprocess.CalledProcessError, media_inspect.ProbeError) as exc:
+    except media_inspect.ProbeError as exc:
         # The texts name paths, so only the log has them.
         log.warning(f"ear marks failed for title #{drama_id}: {redact_secrets(str(exc))[:200]}")
-        if isinstance(exc, media_inspect.ProbeError) and exc.reason != "unreadable":
+        if exc.reason != "unreadable":
             _note_failure(drama_id, stamp)
             raise RuntimeError("The sound could not be checked for ear marks; Watch tries again later.") from None
-        # A file ffmpeg can't read gets no marks until the file or the timings change, rather
+        # A file ffprobe can't read gets no marks until the file or the timings change, rather
         # than a failed job on every Watch visit.
         found = {"stereo": False, "side_db": None, "marks": {}, "failed": True}
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        # Passing (a slow disk, a full temp folder): nothing is stored.
+    except (subprocess.SubprocessError, OSError) as exc:
+        # Maybe passing (a full disk also makes ffmpeg fail, a slow one time out): nothing
+        # is stored, and Watch tries again after RETRY_AFTER_SECONDS.
         _note_failure(drama_id, stamp)
         log.warning(f"ear marks stopped for title #{drama_id}: {redact_secrets(str(exc))[:200]}")
-        raise RuntimeError("Reading the sound for ear marks took too long or hit a file error; "
+        raise RuntimeError("Reading the sound for ear marks failed or took too long; "
                            "Watch tries again later.") from None
     except BaseException:
         _note_failure(drama_id, stamp)

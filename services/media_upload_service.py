@@ -131,6 +131,11 @@ claims_lock = threading.Lock()
 claimed = set()
 
 
+def upload_in_progress(drama_id: int) -> bool:
+    with claims_lock:
+        return drama_id in claimed
+
+
 @contextlib.contextmanager
 def upload_claim(drama_id: int, busy_message: str):
     """Takes the per-drama upload claim, refusing with busy_message while an
@@ -793,7 +798,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
     media_hash = None
     hash_handed_to_job = False
     try:
-        if drama_service.job_running_for_drama(drama_id) or not background_jobs.stop_side_jobs(drama_id):
+        if drama_service.job_running_for_drama(drama_id):
             raise ConflictError(_BUSY)
         recover_stale_uploads(drama_id)
         ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio, principal)
@@ -813,9 +818,12 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if ext not in VIDEO_EXTENSIONS:
             refuse_unreadable_audio(staged)
             try:
-                name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
-                                    transcribe_new_audio=transcribe_options is None,
-                                    media_hash=media_hash)["audio_filename"]
+                # Held, so ear marks (a Watch visit's job) is stopped and can't start again while
+                # the old file is retired; on Windows an open file can't be moved.
+                with job_launch.hold_title(drama_id, _BUSY):
+                    name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
+                                        transcribe_new_audio=transcribe_options is None,
+                                        media_hash=media_hash)["audio_filename"]
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
                 if isinstance(exc, (OSError, sqlite3.Error)):

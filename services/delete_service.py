@@ -28,10 +28,10 @@ No FastAPI import.
 import logging
 import os
 
-import background_jobs
 import storage
 from lib import ids as lib_ids, storage_errors
 import db
+from jobs import job_launch
 from services import drama_service, ownership_service
 from lib.errors import ConflictError, InvalidInputError, NotFoundError
 from sources import chapter_manifest, pipeline
@@ -108,9 +108,14 @@ def remove_media(drama_id, confirm=False) -> dict:
     if not any(drama.get(f) for f in _MEDIA_FIELDS):
         raise NotFoundError("This title has no audio or video to remove.")
     _require_confirm(confirm, "the title's audio/video")
-    _require_idle(drama_id)
-    if not background_jobs.stop_side_jobs(drama_id):
-        raise ConflictError(_JOB_RUNNING)
+    # Held, so no job (ear marks from a Watch visit) opens the files between the check and
+    # the removal; on Windows an open file can't be deleted.
+    with job_launch.hold_title(drama_id, _JOB_RUNNING):
+        _require_idle(drama_id)
+        return _remove_media_files(drama_id, drama)
+
+
+def _remove_media_files(drama_id, drama) -> dict:
     folder = _drama_folder(drama_id)
     removed, failure, paths = {}, None, {}
     for f in _MEDIA_FIELDS:
