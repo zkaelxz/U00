@@ -78,6 +78,19 @@ public class MediaStateTest {
     }
 
     @Test
+    public void aRetriedReportMovesOnWithThePlayerButNeverPastTheEnd() {
+        MediaState s = MediaState.parse("{\"state\":\"playing\",\"position\":10,\"duration\":60,\"rate\":2,\"at\":1000}");
+        MediaState later = s.advancedTo(6_000);
+        assertEquals(20_000, later.positionMs);
+        assertEquals(0, later.ageMs(6_000));
+        assertEquals(60_000, s.advancedTo(100_000).positionMs);
+        MediaState paused = MediaState.parse("{\"state\":\"paused\",\"position\":10,\"at\":1000}");
+        assertEquals(10_000, paused.advancedTo(6_000).positionMs);
+        MediaState undated = MediaState.parse("{\"state\":\"playing\",\"position\":10}");
+        assertEquals(10_000, undated.advancedTo(6_000).positionMs);
+    }
+
+    @Test
     public void onlyKnownPressesReachThePage() {
         assertEquals("window.__baiheMedia&&window.__baiheMedia('seek',42.5)", MediaState.pageScript(MediaState.SEEK, 42.5));
         assertEquals("window.__baiheMedia&&window.__baiheMedia('play',0.0)", MediaState.pageScript(MediaState.PLAY, 0));

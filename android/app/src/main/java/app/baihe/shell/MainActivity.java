@@ -710,6 +710,8 @@ public class MainActivity extends Activity {
         if (web == null) return;
         // Coming back to the front is what cleared a stale layout by hand; do it without the person having to.
         refreshAfterResize();
+        // A start Android refused while the app was in the background can go through now that it is in front.
+        MediaPlayback.retryIfRefused(this);
         web.removeCallbacks(poll);
         poll.run();
     }

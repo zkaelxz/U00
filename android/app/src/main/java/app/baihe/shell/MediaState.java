@@ -70,6 +70,15 @@ final class MediaState {
         return Math.max(0, Math.min(MAX_AGE_MS, nowMs - reportedAtMs));
     }
 
+    /** The same report as if read at {@code nowMs}: a playing player's place moved on, never past the end. */
+    MediaState advancedTo(long nowMs) {
+        if (reportedAtMs <= 0 || nowMs <= reportedAtMs) return this;
+        long moved = Math.round((nowMs - reportedAtMs) * (double) extrapolationSpeed());
+        long position = positionMs + moved;
+        if (durationMs > 0) position = Math.min(position, durationMs);
+        return new MediaState(status, position, durationMs, speed, title, artist, nowMs);
+    }
+
     /** The rate the system moves the shown position at; a paused player's place stands still. */
     float extrapolationSpeed() {
         return status == Status.PLAYING ? speed : 0f;

@@ -17,7 +17,9 @@ import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.SystemClock;
 import android.view.KeyEvent;
 
@@ -36,6 +38,11 @@ public class MediaPlayback extends Service {
     private static final String DISMISS = PRESS + "dismiss";
     /** The activity intent of a tap on the controls: MainActivity only comes to the front for it. */
     static final String SHOW_PLAYER = "app.baihe.shell.SHOW_PLAYER";
+    /**
+     * How long paused controls stay. The service stays foreground meanwhile: a plain started service is stopped
+     * by Android about a minute after the app goes idle, which would take the controls with it.
+     */
+    static final long PAUSE_GRACE_MS = 10L * 60 * 1000;
 
     /** Where presses go: the page that reported. */
     interface Page {
@@ -51,6 +58,11 @@ public class MediaPlayback extends Service {
     private MediaSession session;
     private boolean foreground;
     private boolean noisyListening;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final Runnable pauseOver = this::finish;
+    /** What the posted notification and metadata show, so a position-only report touches neither. */
+    private String shownNotification;
+    private String shownMetadata;
 
     /** Headphones pulled out or a Bluetooth set gone: the sound would carry on from the speaker. */
     private final BroadcastReceiver noisy = new BroadcastReceiver() {
@@ -67,6 +79,17 @@ public class MediaPlayback extends Service {
     static void detach(Page target) {
         if (page == target) page = null;
         report(null, null);
+    }
+
+    /**
+     * Sends the last report again when it was playing but its service never started (Android refused a start
+     * from the background), moved on to now so the lock screen shows where the sound is.
+     */
+    static void retryIfRefused(Context context) {
+        MediaState state = latest;
+        if (running == null && !startOwed && state != null && state.status == MediaState.Status.PLAYING) {
+            report(context, state.advancedTo(System.currentTimeMillis()));
+        }
     }
 
     /** The page's latest report; null or stopped ends the controls. Never throws. */
@@ -211,18 +234,23 @@ public class MediaPlayback extends Service {
 
     private void show(MediaState state) {
         boolean playing = state.status == MediaState.Status.PLAYING;
-        session.setMetadata(metadata(state));
+        String metadataKey = titleOf(state) + "\n" + artistOf(state) + "\n" + state.durationMs;
+        if (!metadataKey.equals(shownMetadata)) {
+            session.setMetadata(metadata(state));
+            shownMetadata = metadataKey;
+        }
         session.setPlaybackState(playbackState(state));
         session.setActive(true);
         listenForNoisy(playing);
+        main.removeCallbacks(pauseOver);
+        if (!playing) main.postDelayed(pauseOver, PAUSE_GRACE_MS);
+        String notificationKey = state.status + "\n" + titleOf(state) + "\n" + artistOf(state);
+        // A playing player that is not foreground yet (a start Android refused) tries again on each report.
+        if (notificationKey.equals(shownNotification) && (foreground || !playing)) return;
+        shownNotification = notificationKey;
         Notification n = notification(state);
         if (playing && goForeground(n)) return;
-        // Paused, the notification stays (dismissible) so the lock screen can start the sound again, but the
-        // app no longer holds itself in the foreground for a player that is not playing.
-        if (foreground) {
-            stopForeground(STOP_FOREGROUND_DETACH);
-            foreground = false;
-        }
+        // Paused, the service stays foreground for the grace period, so the same notification only changes.
         manager().notify(NOTIFICATION_ID, n);
     }
 
@@ -249,6 +277,7 @@ public class MediaPlayback extends Service {
         }
         // Reports from here on start a new instance instead of reaching one that is going away.
         if (running == this) running = null;
+        main.removeCallbacks(pauseOver);
         listenForNoisy(false);
         session.setActive(false);
         stopForeground(STOP_FOREGROUND_REMOVE);
@@ -296,24 +325,36 @@ public class MediaPlayback extends Service {
 
     private Notification notification(MediaState state) {
         boolean playing = state != null && state.status == MediaState.Status.PLAYING;
+        // A locked phone set to hide sensitive content shows this one: a title can be adult or private.
+        Notification.MediaStyle plain = new Notification.MediaStyle().setShowActionsInCompactView(0, 1, 2);
+        Notification shown = controls(playing, "Baihe Studio", playing ? "Playing" : "Paused")
+                .setStyle(plain)
+                .setVisibility(Notification.VISIBILITY_PUBLIC)
+                .build();
+        Notification.MediaStyle withSession = new Notification.MediaStyle()
+                .setMediaSession(session.getSessionToken())
+                .setShowActionsInCompactView(0, 1, 2);
+        return controls(playing, state == null ? "Baihe Studio" : titleOf(state), state == null ? "" : artistOf(state))
+                .setStyle(withSession)
+                .setVisibility(Notification.VISIBILITY_PRIVATE)
+                .setPublicVersion(shown)
+                .build();
+    }
+
+    private Notification.Builder controls(boolean playing, String title, String text) {
         return new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_media_play)
-                .setContentTitle(state == null ? "Baihe Studio" : titleOf(state))
-                .setContentText(state == null ? "" : artistOf(state))
+                .setContentTitle(title)
+                .setContentText(text)
                 .setContentIntent(session.getController().getSessionActivity())
                 .setDeleteIntent(press(DISMISS))
                 .setOngoing(playing)
                 .setShowWhen(false)
-                .setVisibility(Notification.VISIBILITY_PUBLIC)
                 .addAction(button(android.R.drawable.ic_media_rew, "Back 10 seconds", MediaState.BACK))
                 .addAction(playing
                         ? button(android.R.drawable.ic_media_pause, "Pause", MediaState.PAUSE)
                         : button(android.R.drawable.ic_media_play, "Play", MediaState.PLAY))
-                .addAction(button(android.R.drawable.ic_media_ff, "Forward 10 seconds", MediaState.FORWARD))
-                .setStyle(new Notification.MediaStyle()
-                        .setMediaSession(session.getSessionToken())
-                        .setShowActionsInCompactView(0, 1, 2))
-                .build();
+                .addAction(button(android.R.drawable.ic_media_ff, "Forward 10 seconds", MediaState.FORWARD));
     }
 
     private Notification.Action button(int icon, String label, String action) {
