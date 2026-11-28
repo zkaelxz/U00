@@ -245,7 +245,7 @@ SETTINGS = (
          custom=True, tab="preferences", section="Automatic backups", label="Automatic backups"),
     _own("comic_save", "json", {}, custom=True, tab="preferences", section="Save folder",
          label="Save folder"),
-    _own("update.auto_check", "bool", True, label="Check for updates automatically",
+    _own("update.auto_check", "bool", True, label="Check once a day for updates",
          tab="preferences", section="App updates"),
     _own("update.last_check_at", "float", 0.0, min=0),
     # The version the automatic update last ran Setup silently for: one try each.
@@ -476,7 +476,7 @@ SETTINGS = (
             unit="words", dev=True),
     _timing("quick_split_seconds", "float", 12.0, 2.0, 120.0, SPLIT,
             "One-click split: longest line",
-            "Duration cap used by the one-click 'Split long lines' button in Review. Lines longer than this are cut.",
+            "Duration cap used by the one-click 'Split long lines' button in Review. Lines longer than this are cut. Members use the default 12 s.",
             unit="s", digits=1),
     _timing("realign_min_seconds", "float", 12.0, 6.0, 30.0, SPLIT,
             "Realign: shortest line to re-cut",
