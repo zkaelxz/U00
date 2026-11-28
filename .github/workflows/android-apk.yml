@@ -5,14 +5,12 @@ name: Android APK
 # and the server's tests never build the app. A PR run builds and tests only: it never reads the signing secret and
 # never publishes. The wrapper check also runs on those PRs, because gradle-wrapper.jar is a binary nobody can review
 # in a diff and it runs on the PC whenever the app is built there.
-# Without the ANDROID_DEBUG_KEYSTORE_BASE64 secret the build is signed with
-# the runner's throwaway debug key: it can be sideloaded but no phone accepts it
-# as an update to an app signed with another key, so it is not published.
-# With the secret (a debug.keystore file, base64), the same key signs every run of
-# baihe-subtitler, and the publish job puts the APK on the rolling "android-app" pre-release that
-# Settings > App updates > "Get the newest phone app" fetches. The secret is
-# read only by the build job of a manual run; the publish job checks out and
-# runs nothing from the repository.
+# The apk job always signs with the runner's throwaway debug key: it can be sideloaded but no phone accepts it
+# as an update to an app signed with another key. On a manual run of baihe-subtitler the sign job re-signs that
+# APK with ANDROID_DEBUG_KEYSTORE_BASE64 (a debug.keystore file, base64), and the publish job puts it on the
+# rolling "android-app" pre-release that Settings > App updates > "Get the newest phone app" fetches. The key
+# is read only by the sign job, which runs nothing from the repository. Other branches are kept from it only once
+# the secret lives in the `android-publish` environment, limited to baihe-subtitler (docs/runbook.md, 1b).
 # The smoke job installs the built APK on an emulator and opens the screens a broken build has failed on
 # (build 1160 crashed at launch and was already on a phone). The publish job waits for it, and Promote Release
 # refuses a tag whose commit has no passing run of this workflow.
@@ -26,6 +24,12 @@ on:
 
 permissions:
   contents: read
+
+# A newer push to a PR replaces its running build. A running manual run is never cancelled; manual runs
+# get a group each, so a dispatch never displaces another waiting one (Promote needs each tag's run).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   wrapper:
@@ -41,8 +45,6 @@ jobs:
 
   apk:
     needs: wrapper
-    outputs:
-      publish: ${{ steps.key.outputs.publish }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -50,29 +52,9 @@ jobs:
         with:
           persist-credentials: false
 
-      # The release build type signs with ~/.android/debug.keystore (see build.gradle.kts), so restoring the
-      # owner's keystore there keeps one signing key across runs and PCs.
-      - name: Restore the signing key
-        id: key
-        if: github.event_name == 'workflow_dispatch'
-        env:
-          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
-        run: |
-          # Only the integration branch feeds the phone update channel: a run on any
-          # other branch (a dependency bump under test, say) must not put its APK there.
-          if [ "$GITHUB_REF" != "refs/heads/baihe-subtitler" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=Not published::Runs on $GITHUB_REF build and test only; the android-app pre-release is updated from baihe-subtitler."
-            exit 0
-          fi
-          if [ -z "$KEYSTORE" ]; then
-            echo "publish=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=Not published::ANDROID_DEBUG_KEYSTORE_BASE64 is not set, so this APK is signed with a throwaway key and is not offered to phones."
-            exit 0
-          fi
-          mkdir -p ~/.android
-          printf '%s' "$KEYSTORE" | base64 -d > ~/.android/debug.keystore
-          echo "publish=true" >> "$GITHUB_OUTPUT"
+      # Caches Gradle's downloads (Maven Central once answered a build with HTTP 429). Only
+      # baihe-subtitler writes the cache; other branches and PRs read it.
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c  # v6.4.1
 
       # ubuntu-latest ships JDK 17 and the Android SDK (ANDROID_HOME). The version
       # code must beat every build already on a phone; hand-built ones count up
@@ -103,27 +85,10 @@ jobs:
             exit 1
           fi
 
-      - name: Stage the files the server fetches
-        if: steps.key.outputs.publish == 'true'
-        env:
-          RUN_NUMBER: ${{ github.run_number }}
-        run: |
-          mkdir stage
-          cp android/app/build/outputs/apk/release/app-release.apk stage/baihe-shell.apk
-          printf '%s' "$((1000 + RUN_NUMBER))" > stage/baihe-shell.version
-          (cd stage && sha256sum baihe-shell.apk > baihe-shell.apk.sha256)
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: baihe-android-release-apk
           path: android/app/build/outputs/apk/release/app-release.apk
-          if-no-files-found: error
-
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
-        if: steps.key.outputs.publish == 'true'
-        with:
-          name: baihe-android-publish
-          path: stage/
           if-no-files-found: error
 
   # Runs the APK the apk job built, not a second build, so what passes is what would be published. The
@@ -159,10 +124,58 @@ jobs:
           disable-animations: true
           script: python3 android/smoke/run_smoke.py --apk apk/app-release.apk
 
+  # The only job that reads the signing key. It re-signs the APK that passed the smoke test with the runner's
+  # own apksigner and runs nothing from the repository. Only the integration branch feeds the phone update channel.
+  sign:
+    needs: [apk, smoke]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/baihe-subtitler'
+    environment: android-publish
+    outputs:
+      publish: ${{ steps.sign.outputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: baihe-android-release-apk
+          path: apk
+
+      - name: Sign with the phone update key and stage the files the server fetches
+        id: sign
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          if [ -z "$KEYSTORE" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Not published::ANDROID_DEBUG_KEYSTORE_BASE64 is not set, so this APK is signed with a throwaway key and is not offered to phones."
+            exit 0
+          fi
+          ks="$RUNNER_TEMP/debug.keystore"
+          trap 'rm -f "$ks"' EXIT
+          printf '%s' "$KEYSTORE" | base64 -d > "$ks"
+          apksigner="$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n 1)"
+          mkdir stage
+          # A debug keystore's fixed store password, key alias and key password, as Gradle's debug signing uses.
+          "$apksigner" sign --ks "$ks" --ks-pass pass:android --ks-key-alias androiddebugkey --key-pass pass:android \
+            --out stage/baihe-shell.apk apk/app-release.apk
+          "$apksigner" verify stage/baihe-shell.apk
+          printf '%s' "$((1000 + RUN_NUMBER))" > stage/baihe-shell.version
+          (cd stage && sha256sum baihe-shell.apk > baihe-shell.apk.sha256)
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: steps.sign.outputs.publish == 'true'
+        with:
+          name: baihe-android-publish
+          path: stage/
+          if-no-files-found: error
+
   # Write access lives only here; nothing from the repository runs in this job.
   publish:
-    needs: [apk, smoke]
-    if: github.event_name == 'workflow_dispatch' && needs.apk.outputs.publish == 'true'
+    needs: [apk, smoke, sign]
+    if: github.event_name == 'workflow_dispatch' && needs.sign.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
