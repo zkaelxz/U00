@@ -26,6 +26,7 @@ export function subtitleQuery(o: SubtitleOptions): string {
   if (o.wrapSource !== undefined) p.set('wrap_chars_source', String(o.wrapSource))
   if (o.tidyTiming) p.set('tidy_timing', 'true')
   if (o.speakerNames) p.set('speaker_names', 'true')
+  if (o.readingLine) p.set('reading_line', 'true')
   return p.toString()
 }
 
@@ -99,8 +100,10 @@ export const getAssText = (id: number, req: AssExportRequest, f?: Fetch) =>
     readSubtitleFile,
     f,
   )
-export const getEpub = (id: number, field: 'en' | 'zh', f?: Fetch) =>
-  fetchBody(`${dramaPath(id)}/epub?field=${field}`, {}, (r) => r.blob(), f)
+export type EpubField = 'en' | 'zh' | 'bilingual'
+
+export const getEpub = (id: number, field: EpubField, readings = false, f?: Fetch) =>
+  fetchBody(`${dramaPath(id)}/epub?field=${field}${readings ? '&readings=true' : ''}`, {}, (r) => r.blob(), f)
 export const flagOverlaps = (id: number, f?: Fetch) =>
   postJson<FlagActionResult>(`${dramaPath(id)}/flag-overlaps`, undefined, f)
 export const flagDenseLines = (id: number, f?: Fetch) =>

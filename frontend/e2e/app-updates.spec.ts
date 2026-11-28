@@ -68,7 +68,7 @@ test('check, download and verify, then open Setup behind a confirm', async ({ pa
   await expect(c).toContainText('not code-signed')
   await expect(c).toContainText('it is not a signature')
   await expect(c.getByTestId('update-signature-line')).toHaveText('Not signature-checked: this copy has no release key.')
-  await expect(c.getByRole('switch', { name: 'Check once a day' })).not.toBeChecked()
+  await expect(c.getByRole('switch', { name: 'Check once a day for updates' })).not.toBeChecked()
   await expect(c.getByRole('button', { name: 'Download' })).toHaveCount(0)
 
   await c.getByRole('button', { name: 'Check for updates' }).click()
@@ -173,7 +173,7 @@ test('the daily check is a switch, off by default', async ({ page }) => {
   const calls = await mockUpdates(page)
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Updates')
-  const toggle = card(page).getByRole('switch', { name: 'Check once a day' })
+  const toggle = card(page).getByRole('switch', { name: 'Check once a day for updates' })
   await toggle.click()
   await expect(toggle).toBeChecked()
   expect(calls.find((x) => x.path.endsWith('/settings'))?.body).toEqual({ auto_check: true })

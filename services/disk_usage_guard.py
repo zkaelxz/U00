@@ -27,7 +27,7 @@ BAD_PATH = "That path isn't inside the app's data folder."
 ROOT_TOO_BROAD = ("Baihe's data folder is a whole drive or your user folder, so nothing in it "
                   "can be cleared or moved from here.")
 NOT_BAIHE = "Not created by Baihe"
-PREVIOUS_LIBRARY = ("Previous library kept after restore. Delete it under Previous library "
+PREVIOUS_LIBRARY = ("Previous library kept after a restore or reset. Delete it under Previous library "
                     "below once you have checked the library.")
 TRASH_PROTECTED = ("Baihe's Trash folder. Restore or delete things from it in the Trash list "
                    "below.")

@@ -162,6 +162,9 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            # Added with an admin's own rights, not a device token's or scheduled work's member
+            # rights. Items saved before it was recorded count as a member's for the disk hold.
+            "by_admin": bool(raw.get("by_admin")),
             "chain": chain, "needs": needs if chain else [],
             # Started by a button, not by the queue's Start: runs without the queue running.
             "now": bool(raw.get("now")),
@@ -504,6 +507,7 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
+                "by_admin": bool(principal and principal.get("is_admin")),
                 "chain": chain, "auto_series": auto_series, "settings": settings,
                 "needs": [s for s, _ in entries[:n]] if chain else [], "now": now,
                 "tonight": bool(tonight) and not now, "started_at": None, "finished_at": None})
@@ -886,8 +890,11 @@ def _start_item(item: dict) -> Optional[str]:
     # for this start only.
     offline = model_offline.set_offline(not item["at_pc"])
     try:
-        # Records the job as the adder's, as if they had pressed the button.
-        acting.note_acting_principal(principal)
+        # Records the job as the adder's, as if they had pressed the button. _run_principal reads
+        # is_admin from the account, so an item an admin's device token added keeps member rules
+        # for the disk hold here.
+        acting.note_acting_principal(
+            principal if principal is None or item.get("by_admin") else dict(principal, held_for_disk=True))
         if item["step"] == DOWNLOAD:
             return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"), item["at_pc"])
         if item["step"] == "transcribe":
@@ -1028,6 +1035,19 @@ def _overlap_pick(items: list, running: list, ordered: list) -> Optional[dict]:
                  and first_of_title[i["drama_id"]] == i["id"]), None)
 
 
+def _held_for_disk(item: dict) -> bool:
+    """Fails closed: this runs under _lock after an item was claimed, and an error escaping
+    there would leave that item RUNNING with no job."""
+    if item["user_id"] is None:
+        return False
+    try:
+        return not item.get("by_admin") or user_caps.held_back_by_low_disk(item["user_id"])
+    except Exception as exc:
+        _log.warning("Could not read an account for the low-disk hold: %s",
+                     engine_shared.redact_secrets(str(exc)))
+        return True
+
+
 def _start_next(now: float, deferred=frozenset()) -> None:
     """Starts the first waiting item not in `deferred`. An item whose adder
     is at their running cap (jobs/user_caps.py), or that a nearly full drive
@@ -1085,8 +1105,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
     except user_caps.DiskLowError:
         status, wait_reason = WAITING, _WAITING_FOR_DISK
-        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
-        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
+        rest = (_held_for_disk, DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:

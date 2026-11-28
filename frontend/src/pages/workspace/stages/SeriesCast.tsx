@@ -114,7 +114,7 @@ function EditPerson({ seriesId, person, onSaved, onCancel }: {
       <PersonFields form={form} set={set} />
       {problem && <p className="error" role="alert">{problem}</p>}
       <div className="actions">
-        <button type="button" className="primary" disabled={!dirty || busy} aria-describedby={dirty ? undefined : saveReasonId} onClick={save}>
+        <button type="button" className={buttonClass('primary')} disabled={!dirty || busy} aria-describedby={dirty ? undefined : saveReasonId} onClick={save}>
           {busy ? 'Saving…' : 'Save'}
         </button>
         <DisabledReason id={saveReasonId}>{!dirty && 'No changes to save.'}</DisabledReason>

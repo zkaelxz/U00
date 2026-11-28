@@ -21,7 +21,7 @@ describe('EnginePicker', () => {
       />,
     )
     expect(out).toMatch(/<option value="deepseek" disabled="">DeepSeek \(not installed\)<\/option>/)
-    expect(out).toMatch(/<option value="ollama" disabled="">Ollama \(local\) \(not running\)<\/option>/)
+    expect(out).toMatch(/<option value="ollama" disabled="">Ollama \(not running\)<\/option>/)
     expect(out).toMatch(/<option value="claude"( selected="")?>Claude/)
     expect(out).toContain('href="#/diagnostics?card=packages"')
     expect(out).toContain('Install in Diagnostics')

@@ -4,6 +4,7 @@ import { artifactUrl } from '../../../api/client'
 import {
   getArtifactInfo,
   getEpub,
+  type EpubField,
   markExported,
   startAudiobook,
   startBurnedVideo,
@@ -32,14 +33,19 @@ import { useStage } from '../StageContext'
 import { ExportBlock } from './ExportBlock'
 import { JobPanel } from './JobPanel'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useHolds } from '../../../hooks/useHolds'
 
 export function ExportEpub({ reason, opening }: { reason: string | null; opening: boolean }) {
-  const { dramaId } = useStage()
-  const [field, setField] = useState<'en' | 'zh'>('en')
+  const { dramaId, drama } = useStage()
+  const sourceLanguage = drama.source_language
+  const [field, setField] = useState<EpubField>('en')
+  const [readings, setReadings] = useState(false)
   const [error, setError] = useState<unknown>(null)
+  // Korean is written in Hangul, which already spells the sound.
+  const canRead = field !== 'en' && (sourceLanguage === 'zh' || sourceLanguage === 'ja')
 
   const download = () =>
-    getEpub(dramaId, field).then((blob) => {
+    getEpub(dramaId, field, canRead && readings).then((blob) => {
       setError(null)
       downloadBlob(blob, `drama_${dramaId}_${field}.epub`)
     }, setError)
@@ -47,11 +53,17 @@ export function ExportEpub({ reason, opening }: { reason: string | null; opening
   return (
     <ExportBlock id="epub" opening={opening} reason={reason} hint="Novel narration">
       <Field label="Language">
-        <select value={field} onChange={(e) => setField(e.target.value as 'en' | 'zh')}>
+        <select value={field} onChange={(e) => setField(e.target.value as EpubField)}>
           <option value="en">English</option>
           <option value="zh">Source language</option>
+          <option value="bilingual">Both: original, then English</option>
         </select>
       </Field>
+      {canRead && (
+        <Field label={sourceLanguage === 'ja' ? 'Furigana over the original' : 'Pinyin over the original'}>
+          <Toggle checked={readings} onChange={setReadings} />
+        </Field>
+      )}
       <button type="button" className={buttonClass('secondary')} disabled={reason !== null} onClick={download}>Download EPUB</button>
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
     </ExportBlock>
@@ -243,8 +255,8 @@ export function SoftsubVideoBlock({ reason, opening, startError, onStartError }:
       <Field label="Subtitles">
         <select value={field} onChange={(e) => setField(e.target.value as SoftsubVideoRequest['field'])}>
           <option value="en">English</option>
-          <option value="bilingual">Bilingual</option>
           <option value="zh">Source language</option>
+          <option value="bilingual">Both</option>
         </select>
       </Field>
       <Field
@@ -297,7 +309,9 @@ export function MarkExported() {
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
   const [done, setDone] = useState(false)
+  const canMark = useHolds('admin.library')
   const exported = done || drama.status === 'exported'
+  if (!exported && !canMark) return null
   const mark = () => {
     setPending(true)
     markExported(dramaId)

@@ -133,6 +133,30 @@ class TestGenerateSubtitleText:
         assert "Hello" in text
         assert "你好" in text
 
+    def test_a_reading_row_goes_between_the_english_and_the_original(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            {"你好": "nǐ hǎo"}.get(text, ""))
+        did = self._drama_with_lines(isolated_db)
+        srt = export_service.generate_subtitle_text(did, "srt", "bilingual", reading_line=True)
+        assert "Hello\nnǐ hǎo\n你好\n" in srt and "Bye\n再见\n" in srt
+        vtt = export_service.generate_subtitle_text(did, "vtt", "zh", reading_line=True)
+        assert "nǐ hǎo\n你好" in vtt
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "lrc", "zh", reading_line=True)
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "srt", "en", reading_line=True)
+
+    def test_the_source_wrap_width_does_not_cut_the_reading_row(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            "wǒ men jīn tiān yì qǐ qù" if "我们" in text else "")
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="我们今天一起去", en="We go")])
+        for fmt in ("srt", "vtt"):
+            text = export_service.generate_subtitle_text(did, fmt, "zh", reading_line=True, wrap_chars_source=4)
+            assert "wǒ men jīn tiān yì qǐ qù\n我们今天\n一起去" in text, fmt
+
     def test_vtt_starts_with_webvtt_header(self, isolated_db):
         did = self._drama_with_lines(isolated_db)
         text = export_service.generate_subtitle_text(did, "vtt", "en")
@@ -504,7 +528,7 @@ class TestGenerateEpub:
     def test_unknown_field_is_invalid_input(self, isolated_db):
         did = self._novel_drama_with_lines(isolated_db)
         with pytest.raises(InvalidInputError):
-            export_service.generate_epub(did, field="bilingual")
+            export_service.generate_epub(did, field="fr")
 
     def test_missing_ebooklib_raises_dependency_unavailable(self, isolated_db, monkeypatch):
         # ebooklib is imported inside epub_io.export_epub, so block that package itself.
@@ -545,10 +569,64 @@ class TestGenerateEpub:
 class TestGenerateEpubOutput:
     """generate_epub with epub_io.export_epub stubbed, so these run core-only."""
 
-    def _novel(self, isolated_db, lines):
-        did = _drama(isolated_db, content_mode="novel_narration")
+    def _novel(self, isolated_db, lines, **fields):
+        did = _drama(isolated_db, content_mode="novel_narration", **fields)
         isolated_db.save_lines(did, lines)
         return did
+
+    def _capture(self, monkeypatch):
+        import epub_io
+        seen = {}
+
+        def fake_export(lines, title, author, out_path, field="en", **kw):
+            seen.update(kw, field=field)
+            with open(out_path, "wb") as f:
+                f.write(b"book")
+        monkeypatch.setattr(epub_io, "export_epub", fake_export)
+        return seen
+
+    def test_a_two_language_book_needs_the_english(self, isolated_db):
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(did, field="bilingual")
+
+    def test_reading_marks_are_kept_only_for_chinese_and_japanese_originals(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        seen = self._capture(monkeypatch)
+        line = [Line(idx=0, start=0.0, end=1.0, zh="こんにちは", en="Hello")]
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ja"),
+                                     field="bilingual", readings=True)
+        assert seen["field"] == "bilingual" and seen["readings"] is True
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ko"),
+                                     field="bilingual", readings=True)
+        assert seen["readings"] is False
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ja"),
+                                     field="en", readings=True)
+        assert seen["readings"] is False
+
+    def test_traditional_text_without_opencc_is_read_as_simplified(self, isolated_db, monkeypatch):
+        import importlib.util
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        real_find = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a: None if name == "opencc" else real_find(name, *a))
+        seen = self._capture(monkeypatch)
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")],
+                          chinese_script="traditional")
+        export_service.generate_epub(did, field="bilingual", readings=True)
+        assert seen["chinese_script"] == "simplified"
+
+    def test_reading_marks_without_their_packages_name_what_to_install(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: ["pypinyin"])
+        self._capture(monkeypatch)
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        with pytest.raises(DependencyUnavailableError) as exc:
+            export_service.generate_epub(did, field="bilingual", readings=True)
+        assert exc.value.details == {"reason": "missing_package", "package": "pypinyin"}
+        assert export_service.generate_epub(did, field="bilingual") == b"book"
 
     def test_an_untranslated_novel_is_refused_not_exported_empty(self, isolated_db):
         did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])

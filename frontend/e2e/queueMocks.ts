@@ -37,7 +37,7 @@ const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: str
     { label: 'VTuber names', value: 'Off' },
     { label: 'Reply check', value: 'Off' },
     { label: 'Off-peak start', value: 'Off: the queue runs it right away' },
-    { label: 'Cost', value: 'About $0.40; uses your API key and costs money' },
+    { label: 'Cost', value: 'About $0.40; costs money' },
     { label: 'Monthly cap left', value: '$5.00 of $5.00' },
   ],
   export: [{ label: 'Format', value: 'SRT' }, { label: 'Language', value: 'English' }],
