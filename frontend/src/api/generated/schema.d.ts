@@ -779,6 +779,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backups/same-drive-note/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop showing the note that the copies share the library's drive */
+        post: operations["post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backups/settings": {
         parameters: {
             query?: never;
@@ -15042,9 +15059,9 @@ export interface components {
             next_run_at: string | null;
             /**
              * Problem
-             * @description Why the owner should look: the last run failed, or no success for a long while. Never set while backups are off.
+             * @description Why the owner should look: the last run failed, no success for a long while, or (until dismissed, once the library has a few titles) the copies share the library's drive. Never set while backups are off.
              */
-            problem: ("failing" | "stale") | null;
+            problem: ("failing" | "stale" | "same_drive") | null;
             /** Running */
             running: boolean;
             /**
@@ -37695,6 +37712,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoBackupSettings"];
                 };
             };
         };
