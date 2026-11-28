@@ -398,7 +398,7 @@ def _draw_with_halo(pil_img, b: dict, shape_mask, size: int, draw) -> None:
     canvas = Image.new("RGB", pil_img.size, (0, 0, 0))
     draw(canvas, b, shape_mask, size, None, forced=(255, 255, 255))
     text, edge = scanlate_halo.colours(pil_img, b)
-    scanlate_halo.paint(pil_img, canvas.convert("L").point(lambda v: 255 if v > 0 else 0), edge, size, b)
+    scanlate_halo.paint(pil_img, canvas.convert("L").point([0] + [255] * 255), edge, size, b)
     draw(pil_img, b, shape_mask, size, None, forced=text, outlined=True)
 
 
