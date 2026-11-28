@@ -82,10 +82,12 @@ TITLE_SETTING_KEYS = frozenset((
     "min_pause_sec", "separation_backend", "separate_vocals_first", "realign_long_segments",
     "whisper_fast_mode", "whisper_repeat_guard", "split_by_sentences", "use_groq"))
 # What a translation clip's "title_settings" may set: the title fields the prompt reads, and the run's
-# own knobs (style preset, batch size, context lines, English locale).
+# own knobs (style preset and notes, batch size, context lines, English locale).
+TITLE_PROMPT_FIELDS = ("content_mode", "media_type", "genre", "series_note", "episode_brief",
+                       "previous_episode_summary")
 TRANSLATION_SETTING_KEYS = frozenset((
-    "content_mode", "media_type", "genre", "series_note", "style_preset", "batch_size",
-    "context_window", "context_window_ahead", "locale"))
+    *TITLE_PROMPT_FIELDS, "style_preset", "style_note", "include_genre_notes", "default_female_pronouns",
+    "batch_size", "context_window", "context_window_ahead", "locale"))
 
 
 # ---------------------------------------------------------------------------
@@ -444,7 +446,9 @@ def run_translation(clip: dict, opts, spend: Spend) -> dict:
 
 
 def run_app_translation(clip: dict, opts, spend: Spend) -> dict:
-    """The clip through translate_pipeline as a Workspace run sends it, on lines held in memory."""
+    """The clip through translate_pipeline as a Workspace run sends it, on lines held in memory. Not carried:
+    speaker names (a subtitle file has no speakers), the series' learned style and character hints, and
+    the title's memory examples, which live in a library this check never opens."""
     import translation_guide
     from core import Line
     from engine_backends import translate_pipeline
@@ -459,20 +463,23 @@ def run_app_translation(clip: dict, opts, spend: Spend) -> dict:
     glossary = [{"term_original": t["original"], "term_translation": t["translation"]}
                 for t in clip.get("glossary") or []] or None
     style_guidelines = translation_guide.build_style_guidelines(
-        settings.get("style_preset") or "audio_drama", glossary_terms=glossary, include_genre_notes=True)
-    drama_meta = {"source_language": clip["language"],
-                  **{k: settings[k] for k in ("content_mode", "media_type", "genre", "series_note") if k in settings}}
+        settings.get("style_preset") or "audio_drama", glossary_terms=glossary,
+        include_genre_notes=bool(settings.get("include_genre_notes", True)),
+        default_female_pronouns=bool(settings.get("default_female_pronouns", False)))
+    drama_meta = {"source_language": clip["language"], **{k: settings[k] for k in TITLE_PROMPT_FIELDS if k in settings}}
 
     def usage_cb(inp, out, cache_read=0, cache_write=0):
         spend.used += pricing.estimate_cost_for_engine(engine, inp, out, cache_read, cache_write) or 0.0
 
     started = time.monotonic()
     _, errors = translate_pipeline.translate_lines_with_engine(
-        lines, engine, drama_meta=drama_meta, batch_size=settings.get("batch_size"),
+        lines, engine, drama_meta=drama_meta, batch_size=settings.get("batch_size"), style_note=settings.get("style_note") or "",
         locale=settings.get("locale") or "en-US", glossary_terms=glossary, style_guidelines=style_guidelines,
         context_window=settings.get("context_window", 6), context_window_ahead=settings.get("context_window_ahead", 3),
         scene_aware_batches=bool(settings_service.get("scene_aware_batches")),
         **timing_settings_service.translate_limits(), usage_cb=usage_cb,
+        check_replies=settings_service.reply_guard_override(), reasoning=settings_service.reasoning_override(engine_name),
+        parallel_chapters=settings_service.parallel_chapters(),
         cost_cap_usd=spend.cap - spend.used if paid else None)
     wall = time.monotonic() - started
     english = {ln.id: ln.en or "" for ln in lines}
@@ -661,7 +668,7 @@ def main(argv=None) -> int:
     parser.add_argument("--translation-repeats", type=int, default=TRANSLATION_GATE_MIN_REPEATS,
                         help=f"runs of each translation clip, scored by the median (default {TRANSLATION_GATE_MIN_REPEATS})")
     parser.add_argument("--allow-paid", action="store_true", help="let translation use a paid engine")
-    parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend (default 1.00)")
+    parser.add_argument("--max-usd", type=float, default=1.0, help="stop paid translation past this spend, across every run of every clip (default 1.00; translation clips run 3 times)")
     parser.add_argument("--yes", action="store_true", help="run the clips (default: dry run)")
     parser.add_argument("--out", metavar="DIR", help="folder for the report and JSON (default: the data folder)")
     opts = parser.parse_args(argv)

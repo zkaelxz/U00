@@ -343,7 +343,8 @@ def test_a_run_records_baselines_status_and_the_gate(tmp_path, monkeypatch):
 
 def test_a_translation_clip_with_title_settings_runs_the_app_path_and_counts_blanks(tmp_path, monkeypatch, free_engine):
     clip = {"id": "t", "kind": "translation", "source_srt": "r.srt", "reference_srt": "r.srt", "language": "zh",
-            "title_settings": {"content_mode": "novel", "batch_size": 90},
+            "title_settings": {"content_mode": "novel", "batch_size": 90, "style_note": "Keep it plain.",
+                               "episode_brief": "They meet again."},
             "glossary": [{"original": "world", "translation": "World"}]}
     manifest = rc.load_manifest(_write(tmp_path, [clip]))
     seen = {}
@@ -361,7 +362,8 @@ def test_a_translation_clip_with_title_settings_runs_the_app_path_and_counts_bla
     opts = rc.argparse.Namespace(engine=free_engine, allow_paid=False, max_usd=1.0)
     row = rc.run_translation(manifest["clips"][0], opts, rc.Spend(1.0))
     assert seen["ids"] == [1, 2] and seen["batch_size"] == 90
-    assert seen["drama_meta"] == {"source_language": "zh", "content_mode": "novel"}
+    assert seen["drama_meta"] == {"source_language": "zh", "content_mode": "novel", "episode_brief": "They meet again."}
+    assert seen["style_note"] == "Keep it plain." and "check_replies" in seen and "reasoning" in seen
     assert seen["glossary_terms"] == [{"term_original": "world", "term_translation": "World"}]
     assert "World" in seen["style_guidelines"]
     assert row["blank_lines"] == 1 and "1 of 2 lines blank" in row["detail"] and "app path" in row["detail"]
