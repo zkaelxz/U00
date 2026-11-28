@@ -54,10 +54,10 @@ _PIXELS_PER_TOKEN = 750
 _MAX_IMAGE_TOKENS = {"claude": 1600, "openai": 1100, "gemini": 2300}
 _PROMPT_TOKENS = 120
 
-NO_TEXT_MESSAGE = ("No text was found in the picture. If you picked a local model, "
+NO_TEXT_MESSAGE = ("No text was found in the picture. If you picked an Ollama model, "
                    "check that it can read pictures.")
 CAP_MESSAGE = ("Reading this picture could pass your monthly spending cap, so it was not sent. "
-               "Raise the cap in Settings or pick a free engine.")
+               "Raise the cap in Settings > Spending.")
 
 
 def _checked_engine(engine_name: str, model: Optional[str], free_tier: Optional[bool]) -> bool:

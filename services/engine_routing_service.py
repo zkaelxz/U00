@@ -64,10 +64,10 @@ CAPABILITIES = {
         "unset_label": "Off (no suggestions)",  # no suggestions are offered while unset
     },
     "llm.instructions": {
-        "label": "Line helpers for translation-only engines",
+        "label": "Line helpers when a title has no engine",
         "help": ("Improve, Why this?, Alternatives and Grammar use the title's own engine. "
-                 "For a title translated with an engine that "
-                 "can't follow instructions, they use this engine instead."),
+                 "A title with no engine saved, or one that was removed from Baihe, "
+                 "uses this engine instead."),
         "requires": engine_registry.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
     },

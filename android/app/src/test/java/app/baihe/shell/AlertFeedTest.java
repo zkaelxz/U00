@@ -21,13 +21,26 @@ public class AlertFeedTest {
         List<AlertFeed.Item> items = AlertFeed.parse(LIST);
         assertEquals("#/live?follow=4", items.get(0).route);
         assertEquals("#/watch/7", items.get(1).route);
-        assertNull(items.get(3).route);
+        assertEquals("#/jobs", items.get(3).route);
     }
 
     @Test
-    public void aLiveEntryWithoutATargetStillOpensLive() {
+    public void anEntryWithoutATargetOpensThePageForItsKind() {
         assertEquals("#/live", AlertFeed.route("live", null));
-        assertNull(AlertFeed.route("job_done", null));
+        assertEquals("#/jobs", AlertFeed.route("job_failed", null));
+        assertEquals("#/jobs", AlertFeed.route("job_done", null));
+        assertEquals("#/updates", AlertFeed.route("chapters", null));
+        assertNull(AlertFeed.route("resource", null));
+        assertTrue(AlertFeed.safeRoute(AlertFeed.route("chapters", null)));
+    }
+
+    @Test
+    public void aBatchOpensThePageItsItemsShareElseBaihe() {
+        List<AlertFeed.Item> failed = AlertFeed.parse("{\"items\":["
+                + "{\"id\":2,\"at\":2.0,\"kind\":\"job_failed\",\"text\":\"Failed: A\"},"
+                + "{\"id\":1,\"at\":1.0,\"kind\":\"job_failed\",\"text\":\"Failed: B\"}]}");
+        assertEquals("#/jobs", AlertFeed.sharedRoute(failed));
+        assertNull(AlertFeed.sharedRoute(AlertFeed.parse(LIST)));
     }
 
     @Test
