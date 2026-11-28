@@ -25,7 +25,7 @@ test.describe('Library bar: Add to queue', () => {
     const mock = await mockQueueApi(page)
     mock.refuse[ids[2]] = 'Title not found.'
     await page.goto('/')
-    await page.getByLabel('Search title or summary').fill('Queue E2E')
+    await page.getByLabel('Search titles, people, tags and series').fill('Queue E2E')
     await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
     await page.getByRole('radio', { name: 'List' }).check()
     await page.getByRole('button', { name: 'Select', exact: true }).click()

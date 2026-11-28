@@ -438,7 +438,7 @@ class TestReviewActions:
             return real(self, zh, ctx)
         monkeypatch.setattr(fake_engine.FakeEngine, "translate_batch", spy)
         out = source_change_service.start_retranslate(
-            did, [ids[0], ids[1], ids[2]], engine_name="fake", thinking=False)
+            did, [ids[0], ids[1], ids[2]], engine_name="fake")
         assert out["line_ids"] == [ids[0], ids[2]] and out["target_line_count"] == 2
         assert wait_for_job(out["job_id"], timeout=8.0)["status"] == "done"
         assert seen == [([ids[0], ids[2]], ["一", "三"])]

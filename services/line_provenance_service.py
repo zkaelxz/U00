@@ -23,7 +23,6 @@ import threading
 import time
 
 import db
-from services import translate_thinking_service
 from services.job_checkpoint_service import hash_text, settings_hash
 from lib.no_window import NO_WINDOW
 
@@ -184,8 +183,7 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
                     before[line_id] = en
                     changed[line_id] = (ln.zh, en)
             engine_name, model = engine_info()
-            record(drama_id, changed, engine_name, model, prompt_version, g_hash,
-                   settings(engine_name) if callable(settings) else settings)
+            record(drama_id, changed, engine_name, model, prompt_version, g_hash, settings)
         except Exception as exc:
             try:
                 import applog
@@ -197,14 +195,10 @@ def tracker(drama_id, lines, engine_info, prompt_version, glossary_terms, settin
     return on_save
 
 
-def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms,
-                          thinking=None, **options):
+def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms, **options):
     """The tracker for one translate run, shared by the Workspace job and
     other translate runs. A FallbackEngine's active engine is read at every
-    save; `options` are the run's plain settings (locale, style...). thinking:
-    what the run was handed; None = the title's choice, as the run itself reads it.
-    The thinking key follows the engine that produced the batch, because a
-    fallback engine is sent the same thinking context as the primary."""
+    save; `options` are the run's plain settings (locale, style...)."""
     from engine_backends import translate_pipeline
     from engine_backends import fallback as engine_fallback
 
@@ -213,15 +207,6 @@ def translate_run_tracker(drama_id, lines, engine, engine_choice, glossary_terms
                 else engine_choice)
         return name, getattr(engine, "model", None) or name
 
-    base = {k: (v if v is not None else "") for k, v in options.items()}
-    if thinking is None:
-        thinking = translate_thinking_service.get_title_choice(drama_id)
-
-    def settings_for(engine_name):
-        # Only a thinking batch adds a key, so a default run hashes as it always did.
-        if translate_thinking_service.effective([engine_name], thinking, bool(options.get("reflect"))):
-            return {**base, "thinking": True}
-        return base
-
+    settings = {k: (v if v is not None else "") for k, v in options.items()}
     return tracker(drama_id, lines, engine_info, translate_pipeline.TRANSLATE_PROMPT_VERSION,
-                   glossary_terms, settings=settings_for)
+                   glossary_terms, settings=settings)

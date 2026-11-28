@@ -46,14 +46,23 @@ describe('speakLine', () => {
 describe('spokenStep', () => {
   it('starts from the next line when turned on, says each line once, and forgets on off', () => {
     let step = spokenStep(null, cue(5), true)
-    expect(step).toEqual({ said: 5, text: null })
+    expect(step).toEqual({ said: 5, text: null, stop: false })
     step = spokenStep(step.said, cue(5), true)
     expect(step.text).toBeNull()
     step = spokenStep(step.said, cue(6), true)
-    expect(step).toEqual({ said: 6, text: 'Line 6' })
+    expect(step).toEqual({ said: 6, text: 'Line 6', stop: false })
     expect(spokenStep(step.said, cue(6), true).text).toBeNull()
-    expect(spokenStep(step.said, cue(7), false)).toEqual({ said: null, text: null })
-    expect(spokenStep(null, null, true)).toEqual({ said: -1, text: null })
+    expect(spokenStep(step.said, cue(7), false)).toEqual({ said: null, text: null, stop: true })
+    expect(spokenStep(null, null, true)).toEqual({ said: -1, text: null, stop: false })
+  })
+
+  it('stops the voice once when turned off, and leaves it alone while it stays off', () => {
+    const on = spokenStep(null, cue(1), true)
+    const off = spokenStep(on.said, cue(1), false)
+    expect(off.stop).toBe(true)
+    expect(spokenStep(off.said, cue(2), false).stop).toBe(false)
+    expect(spokenStep(null, cue(3), false).stop).toBe(false)
+    expect(spokenStep(spokenStep(on.said, cue(2), true).said, cue(3), true).stop).toBe(false)
   })
 
   it('knows when the browser still waits for a click before it may speak', () => {

@@ -1,7 +1,9 @@
 """The opt-in Breeze-ASR-25 model: registered like whisper-ja 1.5B (pinned CTranslate2 repo) but
 for Chinese titles only. Fakes only: no network, no weights."""
 
+import json
 import re
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +12,9 @@ import whisper_models as wm
 from lib.errors import InvalidInputError
 from services import compare_transcription_service, transcribe_pipeline, transcribe_service, transcribe_options_service
 from tests.test_whisper_ja_model import FakeHub, hf_home  # noqa: F401  (fixture)
+
+SEPARATE_VOCALS_DEFAULTS = (Path(__file__).resolve().parent.parent / "frontend" / "src" / "pages" / "workspace"
+                            / "stages" / "separateVocalsDefaults.json")
 
 KEY = "breeze-asr-25"
 REPO, REVISION = wm.PINNED_CT2_REPOS[KEY]
@@ -85,6 +90,110 @@ class TestRegistry:
         # Turning it off is a choice and is kept.
         transcribe_service.update_transcribe_config(did, separate_vocals_first=False)
         assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
+
+    def _separation_setup(self, monkeypatch, ready=True):
+        from services import model_readiness_service, settings_service
+        monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+        real_get = settings_service.get
+        monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: ready)
+        monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
+
+    @pytest.mark.parametrize("ready", [True, False])
+    def test_turning_it_on_while_leaving_breeze_is_a_choice(self, isolated_db, monkeypatch, ready):
+        # Shown On on Breeze when the separator is ready (Off otherwise); large-v3's default is Off.
+        self._separation_setup(monkeypatch, ready)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh")
+        transcribe_service.update_transcribe_config(did, whisper_size="large-v3", separate_vocals_first=True)
+        drama = isolated_db.get_drama(did)
+        assert drama["separate_vocals_first"] == 1
+        assert transcribe_options_service.effective_separate_vocals(drama) is True
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["separate_vocals_first"] is True and config["separate_vocals_chosen"] is True
+
+    def test_sending_the_new_models_default_keeps_following_it(self, isolated_db, monkeypatch):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh")
+        transcribe_service.update_transcribe_config(did, whisper_size="large-v3", separate_vocals_first=False)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+        assert transcribe_service.get_transcribe_config(did)["separate_vocals_chosen"] is False
+        transcribe_service.update_transcribe_config(did, whisper_size=KEY, separate_vocals_first=True)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+        assert transcribe_service.get_transcribe_config(did)["separate_vocals_first"] is True
+
+    def test_turning_it_off_on_breeze_is_a_choice(self, isolated_db, monkeypatch):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh")
+        transcribe_service.update_transcribe_config(did, separate_vocals_first=False)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
+
+    def test_a_touched_off_while_picking_breeze_is_a_choice(self, isolated_db, monkeypatch):
+        # Shown Off on large-v3, On once Breeze is picked; the user turns it Off and saves.
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=False, separate_vocals_touched=True)
+        drama = isolated_db.get_drama(did)
+        assert drama["separate_vocals_first"] == 0
+        assert transcribe_options_service.effective_separate_vocals(drama) is False
+        assert transcribe_service.get_transcribe_config(did)["separate_vocals_first"] is False
+
+    @pytest.mark.parametrize("touched, separates", [(True, False), (False, True)])
+    def test_the_run_follows_a_touched_off_while_picking_breeze(
+            self, isolated_db, monkeypatch, touched, separates):
+        from tests.test_transcribe_service import _capture_worker_start, _drama_with_audio
+        self._separation_setup(monkeypatch)
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", source_language="zh",
+                                   whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=False, separate_vocals_touched=touched)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["whisper_size"] == KEY
+        assert captured["separate_vocals_first"] is separates
+
+    @pytest.mark.parametrize("start, change", [
+        ({"use_groq": 1}, {"use_groq": False}),
+        ({"asr_backend_choice": "qwen3_asr"}, {"asr_backend_choice": "whisper"}),
+    ])
+    def test_a_touched_off_while_leaving_groq_or_qwen_on_breeze_is_a_choice(
+            self, isolated_db, monkeypatch, start, change):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size=KEY, **start)
+        transcribe_service.update_transcribe_config(
+            did, separate_vocals_first=False, separate_vocals_touched=True, **change)
+        drama = isolated_db.get_drama(did)
+        assert drama["separate_vocals_first"] == 0
+        assert transcribe_options_service.effective_separate_vocals(drama) is False
+
+    def test_a_touched_switch_equal_to_the_new_default_still_follows_it(self, isolated_db, monkeypatch):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=True, separate_vocals_touched=True)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+
+    @pytest.mark.parametrize("case", json.loads(SEPARATE_VOCALS_DEFAULTS.read_text(encoding="utf-8")),
+                             ids=lambda c: "-".join(str(v) for v in c.values()))
+    def test_the_forms_default_matches_the_run(self, isolated_db, monkeypatch, case):
+        # The Transcribe form shows the switch for a title that never chose from its own copy of
+        # this rule (defaultSeparateVocals); its vitest reads the same table.
+        self._separation_setup(monkeypatch, case["separator_ready"])
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size=case["whisper_size"],
+                                       asr_backend_choice=case["asr_backend_choice"],
+                                       use_groq=int(case["use_groq"]))
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["separates_on_breeze_by_default"] is case["separator_ready"]
+        assert config["separate_vocals_first"] is case["separates"]
+        assert transcribe_options_service.effective_separate_vocals(isolated_db.get_drama(did)) is case["separates"]
+
+    @pytest.mark.parametrize("ready", [True, False])
+    def test_config_says_what_breeze_would_default_to(self, isolated_db, monkeypatch, ready):
+        self._separation_setup(monkeypatch, ready)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3", use_groq=1)
+        config = transcribe_service.get_transcribe_config(did)
+        assert config["separate_vocals_first"] is False
+        assert config["separates_on_breeze_by_default"] is ready
 
     def test_a_new_title_has_the_switch_unset(self, isolated_db):
         did = isolated_db.create_drama(title_zh="t")

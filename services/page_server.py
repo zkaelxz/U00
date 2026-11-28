@@ -526,7 +526,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
                 scanlate_translate.translate_page_bubbles(
                     missing, engine, meta, previous_context="", glossary_terms=glossary,
                     usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                    previous_lines=extras["previous_lines"],
+                    previous_lines=extras["previous_lines"], summary=in_order,
                     # Only the first retry pays for the picture: a second one would double the slowest case.
                     page_image=extras.get("page_image") if attempt == 0 else None)
             except Exception:
@@ -619,6 +619,8 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
                 split["typeset_wait"] = round(time.monotonic() - wait_started, 2)
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
+                                         # Read back at once as a JPEG and deleted, so pack fast.
+                                         png_compress_level=1,
                                          **({"look": style} if style else {}))
         return page_capture_checks.jpeg_data_url(out_path, max_width)
     except Exception as e:

@@ -278,7 +278,6 @@ def test_doubtful_estimate_is_reported_when_the_engine_can_be_priced(isolated_db
                         lambda drama_id, engine: ("title-model", 7))
     fields = glossary_flagged_service.doubtful_config_fields(did)
     assert fields == {"doubtful_flagged_count": 1, "doubtful_redo_estimate_usd": 0.12,
-                      "doubtful_redo_estimate_is_lower_bound": False,
                       "doubtful_redo_monthly_refusal": False, "doubtful_redo_above_cap": False}
     assert seen["force_retranslate"] is True and len(seen["line_ids"]) == 1
     # Priced as the redo will run: the title's own model and batch size, not the engine defaults.
