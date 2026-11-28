@@ -810,7 +810,7 @@ the chapter is fully ready, and More > Stop translating cancels it; a chapter th
 when you close its reader, and the next chapter is only fetched ahead while the reader is open. Pinching in
 Grab's own web view zooms the site. Cancel (in Grab or in the Quick read reader) cuts the requests to the PC
 at once instead of waiting for the page being redrawn, and tells the PC to stop. The PC remembers each
-translated Quick read page and novel part for 14 days (in a size-limited cache that is not a saved series), so
+translated Quick read page and novel part for 14 days, kept across app updates (in a size-limited cache that is not a saved series), so
 reading or grabbing the same chapter again costs no tokens; a page that came back with an untranslated line or
 a warning is not remembered. In the Quick read reader, press and hold a page and choose Send a report (with an
 optional note) when a page came out wrong: the redrawn page, what the PC read and translated on it, the

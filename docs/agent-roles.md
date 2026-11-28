@@ -32,6 +32,7 @@ A session that writes code never reviews its own change.
 A fresh session (a subagent or `/code-review`) that did not write the change. In short: every finding is verified and carries file:line evidence, with no quota. The full policy is `docs/engineering-standards.md`, section 3, and the roles in `.claude/agents/` (for example `security-reviewer`, which runs on Opus) apply it; read those only if you have room for them.
 
 - Check correctness, scope (nothing beyond the task), tests that can fail, and the privacy rule (real names, nicknames, emails, usernames, PC names, LAN IPs, work titles, in code, tests, docs, commit messages, PR text).
+- If the diff changes how Quick read reads, translates, erases or letters a page (`ocr*`, `page_turns.py`, `scanlate/`, `engine_backends/`, `translation_guide.py`) and the cached result would now be wrong, `PIPELINE_VERSION` in `services/quick_read_cache.py` must be bumped.
 - Check the rules in `CLAUDE.md`, "Rules learned from real bugs". Auth, routes, fetches and secrets: use `security-reviewer`.
 - Report only findings you can point at (file and line, with the input that goes wrong). No quota, and no pre-existing issues the diff doesn't touch.
 - Findings go to the coder or coordinator, not onto the PR: nothing is posted on GitHub without the owner's OK.
