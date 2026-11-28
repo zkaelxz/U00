@@ -29,13 +29,6 @@ import job_process_result
 from jobs import process_worker
 from lib import proc_kill
 
-# A test switch for one V100 measurement, read in the parent at each start.
-# Unset or "" gives every transcription a fresh worker, as before. "a" keeps the
-# process between jobs, "b" also keeps the vocal separator loaded, "c" also
-# keeps the Whisper model loaded. The winning arm stays and the variable goes.
-ENV_VAR = "BAIHE_WARM_WORKER"
-ARMS = ("a", "b", "c")
-
 # The parent retires a worker idle this long, so it never sits on VRAM with no
 # job to come.
 IDLE_LIMIT_S = 90.0
@@ -59,25 +52,18 @@ _MEMORY = "warm-memory"
 GROWTH_LIMIT_MB = 1024.0
 
 
-def arm() -> str:
-    value = os.environ.get(ENV_VAR, "").strip().lower()
-    return value if value in ARMS else ""
-
-
 def transcription_key(whisper_size, use_gpu, local_model_path, separation_backend,
                       asr_backend_choice, transcript_mode):
-    """(arm, settings) a transcription must share with the warm worker's last
-    job to run in it, or None for a fresh worker as before: no arm is on, or
-    the run is on the CPU. The settings are what decides which models the
-    worker loads and may keep, plus the offline switch, which a target sets
-    in its process's environment and never undoes."""
-    current = arm()
-    if not current or not use_gpu:
+    """The settings a transcription must share with a warm worker's last job to
+    run in it, or None for a fresh worker: a run on the CPU gains nothing that
+    outweighs a process kept alive. The settings are what decides which models
+    the worker loads and keeps, plus the offline switch, which a target sets in
+    its process's environment and never undoes."""
+    if not use_gpu:
         return None
     from lib import model_offline
-    return (current, ("transcribe", whisper_size, bool(use_gpu), local_model_path or "",
-                      separation_backend or "", asr_backend_choice, transcript_mode,
-                      model_offline.active()))
+    return ("transcribe", whisper_size, bool(use_gpu), local_model_path or "",
+            separation_backend or "", asr_backend_choice, transcript_mode, model_offline.active())
 
 
 # --- inside the worker process ------------------------------------------------
@@ -125,13 +111,11 @@ class _JobChannel(job_process_result.ResultChannel):
         super().put(item)
 
 
-def _keep_models(current_arm):
-    if current_arm in ("b", "c"):
-        import audio_preprocess
-        audio_preprocess.keep_separator_loaded = True
-    if current_arm == "c":
-        import whisper_models
-        whisper_models.keep_whisper_between_runs = True
+def _keep_models():
+    # The separator's load is most of what a warm worker saves. Whisper is still
+    # released after each run: kept, it sat on the card beside the next separation.
+    import audio_preprocess
+    audio_preprocess.keep_separator_loaded = True
 
 
 def _child_pids() -> list:
@@ -242,12 +226,12 @@ def _memory_report() -> dict:
     return report
 
 
-def _serve(jobs_conn, raw_queue, current_arm, idle_exit_s):
+def _serve(jobs_conn, raw_queue, idle_exit_s):
     """The worker process: runs the jobs it is sent, strictly one at a time,
     until it has been idle idle_exit_s, the parent closes the pipe, or a job
     leaves it unfit."""
     process_worker.start_own_process_group()
-    _keep_models(current_arm)
+    _keep_models()
     base_tempdir = tempfile.tempdir
     try:
         while jobs_conn.poll(idle_exit_s):
@@ -343,7 +327,7 @@ class _Worker:
         self.key = key
         self.queue = context.Queue()
         self._receive, self.conn = context.Pipe(duplex=False)
-        self.proc = context.Process(target=_serve, args=(self._receive, self.queue, key[0], CHILD_IDLE_EXIT_S),
+        self.proc = context.Process(target=_serve, args=(self._receive, self.queue, CHILD_IDLE_EXIT_S),
                                     daemon=True, name="baihe-warm-worker")
         self.started = False
         self.busy = False
@@ -659,7 +643,7 @@ class WarmJob:
             self._give_up(worker)
             raise
         self._state = "sent"
-        _log(f"job {self.job_id}: warm worker (arm {self._worker.key[0]}) pid {self._worker.proc.pid}, "
+        _log(f"job {self.job_id}: warm worker pid {self._worker.proc.pid}, "
              f"job {self.seq} in this worker{_vram_note()}")
 
     def _give_up(self, worker):

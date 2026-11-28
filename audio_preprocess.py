@@ -424,8 +424,8 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
                cancel_check_cb=cancel_check_cb, use_gpu=use_gpu, event_cb=event_cb)
 
 
-# Set only inside a warm transcription worker (jobs/warm_worker.py, arms "b"
-# and "c"): the separator stays loaded after a call that succeeded, for the
+# Set only inside a warm transcription worker (jobs/warm_worker.py): the
+# separator stays loaded after a call that succeeded, for the
 # worker's next job, instead of being built and freed per call.
 keep_separator_loaded = False
 _kept_separator: tuple[str, Any] | None = None   # (model file name, Separator)

@@ -200,7 +200,7 @@ def _install_reusable_fake_separator(monkeypatch, fail=False):
 
 
 class TestKeptSeparator:
-    """A warm transcription worker's arms "b" and "c" keep the separator loaded between calls."""
+    """A warm transcription worker keeps the separator loaded between calls."""
 
     def test_a_kept_separator_is_reused_and_writes_into_each_calls_own_folder(self, monkeypatch, tmp_path):
         pytest.importorskip("soundfile")

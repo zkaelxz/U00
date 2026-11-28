@@ -548,24 +548,3 @@ class TestWhisperGpuRuntime:
     def test_unknown_without_cuda_device(self, monkeypatch):
         self._windows_with_gpu(monkeypatch, devices=0)
         assert whisper_models.whisper_gpu_runtime(loader=lambda n: 1 / 0)["status"] == "unknown"
-
-
-class TestReleaseKeepingWhisper:
-    """A warm transcription worker's arm "c" keeps the Whisper model between its jobs."""
-
-    @pytest.fixture
-    def two_models(self, monkeypatch):
-        monkeypatch.setattr(whisper_models, "_whisper_model_cache",
-                            {"large-v3_gpu": object(), "small_gpu": object()})
-        monkeypatch.setattr(whisper_models, "_whisper_device_info", {
-            "large-v3_gpu": {"device": "cuda", "compute_type": "float16", "gpu_error": None},
-            "small_gpu": {"device": "cpu", "compute_type": "int8", "gpu_error": "no CUDA"}})
-
-    def test_keeping_whisper_keeps_only_a_model_that_loaded_on_the_gpu(self, two_models):
-        whisper_models.release_gpu_models(keep_whisper=True)
-        assert list(whisper_models._whisper_model_cache) == ["large-v3_gpu"]
-        assert list(whisper_models._whisper_device_info) == ["large-v3_gpu"]
-
-    def test_a_plain_release_drops_every_whisper_model(self, two_models):
-        whisper_models.release_gpu_models()
-        assert whisper_models._whisper_model_cache == {} and whisper_models._whisper_device_info == {}

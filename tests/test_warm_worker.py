@@ -21,8 +21,8 @@ from jobs import (crash_retry, gpu_guard, job_launch, job_runner, job_settings, 
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="reads process states from /proc")
 
-KEY = ("a", ("transcribe", "large-v3", True, "", "audio_separator", "whisper", "whisper", False))
-OTHER_KEY = ("a", ("transcribe", "large-v3-turbo", True, "", "audio_separator", "whisper", "whisper", False))
+KEY = ("transcribe", "large-v3", True, "", "audio_separator", "whisper", "whisper", False)
+OTHER_KEY = ("transcribe", "large-v3-turbo", True, "", "audio_separator", "whisper", "whisper", False)
 
 _runs_here = 0
 
@@ -35,10 +35,9 @@ def tagged_worker(tag, big, result_queue):
     _runs_here += 1
     result_queue.put(("progress", 0.5, f"working on {tag}"))
     import audio_preprocess
-    import whisper_models
     watchdogs = sum(t.name == "parent-watchdog" for t in threading.enumerate())
     result = {"tag": tag, "pid": os.getpid(), "runs_here": _runs_here, "watchdogs": watchdogs,
-              "keeps": (audio_preprocess.keep_separator_loaded, whisper_models.keep_whisper_between_runs)}
+              "keeps_separator": audio_preprocess.keep_separator_loaded}
     if big:
         result["filler"] = tag * 5000   # over the inline limit: goes through the result file
     result_queue.put(("ok", result))
@@ -158,6 +157,9 @@ def _result_files():
 
 @pytest.fixture(autouse=True)
 def _no_worker_left(isolated_db):
+    # Not by monkeypatch: a test's monkeypatch.undo() would put the stub back. The
+    # conftest fixture that set the stub restores the real function after the test.
+    warm_worker.claim = warm_worker.claim.real
     yield
     with warm_worker._lock:
         left, warm_worker._workers[:] = list(warm_worker._workers), []
@@ -181,14 +183,8 @@ def test_two_matching_jobs_run_in_one_worker_and_each_reads_only_its_own_results
     assert (two["tag"], two["runs_here"], two["filler"]) == ("two", 2, "two" * 5000)
     assert one["pid"] == two["pid"] and not _gone(two["pid"])
     assert one["watchdogs"] == two["watchdogs"] == 1
-    assert one["keeps"] == (False, False)   # arm "a" keeps the process only
+    assert one["keeps_separator"] is True
     assert _result_files() == []
-
-
-@pytest.mark.parametrize("arm, keeps", [("b", (True, False)), ("c", (True, True))])
-def test_the_arm_decides_what_the_worker_keeps_loaded(arm, keeps):
-    status = _run(f"warm_arm_{arm}", tagged_worker, (arm, False), key=(arm, KEY[1]))
-    assert status["result"]["keeps"] == keeps
 
 
 def test_a_queued_matching_gpu_job_runs_in_the_worker_the_finished_one_left(tmp_path):
@@ -214,13 +210,9 @@ def test_without_a_key_the_job_gets_its_own_process_as_before():
     bg.clear_job("cold_one")
 
 
-@pytest.mark.parametrize("value, key", [("", None), ("x", None), ("C", "c")])
-def test_the_switch_names_an_arm_or_leaves_transcription_as_it_was(monkeypatch, value, key):
-    monkeypatch.setenv(warm_worker.ENV_VAR, value)
-    found = warm_worker.transcription_key("large-v3", True, None, "audio_separator", "whisper", "whisper")
-    assert (found and found[0]) == key
-    assert warm_worker.transcription_key("large-v3", False, None, "audio_separator", "whisper",
-                                         "whisper") is None
+def test_a_cpu_run_gets_no_warm_worker():
+    assert warm_worker.transcription_key("large-v3", False, "", "audio_separator", "whisper", "whisper") is None
+    assert warm_worker.transcription_key("large-v3", True, "", "audio_separator", "whisper", "whisper") == KEY
 
 
 def test_a_job_with_other_settings_gets_a_new_worker_and_the_old_one_ends():

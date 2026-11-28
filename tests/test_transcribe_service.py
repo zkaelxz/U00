@@ -19,7 +19,7 @@ import time
 import pytest
 
 import background_jobs
-from jobs import job_launch, job_runner, job_settings, job_table, process_worker, warm_worker
+from jobs import job_launch, job_runner, job_settings, job_table, process_worker
 import core as core_module
 import whisper_transcribe
 import qwen3_native
@@ -577,30 +577,20 @@ class TestStartTranscribeRun:
         transcribe_service.start_transcribe_run(did)
         assert captured["start_kwargs"]["cpu_retry_args"] is None
 
-    def test_without_the_warm_worker_switch_each_run_gets_a_fresh_worker(self, isolated_db, monkeypatch):
-        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper")
-        patch_setting(monkeypatch, "use_gpu", True)
-        monkeypatch.delenv(warm_worker.ENV_VAR, raising=False)
-        captured = _capture_worker_start(monkeypatch)
-        transcribe_service.start_transcribe_run(did)
-        assert captured["start_kwargs"]["warm_key"] is None
-
     @pytest.mark.parametrize("use_gpu", [True, False])
-    def test_with_the_switch_a_gpu_run_names_the_settings_the_warm_worker_must_share(
-            self, isolated_db, monkeypatch, use_gpu):
+    def test_a_gpu_run_names_the_settings_a_warm_worker_must_share(self, isolated_db, monkeypatch, use_gpu):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", whisper_size="large-v3-turbo",
                                    separation_backend="audio_separator")
         patch_setting(monkeypatch, "use_gpu", use_gpu)
         patch_setting(monkeypatch, "whisper_model_path", "/models/example")
-        monkeypatch.setenv(warm_worker.ENV_VAR, "b")
         captured = _capture_worker_start(monkeypatch)
         transcribe_service.start_transcribe_run(did)
         key = captured["start_kwargs"]["warm_key"]
         if not use_gpu:
             assert key is None
             return
-        assert key == ("b", ("transcribe", "large-v3-turbo", True, "/models/example", "audio_separator",
-                             captured["asr_backend_choice"], "whisper", False))
+        assert key == ("transcribe", "large-v3-turbo", True, "/models/example", "audio_separator",
+                       captured["asr_backend_choice"], "whisper", False)
 
     def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
@@ -896,22 +886,6 @@ class TestRunTranscribeAndApplyJob:
             ["今天天气很好。", "我们出去走走吧。"] if split_by_sentences
             else ["今天天气很好。我们出去走走吧。"])
         assert out["run_config"]["split_by_sentences"] is split_by_sentences
-
-    @pytest.mark.parametrize("keep", [False, True])
-    def test_a_run_releases_whisper_at_its_end_unless_a_warm_worker_keeps_it(
-            self, tmp_path, monkeypatch, keep):
-        released = []
-        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing",
-                            lambda *a, **k: [{"start": 0.0, "end": 1.0, "text": "hi"}])
-        monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: None)
-        monkeypatch.setattr(whisper_models, "get_whisper_device_info", lambda *a, **k: {})
-        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda **k: released.append(k))
-        monkeypatch.setattr(whisper_models, "keep_whisper_between_runs", keep)
-        transcribe_pipeline._transcribe_pipeline(
-            transcribe_pipeline._ThreadReporter(None), str(tmp_path / "a.wav"), "whisper", None,
-            "zh", "simplified", "medium", 5, 300, 0.5, False, "auto", False, False, False, None,
-            "", False, "whisper", "whisper_diff")
-        assert released == [{"keep_whisper": True} if keep else {}]
 
     def test_have_transcript_mode_aligns_supplied_text(self, isolated_db, monkeypatch):
         did, ddir = _drama_with_audio(isolated_db, transcript_mode="have_transcript")

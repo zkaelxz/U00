@@ -262,10 +262,7 @@ class _PipelineRun:
         if self.qwen_device and not self.device_msg:
             self.device_msg = ", ".join(f"{task} on {label}"
                                         for task, label in self.qwen_device.items())
-        if whisper_models.keep_whisper_between_runs:
-            whisper_models.release_gpu_models(keep_whisper=True)
-        else:
-            whisper_models.release_gpu_models()
+        whisper_models.release_gpu_models()
         return self._outcome()
 
     def _qwen_on_fallback(self, task, exc):
