@@ -30,7 +30,7 @@ export function OpenFileField({
   onChosen?: (input: HTMLInputElement) => void
 }) {
   return (
-    <div className="translate-file">
+    <div className="translate-add-file">
       <input
         id={id}
         type="file"
@@ -69,7 +69,10 @@ export function FileOrScreenshotMenu({
   const menu = useDetailsMenu()
   const close = (from: Element) => {
     const details = from.closest('details')
-    if (details) details.open = false
+    if (!details) return
+    details.open = false
+    // The row that had focus is now hidden; keep keyboard users on the menu button rather than the top of the page.
+    details.querySelector('summary')?.focus()
   }
   return (
     <details className="translate-add" ref={menu}>

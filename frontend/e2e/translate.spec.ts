@@ -69,6 +69,11 @@ test('the + menu loads a file and closes; the file name stays in view', async ({
   await menu.click()
   await page.keyboard.press('Escape')
   await expect(page.getByText('Open a file…')).toBeHidden()
+  // Choosing a row hides it; focus goes back to the menu button, not to the top of the page.
+  await menu.click()
+  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await expect(page.getByRole('group', { name: 'Read from a screenshot' })).toBeVisible()
+  await expect(menu).toBeFocused()
 })
 
 test('swap flips the languages in one press and is remembered', async ({ page }) => {

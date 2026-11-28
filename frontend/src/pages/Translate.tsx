@@ -376,7 +376,7 @@ export default function TranslatePage() {
                 </p>
               )}
               {result !== null ? (
-                <pre data-testid="translate-result" className="translate-result">
+                <pre data-testid="translate-result" className="translate-result" tabIndex={0}>
                   {result}
                 </pre>
               ) : (
