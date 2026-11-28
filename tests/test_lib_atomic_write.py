@@ -23,6 +23,21 @@ def test_text_and_binary_round_trip(tmp_path):
     assert (tmp_path / "b.bin").read_bytes() == b"\x00\x01"
 
 
+def test_the_temp_file_is_fsynced_before_the_rename(tmp_path, monkeypatch):
+    calls = []
+    real_fsync, real_replace = aw.os.fsync, aw.os.replace
+    monkeypatch.setattr(aw.os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd)))
+    monkeypatch.setattr(aw.os, "replace", lambda a, b: (calls.append("replace"), real_replace(a, b)))
+    aw.atomic_write(str(tmp_path / "a.txt"), "x")
+    assert calls == ["fsync", "replace"]
+
+
+def test_a_filesystem_without_fsync_still_gets_the_write(tmp_path, monkeypatch):
+    monkeypatch.setattr(aw.os, "fsync", _boom)
+    aw.atomic_write(str(tmp_path / "a.txt"), "x")
+    assert (tmp_path / "a.txt").read_text() == "x"
+
+
 def test_replaces_an_existing_file_and_leaves_no_temp(tmp_path):
     target = tmp_path / "a.txt"
     target.write_text("old")

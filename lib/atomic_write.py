@@ -39,9 +39,22 @@ def _while_held(action, *paths) -> None:
             time.sleep(_REPLACE_DELAY * (attempt + 1))
 
 
+def _flush_to_disk(f) -> None:
+    # Without this, NTFS (and ext4 with delayed allocation) can keep the
+    # rename after a power cut and lose the data, leaving an empty file where
+    # the old one was. Best effort: a filesystem that cannot fsync still gets
+    # the rename.
+    try:
+        f.flush()
+        os.fsync(f.fileno())
+    except OSError:
+        pass
+
+
 def atomic_write(path: str, data, binary: bool = False, *, prefix: str = "", suffix: str = ".tmp") -> None:
     """Writes `data` to a temp file in path's folder, then os.replace()s it
-    over `path`, so a crash mid-write never leaves a truncated file. The temp
+    over `path`, so a crash or power cut mid-write never leaves a truncated
+    file (the temp file is fsynced before the rename). The temp
     name is unique per call, so two writers never share one, and it is removed
     again when the write fails. `prefix`/`suffix` let a caller keep a temp name
     the "Leftover temp files" cleanup (storage.py, any `*.tmp` in a title's
@@ -50,6 +63,7 @@ def atomic_write(path: str, data, binary: bool = False, *, prefix: str = "", suf
     try:
         with (os.fdopen(fd, "wb") if binary else os.fdopen(fd, "w", encoding="utf-8")) as f:
             f.write(data)
+            _flush_to_disk(f)
         os.replace(tmp, path)
     except BaseException:
         try:
