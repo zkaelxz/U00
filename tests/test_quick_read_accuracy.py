@@ -272,7 +272,8 @@ class TestTitleMemory:
     def test_pages_side_by_side_ask_for_no_summary_but_still_for_names(self, monkeypatch):
         prompts = []
         self._reply(monkeypatch, [{"translations": {"0": "Mira!"}, "names": {"ミラ": "Mira"}},
-                                  {"translations": {"0": "Mira!"}, "context_summary": "x"}], prompts)
+                                  {"translations": {"0": "Mira!"}, "context_summary": "x"},
+                                  {"translations": {"0": "Mira!"}}], prompts)
         page_turns.translate_in_chain(None, "side", [_bubble("ミラ！")], _Engine(),
                                       {"source_language": "ja"}, None, None, wait_for_turn=False)
         assert "context_summary" not in prompts[0] and '"names"' in prompts[0]
@@ -282,6 +283,10 @@ class TestTitleMemory:
                                       {"source_language": "ja"}, None, None)
         assert "context_summary" in prompts[1]
         assert page_turns._contexts[page_turns._chain_key(None, "saved")] == "x"
+        # A capture with no title has no chain to carry a summary to.
+        page_turns.translate_in_chain(None, "", [_bubble("ミラ！")], _Engine(),
+                                      {"source_language": "ja"}, None, None)
+        assert "context_summary" not in prompts[2]
 
     def test_a_tied_pronoun_is_not_sent(self):
         assert scanlate_translate.settled_pronouns({"Ren": {"she": 1, "he": 1},

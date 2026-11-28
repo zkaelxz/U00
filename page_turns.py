@@ -151,7 +151,7 @@ def translate_in_chain(drama_id, source_url, bubbles, engine, drama, glossary, u
     if key is None:
         scanlate_translate.translate_page_bubbles(
             bubbles, engine, drama or {}, previous_context="",
-            glossary_terms=glossary, usage_cb=usage_cb, **extras)
+            glossary_terms=glossary, usage_cb=usage_cb, summary=False, **extras)
         return
     with _context_lock:
         chain = _chain_locks.get(key)

@@ -510,8 +510,8 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     `chapter_names` ({source spelling: English}) is sent as names to keep and gets the names
     this page's answer reports, so the next page of the chapter spells them the same. `cast`
     ({English name: {"she": votes, "he": votes}}) is sent as the characters' pronouns and gets
-    this page's votes; it is only collected alongside `chapter_names`. `summary=False` asks for
-    no context summary, so the context returned is `previous_context` unchanged."""
+    this page's votes; it is only collected alongside `chapter_names`. `summary=False` stops
+    asking for a context summary (one the model sends anyway is still returned)."""
     eligible = [b for b in bubbles
                 if not b.get("skip") and not region_excluded_from_auto(b)
                 and (b.get("source_text") or "").strip()]
