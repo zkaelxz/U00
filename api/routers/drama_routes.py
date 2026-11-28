@@ -232,14 +232,18 @@ def get_cover(request: Request, drama_id: int = Path(ge=1),
               size: Literal["full", "thumb"] = Query(
                   "full", description="thumb: a small JPEG copy for lists")):
     path, media_type = cover_art_service.cover_file(drama_id)
+    stat = None
     if size == "thumb":
         thumb, thumb_type = cover_art_service.cover_thumb(drama_id)
         # A cover replaced meanwhile removes the older thumb; the full cover still answers.
-        if os.path.isfile(thumb):
-            path, media_type = thumb, thumb_type
+        try:
+            stat, path, media_type = os.stat(thumb), thumb, thumb_type
+        except FileNotFoundError:
+            pass
     require_readable(path)
     resp = FileResponse(path, media_type=media_type, content_disposition_type="inline",
-                        filename=f"cover_{drama_id}{os.path.splitext(path)[1]}", stat_result=os.stat(path),
+                        filename=f"cover_{drama_id}{os.path.splitext(path)[1]}",
+                        stat_result=stat or os.stat(path),
                         headers={"Cache-Control": _COVER_CACHE,
                                  "X-Content-Type-Options": "nosniff",
                                  "Content-Security-Policy": "default-src 'none'; sandbox"})

@@ -213,6 +213,10 @@ class TestCover:
             fh.write(b"%!PS-Adobe-3.0 EPSF-3.0\n" + b"x" * 4096)
         r = client.get(f"/api/dramas/{did}/cover?size=thumb")
         assert r.status_code == 200 and r.content.startswith(b"%!PS")
+        with open(os.path.join(db.drama_dir(did), "cover.png"), "wb") as fh:
+            fh.write(_image("BMP", size=(1600, 2400)))
+        r = client.get(f"/api/dramas/{did}/cover?size=thumb")
+        assert r.status_code == 200 and r.content.startswith(b"BM")
 
     def test_exif_rotation_is_applied_before_the_tag_is_dropped(self, client):
         pytest.importorskip("PIL")
