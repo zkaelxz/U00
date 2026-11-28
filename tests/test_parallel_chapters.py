@@ -366,10 +366,28 @@ def test_a_chapters_pronoun_recheck_runs_as_it_finishes_beside_the_others(novel)
     assert all(ln.en.startswith("she ") and ln.flag != tp.PRONOUN_CHECK_FLAG for ln in lines[:PER_CHAPTER])
 
 
-def test_a_capped_run_rechecks_pronouns_after_every_chapter(novel):
+def test_under_a_cap_each_recheck_request_takes_a_slot_like_a_batch(novel, monkeypatch):
     engine = _HeEngine()
+    reserved = []
+    real = tp._TranslateRun._reserve_batch
+
+    def reserve(self, batch):
+        reserved.append([ln.zh for ln in batch])
+        return real(self, batch)
+    monkeypatch.setattr(tp._TranslateRun, "_reserve_batch", reserve)
     lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
     kinds = [kind for kind, _ in engine.order]
-    first_strict = kinds.index("strict")
-    assert set(kinds[first_strict:]) == {"strict"}
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    strict = [zs for kind, zs in engine.order if kind == "strict"]
+    assert all(any(set(zs) <= set(chunk) for chunk in reserved) for zs in strict)
+    assert sum(1 for chunk in reserved if all(z.startswith(("第0", "c0")) for z in chunk)) > (
+        sum(1 for kind, zs in engine.order if kind == "plain" and zs[0].startswith(("第0", "c0"))
+            and len(zs) > 1))  # chapter 0's batches plus its re-check requests
     assert all(ln.en.startswith("she ") for ln in lines[:PER_CHAPTER])
+
+
+def test_a_cap_reached_stops_the_recheck_too(novel, monkeypatch):
+    engine = _HeEngine()
+    monkeypatch.setattr(tp._TranslateRun, "_cap_reached", lambda self: len(engine.calls) >= 2)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    assert not any(kind == "strict" for kind, _ in engine.order)

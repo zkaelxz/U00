@@ -213,13 +213,16 @@ def neighbour_context(lines, chunk, before: int, ahead: int):
 
 def _recheck_male_pronouns(engine, lines, translated, context, character_names, batch_size,
                            save_cb, record_usage, cap_reached, cancel_check_cb,
-                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER):
+                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER,
+                           slot=None):
     """With the she/her default on, asks once more for the lines it was meant to
     prevent: an English line saying he/him/his for a speaker with no he/him
     character. Only those ids go back, with a stricter instruction; a line still
     male afterwards is flagged for Review (flag/flag_note, which the finishing
     step saves on its own) rather than rewritten blind. The retry is bounded by
-    the run's cost cap and cancel, and a failed retry just leaves the flag."""
+    the run's cost cap and cancel, and a failed retry just leaves the flag. `slot`, from a
+    chapter lane, is a context manager per request that is falsy when there is no room under
+    the cap beside the batches other lanes have in flight."""
     guidelines = context.get("style_guidelines") or ""
     if (not pronoun_default_active(guidelines) or context.get("source_language", "zh") != "zh"
             or not getattr(engine, "supports_reference", False)):
@@ -251,7 +254,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
         sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
         try:
-            redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
+            with (slot(chunk) if slot else contextlib.nullcontext(True)) as room:
+                if not room:
+                    break
+                redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
         except Exception as e:
             if stops_translate_run(e):
                 if retried and save_cb:
@@ -498,10 +504,6 @@ class _TranslateRun:
         self.room = threading.Condition(self.lock)
         self.batches_done = 0
         self.chapters_total = len(groups)
-        # Each chapter's re-check runs in its lane as the chapter finishes, beside the chapters
-        # still going. Under a cap it waits for the end instead: its calls take no slot, so
-        # side by side they could pass the cap.
-        self.recheck_in_lanes = self._cap_headroom() is None
         offsets, offset = [], 0
         for group in groups:
             offsets.append(offset)
@@ -991,6 +993,9 @@ class _TranslateRun:
             return True
         return False
 
+    def _recheck_slot(self):
+        return None
+
     def _recheck_pronouns(self, translated=None) -> bool:
         """False when the re-check hit an error that ends the run."""
         a = self.args
@@ -1002,7 +1007,8 @@ class _TranslateRun:
             _recheck_male_pronouns(
                 self.engine, self.lines, translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead)
+                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead,
+                self._recheck_slot())
         except Exception as e:
             if not stops_translate_run(e):
                 raise
@@ -1080,8 +1086,7 @@ class _LaneRun(_TranslateRun):
         try:
             if not self._run_batches(batches):
                 return False
-            if not parent.recheck_in_lanes:
-                return True
+            # The chapter's re-check runs here as it finishes, beside the chapters still going.
             chapter = self.translated[done_before:]
             self.batch_lines = chapter  # what this lane's save writes
             finished = self._recheck_pronouns(chapter)
@@ -1095,6 +1100,21 @@ class _LaneRun(_TranslateRun):
 
     def _would_pass_cap(self, batch) -> bool:
         return False  # the parent prices the batch when the lane asks it for a slot
+
+    def _recheck_slot(self):
+        """Each re-check request takes a slot like a batch, so under a cap it is priced beside
+        the batches other lanes have in flight."""
+        @contextlib.contextmanager
+        def slot(chunk):
+            if not self.parent._reserve_batch(chunk):
+                yield False
+                return
+            self.batch_cost = 0.0
+            try:
+                yield True
+            finally:
+                self.parent._release_batch(self.batch_cost, chunk)
+        return slot
 
     def _note_batch_cost(self, batch, cost):
         pass  # spend is the run's, so the parent notes each batch as its slot is released
