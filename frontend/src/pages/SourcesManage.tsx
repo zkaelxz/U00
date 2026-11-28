@@ -1,6 +1,6 @@
 /*
  * The Manage sources tab of Sources (PC only): the site list, timing and cache, the network
- * settings and the pasted-link log as one list of folds, the first open. Other devices see one line.
+ * settings and the pasted-link log as one list of folds without boxes, the first open. Other devices see one line.
  * The old link "#/sources/manage?tab=network" lands here and scrolls to that area.
  */
 import { useCallback, useEffect, useState } from 'react'
@@ -17,7 +17,7 @@ import { emptyTabMessage, manageAreaId, type ManageTab } from './sources/manageT
 import { NetworkTab } from './sources/NetworkTab'
 import { SitesTab } from './sources/SitesTab'
 import { pageSummary } from './sources/sourcesFormat'
-import { settingsSummary } from './sources/sourcesSettings'
+import { timingSummary } from './sources/sourcesSettings'
 import { TimingTab } from './sources/TimingTab'
 import './sources/sources.css'
 
@@ -81,12 +81,10 @@ export default function SourcesManagePanel({ area }: { area?: ManageTab }) {
   return (
     <div className="manage-panel">
       {sources && summary && (
-        <div className="manage-summaries">
-          <p className="page-meta" data-testid="sources-summary">
-            {summary.on} · {summary.paused ? <Badge tone="warn">{summary.paused} paused</Badge> : '0 paused'}
-          </p>
-          <p className="page-meta" data-testid="manage-summary">{settingsSummary(settings, sources)}</p>
-        </div>
+        <p className="page-meta" data-testid="sources-summary">
+          {summary.on} · {summary.paused ? <Badge tone="warn">{summary.paused} paused</Badge> : '0 paused'}
+          {settings && ` · ${timingSummary(settings)}`}
+        </p>
       )}
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true, serverText: true }} />
       <div id={manageAreaId('sites')} className="manage-area">
