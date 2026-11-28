@@ -42,7 +42,7 @@ ROUTES = {
     ("POST", "/api/backups/now"), ("GET", "/api/backups/snapshot"),
     ("GET", "/api/backups/snapshot/dramas"), ("POST", "/api/backups/snapshot/restore-drama"),
     ("POST", "/api/backups/snapshot/delete"), ("POST", "/api/backups/import/list"),
-    ("POST", "/api/backups/import"),
+    ("POST", "/api/backups/import"), ("POST", "/api/backups/same-drive-note/dismiss"),
 }
 
 
@@ -230,6 +230,14 @@ class TestLocal:
         assert body["copies"] == []
         snap = _clean(client.get(f"{BASE}/snapshot")).json()
         assert snap["exists"] is False and snap["copies"] == []
+
+    def test_the_same_drive_note_is_dismissed_for_good(self, client):
+        for i in range(abt_.SAME_DRIVE_NOTE_MIN_TITLES):
+            db.create_drama(title_en=f"T{i}")
+        assert _clean(client.get(f"{BASE}/settings")).json()["problem"] == "same_drive"
+        r = _clean(client.post(f"{BASE}/same-drive-note/dismiss", json={}))
+        assert r.status_code == 200 and r.json()["problem"] is None
+        assert _clean(client.get(f"{BASE}/settings")).json()["problem"] is None
 
     def test_no_snapshot_404s(self, client):
         assert _code(_clean(client.get(f"{BASE}/snapshot/dramas"))) == "not_found"
