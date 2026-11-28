@@ -1040,15 +1040,14 @@ def _bundle(monkeypatch):
     import io
     import platform
     import zipfile
-    from services import diagnostics_service
     monkeypatch.setattr(platform, "node", lambda: "DESKTOP-EXAMPLE")
     monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name, env_path=None: _ODD_KEY if name == "openai" else None)
     monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name != "pydub")
-    monkeypatch.setattr(diagnostics_service, "get_gpu_reading", lambda: {
-        "found": True, "name": "NVIDIA GeForce RTX 3080", "vram_used_gb": 1.0, "vram_total_gb": 12.0})
+    monkeypatch.setattr(diagnostics_torch, "with_driver_vram_used", lambda gpu: {
+        **gpu, "name": "NVIDIA GeForce RTX 3080", "vram_used_gb": 1.0, "vram_total_gb": 12.0})
     with zipfile.ZipFile(io.BytesIO(svc.build_support_bundle())) as zf:
         return {n: zf.read(n).decode("utf-8") for n in zf.namelist()}
 

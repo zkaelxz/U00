@@ -330,9 +330,11 @@ def _bundle_settings() -> dict:
 
 
 def _bundle_system() -> dict:
-    from services import diagnostics_service, update_service
+    from services import update_service
     try:
-        gpu = diagnostics_service.get_gpu_reading()
+        # nvidia-smi only: the bundle never waits for the torch child process.
+        gpu = gpu_torch.with_driver_vram_used({"available": True})
+        gpu["found"] = gpu.get("vram_used_gb") is not None
     except Exception:
         gpu = {"found": None}
     return {

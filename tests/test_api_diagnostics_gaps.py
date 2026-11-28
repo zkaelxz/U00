@@ -165,8 +165,8 @@ def test_support_bundle_is_a_scrubbed_zip(client, monkeypatch):
     import io
     import os
     import zipfile
-    from services import diagnostics_service
-    monkeypatch.setattr(diagnostics_service, "get_gpu_reading", lambda: {"found": False})
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics_torch, "with_driver_vram_used", lambda gpu: {**gpu, "vram_used_gb": None})
     log_dir = os.path.join(db.LIBRARY_DIR, "logs")
     os.makedirs(log_dir, exist_ok=True)
     with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
