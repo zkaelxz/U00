@@ -17,6 +17,7 @@ export type QueueSchedule = Schemas['QueueSchedule']
 export type QueueBulkAdded = Schemas['QueueBulkAdded']
 
 export type QueueState = Schemas['QueueState']
+export type QueueRetriedInterrupted = Schemas['QueueRetriedInterrupted']
 
 // GET /api/queue/settings: what a queued step will use for a title, read-only.
 export type QueueSettingRow = Schemas['QueueSettingRow']

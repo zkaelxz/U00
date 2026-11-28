@@ -765,6 +765,7 @@ from db.job_records import (  # noqa: F401
 from db.bulk_jobs import (  # noqa: E402,F401
     BULK_PENDING_STATUSES, count_bulk_job_lines, create_bulk_job, get_bulk_job,
     list_bulk_job_lines, list_bulk_jobs, list_unbilled_bulk_estimates, unbilled_bulk_usd_by_user,
+    unbilled_bulk_usd_for_user,
     set_bulk_job_line_result_texts, set_bulk_job_status_if, update_bulk_job)
 
 
@@ -772,8 +773,6 @@ from db.benchmark import (  # noqa: F401
     create_benchmark_case,
     list_benchmark_cases,
     delete_benchmark_case,
-    save_benchmark_run,
-    list_benchmark_runs,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
     list_benchmark_case_edits,

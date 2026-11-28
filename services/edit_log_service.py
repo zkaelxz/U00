@@ -16,7 +16,6 @@ PERSON = "person"
 COMPARE = "compare"
 RETRANSCRIBE = "retranscribe"
 RETRANSCRIBE_MANY = "retranscribe_many"
-NAME_FIX = "name_fix"
 
 _NONE = "(none)"
 

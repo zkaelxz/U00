@@ -114,7 +114,7 @@ export function appDownloadLine(s: UpdateStatus): string | null {
 export const appApplyTarget = (s: UpdateStatus): string => `version ${s.app_verified_version ?? ''}`.trim()
 
 export const PHONE_APP_NOTE =
-  'Fetches the build made by the "Android APK" workflow on GitHub and offers it to the Baihe app on your phone, which shows Update Available the next time it opens.'
+  'Fetches the build made by the "Android APK" workflow on GitHub and offers it to the Baihe app on your phone, which shows Update Available at its next daily check, or at once when you press Check for updates in the phone app\'s Settings > Phone app.'
 
 export function phoneAppLine(r: AndroidAppFetchResult): string {
   return r.changed

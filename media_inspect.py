@@ -199,6 +199,8 @@ def _log_unreadable_length(path: str, reason) -> None:
     import applog
     from engine_backends.redaction import redact_secrets
     text = reason if isinstance(reason, str) else f"{type(reason).__name__}: {reason}"
+    # ffprobe's own error starts with the input path; log lines never carry filesystem paths.
+    text = text.replace(path, os.path.basename(path))
     key = (path, text)
     if key in _LOGGED_UNREADABLE:
         return

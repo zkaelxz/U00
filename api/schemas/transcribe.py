@@ -431,7 +431,7 @@ class LiveCue(BaseModel):
     end: float
     text: str
     translated: str
-    translation: str   # pending | done | failed | cancelled
+    translation: str   # pending | done | failed | skipped | cancelled
 
 
 class LiveStreamRef(BaseModel):

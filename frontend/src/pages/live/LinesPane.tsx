@@ -38,7 +38,7 @@ function useSpokenNewest(newest: LiveCue | null, on: boolean): boolean {
     const step = spokenStep(said.current, newest, on)
     said.current = step.said
     if (step.text && !tapNeeded) speakLine(window.speechSynthesis, step.text)
-    if (!on) window.speechSynthesis.cancel()
+    if (step.stop) window.speechSynthesis.cancel()
   }, [newest, on, tapNeeded])
   useEffect(() => () => { if (canSpeak()) window.speechSynthesis.cancel() }, [])
   return on && tapNeeded && canSpeak()

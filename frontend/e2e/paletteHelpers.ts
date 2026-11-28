@@ -7,8 +7,9 @@ export const palette = (page: Page) => page.getByRole('dialog', { name: 'Quick s
 export const paletteInput = (page: Page) => palette(page).getByRole('combobox')
 
 // Typing, Enter and the hidden-item rule, shared by the desktop and phone specs; `open` is how each project opens the palette.
+// Text: Library, Find & Add, Jobs and Settings have their own search box and no header search button.
 export async function expectFilterAndEnter(page: Page, open: () => Promise<void>) {
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   await open()
   await expect(palette(page).getByRole('option', { name: /^Find/ })).toBeVisible()
   await paletteInput(page).fill('JOB')
@@ -22,7 +23,7 @@ export async function expectFilterAndEnter(page: Page, open: () => Promise<void>
 }
 
 export async function expectNoMatches(page: Page, open: () => Promise<void>) {
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   await open()
   await paletteInput(page).fill('zzzzqq')
   await expect(palette(page).getByRole('status')).toContainText('No matches')
@@ -31,6 +32,7 @@ export async function expectNoMatches(page: Page, open: () => Promise<void>) {
 
 export async function expectHiddenItemNotListed(page: Page, open: () => Promise<void>) {
   await hideDiscoverFromSettings(page)
+  await page.goto('/#/translate')
   await open()
   await expect(palette(page).getByRole('option', { name: /^Library Page/ })).toBeVisible()
   await expect(palette(page).getByRole('option', { name: /^Settings Page/ })).toBeVisible()

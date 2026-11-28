@@ -69,6 +69,9 @@ test('Benchmark Lab: upload clips, fix a reference, exclude, compare on shared c
   await expect(cases).not.toContainText('Excluded')
 
   // Two runs of the clips' translation cases with the offline engine, before and after a second fix.
+  // The library outlives the test (repeats and retries share it), so a fixed label would also match their runs.
+  const labelA = `${setName} A`
+  const labelB = `${setName} B`
   const runOnce = async (label: string) => {
     await openBenchTab(page, 'Run a benchmark')
     const card = page.getByRole('region', { name: 'Run a benchmark' })
@@ -84,18 +87,18 @@ test('Benchmark Lab: upload clips, fix a reference, exclude, compare on shared c
     await expect(page.getByRole('region', { name: 'Recent runs' }).getByRole('row', { name: new RegExp(label) }))
       .toContainText('Done', { timeout: 15_000 })
   }
-  await runOnce('clips A')
+  await runOnce(labelA)
   await openBenchTab(page, 'Golden sets')
   await sets.getByRole('button', { name: `Show cases in ${setName} (Application)` }).last().click()
   await sets.getByRole('region', { name: `Cases in ${setName}` }).getByRole('button', { name: /^Edit reference of .* #2$/ }).last().click()
   await sets.getByRole('region', { name: `Cases in ${setName}` }).getByLabel(/^Reference of .* #2$/).fill('Thanks a lot')
   await sets.getByRole('region', { name: `Cases in ${setName}` }).getByRole('button', { name: 'Save reference' }).click()
-  await runOnce('clips B')
+  await runOnce(labelB)
 
   // The comparison scores only the clip whose reference did not change between the runs, and says so.
   const runs = page.getByRole('region', { name: 'Recent runs' })
-  await runs.getByRole('checkbox', { name: /clips A$/ }).check()
-  await runs.getByRole('checkbox', { name: /clips B$/ }).check()
+  await runs.getByRole('checkbox', { name: new RegExp(`${labelA}$`) }).check()
+  await runs.getByRole('checkbox', { name: new RegExp(`${labelB}$`) }).check()
   await runs.getByRole('button', { name: 'Compare in Arena (2)' }).click()
   const arena = page.getByRole('region', { name: 'Model Arena' })
   await expect(arena.getByTestId('arena-left-out')).toContainText('Compared on the 1 case')
@@ -109,8 +112,8 @@ test('Benchmark Lab: upload clips, fix a reference, exclude, compare on shared c
 
   // Delete the first run with a confirmation; its results and its place in the list go.
   await arena.getByRole('button', { name: 'Close' }).click()
-  await runs.getByRole('row', { name: /clips A/ }).getByRole('button', { name: /^Delete run/ }).click()
+  await runs.getByRole('row', { name: new RegExp(labelA) }).getByRole('button', { name: /^Delete run/ }).click()
   await runs.getByRole('button', { name: /^Confirm delete run/ }).click()
-  await expect(runs.getByRole('row', { name: /clips A/ })).toHaveCount(0)
-  await expect(runs.getByRole('row', { name: /clips B/ })).toHaveCount(1)
+  await expect(runs.getByRole('row', { name: new RegExp(labelA) })).toHaveCount(0)
+  await expect(runs.getByRole('row', { name: new RegExp(labelB) })).toHaveCount(1)
 })

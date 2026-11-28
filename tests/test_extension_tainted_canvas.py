@@ -25,6 +25,31 @@ def _run(kind, scenario):
     return json.loads(done.stdout)
 
 
+class TestChapterCapture:
+    def test_the_capture_keeps_reading_pages_while_its_first_small_batch_is_out(self):
+        out = _run("content", "capture_keeps_reading_while_a_batch_is_out")
+        assert out["ok"] is True
+        assert out["readWhileOut"] is True
+        urls = [f"https://s1.bzcdn.net/p/{n}.jpg" for n in range(1, 6)]
+        # The first batch goes at three pages; the rest follow in reading order, one batch at a time.
+        assert out["batches"] == [urls[:3], urls[3:]]
+        assert any("translating 1-3 of 3" in p for p in out["progress"]), out["progress"]
+
+    def test_english_for_a_recycled_element_is_drawn_when_its_picture_shows_again(self):
+        out = _run("content", "capture_answer_for_a_recycled_element_draws_when_its_picture_returns")
+        assert out["ok"] is True
+        # Not over the next page while it loads, though currentSrc still names this one.
+        assert out["afterAnswer"] == []
+        assert out["whileLoading"] == []
+        assert out["returned"] == ["https://s1.bzcdn.net/p/1.jpg"]
+
+    def test_the_first_request_is_as_many_pages_as_the_app_translates_at_once(self):
+        out = _run("content", "capture_first_batch_size")
+        assert out["overlay"][0] == 6
+        assert out["saved"][0] == 2
+        assert sum(out["overlay"]) == sum(out["saved"]) == 8
+
+
 class TestPageSideFallback:
     def test_a_tainted_img_is_downloaded_by_the_worker_and_sent(self):
         out = _run("content", "img_tainted_fetches_in_worker")
@@ -173,6 +198,14 @@ class TestWholeChapterCapture:
     def test_capture_with_no_url_keeps_the_clear_error(self):
         out = _run("content", "capture_tainted_canvas_no_url")
         assert out["ok"] is False and "Tainted canvases" in out["error"]
+
+    def test_capture_waits_at_the_end_for_a_page_still_loading_then_sweeps_again(self):
+        out = _run("content", "capture_waits_for_a_page_still_loading")
+        assert out["ok"] is True and out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg", "https://s1.bzcdn.net/p/2.jpg"]
+
+    def test_capture_stops_waiting_for_a_picture_that_never_loads(self):
+        out = _run("content", "capture_gives_up_on_a_page_that_never_loads")
+        assert out["ok"] is True and out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
 
 
 class TestWorkerDownload:

@@ -77,6 +77,7 @@ class ReaderPageResponse(BaseModel):
     page: int
     page_count: int
     total_lines: int
+    page_starts: List[int] = Field(description="The line position each page starts at, in page order.")
 
 
 class NovelAttachTextRequest(BaseModel):

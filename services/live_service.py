@@ -29,6 +29,7 @@ import inspect
 import re
 import shutil
 import threading
+import unicodedata
 import uuid
 from typing import Optional
 from urllib.parse import urlsplit
@@ -104,6 +105,14 @@ KNOWN_NAME_HINT = "a VTuber's name: write it romanised, never translate its mean
 # The downloaded list is mostly Chinese and Japanese names; its Latin spellings would match
 # ordinary capitalised words in other languages.
 KNOWN_NAME_LANGUAGES = ("zh", "ja")
+# A stream with nothing picked gets the built-in names pack and the downloaded list, and most
+# one- and two-character names there are everyday words too (a poetic "toward evening", an
+# animal, a surname), which the "keep the name" hint would turn into a streamer. A shorter
+# name is hinted only when it stands alone between punctuation, spaces or line ends.
+MIN_FREE_NAME_CHARS = 3
+# Downloaded names hinted per chunk. A few seconds of speech names a handful of people at
+# most, and every row costs prompt tokens and is one more line a weak model may echo.
+LIVE_KNOWN_NAMES = 10
 MAX_SESSIONS = 32
 # Two streams share the one loaded Whisper and take turns (live_whisper._turn); a third would only add lag.
 MAX_LIVE_SESSIONS = 2
@@ -570,6 +579,23 @@ def _default_packs(source_language) -> dict:
             if pid in known}
 
 
+def _boundary(ch: str) -> bool:
+    return ch.isspace() or unicodedata.category(ch)[0] in "PSZ"
+
+
+def _name_matches(name: str, text: str) -> bool:
+    """Whether a default-path name is clearly the name in `text`, not part of a word."""
+    if len(name) >= MIN_FREE_NAME_CHARS:
+        return True
+    pos = text.find(name)
+    while pos >= 0:
+        end = pos + len(name)
+        if (pos == 0 or _boundary(text[pos - 1])) and (end == len(text) or _boundary(text[end])):
+            return True
+        pos = text.find(name, pos + 1)
+    return False
+
+
 def _hint_function(series_id, pack_title, source_language, glossary_title=None, own_terms=(),
                    default_packs=None):
     """`pack_title`: the title whose packs apply, or None for glossary only.
@@ -595,7 +621,11 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
         if packs_apply and drama is not None:
             entries = language_pack_service.entries_for_text(drama, text, glossary)
         elif default_packs:
-            entries = language_packs.matching_entries(default_packs, text, glossary, language=source_language)
+            names_pack = f"{source_language}-vtuber-names"
+            entries = [e for e in language_packs.matching_entries(default_packs, text, glossary,
+                                                                  language=source_language)
+                       if e["pack"] != names_pack or e["category"] != "streamer"
+                       or _name_matches(e["source"], text)]
         else:
             entries = []
         for e in entries:
@@ -603,8 +633,9 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
                 p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
         if default_packs is not None and source_language in KNOWN_NAME_LANGUAGES:
             covered = [row[0] for row in found]
-            names = [n for n in vdb_names_service.entries_for_text(text) if not any(n in c for c in covered)]
-            found.extend((n, KNOWN_NAME_EN, KNOWN_NAME_HINT) for n in names[:vdb_names_service.MAX_PROMPT_NAMES])
+            names = [n for n in vdb_names_service.entries_for_text(text)
+                     if not any(n in c for c in covered) and _name_matches(n, text)]
+            found.extend((n, KNOWN_NAME_EN, KNOWN_NAME_HINT) for n in names[:LIVE_KNOWN_NAMES])
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]

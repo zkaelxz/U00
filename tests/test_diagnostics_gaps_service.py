@@ -1002,3 +1002,140 @@ def test_log_filter_looks_past_the_lines_a_plain_view_shows(isolated_db):
         f.write("".join(f"INFO line {i}\n" for i in range(300)))
     assert all("early failure" not in ln for ln in svc.get_log_tail(svc.LOG_TAIL_MAX))
     assert svc.get_log_tail(50, keyword="ERROR") == ["ERROR early failure"]
+
+
+# Planted in the Send logs bundle; none may come out.
+_TITLE = "Moonlit Example Garden"
+_TITLE_ZH = "月光示例花园"
+_ODD_KEY = "zz-custom-provider-key-0123456789"      # a format redact_secrets doesn't know
+_BUNDLE_SECRETS = {
+    "email": "alex.example@example.com",
+    "email_in_query": "https://site.example/api?user=alex.example@example.com&q=PRIVATEQUERY&lang=ja",
+    "userinfo": "https://alexuser:pwvalue123@cdn.example.com/a.mp4",
+    "cookie": "Cookie: sid=PLAINCOOKIEVALUE; theme=dark",
+    "password": 'password: "hunter2hunter2"',
+    "password_in_query": "login?password=hunter3hunter3&next=PRIVATENEXT",
+    "bearer": "Bearer PLAINBEARERVALUE123",
+    "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGV4In0.c2lnbmF0dXJlc2ln",
+    "signed": "https://cdn.example.com/a.mp4?X-Amz-Signature=SIGNEDVALUE&Expires=1",
+    "source_path": "https://novels.example/book/moonlit-example-garden/ch-1",
+    "lan_url": "http://172.20.9.77:11434/api/chat",
+    "lan_bare": "ollama at 172.20.9.77:11434 or nas-example.local",
+    "title": f"Translating 1/3 -- {_TITLE} (0%) and {_TITLE_ZH.upper()}",
+    "odd_key": f"rejected key {_ODD_KEY}",
+    "bare_path": "HTTPSConnectionPool(host='novels.example', port=443): Max retries exceeded with url: "
+                 "/book/moonlit-example-garden?page=2&q=PRIVATESEARCH",
+    "bare_query": "GET /search?q=PRIVATEWORDS 404",
+    "dotless_host": "HTTPConnectionPool(host='nas', port=80) and http://DESKTOP-EXAMPLE:11434/api/tags",
+    "pc_name": "running on DESKTOP-EXAMPLE",
+}
+_BUNDLE_LEAKS = ("alex.example", "alexuser", "pwvalue123", "PRIVATEQUERY", "PLAINCOOKIEVALUE",
+                 "hunter2hunter2", "hunter3hunter3", "PLAINBEARERVALUE123", "eyJhbGciOiJIUzI1NiJ9",
+                 "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "172.20.9.77",
+                 "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat",
+                 "PRIVATENEXT", "PRIVATESEARCH", "PRIVATEWORDS", "host='nas'", "DESKTOP-EXAMPLE")
+
+
+def _bundle(monkeypatch):
+    import io
+    import platform
+    import zipfile
+    monkeypatch.setattr(platform, "node", lambda: "DESKTOP-EXAMPLE")
+    monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
+    monkeypatch.setattr(settings_service, "resolve_key",
+                        lambda name, env_path=None: _ODD_KEY if name == "openai" else None)
+    monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name != "pydub")
+    monkeypatch.setattr(diagnostics_torch, "with_driver_vram_used", lambda gpu: {
+        **gpu, "name": "NVIDIA GeForce RTX 3080", "vram_used_gb": 1.0, "vram_total_gb": 12.0})
+    with zipfile.ZipFile(io.BytesIO(svc.build_support_bundle())) as zf:
+        return {n: zf.read(n).decode("utf-8") for n in zf.namelist()}
+
+
+def _write_log(name, lines):
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, name), "w", encoding="utf-8") as f:
+        f.write("".join(ln + "\n" for ln in lines))
+
+
+def test_support_bundle_scrubs_planted_secrets(isolated_db, monkeypatch):
+    db.create_drama(title_en=_TITLE, title_zh=_TITLE_ZH)
+    db.set_app_setting("pref.default_style_note", f"keep {_TITLE} formal")
+    home = os.path.expanduser("~")
+    dirty = " ".join([DIRTY, *_BUNDLE_SECRETS.values(), f"saved {home}/Videos/clip.mp4"])
+    # One per line as well: a cookie header hides the rest of its line.
+    per_line = [f"ERROR {v} done" for v in _BUNDLE_SECRETS.values()]
+    _write_log("app.log", ["INFO started", f"ERROR {dirty}", *per_line])
+    _write_log("app.log.1", [f"ERROR older {dirty}", *per_line])
+    db.save_job_record("translate_7", "error", message=dirty, error=dirty,
+                       started_at=10.0, finished_at=14.0)
+    files = _bundle(monkeypatch)
+    assert sorted(files) == ["jobs.json", "logs/app.log", "logs/app.log.1",
+                             "support-report.txt", "system.json"]
+    everything = "\n".join(files.values())
+    _assert_clean(everything)
+    for leak in _BUNDLE_LEAKS + (home, db.LIBRARY_DIR):
+        assert leak.lower() not in everything.lower(), leak
+    log = files["logs/app.log"]
+    for kept in ("INFO started", "[EMAIL] done", "[TITLE] (0%)", "[LAN] done", "https://site.example done",
+                 "https://novels.example done", "Cookie: [REDACTED]"):
+        assert kept in log, kept
+    job = json.loads(files["jobs.json"])[0]
+    assert "message" not in job and job["job_id"] == "translate_7" and job["status"] == "error"
+    assert job["duration_seconds"] == 4.0 and len(job["error"]) <= svc.BUNDLE_ERROR_CHARS
+    system = json.loads(files["system.json"])
+    assert system["gpu"] == {"found": True, "name": "NVIDIA GeForce RTX 3080", "vram_total_gb": 12.0}
+    assert system["optional_dependencies"]["pydub"] is False
+    settings = system["settings"]
+    assert "choices" not in settings
+    assert all(isinstance(v, bool) for v in settings["endpoints"].values())
+    assert settings["preferences"]["default_style_note"] is True     # free text: set or not
+    assert settings["preferences"]["default_locale"] == "en-US"      # a fixed choice stays
+
+
+def test_support_bundle_keeps_cjk_readable(isolated_db, monkeypatch):
+    _write_log("app.log", ["INFO 字幕を保存しました"])
+    files = _bundle(monkeypatch)
+    assert files["logs/app.log"] == "INFO 字幕を保存しました\n"
+    assert "\\u" not in files["system.json"]
+
+
+def test_support_bundle_caps_the_logs_newest_first(isolated_db, monkeypatch):
+    monkeypatch.setattr(svc, "BUNDLE_LOG_BYTES", 2_000)
+    _write_log("app.log", [f"INFO new line {i:04d}" for i in range(500)])
+    _write_log("app.log.1", ["INFO old line"])
+    files = _bundle(monkeypatch)
+    assert "logs/app.log.1" not in files
+    log = files["logs/app.log"]
+    assert "new line 0499" in log and "new line 0000" not in log
+    assert len(log.encode()) <= 2_000
+    assert log.splitlines()[0].startswith("INFO new line ")    # no half line at the cut
+
+
+def test_support_bundle_skips_a_log_rotated_away_and_keeps_an_empty_one_empty(isolated_db, monkeypatch):
+    _write_log("app.log", [])
+    _write_log("app.log.1", ["INFO old line"])
+    gone = os.path.join(db.LIBRARY_DIR, "logs", "app.log.1")
+    real = svc._log_files
+    monkeypatch.setattr(svc, "_log_files", lambda: (os.remove(gone), real())[1] + [gone])
+    files = _bundle(monkeypatch)
+    assert files["logs/app.log"] == ""
+    assert "logs/app.log.1" not in files
+
+
+def test_support_bundle_one_at_a_time(isolated_db, monkeypatch):
+    from lib.errors import ConflictError
+    assert svc._BUNDLE_LOCK.acquire(blocking=False)
+    try:
+        with pytest.raises(ConflictError):
+            svc.build_support_bundle()
+    finally:
+        svc._BUNDLE_LOCK.release()
+    assert _bundle(monkeypatch)["jobs.json"] == "[]"
+
+
+def test_bundle_redaction_keeps_ordinary_text():
+    import diagnostics_report
+    text = "INFO translated 12 lines with claude in 3.2s (cookie browser: none, 2 GB free) via https://api.example.com"
+    assert diagnostics_report.bundle_redactor(titles=["Go"])(text) == text

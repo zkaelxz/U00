@@ -26,7 +26,7 @@ test('phone: icons only, no Connected word, and a failed check still shows the b
 
 test('a wide touch screen: the header buttons stay icons with the old words as their names', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   const search = page.locator('.header-end button.palette-btn')
   await expect(search).toHaveAttribute('aria-label', 'Search pages and titles')
   const text = await search.evaluate((el) => (el as HTMLElement).innerText.trim())

@@ -93,6 +93,8 @@
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
+  /* The warning bar's own opaque yellow: --warn-soft is a translucent tint that turns grey-tan over the blue page. */
+  --warn-bar-bg: #fdecc8;
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
   /* Selected rows and tinted boxes: mixed with the page colour so dark, OLED and sepia get the same step as light. */
@@ -139,6 +141,7 @@
     --bad: #ef7b73;
     --ok: #5fc08c;
     --warn: #e0a24a;
+    --warn-bar-bg: #3a2c10;
     --info: #7aa2ec;
     --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
     --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
@@ -172,6 +175,7 @@
   --bad: #ef7b73;
   --ok: #5fc08c;
   --warn: #e0a24a;
+  --warn-bar-bg: #3a2c10;
   --info: #7aa2ec;
   --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
   --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
@@ -202,6 +206,7 @@
   --muted: #a0a0a0;
   --border: #262626;
   --highlight: #10161f;
+  --warn-bar-bg: #2e2208;
   --shadow-pop: none;
 }
 
@@ -219,6 +224,7 @@
   --border: #cdbf9d;
   --highlight: #e2d3ae;
   --warn: #7a4600;
+  --warn-bar-bg: #f6e0a0;
   --ok: #175c2d;
   --bad: #9c1f18;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #3b3220 20%, transparent);
@@ -534,9 +540,9 @@ dd { margin: 0; }
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
 /* WarnBar (components/WarnBar.tsx): one thin line. With a mouse a long message is cut short and its full text is the
    tooltip; a touch screen can't hover, so there it wraps instead. */
-.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
+.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-bar-bg); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
 .warn-bar-bad { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
-.warn-bar-shell { margin: var(--space-3) var(--space-4) 0; }
+.warn-bar-shell { margin: var(--space-3) 0; }
 .warn-bar-text { flex: 1 1 auto; min-width: 0; }
 .warn-bar-action { flex: none; white-space: nowrap; }
 .warn-bar-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-lg); cursor: pointer; }
@@ -1026,7 +1032,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 @media (max-width: 640px) {
   /* min-content counts whole words here (the title uses break-word, not the page-wide anywhere), so the actions wrap under the title before it breaks inside a word. */
   .page-head-text { flex: 1 1 0; min-width: min-content; }
-  .page-head > .actions { flex: none; }
+  /* max-width: two or more buttons wrap inside the screen instead of running past it at large text. */
+  .page-head > .actions { flex: none; max-width: 100%; }
 }
 /* Tabular figures in the body face: every digit is one width, so columns line up without the mono face. */
 .num { font-variant-numeric: tabular-nums; }
@@ -1035,8 +1042,11 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
 /* Continue shelf */
 .stats-placeholder { min-height: 1.5em; }
-.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
-.continue-item { container-type: inline-size; display: flex; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.continue-shelf { display: grid; gap: var(--space-2); min-width: 0; }
+.continue-head { margin: 0; color: var(--muted); font-family: inherit; font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: 0.06em; text-transform: uppercase; }
+/* Up to four plain tiles side by side (no boxes); a narrow window drops to as many columns as fit. */
+.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--space-3) var(--space-5); }
+.continue-item { container-type: inline-size; display: flex; }
 /* Lines apart (space-between) so the buttons of tiles side by side line up at the bottom. */
 .continue-row { flex: 1; display: flex; flex-wrap: wrap; align-items: center; align-content: space-between; gap: var(--space-2) var(--space-3); min-width: 0; }
 .continue-tile { flex: none; }
@@ -1048,7 +1058,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 /* A tile too narrow for most labels beside the title puts every button on its own row, so tiles side by side match
    whatever their labels. */
 @container (max-width: 28rem) {
-  .continue-row > .continue-next { flex-basis: 100%; }
+  .continue-row > .continue-open { flex-basis: 100%; }
+  .continue-row > .continue-next { flex: 0 0 auto; margin-left: calc(36px + var(--space-3)); }
 }
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
@@ -1062,11 +1073,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .continue-placeholder .skeleton-text { width: 80%; clip-path: inset(3px 0 round var(--radius-sm)); }
 .continue-placeholder .skeleton-text.short { width: 50%; }
 @media (max-width: 640px) {
-  .continue-card { padding: var(--space-3); }
-  .continue-item { padding: var(--space-2); }
-  /* A phone shows one tile at a time: its button always takes the row under the text, a full thumb target, so a
-     short label and a long one sit the same. */
-  .continue-row > .continue-next { flex-basis: 100%; min-height: 44px; }
+  /* A phone shows one tile at a time, so its button sits small on the right of the title. A label too long to leave
+     the title 11rem drops to a row of its own, still on the right. Placed after the container rule to override it. */
+  .continue-row > .continue-open { flex-basis: 11rem; }
+  .continue-row > .continue-next { flex: 0 0 auto; margin-left: auto; min-height: 44px; }
 }
 
 /* Toolbar: search, scope, filters, view, select */
@@ -1079,8 +1089,22 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .toolbar-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
 .toolbar-filters select { width: 11rem; min-width: 0; }
 .toolbar-row { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
+.toolbar-row > .toolbar-search { flex: 1 1 16rem; max-width: 28rem; }
+.filters-menu { position: relative; }
+.filters-menu > summary { list-style: none; cursor: pointer; }
+.filters-menu > summary::-webkit-details-marker { display: none; }
+.filters-menu > summary::after { content: '▾'; margin-left: var(--space-1); }
+.filters-menu-panel { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; display: grid; gap: var(--space-3); width: max-content; max-width: min(34rem, 90vw); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-pop); }
+/* Closed, the panel still has a box in Chrome's details layout and would widen the page. */
+.filters-menu:not([open]) .filters-menu-panel { display: none; }
+.filters-menu.align-end .filters-menu-panel { left: auto; right: 0; }
+.filters-menu-panel .toolbar-filters select, .filters-menu-panel .filters select { width: 15rem; }
+.quick-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.quick-row > .library-series-links { margin: 0 0 0 auto; }
 /* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
 .toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }
+/* The sort icon's select is an invisible layer over the 44px icon, so it takes the icon's size. */
+.toolbar-row .sort-icon select { min-width: 0; }
 .toolbar-end { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }
 /* More filters: a closed summary sits in the row; open, it becomes its own full-width row below. */
 .library-toolbar .more-filters { margin-bottom: 0; }
@@ -1101,6 +1125,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .drama-card-main { display: flex; flex-direction: column; gap: var(--space-1); flex: 1 1 auto; min-width: 0; padding: var(--space-3) var(--space-4) var(--space-2) var(--space-3); }
 @media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
 .drama-tile { overflow: hidden; }
+.drama-grid .drama-tile { margin-left: 0; }
 .drama-tile img { width: 100%; height: 100%; object-fit: cover; }
 .drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
