@@ -303,7 +303,8 @@ def _bare_pin_clash(text: str) -> bool:
         elif inside and (m := _CAUSE_RE.match(line)):
             if m.group(1).endswith("depends on"):
                 return False
-            names.add(re.match(r"[A-Za-z0-9._-]+", m.group(2)).group(0).lower())
+            name = re.match(r"[A-Za-z0-9._-]+", m.group(2))
+            names.add(name.group(0).lower() if name else m.group(2))
     return len(names) == 1
 
 
