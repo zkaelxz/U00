@@ -410,6 +410,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
                 fixButtonRef={fixButtonRef}
                 fieldRef={fieldRef}
                 cardRef={cardRef}
+                mediaRef={mediaRef}
               />
             )}
             {original && <SleepTimerCard key={id} boxRef={playerBoxRef} />}

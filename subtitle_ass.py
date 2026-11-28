@@ -307,13 +307,115 @@ def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
                      for row in text.split("\n"))
 
 
+# The reading row is drawn smaller than the line it reads, so more of it fits a row.
+_READING_SCALE = 0.6
+# Words still to be spoken show faint until \\kf fills them in.
+_UNSUNG_ALPHA = "&H90&"
+
+
+def _karaoke_text(ln, fitted: str):
+    """`fitted` (the line's source text as shown, rows already broken) as
+    ASS text with a \\kf per stored word, so each word fills in as it is
+    spoken; None when the line keeps no word times for its current text.
+    Characters between words (punctuation) go with the word before."""
+    import segment_splitting
+
+    spans = segment_splitting.line_word_spans(ln)
+    src = ln.zh or ""
+    if not spans:
+        return None
+    owner, k = [0] * len(src), 0
+    for i in range(len(src)):
+        while k + 1 < len(spans) and spans[k + 1][0] <= i:
+            k += 1
+        owner[i] = k
+    groups, i = [], 0  # [word index, shown text]
+    for ch in fitted:
+        # A row break was put in where the source had a space, or where it had nothing.
+        while i < len(src) and ch != src[i] and src[i].isspace():
+            i += 1
+        if i < len(src) and ch == src[i]:
+            word, i = owner[i], i + 1
+        elif ch == "\n" and groups:
+            word = groups[-1][0]
+        else:
+            return None
+        if groups and groups[-1][0] == word:
+            groups[-1][1] += ch
+        else:
+            groups.append([word, ch])
+    if src[i:].strip():
+        return None
+    origin = round(ln.start * 100)
+
+    def at(t):  # centiseconds after the Dialogue's own (rounded) start
+        return max(0, round(t * 100) - origin)
+    out, cursor = [f"{{\\2a{_UNSUNG_ALPHA}}}"], 0
+    for n, (w, text) in enumerate(groups):
+        begin = max(cursor, at(spans[w][2]["start"]))
+        if begin > cursor:
+            # An empty syllable: the pause before this word is not drawn as the last word still being said.
+            out.append(f"{{\\k{begin - cursor}}}")
+        end = max(begin, at(spans[w][2]["end"]))
+        if n + 1 < len(groups):
+            end = min(end, max(begin, at(spans[groups[n + 1][0]][2]["start"])))
+        out.append(f"{{\\kf{end - begin}}}{_before_tag(_ass_escape(text))}")
+        cursor = end
+    return "".join(out)
+
+
+def _before_tag(escaped: str) -> str:
+    """Escaped text that an override tag follows: a backslash at its end would
+    escape the tag's brace, so a word joiner goes between them."""
+    return escaped + "\u2060" if escaped.endswith("\\") else escaped
+
+
+def source_rows(style: dict, field: str, notes_by_idx, wrap_chars, frame_aspect=None,
+                language=None, chinese_script: str = "simplified",
+                reading_line: bool = False, karaoke: bool = False):
+    """lines_to_ass's `source_text`: for a line's original text, a smaller
+    reading row (pinyin or kana) above it and/or karaoke timing on it.
+    notes_by_idx is what lines_to_ass puts on the cue itself (None when
+    notes go on their own line). None from the returned function, or no
+    function at all, leaves the cue as it is."""
+    if field not in ("zh", "bilingual") or not (reading_line or karaoke):
+        return None
+    import segment
+
+    limit = ass_cjk_row_limit(style, frame_aspect)
+
+    def fit(text, rows_of=limit, lang=language):
+        return _fit_cjk_rows(text, rows_of, lang, chinese_script)
+
+    def text_for(ln, plain: str):
+        if getattr(ln, "sfx", False) or not (ln.zh or "").strip():
+            return None
+        whole = fit(plain)
+        zh = fit(wrap_text(ln.zh, wrap_chars.get("zh"), language, chinese_script) if wrap_chars else ln.zh)
+        notes = fit(notes_suffix(ln.idx, notes_by_idx))
+        if not whole.endswith(zh + notes):
+            return None
+        lang = getattr(ln, "lang", None) or language or "zh"
+        reading = segment.reading_text(ln.zh, lang, chinese_script) if reading_line else ""
+        sung = _karaoke_text(ln, zh) if karaoke else None
+        if not reading and sung is None:
+            return None
+        scale = round(_READING_SCALE * 100)
+        above = (f"{{\\fscx{scale}\\fscy{scale}}}"
+                 f"{_before_tag(_ass_escape(fit(reading, int(limit / _READING_SCALE), lang)))}{{\\r}}\\N") if reading else ""
+        # \\r ends the faint unsung look before the notes, which are never sung.
+        body = f"{sung}{{\\r}}" if sung else _ass_escape(zh)
+        return _ass_escape(whole[:len(whole) - len(zh) - len(notes)]) + above + body + _ass_escape(notes)
+    return text_for
+
+
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | None = None,
                  speaker_colors: dict | None = None, speaker_names: dict | None = None,
                  wrap_chars: dict | None = None, title: str = "",
                  notes_as_separate_line: bool = False,
                  language=None, chinese_script: str = "simplified",
                  frame_aspect=None, ass_header: dict | None = None,
-                 ass_header_key: str | None = None) -> str:
+                 ass_header_key: str | None = None, source_text=None) -> str:
     """style: a dict shaped like ASS_PRESETS' values. speaker_colors:
     {speaker_label: "#RRGGBB"} -- each speaker gets its own Style with that
     fill colour (so libass colours them without any override tags); None
@@ -332,7 +434,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
     ass_header, ass_header_key: an imported file's styles and canvas and
     the key its events carry (ass_header_for). Those lines are written back
     with their own style, layer, margins, effect and override tags
-    (_event_text); the rest get Baihe's styles, scaled to that canvas."""
+    (_event_text); the rest get Baihe's styles, scaled to that canvas.
+    source_text: source_rows' function, for the lines not from an import."""
     speaker_colors = speaker_colors or {}
     lines = list(lines)
     records = [_header_record(ln, ass_header, ass_header_key) for ln in lines]
@@ -384,7 +487,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
             style_name = style_for.get(ln.speaker, default_name)
             name = _ass_field((speaker_names or {}).get(ln.speaker) or "") if ln.speaker else ""
         if record is None:
-            text = _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
+            text = (source_text and source_text(ln, plain)) or _ass_escape(
+                _fit_cjk_rows(plain, row_limit, language, chinese_script))
             events.append(f"Dialogue: 0,{start},{end},{style_name},{name},0,0,0,,{text}")
         else:
             own = _ass_field(record.get("style") or "")

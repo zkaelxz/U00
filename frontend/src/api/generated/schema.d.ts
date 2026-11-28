@@ -14493,6 +14493,11 @@ export interface components {
              */
             include_notes?: boolean;
             /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
+            /**
              * Notes As Separate Line
              * @default false
              */
@@ -14507,6 +14512,11 @@ export interface components {
              * @default Clean
              */
             preset?: string;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -33023,6 +33033,8 @@ export interface components {
             meanings: string[];
             /** Reading */
             reading: string | null;
+            /** Start */
+            start: number | null;
             /** Word */
             word: string;
         };
@@ -47355,6 +47367,7 @@ export interface operations {
                 wrap_chars_source?: number;
                 tidy_timing?: boolean;
                 speaker_names?: boolean;
+                reading_line?: boolean;
             };
             header?: never;
             path: {
