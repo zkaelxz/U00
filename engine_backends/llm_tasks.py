@@ -164,8 +164,10 @@ def batch_deadline_for(engine) -> float:
     FallbackEngine makes on the same engine before switching, plus the
     backoff between them."""
     if isinstance(engine, SlowSwitchEngine):
-        # One engine per call, except that a failing fallback hands that call to the primary.
-        return sum(_BATCH_REQUESTS * _request_timeout_for(e) for e in engine.engines) + _DEADLINE_MARGIN_SECONDS
+        # The active engine's window; on the fallback also the primary's, since a fallback
+        # that can't serve hands that same call to the primary.
+        used = engine.engines[:engine.active + 1]
+        return sum(_BATCH_REQUESTS * _request_timeout_for(e) for e in used) + _DEADLINE_MARGIN_SECONDS
     if isinstance(engine, FallbackEngine):
         attempts = FALLBACK_TRANSIENT_RETRIES + 1
         return sum(attempts * _BATCH_REQUESTS * _request_timeout_for(e) + _fallback_backoff_total()

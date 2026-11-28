@@ -170,6 +170,8 @@ def with_slow_switch(engine):
     DeepSeek is slow (engine_fallback.SlowSwitchEngine); any other engine unchanged."""
     if getattr(engine, "name", "") != "deepseek" or isinstance(engine, engine_fallback.FallbackEngine):
         return engine
+    if local.member_cloud_key() == local.UNREADABLE_MEMBER_KEY:
+        return engine  # the member's hosted runs are refused until they paste the key again
     from services import translate_service
     name, model = SLOW_SWITCH_FALLBACK
     fallback = engine_registry.get_engine(name, translate_service.resolve_api_key(name), model,

@@ -431,3 +431,50 @@ def test_only_a_deepseek_run_gets_the_slow_switch(monkeypatch):
     assert deepseek.engines[1].model == "gemma4:31b-cloud"
     claude = _Timed("claude", "claude-sonnet-5-5")
     assert translate_run_options.with_slow_switch(claude) is claude
+
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+def test_a_busy_fallback_is_not_handed_back(novel, quick_slow_line, monkeypatch):
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=_RateLimited("busy"))
+    with pytest.raises(_RateLimited):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_failed_attempts_of_a_slow_switch_run_are_billed_by_the_pipeline():
+    from services import workspace_job_service as wjs
+    engine = _switching(primary_delay=0.0)
+    wjs._bill_failed_attempts(1, engine)
+    assert not hasattr(engine, "failed_usage_cb")
+
+
+def test_a_run_on_the_primary_keeps_the_primarys_deadline():
+    from engine_backends import llm_tasks
+    engine = _switching(primary_delay=0.0)
+    assert llm_tasks.batch_deadline_for(engine) == llm_tasks.batch_deadline_for(engine.engines[0])
+    engine.active = 1
+    assert llm_tasks.batch_deadline_for(engine) > llm_tasks.batch_deadline_for(engine.engines[1])
+
+
+def test_reflect_and_bulk_runs_get_no_slow_switch(monkeypatch):
+    from services import translate_run_options
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine",
+                        lambda name, key, model, **k: _Timed(name, model))
+    built = [("deepseek", "k", "deepseek-flash", False)]
+    chain = [{"engine": "deepseek", "model": "deepseek-flash"}]
+    _, plain, _ = translate_run_options.instantiate_engines(built, chain, [None], False)
+    _, switching, _ = translate_run_options.instantiate_engines(built, chain, [None], True)
+    assert not isinstance(plain, fb.SlowSwitchEngine)
+    assert isinstance(switching, fb.SlowSwitchEngine)
+
+
+def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
+    from engine_backends import local
+    from services import translate_run_options
+    monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
+    deepseek = _Timed("deepseek", "deepseek-flash")
+    assert translate_run_options.with_slow_switch(deepseek) is deepseek

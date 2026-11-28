@@ -227,6 +227,19 @@ def is_slow_request(seconds: float, n_lines: int) -> bool:
     return seconds > max(SLOW_REQUEST_SECONDS, n_lines * SLOW_SECONDS_PER_LINE)
 
 
+def _cannot_serve(e: Exception) -> bool:
+    """The fallback isn't there at all (no server, refused sign-in), as opposed to a busy
+    moment (rate limit, outage, timeout) that the pipeline's own retries wait out."""
+    if type(e).__name__ == "OllamaUnavailableError":
+        return True
+    status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+    if status in (401, 403):
+        return True
+    names = [cls.__name__.lower() for cls in type(e).__mro__]
+    return (any("connectionerror" in n or "apiconnection" in n for n in names)
+            and not any("timeout" in n for n in names))
+
+
 def _engine_key(engine):
     return (getattr(engine, "name", ""), getattr(engine, "model", ""))
 
@@ -309,7 +322,7 @@ class SlowSwitchEngine(FallbackEngine):
         try:
             result = self.engines[self.active].translate_batch(zh_lines, context)
         except Exception as e:
-            if on_primary or not is_fallback_error(e):
+            if on_primary or not _cannot_serve(e):
                 raise
             # The fallback can't serve this PC (Ollama not running or not signed in): the
             # slow engine is still better than none.
