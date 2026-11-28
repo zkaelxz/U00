@@ -79,7 +79,7 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-test\n")
     overview = settings_service.get_settings_overview(env_path)
     assert set(overview) == {"engine_keys", "gpu_limit_enabled", "gpu_max_parallel", "notify_on_completion",
-                             "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads",
+                             "desktop_popups", "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads",
                              "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
@@ -88,6 +88,15 @@ def test_get_settings_overview_shape(tmp_path, isolated_db):
     assert isinstance(overview["gpu_limit_enabled"], bool)
     assert isinstance(overview["notify_on_completion"], bool)
 
+
+
+def test_desktop_popups_says_whether_a_pop_up_can_show(tmp_path, isolated_db, monkeypatch):
+    from lib import desktop_session
+    env_path = _write_env(tmp_path, "")
+    monkeypatch.setattr(desktop_session, "has_desktop", lambda: False)
+    assert settings_service.get_settings_overview(env_path)["desktop_popups"] is False
+    monkeypatch.setattr(desktop_session, "has_desktop", lambda: True)
+    assert settings_service.get_settings_overview(env_path)["desktop_popups"] is True
 
 def test_get_settings_overview_never_leaks_a_key_value(tmp_path, isolated_db):
     env_path = _write_env(tmp_path, "BAIHE_CLAUDE_KEY=sk-should-not-leak\n")
