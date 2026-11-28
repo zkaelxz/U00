@@ -432,10 +432,19 @@
   // Waiting for slow pictures shares one budget across the chapter, so a bad connection costs
   // a bounded amount of time in total and the grab ends inside the app's time limit.
   var drawBudget = 120000;
+  // Only the page's own wrapper counts: the first ancestor holding another picture is the list
+  // of pages, where a placeholder further down would hold every drawn page back.
+  function holdsAnotherPicture(n, el) {
+    var pictures = n.querySelectorAll ? n.querySelectorAll("img, canvas, amp-img") : [];
+    for (var k = 0; k < pictures.length; k++) if (pictures[k] !== el) return true;
+    return false;
+  }
   function stillDrawing(el) {
     for (var n = el, d = 0; n && d < 3; n = n.parentElement, d++) {
-      if (/(^|[\s_-])loaded($|[\s_-])/.test(String(n.className || ""))) return false;
-      if (n.querySelector && n.querySelector('[class*="loading"]')) return true;
+      if (n !== el && holdsAnotherPicture(n, el)) return false;
+      var cls = String(n.className || "");
+      if (/(^|[\s_-])loaded($|[\s_-])/.test(cls)) return false;
+      if (cls.indexOf("loading") >= 0 || (n.querySelector && n.querySelector('[class*="loading"]'))) return true;
     }
     return false;
   }
