@@ -69,10 +69,13 @@ export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, sta
             {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}
           </p>
           {line.zh && (dramaId !== undefined
-            ? <OriginalLine key={line.id} dramaId={dramaId} lineId={line.id} text={line.zh} language={line.lang || sourceLanguage} mediaRef={mediaRef} />
+            ? (
+              // Keyed by line so the next line starts closed rather than showing the last breakdown.
+              <OriginalLine key={line.id} dramaId={dramaId} lineId={line.id} text={line.zh} language={line.lang || sourceLanguage} mediaRef={mediaRef}>
+                {!fix && <StudyLine dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
+              </OriginalLine>
+            )
             : <p className="watch-now-zh" lang={chineseLang(line.lang || sourceLanguage, line.zh, sourceLanguage)}>{line.zh}</p>)}
-          {/* Keyed by line so the next line starts closed rather than showing the last breakdown. */}
-          {dramaId !== undefined && line.zh && !fix && <StudyLine key={line.id} dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
           {fix ? (
             <form
               className="watch-now-form"

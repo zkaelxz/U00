@@ -1,7 +1,7 @@
 // A small "Study" button on the Watch page's now card: the line's original text, then each word with its reading and
 // meaning. It is a button, not a tap on the line, because tapping a line jumps the video there. Also the card's
 // original text itself, with its Reading switch.
-import { useEffect, useState, type RefObject } from 'react'
+import { useEffect, useState, type ReactNode, type RefObject } from 'react'
 
 import { readerApi } from '../../api/reader'
 import { chineseLang } from '../../hanScript'
@@ -83,12 +83,14 @@ function withGaps(text: string, words: Word[]): (string | { word: Word; index: n
  * The now card's original text with a Reading switch: on, pinyin or furigana sits over each word and the words light up
  * as they are spoken (from the line's stored word times; a line without them just shows the readings).
  */
-export function OriginalLine({ dramaId, lineId, text, language, mediaRef }: {
+export function OriginalLine({ dramaId, lineId, text, language, mediaRef, children }: {
   dramaId: number
   lineId: number
   text: string
   language: string
   mediaRef?: RefObject<HTMLMediaElement | null>
+  /** Shown in the switch's row (the Study button), so the switch adds no row on a phone. */
+  children?: ReactNode
 }) {
   const canRead = language === 'zh' || language === 'ja'
   const [reading, setReading] = usePersistedState('watch.reading', false)
@@ -138,11 +140,14 @@ export function OriginalLine({ dramaId, lineId, text, language, mediaRef }: {
         {words && words.length > 0 ? <ReadingWords text={text} words={words} lang={lang} heard={timed ? heard : -1} /> : text}
       </p>
       {on && study?.needs_install && <p role="status">Readings need {study.needs_install}, which is not installed (see Diagnostics).</p>}
-      {canRead && (
-        <Field label={language === 'ja' ? 'Furigana' : 'Pinyin'}>
-          <Toggle checked={reading} onChange={setReading} />
-        </Field>
-      )}
+      <div className="watch-now-tools">
+        {children}
+        {canRead && (
+          <Field label={language === 'ja' ? 'Furigana' : 'Pinyin'}>
+            <Toggle checked={reading} onChange={setReading} />
+          </Field>
+        )}
+      </div>
     </div>
   )
 }
