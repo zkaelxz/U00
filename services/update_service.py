@@ -497,6 +497,8 @@ def periodic_tick(now=time.time) -> None:
     """At most one check a day, and only when the owner turned it on.
     Called from the API's background poller; a verified app update waiting
     for the quiet hours is applied from here."""
+    from services import model_download_service
+    model_download_service.preferred_models_tick()
     if not get_auto_check():
         return
     from services import app_update_service
