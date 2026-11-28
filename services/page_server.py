@@ -867,6 +867,24 @@ def _usage_cb(drama, config, engine):
     return paid_calls.usage_logger((drama or {}).get("id"), name, engine, "extension_translate")
 
 
+def _start_from_link(route: str, payload: dict) -> dict:
+    """/video and /live for the PC's own extension: what the device-token routes do, as the PC owner.
+    Only the link is sent, so the run uses no saved logins, as from any other device."""
+    from lib.errors import ForbiddenError
+    from services import auth_service, extension_bridge_service, live_service
+    from services.extension_novel_service import _BRIDGE_PRINCIPAL
+    # The queue checks each step's permissions (an edited step needs lines.edit), so the owner
+    # needs them all, as api.auth's local owner has.
+    owner = {**_BRIDGE_PRINCIPAL, "is_admin": True, "permissions": list(auth_service.PERMISSIONS)}
+    try:
+        if route == "/video":
+            return extension_bridge_service.send_video(payload, owner, holds_paid=True)
+        return extension_bridge_service.start_live(extension_bridge_service.live_choices(payload),
+                                                   live_service.default_engine(), None, owner)
+    except ForbiddenError as e:
+        raise EndpointError(403, e.message) from None
+
+
 # -- HTTP --------------------------------------------------------------
 class _Handler(BaseHTTPRequestHandler):
     server_version = "BaihePageServer/1.0"
@@ -986,9 +1004,17 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary", "/subs",
+                             "/video", "/live"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route in ("/video", "/live"):
+                self._send_json(200, _start_from_link(route, payload))
+                return
+            if route == "/subs":
+                from services import extension_subs_service
+                self._send_json(200, extension_subs_service.subs_for_page(payload))
+                return
             if route == "/capture-summary":
                 self._send_json(200, extension_bridge_service.record_capture_summary(payload))
                 return

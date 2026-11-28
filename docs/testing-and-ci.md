@@ -72,7 +72,7 @@ head commit it read, to hold against the commit of the green run, and the reason
 overlap lane", and which files the PR shares with what the base has merged since. The merge report quotes its output. Exit
 status 0 is clear, 1 is overlap and 2 is "could not decide" (for example, a shallow clone that does not reach the last base
 commit the branch merged: deepen it, as the message says); the first line then still reads `overlap`, because a failure never
-clears a PR. It does not read the run: the owner still checks for a full green run at the exact head. It reads a database schema
+clears a PR. It does not read the run: the owner still checks for a full green run at the exact head (after a reuse on approval, that run plus the earlier green run of the same tree it names in its `changes` log). It reads a database schema
 change as any edit to `db/__init__.py`, `db/migrations.py`, `db/schema.py`, `db/schema_system.py` or `sources/store.py`, or to
 any other Python file outside `tests/` that holds a `CREATE`, `ALTER` or `DROP` of a table, index, view or trigger, whichever
 line changed (a column added inside a multi-line statement changes no line that names it); and a dependency file by its name
@@ -142,7 +142,7 @@ ordered to merge. On a pull request without auto-merge on, `changes` holds them 
 `browser-gate` job sets the required commit status `browser-tests` to pending ("Waiting for the merge order"), so the PR
 cannot merge without them but nothing turns red and no failure email goes out. Turning auto-merge on (the
 `auto_merge_enabled` trigger) starts a new run that includes them, and so does every push while auto-merge stays on; the
-status turns green when they pass, or at once when the change needs none. The `full-ci` label runs them at once. Pushes to the
+status turns green when they pass, or at once when the change needs none. That run skips what the newest earlier run of the same PR head already passed, by the same tree match as "After a merge" below (`tools/ci_tested_tree.py --on-approval`): only a green run from this repo that tested the identical merge tree on the identical base counts, never the run itself, and anything else (no such run, a newer run that failed or is still running, an API error, a PR that changes an "everything" file, the `full-ci` label) runs everything the PR needs. Its record lists what the tree needed, so the push after the merge can still shorten its run. The `full-ci` label runs them at once. Pushes to the
 base, the merge queue and the nightly run never hold them back. A pending `browser-tests` is expected on a PR that has no merge
 order yet. The status is set by the workflow's token. A Dependabot PR's own runs have a read-only one and set none, but the run
 that a person starts by turning auto-merge on can set it. A fork's PR never can: run its tests on a branch of this repo instead. Re-running an older run that held
