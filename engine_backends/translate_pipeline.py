@@ -1110,10 +1110,14 @@ class _LaneRun(_TranslateRun):
                 yield False
                 return
             self.batch_cost = 0.0
+            stop = False
             try:
                 yield True
+            except Exception as e:
+                stop = stops_translate_run(e)
+                raise
             finally:
-                self.parent._release_batch(self.batch_cost, chunk)
+                self.parent._release_batch(self.batch_cost, chunk, stop=stop)
         return slot
 
     def _note_batch_cost(self, batch, cost):
