@@ -1,6 +1,6 @@
 """Pydantic models for api/routers/pending_install_routes.py."""
 
-from typing import Union, Annotated, Dict, List, Optional
+from typing import Annotated, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
@@ -88,6 +88,16 @@ class PendingInstallRestartStarted(BaseModel):
     stopped_jobs: List[str]
 
 
+class PendingInstallLastRestart(BaseModel):
+    outcome: str = Field(description="ok, install_failed, not_healthy, start_failed or stop_failed.")
+    downtime_seconds: Optional[int] = None
+    at: Optional[int] = None
+    packages: Optional[int] = None
+    restored: Optional[int] = None
+    restore_failed: Optional[int] = None
+    install_status: Optional[str] = None
+
+
 class PendingInstallStatus(BaseModel):
     packages: List[str]
     created: Optional[int] = None
@@ -96,6 +106,5 @@ class PendingInstallStatus(BaseModel):
     result: Optional[PendingInstallOutcome] = None
     applying: bool
     restart: PendingInstallRestart
-    last_restart: Optional[Dict[str, Union[str, int]]] = Field(
-        None, description="The service helper's last automatic restart: outcome word, seconds of "
-                          "downtime and package counts.")
+    last_restart: Optional[PendingInstallLastRestart] = Field(
+        None, description="The service helper's last automatic restart, until it is dismissed.")

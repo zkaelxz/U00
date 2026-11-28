@@ -14,19 +14,20 @@ import threading
 import time
 
 import background_jobs
+import db
 from jobs import job_launch
 import install_plan
 import install_registry
 import pending_install
 from services import diagnostics_admin_service as admin_svc
-from lib.errors import ConflictError, InvalidInputError, UnsupportedOperationError
+from lib.errors import ConflictError, InvalidInputError, ServiceError, UnsupportedOperationError
 from services import app_update_service, auth_service, source_update_service
-from lib.errors import ServiceError
 
 log = logging.getLogger(__name__)
+DISMISSED_RESTART_KEY = "pending_install.dismissed_restart_at"
 PLAN_CACHE_SECONDS = 600
-# Time to press Cancel after confirming, before Baihe restarts itself.
 MAX_QUEUED_KEYS = 40     # installer/service_update.MAX_QUEUED_KEYS
+# Time to press Cancel after confirming, before Baihe restarts itself.
 AUTO_GRACE_SECONDS = 180
 AUTO_RETRY_SECONDS = 3600
 OLD_HELPER = ("Baihe runs as a background service here, and its helper is from an older Setup. "
@@ -163,6 +164,9 @@ def cancel() -> dict:
 
 def dismiss_result() -> dict:
     pending_install.clear_result()
+    last = app_update_service.read_package_restart_result()
+    if last and isinstance(last.get("at"), int):
+        db.set_app_setting(DISMISSED_RESTART_KEY, last["at"])
     return {"dismissed": True}
 
 
@@ -248,6 +252,15 @@ def auto_apply_tick(now=None) -> None:
         log.warning("automatic package install restart failed: %s", type(exc).__name__)
 
 
+def _visible_restart():
+    """The helper's last outcome unless the owner dismissed that very run."""
+    last = app_update_service.read_package_restart_result()
+    dismissed = db.get_app_setting(DISMISSED_RESTART_KEY, None)
+    if last and dismissed is not None and last.get("at") == dismissed:
+        return None
+    return last
+
+
 def settle_after_helper() -> None:
     """The helper ran this queued install: its files in the data folder are the
     app's to remove, since the helper never deletes there. This is also what stops
@@ -264,11 +277,10 @@ def settle_after_helper() -> None:
 
 
 def get_status() -> dict:
-    settle_after_helper()
     state = pending_install.status()
     pending = state["pending"] or {}
     return {"packages": pending.get("packages", []), "created": pending.get("created"),
             "before": pending.get("before", {}),
             "problem": _PROBLEMS.get(state["problem"]),
             "result": state["result"], "applying": state["applying"], "restart": restart_info(),
-            "last_restart": app_update_service.read_package_restart_result()}
+            "last_restart": _visible_restart()}

@@ -19,8 +19,8 @@ import json
 import os
 import re
 import shutil
-import subprocess
 import stat
+import subprocess
 import time
 import zipfile
 from pathlib import Path
@@ -28,7 +28,7 @@ from pathlib import Path
 from installer import app_swap, ed25519_verify
 from installer.service_checks import health_ok, wait_until
 from installer.service_lock import (ADMINISTRATORS_SID, OWNER_SIDS, SYSTEM_SID, hold_directory, locked_problem, owner_sid,
-                                    security_sddl, trusted_trustees, write_access_problem)
+                                    security_sddl, write_access_problem)
 from installer.service_control import query_state, start_service, stop_service
 from installer.service_layout import APP_SERVICE, ServiceError, is_reparse_point, refuse_reparse_point
 
@@ -246,7 +246,7 @@ def apply_update(layout, run, port, health=health_ok, sleep=time.sleep, owner=ow
     version was put back; the outcome is also in app-update\\result.json,
     which the app reads."""
     root, updates = layout.root, layout.data / "library" / "updates"
-    if _restart_requested(layout) and _has_package_work(layout):
+    if _restart_requested(layout) and _has_package_work(layout, owner, sddl):
         return restart_for_packages(layout, run, port, health, sleep, owner=owner, hold=hold,
                                     sddl=sddl)
     # Held first and for the whole update: the folder's parent may belong to
@@ -417,8 +417,6 @@ def _run_install_step(layout, run, argv, seconds, runner, state_root) -> int:
     return done.returncode
 
 
-
-
 def _restart_requested(layout) -> bool:
     """Whether a package-restart request is there (only looked at, never
     deleted: LocalSystem doesn't delete by path in a folder the user can
@@ -441,11 +439,13 @@ def _already_handled(layout, created) -> bool:
     return isinstance(doc, dict) and doc.get("queued_created") == created
 
 
-def _has_package_work(layout) -> bool:
-    """A valid queue the helper hasn't run yet. Without one the start is for an app
-    update (or nothing), so a stale request never keeps an update from being applied."""
+def _has_package_work(layout, owner, sddl) -> bool:
+    """A valid queue the helper hasn't run yet, in an install folder it would be
+    allowed to install into. Otherwise the start is for an app update (or nothing),
+    so a request that can't be served never keeps an update from being applied."""
     queued = _queued_install(layout)
-    return queued is not None and not _already_handled(layout, queued[2])
+    return (queued is not None and not _already_handled(layout, queued[2])
+            and _install_folder_problem(layout, owner, sddl) is None)
 
 
 def _outcome_from(state_root, since) -> dict:
@@ -471,13 +471,16 @@ def _write_restart_result(layout, outcome: str, seconds: int, created=None, **ex
     """In the locked install's app-update folder (the app reads it there, like an
     update's result), never in the data folder the user can redirect."""
     work = app_swap.work_dir(layout.root)
-    with contextlib.suppress(OSError, app_swap.SwapError):
+    path = work / RESTART_RESULT_NAME
+    try:
         work.mkdir(parents=True, exist_ok=True)
-        path = work / RESTART_RESULT_NAME
         with open(str(path) + ".part", "w", encoding="utf-8") as fh:
             json.dump({"outcome": outcome, "downtime_seconds": seconds, "at": int(time.time()),
                        "queued_created": created, **extra}, fh)
         os.replace(str(path) + ".part", path)
+    except OSError as exc:
+        # Unrecorded, the app would queue the same install again.
+        raise ServiceError(f"The package install's outcome couldn't be recorded ({outcome}): {exc}") from None
 
 
 def _install_folder_problem(layout, owner, sddl) -> str | None:
@@ -560,7 +563,8 @@ def restart_for_packages(layout, run, port, health=health_ok, sleep=time.sleep,
             run.log(f"package install: the app did not answer after {seconds} s")
             raise ServiceError("The app did not come back after the package install. Restart the PC, "
                                "or run Setup again to repair it.")
-        _write_restart_result(layout, "ok", seconds, created, **outcome)
+        _write_restart_result(layout, "ok" if outcome.get("install_status") == "ok" else "install_failed",
+                          seconds, created, **outcome)
     run.log(f"package install: back after {seconds} s")
     return (f"Installed {outcome.get('packages', 0)} queued packages "
             f"({outcome.get('install_status')}); Baihe was back after {seconds} s.")

@@ -12188,6 +12188,26 @@ export interface components {
             /** To Version */
             to_version: string;
         };
+        /** PendingInstallLastRestart */
+        PendingInstallLastRestart: {
+            /** At */
+            at: number | null;
+            /** Downtime Seconds */
+            downtime_seconds: number | null;
+            /** Install Status */
+            install_status: string | null;
+            /**
+             * Outcome
+             * @description ok, install_failed, not_healthy, start_failed or stop_failed.
+             */
+            outcome: string;
+            /** Packages */
+            packages: number | null;
+            /** Restore Failed */
+            restore_failed: number | null;
+            /** Restored */
+            restored: number | null;
+        };
         /** PendingInstallOutcome */
         PendingInstallOutcome: {
             /** Finished */
@@ -12331,13 +12351,8 @@ export interface components {
             };
             /** Created */
             created: number | null;
-            /**
-             * Last Restart
-             * @description The service helper's last automatic restart: outcome word, seconds of downtime and package counts.
-             */
-            last_restart: {
-                [key: string]: string | number;
-            } | null;
+            /** @description The service helper's last automatic restart, until it is dismissed. */
+            last_restart: components["schemas"]["PendingInstallLastRestart"] | null;
             /** Packages */
             packages: string[];
             /**

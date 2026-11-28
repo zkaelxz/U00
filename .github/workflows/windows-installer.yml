@@ -428,7 +428,7 @@ jobs:
           $created = Queue "{'budoux': '0.0.0'}"
           $r = WaitResult $created
           Healthy
-          if ($r.outcome -ne 'ok' -or $r.install_status -ne 'failed') { $r | Format-List; Write-Error "a failing install wasn't reported as failed"; exit 1 }
+          if ($r.outcome -ne 'install_failed' -or $r.install_status -ne 'failed') { $r | Format-List; Write-Error "a failing install wasn't reported as failed"; exit 1 }
           $after = (& $py -s -m pip show budoux | Select-String '^Version:').ToString()
           if ($before -ne $after) { Write-Error "the failed install changed budoux: $before -> $after"; exit 1 }
           Write-Host "A failing install was rolled back; the app came back after $($r.downtime_seconds) s."

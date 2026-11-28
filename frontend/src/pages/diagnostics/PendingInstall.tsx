@@ -158,6 +158,16 @@ export function RestartAndInstall({ status, onBack }: { status: PendingInstallSt
   )
 }
 
+/** What the update helper's last automatic restart did, in plain words. */
+function restartLine(r: NonNullable<PendingInstallStatus['last_restart']>): string {
+  const away = `${r.downtime_seconds ?? 0} seconds`
+  if (r.outcome === 'ok') return `Baihe restarted itself to install ${r.packages ?? 0} packages and was back after ${away}.`
+  if (r.outcome === 'install_failed') {
+    return `Baihe restarted itself, but the install did not work. ${r.restored ?? 0} earlier packages were put back${r.restore_failed ? `, ${r.restore_failed} could not be` : ''}. Baihe was back after ${away}; queue it again if you still want it.`
+  }
+  return 'Baihe tried to restart itself to install packages but it did not finish cleanly, and the queued install was removed. Check Packages, run Setup again to repair, then queue it again.'
+}
+
 /** The queued install (with Cancel) and the last start-up outcome (with Dismiss). */
 export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted }: {
   status: PendingInstallStatus
@@ -188,9 +198,7 @@ export function PendingInstallBanner({ status, onCancel, onDismiss, onRestarted 
       )}
       {status.last_restart && (
         <p className={status.last_restart.outcome === 'ok' ? undefined : 'error'} role="status" data-testid="pending-install-last-restart">
-          {status.last_restart.outcome === 'ok'
-            ? `Baihe restarted itself to install ${status.last_restart.packages ?? 0} packages and was back after ${status.last_restart.downtime_seconds ?? 0} seconds.`
-            : 'Baihe tried to restart itself to install packages, but it did not finish cleanly. Check Packages, or run Setup again to repair.'}
+          {restartLine(status.last_restart)}
         </p>
       )}
       {status.problem && <p className="error" role="alert" data-testid="pending-install-problem">{status.problem}</p>}

@@ -466,3 +466,14 @@ def test_a_queue_the_helper_already_handled_is_removed_and_not_asked_for_again(c
     svc.auto_apply_tick(now=created + 10**6)
     assert asked == [] and svc.pending_install.read_pending()[0] is None
     assert client.get(BASE).json()["last_restart"]["outcome"] == "ok"
+
+
+def test_the_last_restart_line_goes_away_when_dismissed_and_status_is_read_only(client, env, monkeypatch):
+    queue(client, accept_risk=True)
+    created = svc.pending_install.read_pending()[0]["created"]
+    last = {"outcome": "install_failed", "queued_created": created, "at": 123, "restored": 1}
+    monkeypatch.setattr(svc.app_update_service, "read_package_restart_result", lambda: last)
+    assert client.get(BASE).json()["last_restart"]["outcome"] == "install_failed"
+    assert svc.pending_install.read_pending()[0] is not None     # reading never settles the queue
+    assert client.post(f"{BASE}/dismiss", json={}).status_code == 200
+    assert client.get(BASE).json()["last_restart"] is None

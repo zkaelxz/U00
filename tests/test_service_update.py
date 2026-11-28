@@ -8,10 +8,10 @@ nothing starts. Windows can't run here: what these pin is the decisions
 
 import base64
 import json
-from pathlib import Path
-import types
 import os
+import types
 import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -595,7 +595,7 @@ def test_the_data_folders_state_files_are_never_touched_by_the_install(env):
     assert sorted(p.relative_to(layout.data).as_posix() for p in layout.data.rglob("*")) == before
 
 
-def test_the_request_is_dispatched_and_spent_and_its_content_ignored(env, monkeypatch):
+def test_the_request_body_is_never_run_and_the_request_file_is_left_for_the_app(env, monkeypatch):
     layout, svc, _ = env
     _queue_file(layout)
     _restart_request(layout, json.dumps({"command": "calc.exe", "version": "9.9.9"}))
@@ -605,6 +605,7 @@ def test_the_request_is_dispatched_and_spent_and_its_content_ignored(env, monkey
                     owner=_admin_owner, sddl=_good_sddl, hold=_Held())
     assert not any("calc" in " ".join(map(str, c[0])) for c in run.calls)
     assert len(run.calls) == 1
+    assert (layout.data / "library" / "updates" / su.RESTART_REQUEST_NAME).exists()
 
 
 def test_a_request_behind_a_linked_updates_folder_is_ignored_and_nothing_is_deleted(env, monkeypatch):
@@ -683,7 +684,8 @@ def test_a_failed_install_is_reported_with_how_many_packages_were_put_back(env):
     _queue_file(layout)
     run = FakeRun({"status": "failed", "packages": ["a"], "restored": ["a"], "restore_failed": [],
                    "finished": 2**31})
-    assert "failed" in _install(layout, svc, run)
+    _install(layout, svc, run)
+    assert _restart_result(layout)["outcome"] == "install_failed"
     assert _restart_result(layout)["restored"] == 1 and svc.running
 
 
@@ -707,3 +709,22 @@ def test_a_stale_request_without_a_valid_queue_does_not_block_an_app_update(env,
 def test_the_apps_queue_cap_is_the_helpers():
     from services import pending_install_service
     assert pending_install_service.MAX_QUEUED_KEYS == su.MAX_QUEUED_KEYS
+
+
+def test_a_valid_queue_in_an_untrusted_folder_does_not_block_an_app_update(env, key):
+    layout, svc, _ = env
+    _queue_file(layout)
+    _restart_request(layout)
+    layout.lock_marker.unlink()          # Setup's lock marker gone: the package path would refuse
+    _release(layout, key)
+    with pytest.raises(service_layout.ServiceError, match="isn't locked"):
+        _apply(layout, svc)              # refused by the app-update path's own lock check, not skipped
+    assert svc.stops == 0
+
+
+def test_a_result_that_cannot_be_recorded_is_an_error_not_silence(env, monkeypatch):
+    layout, svc, _ = env
+    _queue_file(layout)
+    monkeypatch.setattr(su.os, "replace", lambda *a: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(service_layout.ServiceError, match="couldn't be recorded"):
+        _install(layout, svc, FakeRun(OK_RESULT))

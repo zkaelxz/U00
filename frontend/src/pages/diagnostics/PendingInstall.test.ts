@@ -155,6 +155,16 @@ it('says it installs by itself when the service helper restarts Baihe', () => {
   expect(JSON.stringify(banner)).toContain('install by themselves')
 })
 
+it('does not call a failed install a success after the helper restarted Baihe', () => {
+  const banner = PendingInstallBanner({
+    status: status({ last_restart: { outcome: 'install_failed', downtime_seconds: 40, restored: 2 } }),
+    onCancel: () => undefined, onDismiss: () => undefined, onRestarted: () => undefined,
+  })
+  const text = JSON.stringify(banner)
+  expect(text).toContain('did not work')
+  expect(text).toContain('2 earlier packages were put back')
+})
+
 const status = (o: Partial<PendingInstallStatus> = {}): PendingInstallStatus => ({
   packages: [], created: null, before: {}, problem: null, result: null, applying: false, last_restart: null,
   restart: { available: true, reason: null, running_jobs: [], other_jobs: false, service: false, automatic: false }, ...o,
