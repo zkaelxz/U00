@@ -41,6 +41,7 @@ import { useWaveformGaps } from './useWaveformGaps'
 import { pageCount, pageForPosition, structureErrorText, type PanelMode } from './reviewLogic'
 import { useSetSpeakerPanel } from './useSetSpeakerPanel'
 import { ReviewStatus, UndoNotice } from './UndoNotice'
+import { useSameFix } from './useSameFix'
 import { useUndoOffer } from './undoOffer'
 import type { LineTarget } from './reviewResults'
 import { Pager, ReviewToolbar } from './ReviewToolbar'
@@ -222,15 +223,13 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
 
   const active = activeId !== null ? shown.find((l) => l.id === activeId) ?? null : null
   const fill = useSpeakerFill(dramaId, data?.no_speaker_count ?? 0, shown, reloads, active, prose, onChanged, setStatus, setError)
-  const ctl = useMemo(
-    () =>
-      createLinesController({
-        dramaId, st, pending, focusActive, player, selectRef, showOnPageRef,
-        setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
-        setError, setSheet, setStructError, setAi, setRetranscribeFocusId, setSpeakerUndo: fill.setUndo,
-      }),
-    [dramaId, setData, setFound, setPage, setFilter, setError, fill.setUndo],
-  )
+  const sameFix = useSameFix(dramaId, onChanged, setStatus)
+  const ctl = useMemo(() => createLinesController({
+    dramaId, st, pending, focusActive, player, selectRef, showOnPageRef,
+    setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage, setFilter,
+    setError, setSheet, setStructError, setAi, setRetranscribeFocusId, setSpeakerUndo: fill.setUndo,
+    onEnglishSaved: sameFix.englishSaved,
+  }), [dramaId, setData, setFound, setPage, setFilter, setError, fill.setUndo, sameFix.englishSaved])
 
   const { actions } = ctl
 
@@ -453,6 +452,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {!simple && stepButtons}
         <ReviewStatus text={status} onOpenHistory={onOpenHistory} />
         {undo && <UndoNotice message={undo.message} busy={busy} onUndo={() => void edits.doUndo()} onDismiss={() => setUndo(null)} onOpenHistory={onOpenHistory} />}
+        {sameFix.node}
         {data === null && found === null ? (
           <RetryBanner error={error} what="the lines" onRetry={retry} />
         ) : (
