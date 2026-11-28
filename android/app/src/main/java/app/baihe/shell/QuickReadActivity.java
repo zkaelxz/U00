@@ -606,12 +606,17 @@ public class QuickReadActivity extends Activity {
     private int[] sizeOf(File source) {
         int[] size = pageSizes.get(source.getPath());
         if (size != null) return size;
+        size = headerSize(source);
+        // A header that could not be read (a file still being written) is read again next time.
+        if (size[0] > 0 && size[1] > 0) pageSizes.put(source.getPath(), size);
+        return size;
+    }
+
+    private static int[] headerSize(File source) {
         BitmapFactory.Options bounds = new BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(source.getPath(), bounds);
-        size = new int[] {bounds.outWidth, bounds.outHeight};
-        pageSizes.put(source.getPath(), size);
-        return size;
+        return new int[] {bounds.outWidth, bounds.outHeight};
     }
 
     /** Starts decoding a page in the background unless it is cached or already on its way. */
@@ -620,22 +625,32 @@ public class QuickReadActivity extends Activity {
         String key = keyFor(position);
         if (cache.get(key) != null || !decoding.add(key)) return;
         File source = fileFor(position);
-        int sample = PageDecode.sampleSize(sizeOf(source)[0], getResources().getDisplayMetrics().widthPixels);
+        int screenWidth = getResources().getDisplayMetrics().widthPixels;
         try {
             decoder.execute(() -> {
-                BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inSampleSize = sample;
-                Bitmap bitmap = BitmapFactory.decodeFile(source.getPath(), options);
-                runOnUiThread(() -> shown(key, bitmap));
+                // Sized from the header read here, never from a failed one: a full-size decode of a
+                // long strip is what the sample size keeps from running out of memory.
+                int width = headerSize(source)[0];
+                Bitmap bitmap = null;
+                if (width > 0) {
+                    BitmapFactory.Options options = new BitmapFactory.Options();
+                    options.inSampleSize = PageDecode.sampleSize(width, screenWidth);
+                    bitmap = BitmapFactory.decodeFile(source.getPath(), options);
+                }
+                Bitmap decoded = bitmap;
+                runOnUiThread(() -> shown(source.getPath(), key, decoded));
             });
         } catch (java.util.concurrent.RejectedExecutionException closing) {
             decoding.remove(key);
         }
     }
 
-    private void shown(String key, Bitmap bitmap) {
+    private void shown(String path, String key, Bitmap bitmap) {
         decoding.remove(key);
         if (bitmap == null || isDestroyed()) return;
+        Integer generation = redone.get(path);
+        // A Redo landed while this decoded: the old picture must not take a cache slot.
+        if (!key.equals(PageDecode.key(path, generation == null ? 0 : generation))) return;
         cache.put(key, bitmap);
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
