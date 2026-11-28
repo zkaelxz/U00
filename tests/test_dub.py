@@ -923,6 +923,70 @@ class TestNarrationSubprocessWorker:
         fractions = [i[1] for i in progress]
         assert fractions == sorted(fractions) and 0 < fractions[0] and fractions[-1] < 1.0
 
+    def test_a_qwen_clip_with_no_transcript_is_heard_by_whisper_first(self, monkeypatch, tmp_path):
+        """Qwen3-TTS clones from the speaker embedding alone without one (its weaker mode)."""
+        import whisper_models
+        import whisper_transcribe
+        _install_fake_pydub(monkeypatch)
+        heard, released, sent = [], [], []
+
+        def transcribe(path, model_size, **kw):
+            heard.append((os.path.basename(path), model_size, kw["language"], kw["beam_size"], kw["use_gpu"],
+                          kw["local_model_path"]))
+            return [{"text": "你好，"}, {"text": "我在这里。"}]
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", transcribe)
+        monkeypatch.setattr(whisper_models, "release_whisper_models", lambda: released.append(heard[:]))
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                sent.append((r["ref_text"], bool(released)))
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        clones = {"A": {"engine": "qwen3_tts", "ref_audio": str(tmp_path / "a.wav"), "ref_text": ""},
+                  "B": {"engine": "qwen3_tts", "ref_audio": str(tmp_path / "a.wav"), "ref_text": ""},
+                  "C": {"engine": "qwen3_tts", "ref_audio": str(tmp_path / "c.wav"), "ref_text": "Typed."}}
+        lines = [Line(idx=i, start=0, end=0, zh="x", en=f"Line {i}.", speaker=s) for i, s in enumerate("ABC")]
+        result_queue = queue.Queue()
+        dub_narration.build_narration_subprocess_worker(lines, str(tmp_path), clones, result_queue, use_gpu=True,
+                                                        clip_whisper={"local_model_path": "/models/whisper"})
+        outcome = _final_item(result_queue)
+        # One clip, heard once, with the app's model, folder and beam, in the clip's own language.
+        assert heard == [("a.wav", "large-v3", None, 5, True, "/models/whisper")]
+        assert sent == [("你好，我在这里。", True), ("你好，我在这里。", True), ("Typed.", True)]
+        assert outcome[1]["clip_transcripts"] == {"A": "你好，我在这里。", "B": "你好，我在这里。"}
+
+    def test_a_clip_whisper_cannot_hear_keeps_the_embedding_only_mode(self, monkeypatch, tmp_path):
+        import whisper_models
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing",
+                            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("offline")))
+        released = []
+        monkeypatch.setattr(whisper_models, "release_whisper_models", lambda: released.append(1))
+        clones = {"A": {"engine": "qwen3_tts", "ref_audio": "a.wav", "ref_text": ""},
+                  "B": {"engine": "omnivoice", "instruct": "female"}}
+        assert dub_narration.fill_clip_transcripts(clones, use_gpu=False) == {}
+        assert clones["A"]["ref_text"] == "" and released == [1]
+
+    def test_no_whisper_when_its_model_is_not_on_this_pc(self, monkeypatch, tmp_path):
+        import whisper_transcribe
+        _install_fake_pydub(monkeypatch)
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda *a, **k: pytest.fail("heard"))
+        speak_with(monkeypatch, lambda text, out_path, **kw: open(out_path, "w").close())
+        clones = {"A": {"engine": "qwen3_tts", "ref_audio": str(tmp_path / "a.wav"), "ref_text": ""}}
+        result_queue = queue.Queue()
+        dub_narration.build_narration_subprocess_worker([Line(idx=0, start=0, end=0, zh="x", en="Hi.", speaker="A")],
+                                                        str(tmp_path), clones, result_queue, clip_whisper=None)
+        outcome = _final_item(result_queue)
+        assert outcome[0] == "ok" and outcome[1]["clip_transcripts"] == {} and clones["A"]["ref_text"] == ""
+
+    def test_no_whisper_when_every_clip_has_its_transcript(self, monkeypatch):
+        import whisper_transcribe
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda *a, **k: pytest.fail("heard"))
+        clones = {"A": {"engine": "qwen3_tts", "ref_audio": "a.wav", "ref_text": "Typed."},
+                  "B": {"engine": "chatterbox", "ref_audio": "b.wav", "ref_text": ""}}
+        assert dub_narration.fill_clip_transcripts(clones, use_gpu=True) == {}
+
     def test_reports_an_exception_instead_of_raising(self, monkeypatch, tmp_path):
         _install_fake_pydub(monkeypatch)
         monkeypatch.setattr(dub_narration, "build_narration_track",

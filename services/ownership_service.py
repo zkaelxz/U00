@@ -43,9 +43,9 @@ User decisions applied (2026-09-29):
 """
 
 import contextlib
-import re
 import sqlite3
 
+import background_jobs
 import db
 from engine_backends import engine_registry
 from lib.acting import acting_principal, acting_user_id
@@ -591,19 +591,6 @@ def require_acting_lines_edit() -> None:
         raise ForbiddenError(_REPLACE_NEEDS_EDIT)
 
 
-def drama_id_of_job(job_id):
-    """The drama a `<prefix><drama_id>` job id (background_jobs.
-    DRAMA_JOB_PREFIXES) is for, else None. Only an exact prefix followed
-    by digits counts."""
-    import background_jobs
-    job_id = str(job_id or "")
-    for prefix in background_jobs.DRAMA_JOB_PREFIXES:
-        rest = job_id[len(prefix):]
-        if job_id.startswith(prefix) and re.fullmatch(r"[0-9]{1,18}", rest):
-            return int(rest)
-    return None
-
-
 def sees_every_job(principal) -> bool:
     """Admins, the local owner and auth off (None) see every job."""
     return _sees_everything(principal)
@@ -626,7 +613,7 @@ def job_drama_ownership(principal, job_ids) -> dict:
     Empty when the principal owns every job and nothing needs reading."""
     if principal is None or principal.get("is_local_owner"):
         return {}
-    ids = sorted({d for d in map(drama_id_of_job, job_ids) if d is not None})
+    ids = sorted({d for d in map(background_jobs.drama_id_of_job, job_ids) if d is not None})
     rows = {}
     with contextlib.closing(db.get_conn()) as conn:
         for start in range(0, len(ids), _OWNERSHIP_BATCH):
@@ -649,7 +636,7 @@ def can_see_job(principal, job_id, owner_user_id, writing: bool = False,
     job_drama_ownership's result, read once for a whole list."""
     if _everything(principal, writing):
         return True
-    drama_id = drama_id_of_job(job_id)
+    drama_id = background_jobs.drama_id_of_job(job_id)
     if drama_id is not None and drama_rows is not None:
         row = drama_rows.get(drama_id)
         return bool(row) and _visible(principal, "drama", row, writing)
@@ -682,7 +669,7 @@ def owns_job(principal, job_id, owner_user_id, drama_rows=None) -> bool:
         return False
     if owner_user_id is not None and owner_user_id == uid:
         return True
-    drama_id = drama_id_of_job(job_id)
+    drama_id = background_jobs.drama_id_of_job(job_id)
     return drama_id is not None and _owns_drama(principal, drama_id, drama_rows)
 
 

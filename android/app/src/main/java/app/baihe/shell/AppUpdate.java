@@ -199,12 +199,18 @@ final class AppUpdate {
         }
     }
 
+    /** Whether the last fetchText got any HTTP answer, so a caller can tell a silent PC from a refusal. */
+    static volatile boolean lastFetchAnswered;
+
     /** A small text answer (at most 64 KB) from the signed-in server, or null when it could not be had. */
     static String fetchText(String url, String cookie) {
+        lastFetchAnswered = false;
         try {
             HttpURLConnection conn = open(url, cookie);
             try {
-                if (conn.getResponseCode() != 200) return null;
+                int status = conn.getResponseCode();
+                lastFetchAnswered = true;
+                if (status != 200) return null;
                 try (InputStream in = conn.getInputStream()) {
                     byte[] buffer = new byte[64 * 1024];
                     int filled = 0;

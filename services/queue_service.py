@@ -37,6 +37,7 @@ from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
+from jobs import job_results
 from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
                       model_readiness_service, ownership_service, profile_service, queue_night, settings_service,
                       transcribe_service, transcribe_options_service, translate_run_service)
@@ -1055,7 +1056,7 @@ def _job_outcome(job_id: str):
             return False, RUNNING, ""
         # The raw in-memory error: scrub it the way get_job scrubs a record's.
         job = {"status": live["status"],
-               "error": jobs_service.scrub_text(live.get("error") or ""),
+               "error": job_results.scrub_text(live.get("error") or ""),
                "outcome": {"done": "ok", "error": "failed",
                            "cancelled": "cancelled"}.get(live["status"])}
     outcome = job.get("outcome")

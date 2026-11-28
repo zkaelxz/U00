@@ -20,7 +20,8 @@ import translation_notes
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import jobs_service, review_jobs_service as svc, translate_service
+from services import review_jobs_service as svc, translate_service
+from jobs import job_results
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                       InvalidInputError, NotFoundError,
                                       UnsupportedOperationError)
@@ -452,7 +453,7 @@ def test_fix_flagged_sends_no_timing_flags_and_reports_them(monkeypatch):
     rows = db.load_lines(did)
     assert [r["flag"] for r in rows if r["zh"] in "甲乙戊"] == ["timing_drift", "timing_overlap",
                                                               "timing_uncertain"]
-    message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))[1]
+    message = job_results.derive_outcome("done", None, job_results.project_result(result))[1]
     assert "3 timing flags skipped (fix them in the timing tools)" in message
 
 
@@ -465,7 +466,7 @@ def test_fix_flagged_with_only_timing_flags_is_refused_without_a_job(monkeypatch
 
 
 def test_timing_flags_skipped_message_is_pluralised():
-    one = jobs_service.derive_outcome("done", None, jobs_service.project_result(
+    one = job_results.derive_outcome("done", None, job_results.project_result(
         {"fixed_count": 1, "total_flagged": 1, "timing_skipped_count": 1}))[1]
     assert "1 timing flag skipped" in one and "1 timing flags" not in one
 

@@ -450,13 +450,13 @@ def test_pipeline_missing_vad_message_names_no_engine(tmp_path, monkeypatch):
                                                      ("anime_whisper", "ja", "anime_whisper")])
 def test_pipeline_value_error_is_reported_under_the_backend_that_raised_it(
         tmp_path, monkeypatch, backend, language, reason):
-    from services import jobs_service
+    from jobs import job_results
 
     def fake(self, *a, **k):
         raise ValueError("bad audio")
     out = _pipeline(_Rep(), tmp_path, monkeypatch, fake, backend=backend, language=language)
     assert out["failed_reason"] == reason
-    assert reason in jobs_service.FAILED_REASON_MESSAGES
+    assert reason in job_results.FAILED_REASON_MESSAGES
 
 
 def test_pipeline_cancel_before_start_returns_cancelled(tmp_path, monkeypatch):
@@ -504,11 +504,11 @@ def test_pipeline_reports_a_gpu_fallback_in_the_outcome_and_job_result(tmp_path,
     out = _pipeline(_RecordingRep(), tmp_path, monkeypatch, fake)
     assert out["gpu_fallback_task"] == "Qwen3-ASR"
     assert out["device_msg"] == "Qwen3-ASR on CPU"
-    from services import jobs_service
+    from jobs import job_results
     notice = whisper_models.gpu_fallback_notice(
         out["gpu_fallback_task"], out["gpu_fallback_msgs"][0])
     assert notice.startswith("Qwen3-ASR ran on the CPU because the GPU couldn't be used (")
-    shown = jobs_service.project_result({
+    shown = job_results.project_result({
         "gpu_fallback": out["gpu_fallback_msgs"][0], "device_notice": notice,
         "device": "GPU unavailable; using CPU"})
     assert shown["device_notice"] == notice and "no kernel image" in shown["gpu_fallback"]

@@ -95,11 +95,11 @@ class TestAResultThatCannotBeReadStillEndsTheJob:
 
     @pytest.fixture
     def unreadable(self, isolated_db, monkeypatch):
-        from services import jobs_service
+        from jobs import job_results
 
         def boom(*a, **k):
             raise TypeError("object of type 'int' has no len()")
-        monkeypatch.setattr(jobs_service, "derive_outcome", boom)
+        monkeypatch.setattr(job_results, "derive_outcome", boom)
 
     def test_a_thread_job(self, unreadable):
         assert job_launch.start_job("st_unread", lambda: bg.set_result("st_unread", {"x": 1}))
@@ -482,6 +482,7 @@ class TestRowsOfGoneOwners:
         """force_stop knows only this process's jobs: offering it for another
         process's job would answer 409."""
         from services import jobs_service
+        from jobs import job_results
         db.save_job_record("st_hung", "running", owner_pid=os.getppid())
         _set_row("st_hung", kind="thread", cancel_requested_at=time.time() - 90)
         out = jobs_service.get_job("st_hung")
@@ -489,7 +490,7 @@ class TestRowsOfGoneOwners:
         for internal in ("owner_pid", "owner_instance", "detail_state", "sync_error",
                          "cancel_requested_at"):
             assert internal not in out
-        assert out["kind"] == jobs_service.job_kind("st_hung")
+        assert out["kind"] == job_results.job_kind("st_hung")
 
     def test_a_sweep_between_the_two_writes_cannot_close_a_new_run(self, isolated_db, monkeypatch):
         db.save_job_record("st_mid", "running", owner_pid=os.getpid())

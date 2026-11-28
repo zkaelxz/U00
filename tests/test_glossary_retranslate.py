@@ -479,10 +479,10 @@ class TestOwnLinesOnly:
         assert after[rows[1]["id"]]["en"] == "my edit"
         assert not after[rows[1]["id"]]["flag"] and not after[rows[1]["id"]]["flag_note"]
         assert job["result"]["flags_needing_recheck"] == [rows[1]["id"]]
-        from services import jobs_service
-        projected = jobs_service.project_result(job["result"])
+        from jobs import job_results
+        projected = job_results.project_result(job["result"])
         assert projected["flags_needing_recheck"] == [rows[1]["id"]]
-        assert "recheck" in jobs_service.derive_outcome("done", None, projected)[1]
+        assert "recheck" in job_results.derive_outcome("done", None, projected)[1]
 
     @pytest.mark.parametrize("edit,expected", [
         ({"start": 40.0, "end": 44.5}, {"start": 5.0, "end": 9.0}),

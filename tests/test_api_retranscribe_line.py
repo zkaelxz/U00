@@ -22,6 +22,7 @@ import whisper_models
 import db
 from core import Line
 from services import jobs_service, transcribe_service, retranscribe_line_service, transcribe_options_service
+from jobs import job_results
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
 from tests.saved_settings import patch_setting
@@ -510,7 +511,7 @@ def _proposed(db, fake_asr, n=0, **kw):
 
 class TestJobsProjection:
     def test_line_text_is_never_in_a_job_record(self):
-        p = jobs_service.project_result({"line_id": 4, "proposed_zh": "字", "base_zh": "字",
+        p = job_results.project_result({"line_id": 4, "proposed_zh": "字", "base_zh": "字",
                                          "base_start": 1.0, "base_end": 2.0})
         assert p == {"line_id": 4}
 
