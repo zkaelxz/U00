@@ -269,7 +269,7 @@ def _pending_tail(drama_id: int, text: str) -> str:
     chars, length = waiting.chars, waiting.length
     if length != len(text):
         raise ConflictError("The translation text changed after the chapters were added, so their lines "
-                            "can't be cut on their own. Run chunk & tag again from the Source stage.")
+                            "can't be cut on their own. Run chunk & tag again from the Media tab.")
     saved = db.load_lines(drama_id)
     if not saved:
         raise InvalidInputError("This title has no lines to add to; run chunk & tag first.")

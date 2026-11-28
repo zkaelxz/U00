@@ -111,3 +111,47 @@ test('a refused link keeps the dialog open and a second Add reuses the title', a
   await expect(dialog).toBeHidden()
   expect(created).toHaveLength(1)
 })
+
+test('Read translated: keeps the import job beside the title so the reader can follow it', async ({ page }) => {
+  await mockScanlate(page, { mediaType: 'manhwa' })
+  await page.route('**/api/dramas', (route) => json(route, NEW))
+  await page.route('**/api/sources/url/import-comic', (route) => json(route, { job_id: 'sourceimport_7' }))
+  await page.goto('/#/comic/7?page=1')
+  await page.getByRole('button', { name: 'Read translated' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Read translated' })
+  await dialog.getByLabel('Title', { exact: true }).fill('Solo')
+  await dialog.getByLabel('Chapter link', { exact: true }).fill('https://comic.example/series/9/chapter/1')
+  await dialog.getByRole('button', { name: 'Read translated' }).click()
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem('baihe.pref.comic.readTranslatedJob.7')))
+    .toBe(JSON.stringify('sourceimport_7'))
+})
+
+test('Read translated: a refusal about the account shows the server\'s words, not "check the link"', async ({ page }) => {
+  await mockScanlate(page, { mediaType: 'manhwa' })
+  await page.route('**/api/dramas', (route) =>
+    json(route, { error: { code: 'conflict', message: 'You have 200 titles, the most a member account can have.' } }, 409))
+  await page.goto('/#/comic/7?page=1')
+  await page.getByRole('button', { name: 'Read translated' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Read translated' })
+  await dialog.getByLabel('Title', { exact: true }).fill('Solo')
+  await dialog.getByLabel('Chapter link', { exact: true }).fill('https://comic.example/series/9/chapter/1')
+  await dialog.getByRole('button', { name: 'Read translated' }).click()
+  await expect(dialog.getByRole('alert')).toContainText('200 titles')
+  await expect(dialog.getByText('Couldn’t read that link')).toHaveCount(0)
+})
+
+test('Read translated: a failed import says so and links to the job, instead of "Importing…" for ever', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('baihe.pref.comic.readTranslated.7', 'true')
+    localStorage.setItem('baihe.pref.comic.readTranslatedJob.7', JSON.stringify('sourceimport_7'))
+  })
+  await mockScanlate(page, { mediaType: 'manhwa', pageCount: 0 })
+  await page.route(/\/api\/jobs\/sourceimport_7$/, (route) =>
+    json(route, { job_id: 'sourceimport_7', status: 'error', outcome: 'failed', error: 'JobFailed: The site asked for a sign-in.', result: { kind: 'chapter', error: { code: 'login', message: 'The site asked for a sign-in.' } }, message: '', drama_id: 7 }))
+  await page.goto('/#/comic/7?page=1')
+  const alert = page.getByRole('alert').filter({ hasText: 'Couldn’t import this chapter' })
+  await expect(alert).toContainText('The site asked for a sign-in.')
+  await expect(alert).not.toContainText('JobFailed')
+  await expect(alert.getByRole('link', { name: 'See Jobs for details.' })).toHaveAttribute('href', '#/jobs?job=sourceimport_7')
+  await expect(page.getByText('Importing…')).toHaveCount(0)
+})

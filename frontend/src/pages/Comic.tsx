@@ -24,6 +24,7 @@ import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
+import { jobFailed } from '../types/jobs'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { AddComicButtons } from './comic/AddComicButtons'
 import { ChapterBar } from './comic/ChapterBar'
@@ -57,6 +58,8 @@ import {
   comicHref,
   hashIsComic,
   isReadTranslated,
+  readTranslatedJob,
+  importFailureText,
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
@@ -198,6 +201,9 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
   const count = data?.page_count ?? data?.pages.length ?? 0
   const pages = useMemo(() => data?.pages ?? [], [data])
+  const importing = data !== null && count === 0 && isReadTranslated(browserStorage(), id)
+  const { job: importJob } = useJob(importing ? readTranslatedJob(browserStorage(), id) : null, { onDone: refreshPages })
+  const importFailed = importJob ? jobFailed(importJob) : false
   const chapters = useMemo(() => data?.chapters ?? [], [data])
   const cprefs = useMemo(() => chapterPrefs ?? loadChapterPrefs(browserStorage(), id), [chapterPrefs, id])
   const setCprefs = (next: ChapterPrefs) => {
@@ -582,7 +588,14 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          <p>{isReadTranslated(browserStorage(), id) ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
+          {importFailed && importJob ? (
+            <p role="alert">
+              Couldn’t import this chapter{importFailureText(importJob) ? `: ${importFailureText(importJob)}` : '.'}{' '}
+              <a href={routeHref({ name: 'jobs', job: importJob.job_id })}>See Jobs for details.</a>
+            </p>
+          ) : (
+            <p>{importing ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
+          )}
           {panel}
         </div>
       ) : !data || current === null ? (
