@@ -361,7 +361,9 @@ class _PipelineRun:
         that the load would otherwise add after it: only a model already on disk (a download
         reports its own progress, in order) and only when memory holds both models."""
         o = self.o
-        if self.vad_run or o.use_groq:
+        # Only in a worker process: a force stop kills it, while a side thread in a thread job
+        # would skip the job thread's stop and re-run guards and keep writing to the record.
+        if self.vad_run or o.use_groq or not isinstance(self.rep, _ProcessReporter):
             return False
         vocals_path = os.path.join(os.path.dirname(self.audio_path), "vocals.wav")
         if _reusable_vocals(vocals_path, self.audio_path):
@@ -404,8 +406,10 @@ class _PipelineRun:
             pass  # the load after the separation tries again and reports the error
         finally:
             thread.join()
-        if "error" in outcome:
-            raise outcome["error"]
+        error = outcome.get("error")
+        if error is not None and not isinstance(error, memory_headroom.HeadroomError):
+            whisper_models.release_gpu_models()
+            raise error
         info = whisper_models.get_whisper_device_info(o.whisper_size, use_gpu=o.use_gpu,
                                                       local_model_path=o.local_model_path)
         # A GPU load that fell back to the CPU beside the separation must not stand for the
@@ -414,11 +418,11 @@ class _PipelineRun:
             whisper_models.forget_whisper_model(o.whisper_size, use_gpu=o.use_gpu,
                                                 local_model_path=o.local_model_path)
         failed = outcome.get("failed")
-        if failed:
+        if failed or error is not None:
             whisper_models.release_gpu_models()   # free the early model
-        # The memory check rests on estimates: a separation that failed beside the early
-        # model gets one more try alone, as it would have run before.
-        if failed and failed.get("failed_reason") == "vocal_separation":
+        # The memory check rests on estimates: a separation that failed or was refused memory
+        # beside the early model gets one more try alone, as it would have run before.
+        if error is not None or (failed and failed.get("failed_reason") == "vocal_separation"):
             failed = self._separate_vocals()
         return failed
 
