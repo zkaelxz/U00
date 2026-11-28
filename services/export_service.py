@@ -337,7 +337,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     `style` (font, size, bold, italic, primary, outline, outline_width,
     shadow, alignment, sfx_alignment, notes_alignment) override it, and
     missing keys keep the preset's values. speaker_colors is
-    {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
+    {speaker label or character name: "#RRGGBB"}; when omitted and per_speaker_colors is
     true, subtitle_ass.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
     Overlapping cues keep their saved times (players stack them, which is
@@ -393,14 +393,14 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     if frame_aspect is TITLE_VIDEO:
         frame_aspect = title_frame_aspect(drama_id, drama)
 
+    speaker_names = _speaker_display_names(drama_id)
     if not per_speaker_colors:
         colors = {}
     elif speaker_colors is not None:
-        colors = dict(speaker_colors)
+        colors = subtitle_ass.colors_by_label(speaker_colors, speaker_names)
     else:
         colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
 
-    speaker_names = _speaker_display_names(drama_id)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
     ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 

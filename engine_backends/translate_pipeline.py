@@ -42,7 +42,7 @@ from .shared import (
 )
 from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
-from en_cleanup import drop_em_dashes
+from en_cleanup import SCENE_BREAK, drop_em_dashes, is_divider
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
@@ -379,11 +379,15 @@ class _TranslateRun:
             target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in a.target_ids]
         # A line with no source text has nothing to translate; sent, it only invites invented English.
         target_lines = [ln for ln in target_lines if (ln.zh or "").strip()]
-        english = [ln for ln in target_lines if is_english_line(ln)]
+        # A novel's scene divider is copied as the English scene break: there is nothing to translate.
+        novel = medium_prompts.kind_for(a.drama_meta) == "novel"
+        dividers = {id(ln) for ln in target_lines if novel and is_divider(ln.zh.strip())}
+        english = [ln for ln in target_lines if is_english_line(ln) or id(ln) in dividers]
         for ln in english:
-            ln.en = ln.zh
+            ln.en = SCENE_BREAK if id(ln) in dividers else ln.zh
             source_change.clear_for_new_english(ln, a.replace_flags)
-        target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        copied = {id(ln) for ln in english}
+        target_lines = [ln for ln in target_lines if id(ln) not in copied]
         self.english = english
         if not target_lines:
             if english and a.save_cb:
