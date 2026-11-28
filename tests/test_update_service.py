@@ -956,6 +956,16 @@ def test_start_forgets_first_verified_times_once_this_copy_has_that_version(http
         assert db.get_app_setting(aus.FIRST_VERIFIED_APP_KEY) is None
 
 
+def test_start_forgets_an_unreadable_first_verified_record(http):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.FIRST_VERIFIED_INSTALLER_KEY, "{not json"))
+        conn.commit()
+    us.cleanup_leftovers()
+    assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY) is None
+
+
 def test_install_launch_failure_names_the_file_only(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: True)
 
@@ -1485,6 +1495,44 @@ def test_no_start_check_while_the_daily_check_is_off(http, monkeypatch):
     assert _start_check() is None and len(http.calls) == 1
 
 
+def test_the_start_check_runs_even_when_the_sweep_fails(monkeypatch):
+    ran = []
+
+    def sweep():
+        raise OSError("folder gone")
+    monkeypatch.setattr(us, "cleanup_leftovers", sweep)
+    monkeypatch.setattr(us, "check_at_start", lambda: ran.append(1))
+    with pytest.raises(OSError):
+        us.at_start()
+    assert ran == [1]
+
+
+def test_an_unreadable_failed_flag_means_no_start_check(http):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.CHECK_FAILED_KEY, "{not json"))
+        conn.commit()
+    assert _start_check() is None and http.calls == []
+
+
+def test_a_start_check_that_breaks_is_logged_redacted_not_raised(http, monkeypatch):
+    import applog
+    db.set_app_setting(us.CHECK_FAILED_KEY, True)
+    secret = "sk-ant-" + "x" * 30
+
+    def broken():
+        raise RuntimeError("boom " + secret)
+    monkeypatch.setattr(us, "check", broken)
+    warned, uncaught = [], []
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+        warning=lambda fmt, *a: warned.append(fmt % a)))
+    monkeypatch.setattr(threading, "excepthook", uncaught.append)
+    _start_check()
+    assert uncaught == [] and len(warned) == 1
+    assert "boom" in warned[0] and secret not in warned[0]
+
+
 def test_a_failed_start_check_is_still_retried_after_an_hour(http, monkeypatch):
     http.add(API_URL, status=503)
     us.set_auto_check(True)
@@ -1557,3 +1605,4 @@ def test_a_restore_keeps_this_pcs_first_verified_times():
     from services import app_update_service as aus
     assert us.FIRST_VERIFIED_INSTALLER_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
     assert aus.FIRST_VERIFIED_APP_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
+    assert us.CHECK_FAILED_KEY in lrs._RESTORE_KEPT_APP_SETTINGS

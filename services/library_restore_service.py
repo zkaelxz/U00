@@ -68,6 +68,8 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     "migrations.members_library_create",
     # When this PC first verified an update download: a backup's record would shorten the wait.
     "update.app_first_verified", "update.installer_first_verified",
+    # Whether this PC's last update check failed, so its next start checks again.
+    "update.last_check_failed",
     *(setting.store_key for setting in settings_schema.SETTINGS
       if setting.store == "db" and setting.type == "path"),
     *(settings_schema.BY_KEY[key].store_key for key in ("cookies_browser", "max_upload_mb")))

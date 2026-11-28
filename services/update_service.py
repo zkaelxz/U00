@@ -547,10 +547,20 @@ def check_at_start():
         return None
     if not failed:
         return None
-    thread = threading.Thread(target=_scheduled_check, args=(time.time,), daemon=True,
+    thread = threading.Thread(target=_check_in_background, daemon=True,
                               name="update-check-at-start")
     thread.start()
     return thread
+
+
+def _check_in_background() -> None:
+    try:
+        _scheduled_check(time.time)
+    except Exception as exc:
+        # Uncaught, it would reach only stderr, and unredacted.
+        from applog import get_logger
+        from engine_backends.shared import redact_secrets
+        get_logger().warning("update check at start failed: %s", redact_secrets(str(exc)))
 
 
 def _silent_setup_possible() -> bool:
@@ -692,18 +702,18 @@ def cleanup_leftovers() -> None:
 
 
 def _forget_stale_first_verified(key, current, allow_pre) -> None:
+    def forget(record):
+        version = record.get("version") if isinstance(record, dict) else None
+        return record if is_newer(version, current, allow_pre) else None
+    # One write step, so a newer version's record saved by a download meanwhile is kept.
     try:
-        record = db.get_app_setting(key, None)
+        db.update_app_setting(key, forget)
     except ValueError:
-        record = {}         # unreadable: nothing in it can be used
-    except sqlite3.Error:
-        return
-    if record is None:
-        return
-    version = record.get("version") if isinstance(record, dict) else None
-    if not is_newer(version, current, allow_pre):
+        # Unreadable: nothing in it can be used.
         with contextlib.suppress(sqlite3.Error):
             db.set_app_setting(key, None)
+    except sqlite3.Error:
+        pass
 
 
 def _expected_hash(release) -> str:
