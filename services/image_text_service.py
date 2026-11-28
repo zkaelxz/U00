@@ -80,19 +80,30 @@ def _tokens(engine_name: str, width: int, height: int) -> tuple:
     return image + _PROMPT_TOKENS, output
 
 
+def _flattened(im):
+    """The picture as RGB for JPEG, which has no transparency: a see-through area shows
+    as paper, not as the black that dropping the alpha channel can leave."""
+    from PIL import Image
+    if im.mode in ("RGBA", "LA", "P"):
+        backed = Image.new("RGBA", im.size, "white")
+        backed.alpha_composite(im.convert("RGBA"))
+        return backed.convert("RGB")
+    return im.convert("RGB") if im.mode != "RGB" else im
+
+
 def _encoded(im, page: bool = False) -> tuple:
-    """(bytes, mime) of a decoded picture written out fresh: PNG, or JPEG when
-    the PNG is too big for a provider. A comic page goes as JPEG at quality 95
-    with full colour detail: on comic translation it scored the same as PNG,
-    at a third of the bytes or less."""
-    flat = im.convert("RGB") if im.mode != "RGB" else im
+    """(bytes, mime) of a decoded picture written out fresh: a screenshot as PNG, a
+    comic page as JPEG at quality 95 with full colour detail (in comic translation
+    tests it scored the same as PNG at a third of the bytes or less), and either as
+    a smaller JPEG when too big for a provider."""
     out = io.BytesIO()
     if page:
-        flat.save(out, "JPEG", quality=PAGE_JPEG_QUALITY, subsampling=0)
+        _flattened(im).save(out, "JPEG", quality=PAGE_JPEG_QUALITY, subsampling=0)
     else:
         im.save(out, "PNG")
     if out.tell() <= MAX_SENT_BYTES:
         return out.getvalue(), "image/jpeg" if page else "image/png"
+    flat = _flattened(im)
     for quality in _JPEG_QUALITIES:
         out = io.BytesIO()
         flat.save(out, "JPEG", quality=quality)

@@ -150,6 +150,10 @@ def test_a_page_goes_as_full_colour_jpeg_and_a_screenshot_stays_png():
         # 4:4:4: small coloured lettering keeps its edges.
         assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
     assert image_text_service._prepared(buf.getvalue())[1] == "image/png"
+    clear = io.BytesIO()
+    Image.new("RGBA", (64, 48), (0, 0, 0, 0)).save(clear, "PNG")
+    with Image.open(io.BytesIO(run_svc.page_picture(clear.getvalue())[0])) as sent:
+        assert min(sent.convert("L").getextrema()) > 245  # a see-through page reads as paper, not black
 
 
 def test_a_missing_page_file_means_a_text_only_translation(isolated_db, monkeypatch):
