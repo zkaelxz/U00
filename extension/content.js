@@ -2286,8 +2286,12 @@
       const counter = readerCounter();
       if (counter) expected = Math.max(expected, counter.total);
       report();
+      const firstGoesOut = !sentAny;
       startSending(stalls >= 2);
-      if (sending && queue.length >= 2 * limit) await sending;
+      // The first batch is waited for while its pages are still on screen: scrolling on would put a
+      // recycling reader's elements on later pages before the first answer arrives, and no English
+      // would show until the person scrolled back.
+      if (sending && (firstGoesOut || queue.length >= 2 * limit)) await sending;
       if (sendFailure) { failure = sendFailure; reason = "error"; break; }
       if (run.cancelled) { reason = "cancelled"; break; }
       const atBottom = scroller.top() >= scroller.max() - 4;

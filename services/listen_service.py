@@ -219,28 +219,42 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     lines from the translate flow."""
     if db.get_drama(drama_id) is None:
         return
-    fields = ("dub_filename", "start", "end")
-    produced = {ln.id: ln for ln in (result or {}).get("lines") or [] if ln.id is not None}
-    current = db.load_line_objects(drama_id)
+    lines = [ln for ln in (result or {}).get("lines") or [] if ln.id is not None]
     failed = {e.get("line_idx") for e in (result or {}).get("errors") or []}
-    matched = False
-    for ln in current:
-        src = produced.get(ln.id)
-        if src is None:
-            continue
-        matched = True
-        for f in fields:
-            setattr(ln, f, getattr(src, f))
-        if src.idx in failed:
-            # The failed unit made no clip, so a name left from an earlier run would point at stale audio.
-            ln.dub_filename = None
-    if not matched:
+    # A failed unit made no clip, so a name left from an earlier run would point at stale audio.
+    times = {ln.id: (ln.start, ln.end, None if ln.idx in failed else ln.dub_filename) for ln in lines}
+    if not _save_narration_times(drama_id, times):
         return
-    db.save_lines(drama_id, current, fields=fields)
-    if failed and not any(src.dub_filename and src.idx not in failed for src in produced.values()):
+    if failed and not any(clip for _s, _e, clip in times.values()):
         return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
     _remove_unused_clips(drama_id)
+
+
+def _save_narration_times(drama_id: int, times: dict) -> bool:
+    """Saves (start, end, clip) by permanent line id onto the title's current lines, so edits
+    made while the run went are kept and a line merged away is skipped. Whether any matched."""
+    current = db.load_line_objects(drama_id)
+    matched = False
+    for ln in current:
+        if ln.id in times:
+            matched = True
+            ln.start, ln.end, ln.dub_filename = times[ln.id]
+    if matched:
+        db.save_lines(drama_id, current, fields=("dub_filename", "start", "end"))
+    return matched
+
+
+def apply_narration_part(drama_id: int, job_id: str, payload: dict) -> None:
+    """on_partial hook body: the run has joined the part spoken so far into the title's track,
+    so its lines get that track's times now, and the job's result says how many lines can be
+    played (the Reader reloads its player when that grows). The status stays as it was: the
+    title is not "dubbed" until the whole track is made."""
+    if db.get_drama(drama_id) is None:
+        return
+    rows = (payload or {}).get("times") or []
+    _save_narration_times(drama_id, {line_id: (start, end, clip) for line_id, start, end, clip in rows})
+    background_jobs.set_result(job_id, {"playable_lines": sum(1 for row in rows if row[3])}, mirror=True)
 
 
 def _remove_unused_clips(drama_id: int) -> None:
@@ -317,6 +331,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
         description=f"Narration (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
         on_done=lambda _jid, result: apply_narration_result(drama_id, result),
+        on_partial=lambda jid, payload: apply_narration_part(drama_id, jid, payload),
         # A cancel kills the worker before it can remove its half-written track.
         on_finish=lambda _jid: dub_narration.remove_partial_track(ddir),
         line_fields=("dub_filename", "start", "end"))

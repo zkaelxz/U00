@@ -13,8 +13,8 @@ from jobs import job_launch, job_runner
 from live import live_pipeline
 from live import live_translate
 from services import live_service, translate_service
-from lib.errors import (DependencyUnavailableError, InvalidInputError,
-                                     NotFoundError)
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError,
+                                     InvalidInputError, NotFoundError)
 
 _REAL_CAPTURE = live_translate.start_segment_capture
 PUBLIC = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))]
@@ -486,6 +486,132 @@ def test_max_minutes_stops_job(live, monkeypatch):
     s = live_service.get_session(sid)
     assert s["status"] == "done"
     assert live["procs"][0].stopped
+
+
+def _short_limit(monkeypatch, minutes):
+    monkeypatch.setattr(live_service, "_num",
+                        lambda name, v, lo, hi, cast=float: minutes if name == "max_minutes"
+                        else max(lo, min(hi, cast(v))))
+
+
+def test_more_time_keeps_a_session_running_past_its_first_limit(live, monkeypatch):
+    _short_limit(monkeypatch, 0.02)   # 1.2 s
+    sid = _start()
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    s = live_service.get_session(sid)
+    assert s["can_extend"] is True and s["time_left_seconds"] <= 2
+    out = live_service.extend_session(sid)
+    assert 3590 <= out["time_left_seconds"] <= 3602
+    time.sleep(2)
+    s = live_service.get_session(sid)
+    assert s["status"] == "running" and len(live["procs"]) == 1   # nothing restarted
+    assert s["time_left_seconds"] > 3500
+    assert any(n.startswith("Time limit moved: stops in about 60 min") for n in s["notes"])
+
+
+def test_more_time_never_puts_the_stop_past_the_longest_limit(live, monkeypatch):
+    sid = _start(max_minutes=200)
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    assert live_service.extend_session(sid)["time_left_seconds"] <= live_service.MAX_MINUTES_RANGE[1] * 60
+    assert live_service.extend_session(sid)["time_left_seconds"] >= live_service.MAX_MINUTES_RANGE[1] * 60 - 2
+
+
+def test_more_time_is_refused_once_the_session_is_finishing(live, monkeypatch):
+    # The tail is held so the session is still finishing, not already ended, when asked.
+    tail, release = threading.Event(), threading.Event()
+
+    def slow_tail(out_dir, last):
+        tail.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(live_translate, "list_remaining_chunks", slow_tail)
+    sid = _start(max_minutes=60)
+    try:
+        assert _wait(lambda: "out_dir" in live and live_service.get_session(sid)["time_left_seconds"] is not None)
+        assert live_service.stop_session(sid)["finishing"] is True
+        assert tail.wait(5)
+        assert live_service.get_session(sid)["can_extend"] is False
+        with pytest.raises(ConflictError, match="already finishing"):
+            live_service.extend_session(sid)
+    finally:
+        release.set()
+    assert _terminal(sid)
+
+
+def test_more_time_is_refused_once_the_time_is_up_and_the_tail_is_captioned(live, monkeypatch):
+    _short_limit(monkeypatch, 0.02)   # 1.2 s
+    tail, release = threading.Event(), threading.Event()
+
+    def slow_tail(out_dir, last):
+        tail.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(live_translate, "list_remaining_chunks", slow_tail)
+    sid = _start()
+    try:
+        assert tail.wait(5)
+        s = live_service.get_session(sid)
+        assert s["status"] == "running" and s["can_extend"] is False
+        with pytest.raises(ConflictError, match="already finishing"):
+            live_service.extend_session(sid)
+    finally:
+        release.set()
+    assert _terminal(sid)
+    assert not live_translate.is_finishing(sid)
+
+
+def test_only_the_starter_may_give_more_time(live):
+    sid = _start(max_minutes=60)
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    live_service._sessions[sid]["owner_user_id"] = 1
+    starter = {"user_id": 1, "permissions": ["media.import_url"]}
+    for other in ({"user_id": None, "is_admin": True, "is_local_owner": True},
+                  {"user_id": 3, "is_admin": True, "admin_override": True}):
+        assert live_service.get_session(sid, principal=other)["can_extend"] is False
+        with pytest.raises(ForbiddenError):
+            live_service.extend_session(sid, principal=other)
+    with pytest.raises(NotFoundError):
+        live_service.extend_session(sid, principal={"user_id": 4})
+    assert live_service.get_session(sid, principal=starter)["can_extend"] is True
+    assert live_service.extend_session(sid, principal=starter)["time_left_seconds"] > 3600
+
+
+def test_a_session_the_pc_started_is_extended_only_at_the_pc(live):
+    sid = _start(max_minutes=60)
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    assert live_service._sessions[sid]["owner_user_id"] is None
+    remote_admin = {"user_id": 3, "is_admin": True, "admin_override": False}
+    assert live_service.get_session(sid, principal=remote_admin)["can_extend"] is False
+    with pytest.raises(ForbiddenError):
+        live_service.extend_session(sid, principal=remote_admin)
+    pc_admin = {"user_id": 3, "is_admin": True, "admin_override": True}
+    assert live_service.get_session(sid, principal=pc_admin)["can_extend"] is True
+    assert live_service.extend_session(sid, principal=pc_admin)["time_left_seconds"] > 3600
+
+
+def test_more_time_is_refused_without_a_limit_or_for_a_viewer(live):
+    sid = _start(max_minutes=None)
+    assert _wait(lambda: background_jobs.is_running(sid))
+    assert live_service.get_session(sid)["time_left_seconds"] is None
+    with pytest.raises(ConflictError):
+        live_service.extend_session(sid)
+    live_service._sessions[sid]["owner_user_id"] = 1
+    live_service._sessions[sid]["viewers"].add(2)
+    assert live_service.get_session(sid, principal={"user_id": 2})["can_extend"] is False
+    with pytest.raises(ForbiddenError):
+        live_service.extend_session(sid, principal={"user_id": 2})
+
+
+def test_a_finished_session_has_no_time_left_or_limit_to_move(live, monkeypatch):
+    _short_limit(monkeypatch, 0.001)
+    sid = _start()
+    assert _terminal(sid)
+    assert live_service.get_session(sid)["time_left_seconds"] is None
+    assert live_translate.time_left(sid) is None
+    with pytest.raises(ConflictError):
+        live_service.extend_session(sid)
 
 
 def test_time_limit_reason_outlives_the_final_status(live, monkeypatch):

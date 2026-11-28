@@ -485,14 +485,48 @@ NOVEL_SOURCE_FILENAME = "novel_narration_source.txt"
 NARRATION_TRACK_NAMES = ("narration_track.flac", "narration_track.wav")
 
 
+# A finished track that could not take the usual name (Windows refuses the replace while the
+# Reader still streams the old track) waits under this one until a read can swap it in.
+NARRATION_WAITING_NAME = "narration_track.next.flac"
+
+
 def find_narration_track(drama_dir: str) -> Optional[str]:
     """File name of the title's narration track, or None. Symlinks are skipped
-    so a link planted in the folder is never served."""
+    so a link planted in the folder is never served. A newer track waiting
+    under NARRATION_WAITING_NAME is swapped in first, and is the one named
+    while the old track is still held open."""
+    if _swap_in_waiting_track(drama_dir):
+        return NARRATION_WAITING_NAME
     for name in NARRATION_TRACK_NAMES:
         path = os.path.join(drama_dir, name)
         if os.path.isfile(path) and not os.path.islink(path):
             return name
     return None
+
+
+def _swap_in_waiting_track(drama_dir: str) -> bool:
+    """Whether the waiting track is newer than the title's track and still could not replace it."""
+    waiting = os.path.join(drama_dir, NARRATION_WAITING_NAME)
+    if not os.path.isfile(waiting) or os.path.islink(waiting):
+        return False
+    current = os.path.join(drama_dir, NARRATION_TRACK_NAMES[0])
+    try:
+        # A track made after the waiting one took the usual name: the waiting one is stale.
+        if os.path.isfile(current) and os.path.getmtime(current) > os.path.getmtime(waiting):
+            os.remove(waiting)
+            _log_waiting_track("was dropped: a newer track took the usual name")
+            return False
+        os.replace(waiting, current)
+        _log_waiting_track("was swapped in now that the old track is free")
+        return False
+    except OSError:
+        # Not logged: every read while the old track still plays lands here.
+        return os.path.isfile(waiting)
+
+
+def _log_waiting_track(outcome: str) -> None:
+    import applog
+    applog.get_logger().info(f"narration: the finished track that waited while the old one was in use {outcome}")
 # Chapter-move bookkeeping in a title's folder. Title copies leave out both: a copied journal
 # would have the copy's start-up recovery act on files that aren't the move's. Backups leave out
 # only the lock; they keep the journal so a restore can finish or undo the move.
