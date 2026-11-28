@@ -475,13 +475,18 @@ class TestWhisperPrompt:
         out = whisper_transcribe.transcribe_for_timing("/fake/audio.mp3", **call)
         return seen, [s["text"] for s in out]
 
-    def test_names_prime_every_window_and_the_script_hint_comes_first(self, monkeypatch):
+    def test_names_are_an_initial_prompt_and_the_script_hint_comes_first(self, monkeypatch):
         seen, _ = self._seen(monkeypatch, language="zh", initial_prompt="苏杉、沈清疑。",
                              chinese_script="simplified")
-        assert seen["hotwords"] == "以下是普通话的句子。苏杉、沈清疑。"
-        assert "initial_prompt" not in seen
+        assert seen["initial_prompt"] == "以下是普通话的句子。苏杉、沈清疑。"
+        assert "hotwords" not in seen
         seen, _ = self._seen(monkeypatch, language="zh", chinese_script="traditional")
-        assert seen["hotwords"] == "以下是普通話的句子。"
+        assert seen["initial_prompt"] == "以下是普通話的句子。"
+
+    def test_names_can_still_prime_every_window(self, monkeypatch):
+        seen, _ = self._seen(monkeypatch, language="zh", initial_prompt="苏杉。",
+                             chinese_script="simplified", prompt_every_window=True)
+        assert seen["hotwords"] == "以下是普通话的句子。苏杉。" and "initial_prompt" not in seen
 
     def test_no_hint_outside_chinese_or_without_a_chosen_script(self, monkeypatch):
         for call in ({"language": "ja", "chinese_script": "simplified"},
