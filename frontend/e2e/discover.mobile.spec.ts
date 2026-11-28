@@ -54,12 +54,14 @@ test('phone: every tab and section open, no sideways scroll, 44 px targets', asy
   expect(hit).toBeGreaterThanOrEqual(44)
   await page.screenshot({ path: 'test-results/discover-phone-find.png', fullPage: true })
 
-  await openTab(page, 'Add titles')
-  await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Bulk import from listing pages$/ }) }).click()
-  await page.getByText('Fill in page URLs from a pattern').click()
-  await expect(page.getByTestId('bulk-review')).toBeVisible()
-  await expectNoSidewaysScroll(page)
-  await tallTargets(page)
-  await page.screenshot({ path: 'test-results/discover-phone-add.png', fullPage: true })
+  if (CATALOGUE_TAB_ENABLED) {
+    await openTab(page, 'Add titles')
+    await page.locator('summary').filter({ has: page.locator('.section-title', { hasText: /^Bulk import from listing pages$/ }) }).click()
+    await page.getByText('Fill in page URLs from a pattern').click()
+    await expect(page.getByTestId('bulk-review')).toBeVisible()
+    await expectNoSidewaysScroll(page)
+    await tallTargets(page)
+    await page.screenshot({ path: 'test-results/discover-phone-add.png', fullPage: true })
+  }
   expect(s.unmocked).toEqual([])
 })
