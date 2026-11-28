@@ -164,10 +164,10 @@ class TestStart:
         # Title order, not the order the ids were sent in; one process for all.
         assert fake_asr["slices"] == [(0.0, 1.5), (4.0, 5.5)]
         assert fake_asr["started"]["started"] == 1
-        # The one-line job's settings, and Fast mode never on.
+        # The one-line job's settings; Fast mode and the v6.2 extras never on.
         assert len(fake_asr["transcribe"]) == 2
         for t in fake_asr["transcribe"]:
-            assert t["fast_mode"] is False
+            assert t["fast_mode"] is False and t["standalone_extra_speech"] is False
             assert t["model_size"] == "small" and t["beam_size"] == 7
             assert t["language"] == "zh"
             assert t["initial_prompt"] == "沈清疑。"
