@@ -4,14 +4,19 @@ Part of the [user guide](user-guide.md).
 
 ## Install details
 
-The README links here. This section has every install and start option for a source checkout; the Windows installer needs none of it.
+The README links here. This section has every install and start option for a source checkout; the Windows
+installer needs none of it.
 
-If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other optional packages from Diagnostics afterwards.
+If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other
+optional packages from Diagnostics afterwards.
 
 ### Set up a new Windows PC from source, step by step
 
-1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first, for example `cd $HOME` or `cd L:\`.
-2. **Get the code.** Install [Git](https://git-scm.com/download/win) if `git --version` fails, then clone it. A clone matters: only a clone updates itself (see Automatic updates below); a downloaded zip never does.
+1. **Open PowerShell as a normal user** (not "Run as administrator"). Don't open it from the root of a drive
+   or from `C:\WINDOWS\System32`: Windows starts the window in the wrong folder. Go to a folder you own first,
+   for example `cd $HOME` or `cd L:\`.
+2. **Get the code.** Install [Git](https://git-scm.com/download/win) if `git --version` fails, then clone it.
+   A clone matters: only a clone updates itself (see Automatic updates below); a downloaded zip never does.
    ```
    git clone https://github.com/zkaelxz/U00 Baihe
    cd Baihe
@@ -21,31 +26,107 @@ If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, 
    ```
    .\setup.bat
    ```
-   It checks for Git, Python 3.12 or newer (it installs 3.13 if none is found), ffmpeg (with the subtitles filter) and, only if the app's screens still have to be built, Node.js 22 or newer (it warns if your Node is older than 22.23.4, 24.22.1 or 26.12.1, which have a security fix, and offers to update it with `winget`), and installs what is missing with `winget` (it may ask for permission; the script needs no admin rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if you want GPU features.
-4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat` again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH updates, then run start.bat."
-5. **Build the screens and start.** The first run creates the Python environment, installs dependencies, builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
+   It checks for Git, Python 3.12 or newer (it installs 3.13 if none is found), ffmpeg (with the subtitles
+   filter) and, only if the app's screens still have to be built, Node.js 22 or newer (it warns if your Node
+   is older than 22.23.4, 24.22.1 or 26.12.1, which have a security fix, and offers to update it with
+   `winget`), and installs what is missing with `winget` (it may ask for permission; the script needs no admin
+   rights). It only reports the NVIDIA driver; install that yourself from <https://www.nvidia.com/drivers> if
+   you want GPU features.
+4. **Open a new window after any install.** Windows doesn't find newly installed programs in the window that
+   installed them. Close it, open a new PowerShell, `cd` back into the Baihe folder and run `.\setup.bat`
+   again. It is safe to run twice: anything `winget` already lists is reported as "already installed" and
+   skipped. Stop when it ends with **Ready** or with "Everything is installed. Open a NEW window so PATH
+   updates, then run start.bat."
+5. **Build the screens and start.** The first run creates the Python environment, installs dependencies,
+   builds the app's screens and checks ffmpeg and CUDA. It takes several minutes:
    ```
    .\start.bat --build-frontend
    ```
-   After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at `http://127.0.0.1:8600/`.
-6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. A `.env` saved as UTF-16 (Notepad's "Unicode", PowerShell 5's `>`) is read too, and Settings saves it back as UTF-8. A UTF-32 `.env` (PowerShell's `-Encoding UTF32`) is not read; save it as UTF-8, and saving a key in Settings leaves its existing bytes alone. On Linux and macOS, saving a key in Settings always makes `.env` readable by you only, even if you had made it world-readable. To bring over your titles, copy the old PC's `library` folder into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
+   After that, double-click **`start.bat`** (or run `.\start.bat`). The app opens in its own window at
+   `http://127.0.0.1:8600/`.
+6. **First run.** Add your API keys in Settings, or copy your `.env` next to `start.bat`. A `.env` saved as
+   UTF-16 (Notepad's "Unicode", PowerShell 5's `>`) is read too, and Settings saves it back as UTF-8. A UTF-32
+   `.env` (PowerShell's `-Encoding UTF32`) is not read; save it as UTF-8, and saving a key in Settings leaves
+   its existing bytes alone. On Linux and macOS, saving a key in Settings always makes `.env` readable by you
+   only, even if you had made it world-readable. To bring over your titles, copy the old PC's `library` folder
+   into the Baihe folder before the first start. Models such as Whisper download the first time they are used.
 
-**Installed copy: key entry, moving the library, Android.** The background service (Setup's "Run Baihe Studio in the background" box) is off by default, so a plain install shows no administrator prompt; ticking it makes Setup ask for administrator permission once. If another Windows account on the PC (or another Baihe install folder) already runs the service, Setup leaves that service alone: unticked, it installs with no administrator prompt; ticked, Setup still asks and then refuses, because only the owning install can change its service. When it is on, it has the Settings key form off, because other Windows accounts on the PC can reach its port. To save keys in Settings, run Setup again and tick **Allow saving API keys in Settings** under the background service (silent installs: `/MERGETASKS="service\keywrites"`); unticking it later turns this off again. You can also add `BAIHE_API_ALLOW_KEY_WRITES=1` to the `.env` in the data folder (default `%LOCALAPPDATA%\Baihe Studio\`) and run Setup again, or put the keys in that `.env` yourself. A backup never contains `.env`, so after a restore on a new PC re-enter your keys, endpoint addresses and monthly spending cap. To move the library to another drive, stop Baihe, move the data folder (`library\`, `.env`, `model_cache\`) to the new drive, and run Setup from a command prompt with `/DATADIR="D:\Baihe Studio"` (your new folder); a plain Setup run keeps the old data folder. The Android app in `android/` is a sideloaded shell that opens your Baihe address; links to other sites open in Baihe Grab (sign-in pages such as Google open in the phone's browser). Tapping Sign in in the app opens Chrome: sign in with Google there if asked, tap **Sign in the app**, and Chrome hands you back to the app signed in. The app then shows in your signed-in devices as "Baihe app on Android". Its sign-in lasts the full sign-in length from when you linked it (30 days, and 14 days unused, unless the PC owner changed them), whatever happens to the Chrome sign-in afterwards: signing out in Chrome or on the PC does not sign the app out. To sign it out, use **Sign out** in the app, Settings > Signed-in devices (its own **Sign out…**, or **Sign out all other devices…**), or in People and access **Sign out everywhere…** or **Show devices**; deactivating the person or removing their admin rights signs it out too. If Chrome is signed out (or you use **Sign out everywhere**) before the app finishes, sign in from the app again. When the PC holds a newer app build, the app shows **Update Available** when it opens, when you come back to it, and every five minutes while it stays open (a build the PC fetches later is still noticed); tap **Install update** and confirm in Android's installer. Every update asks first; no build installs without your tap. The app asks the PC to look for a new build each time it checks, so the prompt does not wait on the PC's own timer. While Android's installer waits for your confirmation, a notification also says **Tap to finish updating Baihe** (Android may not let the installer open over a hidden app), and one says when an update did not install. Tapping Cancel on **Update Available** stops that build being offered again until you restart the app; **Check for updates** still offers it. To offer a new build without building on the PC: once, add your `debug.keystore` as the secret `ANDROID_DEBUG_KEYSTORE_BASE64` of the GitHub environment `android-publish`, limited to `baihe-subtitler` (`docs/runbook.md`, section 1b); then on GitHub open Actions > Android APK > Run workflow, and on the PC click **Get the newest phone app** in Settings > Updates. The workflow keeps the build on a rolling `android-app` pre-release and the button copies it to where the server offers it. Without the secret the workflow does not publish, because a build signed with a different key cannot update the installed app. Building on the PC with `publish-android-app.bat` (JDK 17 and the Android SDK needed) still works; Android refuses an update signed with a different key than the installed app, so keep to one way of building.
+**Installed copy: key entry, moving the library, Android.** The background service (Setup's "Run Baihe Studio
+in the background" box) is off by default, so a plain install shows no administrator prompt; ticking it makes
+Setup ask for administrator permission once. If another Windows account on the PC (or another Baihe install
+folder) already runs the service, Setup leaves that service alone: unticked, it installs with no administrator
+prompt; ticked, Setup still asks and then refuses, because only the owning install can change its service.
+When it is on, it has the Settings key form off, because other Windows accounts on the PC can reach its port.
+To save keys in Settings, run Setup again and tick **Allow saving API keys in Settings** under the background
+service (silent installs: `/MERGETASKS="service\keywrites"`); unticking it later turns this off again. You can
+also add `BAIHE_API_ALLOW_KEY_WRITES=1` to the `.env` in the data folder (default
+`%LOCALAPPDATA%\Baihe Studio\`) and run Setup again, or put the keys in that `.env` yourself. A backup never
+contains `.env`, so after a restore on a new PC re-enter your keys, endpoint addresses and monthly spending
+cap. To move the library to another drive, stop Baihe, move the data folder (`library\`, `.env`,
+`model_cache\`) to the new drive, and run Setup from a command prompt with `/DATADIR="D:\Baihe Studio"` (your
+new folder); a plain Setup run keeps the old data folder. The Android app in `android/` is a sideloaded shell
+that opens your Baihe address; links to other sites open in Baihe Grab (sign-in pages such as Google open in
+the phone's browser). Tapping Sign in in the app opens Chrome: sign in with Google there if asked, tap **Sign
+in the app**, and Chrome hands you back to the app signed in. The app then shows in your signed-in devices as
+"Baihe app on Android". Its sign-in lasts the full sign-in length from when you linked it (30 days, and 14
+days unused, unless the PC owner changed them), whatever happens to the Chrome sign-in afterwards: signing out
+in Chrome or on the PC does not sign the app out. To sign it out, use **Sign out** in the app, Settings >
+Signed-in devices (its own **Sign out…**, or **Sign out all other devices…**), or in People and access **Sign
+out everywhere…** or **Show devices**; deactivating the person or removing their admin rights signs it out
+too. If Chrome is signed out (or you use **Sign out everywhere**) before the app finishes, sign in from the
+app again. When the PC holds a newer app build, the app shows **Update Available** when it opens, when you
+come back to it, and every five minutes while it stays open (a build the PC fetches later is still noticed);
+tap **Install update** and confirm in Android's installer. Every update asks first; no build installs without
+your tap. The app asks the PC to look for a new build each time it checks, so the prompt does not wait on the
+PC's own timer. While Android's installer waits for your confirmation, a notification also says **Tap to
+finish updating Baihe** (Android may not let the installer open over a hidden app), and one says when an
+update did not install. Tapping Cancel on **Update Available** stops that build being offered again until you
+restart the app; **Check for updates** still offers it. To offer a new build without building on the PC: once,
+add your `debug.keystore` as the secret `ANDROID_DEBUG_KEYSTORE_BASE64` of the GitHub environment
+`android-publish`, limited to `baihe-subtitler` (`docs/runbook.md`, section 1b); then on GitHub open Actions >
+Android APK > Run workflow, and on the PC click **Get the newest phone app** in Settings > Updates. The
+workflow keeps the build on a rolling `android-app` pre-release and the button copies it to where the server
+offers it. Without the secret the workflow does not publish, because a build signed with a different key
+cannot update the installed app. Building on the PC with `publish-android-app.bat` (JDK 17 and the Android SDK
+needed) still works; Android refuses an update signed with a different key than the installed app, so keep to
+one way of building.
 
 Using Command Prompt (`cmd`) instead of PowerShell? The same commands work without the `.\`.
 
 ### Starting an existing checkout
 
-Double-click **`start.bat`**. On first run it creates the virtual environment and installs dependencies, checks ffmpeg, a JS runtime and CUDA and says plainly what is missing, starts `python -m api` on `http://127.0.0.1:8600/` (loopback only), and opens it in its own window (Edge app mode, else Chrome, else your default browser). Running it again just reopens the window. If the Python the `venv` folder was made from is upgraded or uninstalled, `start.bat` says so; delete `venv` and run it again (optional packages such as torch then need installing again). `make_shortcut.bat` makes a desktop shortcut; `uninstall.bat` removes the shortcut, virtual environment and Baihe's scratch items in your Windows Temp folder (a folder another running Baihe copy is using is left), asks (default no) before touching your user PATH entries for ffmpeg/Tesseract, and deletes your library (backups included) only if you type `DELETE` in capitals; anything else keeps it. It ends by listing, never deleting, what it leaves behind (voice engines, the downloaded browser, saved comics, items moved to Trash, the Android update file, a queued Diagnostics install, Hugging Face, torch, pip, Ollama, vocal separator, ModelScope and PaddleOCR caches, winget-installed Python/Git/ffmpeg/Node), and prints the real library location if `BAIHE_DATA_DIR` is set.
+Double-click **`start.bat`**. On first run it creates the virtual environment and installs dependencies,
+checks ffmpeg, a JS runtime and CUDA and says plainly what is missing, starts `python -m api` on
+`http://127.0.0.1:8600/` (loopback only), and opens it in its own window (Edge app mode, else Chrome, else
+your default browser). Running it again just reopens the window. If the Python the `venv` folder was made from
+is upgraded or uninstalled, `start.bat` says so; delete `venv` and run it again (optional packages such as
+torch then need installing again). `make_shortcut.bat` makes a desktop shortcut; `uninstall.bat` removes the
+shortcut, virtual environment and Baihe's scratch items in your Windows Temp folder (a folder another running
+Baihe copy is using is left), asks (default no) before touching your user PATH entries for ffmpeg/Tesseract,
+and deletes your library (backups included) only if you type `DELETE` in capitals; anything else keeps it. It
+ends by listing, never deleting, what it leaves behind (voice engines, the downloaded browser, saved comics,
+items moved to Trash, the Android update file, a queued Diagnostics install, Hugging Face, torch, pip, Ollama,
+vocal separator, ModelScope and PaddleOCR caches, winget-installed Python/Git/ffmpeg/Node), and prints the
+real library location if `BAIHE_DATA_DIR` is set.
 
-- **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run it again at any time to re-check the prerequisites.
-- **The app's screens.** A source checkout needs `frontend\dist\index.html`. With Node.js 22 run `start.bat --build-frontend`. A plain `start.bat` in a git checkout also rebuilds them by itself when any screen source file is newer than `frontend\dist` and `npm` is on PATH; an installed copy never does. It prints the same warning for an unpatched Node. In a fresh git clone (no `frontend\dist` yet) a plain `start.bat` builds them the first time when `npm` is on PATH; without Node.js it stops and says to install it and run `start.bat` again.
-- **Python version.** When it creates the virtual environment, `start.bat` stops if Python is older than 3.12 and warns (then carries on) if it is newer than 3.13, since only 3.13 is tested. The check is skipped once the environment exists, so `--python-version 3.13` only takes effect for a new one.
-- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`, and `--python-version 3.13` (or a `PYTHON_VERSION` marker file).
+- **`setup.bat`.** Optional and never run by `start.bat`; it only points to it when something is missing. Run
+  it again at any time to re-check the prerequisites.
+- **The app's screens.** A source checkout needs `frontend\dist\index.html`. With Node.js 22 run
+  `start.bat --build-frontend`. A plain `start.bat` in a git checkout also rebuilds them by itself when any
+  screen source file is newer than `frontend\dist` and `npm` is on PATH; an installed copy never does. It
+  prints the same warning for an unpatched Node. In a fresh git clone (no `frontend\dist` yet) a plain
+  `start.bat` builds them the first time when `npm` is on PATH; without Node.js it stops and says to install
+  it and run `start.bat` again.
+- **Python version.** When it creates the virtual environment, `start.bat` stops if Python is older than 3.12
+  and warns (then carries on) if it is newer than 3.13, since only 3.13 is tested. The check is skipped once
+  the environment exists, so `--python-version 3.13` only takes effect for a new one.
+- **Flags.** `--portable`, `--server-only` (don't open a window), `--ci`, `--no-update`, `--build-frontend`,
+  and `--python-version 3.13` (or a `PYTHON_VERSION` marker file).
 
 ### Prerequisites and manual install
 
-Python 3.12 or 3.13 (CI and the installer use 3.13) and `ffmpeg` with libass (for burning subtitles; most builds have it). Node.js 22 is only needed to build the frontend yourself.
+Python 3.12 or 3.13 (CI and the installer use 3.13) and `ffmpeg` with libass (for burning subtitles; most
+builds have it). Node.js 22 is only needed to build the frontend yourself.
 
 ```bash
 python -m venv venv
@@ -60,11 +141,19 @@ pip install -r requirements-media.txt -c constraints.txt      # audio/video: ali
 pip install -r requirements-optional.txt -c constraints.txt   # per feature; install only the lines you need
 ```
 
-`requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs nothing itself). On an NVIDIA PC, set up GPU PyTorch first (Diagnostics > Packages and installs > GPU PyTorch), then install `requirements-optional.txt` with `-c constraints.txt --no-cache-dir`: a package from that file that pulls in torch before the CUDA build is there installs the CPU build instead. Then `python -m api` and open `http://127.0.0.1:8600/`.
+`requirements.txt` is those three files combined. The Diagnostics page's Install buttons do the same picking
+without typing. `-c constraints.txt` caps packages at major versions known not to break the app (it installs
+nothing itself). On an NVIDIA PC, set up GPU PyTorch first (Diagnostics > Packages and installs > GPU
+PyTorch), then install `requirements-optional.txt` with `-c constraints.txt --no-cache-dir`: a package from
+that file that pulls in torch before the CUDA build is there installs the CPU build instead. Then
+`python -m api` and open `http://127.0.0.1:8600/`.
 
 ### Portable mode
 
-`library/` is saved inside the app folder, so copying the folder carries your data. Portable mode also redirects the model caches (Whisper, pyannote, OmniVoice, the audio separator) into a `model_cache/` folder there. Turn it on with `start.bat --portable` or an empty file named `PORTABLE` next to `start.bat`. The other PC still needs its own Python and `ffmpeg`.
+`library/` is saved inside the app folder, so copying the folder carries your data. Portable mode also
+redirects the model caches (Whisper, pyannote, OmniVoice, the audio separator) into a `model_cache/` folder
+there. Turn it on with `start.bat --portable` or an empty file named `PORTABLE` next to `start.bat`. The other
+PC still needs its own Python and `ffmpeg`.
 
 ### ffmpeg and updates
 
@@ -74,8 +163,23 @@ brew install ffmpeg            # macOS
 sudo apt install ffmpeg        # Ubuntu/Debian
 # Windows: Diagnostics > Setup > ffmpeg > Install ffmpeg (below)
 ```
-  On Windows, if no ffmpeg is found, **Diagnostics > Setup** shows an **ffmpeg** card with **Install ffmpeg**, at the PC only. It downloads a fixed ffmpeg build (about 110 MB; GPL v3, with libass) from its publisher, checks it against a SHA-256 built into the app, and unpacks it into `tools\ffmpeg` in your data folder. Nothing is installed system-wide and your Windows PATH is not changed. An ffmpeg you installed yourself is always used first. Tesseract is still installed by hand.
-- **Automatic updates (source checkouts).** Before launch, `start.bat` fast-forwards a clone on `baihe-subtitler` to the newest commit of `origin/baihe-subtitler` whose Tests run on GitHub passed (it asks GitHub's public API, at most 20 commits back; with no newer passing commit, or when GitHub can't be asked, it says so and starts the version on the PC). Settings > Update Baihe offers the same commit. It never discards, stashes or overwrites your changes and leaves untracked and ignored files (`library\`, `.env`, `venv\`, `frontend\dist`) alone. When it updates it prints `Updated to <commit>: N new commits` and the latest subjects. If `requirements-core.txt` or the constraints files changed it reinstalls dependencies in the same launch, and tries again on the next start if that install fails or its window is closed; if the screens' source changed it rebuilds `frontend\dist` when `npm` exists, otherwise it says to run `start.bat --build-frontend`. It does nothing without a `.git` folder, without `git` on PATH, for an installed copy, or when GitHub can't be reached. A copy with local commits that aren't on origin is not updated (the update wouldn't sit on top of them).
+  On Windows, if no ffmpeg is found, **Diagnostics > Setup** shows an **ffmpeg** card with **Install ffmpeg**,
+  at the PC only. It downloads a fixed ffmpeg build (about 110 MB; GPL v3, with libass) from its publisher,
+  checks it against a SHA-256 built into the app, and unpacks it into `tools\ffmpeg` in your data folder.
+  Nothing is installed system-wide and your Windows PATH is not changed. An ffmpeg you installed yourself is
+  always used first. Tesseract is still installed by hand.
+- **Automatic updates (source checkouts).** Before launch, `start.bat` fast-forwards a clone on
+  `baihe-subtitler` to the newest commit of `origin/baihe-subtitler` whose Tests run on GitHub passed (it asks
+  GitHub's public API, at most 20 commits back; with no newer passing commit, or when GitHub can't be asked,
+  it says so and starts the version on the PC). Settings > Update Baihe offers the same commit. It never
+  discards, stashes or overwrites your changes and leaves untracked and ignored files (`library\`, `.env`,
+  `venv\`, `frontend\dist`) alone. When it updates it prints `Updated to <commit>: N new commits` and the
+  latest subjects. If `requirements-core.txt` or the constraints files changed it reinstalls dependencies in
+  the same launch, and tries again on the next start if that install fails or its window is closed; if the
+  screens' source changed it rebuilds `frontend\dist` when `npm` exists, otherwise it says to run
+  `start.bat --build-frontend`. It does nothing without a `.git` folder, without `git` on PATH, for an
+  installed copy, or when GitHub can't be reached. A copy with local commits that aren't on origin is not
+  updated (the update wouldn't sit on top of them).
 
 ## Developer setup, ports and the Windows service
 
@@ -83,14 +187,49 @@ sudo apt install ffmpeg        # Ubuntu/Debian
 BAIHE_API_ENV=development python -m api     # API on http://127.0.0.1:8600, docs at /api/docs
 cd frontend && npm ci && npm run dev        # React on http://127.0.0.1:5173
 ```
-On Windows `cmd`, run `set BAIHE_API_ENV=development` first. The API reads `BAIHE_API_HOST` (default `127.0.0.1`; keep it there), `BAIHE_API_PORT` (default `8600`), `BAIHE_API_ENV` (`development` enables reload and CORS for the Vite ports, default `production`) and `BAIHE_API_CORS_ORIGINS` (see `api/api_config.py`). The Vite dev server proxies `/api` to `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if set. `npm run build` produces `frontend/dist`, which `python -m api` serves at `/`.
+On Windows `cmd`, run `set BAIHE_API_ENV=development` first. The API reads `BAIHE_API_HOST` (default
+`127.0.0.1`; keep it there), `BAIHE_API_PORT` (default `8600`), `BAIHE_API_ENV` (`development` enables reload
+and CORS for the Vite ports, default `production`) and `BAIHE_API_CORS_ORIGINS` (see `api/api_config.py`). The
+Vite dev server proxies `/api` to `http://127.0.0.1:8600`, or to `BAIHE_API_URL` if set. `npm run build`
+produces `frontend/dist`, which `python -m api` serves at `/`.
 
-- **Switching an area off.** Jellyfin, Sources and the browser extension are on. If one breaks and you want it out of the way until it is fixed, list it in `.env` as `BAIHE_FEATURES_OFF=jellyfin,sources,extension` (any of the three, comma-separated; a name that matches none is ignored and logged as a warning at start) and restart. A blank `BAIHE_FEATURES_OFF=` line in `.env` turns all three back on. Jellyfin off: its Settings card and the Export block go. Sources off: the Sources page and menu item, its catalog, search, import and extraction routes, and the check for new chapters of tracked series stop, and a link to Sources opens the Library. Importing a novel or comic from a URL stops with the rest. Discover, saved comics, pasting a page's text into a novel, identifying a link, and lightnovel-crawler import are not part of the switch and keep working, and the comic's chapter picker is hidden. Extension off: its Settings card, routes and endpoint stop; Extension tokens can still be revoked, and a new token can still be made. Remove the line and restart to bring an area back.
-- **Changing the port.** `BAIHE_API_PORT` is read from the environment, not `.env`: `setx BAIHE_API_PORT 8601` and restart. `start.bat` and the installed launcher follow it; the Vite proxy needs a matching `BAIHE_API_URL`. The default is defined once as `DEFAULT_PORT` in `api/api_config.py`; the files that can't import it (`start.bat`, `frontend/vite.config.ts`, `frontend/src/report/capture.test.ts`, the two Windows workflows, the root `README.md` and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py` fails if one drifts. The household listener has its own port (`BAIHE_API_HOUSEHOLD_PORT`); never forward either port through the router. Baihe also refuses its own ports as ntfy, SearXNG and Jellyfin targets.
-- **The Windows boot service's port.** With the service installed, its stored port wins; changing `BAIHE_API_PORT` or running Setup again does not change it (only a fresh install takes it). Use Start menu > "Baihe Studio service" (shows every port, changes the port, turns remote access on or off).
-- **Service commands** (what the menu runs; `service.py --help` lists them): from an administrator prompt, run `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND` with `status` (no admin needed), `set-port N`, `enable-remote [--household-port N]`, `disable-remote`, `stop`, `install [--port N]` or `uninstall`. Details: `docs/windows-installer-design.md` section 11.
-- **If Setup or the uninstaller stops partway.** The uninstaller removes the boot service only after you confirm; answering No keeps everything. With two installs on one PC, uninstalling the one that doesn't run the service leaves the service alone. A Setup that is refused or cancelled before its install step removes the empty data folder it made, so the next run limits that folder to your account again. If Setup can't put the service's old files back, the service stays stopped until you run Setup again.
+- **Switching an area off.** Jellyfin, Sources and the browser extension are on. If one breaks and you want it
+  out of the way until it is fixed, list it in `.env` as `BAIHE_FEATURES_OFF=jellyfin,sources,extension` (any
+  of the three, comma-separated; a name that matches none is ignored and logged as a warning at start) and
+  restart. A blank `BAIHE_FEATURES_OFF=` line in `.env` turns all three back on. Jellyfin off: its Settings
+  card and the Export block go. Sources off: the Sources page and menu item, its catalog, search, import and
+  extraction routes, and the check for new chapters of tracked series stop, and a link to Sources opens the
+  Library. Importing a novel or comic from a URL stops with the rest. Discover, saved comics, pasting a page's
+  text into a novel, identifying a link, and lightnovel-crawler import are not part of the switch and keep
+  working, and the comic's chapter picker is hidden. Extension off: its Settings card, routes and endpoint
+  stop; Extension tokens can still be revoked, and a new token can still be made. Remove the line and restart
+  to bring an area back.
+- **Changing the port.** `BAIHE_API_PORT` is read from the environment, not `.env`: `setx BAIHE_API_PORT 8601`
+  and restart. `start.bat` and the installed launcher follow it; the Vite proxy needs a matching
+  `BAIHE_API_URL`. The default is defined once as `DEFAULT_PORT` in `api/api_config.py`; the files that can't
+  import it (`start.bat`, `frontend/vite.config.ts`, `frontend/src/report/capture.test.ts`, the two Windows
+  workflows, the root `README.md` and `CLAUDE.md`) carry a literal, and `tests/test_installer_runtime.py`
+  fails if one drifts. The household listener has its own port (`BAIHE_API_HOUSEHOLD_PORT`); never forward
+  either port through the router. Baihe also refuses its own ports as ntfy, SearXNG and Jellyfin targets.
+- **The Windows boot service's port.** With the service installed, its stored port wins; changing
+  `BAIHE_API_PORT` or running Setup again does not change it (only a fresh install takes it). Use Start menu >
+  "Baihe Studio service" (shows every port, changes the port, turns remote access on or off).
+- **Service commands** (what the menu runs; `service.py --help` lists them): from an administrator prompt, run
+  `"%ProgramFiles%\Baihe Studio Services\helper\python\python.exe" -I -S "%ProgramFiles%\Baihe Studio Services\helper\lib\installer\service.py" COMMAND`
+  with `status` (no admin needed), `set-port N`, `enable-remote [--household-port N]`, `disable-remote`,
+  `stop`, `install [--port N]` or `uninstall`. Details: `docs/windows-installer-design.md` section 11.
+- **If Setup or the uninstaller stops partway.** The uninstaller removes the boot service only after you
+  confirm; answering No keeps everything. With two installs on one PC, uninstalling the one that doesn't run
+  the service leaves the service alone. A Setup that is refused or cancelled before its install step removes
+  the empty data folder it made, so the next run limits that folder to your account again. If Setup can't put
+  the service's old files back, the service stays stopped until you run Setup again.
 
 ## Resetting for testing
 
-Diagnostics > **Reset library** deletes every drama, translation, glossary, series, progress record and file, and also every account, sign-in session and the audit log, then reinitializes an empty database. You confirm by typing RESET. A copy of the old library is kept on the PC (Library tools > Storage > Previous library) until you delete it there or reset again (only the newest copy is kept), so most of the space is freed only then. Followed Sources series stay followed but are unlinked from their titles, so new chapters are not imported into a new title that happens to get the old id; link them again. Restoring a backup that has no sources.db unlinks them the same way. To remove one drama, use its delete button.
+Diagnostics > **Reset library** deletes every drama, translation, glossary, series, progress record and file,
+and also every account, sign-in session and the audit log, then reinitializes an empty database. You confirm
+by typing RESET. A copy of the old library is kept on the PC (Library tools > Storage > Previous library)
+until you delete it there or reset again (only the newest copy is kept), so most of the space is freed only
+then. Followed Sources series stay followed but are unlinked from their titles, so new chapters are not
+imported into a new title that happens to get the old id; link them again. Restoring a backup that has no
+sources.db unlinks them the same way. To remove one drama, use its delete button.
