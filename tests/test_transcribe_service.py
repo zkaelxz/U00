@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import types
 import tempfile
 import time
 
@@ -1102,6 +1103,118 @@ class TestRunTranscribeAndApplyJob:
 
         assert background_jobs.get_status(job_id)["result"]["failed_reason"] == "vocal_separation"
         _clear(job_id)
+
+    def _preload_run(self, isolated_db, monkeypatch, fits, separation_fails=False, gpu_error=None,
+                     separation_raises=None, worker_process=True, raise_once=False, events=None):
+        """Runs a separated Whisper job with the model on disk; returns the order of events.
+        worker_process: run it as the GPU worker process does (the job here runs in a thread)."""
+        import threading
+        import audio_preprocess
+        import memory_headroom
+        from services import transcribe_reporters
+        if worker_process:
+            monkeypatch.setattr(transcribe_pipeline, "_ProcessReporter", transcribe_reporters._ThreadReporter)
+        did, ddir = _drama_with_audio(isolated_db, transcript_mode="whisper")
+        job_id = f"transcribe_{did}"
+        _seed_running_job(job_id)
+        events, loaded = ([] if events is None else events), threading.Event()
+        monkeypatch.setattr(whisper_models, "is_whisper_model_cached", lambda size: True)
+        monkeypatch.setattr(memory_headroom, "fits_beside_separation", lambda *a: fits)
+        monkeypatch.setitem(sys.modules, "torch", types.ModuleType("torch"))
+        monkeypatch.setattr(whisper_models, "get_whisper_device_info",
+                            lambda *a, **k: {"device": "cuda", "gpu_error": gpu_error})
+        monkeypatch.setattr(whisper_models, "forget_whisper_model", lambda *a, **k: events.append("forget"))
+        monkeypatch.setattr(whisper_models, "release_gpu_models", lambda: events.append("release"))
+
+        def load(*a, **k):
+            events.append(("load", threading.current_thread().name))
+            loaded.set()
+        monkeypatch.setattr(whisper_models, "load_whisper_model", load)
+
+        def separate(audio_path, out_path, **k):
+            if fits and worker_process:
+                assert loaded.wait(5), "Whisper did not start loading during the separation"
+            events.append("separated")
+            events.append(("separate", threading.current_thread().name))
+            if separation_raises is not None and not (raise_once and events.count("separated") > 1):
+                raise separation_raises
+            if separation_fails:
+                raise audio_preprocess.VocalSeparationError("no audio-separator")
+            with open(out_path, "wb") as f:
+                f.write(b"RIFF")
+            return out_path
+        monkeypatch.setattr(audio_preprocess, "separate_vocals", separate)
+        monkeypatch.setattr(transcribe_pipeline, "_to_speech_format", lambda path: path)
+        def transcribe(*a, **k):
+            events.append(("transcribe", threading.current_thread().name))
+            return [{"start": 0.0, "end": 1.0, "text": "hi"}]
+        monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", transcribe)
+        transcribe_service._run_transcribe_and_apply_job(
+            job_id, did, os.path.join(ddir, "audio.wav"), "whisper", None, "zh", "simplified",
+            "large-v3", 5, 300, 0.5, True, "auto", False, False, False, None, None, None, use_gpu=True)
+        result = background_jobs.get_status(job_id)["result"]
+        _clear(job_id)
+        return events, result
+
+    def test_whisper_loads_while_the_vocals_are_separated_on_the_thread_that_transcribes(
+            self, isolated_db, monkeypatch):
+        events, result = self._preload_run(isolated_db, monkeypatch, fits=True)
+        threads = dict(e for e in events if isinstance(e, tuple))
+        assert events[0][0] == "load" and events.index("separated") > 0 and "forget" not in events
+        # A CTranslate2 model used from another thread than the one that built it, once that
+        # thread is gone, crashes the process; the separation is the one moved aside.
+        assert threads["load"] == threads["transcribe"] != threads["separate"] == "vocal-separation"
+        assert result.get("failed_reason") is None
+
+    def test_whisper_waits_for_the_separation_when_memory_would_not_hold_both(self, isolated_db, monkeypatch):
+        events, _ = self._preload_run(isolated_db, monkeypatch, fits=False)
+        assert events[0] == "separated"
+        assert ("separate", "vocal-separation") not in events
+
+    def test_a_preload_that_fell_back_to_the_cpu_is_dropped(self, isolated_db, monkeypatch):
+        events, _ = self._preload_run(isolated_db, monkeypatch, fits=True, gpu_error="out of memory")
+        assert "forget" in events
+
+    def test_a_failed_separation_frees_the_early_model_and_tries_once_more_alone(self, isolated_db, monkeypatch):
+        events, result = self._preload_run(isolated_db, monkeypatch, fits=True, separation_fails=True)
+        assert result["failed_reason"] == "vocal_separation"
+        assert events.count("separated") == 2
+        assert events.index("release") < events.index("separated", events.index("separated") + 1)
+
+    def test_an_unexpected_separation_error_still_frees_the_early_model(self, isolated_db, monkeypatch):
+        events = []
+        real = transcribe_pipeline._PipelineRun._separate_beside_whisper_load
+
+        def watched(run_self):
+            try:
+                return real(run_self)
+            except RuntimeError:
+                events.append("raised")
+                raise
+        monkeypatch.setattr(transcribe_pipeline._PipelineRun, "_separate_beside_whisper_load", watched)
+        with pytest.raises(RuntimeError, match="driver crashed"):
+            self._preload_run(isolated_db, monkeypatch, fits=True, events=events,
+                              separation_raises=RuntimeError("driver crashed"))
+        assert events.index("release") < events.index("raised")
+
+    def test_a_memory_refusal_beside_the_early_model_frees_it_and_separates_alone(self, isolated_db, monkeypatch):
+        import memory_headroom
+        events, result = self._preload_run(isolated_db, monkeypatch, fits=True, raise_once=True,
+                                           separation_raises=memory_headroom.HeadroomError("low memory"))
+        assert result.get("failed_reason") is None
+        assert events.count("separated") == 2
+        assert events.index("release") < events.index("separated", events.index("separated") + 1)
+
+    def test_a_thread_job_separates_before_loading_as_before(self, isolated_db, monkeypatch):
+        events, _ = self._preload_run(isolated_db, monkeypatch, fits=True, worker_process=False)
+        assert events[0] == "separated"
+        assert ("separate", "vocal-separation") not in events
+
+    def test_reused_vocals_load_whisper_after_as_before(self, isolated_db, monkeypatch):
+        monkeypatch.setattr(transcribe_pipeline, "_reusable_vocals", lambda *a: True)
+        events, _ = self._preload_run(isolated_db, monkeypatch, fits=True)
+        assert "separated" not in events
+        assert ("separate", "vocal-separation") not in events
 
     def test_vocal_separation_cancel_never_starts_transcription(self, isolated_db, monkeypatch):
         import audio_preprocess
