@@ -30,6 +30,7 @@ export interface AssForm {
   includeNotes: boolean
   tidyTiming: boolean
   speakerNames: boolean
+  soundCaptions: boolean
   notesAsSeparateLine: boolean
   readingLine: boolean
   karaoke: boolean
@@ -42,7 +43,7 @@ export interface AssForm {
 export const emptyAssForm = (preset: string): AssForm => ({
   field: 'en', preset, font: '', size: '', outlineWidth: '', shadow: '', primary: '', outline: '',
   bold: '', italic: '', alignment: '', sfxAlignment: '', notesAlignment: '', speakerColors: '',
-  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, notesAsSeparateLine: false,
+  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, soundCaptions: false, notesAsSeparateLine: false,
   earPlacement: false, readingLine: false, karaoke: false, wrapEn: '', wrapSource: '', baseName: '',
 })
 
@@ -163,6 +164,7 @@ export function buildAssRequest(
   if (colors.colors) request.speaker_colors = colors.colors
   if (wrapEn.value !== undefined) request.wrap_chars_en = wrapEn.value
   if (wrapSource.value !== undefined) request.wrap_chars_source = wrapSource.value
+  if (form.soundCaptions) request.sound_captions = true
   if (form.earPlacement) request.ear_placement = true
   if (form.field !== 'en') {
     if (form.readingLine) request.reading_line = true

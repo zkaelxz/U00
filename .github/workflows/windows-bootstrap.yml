@@ -26,6 +26,9 @@ on:
       - .github/workflows/windows-bootstrap.yml
   pull_request:
     branches: [baihe-subtitler]
+    # A PR runs this once its merge is approved, as the browser tests do: under the free plan's
+    # 20-job limit a Windows job on every push held the other PRs' jobs back.
+    types: [opened, synchronize, reopened, labeled, ready_for_review, auto_merge_enabled]
     paths:
       - start.bat
       - requirements-core.txt
@@ -59,6 +62,10 @@ jobs:
   # `start.bat --ci` (which, unfixed, would otherwise wait on a server
   # that never answers) to run indefinitely on the more expensive runner.
   bootstrap:
+    if: >-
+      github.event_name != 'pull_request' || (!github.event.pull_request.draft &&
+      (github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci')))
     runs-on: windows-latest
     timeout-minutes: 15
     steps:

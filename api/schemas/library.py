@@ -119,6 +119,8 @@ class ExportReadiness(BaseModel):
     overlap_count: int
     auto_qc_issue_count: int
     dense_line_count: int
+    # Lines the audio tags give a sound caption ([laughs], [music]); 0 when the title was never tagged.
+    sound_captioned_lines: int = 0
     # Lines with a current left or right ear mark: Export offers ASS placement only then.
     ear_marked_lines: int = 0
 
@@ -781,6 +783,9 @@ class BurnPreviewStart(BaseModel):
     wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
     wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
     ear_placement: bool = False
+    field: Optional[Literal["en", "zh", "bilingual"]] = None
+    reading_line: bool = False
+    karaoke: bool = False
 
 
 class BurnPreviewStarted(BaseModel):

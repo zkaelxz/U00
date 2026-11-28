@@ -34,6 +34,7 @@ describe('tidy timing', () => {
   it('is only sent when on', () => {
     expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: false })).toBe('fmt=srt&field=en')
     expect(subtitleQuery({ fmt: 'vtt', field: 'en', includeNotes: false, speakerNames: true })).toBe('fmt=vtt&field=en&speaker_names=true')
+    expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, soundCaptions: true })).toBe('fmt=srt&field=en&sound_captions=true')
     expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: true })).toBe(
       'fmt=srt&field=en&tidy_timing=true',
     )

@@ -236,11 +236,10 @@ def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size
     """Dollars for every paid call a translate run makes: its batches (with the
     title's real prompt), the pre-read of the whole episode and the episode summary.
     The summary is priced on its own engine, which Settings can set apart from the run's."""
-    is_novel = drama.get("content_mode") == "novel_narration"
     ids = {ln["id"] for ln in targets}
     lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in ids]
     glossary_terms, style_guidelines, _ = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, "novel" if is_novel else "audio_drama",
+        drama_id, drama, lines, profile_service.style_preset(drama),
         engine_name=stand_in.name, model=stand_in.model)
     stable_text = engine_prompts.build_stable_system_text({
         "drama_meta": drama, "style_guidelines": style_guidelines, "glossary_terms": glossary_terms})

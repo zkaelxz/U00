@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getLanguagePack, getTitleLanguagePacks, setLanguagePackDefault, setTitleLanguagePacks } from '../../../api/languagePacks'
 import { pcOnlyFetch } from '../../../api/pcOnly'
@@ -10,9 +10,24 @@ import { buttonClass } from '../../../components/uiClasses'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import type { LanguagePack, TitleLanguagePack, TitleLanguagePacks } from '../../../types/languagePacks'
 import { useStage } from '../StageContext'
-import { choiceAfter, entryRendering, PACK_LANGUAGE_NAMES, packsSummary, termFromEntry } from './languagePacksModel'
+import { choiceAfter, entryRendering, PACK_LANGUAGE_NAMES, packsSummary, SHOWN_ENTRIES, shownEntries, termFromEntry } from './languagePacksModel'
 import './languagePacks.css'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+
+export function EntrySearch({ query, onChange, shown, matching }: {
+  query: string
+  onChange: (q: string) => void
+  shown: unknown[]
+  matching: number
+}) {
+  return (
+    <label className="lp-search">
+      Search entries{' '}
+      <input type="search" value={query} onChange={(e) => onChange(e.target.value)} />
+      <span className="muted"> Showing {shown.length} of {matching}</span>
+    </label>
+  )
+}
 
 function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
   pack: TitleLanguagePack
@@ -25,6 +40,7 @@ function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
   const [loaded, setLoaded] = useState<LanguagePack | null>(null)
   const [open, setOpen] = useState(false)
   const [added, setAdded] = useState<Set<string>>(new Set())
+  const [query, setQuery] = useState('')
 
   useEffect(() => {
     if (!open || loaded) return
@@ -35,12 +51,17 @@ function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
     }
   }, [open, loaded, pack.id, onError])
 
+  const visible = useMemo(() => shownEntries(loaded?.entries ?? [], query), [loaded, query])
+
   return (
     <details className="lp-entries" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary>View entries ({pack.entry_count})</summary>
+      {loaded && loaded.entries.length > SHOWN_ENTRIES && (
+        <EntrySearch query={query} onChange={setQuery} {...visible} />
+      )}
       {loaded && (
         <ul className="lp-list">
-          {loaded.entries.map((entry) => {
+          {visible.shown.map((entry) => {
             const have = inGlossary.has(entry.source) || added.has(entry.source)
             return (
               <li key={entry.source} className="lp-entry">
@@ -50,6 +71,9 @@ function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
                   <span>{entryRendering(entry, pack)}</span>
                   {(entry.context || entry.note) && (
                     <div className="muted">{[entry.context, entry.note].filter(Boolean).join('. ')}</div>
+                  )}
+                  {entry.link && (
+                    <a href={entry.link} target="_blank" rel="noopener noreferrer">Source page</a>
                   )}
                 </div>
                 <button
