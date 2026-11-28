@@ -1,5 +1,5 @@
 /*
- * Discover page (#/discover).
+ * Find & Add's Discover tab (#/discover).
  *
  * One engine picker at the top is used by every AI action on the page
  * (DI01); only its name is sent, the key stays on the PC. Three tabs, the
@@ -15,8 +15,6 @@
 import { useEffect, useState } from 'react'
 
 import { translateApi, engineOffReason, engineShortName } from '../api/translate'
-import { PageShell } from '../components/PageShell'
-import { FindSwitch } from './FindSwitch'
 import { Field } from '../components/Field'
 import { RetryBanner } from '../components/RetryBanner'
 import { Section } from '../components/Section'
@@ -26,6 +24,7 @@ import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { TranslateEngine } from '../types/translate'
+import { FindAddShell } from './FindAddShell'
 import { AddTitle } from './discover/AddTitle'
 import { BaihehubPanel } from './discover/BaihehubPanel'
 import { BulkImport } from './discover/BulkImport'
@@ -86,13 +85,8 @@ export default function DiscoverPage() {
   const reloadCatalog = () => setCatalogKey((k) => k + 1)
 
   return (
-    <PageShell
-      width="wide"
-      title="Discover"
-      meta="Find baihe titles online and add the ones you want."
-      className="discover-page"
-      headExtra={(
-        <>
+    <FindAddShell current="discover" className="discover-page">
+      <div>
         {engines === null ? (
           <p className="muted">Loading engines…</p>
         ) : enginesError ? (
@@ -129,13 +123,8 @@ export default function DiscoverPage() {
             <OffEngineHelp off={enginesOff} />
           </div>
         )}
-        </>
-      )}
-      tabs={(
-        <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
-      )}
-    >
-      <FindSwitch />
+      </div>
+      <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
       {CATALOGUE_TAB_ENABLED && (
         <div role="tabpanel" id={tabPanelId('discover', 'catalogue')} aria-labelledby={tabButtonId('discover', 'catalogue')} hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />
@@ -164,6 +153,6 @@ export default function DiscoverPage() {
           <BulkImport engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
         </Section>
       </div>
-    </PageShell>
+    </FindAddShell>
   )
 }

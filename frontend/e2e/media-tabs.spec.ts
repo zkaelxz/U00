@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
 import { expectRowInputsAligned } from './voiceDetectorLayout'
-import { expectFitsScreens, expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab } from './mediaTabs'
+import { expectFitsScreens, expectNoSidewaysScroll, gotoMedia, mediaPanel, mediaTab, openAllFolds, selectMediaTab, openFold } from './mediaTabs'
 
 // The Media stage is one screen per sub-tab. Seeded titles: 1 audio drama, 2 novel, 3 video drama.
 
@@ -74,13 +74,14 @@ test('Add media holds the upload, the transcript mode, the subtitle import and K
   await expect(panel.getByRole('button', { name: 'Transcribe', exact: true })).toHaveCount(0)
 })
 
-test('Transcribe holds the run form and Tools holds the rest', async ({ page }) => {
+test('Run holds the run form, the model under More options, and Tools holds the rest', async ({ page }) => {
   await gotoMedia(page, 'transcribe')
   const run = mediaPanel(page, 'transcribe')
   await expect(run.getByLabel('Source language', { exact: true })).toBeVisible()
+  await expect(run.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
+  await openFold(run, 'More options')
   await expect(run.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
   await expect(run.getByText('Detect speakers', { exact: true })).toBeVisible()
-  await expect(run.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
   await expect(run.getByRole('region', { name: 'Advanced options' })).toHaveCount(0)
   await selectMediaTab(page, 'tools')
   const tools = mediaPanel(page, 'tools')

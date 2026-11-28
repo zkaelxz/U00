@@ -211,6 +211,12 @@ def locale_and_note(drama: dict, default_locale: str, default_style_note: str):
             else novel_genre_service.default_style_note(drama, default_style_note))
 
 
+def style_preset(drama: dict) -> str:
+    """The style preset for a run nobody is configuring: the title's last run's, else its kind's."""
+    return translate_start(drama).get("style_preset") or (
+        "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama")
+
+
 def remember_run(drama_id: int, drama: dict, *, on_title_engine: bool, model, style_preset,
                  style_note, locale, batch_size, context_window, context_window_ahead) -> None:
     """Keeps the values a run was started with as the title's Translate starting

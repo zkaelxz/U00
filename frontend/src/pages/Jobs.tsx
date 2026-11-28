@@ -292,7 +292,7 @@ export default function JobsPage() {
                     name="all finished jobs"
                     label="Delete all finished…"
                     ariaLabel="Delete all finished jobs"
-                    confirmLabel={`Confirm delete ${finishedCount} finished`}
+                    confirmLabel="Confirm delete all finished"
                     onConfirm={() => void run(() => clearFinishedJobs())}
                   />
                   <span className="muted">Permanent: removes the finished jobs from the history. Running and queued jobs stay.</span>

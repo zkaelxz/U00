@@ -109,7 +109,6 @@ details.section { background: none; border-color: transparent; border-top-color:
 .palette-btn,
 .jobs-menu-btn,
 .notify-bell-btn,
-.report-btn,
 .theme-menu-btn {
   border: 1px solid var(--btn-edge);
   background: var(--btn);

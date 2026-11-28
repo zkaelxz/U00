@@ -3,12 +3,14 @@
  * phrases) per source language, and which are on by default. Read-only; each title chooses its
  * own packs on its Glossary page.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { getLanguagePack, getLanguagePackDefault, listLanguagePacks } from '../../api/languagePacks'
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import type { LanguagePack, LanguagePackDefaultResult, LanguagePackSummary } from '../../types/languagePacks'
+import { EntrySearch } from '../workspace/stages/LanguagePacks'
+import { SHOWN_ENTRIES, shownEntries } from '../workspace/stages/languagePacksModel'
 import { entryText, groupPacks, PACK_LANGUAGES } from './languagePacksModel'
 
 export function LanguagePacksCard() {
@@ -55,6 +57,8 @@ export function LanguagePacksCard() {
 function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault: boolean | null }) {
   const [full, setFull] = useState<LanguagePack | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [query, setQuery] = useState('')
+  const visible = useMemo(() => shownEntries(full?.entries ?? [], query), [full, query])
   const status = onByDefault === null ? '' : onByDefault ? ' · on by default' : ' · off by default'
   return (
     <li>
@@ -71,17 +75,28 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
         </summary>
         {pack.description && <p className="muted">{pack.description}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {full && full.entries.length > SHOWN_ENTRIES && (
+          <EntrySearch query={query} onChange={setQuery} {...visible} />
+        )}
         {full && (
           <table>
             <thead>
               <tr><th>Source</th><th>English</th><th>Note</th></tr>
             </thead>
             <tbody>
-              {full.entries.map((en, i) => (
+              {visible.shown.map((en, i) => (
                 <tr key={i}>
                   <td>{en.source}</td>
                   <td>{entryText(en.en, full.styles.default)}</td>
-                  <td>{en.note}</td>
+                  <td>
+                    {en.note}
+                    {en.link && (
+                      <>
+                        {en.note && ' '}
+                        <a href={en.link} target="_blank" rel="noopener noreferrer">Source page</a>
+                      </>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

@@ -5,7 +5,7 @@ import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
-import { useCanUpload } from '../../../hooks/useHolds'
+import { useCanUpload, useHolds } from '../../../hooks/useHolds'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
@@ -19,6 +19,8 @@ import './preamble.css'
 export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const { dramaId, drama, refetchDrama } = useStage()
   const canUpload = useCanUpload()
+  // Romanizing saves the credits, which only admin.library may change.
+  const canEdit = useHolds('admin.library')
   const [romanizing, setRomanizing] = useState(false)
   const [file, setFile] = useState<File | null>(null)
   const [fileKey, setFileKey] = useState(0)
@@ -105,7 +107,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
               ))}
             </dl>
           )}
-          {canRomanize ? (
+          {!canEdit ? null : canRomanize ? (
             <div>
               <button type="button" disabled={romanizing} onClick={romanize}>
                 {romanizing ? 'Romanizing…' : 'Romanize credits'}

@@ -13,7 +13,6 @@ test('followed channels on a phone: no sideways scroll, 44px targets', async ({ 
     followRow(2, { channel: 'channel/UC' + 'x'.repeat(22), channel_name: '', state: 'error', last_status: 'YouTube asked for a sign-in check.', mode: 'auto', auto_check: true, last_checked_at: Date.now() / 1000 - 4000 }),
   ]
   const live = await openLive(page)
-  await live.getByText('Followed channels').tap()
   await expect(live.getByTestId('live-follow-row')).toHaveCount(2)
   // Each tap renames its button, so the first still-closed row is tapped each time.
   await live.getByRole('button', { name: /show details/ }).first().tap()

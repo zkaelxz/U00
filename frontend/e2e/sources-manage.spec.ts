@@ -35,7 +35,7 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await mockSources(page)
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
-  await expect(page.locator('header.page-head').getByRole('heading', { level: 1 })).toHaveText('Find')
+  await expect(page.locator('header.page-head').getByRole('heading', { level: 1 })).toHaveText('Find & Add')
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByRole('tab', { name: 'Manage sources' }).click()
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)

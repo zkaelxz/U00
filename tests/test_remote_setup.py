@@ -228,3 +228,12 @@ def test_firewall_rule_is_only_asked_for_with_a_fixed_read_only_command(monkeypa
     assert "add" not in seen["cmd"] and "delete" not in seen["cmd"]
     monkeypatch.setattr(rss.sys, "platform", "linux")
     assert _REAL_FIREWALL_RULE_VISIBLE() is None
+
+
+def test_a_healthy_pc_still_leaves_the_outside_check_to_a_phone(isolated_db, monkeypatch):
+    db.auth_create_user("owner@example.com", is_admin=True)
+    on = _settings(public_url="https://baihe.example.com", household_port=8610,
+                   google_client_id="id", google_client_secret=SECRET)
+    monkeypatch.setattr(rhs, "get_status", lambda url, port: {"state": "ok", "message": rhs.ALL_OK})
+    outside = _step_of(rss.get_setup_status(on), "outside")
+    assert outside["state"] == "manual" and "phone on mobile data" in outside["message"]

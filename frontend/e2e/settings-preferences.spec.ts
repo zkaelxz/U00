@@ -235,14 +235,15 @@ test('server addresses: a URL with a password is refused client-side; save and c
   expect(unmocked).toEqual([])
 })
 
-test('the theme is changed from the header button, not from Settings', async ({ page }) => {
+test('the theme is changed from the You menu, not from Settings', async ({ page }) => {
   await mockSettings(page)
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'Engines and keys')
   await expect(block(page, 'Translation style')).toBeVisible()
   await expect(page.getByRole('region', { name: 'Appearance', exact: true })).toHaveCount(0)
   await expect(page.getByLabel('Theme', { exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Theme: / })).toBeVisible()
+  await page.locator('details.you-menu > summary').click()
+  await expect(page.locator('details.you-menu').getByRole('group', { name: 'Theme' })).toBeVisible()
 })
 
 test('away from the PC the PC-only preference blocks and their tabs are left out', async ({ page }) => {

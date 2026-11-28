@@ -100,7 +100,7 @@ test('find on platforms translates an English title with the picked engine', asy
   await openTab(page, 'Find a title')
   // Only engines the Discover routes accept are offered.
   const picker = page.getByLabel('AI engine', { exact: true })
-  await expect(picker.locator('option')).toHaveText(['Claude', 'Ollama (local) (free)'])
+  await expect(picker.locator('option')).toHaveText(['Claude', 'Ollama (free)'])
   await picker.selectOption('ollama')
   await page.getByRole('searchbox', { name: 'Title to find' }).fill('The General')
   await page.getByRole('button', { name: 'Find', exact: true }).click()

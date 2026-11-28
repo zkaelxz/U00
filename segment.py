@@ -302,3 +302,30 @@ def segment_and_annotate(text: str, language: str, chinese_script: str = "simpli
     if language == "ko":
         return segment_ko(text)
     return segment_zh(text, chinese_script=chinese_script)
+
+
+# Pinyin words are spaced, but punctuation sits against the word it belongs to, as in English.
+_SPACE_BEFORE_PUNCT = re.compile(r"\s+(?=[，。！？、；：,.!?;:）」』》”’)\]])")
+_SPACE_AFTER_PUNCT = re.compile(r"(?<=[（「『《“‘(\[])\s+")
+_KANJI = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff々]")
+
+
+def reading_text(text: str, language: str, chinese_script: str = "simplified") -> str:
+    """A line's sound as one row: spaced pinyin for Chinese, kana for
+    Japanese. "" for other languages, and when the row would only repeat
+    the text (a line already all in kana)."""
+    if language not in ("zh", "ja") or not (text or "").strip():
+        return ""
+    import importlib.util
+    # Traditional text is cut into words through opencc, an optional extra; pypinyin
+    # reads Traditional characters itself, so without it the words are cut as Simplified.
+    if chinese_script == "traditional" and importlib.util.find_spec("opencc") is None:
+        chinese_script = "simplified"
+    pieces = segment_and_annotate(text, language, chinese_script=chinese_script)
+    if language == "ja":
+        # Kana already spells its sound; only words with kanji are rewritten.
+        row = "".join(reading if reading and _KANJI.search(word) else word for word, reading in pieces)
+    else:
+        row = " ".join((reading or word).strip() for word, reading in pieces if word.strip())
+        row = _SPACE_AFTER_PUNCT.sub("", _SPACE_BEFORE_PUNCT.sub("", row))
+    return "" if row == text else row

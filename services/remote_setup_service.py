@@ -216,7 +216,9 @@ def _outside_step(settings):
                      "data once remote access is on.", WHO_YOU)
     health = remote_health_service.get_status(settings.public_url, settings.household_port)
     if health["state"] == "ok":
-        return _step("outside", title, "done", health["message"], WHO_APP)
+        # The health checks run on this PC and can't see the router, so "ok" is not proof from outside.
+        return _step("outside", title, "manual", "This PC's side looks right (certificate, listener). "
+                     "Open the public name on a phone on mobile data to check the router.", WHO_YOU)
     if health["state"] in ("warn", "critical"):
         return _step("outside", title, "problem", health["message"], WHO_APP)
     return _step("outside", title, "manual", "Open the public name on a phone on mobile data "
