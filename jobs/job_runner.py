@@ -57,6 +57,12 @@ def _log_activity(job_id, token, gpu_touching):
     if (job.get("started_at") or 0) > token:
         return   # a newer run of this id owns the entry now; its own thread logs it
     outcome = status
+    kind = "other"
+    try:
+        from services import jobs_service
+        kind = jobs_service.job_kind(job_id)
+    except Exception:
+        pass
     try:
         # The Jobs list says Failed for a "done" run whose result reports a failure; the log agrees.
         from services import jobs_service
@@ -66,7 +72,7 @@ def _log_activity(job_id, token, gpu_touching):
         pass
     db.add_activity(job_id, job.get("description") or "", job.get("owner_user_id"), outcome,
                     token, time.time(), gpu_touching)
-    job_stats.log_job_end(job_id, job, token, outcome, gpu_touching)
+    job_stats.log_job_end(job_id, kind, job, token, outcome, gpu_touching)
 
 
 def _timing_finish(job_id, token, thread_job=True, gpu_touching=False):

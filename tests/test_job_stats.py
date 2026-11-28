@@ -65,10 +65,10 @@ def test_a_stage_name_built_from_data_is_logged_as_other():
 def test_the_daily_summary_is_logged_when_the_date_changes(isolated_db):
     job_stats._day.update(date=None, jobs=[])
     job = {"finished_at": 110.0, "queue_wait_s": 4.0, "result": {"errors": {"1": "429 Too Many Requests"}}}
-    job_stats._record("translate_1", job, 100.0, "done", "2026-11-28")
-    job_stats._record("translate_2", {"finished_at": 130.0}, 100.0, "error", "2026-11-28")
+    job_stats._record("translate", job, 100.0, "done", "2026-11-28")
+    job_stats._record("translate", {"finished_at": 130.0}, 100.0, "error", "2026-11-28")
     assert "Daily job summary" not in _log_text()
-    job_stats._record("translate_3", job, 100.0, "done", "2026-11-29")
+    job_stats._record("translate", job, 100.0, "done", "2026-11-29")
     summary = [ln for ln in _log_text().splitlines() if "Daily job summary" in ln][0]
     assert ("Daily job summary 2026-11-28: 2 jobs; translate 2 (done 1, error 1) median 20 s; "
             "median queue wait 2.0 s; errors: 429 1") in summary

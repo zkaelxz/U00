@@ -49,9 +49,8 @@ def _error_counts(job) -> dict:
     return counts
 
 
-def line(job_id, job, token, outcome, gpu_touching) -> str:
-    from services import jobs_service
-    parts = [f"kind={jobs_service.job_kind(job_id)}", f"status={outcome}",
+def line(job_id, kind, job, token, outcome, gpu_touching) -> str:
+    parts = [f"kind={kind}", f"status={outcome}",
              f"total_s={max(0.0, (job.get('finished_at') or time.time()) - token):.1f}",
              f"queue_wait_s={float(job.get('queue_wait_s') or 0.0):.1f}", f"gpu={int(bool(gpu_touching))}"]
     stages = _stage_seconds(job_id, token)
@@ -59,7 +58,7 @@ def line(job_id, job, token, outcome, gpu_touching) -> str:
         parts.append("stages=" + ", ".join(f"{name} {secs}" for name, secs in stages.items()))
     errors = _error_counts(job)
     if errors:
-        parts.append("errors=" + ", ".join(f"{kind} {n}" for kind, n in sorted(errors.items())))
+        parts.append("errors=" + ", ".join(f"{name} {n}" for name, n in sorted(errors.items())))
     return "Job stats: " + " ".join(parts)
 
 
@@ -97,13 +96,12 @@ def _flush_day_locked() -> None:
     _day["jobs"] = []
 
 
-def _record(job_id, job, token, outcome, today) -> None:
-    from services import jobs_service
+def _record(kind, job, token, outcome, today) -> None:
     with _day_lock:
         if _day["date"] != today:
             _flush_day_locked()
             _day["date"] = today
-        _day["jobs"].append((jobs_service.job_kind(job_id), outcome,
+        _day["jobs"].append((kind, outcome,
                              max(0.0, (job.get("finished_at") or time.time()) - token),
                              float(job.get("queue_wait_s") or 0.0), _error_counts(job)))
 
@@ -119,11 +117,12 @@ def flush_day() -> None:
 atexit.register(flush_day)
 
 
-def log_job_end(job_id, job, token, outcome, gpu_touching) -> None:
-    """Never raises: a logging slip must not turn a finished job into a failed one."""
+def log_job_end(job_id, kind, job, token, outcome, gpu_touching) -> None:
+    """`kind` is the job's kind word (services.jobs_service.job_kind, passed in because jobs/
+    may not import services). Never raises: a logging slip must not turn a finished job into a failed one."""
     try:
         import applog
-        applog.get_logger().info(line(job_id, job, token, outcome, gpu_touching))
-        _record(job_id, job, token, outcome, datetime.date.today().isoformat())
+        applog.get_logger().info(line(job_id, kind, job, token, outcome, gpu_touching))
+        _record(kind, job, token, outcome, datetime.date.today().isoformat())
     except Exception:
         pass
