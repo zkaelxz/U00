@@ -964,23 +964,23 @@ def test_an_offpeak_deepseek_run_out_of_credit_moves_to_gemma(isolated_db, monke
 
 
 def test_offpeak_deepseek_runs_get_the_switching_engine_when_started_and_resumed(isolated_db, monkeypatch):
-    from engine_backends import fallback as engine_fallback
-    from services import translate_bulk_run_service as bulk_run, translate_run_options
+    from engine_backends import engine_registry, fallback as engine_fallback
+    from services import translate_run_service, translate_service
 
     class Plain:
         def __init__(self, name):
             self.name, self.model = name, "m"
 
-    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
-    monkeypatch.setattr(bulk_run.engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
-    monkeypatch.setattr(bulk_run.translate_service, "resolve_api_key", lambda name: "k")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "k")
     polled = []
-    monkeypatch.setattr(bulk_run.bulk_poll, "run_bulk_poller", lambda *a, engine=None, **k: polled.append(engine))
-    monkeypatch.setattr(bulk_run.db, "get_bulk_job", lambda _id: {"status": "applied"})
-    bulk_run.run_bulk_translate_job("j", Plain("deepseek"), "deepseek", lambda: 1)
+    monkeypatch.setattr(bulk_poll, "run_bulk_poller", lambda *a, engine=None, **k: polled.append(engine))
+    monkeypatch.setattr(isolated_db, "get_bulk_job", lambda _id: {"status": "applied"})
+    translate_run_service.run_bulk_translate_job("j", Plain("deepseek"), "deepseek", lambda: 1)
     assert isinstance(polled[0], engine_fallback.SlowSwitchEngine)
-    assert isinstance(bulk_run._bulk_engine_factory("deepseek", None), engine_fallback.SlowSwitchEngine)
-    assert bulk_run._bulk_engine_factory("claude", None).name == "claude"
+    factory = translate_run_service._bulk_engine_factory
+    assert isinstance(factory("deepseek", None), engine_fallback.SlowSwitchEngine)
+    assert factory("claude", None).name == "claude"
 
 
 def test_an_offpeak_run_decides_its_start_engine_when_the_window_opens(isolated_db, monkeypatch):
