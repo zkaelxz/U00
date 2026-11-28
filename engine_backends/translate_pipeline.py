@@ -855,6 +855,10 @@ class _TranslateRun:
                     self.stop_run = True
                     self.errors.append({"batch_index": self.bi, "lines": [],
                                         "error": redact_secrets(str(e))})
+                import applog
+                applog.get_logger().warning(
+                    f"translate batch {self.bi}: re-asking {len(part)} empty line(s) failed: "
+                    f"{type(e).__name__}: {redact_secrets(str(e))[:200]}")
                 still.extend(part)
                 continue
             if len(translations) != len(part):
