@@ -11,6 +11,7 @@ import { dramaName } from '../components/libraryView'
 import { canReadSettings, canUpdateApp } from '../hooks/useSession'
 import { PC_ONLY_CARDS, SETTINGS_INDEX, SETTINGS_TABS } from '../pages/settings/settingsIndex'
 import { showOllamaKey } from '../pages/settings/ollamaKeyModel'
+import { myLimits } from '../pages/settings/limitsModel'
 import { routeHref, type Route } from '../router'
 import { STAGE_IDS, STAGE_LABELS } from '../pages/workspace/stages'
 import { navId, visibleNavItemsFor, type NavContext } from './navItems'
@@ -63,6 +64,7 @@ export function settingsEntries(ctx: NavContext): PaletteEntry[] {
     (s) =>
       (reads || MEMBER_CARDS.has(s.cardId)) &&
       (ownKey || s.cardId !== 'ollama-key') &&
+      (s.cardId !== 'limits' || myLimits(ctx.session) !== null) &&
       (inPhoneShell() || s.cardId !== 'phone-app') &&
       (s.cardId !== 'updates' || canUpdateApp(ctx.session)) &&
       !(away && PC_ONLY_CARDS.has(s.cardId)),
@@ -187,6 +189,16 @@ export function isPaletteShortcut(e: KeyLike): boolean {
 }
 
 const SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set(['library', 'settings', 'sources', 'discover'])
+
+// Library, Find & Add and its tabs, Jobs and Settings have a search box of their own: the header's search button
+// would be a second one (Ctrl+K still works).
+const OWN_SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set([
+  'library', 'make-subtitles', 'discover', 'sources', 'updates', 'jobs', 'settings',
+])
+
+export function pageHasOwnSearch(route: Route): boolean {
+  return OWN_SEARCH_ROUTES.has(route.name)
+}
 
 type GlobalShortcut = 'search' | 'sheet'
 

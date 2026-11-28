@@ -375,15 +375,18 @@ def _page_image(drama_id: int, page_id: int, engine_name: str, model=None):
             content = handle.read()
     except Exception:
         return None
-    return page_picture(content)
+    # Read the stored value, not the "zh" fallback used elsewhere: an unset language must
+    # send PNG, the safe format.
+    return page_picture(content, (db.get_drama(drama_id) or {}).get("source_language"))
 
 
-def page_picture(content: bytes):
+def page_picture(content: bytes, source_language=None):
     """_page_image's (bytes, mime, scale) for a page already in memory, or None
     when it can't be prepared. The caller has checked the setting and the engine."""
     try:
         _fmt, width, _height = page_import_limits.check_image(content)
-        data, mime, sent_width, _sent_height = image_text_service.prepare_picture(content)
+        data, mime, sent_width, _sent_height = image_text_service.prepare_picture(
+            content, source_language)
     except Exception:
         return None
     return data, mime, sent_width / width
@@ -487,10 +490,16 @@ def _translate_with_image(by_key: dict, page_image, engine, drama: dict, context
                 **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
                for key, b in by_key.items()]
     gemma = getattr(engine, "model", None) == PAGE_IMAGE_OLLAMA_MODEL
+    result, new_context = None, context
     try:
-        return scanlate_translate.translate_regions_with_image(
-            regions, data, mime, engine, drama, previous_context=context, usage_cb=usage_cb,
-            glossary_terms=glossary, character_notes=character_notes, chapter_brief=chapter_brief)
+        # A chunk whose answer is unusable is left out; the caller's retry asks for its regions.
+        for chunk, chunk_notes in scanlate_translate.picture_chunks(regions, character_notes):
+            part, chunk_context = scanlate_translate.translate_regions_with_image(
+                chunk, data, mime, engine, drama, previous_context=new_context, usage_cb=usage_cb,
+                glossary_terms=glossary, character_notes=chunk_notes, chapter_brief=chapter_brief)
+            if part is not None:
+                result, new_context = {**(result or {}), **part}, chunk_context
+        return result, new_context
     except (HeadroomError, TranslateRunStopped):
         raise
     except LLMTaskTimeout:
@@ -537,7 +546,7 @@ def _translate(bubbles: list, engine, engine_name: str, drama: dict, glossary, c
     usage_cb = paid_calls.usage_logger(drama_id, engine_name, engine, "scanlate_translate")
 
     result, new_context = None, context
-    if page_image is not None and len(keyed) <= scanlate_translate.REGIONS_PER_CALL:
+    if page_image is not None:
         readers = picture_readers(engine, engine_name)
         for i, (reader, reader_name) in enumerate(readers):
             later = readers[i + 1][0] if i + 1 < len(readers) else None

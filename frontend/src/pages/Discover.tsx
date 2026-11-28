@@ -2,14 +2,16 @@
  * Find & Add's Discover tab (#/discover).
  *
  * One engine picker at the top is used by every AI action on the page
- * (DI01); only its name is sent, the key stays on the PC. Three tabs, the
- * choice remembered; every panel stays mounted (just hidden) so a half-filled
- * form or a bulk review survives a tab switch:
- * Catalogue (search, filters, details, add to Library, remove: DI02/DI03),
- * shown only while CATALOGUE_TAB_ENABLED is true;
+ * (DI01); only its name is sent, the key stays on the PC. While
+ * CATALOGUE_TAB_ENABLED is true there are three tabs, the choice remembered;
+ * every panel stays mounted (just hidden) so a half-filled form or a bulk
+ * review survives a tab switch:
+ * Catalogue (search, filters, details, add to Library, remove: DI02/DI03);
  * Find a title: official platforms (DI04), then folded Search baihehub (DI06)
  * and Open a site or explain a page (DI05/DI08: a new tab, not an in-app frame);
  * Add titles: from a URL or by hand (DI09/DI10), then folded Bulk import (DI07).
+ * Add titles only fills the Catalogue, so while it is hidden the page is Find a
+ * title alone, with no tab row.
  * One column at every width, capped at 860px.
  */
 import { useEffect, useState } from 'react'
@@ -37,14 +39,23 @@ import './discover/discover.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 
 type TabId = 'catalogue' | 'find' | 'add'
-const TABS: { id: TabId; label: string }[] = [
-  ...(CATALOGUE_TAB_ENABLED ? [{ id: 'catalogue' as const, label: 'Catalogue' }] : []),
-  { id: 'find', label: 'Find a title' },
-  { id: 'add', label: 'Add titles' },
-]
+const TABS: { id: TabId; label: string }[] = CATALOGUE_TAB_ENABLED
+  ? [
+      { id: 'catalogue', label: 'Catalogue' },
+      { id: 'find', label: 'Find a title' },
+      { id: 'add', label: 'Add titles' },
+    ]
+  : [{ id: 'find', label: 'Find a title' }]
 const DEFAULT_TAB: TabId = TABS[0].id
 // The tab used to be stored raw under this key; read it once when the new preference is empty.
 const LEGACY_TAB_KEY = 'baihe.discover.tab'
+
+// With a single panel there is no tab row, so the panel is not labelled by a tab.
+function panelProps(id: TabId) {
+  return CATALOGUE_TAB_ENABLED
+    ? { role: 'tabpanel', id: tabPanelId('discover', id), 'aria-labelledby': tabButtonId('discover', id) }
+    : {}
+}
 
 function legacyTab(): string {
   try {
@@ -124,14 +135,14 @@ export default function DiscoverPage() {
           </div>
         )}
       </div>
-      <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />
+      {CATALOGUE_TAB_ENABLED && <Tabs label="Discover tasks" idPrefix="discover" tabs={TABS} active={tab} onSelect={setTab} />}
       {CATALOGUE_TAB_ENABLED && (
         <div role="tabpanel" id={tabPanelId('discover', 'catalogue')} aria-labelledby={tabButtonId('discover', 'catalogue')} hidden={tab !== 'catalogue'} className="discover-panel">
           <CatalogPanel pc={pc} reloadKey={catalogKey} />
         </div>
       )}
 
-      <div role="tabpanel" id={tabPanelId('discover', 'find')} aria-labelledby={tabButtonId('discover', 'find')} hidden={tab !== 'find'} className="discover-panel">
+      <div {...panelProps('find')} hidden={tab !== 'find'} className="discover-panel">
         <section aria-label="Find on official platforms" className="discover-group">
           <h2>Find on official platforms</h2>
           <FindPanel engine={engine} canTranslate={aiReady} />
@@ -144,15 +155,17 @@ export default function DiscoverPage() {
         </Section>
       </div>
 
-      <div role="tabpanel" id={tabPanelId('discover', 'add')} aria-labelledby={tabButtonId('discover', 'add')} hidden={tab !== 'add'} className="discover-panel">
-        <section aria-label="Add a title" className="discover-group">
-          <h2>Add a title</h2>
-          <AddTitle engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
-        </section>
-        <Section title="Bulk import from listing pages" summary="Up to 10 tag or ranking pages" storageKey="discover.bulk">
-          <BulkImport engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
-        </Section>
-      </div>
+      {CATALOGUE_TAB_ENABLED && (
+        <div {...panelProps('add')} hidden={tab !== 'add'} className="discover-panel">
+          <section aria-label="Add a title" className="discover-group">
+            <h2>Add a title</h2>
+            <AddTitle engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
+          </section>
+          <Section title="Bulk import from listing pages" summary="Up to 10 tag or ranking pages" storageKey="discover.bulk">
+            <BulkImport engine={engine} aiReady={aiReady} onAdded={reloadCatalog} />
+          </Section>
+        </div>
+      )}
     </FindAddShell>
   )
 }

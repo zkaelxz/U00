@@ -129,7 +129,7 @@ def _ollama(engine, prompt, data, max_tokens):
                "options": {"num_ctx": engine.num_ctx_for(4096), "num_predict": max_tokens,
                            **ollama_sampling()}}
     started = time.monotonic()
-    reply = ollama_chat_with_think(_ollama_chat, engine.base_url, payload, False)
+    reply = ollama_chat_with_think(_ollama_chat, engine.base_url, payload)
     _log_ollama_timing(engine.model, time.monotonic() - started, reply)
     return (strip_ollama_thinking((reply.get("message") or {}).get("content") or "").strip(),
             {"input_tokens": reply.get("prompt_eval_count") or 0,

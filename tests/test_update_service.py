@@ -8,6 +8,7 @@ import base64
 import hashlib
 import json
 import threading
+import time
 import os
 import types
 
@@ -932,6 +933,39 @@ def test_cleanup_leftovers_after_an_upgrade(http, monkeypatch):
     assert os.listdir(folder) == ["notes.txt"]
 
 
+def test_start_forgets_first_verified_times_once_this_copy_has_that_version(http, monkeypatch):
+    from services import app_update_service as aus
+    folder = us.updates_dir()
+    os.makedirs(folder)
+    for name in ("BaiheStudio-Setup-0.2.0.exe", "BaiheStudio-App-0.2.0.zip"):
+        open(os.path.join(folder, name), "wb").close()
+    for key, name in ((us.FIRST_VERIFIED_INSTALLER_KEY, "BaiheStudio-Setup-0.2.0.exe"),
+                      (aus.FIRST_VERIFIED_APP_KEY, "BaiheStudio-App-0.2.0.zip")):
+        db.set_app_setting(key, {"version": "0.2.0", "name": name, "sha256": "a" * 64, "at": 5.0})
+    us.cleanup_leftovers()                        # current is 0.1.0: 0.2.0 is still to come
+    assert sorted(os.listdir(folder)) == ["BaiheStudio-App-0.2.0.zip",
+                                          "BaiheStudio-Setup-0.2.0.exe"]
+    assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY)["at"] == 5.0
+    assert db.get_app_setting(aus.FIRST_VERIFIED_APP_KEY)["at"] == 5.0
+    for current in ("0.2.0", "0.3.0"):            # on that version, or past it
+        monkeypatch.setattr(us, "current_version", lambda current=current: current)
+        db.set_app_setting(aus.FIRST_VERIFIED_APP_KEY, {"version": "0.2.0", "at": 5.0})
+        us.cleanup_leftovers()
+        assert os.listdir(folder) == []
+        assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY) is None
+        assert db.get_app_setting(aus.FIRST_VERIFIED_APP_KEY) is None
+
+
+def test_start_forgets_an_unreadable_first_verified_record(http):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.FIRST_VERIFIED_INSTALLER_KEY, "{not json"))
+        conn.commit()
+    us.cleanup_leftovers()
+    assert db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY) is None
+
+
 def test_install_launch_failure_names_the_file_only(verified, monkeypatch):
     monkeypatch.setattr(us, "_is_windows", lambda: True)
 
@@ -1399,3 +1433,176 @@ def test_an_unsigned_installer_is_never_run_on_its_own(http, auto_setup):
     assert us.status()["verified"] is True
     us.auto_install_tick()
     assert FakePopen.calls == []
+
+
+def test_a_failed_daily_check_is_tried_again_after_an_hour(http):
+    http.add(API_URL, status=503)
+    start = 10 ** 10
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: start)
+    assert len(http.calls) == 1
+    us.periodic_tick(now=lambda: start + us.CHECK_RETRY_SECONDS - 60)
+    assert len(http.calls) == 1
+    _serve_release(http)
+    us.periodic_tick(now=lambda: start + us.CHECK_RETRY_SECONDS)
+    assert len(http.calls) == 2 and us.status()["latest"] == "0.2.0"
+    us.periodic_tick(now=lambda: start + 2 * us.CHECK_RETRY_SECONDS)
+    assert len(http.calls) == 2              # a good check waits the whole day again
+
+
+def _restart(monkeypatch):
+    """A new process: nothing held in memory, the library kept."""
+    monkeypatch.setattr(us, "_state", dict(us._state, download="idle", downloaded_bytes=0,
+                                           latest=None))
+    monkeypatch.setattr(us, "_release", None)
+    monkeypatch.setattr(us, "_verified", None)
+
+
+def _start_check():
+    thread = us.check_at_start()
+    if thread is not None:
+        thread.join(DOWNLOAD_WAIT_SECONDS)
+        assert not thread.is_alive()
+    return thread
+
+
+def test_after_a_failed_check_the_next_start_checks_again(http, monkeypatch):
+    us.set_auto_check(True)
+    assert _start_check() is None            # never checked: the daily schedule decides
+    http.add(API_URL, status=503)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    _serve_release(http)
+    assert _start_check() is not None
+    assert len(http.calls) == 2 and us.status()["latest"] == "0.2.0"
+    assert all(u == API_URL for u, _ in http.calls)
+
+
+def test_after_a_good_check_the_next_start_does_not_check(http, monkeypatch):
+    _serve_release(http)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    assert _start_check() is None and len(http.calls) == 1
+
+
+def test_no_start_check_while_the_daily_check_is_off(http, monkeypatch):
+    http.add(API_URL, status=503)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    us.set_auto_check(False)
+    _restart(monkeypatch)
+    assert _start_check() is None and len(http.calls) == 1
+
+
+def test_the_start_check_runs_even_when_the_sweep_fails(monkeypatch):
+    ran = []
+
+    def sweep():
+        raise OSError("folder gone")
+    monkeypatch.setattr(us, "cleanup_leftovers", sweep)
+    monkeypatch.setattr(us, "check_at_start", lambda: ran.append(1))
+    with pytest.raises(OSError):
+        us.at_start()
+    assert ran == [1]
+
+
+def test_an_unreadable_failed_flag_means_no_start_check(http):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.CHECK_FAILED_KEY, "{not json"))
+        conn.commit()
+    assert _start_check() is None and http.calls == []
+
+
+def test_a_start_check_that_breaks_is_logged_redacted_not_raised(http, monkeypatch):
+    import applog
+    db.set_app_setting(us.CHECK_FAILED_KEY, True)
+    secret = "sk-ant-" + "x" * 30
+
+    def broken():
+        raise RuntimeError("boom " + secret)
+    monkeypatch.setattr(us, "check", broken)
+    warned, uncaught = [], []
+    monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+        warning=lambda fmt, *a: warned.append(fmt % a)))
+    monkeypatch.setattr(threading, "excepthook", uncaught.append)
+    _start_check()
+    assert uncaught == [] and len(warned) == 1
+    assert "boom" in warned[0] and secret not in warned[0]
+
+
+def test_a_failed_start_check_is_still_retried_after_an_hour(http, monkeypatch):
+    http.add(API_URL, status=503)
+    us.set_auto_check(True)
+    us.periodic_tick(now=lambda: 10 ** 10)
+    _restart(monkeypatch)
+    started = time.time()
+    _start_check()
+    assert len(http.calls) == 2
+    us.periodic_tick(now=lambda: started + us.CHECK_RETRY_SECONDS - 60)
+    assert len(http.calls) == 2
+    _serve_release(http)
+    us.periodic_tick(now=lambda: started + us.CHECK_RETRY_SECONDS + 60)
+    assert len(http.calls) == 3 and us.status()["latest"] == "0.2.0"
+    _restart(monkeypatch)
+    assert _start_check() is None
+
+
+def test_after_a_restart_the_installer_is_fetched_again_but_keeps_its_first_time(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    us.download()
+    first = us._verified["at"]
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert sum(1 for url, _ in http.calls if url == CDN_URL) == 2
+    assert us._verified["at"] == first
+    stored = json.dumps(db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY))
+    assert db.LIBRARY_DIR not in stored and "http" not in stored
+
+
+def test_another_file_for_the_same_version_starts_its_own_wait(http, monkeypatch):
+    _serve_release(http)
+    us.check()
+    us.download()
+    record = db.get_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY)
+    db.set_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY, dict(record, at=1.0))
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert us._verified["at"] == 1.0
+    db.set_app_setting(us.FIRST_VERIFIED_INSTALLER_KEY, dict(record, sha256="0" * 64, at=1.0))
+    _restart(monkeypatch)
+    us.check()
+    us.download()
+    assert us._verified["at"] > 1.0
+
+
+@pytest.mark.parametrize("at", [True, "1", -5, 10 ** 12])
+def test_a_damaged_or_future_time_is_not_believed(at):
+    record = {"version": "0.2.0", "name": NAME, "sha256": "a" * 64, "at": at}
+    assert us.first_verified_at(record, "0.2.0", NAME, "a" * 64, 1000.0) == 1000.0
+
+
+
+def test_an_unreadable_first_verified_record_only_restarts_the_wait(http, monkeypatch):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.FIRST_VERIFIED_INSTALLER_KEY, "{not json"))
+        conn.commit()
+    _serve_release(http)
+    us.check()
+    us.download()
+    assert us.status()["verified"] is True and us._verified["at"] > 1.0
+
+
+def test_a_restore_keeps_this_pcs_first_verified_times():
+    from services import library_restore_service as lrs
+    from services import app_update_service as aus
+    assert us.FIRST_VERIFIED_INSTALLER_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
+    assert aus.FIRST_VERIFIED_APP_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
+    assert us.CHECK_FAILED_KEY in lrs._RESTORE_KEPT_APP_SETTINGS

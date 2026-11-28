@@ -88,7 +88,8 @@ def sign_fitted_size(page, box: dict, text: str, custom_fonts: dict | None = Non
     font = _find_font(None, category=box.get("font_category") or "regular", custom_fonts=custom_fonts)
     laid_out = _layout_in_mask(ImageDraw.Draw(Image.new("RGB", (width, height))), text.translate(_CJK_PUNCTUATION),
                                np.asarray(level) > 127, glyph,
-                               lambda size: ImageFont.truetype(font, size) if font else ImageFont.load_default(size))
+                               lambda size: ImageFont.truetype(font, size) if font else ImageFont.load_default(size),
+                               balance=False)
     # No layout in the band at any size: the typesetter then falls back to the whole box, so the
     # text is as good as unreadable there.
     return laid_out[0].size if laid_out else scanlate_tuning.TYPESET_SMALLEST_PX - 1
@@ -116,7 +117,7 @@ def _in_rooms(regions: list, rooms: list) -> list:
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
                   match_color: bool = False, rect_layout: bool = False,
-                  look: TypesetStyle = _PLAIN):
+                  look: TypesetStyle = _PLAIN, png_compress_level: int = 6):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -206,7 +207,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         _letter_balloons(pil_img, image_path, _in_rooms(to_render, letter_rooms), gray,
                          font_path, custom_fonts, inks, rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
-        pil_img.save(result_path, "PNG")
+        pil_img.save(result_path, "PNG", compress_level=png_compress_level)
         replace_file(result_path, out_path)
     finally:
         if os.path.exists(result_path):
@@ -300,7 +301,9 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
     masks = [_layout_mask(image_path, b, gray) if (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS
              else None for b in to_render]
 
-    def draw(target, b, shape_mask, size, ink, report=None):
+    fonts: dict = {}
+
+    def draw(target, b, shape_mask, size, ink, report=None, balance=True):
         # Only a mask that centring would rebuild needs the dark pixels, so other balloons are
         # drawn exactly as before.
         extra: dict[str, Any] = ({"dark": _dark_under(gray, b, shape_mask.shape)}
@@ -310,14 +313,16 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                            font_path=font_path,
                            font_category=b.get("font_category") or "regular",
                            custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout, style=style,
-                           fill=_text_fill(target, b, ink), report=report, **extra)
+                           fill=_text_fill(target, b, ink), report=report, balance=balance,
+                           fonts=fonts, **extra)
 
     starts = [b.get("font_size", 18) for b in to_render]
     scratch = pil_img.copy()
     fitted = []
     for b, m, start, ink in zip(to_render, masks, starts, inks):
         rep = {}
-        draw(scratch, b, m, start, ink, rep)
+        # Only the size is kept from this pass, and balancing never changes it.
+        draw(scratch, b, m, start, ink, rep, balance=False)
         fitted.append(rep.get("size", start))
     if style.bubble_fill:
         for b, m in zip(to_render, masks):

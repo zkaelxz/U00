@@ -775,6 +775,10 @@ _EXTRA_KEYS = ("follow_id", "action", "starts_at", "target")
 TARGET_PAGES = {"glossary": "drama_id", "review": "drama_id", "series": "series_id",
                 "jobs": None, "watch": "drama_id", "title": "drama_id", "live": "follow_id"}
 WAITING_PREFIX = "Waiting for you: "
+# The restart notice's "Run them again" (POST /api/queue/retry-interrupted).
+RETRY_QUEUE_ACTION = "retry_queue"
+_ACTIONS = (RETRY_QUEUE_ACTION,)
+_RESTART_NAMED = 5
 _WAITING_MAX = 300
 
 
@@ -891,7 +895,12 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     out = []
     admin_ids = None
     for e in reversed(events):
-        if e["kind"] == "chapters" and not ownership_service.sees_every_job(principal):
+        if e["kind"] == "device_token":
+            # With sign-in on, the key's own account alone; with it off, the one person at the PC.
+            if principal is not None and not principal.get("is_local_owner") \
+                    and ownership_service.user_id(principal) != e["owner_user_id"]:
+                continue
+        elif e["kind"] == "chapters" and not ownership_service.sees_every_job(principal):
             # A member hears only of the series they track.
             uid = ownership_service.user_id(principal)
             mine = (e.get("chapter_counts") or {}).get(uid, 0) if uid is not None else 0
@@ -1162,6 +1171,60 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
             pass
 
 
+def _restart_sentence(records, queue_items, shared_only) -> str:
+    """The counts and the closing sentences always fit; the job names take
+    what is left of _WAITING_MAX, so a long title list is what gets cut."""
+    head = "Baihe restarted while work was running."
+    counts = []
+    if records:
+        n = len(records)
+        counts.append(f"{n} job{'s were' if n != 1 else ' was'} cut off")
+    if queue_items:
+        counts.append(f"{queue_items} queue item{'s' if queue_items != 1 else ''} stopped")
+    tail = " Nothing started again by itself."
+    if queue_items and not shared_only:   # the button is the bell's; a push has none
+        tail += " Run them again puts every interrupted queue item back."
+    fixed = f"{head} {' and '.join(counts)}.{tail}"
+    room = _WAITING_MAX - len(WAITING_PREFIX) - len(fixed) - len(" ()")
+    names, shown = [], 0
+    for rec in records[:_RESTART_NAMED]:
+        title = _drama_title(rec.get("description"), shared_only)
+        kind = _job_kind(rec.get("description"))
+        name = f"{kind} - {title}" if title else kind
+        more = f"; {len(records) - shown - 1} more" if shown + 1 < len(records) else ""
+        if len("; ".join(names + [name])) + len(more) > room:
+            break
+        names.append(name)
+        shown += 1
+    if names and shown < len(records):
+        names.append(f"{len(records) - shown} more")
+    listed = f" ({'; '.join(names)})" if names else ""
+    first = counts[0] + (listed if records else "")
+    rest = (" and " + counts[1]) if len(counts) > 1 else ""
+    return redact_secrets(f"{head} {first}{rest}.{tail}")
+
+
+def notify_restart(records, queue_items: int) -> None:
+    """After a restart (startup, once): the jobs the sweep closed as
+    interrupted (their job_records rows) and the queue items the restart
+    stopped. One entry for the PC owner and admins (no job id, no owner),
+    opening the Jobs page, with "Run them again" when queue items stopped;
+    and a push that names only titles the household may see. Nothing is
+    started here. Never raises."""
+    try:
+        if not records and not queue_items:
+            return
+        notify_waiting(_restart_sentence(records, queue_items, False),
+                       push_text=_restart_sentence(records, queue_items, True),
+                       target={"page": "jobs"},
+                       action=RETRY_QUEUE_ACTION if queue_items else None)
+    except Exception as exc:
+        try:
+            _log().warning(f"notification: could not queue ({type(exc).__name__})")
+        except Exception:
+            pass
+
+
 def notify_remote_access(text) -> None:
     """A remote-access health change (remote_health_service, once per
     change): the in-app list, and Discord/ntfy when the "remote" category is
@@ -1202,7 +1265,7 @@ def notify_resource_alert(text, recovered=False) -> None:
 
 
 def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=None,
-                   names_drama_id=None) -> None:
+                   names_drama_id=None, action=None) -> None:
     """A run stopped and waits for the person: "Waiting for you: <text>" in
     the in-app list, seen like a job event (`job_id`, `owner_user_id`;
     neither: the PC owner and admins only), and Discord/ntfy when the
@@ -1213,13 +1276,16 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
     anything else is dropped). `names_drama_id`: the title `text` names,
     which matters where the target points at its series instead: the entry
     then also needs that title visible (_sees_target). Only a positive int
-    is kept.
+    is kept. `action`: a button the bell shows on the entry (_ACTIONS).
     Never raises, never blocks on the network."""
     try:
         clean = clean_target(target)
         named = names_drama_id if type(names_drama_id) is int and names_drama_id > 0 else None
-        _record("waiting", _waiting_text(text), job_id, owner_user_id,
-                {"target": clean} if clean else None, names_drama_id=named)
+        extra: dict = {"target": clean} if clean else {}
+        if action in _ACTIONS:
+            extra["action"] = action
+        _record("waiting", _waiting_text(text), job_id, owner_user_id, extra or None,
+                names_drama_id=named)
         if os.environ.get(DISABLED_ENV) == "1" or not get_categories()["jobs"]:
             return
         if not configured_channels():
@@ -1230,6 +1296,17 @@ def notify_waiting(text, *, push_text, owner_user_id=None, job_id=None, target=N
             _log().warning(f"notification: could not queue ({type(exc).__name__})")
         except Exception:
             pass
+
+
+def notify_device_token_expiring(owner_user_id, text) -> None:
+    """A remote access key of `owner_user_id` is about to stop working
+    (device_token_service.warn_expiring). The in-app list only, for that
+    account alone: no push, since a channel may be the household's, and an
+    admin has no use for another account's key. Never raises."""
+    try:
+        _record("device_token", redact_secrets(_tidy(text, 200)), None, owner_user_id)
+    except Exception:
+        pass
 
 
 def notify_live_follow(text, owner_user_id, follow_id, starts_at=None, start_action=False,

@@ -531,6 +531,7 @@ def test_python_m_api_registers_the_stopper_the_job_and_the_close_handler(monkey
     handlers, cleaned = [], []
     monkeypatch.setenv(shutdown_service.TOKEN_ENV, TOKEN)
     monkeypatch.setenv(process_guard.GROUP_NAME_ENV, "Local\\BaiheStudio-test")
+    monkeypatch.setenv(main_mod.START_REFUSAL_FILE_ENV, "unused-refusal-file.txt")
     monkeypatch.setattr(process_guard, "contain_children", lambda: seen.setdefault("contained", True))
     monkeypatch.setattr(process_guard, "install_console_close_handler", handlers.append)
     monkeypatch.setattr(shutdown_service, "clean_shutdown",
@@ -540,6 +541,7 @@ def test_python_m_api_registers_the_stopper_the_job_and_the_close_handler(monkey
     # Neither value is passed on to the processes the server starts.
     assert shutdown_service.TOKEN_ENV not in os.environ
     assert process_guard.GROUP_NAME_ENV not in os.environ
+    assert main_mod.START_REFUSAL_FILE_ENV not in os.environ
     assert shutdown_service.token_matches(TOKEN)
     assert seen["config"].timeout_graceful_shutdown == 3
     assert shutdown_service._stopper is not None

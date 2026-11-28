@@ -46,29 +46,6 @@ def delete_benchmark_case(case_id: int):
         conn.commit()
 
 
-def save_benchmark_run(case_id: int, result: dict, run_label: str = ""):
-    """result: one entry from benchmark.run_suite()'s own return list --
-    {"output_text", "score", "duration_seconds", "error", "cost_usd"}
-    (cost_usd only present for translation-stage results)."""
-    with contextlib.closing(db.get_conn()) as conn:
-        conn.execute(
-            "INSERT INTO benchmark_runs (case_id, run_label, output_text, score, duration_seconds, "
-            "cost_usd, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (case_id, run_label, result.get("output_text", ""), result.get("score"),
-             result.get("duration_seconds"), result.get("cost_usd", 0.0), result.get("error"),
-             clock.utcnow().isoformat()))
-        conn.commit()
-
-
-def list_benchmark_runs(case_id: int):
-    """A case's own run history, oldest first -- the last two entries are
-    what a "did this get better or worse" comparison reads."""
-    with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT * FROM benchmark_runs WHERE case_id = ? ORDER BY id", (case_id,)).fetchall()
-    return [dict(r) for r in rows]
-
-
 # ---------------------------------------------------------------------------
 # Benchmark Lab -- golden-set cases and persistent per-run records.
 # services/benchmark_lab_service.py holds the logic; this is persistence.

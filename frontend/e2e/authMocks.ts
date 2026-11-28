@@ -117,6 +117,11 @@ export const GET_FIXTURES: Record<string, unknown> = {
   },
   // Settings > Remote access keys, for a signed-in person: none yet.
   '/api/auth/device-tokens': { tokens: [], max_active: 10 },
+  // Find & Add (where + Add on the Library goes): its readiness, Sources list, saved search and run defaults.
+  '/api/setup/readiness': {},
+  '/api/sources': [],
+  '/api/sources/jobs/sources_search/result': { job_id: '', status: 'idle', progress: 0, message: '', result: null, source: null, series_id: null },
+  '/api/settings': { use_gpu: false, preferences: {} },
 }
 
 // The Library admin panel polls its last backup/export job and artifact;

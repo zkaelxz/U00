@@ -233,11 +233,9 @@ def instrument(engine, recorder, dry: bool):
     original = engine.translate_batch
 
     def translate_batch(zh_lines, context):
-        ids = context.get("line_ids")
-        if not (ids is not None and len(ids) == len(zh_lines) and all(isinstance(i, int) for i in ids)
-                and len(set(ids)) == len(ids)):
-            ids = range(1, len(zh_lines) + 1)
-        recorder.begin(ids)
+        # The request keys each line 1..n, whatever its database id
+        # (shared.request_translations_with_retry), so the replies answer those.
+        recorder.begin(range(1, len(zh_lines) + 1))
         try:
             return original(zh_lines, context)
         finally:

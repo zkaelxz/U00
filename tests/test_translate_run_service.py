@@ -327,6 +327,19 @@ def test_new_run_uses_the_defaults_and_explicit_sizes_are_kept(isolated_db, monk
                               batch_size=20) == (6, 3, 20)
 
 
+def test_only_a_chosen_batch_size_lifts_the_novel_character_budget(isolated_db, monkeypatch):
+    did = _drama()
+    _seed(did, [("你好", "")])
+    budgets = []
+    monkeypatch.setattr(svc.job_launch, "start_job",
+                        lambda *a, **k: budgets.append(k["novel_char_budget"]) or True)
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
+    patch_setting(monkeypatch, "ollama_num_ctx_override", 0)
+    svc.start_translate_run(did, engine_name="ollama")
+    svc.start_translate_run(did, engine_name="ollama", batch_size=20)
+    assert budgets == [True, False]
+
+
 def test_config_reports_the_titles_saved_toggles_and_none_before_a_choice(isolated_db):
     did = isolated_db.create_drama(title_zh="D")
     cfg = svc.get_translate_config(did)
@@ -565,3 +578,70 @@ class TestMemberLimitInTheRunBudget:
             self._caps(member, engine="ollama", model="gpt-oss:120b-cloud")
         # Free engines keep working once the limit is used up.
         assert self._caps(member, engine=free_engine) == [None]
+
+
+# --- DeepSeek balance warning before a run ------------------------------------------------
+
+from lib.http import Response  # noqa: E402
+from services import translate_run_options as run_options  # noqa: E402
+
+
+@pytest.fixture
+def balance(monkeypatch):
+    """Answers the balance request with `answer` (a dict, or an exception to raise)."""
+    state = {"answer": {"is_available": True, "balance_infos": [{"currency": "USD", "total_balance": "0.50"}]},
+             "calls": [], "key": "sk-test"}
+
+    def fake_get(url, **kw):
+        state["calls"].append((url, kw["headers"]["Authorization"], kw["timeout"]))
+        if isinstance(state["answer"], Exception):
+            raise state["answer"]
+        return Response(200, {}, json.dumps(state["answer"]).encode(), url)
+    monkeypatch.setattr(run_options.http, "get", fake_get)
+    monkeypatch.setattr(run_options, "_balance_cache", {})
+    from services import translate_service
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: state["key"])
+    return state
+
+
+def test_a_balance_below_the_estimate_warns(balance):
+    assert run_options.balance_too_low("deepseek", 1.00) is True
+    assert balance["calls"][0][1] == "Bearer sk-test" and balance["calls"][0][2]
+    run_options._balance_cache.clear()
+    assert run_options.balance_too_low("deepseek", 0.10) is False
+
+
+def test_an_empty_account_warns_whatever_its_currency(balance):
+    balance["answer"] = {"is_available": False, "balance_infos": [{"currency": "CNY", "total_balance": "0"}]}
+    assert run_options.balance_too_low("deepseek", 0.01) is True
+
+
+def test_the_warning_fails_quietly(balance):
+    balance["answer"] = ConnectionError("down")
+    assert run_options.balance_too_low("deepseek", 5.0) is False
+    balance["answer"] = {"is_available": True, "balance_infos": [{"currency": "CNY", "total_balance": "1"}]}
+    run_options._balance_cache.clear()
+    assert run_options.balance_too_low("deepseek", 5.0) is False
+
+
+def test_the_balance_is_asked_once_a_minute_and_only_for_deepseek(balance):
+    run_options.balance_too_low("deepseek", 1.0)
+    run_options.balance_too_low("deepseek", 2.0)
+    run_options.balance_too_low("claude", 2.0)
+    balance["key"] = None
+    run_options._balance_cache.clear()
+    assert run_options.balance_too_low("deepseek", 2.0) is False
+    assert len(balance["calls"]) == 1
+
+
+def test_the_estimate_carries_the_balance_warning(isolated_db, cap, monkeypatch):
+    cap(0)
+    did = _drama()
+    _seed(did, [("你好世界" * 50, "")])
+    asked = []
+    monkeypatch.setattr(run_options, "balance_too_low", lambda engine, usd: asked.append((engine, usd)) or True)
+    est = svc.estimate_translate_cost(did, "deepseek", check_balance=True)
+    assert est["balance_too_low"] is True and asked == [("deepseek", est["estimated_usd"])]
+    # A caller who may not spend the balance never has it looked up.
+    assert svc.estimate_translate_cost(did, "deepseek")["balance_too_low"] is False
+    assert len(asked) == 1

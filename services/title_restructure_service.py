@@ -363,7 +363,7 @@ def _snapshot_root() -> str:
 
 
 def _snapshot_files(plan) -> list:
-    names = ([comic_chapters.MANIFEST_NAME] if plan["media"] == "comic" else
+    names = ([comic_chapters.MANIFEST_NAME, comic_chapters.BACKUP_NAME] if plan["media"] == "comic" else
              [chapter_manifest.RAW_NOVEL_FILENAME, chapter_manifest.MANIFEST_FILENAME])
     return [(plan[side]["id"], name) for side in ("source", "target") for name in names]
 

@@ -47,7 +47,6 @@ export interface EstimateParams {
   job_cost_cap_usd?: number
   reflect?: boolean
   bulk?: boolean
-  thinking?: boolean
   /** The run's own batch size; omitted, the engine's default. */
   batch_size?: number
   /** Estimate only these lines (those the run would translate); omitted, the whole title. */
@@ -78,7 +77,6 @@ export interface TranslateRunStartBody {
   fallback_chain?: FallbackEngine[]
   reflect?: boolean
   bulk?: boolean
-  thinking?: boolean // omitted: the title's remembered choice
   default_female_pronouns?: boolean // omitted: false
   include_genre_notes?: boolean // omitted: true
   memory_examples?: boolean // omitted: false

@@ -91,6 +91,9 @@
     unsaved: new Set(),
     // element -> { layer, regions, naturalWidth }
     active: new Map(),
+    // Picture key -> regions for answers that came back after a recycling reader
+    // had moved the element on to another page: drawn when an element shows it again.
+    byPicture: new Map(),
     observer: null,
     // The running chapter capture ({cancelled, text}), or null.
     capture: null,
@@ -853,9 +856,46 @@
   // swaps the image without a navigation, so a load handler would never
   // fire. Watch the DOM instead, so the old page's English is taken off
   // the new picture (repositionAll); pressing Translate again draws it.
+  // Bounded: a long chapter on a recycling reader would otherwise keep every page's boxes.
+  const MAX_REMEMBERED_PICTURES = 400;
+  function rememberPicture(key, regions) {
+    // A data: address can be megabytes; such a page is simply not remembered.
+    if (key.length > 2048) return;
+    state.byPicture.delete(key);
+    state.byPicture.set(key, regions);
+    if (state.byPicture.size > MAX_REMEMBERED_PICTURES) state.byPicture.delete(state.byPicture.keys().next().value);
+  }
+
+  // Until the new src has loaded, currentSrc still names the old picture, so the key would match the old page.
+  const showsLoadedPicture = (img) => img.complete && img.naturalWidth > 0;
+
+  function drawRememberedPicture(el) {
+    if (!el || el.tagName !== "IMG" || !state.byPicture.size || !showsLoadedPicture(el)) return;
+    const regions = state.byPicture.get(elementKey(el));
+    if (!regions) return;
+    const entry = state.active.get(el);
+    if (entry && entry.picture === pictureOf(el) && entry.regions === regions) return;
+    drawOverlay(el, regions);
+  }
+
+  // The answer's own element went on to another page, but the reader may already show
+  // this page in a different element of its pool.
+  function drawWherePictureShows(key, regions) {
+    let drawn = false;
+    for (const img of document.images) {
+      if (img.isConnected && showsLoadedPicture(img) && elementKey(img) === key) {
+        drawOverlay(img, regions);
+        drawn = true;
+      }
+    }
+    return drawn;
+  }
+
   function watchForPageChanges() {
     if (state.observer) return;
     state.observer = new MutationObserver(() => scheduleReposition());
+    // currentSrc, part of the picture key, changes only once the new picture has loaded.
+    document.addEventListener("load", (event) => drawRememberedPicture(event.target), true);
     state.observer.observe(document.body, {
       subtree: true, attributes: true, childList: true,
       attributeFilter: ["src", "style", "class"],
@@ -1618,6 +1658,12 @@
   // again, a bounded number of times so a wrong counter only costs a few seconds.
   const CAPTURE_PATIENT_WAIT_MS = 3000;
   const CAPTURE_PATIENT_TRIES = 3;
+  // The first batch of a capture goes out small, so English shows early; later ones
+  // fill the request. It is as many pages as the app translates at once (6 when
+  // nothing is saved, 2 when saving: extension_bridge_service), so it costs no
+  // extra round. Scrolling and reading go on while a batch is out, at most one more
+  // batch ahead, so the page images held stay bounded.
+  const CAPTURE_FIRST_BATCH = { overlay: 6, store: 2 };
   // Attributes a list renderer uses to number its rows. Used only to order
   // pages, and only when every page in the comparison has one.
   const READER_INDEX_KEYS = ["pageIndex", "pageNum", "pageNumber", "page", "index", "idx"];
@@ -1978,6 +2024,7 @@
     let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
+    const firstBatch = store ? CAPTURE_FIRST_BATCH.store : CAPTURE_FIRST_BATCH.overlay;
     let capHit = false;
     let unreadable = "";
     const needAccess = new Set();
@@ -1992,6 +2039,8 @@
 
     let line = "";
     let fraction = null;
+    // What the batch out for translation says while the scroll goes on.
+    let sendingNote = "";
     const emit = () => {
       // After a cancel the line stays "Cancelling…" however late a batch reports back.
       if (run.cancelled) return;
@@ -2002,7 +2051,7 @@
     run.tick = emit;
     line = fromHere ? "Looking for pages from here" : "Scrolling to the top to start";
     emit();
-    const report = (suffix = "") => {
+    const report = (suffix = sendingNote) => {
       const counter = readerCounter();
       line = (counter ? `Page ${counter.current} of ${counter.total}`
                       : `${seen.size} page${seen.size === 1 ? "" : "s"} found`) + suffix;
@@ -2072,7 +2121,8 @@
     // same sendInBatches the visible-pages path uses. Returns a failure
     // reason, or "".
     const sendRange = async (items, range) => {
-      report(` — translating ${range.from}-${range.to} of ${range.total}`);
+      sendingNote = ` — translating ${range.from}-${range.to} of ${range.total}`;
+      report();
       return sendBatch(items, { dramaId, store, filterPages: items.length > 1 });
     };
     const onBatch = async (items, data) => {
@@ -2086,8 +2136,17 @@
         // later page while this batch was in flight; drawing then
         // would put these bubbles on the wrong page.
         for (const el of elements) {
-          if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
+          const isImg = el.tagName === "IMG";
+          // Kept even when drawn here: the element may show another page and then this one again.
+          if (srcKey && isImg) {
+            rememberPicture(srcKey, regions);
+            // The load that would draw it may come before this batch ends.
+            watchForPageChanges();
+          }
+          if (srcKey && el.isConnected && (!isImg || showsLoadedPicture(el)) && await currentDrawTargetKey(el) === srcKey) {
             drawOverlay(el, regions);
+            counts.drawn += 1;
+          } else if (srcKey && isImg && drawWherePictureShows(srcKey, regions)) {
             counts.drawn += 1;
           }
         }
@@ -2144,10 +2203,12 @@
       }
     }
 
-    async function flush(force) {
-      while (!run.cancelled && (queue.length >= limit || (force && queue.length))) {
+    async function flush(force, first = 0) {
+      let size = first || limit;
+      while (!run.cancelled && (queue.length >= size || (force && queue.length))) {
         queue.sort(byReadingOrder);
-        const batch = queue.splice(0, limit);
+        const batch = queue.splice(0, size);
+        size = limit;
         const outcome = await sendInBatches(batch, sendRange, onBatch, limit, () => run.cancelled);
         limit = outcome.limit || limit;
         if (outcome.sentAny) watchForPageChanges();
@@ -2177,6 +2238,28 @@
       await sleep(stepDelay());
     }
 
+    // The batch out for translation while the scroll goes on: batches still go one at a
+    // time and in reading order, so saved pages keep chapter order.
+    let sending = null;
+    let sendFailure = "";
+    let sentAny = false;
+    // Two steps in a row with no new page send what is queued, so the last pages translate while the
+    // scroll makes sure the chapter has ended. Not a lone page (the app filters out non-pages only in
+    // requests of two or more), and not when saving, where a page found later must still be stored in
+    // chapter order with the rest.
+    const startSending = (quiet) => {
+      if (quiet && (store || queue.length < 2)) return;
+      if (sending || !queue.length) return;
+      const size = quiet ? queue.length : sentAny ? limit : Math.min(limit, firstBatch);
+      if (queue.length < size) return;
+      sentAny = true;
+      sending = flush(false, size).then((r) => {
+        sendFailure = r;
+        sendingNote = "";
+        sending = null;
+      });
+    };
+
     let reason = "";
     let stalls = 0;
     let steps = 0;
@@ -2203,11 +2286,14 @@
       const counter = readerCounter();
       if (counter) expected = Math.max(expected, counter.total);
       report();
-      if (queue.length >= limit) {
-        failure = await flush(false);
-        if (failure) { reason = "error"; break; }
-        if (run.cancelled) { reason = "cancelled"; break; }
-      }
+      const firstGoesOut = !sentAny;
+      startSending(stalls >= 2);
+      // The first batch is waited for while its pages are still on screen: scrolling on would put a
+      // recycling reader's elements on later pages before the first answer arrives, and no English
+      // would show until the person scrolled back.
+      if (sending && (firstGoesOut || queue.length >= 2 * limit)) await sending;
+      if (sendFailure) { failure = sendFailure; reason = "error"; break; }
+      if (run.cancelled) { reason = "cancelled"; break; }
       const atBottom = scroller.top() >= scroller.max() - 4;
       // A page that cannot be moved by scrollTop (or stopped short of its end) may still answer
       // the reader's own wheel and key handling; a few tries, so a real end costs nothing extra.
@@ -2243,6 +2329,11 @@
       lastMoved = scroller.top() !== before;
     }
 
+    if (sending) await sending;
+    if (sendFailure && reason !== "cancelled" && reason !== "error") {
+      failure = sendFailure;
+      reason = "error";
+    }
     // Cancelled means stop sending as well as scrolling; any other stop
     // still delivers the pages already read.
     if (reason !== "cancelled" && reason !== "error") {
