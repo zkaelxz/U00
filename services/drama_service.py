@@ -522,7 +522,8 @@ def job_running_for_drama(drama_id, exclude_job_id=None) -> bool:
             if exclude_job_id else background_jobs.any_job_running_for_drama(drama_id)):
         return True
     return job_store.fresh_active(
-        job_ids={f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES},
+        job_ids={f"{prefix}{drama_id}" for prefix in background_jobs.DRAMA_JOB_PREFIXES
+                 if prefix not in background_jobs.SIDE_JOB_PREFIXES},
         exclude=exclude_job_id)
 
 
