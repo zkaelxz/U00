@@ -4,7 +4,7 @@ export type KeysFileRow = components['schemas']['EnvSettingRow']
 
 export const KEYS_FILE_TITLE = 'Keys file and environment'
 export const KEYS_FILE_NOTE =
-  'Where each setting is saved. Most are changed only in the .env file in the data folder (or in Windows, where marked); the ones in Connections and Remote access are saved there by their own cards. This list only says whether each one is set, never what it is set to.'
+  'Where each setting is saved. Most are changed only in the .env file in the data folder (or in Windows, where marked); the Jellyfin key and the Discord and ntfy addresses (Connections) and the public address, Google sign-in and address check (People and access) are saved there by their own forms. This list only says whether each one is set, never what it is set to.'
 
 export interface KeysFileGroup {
   group: string

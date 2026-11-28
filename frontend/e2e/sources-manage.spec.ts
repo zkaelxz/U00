@@ -50,7 +50,7 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
 })
 
-test('Sites is a compact row: name, status, On, Rules, Details', async ({ page }) => {
+test('Sites is a compact row: name, status, On, Pace, Details', async ({ page }) => {
   await mockSources(page)
   const manage = await openManage(page)
   await expect(manage.getByRole('columnheader')).toHaveText(['Site', 'Status', 'On', 'Pace', 'Details'])

@@ -240,13 +240,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // "Update these": the server updates every package below the app's minimum in one job.
   const outdated = presets?.outdated ?? []
   const UPDATE_NAME = 'outdated packages'
-  // Shown as "Installing …" so the job's progress and Cancel appear, like any install.
-  const UPDATE_BUSY = 'updates for outdated packages'
   const runUpdateOutdated = async (acceptedRisks: string[] = []) => {
-    onBusy({ kind: 'install', name: UPDATE_BUSY })
+    onBusy({ kind: 'upgrade', name: UPDATE_NAME })
     setOutcome(null)
     try {
-      const r = await runInstallJob(() => upgradeOutdated(undefined, acceptedRisks), (job) => onBusy({ kind: 'install', name: UPDATE_BUSY, job }), UPDATE_NAME)
+      const r = await runInstallJob(() => upgradeOutdated(undefined, acceptedRisks), (job) => onBusy({ kind: 'upgrade', name: UPDATE_NAME, job }), UPDATE_NAME)
       setUpdates(null)
       setOutcome({ kind: 'upgrade', name: UPDATE_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
         text: updateOutdatedText(r.ok, !!r.cancelled, r.hint) })
@@ -461,7 +459,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                   confirmLabel={updateOutdatedLabel(outdated.length)}
                   disabled={!!blocked}
                   describedBy={running ? runningId : blocked ? reasonId : undefined}
-                  busy={busy?.name === UPDATE_BUSY}
+                  busy={busy?.name === UPDATE_NAME}
                   onConfirm={() => void withPlan(UPDATE_NAME, outdated, (accepted) => runUpdateOutdated(accepted), () => planUpgradeOutdated(), queueOutdatedUpdate)}
                 />
               </div>
