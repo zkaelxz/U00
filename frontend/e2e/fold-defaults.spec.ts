@@ -57,7 +57,7 @@ test('Diagnostics: only the long blocks (voice cloning engines, Packages, Models
     await expect(page.locator('.diag-panel:not([hidden]) .section').first()).toBeVisible()
     const folds = page.locator('.diag-panel:not([hidden]) details.section')
     for (const fold of await folds.all()) {
-      const title = (await fold.locator('summary .section-title').textContent()) ?? ''
+      const title = (await fold.locator(':scope > summary .section-title').textContent()) ?? ''
       expect(['Packages', 'Models', 'Voice cloning: OmniVoice', 'Voice cloning: Qwen3-TTS', 'Voice cloning: Chatterbox', 'Installed packages', 'Output']).toContain(title)
       await expect(fold).not.toHaveAttribute('open', '')
     }
