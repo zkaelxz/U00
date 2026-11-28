@@ -14540,6 +14540,11 @@ export interface components {
              * @default false
              */
             reading_line?: boolean;
+            /**
+             * Sound Captions
+             * @default false
+             */
+            sound_captions?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -20968,6 +20973,11 @@ export interface components {
             fully_translated: boolean;
             /** Overlap Count */
             overlap_count: number;
+            /**
+             * Sound Captioned Lines
+             * @default 0
+             */
+            sound_captioned_lines: number;
             /** Total Lines */
             total_lines: number;
             /** Zh Filled */
@@ -47446,6 +47456,7 @@ export interface operations {
                 wrap_chars_source?: number;
                 tidy_timing?: boolean;
                 speaker_names?: boolean;
+                sound_captions?: boolean;
                 reading_line?: boolean;
             };
             header?: never;
