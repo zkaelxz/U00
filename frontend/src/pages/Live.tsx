@@ -220,7 +220,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
               </select>
             </Field>
           )}
-          {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
+          {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you. Each session stops after 60 minutes." chosen={chosen} testId="live-chosen-note" />}
           {ollama.note && <OllamaNote check={ollama} alert={startPressed} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">
