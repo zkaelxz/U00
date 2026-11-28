@@ -184,7 +184,10 @@
 .bench-section-purpose, .bench-section-meta { margin: 0; font-size: var(--text-sm); }
 .bench-section-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); min-width: 0; }
 .bench-section-body > * { margin: 0; }
-@media (max-width: 640px) { .bench-section-body { gap: var(--space-4); } }
+@media (max-width: 640px) {
+  .bench-section-body { gap: var(--space-4); }
+  .bench-section-body > :is(.btn, button, .actions) + * { margin-top: var(--space-2); }
+}
 .bench-section-actions { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
 /* Anchor the steps to the heading row, not the small (i), so they stay inside a phone-width card. */
 .bench-help { position: static; }
