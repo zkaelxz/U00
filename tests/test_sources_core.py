@@ -15,7 +15,7 @@ from sources.http import PacingPolicy, SourceClient, reset_pacing_state
 from sources.http_transport import _requests_transport
 from sources.models import (AccessTier, CapabilityStatus, ChallengeDetected, ChapterInfo,
                             ContentAccess, FailureReason, FetchFailed, NotSupportedError,
-                            PageRef, SearchResult, SeriesInfo, SourceCapabilities,
+                            PageRef, SearchResult, SeriesInfo, SourceCapabilities, SourceError,
                             SourceUnavailable, TechnicalStatus, TermsProhibited)
 
 from .sources_helpers import FakeClock, FixedRng, ScriptedTransport, html, make_client
@@ -1510,6 +1510,29 @@ def test_plain_image_adapters_download_the_page_bytes_and_keep_the_extension(nam
     assert url == page.url and kw["headers"] == {"Referer": "r"} and kw["classify_body"] is False
     assert kw["action"] == "Downloading page 2"
     assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/b?x=1.png"))[1] == ".jpg"
+    assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/b.png#x"))[1] == ".png"
+
+
+@pytest.mark.parametrize("name,default_ext", [
+    ("mangak", ".webp"), ("marumaru", ".webp"), ("newxtoon", ".jpg"), ("nihonkuni", ".jpg"),
+    ("rawkuma", ".jpg"), ("weloma", ".jpg"), ("wfwf", ".jpg")])
+def test_sites_that_send_block_pages_refuse_non_images_and_keep_their_default_extension(
+        name, default_ext, isolated_db):
+    from sources import registry
+    replies = iter([{"Content-Type": "text/html; charset=utf-8"}, {}, {"content-type": "image/png"}])
+
+    class Client(_RecordingClient):
+        def get(self, url, **kw):
+            self.calls.append((url, kw))
+            return type("R", (), {"content": b"IMG", "headers": next(replies)})()
+
+    adapter = registry.adapter_classes()[name](client=Client())
+    with pytest.raises(SourceError, match="Page 1 didn't come back as an image"):
+        adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/1.png"))
+    assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/1.PNG")) \
+        == (b"IMG", ".png")
+    assert adapter.download_page(PageRef(source=name, chapter_id="c", index=0, url="https://cdn.example/a/1#x"))[1] \
+        == default_ext
 
 
 def test_text_only_adapters_still_refuse_to_download_page_images(isolated_db):

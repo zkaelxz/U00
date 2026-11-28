@@ -372,7 +372,7 @@ def may_set_private(principal, owner_user_id) -> bool:
 SHARING_PAGE_MAX = 200
 
 
-def _owner_name(row) -> str:
+def owner_name(row) -> str:
     if row["owner_user_id"] is None:
         return "PC owner"
     if row["owner_found"] is None:
@@ -392,7 +392,7 @@ def list_sharing(principal, offset: int = 0, limit: int = 100) -> dict:
         raise InvalidInputError(f"offset must be 0 or more and limit 1 to {SHARING_PAGE_MAX}.")
     total, rows = db.list_item_sharing(limit, offset)
     items = [{"kind": r["kind"], "id": r["id"], "title": r["title"] or "",
-              "owner_name": _owner_name(r), "owner_user_id": r["owner_user_id"],
+              "owner_name": owner_name(r), "owner_user_id": r["owner_user_id"],
               "created_at_pc": r["owner_user_id"] is None,
               "is_private": bool(r["is_private"]),
               "series_id": r["series_id"], "series_name": r["series_name"],
@@ -444,7 +444,7 @@ def set_owner(principal, kind: str, item_id, owner_user_id) -> dict:
     auth_service.write_audit(user_id(principal), "sharing.set_owner",
                              f"{kind} {item_id}: owner={owner_user_id}")
     owner = db.auth_get_user(owner_user_id) if owner_user_id is not None else None
-    name = _owner_name({"owner_user_id": owner_user_id,
+    name = owner_name({"owner_user_id": owner_user_id,
                         "owner_found": owner and owner["id"],
                         "owner_display_name": owner and owner.get("display_name")})
     return {"kind": kind, "id": item_id, "owner_user_id": owner_user_id, "owner_name": name}

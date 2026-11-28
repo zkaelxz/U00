@@ -3,6 +3,25 @@
   "plugins": ["react", "typescript", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    // A function this long is hard to review, and nothing else stops it growing a line at a time.
+    "max-lines-per-function": ["error", { "max": 400 }]
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "e2e/**", "smoke/**"],
+      "rules": { "max-lines-per-function": "off" }
+    },
+    // Already over the ceiling: each may shrink but never grow. Lower its number as it shrinks,
+    // and drop the entry once it is under 400.
+    { "files": ["src/components/LibraryList.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 401 }] } },
+    { "files": ["src/pages/Comic.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 555 }] } },
+    { "files": ["src/pages/diagnostics/PackagesSection.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 486 }] } },
+    { "files": ["src/pages/workspace/stages/GlossaryPanel.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 414 }] } },
+    { "files": ["src/pages/workspace/stages/TranscribeStage.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 709 }] } },
+    { "files": ["src/pages/workspace/stages/TranslateStage.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 456 }] } },
+    { "files": ["src/pages/workspace/stages/review/CompareTranscription.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 491 }] } },
+    { "files": ["src/pages/workspace/stages/review/LinesPanel.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 473 }] } },
+    { "files": ["src/pages/workspace/stages/review/Player.tsx"], "rules": { "max-lines-per-function": ["error", { "max": 538 }] } }
+  ]
 }
