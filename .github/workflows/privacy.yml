@@ -59,7 +59,8 @@ jobs:
               return [t for t in open(path, encoding="utf-8").read().splitlines() if t]
           terms = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", re.I) for t in phrases(sys.argv[1])]
           allowed = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(a) + r"(?![A-Za-z0-9_])", re.I) for a in phrases(sys.argv[2])]
-          for hit in phrases(sys.argv[3]):
+          # Split on newlines only: splitlines() also breaks on U+2028 and the like, which a line could use to fake a path.
+          for hit in filter(None, open(sys.argv[3], encoding="utf-8", newline="\n").read().split("\n")):
               path, number, text = hit.split(":", 2)
               if allowed and path.startswith("language_pack_data/"):
                   for a in allowed:
