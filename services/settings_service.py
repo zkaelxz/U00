@@ -369,12 +369,19 @@ def reasoning_override(engine_name):
     return "less" if key and get(key) == "less" else None
 
 
-def parallel_chapters() -> int:
+# The saved value tops out at 3; at that top an engine with a roomy rate limit gets
+# more lanes. Below it the person asked for fewer, so that is kept.
+_TOP_LANES = 3
+_MORE_LANES = {"deepseek": 6}
+
+
+def parallel_chapters(engine_name=None) -> int:
     """How many novel chapters one run may translate at once."""
     try:
-        return max(1, min(3, int(str(get("novel_parallel_chapters")))))
+        lanes = max(1, min(_TOP_LANES, int(str(get("novel_parallel_chapters")))))
     except (TypeError, ValueError):
         return 1
+    return _MORE_LANES.get(engine_name, lanes) if lanes == _TOP_LANES else lanes
 
 
 def reply_guard_override():
