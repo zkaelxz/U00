@@ -640,5 +640,8 @@ def test_the_estimate_carries_the_balance_warning(isolated_db, cap, monkeypatch)
     _seed(did, [("你好世界" * 50, "")])
     asked = []
     monkeypatch.setattr(run_options, "balance_too_low", lambda engine, usd: asked.append((engine, usd)) or True)
-    est = svc.estimate_translate_cost(did, "deepseek")
+    est = svc.estimate_translate_cost(did, "deepseek", check_balance=True)
     assert est["balance_too_low"] is True and asked == [("deepseek", est["estimated_usd"])]
+    # A caller who may not spend the balance never has it looked up.
+    assert svc.estimate_translate_cost(did, "deepseek")["balance_too_low"] is False
+    assert len(asked) == 1

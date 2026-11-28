@@ -186,6 +186,7 @@ class FallbackEngine:
                 retries = 0
                 self.events.append({"from": self.choices[self.active],
                                     "to": self.choices[self.active + 1],
+                                    "to_model": getattr(self.engines[self.active + 1], "model", None),
                                     "reason": OUT_OF_CREDIT if is_out_of_credit(e) else type(e).__name__,
                                     "detail": redact_secrets(str(e))[:200]})
                 self.active += 1
@@ -273,14 +274,20 @@ _ENGINE_LABELS = {"deepseek": "DeepSeek", "claude": "Claude", "gemini": "Gemini"
                   "ollama": "Ollama"}
 
 
-def out_of_credit_notice(from_engine: str, to_engine: str) -> str:
-    """The finished job's sentence for a switch made because `from_engine`'s account ran dry."""
-    if (from_engine, to_engine) == ("deepseek", "ollama"):
+def out_of_credit_notice(from_engine: str, to_engine: str, to_model=None) -> str:
+    """The finished job's sentence for a switch made because `from_engine`'s account ran dry.
+    `to_model` None means the automatic slow switch, whose fallback is always Gemma; a chosen
+    chain names its model, since an Ollama fallback there may be any model."""
+    gemma = to_engine == "ollama" and (to_model is None or str(to_model).startswith("gemma"))
+    if from_engine == "deepseek" and gemma:
         return OUT_OF_CREDIT_NOTICE
     name = _ENGINE_LABELS.get(from_engine, from_engine)
     page = _TOP_UP_PAGES.get(from_engine)
     top_up = f"Top up at {page}" if page else "Top up that account"
-    return f"{name} is out of credit. {top_up}; {_ENGINE_LABELS.get(to_engine, to_engine)} is translating for now."
+    to = "Gemma" if gemma else _ENGINE_LABELS.get(to_engine, to_engine)
+    if to_engine == "ollama" and not gemma:
+        to = f"Ollama ({to_model})"
+    return f"{name} is out of credit. {top_up}; {to} is translating for now."
 
 
 def is_out_of_credit(e: Exception) -> bool:
@@ -339,6 +346,11 @@ class SlowSwitchEngine(FallbackEngine):
     @active.setter
     def active(self, index):
         self._active = index
+
+    def fresh_run(self):
+        """The same engines with a new run's state: whether it starts switched is decided
+        now, from the switch memory, not when this object was built."""
+        return SlowSwitchEngine(self.engines, self.choices)
 
     def lane_copy(self, clone):
         """A copy for one chapter lane: its own engine copies, the run's shared state."""

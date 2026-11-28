@@ -64,7 +64,7 @@ def get_translate_run_config(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/estimate", dependencies=[require_permission("library.read")], response_model=TranslateRunEstimate,
             summary="Advisory pre-run cost estimate for one drama",
             responses=error_responses(400, 404, 422))
-def get_translate_run_estimate(drama_id: int = Path(ge=1),
+def get_translate_run_estimate(request: Request, drama_id: int = Path(ge=1),
                                engine: Optional[str] = None,
                                model: Optional[str] = None,
                                reflect: bool = False,
@@ -84,7 +84,8 @@ def get_translate_run_estimate(drama_id: int = Path(ge=1),
             force_retranslate=force_retranslate, bulk=bulk,
             gemini_free_tier=gemini_free_tier, job_cost_cap_usd=job_cost_cap_usd,
             batch_size=batch_size, line_ids=line_ids,
-            chapter_from=chapter_from, chapter_to=chapter_to, style_preset=style_preset),
+            chapter_from=chapter_from, chapter_to=chapter_to, style_preset=style_preset,
+            check_balance=holds_paid_engines(request)),
         drama_id, thinking, reflect)
 
 

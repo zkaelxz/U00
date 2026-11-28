@@ -981,3 +981,33 @@ def test_offpeak_deepseek_runs_get_the_switching_engine_when_started_and_resumed
     assert isinstance(polled[0], engine_fallback.SlowSwitchEngine)
     assert isinstance(bulk_run._bulk_engine_factory("deepseek", None), engine_fallback.SlowSwitchEngine)
     assert bulk_run._bulk_engine_factory("claude", None).name == "claude"
+
+
+def test_an_offpeak_run_decides_its_start_engine_when_the_window_opens(isolated_db, monkeypatch):
+    from engine_backends import fallback as engine_fallback
+    from services import translate_run_options
+
+    class DeepSeek:
+        name, model = "deepseek", "deepseek-flash"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"D:{z}" for z in zh_lines]
+
+    class Gemma:
+        name, model = "ollama", "gemma4:31b-cloud"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"G:{z}" for z in zh_lines]
+
+    deepseek = DeepSeek()
+    monkeypatch.setattr(engine_fallback, "_slow_until", {})
+    monkeypatch.setattr(engine_fallback, "_slow_reason", {})
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda *a, **k: Gemma())
+    engine_fallback._remember_slow(deepseek)
+    engine = translate_run_options.with_slow_switch(deepseek)  # built while DeepSeek was slow
+    engine_fallback._slow_until.clear()  # the memory has run out by the time the window opens
+    did = _mixed_drama(isolated_db)
+    jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did), "deepseek", "m", {})
+    summary = bulk_poll.run_scheduled_job(jid, engine)
+    assert [ln.en[:2] for ln in isolated_db.load_line_objects(did)][:2] == ["D:", "D:"]
+    assert "fallbacks" not in summary

@@ -341,3 +341,18 @@ def test_the_out_of_credit_notice_names_both_engines():
         {"from": "deepseek", "to": "claude", "reason": engine_fallback.OUT_OF_CREDIT, "detail": "402"}]})
     _, message = jobs_service.derive_outcome("done", None, result)
     assert "DeepSeek is out of credit. Top up at platform.deepseek.com; Claude is translating for now." in message
+
+
+def test_a_chosen_ollama_fallback_is_named_by_its_model_not_called_gemma():
+    from services import jobs_service
+
+    def message(to_model):
+        result = jobs_service.project_result({"errors": [], "translated_count": 1, "fallbacks": [
+            {"from": "deepseek", "to": "ollama", "to_model": to_model,
+             "reason": engine_fallback.OUT_OF_CREDIT, "detail": "402"}]})
+        return jobs_service.derive_outcome("done", None, result)[1]
+
+    assert "Ollama (gpt-oss:120b-cloud) is translating for now." in message("gpt-oss:120b-cloud")
+    assert "Gemma" not in message("gpt-oss:120b-cloud")
+    assert engine_fallback.OUT_OF_CREDIT_NOTICE in message("gemma4:31b-cloud")
+    assert engine_fallback.OUT_OF_CREDIT_NOTICE in message(None)
