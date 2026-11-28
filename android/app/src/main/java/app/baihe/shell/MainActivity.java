@@ -84,7 +84,8 @@ public class MainActivity extends Activity {
      */
     private void showCrash(String trace) {
         TextView text = new TextView(this);
-        text.setText("Baihe hit a problem. Copy this and send it so it can be fixed:\n\n" + trace);
+        text.setText("Baihe hit a problem. Copy this and paste it into Report a problem "
+                + "(Grab > More), or send it to whoever runs your Baihe, so it can be fixed:\n\n" + trace);
         text.setTextIsSelectable(true);
         text.setPadding(32, 32, 32, 32);
         ScrollView scroll = new ScrollView(this);
@@ -250,6 +251,11 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void changeAddress() {
+                runOnUiThread(() -> askAddress(new Intent(), savedAddress(), null));
+            }
+
+            @Override
             public void setBarsHidden(boolean hidden) {
                 runOnUiThread(() -> {
                     barsHidden = hidden;
@@ -288,6 +294,11 @@ public class MainActivity extends Activity {
         root.setFitsSystemWindows(true);
         root.setBackgroundColor(palette.surface);
         strip = ShellTabs.strip(this, palette, false);
+        // An address that answers with some other site never reaches the failure screen's button.
+        ((ViewGroup) strip).getChildAt(0).setOnLongClickListener(v -> {
+            askAddress(new Intent(), savedAddress(), null);
+            return true;
+        });
         root.addView(strip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showStrip();
@@ -349,7 +360,8 @@ public class MainActivity extends Activity {
                         + " right now.\nYour PC may be busy or restarting, or its address may have changed."
                 : "Connecting to Baihe…\nThe PC is taking longer than usual.");
         failureRetry.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
-        failureChange.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
+        // Shown during the quiet retries too: a mistyped address would otherwise wait them all out first.
+        failureChange.setVisibility(View.VISIBLE);
         if (delay < 0) return;
         autoRetries++;
         web.postDelayed(() -> {
@@ -710,6 +722,7 @@ public class MainActivity extends Activity {
         updateOffered = true;
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
+                .setMessage("A newer Baihe app is on your PC. It downloads from there, then Android asks you to install it.")
                 .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
                     File apk = updateFile();
                     if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);

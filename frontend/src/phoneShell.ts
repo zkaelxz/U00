@@ -18,6 +18,7 @@ type Bridge = {
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
   saveFile?: (key: string, name: string, mime: string, base64: string) => boolean
+  changeAddress?: (key: string) => void
 }
 
 const bridge = (): Bridge | null => {
@@ -75,6 +76,22 @@ export function checkForUpdates(): void {
   }
 }
 
+// Set by the app on Baihe's own top page only, so a frame inside it cannot call the calls that need it.
+const pageKey = (): unknown => (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
+
+/** True in an app build that can change its Baihe address from here. */
+export const canChangeAddress = (): boolean => typeof bridge()?.changeAddress === 'function'
+
+/** Opens the app's own Baihe address dialog. */
+export function changeShellAddress(): void {
+  try {
+    const key = pageKey()
+    if (typeof key === 'string') bridge()?.changeAddress?.(key)
+  } catch {
+    // The shell went away with the page.
+  }
+}
+
 // The app's MAX_FILE_BYTES (SaveDownload.java); a bigger file is left to the browser path, where the app says why.
 const SHELL_SAVE_MAX_BYTES = 30 * 1024 * 1024
 
@@ -85,13 +102,11 @@ const SHELL_SAVE_MAX_BYTES = 30 * 1024 * 1024
 export function saveInShell(blob: Blob, filename: string): boolean {
   const b = bridge()
   if (typeof b?.saveFile !== 'function' || blob.size > SHELL_SAVE_MAX_BYTES) return false
-  // Set by the app on Baihe's own top page only, so a frame inside it cannot save files.
-  const key = () => (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
-  if (typeof key() !== 'string') return false
+  if (typeof pageKey() !== 'string') return false
   void blob.arrayBuffer().then((buffer) => {
     try {
       // Read again: the app hands out a new key on each page load.
-      b.saveFile?.(String(key()), filename, blob.type, toBase64(new Uint8Array(buffer)))
+      b.saveFile?.(String(pageKey()), filename, blob.type, toBase64(new Uint8Array(buffer)))
     } catch {
       // The shell went away with the page.
     }

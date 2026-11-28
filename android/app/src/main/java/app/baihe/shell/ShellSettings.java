@@ -41,6 +41,9 @@ final class ShellSettings {
         /** Looks for a newer app build now and says what it found. */
         void checkForUpdates();
 
+        /** Opens the Baihe address dialog, filled in with the current one. */
+        void changeAddress();
+
         /** Hides (true) or shows the Studio | Grab strip, for a reader that wants the whole screen. */
         void setBarsHidden(boolean hidden);
     }
@@ -108,18 +111,28 @@ final class ShellSettings {
         /** Saves a file the page built itself into Downloads; false when it could not (the phone said why). */
         @JavascriptInterface
         public boolean saveFile(String key, String name, String mimeType, String base64) {
-            String expected = saveKey;
-            if (expected.isEmpty() || key == null || !java.security.MessageDigest.isEqual(
-                    expected.getBytes(java.nio.charset.StandardCharsets.UTF_8), key.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            if (!keyMatches(key)) {
                 SaveDownload.refused(context);
                 return false;
             }
             return SaveDownload.saveBytes(context, name, mimeType, base64);
         }
 
+        private boolean keyMatches(String key) {
+            String expected = saveKey;
+            return !expected.isEmpty() && key != null && java.security.MessageDigest.isEqual(
+                    expected.getBytes(java.nio.charset.StandardCharsets.UTF_8), key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
         @JavascriptInterface
         public void checkForUpdates() {
             host.checkForUpdates();
+        }
+
+        /** Needs the page key too, so a frame cannot keep opening the dialog. */
+        @JavascriptInterface
+        public void changeAddress(String key) {
+            if (keyMatches(key)) host.changeAddress();
         }
 
         @JavascriptInterface

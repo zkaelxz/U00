@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { canPopOut, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
+import { canChangeAddress, canPopOut, changeShellAddress, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -67,6 +67,21 @@ describe('saving a file through the app', () => {
     vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), saveFile }, __baiheSaveKey: 'k' })
     expect(saveInShell({ size: 31 * 1024 * 1024, type: '' } as Blob, 'big.epub')).toBe(false)
     expect(saveFile).not.toHaveBeenCalled()
+  })
+})
+
+describe('changing the address', () => {
+  it('asks the app with the page key, and not without one', () => {
+    const changeAddress = vi.fn()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), changeAddress } })
+    expect(canChangeAddress()).toBe(true)
+    changeShellAddress()
+    expect(changeAddress).not.toHaveBeenCalled()
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), changeAddress }, __baiheSaveKey: 'k' })
+    changeShellAddress()
+    expect(changeAddress).toHaveBeenCalledWith('k')
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(canChangeAddress()).toBe(false)
   })
 })
 

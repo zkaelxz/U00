@@ -7,7 +7,9 @@ import { useState } from 'react'
 import { Card } from '../../components/Card'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
-import { canCheckForUpdates, checkForUpdates, setShellSwitch, shellSwitch, type ShellSwitch } from '../../phoneShell'
+import {
+  canChangeAddress, canCheckForUpdates, changeShellAddress, checkForUpdates, setShellSwitch, shellSwitch, type ShellSwitch,
+} from '../../phoneShell'
 
 function ShellToggle({ name, label, help }: { name: ShellSwitch; label: string; help: string }) {
   const [on, setOn] = useState(() => shellSwitch(name))
@@ -37,6 +39,11 @@ export function PhoneAppCard() {
           label="Float Live in a small window when I leave the app"
           help="While a Live picture is playing, going Home keeps it in a small window over other apps, with the captions on it. Turn off Captions over video in Live and the window shows only the picture."
         />
+        {canChangeAddress() && (
+          <Field label="Baihe address" help="The address this app opens. Change it when your PC has a new address; you sign in again afterwards. Grab keeps its own server address in Grab > Settings.">
+            <button type="button" className="btn" onClick={changeShellAddress}>Change address</button>
+          </Field>
+        )}
         {canCheckForUpdates() && (
           <Field label="App updates" help="Looks for a newer build of this app right now and offers to install it. The app also checks by itself whenever you open it.">
             <button type="button" className="btn" onClick={checkForUpdates}>Check for updates</button>
