@@ -17,9 +17,10 @@ import background_jobs
 from live import live_cue_feed
 from live import live_whisper
 
-# Chunks waiting for translation behind the one being translated. Beyond this the
-# oldest waiting chunk is shown untranslated: the queue never grows without bound
-# and the lines it does translate stay close to the speech.
+# Chunks waiting for translation behind the one being translated; the worker sends
+# all of them in its next request. Beyond this the oldest waiting chunk is shown
+# untranslated: the queue never grows without bound and the lines it does
+# translate stay close to the speech.
 MAX_TRANSLATE_BACKLOG = 2
 # Chunks in the rolling median the auto video delay is built from: enough to ride
 # out one slow chunk, few enough to follow a change of load within a minute or two.
@@ -283,7 +284,10 @@ class _Work:
 
 
 class TranslationWorker:
-    """Translates chunks on one thread, oldest first. submit() never blocks: past
+    """Translates chunks on one thread, oldest first; chunks that waited while a
+    request ran go together in the next one, which costs a hosted model little
+    more than one of them (its time is mostly the wait for the first token).
+    submit() never blocks: past
     MAX_TRANSLATE_BACKLOG the oldest waiting chunk's lines are marked skipped and
     counted, except with keep_all: the drain after Stop has no stream left to keep
     up with. finish() lets the queue run dry; abandon() drops it and aborts the
@@ -352,10 +356,11 @@ class TranslationWorker:
             while not self._queue and not self._closing and not self._abandoned:
                 self._cond.wait()
             if self._abandoned or not self._queue:
-                return None, 0
-            work = self._queue.popleft()
-            self._stats.queue = len(self._queue)
-            return work, len(self._queue)
+                return []
+            works = list(self._queue)
+            self._queue.clear()
+            self._stats.queue = 0
+            return works
 
     def _run(self) -> None:
         # Context variables do not cross threads: without these an Ollama request
@@ -365,45 +370,49 @@ class TranslationWorker:
         tokens = (_cancel_check_var.set(self._stop_now), abort_check_var.set(self._stop_now))
         try:
             while True:
-                work, depth = self._next()
-                if work is None:
+                works = self._next()
+                if not works:
                     return
-                if not self._translate(work, depth):
+                if not self._translate(works):
                     return
         finally:
             _cancel_check_var.reset(tokens[0])
             abort_check_var.reset(tokens[1])
 
-    def _translate(self, work: _Work, depth: int) -> bool:
+    def _translate(self, works: list) -> bool:
         """False once the session was cancelled."""
-        queue_wait = time.monotonic() - work.queued_at
+        picked = time.monotonic()
+        cues = [cue for work in works for cue in work.cues]
+        newest = works[-1].idx
 
         def checkpoint():
             if self._stop_now():
                 raise background_jobs.JobCancelled("live translate")
         try:
             live_cue_feed.translate_cues(
-                work.cues, self._translator, checkpoint,
-                on_stage=lambda stage: self._stage.chunk(stage, work.idx),
+                cues, self._translator, checkpoint,
+                on_stage=lambda stage: self._stage.chunk(stage, newest),
                 on_cues=self._board.publish, lock=self._board.lock)
         except background_jobs.JobCancelled:
             return False
         except Exception as exc:
             from engine_backends.shared import redact_secrets
-            live_whisper.log_failure(f"chunk {work.idx} translation failed", exc)
+            live_whisper.log_failure(f"chunk {newest} translation failed", exc)
             note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
             with self._board.lock:
-                for cue in work.cues:
+                for cue in cues:
                     if cue["translation"] == live_cue_feed.PENDING:
                         cue["translated"], cue["translation"] = note, live_cue_feed.FAILED
                 self._board.publish()
         finally:
             self._stage.translated()
             self._wake.set()
-        if work.measured:
-            total = work.timing.report(work.idx, self._note, cues=len(work.cues),
-                                       queue_wait=queue_wait, queue_depth=depth)
-            self._stats.chunk_done(work.audio, total)
+        for pos, work in enumerate(works):
+            if work.measured:
+                total = work.timing.report(work.idx, self._note, cues=len(work.cues),
+                                           queue_wait=picked - work.queued_at,
+                                           queue_depth=len(works) - 1 - pos)
+                self._stats.chunk_done(work.audio, total)
         return True
 
 
