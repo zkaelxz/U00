@@ -1073,9 +1073,10 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .continue-placeholder .skeleton-text { width: 80%; clip-path: inset(3px 0 round var(--radius-sm)); }
 .continue-placeholder .skeleton-text.short { width: 50%; }
 @media (max-width: 640px) {
-  /* A phone shows one tile at a time: its button always takes the row under the text, a full thumb target, so a
-     short label and a long one sit the same. */
-  .continue-row > .continue-next { flex-basis: 100%; margin-left: 0; min-height: 44px; }
+  /* A phone shows one tile at a time, so its button sits small on the right of the title. A label too long to leave
+     the title 11rem drops to a row of its own, still on the right. Placed after the container rule to override it. */
+  .continue-row > .continue-open { flex-basis: 11rem; }
+  .continue-row > .continue-next { flex: 0 0 auto; margin-left: auto; min-height: 44px; }
 }
 
 /* Toolbar: search, scope, filters, view, select */

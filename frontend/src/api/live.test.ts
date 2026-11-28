@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  chosenForYou, DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
+  extendLabel, chosenForYou, DEFAULT_FORM, DEFAULT_OPTIONS, FAST_CAPTIONS, BALANCED_CAPTIONS, captionPresetModel, applyCaptionPreset, checkOllama, LIVE_FORBIDDEN, LIVE_DEFAULT_MODEL, THINKING_SWITCH_ENGINES, pickEngine, advancedSummary, buildStartBody, glossaryChoices, glossaryIds, glossaryValue, hasPending, mergeCues, readFrom, checkLiveUrl, resolveModel,
   LIVE_CLOUD_MODEL, LIVE_FORM_FALLBACK, SPEND_LIMIT_RANGE, liveEngineView, chatReadFrom, mergeChat, formDefaults, languageWhisperDefault, getLiveOptions, describeLiveError, feedCues, fmtTs, getLive, isActive, lagLine, pickSession, startLive, statusLine, statusTone, stopLive, fixLiveName, WHISPER_SIZES,
 } from './live'
 import { ApiError } from './client'
@@ -443,5 +443,16 @@ describe('per-language chunk defaults', () => {
   it('starts Chinese on its own chunk and leaves other languages on the shared default', () => {
     expect(formDefaults(opts, 'zh')).toMatchObject({ segment_seconds: 6, overlap_seconds: 1.5 })
     expect(formDefaults(opts, 'ja')).toMatchObject({ segment_seconds: 10, overlap_seconds: 3 })
+  })
+})
+
+describe('extendLabel', () => {
+  it('offers more time to the starter of a running session under ten minutes from its limit', () => {
+    expect(extendLabel({ status: 'running', can_extend: true, time_left_seconds: 290 })).toBe('Add 60 min (5 min left)')
+    expect(extendLabel({ status: 'running', can_extend: true, time_left_seconds: 10 })).toBe('Add 60 min (1 min left)')
+    expect(extendLabel({ status: 'running', can_extend: true, time_left_seconds: 600 })).toBeNull()
+    expect(extendLabel({ status: 'running', can_extend: false, time_left_seconds: 290 })).toBeNull()
+    expect(extendLabel({ status: 'running', can_extend: true, time_left_seconds: null })).toBeNull()
+    expect(extendLabel({ status: 'queued', can_extend: true, time_left_seconds: 290 })).toBeNull()
   })
 })
