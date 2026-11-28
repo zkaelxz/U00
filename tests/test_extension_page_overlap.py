@@ -132,13 +132,17 @@ def test_quick_read_pages_translate_side_by_side_but_still_read_in_order(pipelin
     assert pipeline["held"]
 
 
-def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline):
+def test_a_captured_chapter_is_stored_in_the_order_it_was_sent(pipeline, monkeypatch):
+    # A page's answer carries only a fixed failure text; the exception goes to the log. Kept here
+    # so a failure under CI load names its cause.
+    logged = []
+    monkeypatch.setattr(bridge.page_capture_checks, "log_page_failure", lambda e: logged.append(repr(e)))
     pipeline["hold_first"] = True
     drama = db.create_drama(title_en="Order", media_type="manga", source_language="ja")
     payload = {"images": _images(3), "drama_id": drama, "store": True, "filter_pages": False}
     answer = bridge.run_images(payload, payload["images"])
     ids = [p["page_id"] for p in answer["pages"]]
-    assert [p["key"] for p in answer["pages"]] == ["k0", "k1", "k2"]
+    assert [p["key"] for p in answer["pages"]] == ["k0", "k1", "k2"], (answer["failed"], answer.get("stopped"), logged)
     assert [p["id"] for p in db.list_pages(drama)] == ids
     assert [b["source_text"] for i in ids for b in db.load_bubbles(i)] == ["p0", "p1", "p2"]
     assert pipeline["held"]
