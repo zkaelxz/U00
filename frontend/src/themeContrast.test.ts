@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8')
+const css = readFileSync(new URL('./index.css', import.meta.url), 'utf8').replaceAll('\r\n', '\n')
 const reviewCss = readFileSync(new URL('./pages/workspace/stages/review/review.css', import.meta.url), 'utf8')
 
 /** Declarations of the first rule whose selector is exactly `selector` (outside any @media). */

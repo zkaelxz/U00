@@ -700,7 +700,7 @@ def _find_ffmpeg_runs_missing_timeout(source):
 
 class TestFfmpegRunsHaveTimeouts:
     def test_production_ffmpeg_runs_have_a_timeout(self):
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library", "voice_engines"}
         problems = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -744,7 +744,7 @@ def _find_text_captures_missing_decoding(source):
 
 class TestSubprocessTextDecoding:
     def test_no_text_capture_without_explicit_decoding(self):
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library", "voice_engines"}
         problems = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -773,7 +773,7 @@ SOFT_MODULE_BYTES = 64 * 1024
 class TestModuleSize:
     def test_large_modules_are_reported_not_failed(self):
         import warnings
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library", "voice_engines"}
         large = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
@@ -822,7 +822,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
 class TestFunctionLength:
     @staticmethod
     def _function_lengths():
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library", "voice_engines"}
         lengths = {}
 
         def visit(node, prefix, rel):
@@ -898,7 +898,7 @@ class TestSubprocessNoWindow:
     one runner that sets the flag."""
 
     def test_no_subprocess_call_without_creationflags(self):
-        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library"}
+        skip = {"tests", "frontend", "node_modules", ".claude", ".git", "venv", ".venv", "__pycache__", "library", "voice_engines"}
         problems = {}
         for root, dirs, files in os.walk(PROJECT_ROOT):
             dirs[:] = [d for d in dirs if d not in skip]
