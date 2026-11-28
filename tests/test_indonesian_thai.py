@@ -61,7 +61,8 @@ class TestIndonesianHeardWithoutTheDetector:
                 return iter(()), types.SimpleNamespace(duration=1.0)
 
         monkeypatch.setattr(wm, "load_whisper_model", lambda *a, **k: Model())
-        monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda r, p, trim_starts=True: seen.update(trim=trim_starts))
+        monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda r, p, trim_starts=True, **_: seen.update(trim=trim_starts))
+        monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
         if fast:
             # A stand-in module: other tests leave their own faster_whisper stub in sys.modules.
             import sys
@@ -201,7 +202,8 @@ class TestTextOnlyModel:
         monkeypatch.setattr(wm, "load_whisper_model", lambda *a, **k: model)
         monkeypatch.setattr(text_only_whisper, "_audio_array",
                             lambda audio: np.zeros(text_only_whisper.SAMPLE_RATE * 20, dtype="float32"))
-        monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda r, p, trim_starts=True: r)
+        monkeypatch.setattr(whisper_transcribe, "_fit_to_speech", lambda r, p, trim_starts=True, **_: r)
+        monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
         import vad_segments
         monkeypatch.setattr(vad_segments, "speech_spans", lambda a, r, **kw: [vad_segments.Span(2.0, 6.0)])
         audio = tmp_path / "a.wav"

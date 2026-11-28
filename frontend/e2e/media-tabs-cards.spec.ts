@@ -258,10 +258,17 @@ test.describe('Details and Credits share one draft', () => {
       } }))
       await gotoMedia(page, 'details')
       const details = mediaPanel(page, 'details')
+      if (member) {
+        // Without admin.library the details can't be saved, so the link is read-only and there is nothing to fill.
+        await expect(details.locator('input[name="source_url"]')).toBeDisabled()
+        await expect(details.getByRole('button', { name: 'Fill from link' })).toHaveCount(0)
+        await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(0)
+        return
+      }
       await details.locator('input[name="source_url"]').fill('https://example.com/p')
       await details.getByRole('button', { name: 'Fill from link' }).click()
       await expect(details.getByText('Nothing could be read from this page.')).toBeVisible()
-      await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(member ? 0 : 1)
+      await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(1)
     })
   }
 

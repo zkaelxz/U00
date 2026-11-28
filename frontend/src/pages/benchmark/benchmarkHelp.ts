@@ -69,7 +69,7 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
     ],
   },
   sweep: {
-    title: 'Settings sweep',
+    title: 'Transcription sweep',
     purpose: 'Find the transcription settings that suit your own clips.',
     steps: [
       'Pick a golden set with audio clips and its language.',
@@ -120,7 +120,5 @@ export const BENCH_SECTIONS: Record<BenchSectionId, SectionCopy> = {
   },
 }
 
-// Each section is the first card of its own tab (the sweep sits under Run a benchmark), so it starts open.
-export const BENCH_DEFAULT_OPEN: Record<BenchSectionId, boolean> = { sets: true, run: true, sweep: true, tsweep: true, reeval: true, runs: true }
 
-export const NO_CASES_HINT = 'No cases match yet. Import a golden set above, or widen Tier and Golden set.'
+export const NO_CASES_HINT = 'No cases match yet. Import a golden set under Add cases, or widen Tier and Golden set.'

@@ -58,6 +58,8 @@ export interface LinesControllerDeps {
   setRetranscribeFocusId: Dispatch<SetStateAction<number | null>>
   // The last suggested speaker taken, while it can be undone.
   setSpeakerUndo?: (undo: SpeakerUndo | null) => void
+  // A saved edit that changed the English, for the "same fix in other lines" offer.
+  onEnglishSaved?: (lineId: number, before: string, after: string) => void
 }
 
 export interface SpeakerUndo {
@@ -95,7 +97,7 @@ export function createLinesController(deps: LinesControllerDeps) {
   const {
     dramaId, st, pending, focusActive,
     setData, setFound, setIssue, setEdit, setStatus, setActiveId, setPage,
-    setSheet, setStructError,
+    setSheet, setStructError, onEnglishSaved,
   } = deps
   // The line whose last save failed, until it is saved or its draft changes.
   const failed: { current: number | null } = { current: null }
@@ -158,6 +160,8 @@ export function createLinesController(deps: LinesControllerDeps) {
       setIssue(null)
       if (failed.current === saved.id) failed.current = null
       st.current.onChanged()
+      // Only an English the user sent: one changed elsewhere meanwhile is not their fix to spread.
+      if (patch.en !== undefined && (line.en ?? '') !== (saved.en ?? '')) onEnglishSaved?.(saved.id, line.en ?? '', saved.en ?? '')
       return true
     } catch (e) {
       failLine(cur.lineId, e)

@@ -6,6 +6,7 @@
  * PC only (the server enforces; the page hides them in remote mode). The
  * Model re-evaluation card runs production against candidate
  * models, and the Settings sweep runs its passes, through the same benchmark_lab job.
+ * Its sections are listed down the left, one shown at a time.
  * Behind Developer Mode: opened by URL with the mode off, the page shows only a link to its card in Settings.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -14,12 +15,14 @@ import { getBenchmarkOptions, getBenchmarkSets, listBenchmarkRuns } from '../api
 import type { BenchmarkOptions, BenchmarkRun, BenchmarkRunStarted, BenchmarkSet } from '../types/benchmark'
 import { cancelJob } from '../api/jobs'
 import { PageShell } from '../components/PageShell'
-import { Badge } from '../components/Badge'
 import { DeveloperModeOff } from '../components/DeveloperModeOff'
 import { ButtonLink } from '../components/Button'
 import { ErrorBanner } from '../components/ErrorBanner'
+import { FlatPaneContext } from '../components/flatPane'
 import { HelpTip } from '../components/HelpTip'
+import { SidePane } from '../components/SidePane'
 import { Tabs } from '../components/Tabs'
+import { WarnBar } from '../components/WarnBar'
 import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { buttonClass } from '../components/uiClasses'
 import { useJob, useJobRun } from '../hooks/useJob'
@@ -30,7 +33,7 @@ import { routeHref, useRoute } from '../router'
 import { jobFailed, jobOutcomeText } from '../types/jobs'
 import { useDeveloperModeKnown } from './assistant/developerMode'
 import { ArenaView, type ArenaTarget } from './benchmark/ArenaView'
-import { GoldenSetsCard } from './benchmark/GoldenSetsCard'
+import { AddCasesPanel, GoldenSetsCard } from './benchmark/GoldenSetsCard'
 import { ReevalCard } from './benchmark/ReevalCard'
 import { RunCard } from './benchmark/RunCard'
 import { HandRunResultsCard } from './benchmark/HandRunResultsCard'
@@ -40,12 +43,14 @@ import { SweepCard } from './benchmark/SweepCard'
 import { TranslateSweepCard } from './benchmark/TranslateSweepCard'
 import { BlindStart } from './benchmark/BlindStart'
 import { BENCH_INTRO, BENCH_PAGE_HELP } from './benchmark/benchmarkHelp'
-import { isRunActive } from './benchmark/benchmarkForm'
+import { isRunActive, runningStatus } from './benchmark/benchmarkForm'
 import { QualitySection } from './diagnostics/QualitySection'
 import { BENCHMARK_TABS, isBenchmarkTab, type BenchmarkTab } from './benchmark/benchmarkTabs'
 import './benchmark/benchmark.css'
 
 const RUNS_LIMIT = 50
+const SHOWING = { showing: true }
+const HIDDEN = { showing: false }
 
 function BenchmarkContent({ compare }: { compare?: string }) {
   const pc = usePcOnly()
@@ -58,6 +63,7 @@ function BenchmarkContent({ compare }: { compare?: string }) {
   const [target, setTarget] = useState<ArenaTarget | null>(null)
   const [started, setStarted] = useState<BenchmarkRunStarted | null>(null)
   const [jobId, setJobId, runKey] = useJobRun()
+  const [blindNote, setBlindNote] = useState<string | null>(null)
 
   const route = useRoute()
   // A compare link's engines are prefilled in Run a benchmark, so that is the tab it lands on.
@@ -77,10 +83,13 @@ function BenchmarkContent({ compare }: { compare?: string }) {
   useEffect(() => {
     if (linkTab) setStoredTab(linkTab)
   }, [linkTab, setStoredTab])
+  // Away from the main PC the PC-only pane would be empty; a link to it lands on Golden sets.
+  const shownTabs = BENCHMARK_TABS.filter((t) => !(t.pcOnly && pc === 'remote'))
+  const shownTab = shownTabs.some((t) => t.id === tab) ? tab : 'sets'
   // Hidden, not unmounted, so form entries and a run's polling survive a tab change.
   const panel = (id: BenchmarkTab, children: ReactNode) => (
-    <div key={id} id={tabPanelId('benchmark', id)} role="tabpanel" aria-labelledby={tabButtonId('benchmark', id)} hidden={tab !== id}>
-      {children}
+    <div key={id} id={tabPanelId('benchmark', id)} role="tabpanel" aria-labelledby={tabButtonId('benchmark', id)} className="bench-panel" hidden={shownTab !== id}>
+      <FlatPaneContext.Provider value={shownTab === id ? SHOWING : HIDDEN}>{children}</FlatPaneContext.Provider>
     </div>
   )
 
@@ -140,6 +149,9 @@ function BenchmarkContent({ compare }: { compare?: string }) {
         <>
           Benchmark Lab
           <HelpTip label="Benchmark Lab" id="bench-page-help" className="bench-help">
+            {BENCH_INTRO.map((line) => (
+              <span key={line} className="bench-help-step">{line}</span>
+            ))}
             {BENCH_PAGE_HELP.map((line, i) => (
               <span key={line} className="bench-help-step">
                 {i + 1}. {line}
@@ -150,33 +162,29 @@ function BenchmarkContent({ compare }: { compare?: string }) {
       )}
       label="Benchmark Lab"
       className="bench-page"
-      tabs={<Tabs label="Benchmark Lab" idPrefix="benchmark" tabs={BENCHMARK_TABS} active={tab} onSelect={selectTab} />}
       actions={(
-        <ButtonLink href={routeHref({ name: 'diagnostics' })} variant="ghost" size="sm">
-          ‹ Diagnostics
-        </ButtonLink>
+        <>
+          <BlindStart onStart={(ids) => setTarget({ kind: 'arena', runIds: ids })} onNote={setBlindNote} />
+          <ButtonLink href={routeHref({ name: 'diagnostics' })} variant="ghost" size="sm" aria-label="Back to Diagnostics" title="Back to Diagnostics">
+            <span aria-hidden="true">‹</span>
+          </ButtonLink>
+        </>
       )}
       meta={(
-        <p className="page-meta pill-row">
-          {options ? (
-            <>
-              <Badge tone="neutral">Pass mark {Math.round(options.pass_threshold * 100)}% ({Math.round(options.chrf_pass_threshold * 100)}% for chrF)</Badge>
-              <Badge tone="neutral">Up to {options.max_configs} engines per run</Badge>
-              {pc === 'remote' && <Badge tone="warn">View only: runs start on the main PC</Badge>}
-            </>
-          ) : (
-            'Loading…'
-          )}
+        <p className="page-meta muted" data-testid="bench-meta">
+          {options
+            ? `Pass mark ${Math.round(options.pass_threshold * 100)}% (${Math.round(options.chrf_pass_threshold * 100)}% for chrF) · Up to ${options.max_configs} engines per run`
+            : 'Loading…'}
         </p>
       )}
     >
-      <div className="muted bench-intro" data-testid="bench-intro">
-        {BENCH_INTRO.map((line) => (
-          <p key={line}>{line}</p>
-        ))}
-      </div>
-      <BlindStart onStart={(ids) => setTarget({ kind: 'arena', runIds: ids })} />
+      {pc === 'remote' && <WarnBar testId="bench-view-only">View only: runs start on the main PC</WarnBar>}
+      {blindNote && <p className="status-line" role="status" data-testid="blind-start">{blindNote}</p>}
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
+
+      {running && (
+        <p className="status-line" role="status" data-testid="bench-running">{runningStatus(job)}</p>
+      )}
 
       {jobError && jobId && !done && (
         <p className="status-line" role="alert" data-testid="bench-lost-job">
@@ -203,15 +211,11 @@ function BenchmarkContent({ compare }: { compare?: string }) {
         </p>
       )}
 
+      <SidePane nav={<Tabs side label="Benchmark Lab" idPrefix="benchmark" tabs={shownTabs} active={shownTab} onSelect={selectTab} />}>
       {panel('quality', <QualitySection />)}
-      {panel('sets', (
-        <>
-      {options && sets && <GoldenSetsCard sets={sets} options={options} pc={pc} phone={phone} onChanged={loadSets} />}
-        </>
-      ))}
-      {panel('run', (
-        <>
-      {options && sets && (
+      {panel('sets', options && sets && <GoldenSetsCard sets={sets} pc={pc} phone={phone} onChanged={loadSets} />)}
+      {pc !== 'remote' && panel('add', options && sets && <AddCasesPanel sets={sets} options={options} pc={pc} onChanged={loadSets} />)}
+      {panel('run', options && sets && (
         <RunCard
           options={options}
           sets={sets}
@@ -222,8 +226,8 @@ function BenchmarkContent({ compare }: { compare?: string }) {
           onStop={stop}
           compare={compare}
         />
-      )}
-      {sets && (
+      ))}
+      {panel('sweep', sets && (
         <SweepCard
           sets={sets}
           pc={pc}
@@ -236,8 +240,8 @@ function BenchmarkContent({ compare }: { compare?: string }) {
           onStop={stop}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
         />
-      )}
-      {options && sets && (
+      ))}
+      {panel('tsweep', options && sets && (
         <TranslateSweepCard
           options={options}
           sets={sets}
@@ -251,12 +255,8 @@ function BenchmarkContent({ compare }: { compare?: string }) {
           onStop={stop}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
         />
-      )}
-        </>
       ))}
-      {panel('reeval', (
-        <>
-      {options && sets && (
+      {panel('reeval', options && sets && (
         <ReevalCard
           options={options}
           sets={sets}
@@ -268,36 +268,34 @@ function BenchmarkContent({ compare }: { compare?: string }) {
           onStop={stop}
           onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
         />
-      )}
-        </>
       ))}
       {panel('runs', (
         <>
-      {runs && <ModelSummaryCard runs={runs} />}
-      <HandRunResultsCard />
-      {runs && (
-        <RunsCard
-          runs={runs}
-          stageFilter={runStage}
-          onStageFilter={setRunStage}
-          maxCompare={options?.max_configs ?? 4}
-          phone={phone}
-          onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
-          onOpen={(id) => setTarget({ kind: 'run', runId: id })}
-          canDelete={pc !== 'remote'}
-          onDeleted={(id) => {
-            // A results view of a deleted run would only show an error.
-            setTarget((t) => (t && (t.kind === 'run' ? t.runId === id : t.runIds.includes(id)) ? null : t))
-            loadRuns()
-          }}
-        />
-      )}
-
+          {runs && <ModelSummaryCard runs={runs} />}
+          <HandRunResultsCard />
+          {runs && (
+            <RunsCard
+              runs={runs}
+              stageFilter={runStage}
+              onStageFilter={setRunStage}
+              maxCompare={options?.max_configs ?? 4}
+              phone={phone}
+              onCompare={(ids) => setTarget({ kind: 'arena', runIds: ids })}
+              onOpen={(id) => setTarget({ kind: 'run', runId: id })}
+              canDelete={pc !== 'remote'}
+              onDeleted={(id) => {
+                // A results view of a deleted run would only show an error.
+                setTarget((t) => (t && (t.kind === 'run' ? t.runId === id : t.runIds.includes(id)) ? null : t))
+                loadRuns()
+              }}
+            />
+          )}
         </>
       ))}
       {target && <ArenaView target={target} phone={phone} onClose={() => setTarget(null)} />}
 
       {!options && !error && <p className="muted">Loading…</p>}
+      </SidePane>
     </PageShell>
   )
 }
