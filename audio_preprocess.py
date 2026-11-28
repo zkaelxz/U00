@@ -426,7 +426,8 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
     model = separation_model(backend)  # an unknown name fails before anything else
     run = _BACKENDS["audio_separator"]
-    memory_headroom.check_separation(use_gpu)
+    if _kept_separator is None or _kept_separator[0] != model:   # a kept one is already on the card
+        memory_headroom.check_separation(use_gpu)
     return run(audio_path, out_path, model=model, progress_cb=progress_cb,
                cancel_check_cb=cancel_check_cb, use_gpu=use_gpu, event_cb=event_cb)
 
@@ -454,6 +455,28 @@ def download_separation_model(model: str, cancel_check_cb=None) -> None:
     separator = Separator(model_file_dir=MODEL_DIR)
     _load_with_download_guard(model, lambda: separator.download_model_and_data(model),
                               cancel_check_cb=cancel_check_cb)
+
+
+# Set only inside a warm transcription worker (jobs/warm_worker.py): the
+# separator stays loaded after a call that succeeded, for the
+# worker's next job, instead of being built and freed per call.
+keep_separator_loaded = False
+_kept_separator: tuple[str, Any] | None = None   # (model file name, Separator)
+
+
+def _take_kept_separator(model: str, work_dir: str):
+    """The kept separator for `model`, now writing into work_dir, or None.
+    Taken out of the slot: only a call that succeeds puts it back."""
+    global _kept_separator
+    kept, _kept_separator = _kept_separator, None
+    if kept is None or kept[0] != model:
+        return None
+    separator = kept[1]
+    # The model instance copies the Separator's output folder at load and writes its stems
+    # there; audio-separator moves both itself when it separates into a temporary folder.
+    separator.output_dir = work_dir
+    separator.model_instance.output_dir = work_dir
+    return separator
 
 
 def _free_cached_gpu_memory() -> None:
@@ -487,21 +510,25 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
         raise VocalSeparationError(
             "audio-separator can't be limited to the CPU here. Turn GPU on to separate vocals.")
 
+    global _kept_separator
     work_dir = tempfile.mkdtemp(prefix="baihe_separator_", dir=os.path.dirname(out_path) or None)
     separator: Any = None  # reassigned in finally so the model can be freed
+    keep = False
     try:
-        if event_cb:
+        separator = _take_kept_separator(model, work_dir)
+        if separator is None and event_cb:
             event_cb("loading", "audio_separator")
         try:
-            separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
-                                  output_single_stem="Vocals",
-                                  # Half precision on a GPU halves the time at the same
-                                  # overlap and scored the same as float32 against the
-                                  # reference on the V100; audio-separator ignores it on a CPU.
-                                  use_autocast=True)
-            _load_with_download_guard(
-                model, lambda: separator.load_model(model_filename=model),
-                cancel_check_cb=cancel_check_cb)
+            if separator is None:
+                separator = Separator(output_dir=work_dir, model_file_dir=MODEL_DIR,
+                                      output_single_stem="Vocals",
+                                      # Half precision on a GPU halves the time at the same
+                                      # overlap and scored the same as float32 against the
+                                      # reference on the V100; audio-separator ignores it on a CPU.
+                                      use_autocast=True)
+                _load_with_download_guard(
+                    model, lambda: separator.load_model(model_filename=model),
+                    cancel_check_cb=cancel_check_cb)
         except VocalSeparationError:
             raise  # a cancel or the guard's own message: not a model-load failure
         except Exception as exc:
@@ -527,9 +554,12 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
 
         _separate_vocals_chunked(audio_path, out_path, _process_chunk,
                                  progress_cb=progress_cb, cancel_check_cb=cancel_check_cb)
+        keep = keep_separator_loaded
         return out_path
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
+        if keep:
+            _kept_separator = (model, separator)
         # Torch keeps the separator's blocks cached after it is gone, and the Whisper load that
         # follows in this process does not share that cache, so both would sit on the card.
         separator = None

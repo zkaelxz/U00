@@ -170,6 +170,91 @@ class TestSeparateVocalsAudioSeparator:
         assert len(loads) == 1
 
 
+def _install_reusable_fake_separator(monkeypatch, fail=False):
+    """A fake that, like audio-separator, writes its stems into the model
+    instance's output folder, copied from the Separator's at load."""
+    built = []
+
+    class FakeSeparator:
+        def __init__(self, output_dir, model_file_dir, output_single_stem, **options):
+            self.output_dir = output_dir
+            built.append(self)
+
+        def load_model(self, model_filename):
+            self.model_instance = types.SimpleNamespace(output_dir=self.output_dir)
+
+        def separate(self, path):
+            if fail:
+                raise RuntimeError("gpu oom")
+            import soundfile as sf
+            data, sr = sf.read(path, dtype="float32", always_2d=True)
+            out = os.path.join(self.model_instance.output_dir, "chunk_(Vocals).wav")
+            sf.write(out, data, sr)
+            return [out]
+
+    fake_module = types.ModuleType("audio_separator.separator")
+    fake_module.Separator = FakeSeparator
+    monkeypatch.setitem(sys.modules, "audio_separator", types.ModuleType("audio_separator"))
+    monkeypatch.setitem(sys.modules, "audio_separator.separator", fake_module)
+    monkeypatch.setattr(audio_preprocess, "_kept_separator", None)
+    return built
+
+
+class TestKeptSeparator:
+    """A warm transcription worker keeps the separator loaded between calls."""
+
+    def test_a_kept_separator_is_reused_and_writes_into_each_calls_own_folder(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
+        monkeypatch.setattr(audio_preprocess, "keep_separator_loaded", True)
+        built = _install_reusable_fake_separator(monkeypatch)
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        events = []
+        for name in ("first", "second"):
+            (tmp_path / name).mkdir()
+            out = str(tmp_path / name / "vocals.wav")
+            assert audio_preprocess.separate_vocals_audio_separator(
+                in_path, out, event_cb=lambda e, v: events.append(e)) == out
+            assert os.path.exists(out)
+            assert os.listdir(tmp_path / name) == ["vocals.wav"]   # its work folder is gone
+        assert len(built) == 1
+        assert events == ["loading", "device", "device"]
+
+    def test_a_kept_separator_skips_the_memory_check_it_already_passed(self, monkeypatch):
+        checked = []
+        monkeypatch.setattr(audio_preprocess.memory_headroom, "check_separation", checked.append)
+        monkeypatch.setitem(audio_preprocess._BACKENDS, "audio_separator", lambda *a, **k: "out")
+        model = audio_preprocess.separation_model()
+        monkeypatch.setattr(audio_preprocess, "_kept_separator", (model, object()))
+        audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
+        assert checked == []
+        # Another model is loaded beside the kept one (which goes once the call succeeds).
+        monkeypatch.setattr(audio_preprocess, "_kept_separator", ("another-model.ckpt", object()))
+        audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
+        monkeypatch.setattr(audio_preprocess, "_kept_separator", None)
+        audio_preprocess.separate_vocals("in.wav", "out.wav", use_gpu=True)
+        assert checked == [True, True]
+
+    def test_a_failed_call_keeps_nothing(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
+        monkeypatch.setattr(audio_preprocess, "keep_separator_loaded", True)
+        _install_reusable_fake_separator(monkeypatch, fail=True)
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        with pytest.raises(audio_preprocess.VocalSeparationError, match="gpu oom"):
+            audio_preprocess.separate_vocals_audio_separator(in_path, str(tmp_path / "vocals.wav"))
+        assert audio_preprocess._kept_separator is None
+
+    def test_without_the_switch_each_call_builds_its_own(self, monkeypatch, tmp_path):
+        pytest.importorskip("soundfile")
+        built = _install_reusable_fake_separator(monkeypatch)
+        in_path = str(tmp_path / "audio.wav")
+        _write_wav(in_path, seconds=0.3, samplerate=8000)
+        for name in ("a.wav", "b.wav"):
+            audio_preprocess.separate_vocals_audio_separator(in_path, str(tmp_path / name))
+        assert len(built) == 2 and audio_preprocess._kept_separator is None
+
+
 class TestSeparateVocals:
     @pytest.mark.parametrize("backend", ["auto", "audio_separator", "demucs"])
     def test_every_default_name_runs_the_default_model(self, monkeypatch, tmp_path, backend):

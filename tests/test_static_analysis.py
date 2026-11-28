@@ -806,7 +806,7 @@ OVERLONG_FUNCTION_LINES: dict[str, int] = {
     "services/workspace_job_service.py::run_translate_job": 119,
     "video_download.py::download": 138,
     "db/schema_system.py::_init_benchmark_lab_schema": 126,
-    "jobs/job_launch.py::start_process_job": 121,
+    "jobs/job_launch.py::start_process_job": 114,
     "db/schema_system.py::_create_job_tables": 118,
     "segment_splitting.py::split_long_segments": 116,
     "db/schema.py::_create_library_tables": 115,

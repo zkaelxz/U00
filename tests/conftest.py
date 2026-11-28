@@ -385,6 +385,24 @@ def _live_whisper_not_loaded():
 
 
 @pytest.fixture(autouse=True)
+def _no_warm_transcription_worker():
+    """A GPU transcription runs in a warm worker that outlives the test by 90 s, and a test's
+    patched target can't hand that worker objects shared only by inheritance (a spawn Event).
+    Every run gets a fresh process instead; tests/test_warm_worker.py puts `claim.real` back."""
+    from jobs import warm_worker
+    saved = warm_worker.claim
+
+    def stub(*args, **kwargs):
+        return None
+    stub.real = saved
+    warm_worker.claim = stub
+    try:
+        yield
+    finally:
+        warm_worker.claim = saved
+
+
+@pytest.fixture(autouse=True)
 def _bridge_models_not_warmed():
     """Starting the extension bridge loads the comic models on a thread; no test may load a
     real model, and a thread left running would log into the next test's library. The real

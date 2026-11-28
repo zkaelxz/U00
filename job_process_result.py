@@ -36,13 +36,19 @@ class ResultChannel:
     announcing a large result would remove the file the parent is about to
     read."""
 
-    def __init__(self, mp_queue, result_dir: str, owner_token: str):
+    def __init__(self, mp_queue, result_dir: str, owner_token: str, path: str | None = None):
         self._queue = mp_queue
         self._dir = result_dir
         # The owner prefix is the library temp folder's naming (see
         # storage.new_workdir) so its startup sweep spares a live job's file.
-        self._path = os.path.join(result_dir, f"{owner_token}~result-{uuid.uuid4().hex}.pkl")
+        # A worker that outlives one job (jobs/warm_worker.py) is handed the
+        # parent's path instead, since it cannot be given the channel itself.
+        self._path = path or os.path.join(result_dir, f"{owner_token}~result-{uuid.uuid4().hex}.pkl")
         self._spill_count = 0
+
+    @property
+    def path(self) -> str:
+        return self._path
 
     def put(self, item):
         if item and item[0] == "error" and len(item) >= 3:

@@ -579,6 +579,21 @@ class TestStartTranscribeRun:
         transcribe_service.start_transcribe_run(did)
         assert captured["start_kwargs"]["cpu_retry_args"] is None
 
+    @pytest.mark.parametrize("use_gpu", [True, False])
+    def test_a_gpu_run_names_the_settings_a_warm_worker_must_share(self, isolated_db, monkeypatch, use_gpu):
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", whisper_size="large-v3-turbo",
+                                   separation_backend="audio_separator")
+        patch_setting(monkeypatch, "use_gpu", use_gpu)
+        patch_setting(monkeypatch, "whisper_model_path", "/models/example")
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        key = captured["start_kwargs"]["warm_key"]
+        if not use_gpu:
+            assert key is None
+            return
+        assert key == ("transcribe", "large-v3-turbo", True, "/models/example", "audio_separator",
+                       captured["asr_backend_choice"], "whisper", False)
+
     def test_overrides_are_this_runs_settings_and_never_saved_to_the_title(self, isolated_db, monkeypatch):
         did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", beam_size=5,
                                    whisper_size="large-v3", separate_vocals_first=0)
