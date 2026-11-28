@@ -225,6 +225,49 @@ def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style
     return font, [(line, l + left, r + left, t + top) for line, l, r, t in placed]
 
 
+def _fill_spans(words, spans, limits, width_of, hyphenate, top0, line_height):
+    """First-fit: each line takes words until the next one would pass its limit. Returns
+    (placed, words left over, whether a word was hyphenated)."""
+    queue = list(words)
+    placed, split_any = [], False
+    for i, ((left, right), limit) in enumerate(zip(spans, limits)):
+        cur = ""
+        while queue:
+            trial = f"{cur} {queue[0]}".strip()
+            if width_of(trial) > limit:
+                split = None if cur or not hyphenate else _hyphen_split(
+                    queue[0], lambda t: width_of(t) <= limit)
+                if split:
+                    cur = split[0]
+                    queue[0] = split[1]
+                    split_any = True
+                break
+            cur = trial
+            queue.pop(0)
+        if not cur:
+            break  # a word that doesn't fit this line at all
+        placed.append((cur, left, right, top0 + i * line_height))
+    return placed, queue, split_any
+
+
+# Finest step, in percent of each line's width, when looking for the narrowest balanced fill.
+_BALANCE_STEPS = 100
+
+
+def _narrowest(fits, hi: int):
+    """The smallest value in 1..hi for which fits(value) is not None, and its result: a
+    binary search, since a narrower limit never fits words a wider one could not."""
+    best, lo = None, 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        got = fits(mid)
+        if got is not None:
+            best, hi = got, mid - 1
+        else:
+            lo = mid + 1
+    return best
+
+
 def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
     line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
     widths = {}
@@ -244,26 +287,21 @@ def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
                  if right - left > 2 * pad]
         if len(spans) != len(found):
             continue
-        queue = list(words)
-        placed = []
-        for i, (left, right) in enumerate(spans):
-            cur = ""
-            while queue:
-                trial = f"{cur} {queue[0]}".strip()
-                if width_of(trial) > right - left:
-                    split = None if cur or not hyphenate else _hyphen_split(
-                        queue[0], lambda t: width_of(t) <= right - left)
-                    if split:
-                        cur = split[0]
-                        queue[0] = split[1]
-                    break
-                cur = trial
-                queue.pop(0)
-            if not cur:
-                break  # a word that doesn't fit this line at all
-            placed.append((cur, left, right, top0 + i * line_height))
-        if not queue:
-            return font, placed
+        full = [right - left for left, right in spans]
+        placed, queue, split_any = _fill_spans(words, spans, full, width_of, hyphenate,
+                                               top0, line_height)
+        if queue:
+            continue
+        if len(placed) > 1 and not split_any:
+            # First-fit leaves all the slack in the last line ("did that to / me"). Narrow every
+            # line by the same share until one more step would need another line: same size,
+            # same line count, only the breaks move.
+            def fits(pct):
+                got, left_over, _ = _fill_spans(words, spans, [w * pct // _BALANCE_STEPS for w in full],
+                                                width_of, False, top0, line_height)
+                return got if not left_over and len(got) == len(placed) else None
+            placed = _narrowest(fits, _BALANCE_STEPS) or placed
+        return font, placed
     return None
 
 
@@ -274,7 +312,19 @@ def _ink_width(draw, text: str, font) -> int:
 
 def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
     """`text` wrapped into lines no wider than `avail`; with `hyphenate`, a word
-    wider than a line is split with a hyphen instead of overflowing."""
+    wider than a line is split with a hyphen instead of overflowing. Lines of whole words
+    are balanced: the narrowest width that keeps the same number of lines, so the last
+    line is not a stub."""
+    lines = _first_fit_words(draw, text, font, avail, hyphenate)
+    if len(lines) < 2 or " ".join(lines).split() != text.split() \
+            or any(_ink_width(draw, line, font) > avail for line in lines):
+        return lines
+    return _narrowest(lambda w: (got if len(got := _first_fit_words(draw, text, font, w, False))
+                                 == len(lines) and all(_ink_width(draw, ln, font) <= w for ln in got)
+                                 else None), avail) or lines
+
+
+def _first_fit_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
     words = text.split()
     lines, cur = [], ""
     while words:
