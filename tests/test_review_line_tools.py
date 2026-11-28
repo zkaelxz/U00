@@ -75,7 +75,7 @@ class TestAlternatives:
         _forbid_writes(monkeypatch)
         seen = {}
 
-        def fake(zh, en, engine, count=3, source_language="zh", style_hint=""):
+        def fake(zh, en, engine, count=3, source_language="zh", style_hint="", context=""):
             seen.update(zh=zh, en=en)
             return [{"translation": "so long", "approach": "casual", "tradeoff": "tone"},
                     {"translation": "", "approach": "blank is dropped"},

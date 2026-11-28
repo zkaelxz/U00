@@ -16,9 +16,10 @@ from engine_backends.line_text import language_name
 
 
 def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
-                         glossary_terms=None):
+                         glossary_terms=None, context: str = ""):
     """Explains the reasoning behind a specific rendering: which choices
-    were interpretive, what alternatives existed, what was lost."""
+    were interpretive, what alternatives existed, what was lost.
+    `context` is a read-only block of the surrounding lines (neighbour_context)."""
     if not getattr(engine, "supports_reference", False):
         return "This feature needs an LLM engine (Claude, DeepSeek, or Ollama)."
 
@@ -33,7 +34,8 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
     prompt = (
         f"Explain how this {lang} line was translated:\n\n"
         f"Source: {zh}\nTranslation: {en}\n\n"
-        "Cover: what the source says literally, which choices in the English were "
+        + (f"{context}\n\n" if context else "")
+        + "Cover: what the source says literally, which choices in the English were "
         "interpretive rather than direct, anything in the original that didn't fully "
         "survive (tone, wordplay, ambiguity, register), and whether the translation is "
         "reasonable. Be candid if you think a choice is questionable.\n\n"
@@ -43,7 +45,7 @@ def explain_translation(zh: str, en: str, engine, source_language: str = "zh",
 
 
 def alternative_translations(zh: str, en: str, engine, count: int = 3,
-                              source_language: str = "zh", style_hint: str = ""):
+                              source_language: str = "zh", style_hint: str = "", context: str = ""):
     """Offers other valid renderings of the same line, each with a note
     on what it prioritizes -- so you can pick by intent, not guesswork."""
     if not getattr(engine, "supports_reference", False):
@@ -54,7 +56,8 @@ def alternative_translations(zh: str, en: str, engine, count: int = 3,
         f"Give {count} alternative English translations of this {lang} line, each taking a "
         f"different valid approach (e.g. more literal, more natural, tighter, more formal).\n\n"
         f"Source: {zh}\nCurrent translation: {en}\n"
-        + (f"Context/style: {style_hint}\n" if style_hint else "")
+        + (f"\n{context}\n" if context else "")
+        + (f"\nStyle requirements:\n{style_hint}\n" if style_hint else "")
         + "\nFor each, note in a few words what it prioritizes and what it trades away.\n\n"
         'Return ONLY a JSON array: [{"translation": "...", "approach": "...", '
         '"tradeoff": "..."}]. No preamble, no markdown fences.'
@@ -65,7 +68,7 @@ def alternative_translations(zh: str, en: str, engine, count: int = 3,
 
 
 def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str = "zh",
-                  style_guidelines: str = "", kind: str = "subtitle"):
+                  style_guidelines: str = "", kind: str = "subtitle", context: str = ""):
     """Re-translates one line that reads awkwardly. `issue` lets you say
     what's wrong ('too stiff', 'loses the sarcasm'); left blank, the
     model judges for itself."""
@@ -78,6 +81,7 @@ def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str
     prompt = (
         f"This English translation of a {lang} line reads awkwardly. Rewrite it.\n\n"
         f"Source: {zh}\nCurrent translation: {en}"
+        + (f"\n\n{context}" if context else "")
         + issue_clause
         + (f"\n\nStyle requirements:\n{style_guidelines}" if style_guidelines else "")
         + improve_rubric(kind)
@@ -87,6 +91,41 @@ def improve_line(zh: str, en: str, engine, issue: str = "", source_language: str
     result = call_llm_json(engine, prompt, max_tokens=500, fallback="", expect="text",
                            translation_of=zh).strip()
     return result.strip('"').strip() or en
+
+
+# Lines shown on each side: as Fix flagged does, enough to say who a dropped subject or
+# a pronoun refers to and what tone the scene has.
+CONTEXT_RADIUS = 3
+# A novel paragraph can run to hundreds of characters; a neighbour is only there to be read.
+CONTEXT_LINE_CHARS = 200
+
+
+def _clip(text: str) -> str:
+    text = (text or "").strip()
+    return text if len(text) <= CONTEXT_LINE_CHARS else text[:CONTEXT_LINE_CHARS] + "…"
+
+
+def neighbour_context(lines, at: int) -> str:
+    """The read-only block of up to CONTEXT_RADIUS lines before and after
+    lines[at] (script order), with speakers, for a single-line prompt."""
+    def row(ln):
+        who = f"{ln.speaker}: " if (ln.speaker or "").strip() else ""
+        return f"  {who}{_clip(ln.zh)} | English: {_clip(ln.en) or '(none)'}"
+
+    before = [ln for ln in lines[max(0, at - CONTEXT_RADIUS):at] if (ln.zh or "").strip()]
+    after = [ln for ln in lines[at + 1:at + 1 + CONTEXT_RADIUS] if (ln.zh or "").strip()]
+    speaker = (lines[at].speaker or "").strip()
+    if not before and not after and not speaker:
+        return ""
+    out = ["Surrounding script, for context only (who is speaking, who a pronoun or a "
+           "missing subject refers to, the tone). Do not rewrite these lines."]
+    if speaker:
+        out.append(f"This line is spoken by: {speaker}")
+    if before:
+        out += ["Lines before it:"] + [row(ln) for ln in before]
+    if after:
+        out += ["Lines after it:"] + [row(ln) for ln in after]
+    return "\n".join(out)
 
 
 def grammar_breakdown(zh: str, engine, source_language: str = "zh"):

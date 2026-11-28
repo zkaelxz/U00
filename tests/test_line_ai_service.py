@@ -56,7 +56,7 @@ def test_improve_matches_by_id_and_writes_nothing(client, monkeypatch):
     _forbid_writes(monkeypatch)
     seen = {}
 
-    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle", context=""):
         seen.update(zh=zh, en=en, issue=issue, style=style_guidelines)
         return "farewell"
     monkeypatch.setattr(line_tools, "improve_line", fake)
@@ -135,7 +135,7 @@ def test_improve_uses_the_shared_style_context_with_emotion(monkeypatch):
     db.save_emotions(did, {1: {"emotion": "angry", "intensity": 0.9, "note": "shouting"}})
     seen = {}
 
-    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle"):
+    def fake(zh, en, engine, issue="", source_language="zh", style_guidelines="", kind="subtitle", context=""):
         seen["style"] = style_guidelines
         return en
     monkeypatch.setattr(line_tools, "improve_line", fake)
@@ -326,3 +326,61 @@ def test_missing_key_answer_names_no_key_or_path(client, monkeypatch, verb):
     r = client.post(_url(did, ids[0], verb), json={"engine": "openai"})
     assert r.status_code == 503
     assert "sk-" not in r.text and ".env" not in r.text
+
+
+# --- Neighbours, glossary and style in the single-line prompts -------------
+
+def _scene():
+    did = db.create_drama(title_zh="D")
+    db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=f"源{i}", en=f"en {i}",
+                             speaker="Mei" if i == 4 else None) for i in range(9)])
+    return did, [r["id"] for r in db.load_lines(did)]
+
+
+def _captured_prompts(monkeypatch, reply):
+    prompts = []
+    monkeypatch.setattr(line_tools, "call_llm_json",
+                        lambda eng, prompt, **k: prompts.append(prompt) or reply)
+    return prompts
+
+
+@pytest.mark.parametrize("call,reply", [
+    (svc.improve_line, "better"), (svc.explain_line, "why"),
+    (svc.alternatives_for_line, '[{"translation": "x"}]'),
+])
+def test_line_helpers_send_three_neighbours_each_side_and_the_speaker(monkeypatch, call, reply):
+    did, ids = _scene()
+    prompts = _captured_prompts(monkeypatch, reply)
+    call(did, ids[4])
+    prompt = prompts[0]
+    assert "This line is spoken by: Mei" in prompt
+    for i in (1, 2, 3, 5, 6, 7):
+        assert f"源{i} | English: en {i}" in prompt
+    assert "源0" not in prompt and "源8" not in prompt
+    assert prompt.index("源3") < prompt.index("Lines after it:") < prompt.index("源5")
+
+
+def test_the_first_line_has_only_lines_after_it(monkeypatch):
+    did, ids = _scene()
+    prompts = _captured_prompts(monkeypatch, "better")
+    svc.improve_line(did, ids[0])
+    assert "Lines before it:" not in prompts[0] and "源3 | English: en 3" in prompts[0]
+
+
+def test_a_long_neighbour_is_cut_short():
+    long_line = Line(idx=0, start=0, end=1, zh="长" * 500, en="long " * 200)
+    block = line_tools.neighbour_context([long_line, Line(idx=1, start=1, end=2, zh="短", en="x")], 1)
+    assert "长" * line_tools.CONTEXT_LINE_CHARS + "…" in block and "长" * 201 not in block
+
+
+def test_alternatives_get_the_titles_glossary_and_style(monkeypatch):
+    sid = db.get_or_create_series("S")
+    did = db.create_drama(title_zh="D", series_id=sid)
+    db.save_lines(did, [Line(idx=0, start=0, end=1, zh="林舟走了", en="Lin left")])
+    db.upsert_glossary_term(sid, "林舟", "Lin Zhou")
+    db.upsert_glossary_term(sid, "王婶", "Aunt Wang")
+    prompts = _captured_prompts(monkeypatch, '[{"translation": "Lin Zhou left"}]')
+    svc.alternatives_for_line(did, db.load_lines(did)[0]["id"])
+    assert "Lin Zhou" in prompts[0] and "Style requirements:" in prompts[0]
+    # Only the terms in this line ride along.
+    assert "Aunt Wang" not in prompts[0]
