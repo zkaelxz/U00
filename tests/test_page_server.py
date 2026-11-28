@@ -1761,7 +1761,7 @@ class TestVideoAndLiveOnLoopback:
         r = _post(token, {"url": "https://www.twitch.tv/somebody", "source_language": "ja"}, path="/live")
         assert r.status == 200 and r.payload == {"session_id": "live_" + "a" * 32, "joined": False}
         assert seen["source_language"] == "ja" and seen["use_saved_cookies"] is False
-        assert seen["engine"] == live_service.LIVE_DEFAULT_ENGINE
+        assert seen["engine"] == live_service.default_engine()
 
     def test_a_refusal_is_the_plain_message(self, token, monkeypatch):
         from lib.errors import InvalidInputError

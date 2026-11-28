@@ -52,6 +52,13 @@ describe('buildAssRequest', () => {
       field: 'en', preset: 'Clean', per_speaker_colors: true, include_notes: false, notes_as_separate_line: false,
     })
   })
+  it('sends the reading line and karaoke only with the original text', () => {
+    const form = { ...emptyAssForm('Clean'), readingLine: true, karaoke: true }
+    expect(buildAssRequest({ ...form, field: 'bilingual' }, opts).request).toMatchObject({ reading_line: true, karaoke: true })
+    const english = buildAssRequest(form, opts).request
+    expect(english?.reading_line).toBeUndefined()
+    expect(english?.karaoke).toBeUndefined()
+  })
   it('tidy cue timing is off by default and remembered through the draft', () => {
     expect(emptyAssForm('Clean').tidyTiming).toBe(false)
     const saved = { form: { ...emptyAssForm('Clean'), tidyTiming: true } }

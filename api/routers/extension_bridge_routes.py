@@ -469,7 +469,7 @@ async def post_video(request: Request):
 def _start_live(request: Request, payload: dict, principal) -> dict:
     """Live on a stream page's link with the PC's own defaults and the engine a member may use."""
     choices = extension_bridge_service.live_choices(payload)
-    engine, model = engine_for_caller(request, None, live_service.LIVE_DEFAULT_ENGINE, None)
+    engine, model = engine_for_caller(request, None, live_service.default_engine(), None)
     require_engines_allowed(request, engine, model=model)
     require_cloud_model_allowed(request, (engine, model))
     return extension_bridge_service.start_live(choices, engine, model, principal)

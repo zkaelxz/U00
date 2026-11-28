@@ -878,7 +878,7 @@ def _start_from_link(route: str, payload: dict) -> dict:
         if route == "/video":
             return extension_bridge_service.send_video(payload, owner, holds_paid=True)
         return extension_bridge_service.start_live(extension_bridge_service.live_choices(payload),
-                                                   live_service.LIVE_DEFAULT_ENGINE, None, owner)
+                                                   live_service.default_engine(), None, owner)
     except ForbiddenError as e:
         raise EndpointError(403, e.message) from None
 

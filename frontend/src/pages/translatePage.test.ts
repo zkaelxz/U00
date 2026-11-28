@@ -89,7 +89,7 @@ describe('languages', () => {
 describe('history', () => {
   it('humanizes languages and engine (no raw codes)', () => {
     const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'ollama' })
-    expect(label).toBe('Chinese → English · Ollama (local)')
+    expect(label).toBe('Chinese → English · Ollama')
     expect(historyLabel({ source_language: 'en', target_language: 'ja', engine: 'claude' })).toBe(
       'English → Japanese · Claude',
     )

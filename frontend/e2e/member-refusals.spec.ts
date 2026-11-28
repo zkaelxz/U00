@@ -86,17 +86,14 @@ test('Translate: editing the drama (create series) is refused plainly', async ({
   expect(refused).toEqual([`POST /api/dramas/${DRAMA}/series`])
 })
 
-test('Export: Mark as exported and the media job starts are refused plainly', async ({ page }) => {
+test('Export: Mark as exported is hidden and the media job starts are refused plainly', async ({ page }) => {
   const refused = await signInAsMember(page)
   await withExportLines(page, DRAMA)
   await mockExportReady(page)
   await page.goto(`/#/drama/${DRAMA}/export`)
   await expect(page.getByTestId('readiness')).toContainText('lines')
+  await expect(page.getByRole('button', { name: 'Mark as exported' })).toHaveCount(0)
   expect(refused).toEqual([])
-
-  await page.getByRole('button', { name: 'Mark as exported' }).click()
-  await expect(refusal(page)).toBeVisible()
-  expect(refused).toEqual([`POST /api/export/dramas/${DRAMA}/mark-exported`])
 
   await openExportBlock(page, 'Video with a subtitle track')
   await page.getByRole('button', { name: 'Start subtitle-track video export' }).click()

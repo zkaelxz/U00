@@ -12,7 +12,7 @@ const PAGES: { hash: string; h1: string }[] = [
   { hash: '#/make-subtitles', h1: 'Find & Add' },
   { hash: '#/diagnostics', h1: 'Diagnostics' },
   { hash: '#/benchmark', h1: 'Benchmark Lab' },
-  { hash: '#/sources', h1: 'Find' },
+  { hash: '#/sources', h1: 'Find & Add' },
   { hash: '#/manga', h1: 'Saved manga' },
   { hash: '#/library-tools', h1: 'Library tools' },
   { hash: '#/drama/3', h1: 'Signal' },

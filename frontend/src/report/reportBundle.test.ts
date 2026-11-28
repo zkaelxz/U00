@@ -146,4 +146,20 @@ describe('submit and dialog store', () => {
     expect(l).toHaveBeenCalledTimes(2)
     off()
   })
+
+  it('closing hands focus back to the element that opened it, only while that element is still on the page', () => {
+    class El { isConnected = true }
+    const opener = new El()
+    vi.stubGlobal('HTMLElement', El)
+    vi.stubGlobal('document', { activeElement: opener })
+    try {
+      openReportDialog()
+      expect(closeReportDialog()).toBe(opener)
+      openReportDialog()
+      opener.isConnected = false
+      expect(closeReportDialog()).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })

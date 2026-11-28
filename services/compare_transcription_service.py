@@ -33,6 +33,7 @@ from services import (
     gpu_process_job,
     jobs_service,
     ownership_service,
+    profile_service,
     qwen3_requirements_service,
     retranscribe_line_service,
     retranscribe_worker,
@@ -350,10 +351,12 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
     if translate:
         engine, name, cap = _translation_setup(drama, engine_name, model, gemini_free_tier,
                                                job_cost_cap_usd)
+        locale, style_note = profile_service.locale_and_note(
+            drama, str(settings_service.get("default_locale")),
+            str(settings_service.get("default_style_note") or ""))
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
-                       "locale": settings_service.get("default_locale"),
-                       "style_note": settings_service.get("default_style_note") or "",
+                       "locale": locale, "style_note": style_note,
                        "principal": acting.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(
@@ -493,11 +496,10 @@ def run_second_hearing_job(job_id, drama_id, line_ids, audio_path, cfg, translat
 def _translation_context(drama_id, cfg, translation) -> tuple:
     """(translation context, speaker names) for translating the candidates."""
     drama = db.get_drama(drama_id) or {}
-    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     all_lines = db.load_line_objects(drama_id)
     glossary_terms, style_guidelines, character_names = \
         workspace_job_service.build_run_style_context(
-            drama_id, drama, all_lines, style_preset, with_emotions=False,
+            drama_id, drama, all_lines, profile_service.style_preset(drama), with_emotions=False,
             principal=translation.get("principal"))
     context = translate_pipeline.build_translation_context(
         translation["engine"], drama, style_note=translation["style_note"],

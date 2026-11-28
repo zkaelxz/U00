@@ -673,6 +673,22 @@ def _create_line_ref_indexes():
         conn.close()
 
 
+def _create_account_reading_indexes():
+    """The monthly recap reads one account's rows in a time window. Created after the
+    profile and per-account migrations: an old library gets reading_history.profile_id
+    from one, and the other rebuilds chapter_marks, dropping its indexes."""
+    conn = db.get_conn()
+    try:
+        for table, name, cols in (("reading_history", "idx_reading_history_profile_time", ("profile_id", "accessed_at")),
+                                  ("chapter_marks", "idx_chapter_marks_user_read", ("user_id", "read_at"))):
+            # A table still without the column was left for the next start's migration.
+            if set(cols) <= {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+                conn.execute(f"CREATE INDEX IF NOT EXISTS {name} ON {table}({', '.join(cols)})")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def _migrate_chapter_marks_per_account():
     """One-time: chapter read marks were kept per household profile and are now kept per
     sign-in account, which changes the primary key, so the table is rebuilt. The marks made

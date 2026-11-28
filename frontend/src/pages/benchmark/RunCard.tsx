@@ -4,6 +4,7 @@ import { estimateBenchmark, startBenchmarkRun } from '../../api/benchmark'
 import type { BenchmarkConfig, BenchmarkEstimate, BenchmarkOptions, BenchmarkRunStarted, BenchmarkSet, BenchmarkStage, BenchmarkTier } from '../../types/benchmark'
 import { modelOptionLabel } from '../../api/translate'
 import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
 import { TranscribeOptionsFields } from './TranscribeOptionsFields'
 import { TranslateOptionsFields } from './TranslateOptionsFields'
@@ -19,7 +20,7 @@ import { NO_CASES_HINT } from './benchmarkHelp'
 import {
   JUDGE_SAME_MODEL_WARNING, OCR_LABELS, STAGE_LABELS, TIER_LABELS, casesInSelection, comparePrefill, configLabel, defaultConfig,
   enginesMissingKey, estimateKey, formatCost, judgeOverlap, parseCompareParam, plainError, restoreConfigs, runRequestBody,
-  selectionProblems, setOptions, runningStatus, startState, whisperChoiceGroups, type ComparePrefill, type JudgePick, type RunSelection,
+  selectionProblems, setOptions, startState, whisperChoiceGroups, type ComparePrefill, type JudgePick, type RunSelection,
 } from './benchmarkForm'
 
 type Props = {
@@ -133,8 +134,6 @@ export function RunCard({ options, sets, pcRemote, job, running, onStarted, onSt
     <BenchSection
       id="run"
       meta={`${caseCount} ${caseCount === 1 ? 'case' : 'cases'} selected${arena ? ' · Model Arena' : ''}`}
-      status={running ? runningStatus(job) : null}
-      openSignal={compare}
       className="bench-run"
     >
       <div className="field-row">
@@ -428,9 +427,9 @@ function JudgeFields({ options, judge, overlapCount, allowSame, onJudge, onAllow
       {overlapCount > 0 && (
         <div className="warn bench-judge-warning" role="alert" data-testid="judge-same-warning">
           <p>{JUDGE_SAME_MODEL_WARNING}</p>
-          <label className="bench-check">
-            <input type="checkbox" checked={allowSame} onChange={(e) => onAllowSame(e.target.checked)} /> Judge with it anyway
-          </label>
+          <Field label="Judge with it anyway">
+            <Toggle checked={allowSame} onChange={onAllowSame} />
+          </Field>
         </div>
       )}
     </fieldset>
