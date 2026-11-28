@@ -1,8 +1,11 @@
 import { type Page } from '@playwright/test'
+import type { JobRecord } from '../src/types/jobs'
 
 const now = () => Math.floor(Date.now() / 1000)
 
-export function sampleJobs() {
+type MockJob = Partial<JobRecord>
+
+export function sampleJobs(): MockJob[] {
   const t = now()
   const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true }
   return [
@@ -14,7 +17,7 @@ export function sampleJobs() {
 }
 
 // Jobs tied to titles and kinds, for the Jobs page (links, kind filter, Mine).
-export function pageJobs() {
+export function pageJobs(): MockJob[] {
   const t = now()
   const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', page: null }
   return [
@@ -42,7 +45,7 @@ export interface JobsMock {
 // Mocks the job list, Cancel, Delete, "Delete all finished" and a job's stage
 // timing. Cancel and delete change the list the next GET returns.
 // `titles` also mocks the library list the Jobs page reads for title names.
-export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<string, unknown>[], titles = false): Promise<JobsMock> {
+export async function mockJobsApi(page: Page, initial: MockJob[] = sampleJobs(), titles = false): Promise<JobsMock> {
   let jobs = initial
   const log: JobsMock = { cancelled: [], forceStopped: [], deleted: [], cleared: 0, stages: [] }
   const isFinished = (j: Record<string, unknown>) => ['done', 'error', 'cancelled'].includes(String(j.status))
@@ -98,6 +101,6 @@ export async function mockJobsApi(page: Page, initial = sampleJobs() as Record<s
 }
 
 // Mocks the job list and Cancel; returns the cancelled ids.
-export async function mockJobs(page: Page, jobs = sampleJobs()): Promise<string[]> {
+export async function mockJobs(page: Page, jobs: MockJob[] = sampleJobs()): Promise<string[]> {
   return (await mockJobsApi(page, jobs)).cancelled
 }
