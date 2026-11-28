@@ -329,3 +329,47 @@ def test_the_first_batch_is_sent_even_when_it_alone_passes_the_cap(novel):
     engine = _Engine()
     _lines, _errors, usage, _ = _run(engine, 1, cost_cap_usd=0.5)
     assert len(usage) == 1
+
+
+class _HeEngine(_Engine):
+    """Says "he" in chapter 0 until asked strictly; chapter 3 is slow."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def translate_batch(self, zh_lines, context):
+        strict = bool(context.get("pronoun_strict"))
+        if not strict and any(z.startswith(("第3", "c3")) for z in zh_lines):
+            time.sleep(0.3)
+        out = super().translate_batch(zh_lines, context)
+        with self.lock:
+            self.order.append(("strict" if strict else "plain", list(zh_lines)))
+        if strict:
+            return [f"she {z}" for z in zh_lines]
+        return [f"he {z}" if z.startswith(("第0", "c0")) else e for z, e in zip(zh_lines, out)]
+
+
+def _pronoun_run(engine, **kw):
+    from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+    return _run(engine, 2, style_guidelines=PRONOUN_DEFAULT_MARKER, **kw)
+
+
+def test_a_chapters_pronoun_recheck_runs_as_it_finishes_beside_the_others(novel):
+    engine = _HeEngine()
+    lines, errors, _u, _s = _pronoun_run(engine)
+    assert errors == []
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    rechecked = sorted(z for kind, zs in engine.order if kind == "strict" for z in zs)
+    assert rechecked == sorted(ln.zh for ln in lines[:PER_CHAPTER])  # each suspect asked once
+    assert all(ln.en.startswith("she ") and ln.flag != tp.PRONOUN_CHECK_FLAG for ln in lines[:PER_CHAPTER])
+
+
+def test_a_capped_run_rechecks_pronouns_after_every_chapter(novel):
+    engine = _HeEngine()
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    kinds = [kind for kind, _ in engine.order]
+    first_strict = kinds.index("strict")
+    assert set(kinds[first_strict:]) == {"strict"}
+    assert all(ln.en.startswith("she ") for ln in lines[:PER_CHAPTER])

@@ -311,6 +311,7 @@ class _TranslateRun:
         self.errors = []
         self.stop_run = False
         self.translated = []
+        self.rechecked = set()  # line idx whose pronoun re-check already ran inside a chapter lane
         self.streak = FailureStreak()
         self.hard_failures = []
         self.spent = 0.0
@@ -497,6 +498,10 @@ class _TranslateRun:
         self.room = threading.Condition(self.lock)
         self.batches_done = 0
         self.chapters_total = len(groups)
+        # Each chapter's re-check runs in its lane as the chapter finishes, beside the chapters
+        # still going. Under a cap it waits for the end instead: its calls take no slot, so
+        # side by side they could pass the cap.
+        self.recheck_in_lanes = self._cap_headroom() is None
         offsets, offset = [], 0
         for group in groups:
             offsets.append(offset)
@@ -986,13 +991,16 @@ class _TranslateRun:
             return True
         return False
 
-    def _recheck_pronouns(self):
+    def _recheck_pronouns(self, translated=None) -> bool:
+        """False when the re-check hit an error that ends the run."""
         a = self.args
         if self.stop_run or (a.cancel_check_cb and a.cancel_check_cb()):
-            return
+            return True
+        if translated is None:
+            translated = [ln for ln in self.translated if ln.idx not in self.rechecked]
         try:
             _recheck_male_pronouns(
-                self.engine, self.lines, self.translated, self.context, self.character_names,
+                self.engine, self.lines, translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
                 self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead)
         except Exception as e:
@@ -1000,6 +1008,8 @@ class _TranslateRun:
                 raise
             self.errors.append({"batch_index": self.n_batches - 1, "lines": [],
                                 "error": redact_secrets(str(e))})
+            return False
+        return True
 
 
 # Engines whose requests are independent and billed per call. A model on this PC shares one GPU,
@@ -1066,8 +1076,18 @@ class _LaneRun(_TranslateRun):
         self.bi_offset = bi_offset
         self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
         first_error = len(self.errors)
+        done_before = len(self.translated)
         try:
-            return self._run_batches(batches)
+            if not self._run_batches(batches):
+                return False
+            if not parent.recheck_in_lanes:
+                return True
+            chapter = self.translated[done_before:]
+            self.batch_lines = chapter  # what this lane's save writes
+            finished = self._recheck_pronouns(chapter)
+            with parent.lock:
+                parent.rechecked.update(ln.idx for ln in chapter)
+            return finished
         finally:
             # Several places record errors with the chapter-local batch number.
             for error in self.errors[first_error:]:
