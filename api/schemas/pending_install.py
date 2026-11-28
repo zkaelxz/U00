@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 __all__ = [
     "PendingInstallChange",
+    "PendingInstallLastRestart",
     "PendingInstallOutcome",
     "PendingInstallPlan",
     "PendingInstallPlanRequest",
