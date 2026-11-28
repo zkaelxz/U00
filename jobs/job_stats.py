@@ -1,6 +1,10 @@
 """Owns the one app.log stats line written when a job ends: numbers and fixed words only."""
 
+import atexit
+import datetime
 import re
+import statistics
+import threading
 import time
 
 from lib.error_kinds import error_kind
@@ -59,10 +63,67 @@ def line(job_id, job, token, outcome, gpu_touching) -> str:
     return "Job stats: " + " ".join(parts)
 
 
+# The running day's figures, kept in memory: a restart starts the day's tally again, which the
+# per-job lines still cover.
+_day_lock = threading.Lock()
+_day = {"date": None, "jobs": []}
+
+
+def _summary_line(date, jobs) -> str:
+    by_kind = {}
+    for kind, status, total, wait, errors in jobs:
+        by_kind.setdefault(kind, []).append((status, total, wait, errors))
+    parts = []
+    for kind, rows in sorted(by_kind.items()):
+        statuses = {}
+        for status, *_ in rows:
+            statuses[status] = statuses.get(status, 0) + 1
+        parts.append(f"{kind} {len(rows)} ({', '.join(f'{k} {n}' for k, n in sorted(statuses.items()))}) "
+                     f"median {statistics.median(r[1] for r in rows):.0f} s")
+    waits = [j[3] for j in jobs]
+    errors = {}
+    for *_, counts in jobs:
+        for kind, n in counts.items():
+            errors[kind] = errors.get(kind, 0) + n
+    return (f"Daily job summary {date}: {len(jobs)} jobs; " + "; ".join(parts)
+            + f"; median queue wait {statistics.median(waits):.1f} s; errors: "
+            + (", ".join(f"{k} {n}" for k, n in sorted(errors.items())) or "none"))
+
+
+def _flush_day_locked() -> None:
+    if _day["jobs"]:
+        import applog
+        applog.get_logger().info(_summary_line(_day["date"], _day["jobs"]))
+    _day["jobs"] = []
+
+
+def _record(job_id, job, token, outcome, today) -> None:
+    from services import jobs_service
+    with _day_lock:
+        if _day["date"] != today:
+            _flush_day_locked()
+            _day["date"] = today
+        _day["jobs"].append((jobs_service.job_kind(job_id), outcome,
+                             max(0.0, (job.get("finished_at") or time.time()) - token),
+                             float(job.get("queue_wait_s") or 0.0), _error_counts(job)))
+
+
+def flush_day() -> None:
+    with _day_lock:
+        try:
+            _flush_day_locked()
+        except Exception:
+            pass
+
+
+atexit.register(flush_day)
+
+
 def log_job_end(job_id, job, token, outcome, gpu_touching) -> None:
     """Never raises: a logging slip must not turn a finished job into a failed one."""
     try:
         import applog
         applog.get_logger().info(line(job_id, job, token, outcome, gpu_touching))
+        _record(job_id, job, token, outcome, datetime.date.today().isoformat())
     except Exception:
         pass
