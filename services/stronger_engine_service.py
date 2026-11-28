@@ -37,6 +37,7 @@ from services import (
     engine_failure_service,
     engine_routing_service,
     ownership_service,
+    profile_service,
     settings_service,
     translate_run_service,
     translate_service,
@@ -128,8 +129,11 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
         drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
         principal=acting.acting_principal())
     num_ctx = settings_service.get("ollama_num_ctx_override")
+    locale, style_note = profile_service.locale_and_note(
+        drama, str(settings_service.get("default_locale")),
+        str(settings_service.get("default_style_note") or ""))
     context = translate_pipeline.build_translation_context(
-        engine, drama, locale=str(settings_service.get("default_locale")),
+        engine, drama, locale=locale, style_note=style_note,
         novel_reference=translate_run_service.load_novel_reference(drama_id, drama),
         glossary_terms=glossary, style_guidelines=style,
         ollama_num_ctx_override=num_ctx if isinstance(num_ctx, int) and num_ctx else None)
