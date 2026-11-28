@@ -24,6 +24,7 @@ import { useDelayedSave } from '../hooks/useDelayedSave'
 import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { routeHref } from '../router'
+import { jobFailed } from '../types/jobs'
 import type { ComicPageInfo, ComicPagesResponse } from '../types/comic'
 import { AddComicButtons } from './comic/AddComicButtons'
 import { ChapterBar } from './comic/ChapterBar'
@@ -57,6 +58,8 @@ import {
   comicHref,
   hashIsComic,
   isReadTranslated,
+  readTranslatedJob,
+  importFailureText,
   defaultPrefs,
   inRenderWindow,
   loadComicPrefs,
@@ -84,6 +87,19 @@ const PROGRESS_DELAY_MS = 1000
 function replacePage(id: number, page: number) {
   if (!hashIsComic(window.location.hash, id)) return
   window.location.replace(comicHref(id, page))
+}
+
+function ImportNote({ id, onDone }: { id: number; onDone: () => void }) {
+  const importing = isReadTranslated(browserStorage(), id)
+  const { job } = useJob(importing ? readTranslatedJob(browserStorage(), id) : null, { onDone })
+  if (job && jobFailed(job))
+    return (
+      <p role="alert">
+        Couldn’t import this chapter{importFailureText(job) ? `: ${importFailureText(job)}` : '.'}{' '}
+        <a href={routeHref({ name: 'jobs', job: job.job_id })}>See Jobs for details.</a>
+      </p>
+    )
+  return <p>{importing ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
 }
 
 export default function ComicPage({ id, page: routePage }: { id: number; page: number | null }) {
@@ -279,8 +295,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, lowData.active ? 'low' : 'reader'),
     [id, prefs.typeset, original.originals, lowData.active],
   )
-  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
+  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current, true)
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step, panels } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads, panelsFor: id })
 
   usePageJump({
     activeJump,
@@ -416,7 +432,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const view = (
-    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={canTypeset} phone={phone} lowData={lowData.mode} onLowData={lowData.setMode}>
+    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={canTypeset} phone={phone} lowData={lowData.mode} onLowData={lowData.setMode} panels={panels}>
       {phone && current !== null && count > 1 && <ComicGoTo count={visible.length || count} onGo={goListed} />}
     </ComicViewControl>
   )
@@ -582,7 +598,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
 
       {empty ? (
         <div className="comic-scanlate comic-empty">
-          <p>{isReadTranslated(browserStorage(), id) ? 'Importing…' : 'No pages to read yet. Upload page images or a PDF to translate them.'}</p>
+          <ImportNote id={id} onDone={refreshPages} />
           {panel}
         </div>
       ) : !data || current === null ? (

@@ -40,6 +40,7 @@ import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { NO_DESKTOP_POPUPS } from './settings/notifications'
 import { PcAlertsCard } from './settings/PcAlertsCard'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
@@ -51,6 +52,8 @@ import { PhoneAppCard } from './settings/PhoneAppCard'
 import { inPhoneShell } from '../phoneShell'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
+import { SchemaCard } from './settings/SchemaCard'
+import { blockedPhrasesSummary } from './settings/schemaValues'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { useDeveloperMode } from './assistant/developerMode'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -77,9 +80,10 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   gpu_limit_enabled:
     'Jobs beyond "GPU jobs at once" wait in line, so the GPU does not run out of memory. To keep graphics memory or RAM free for other programs, see Keep free memory below.',
   notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
-  use_gpu: 'Transcribe on the GPU when there is one (faster).',
+  use_gpu:
+    'Transcription, speaker detection and comic text removal run on the GPU when there is one (much faster). Off runs them on the processor, and a title with Separate vocals first turned on stops, because that step cannot be kept off the GPU.',
   bulk_auto_resume:
-    'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
+    'On: after a restart, unfinished translation batches wait until you press Resume on the title, and one notification says so, so nothing is spent until then. Off: they still wait for Resume, with no notification.',
 }
 
 // Cards that disappear with a feature switch (lib/features.py). The extension's
@@ -395,6 +399,18 @@ export default function SettingsPage() {
               </SettingsCard>
             )}
             {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('blocked-phrases') && (
+              <SettingsCard id="blocked-phrases">
+                <SchemaCard
+                  {...prefProps}
+                  section="Transcription experiments"
+                  keys={['blocked_phrases']}
+                  as="card"
+                  title="Blocked phrases"
+                  summary={blockedPhrasesSummary(settings.preferences.blocked_phrases)}
+                />
+              </SettingsCard>
+            )}
             {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
           </>
         ))}
@@ -402,7 +418,15 @@ export default function SettingsPage() {
           <>
             {shown('notifications') && (
               <SettingsCard id="notifications">
-                <NotificationsSection popupOn={settings.notify_on_completion} notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+                <NotificationsSection
+                  popupOn={settings.notify_on_completion && settings.desktop_popups !== false}
+                  notifyToggle={
+                    <div className="setting-list">
+                      {toggleField('notify_on_completion')}
+                      {settings.desktop_popups === false && <p className="muted">{NO_DESKTOP_POPUPS}</p>}
+                    </div>
+                  }
+                />
               </SettingsCard>
             )}
             {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}

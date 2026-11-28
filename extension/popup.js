@@ -22,6 +22,7 @@ const els = {
   retryMissed: document.getElementById("retryMissed"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  siteSubs: document.getElementById("siteSubs"),
   sendVideo: document.getElementById("sendVideo"),
   startLive: document.getElementById("startLive"),
   liveLanguage: document.getElementById("liveLanguage"),
@@ -29,6 +30,8 @@ const els = {
   saveNovel: document.getElementById("saveNovel"),
   continueNovel: document.getElementById("continueNovel"),
   continueComic: document.getElementById("continueComic"),
+  continueQuickNote: document.getElementById("continueQuickNote"),
+  seriesCountRow: document.getElementById("seriesCountRow"),
   seriesCount: document.getElementById("seriesCount"),
   dramaTitle: document.getElementById("dramaTitle"),
   typeset: document.getElementById("typeset"),
@@ -260,6 +263,7 @@ async function showNovelSection() {
     // A saved chapter needs a title, so quick translate leaves it out; the Text tab covers novels.
     els.novelSection.hidden = !els.store.checked || !(status && status.ok &&
                                 (status.data.textPage || status.data.hasSelection));
+    if (status && status.ok) els.siteSubs.checked = !!status.data.siteSubs;
   } catch (e) { /* a page the browser keeps extensions out of */ }
 }
 
@@ -271,7 +275,7 @@ function showOpenLink(dramaId) {
 // The result line has to say where pages went: a bare count left it unclear whether anything
 // was saved.
 function describeDestination({ sent, cached, store, dramaId }) {
-  const title = dramaTitles.get(String(dramaId)) || "the drama";
+  const title = dramaTitles.get(String(dramaId)) || "the title";
   const parts = [];
   if (!store) {
     if (sent) parts.push(`Drew ${sent} page${sent === 1 ? "" : "s"} on the page only, not saved`);
@@ -305,13 +309,17 @@ async function ensureContentScript(tabId) {
   await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
 }
 
-// Names the exact place, because "Settings" alone sent people to the wrong
-// section; Ollama is the one engine that needs no account or key.
+// Names the exact place, because "Settings" alone sent people to the wrong section.
 const NO_ENGINE_NOTE =
   "Connected, but no translation engine is chosen yet, so pages come back with their " +
   "original text only. In Baihe, open Settings → Browser extension and pick one under " +
-  "“Translation engine”. For a free option that runs on your PC, install Ollama and pick " +
-  "Ollama there.";
+  "“Translation engine”. Ollama is the one engine that needs no key in Baihe; it runs " +
+  "Gemma 4 on Ollama's servers and is billed per token.";
+// A copy on another computer can't open that card: it is shown only at the PC, and the engine is the PC's choice.
+const NO_ENGINE_NOTE_REMOTE =
+  "Connected, but the Baihe PC has no translation engine chosen for the extension yet, so pages " +
+  "come back with their original text only. Ask whoever runs the Baihe PC to pick one in " +
+  "Settings → Browser extension.";
 
 const MAX_NAMED_PROBLEMS = 3;
 
@@ -335,7 +343,7 @@ function summarizeCapture(data, { store, dramaId }) {
   const reused = data.alreadyStored || 0;
   parts.push(`${pages - reused} translated`);
   if (saving && data.stored !== undefined) {
-    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the drama"}`);
+    parts.push(`${data.stored} stored in ${dramaTitles.get(String(dramaId)) || "the title"}`);
   }
   if (cached) parts.push(`${cached} already done`);
   if (reused) parts.push(`${reused} already in library`);
@@ -377,12 +385,20 @@ async function load() {
     if (health && health.error && health.error.startsWith(NO_TOKEN_PREFIX)) {
       showNotice("Paste your token to get started.", "Open options", () => chrome.runtime.openOptionsPage());
       say("Actions are off until a token is saved.");
-    } else if (health && (health.status === 401 || health.status === 403)) {
+    } else if (health && health.status === 401) {
       showNotice("Baihe didn't accept this token.", "Open options", () => chrome.runtime.openOptionsPage());
-      say("Paste a new token from Baihe's Settings.");
+      say("Paste a new token from Baihe's Settings (Browser extension on the PC, Remote access keys on another computer).");
+    } else if (health && health.status === 403) {
+      // The token is good but the account lacks the right, so a new token would not help: show Baihe's own reason.
+      showNotice("Baihe refused this browser.", "Retry", load);
+      say(health.error || "Ask the PC owner to turn on “Browser extension and Baihe Grab” for you in People and access.");
     } else {
-      showNotice("Can't reach Baihe on this PC.", "Retry", load);
-      say("Check that Baihe is running with the Extension bridge on.");
+      showNotice("Can't reach Baihe.", "Retry", load);
+      // The Browser extension switch is on the PC's own Settings and does not gate a copy on another computer.
+      const saved = (await chrome.runtime.sendMessage({ type: "getSettings" }))?.data || {};
+      say(saved.serverUrl
+        ? "Check that the Baihe PC is on and that the address in the extension's options is right."
+        : "Check that Baihe is running and that Settings > Browser extension is switched on.");
     }
     return;
   }
@@ -432,7 +448,7 @@ async function load() {
 
   const stale = staleExtensionNote(data, settings.serverUrl);
   if (stale) say(stale, true);
-  else say(data.engine_configured ? "Connected. Ready to translate." : NO_ENGINE_NOTE);
+  else say(data.engine_configured ? "Connected. Ready to translate." : settings.serverUrl ? NO_ENGINE_NOTE_REMOTE : NO_ENGINE_NOTE);
 }
 
 let pageRunInFlight = false;
@@ -719,6 +735,38 @@ const runStartLive = () => runVideo("startLive", { sourceLanguage: els.liveLangu
   route: () => "#/live",
 });
 
+function describeSiteSubs(data) {
+  if (!data.media) return "No video or audio on this page.";
+  if (!data.found) return "Not in your library. “Subtitle this video” sends it to Baihe.";
+  if (!data.count) return `${data.title || "Your title"} has no English lines yet.`;
+  const lines = `${data.count} line${data.count === 1 ? "" : "s"}${data.cutOff ? ", the first part only" : ""}`;
+  return `Showing ${data.title || "your title"} (${lines}).`;
+}
+
+async function runSiteSubs() {
+  const on = els.siteSubs.checked;
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  try {
+    await ensureContentScript(tab.id);
+    if (on) say("Looking for this video in Baihe…");
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "showSiteSubs", on });
+    if (!result || !result.ok) {
+      els.siteSubs.checked = false;
+      return say((result && result.error) || "That didn't work.", true);
+    }
+    if (!on) return say("Baihe subs off.");
+    const data = result.data || {};
+    // A later switch of the toggle already answered for this page.
+    if (data.superseded) return;
+    els.siteSubs.checked = !!(data.found && data.count);
+    say(describeSiteSubs(data), !els.siteSubs.checked);
+  } catch (e) {
+    els.siteSubs.checked = false;
+    say(`Couldn't run on this page (${e.message}).`, true);
+  }
+}
+
 // One line for the save's outcome: whether a chapter was added, and from what.
 function describeNovelSave(data) {
   const title = dramaTitles.get(String(data.drama_id)) || "the title";
@@ -807,11 +855,25 @@ els.retryMissed.addEventListener("click", async () => {
   }
 });
 els.translateText.addEventListener("click", runText);
+els.siteSubs.addEventListener("change", runSiteSubs);
 els.sendVideo.addEventListener("click", runSendVideo);
 els.startLive.addEventListener("click", runStartLive);
 els.saveNovel.addEventListener("click", runSaveNovel);
 els.continueNovel.addEventListener("click", () => runContinue("novel"));
 els.continueComic.addEventListener("click", () => runContinue("comic"));
+// Applied at once, like Show / hide, so the switch is never a setting that waits for the next run.
+els.overlay.addEventListener("change", async () => {
+  const visible = els.overlay.checked;
+  await chrome.storage.local.set({ overlay: visible });
+  const tab = await activeTab();
+  if (!tab || !tab.id) return;
+  try {
+    await ensureContentScript(tab.id);
+    await chrome.tabs.sendMessage(tab.id, { type: "setOverlays", visible });
+  } catch (e) {
+    say(`Couldn't reach this page (${e.message}).`, true);
+  }
+});
 els.toggle.addEventListener("click", async () => {
   const tab = await activeTab();
   if (!tab || !tab.id) return;
@@ -843,6 +905,10 @@ function setSaveMode(save, { remember = true } = {}) {
   els.modeQuick.setAttribute("aria-pressed", String(!save));
   els.modeHint.hidden = save;
   els.dramaPick.hidden = !save;
+  // Each chapter's drawing is lost when the tab moves to the next, so a quick run would pay for pages nobody sees.
+  els.continueComic.hidden = !save;
+  els.seriesCountRow.hidden = !save;
+  els.continueQuickNote.hidden = save;
   showNovelSection();
   if (remember) chrome.storage.local.set({ quickTranslate: !save }).catch(() => {});
 }

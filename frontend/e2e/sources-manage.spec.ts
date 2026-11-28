@@ -35,7 +35,7 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await mockSources(page)
   await page.goto('/#/sources')
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
-  await expect(page.locator('header.page-head').getByRole('heading', { level: 1 })).toHaveText('Find')
+  await expect(page.locator('header.page-head').getByRole('heading', { level: 1 })).toHaveText('Find & Add')
   await page.getByRole('searchbox', { name: 'Title' }).fill('Heaven')
   await page.getByRole('tab', { name: 'Manage sources' }).click()
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
@@ -50,13 +50,13 @@ test('the header is the Sources page header with its tabs; switching tabs keeps 
   await expect(page).toHaveURL(/#\/sources\?tab=manage$/)
 })
 
-test('Sites is a compact row: name, status, On, Rules, Details', async ({ page }) => {
+test('Sites is a compact row: name, status, On, Pace, Details', async ({ page }) => {
   await mockSources(page)
   const manage = await openManage(page)
-  await expect(manage.getByRole('columnheader')).toHaveText(['Site', 'Status', 'On', 'Rules', 'Details'])
+  await expect(manage.getByRole('columnheader')).toHaveText(['Site', 'Status', 'On', 'Pace', 'Details'])
   const row = manage.locator('tbody tr').first()
   await expect(row.getByRole('switch', { name: 'On: Alpha Comics' })).toBeVisible()
-  await expect(row.getByRole('combobox', { name: 'Rules: Alpha Comics' })).toBeVisible()
+  await expect(row.getByRole('combobox', { name: 'Pace: Alpha Comics' })).toBeVisible()
   await expect(row.getByRole('button', { name: 'Details: Alpha Comics' })).toBeVisible()
   // Nothing else sits in the row: no Adult cell, no Sign-in column.
   await expect(manage.getByRole('columnheader', { name: /Adult|Sign-in|Health/ })).toHaveCount(0)

@@ -6,6 +6,9 @@ point near the limit so a cut rarely lands inside a word. Nothing here reads
 settings or touches the pipeline; callers pass a float mono waveform and its
 sample rate. Times are seconds, like the rest of the pipeline.
 """
+import hashlib
+import threading
+from collections import OrderedDict
 from typing import Callable, Iterable, NamedTuple, Optional
 
 import numpy as np
@@ -38,11 +41,66 @@ class VadFnFailed(Exception):
     """An injected vad_fn broke while scoring; speech_spans uses Silero instead."""
 
 
+# Per Silero model: a file is scored at most this many times before its oldest scores are dropped.
+_REMEMBERED_SCORES = 2
+_remember_lock = threading.Lock()
+_remembering = False
+
+
+def remember_speech_scores() -> bool:
+    """Makes faster-whisper's Silero model reuse its per-frame speech scores for audio it has
+    already scored. Whisper's own detector, the fit of line edges to speech and the Benchmark
+    Lab's threshold arms all score the same whole file and differ only in the thresholds applied
+    afterwards, and scoring a long stream on the CPU takes minutes. Scores depend only on the
+    samples, so the spans are unchanged. False when this faster-whisper has no such model."""
+    global _remembering
+    with _remember_lock:
+        if _remembering:
+            return True
+        try:
+            from faster_whisper import vad
+            current = vad.SileroVADModel.__call__
+        except (ImportError, AttributeError):
+            return False
+        # Never wrap a wrapper: the class outlives this flag being reset.
+        score = getattr(current, "unwrapped", current)
+
+        def remembered(self, audio, *args, **kwargs):
+            try:
+                samples = audio if audio.flags.c_contiguous else np.ascontiguousarray(audio)
+                key = (audio.shape, audio.dtype.str, args, tuple(sorted(kwargs.items())),
+                       hashlib.blake2b(samples.data, digest_size=16).digest())
+                hash(key)
+            except (AttributeError, TypeError):
+                # A call shape this memo doesn't know (another faster-whisper) is scored as before.
+                return score(self, audio, *args, **kwargs)
+            with _remember_lock:
+                seen = self.__dict__.setdefault("_baihe_scores", OrderedDict())
+                known = seen.get(key)
+                if known is not None:
+                    seen.move_to_end(key)
+            if known is None:
+                known = score(self, audio, *args, **kwargs)
+                if not isinstance(known, np.ndarray):
+                    return known
+                with _remember_lock:
+                    seen[key] = known
+                    while len(seen) > _REMEMBERED_SCORES:
+                        seen.popitem(last=False)
+            return known.copy()
+
+        remembered.unwrapped = score
+        vad.SileroVADModel.__call__ = remembered
+        _remembering = True
+        return True
+
+
 def _silero_spans(audio, sr, threshold, min_silence_ms, min_speech_ms):
     try:
         from faster_whisper.vad import VadOptions, get_speech_timestamps
     except ImportError as exc:
         raise VadNotInstalledError(str(exc)) from exc
+    remember_speech_scores()
     # Padding is applied by speech_spans so it also works with an injected vad_fn.
     options = VadOptions(threshold=threshold, min_silence_duration_ms=min_silence_ms,
                          min_speech_duration_ms=min_speech_ms, speech_pad_ms=0)

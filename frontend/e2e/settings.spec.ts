@@ -95,7 +95,7 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await openSettingsGroups(page, 'Engines and keys')
   // Keys live in the one engine list, with the .env explanation.
   await expect(page.getByRole('region', { name: 'Which engine does what' }).getByText('Saved on the Baihe PC and never shown again.')).toBeVisible()
-  const sw = page.getByRole('switch', { name: /Gemini free tier/ })
+  const sw = page.getByRole('switch', { name: /My Gemini key is free-tier/ })
   const before = (await sw.getAttribute('aria-checked')) === 'true'
   const saved = () => page.waitForResponse((r) => r.url().endsWith('/api/settings') && r.request().method() === 'POST')
 
@@ -107,7 +107,7 @@ test('settings booleans are keyboard-operable switches', async ({ page }) => {
   await expect(sw).toHaveAttribute('aria-checked', String(before))
 
   // Clicking the visible label flips the switch too (label htmlFor -> button).
-  await Promise.all([saved(), page.locator('label', { hasText: 'Gemini free tier' }).click()])
+  await Promise.all([saved(), page.locator('label', { hasText: 'My Gemini key is free-tier' }).click()])
   await expect(sw).toHaveAttribute('aria-checked', String(!before))
   await Promise.all([saved(), sw.click()]) // restore
   await expect(sw).toHaveAttribute('aria-checked', String(before))

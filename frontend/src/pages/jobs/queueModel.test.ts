@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, queueSummary, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], held: false, tonight: false, page_run: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
-  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, night: { start: '01:00', end: '07:00', self_check: true }, notice: null, max_items: 200,
   can_control: true, monthly_cap_usd: 0, items: [], ...p,
 })
 
@@ -40,6 +40,14 @@ describe('queueModel', () => {
     expect(runStateText(queue({ items: [item()] }))).toBe('Not running.')
   })
 
+  it('sums the folded queue up in one line', () => {
+    expect(queueSummary(queue())).toBe('Nothing waiting')
+    expect(queueSummary(queue({ state: 'running', items: [item({ status: 'running' }), item(), item()] }))).toBe('Running · 2 waiting')
+    expect(queueSummary(queue({ state: 'paused', items: [item()] }))).toBe('Paused · 1 waiting')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: false } }))).toBe('1 waiting · starts at 23:30')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: true } }))).toBe('1 waiting · start time missed')
+  })
+
   it('shows a missed schedule as a question, never as a run', () => {
     const now = new Date(2026, 9, 10, 20, 0)
     const later = new Date(2026, 9, 10, 23, 30).getTime() / 1000
@@ -51,9 +59,9 @@ describe('queueModel', () => {
   })
 
   it('says a paid Translate uses your key and costs money, and names the cap', () => {
-    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set, so the queue will skip it')
-    expect(translateCostNote('Ollama', false, 5)).toBe('Uses Ollama, which is free.')
+    expect(translateCostNote('Example free engine', false, 5)).toBe('Uses Example free engine, which is free.')
   })
 })
 
@@ -72,7 +80,7 @@ describe('saved settings panel', () => {
 
   it('does not double the full stop when an engine description ends with one', () => {
     expect(translateCostNote('Paid, cloud; best tone and character voice.', true, 5)).toBe(
-      'Uses Paid, cloud; best tone and character voice. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+      'Uses Paid, cloud; best tone and character voice, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', false, 0)).toBe('Uses Claude, which is free.')
     expect(translateCostNote('Claude.', false, 0)).toBe('Uses Claude, which is free.')
   })

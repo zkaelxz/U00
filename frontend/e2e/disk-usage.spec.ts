@@ -508,7 +508,7 @@ test('a previous library kept beside this one shows its size and is deleted afte
   const sec = await openSection(page, 'storage')
   await openFold(page, 'Previous library')
   const kept = sec.getByRole('region', { name: 'Previous library' })
-  await expect(kept).toContainText('Previous library kept after restore')
+  await expect(kept).toContainText('Previous library kept after a restore or reset')
   await expect(kept).toContainText('12 files')
   await kept.getByRole('button', { name: 'Delete previous library…' }).click()
   await kept.getByRole('textbox').fill('DELETE')

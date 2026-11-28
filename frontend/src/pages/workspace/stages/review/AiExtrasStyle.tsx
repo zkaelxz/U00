@@ -58,7 +58,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
   const gate = useEngineGate(titleEngines.engines, engine.trim().toLowerCase() || titleEngines.translationEngine)
   const profile = state?.profile ?? null
   const tooFew = !!state && state.edit_count < state.min_samples
-  const scope = state?.scope === 'series' ? 'this series' : 'all projects'
+  const scope = state?.scope === 'series' ? 'this series' : 'all titles'
   const globalLocked = pc === 'remote' && state?.scope === 'global'
   const previous = state?.history?.[0] ?? null
 
@@ -88,7 +88,7 @@ export function AiExtrasStyle({ dramaId, reloads }: Props) {
       )}
       <Section title="Advanced" summary={`${engine ? humanize('engine', engine) : 'Default engine'} · ${model || 'default model'}`}>
         <div className="review-edit-row">
-          <Field label={AI_ENGINE_LABEL} help="Blank uses the project's translation engine. Needs an LLM engine.">
+          <Field label={AI_ENGINE_LABEL} help="Blank uses this title's translation engine. Needs an LLM engine.">
             <input value={engine} onChange={(e) => setEngine(e.target.value)} />
           </Field>
           <Field label="Model" help="Blank uses the engine's default model.">

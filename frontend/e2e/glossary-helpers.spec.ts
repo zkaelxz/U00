@@ -467,7 +467,7 @@ test('series instructions follow a series assigned here, so Save never writes th
   await openSection(page, 'Glossary')
   await glossaryTab(page, 'Instructions')
   await expect(page.getByText('Series instructions need a series')).toBeVisible()
-  await page.getByLabel('Project instructions').fill('Project rules, typed')
+  await page.getByLabel('Title instructions').fill('Project rules, typed')
   await expect(page.getByTestId('project-instructions-count')).toHaveText('20 characters')
 
   await glossaryTab(page, 'Terms')
@@ -478,7 +478,7 @@ test('series instructions follow a series assigned here, so Save never writes th
   await expect(series).toHaveValue('Series 7 rules')
   await expect(page.getByTestId('instructions-state')).toContainText('Series: set, 14 characters')
   // Project text does not depend on the series: unsaved typing stays.
-  await expect(page.getByLabel('Project instructions')).toHaveValue('Project rules, typed')
+  await expect(page.getByLabel('Title instructions')).toHaveValue('Project rules, typed')
   await page.getByRole('button', { name: 'Save series instructions' }).click()
   await expect.poll(() => saved).toEqual([{ text: 'Series 7 rules' }])
 })
@@ -510,7 +510,7 @@ test.describe('phone 390px', () => {
     const box = page.getByTestId('lines-glossary')
     await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(3)
     await expect(box.getByLabel('Translation for 云深不知处')).toBeVisible()
-    await expect(box.locator('button.primary')).toHaveCount(1)
+    await expect(box.locator('button.btn-primary')).toHaveCount(1)
     await noSideScroll(page)
     await shot(page, 'glossary-from-lines-phone', true)
   })

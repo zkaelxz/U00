@@ -45,6 +45,8 @@ class TestGetExportReadiness:
             "overlap_count": 0,
             "auto_qc_issue_count": 0,
             "dense_line_count": 0,
+            "sound_captioned_lines": 0,
+            "ear_marked_lines": 0,
         }
 
     def test_partial_translation_counts_are_correct(self, isolated_db):
@@ -132,6 +134,30 @@ class TestGenerateSubtitleText:
         text = export_service.generate_subtitle_text(did, "srt", "bilingual")
         assert "Hello" in text
         assert "你好" in text
+
+    def test_a_reading_row_goes_between_the_english_and_the_original(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            {"你好": "nǐ hǎo"}.get(text, ""))
+        did = self._drama_with_lines(isolated_db)
+        srt = export_service.generate_subtitle_text(did, "srt", "bilingual", reading_line=True)
+        assert "Hello\nnǐ hǎo\n你好\n" in srt and "Bye\n再见\n" in srt
+        vtt = export_service.generate_subtitle_text(did, "vtt", "zh", reading_line=True)
+        assert "nǐ hǎo\n你好" in vtt
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "lrc", "zh", reading_line=True)
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "srt", "en", reading_line=True)
+
+    def test_the_source_wrap_width_does_not_cut_the_reading_row(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            "wǒ men jīn tiān yì qǐ qù" if "我们" in text else "")
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="我们今天一起去", en="We go")])
+        for fmt in ("srt", "vtt"):
+            text = export_service.generate_subtitle_text(did, fmt, "zh", reading_line=True, wrap_chars_source=4)
+            assert "wǒ men jīn tiān yì qǐ qù\n我们今天\n一起去" in text, fmt
 
     def test_vtt_starts_with_webvtt_header(self, isolated_db):
         did = self._drama_with_lines(isolated_db)
@@ -504,7 +530,7 @@ class TestGenerateEpub:
     def test_unknown_field_is_invalid_input(self, isolated_db):
         did = self._novel_drama_with_lines(isolated_db)
         with pytest.raises(InvalidInputError):
-            export_service.generate_epub(did, field="bilingual")
+            export_service.generate_epub(did, field="fr")
 
     def test_missing_ebooklib_raises_dependency_unavailable(self, isolated_db, monkeypatch):
         # ebooklib is imported inside epub_io.export_epub, so block that package itself.
@@ -545,10 +571,64 @@ class TestGenerateEpub:
 class TestGenerateEpubOutput:
     """generate_epub with epub_io.export_epub stubbed, so these run core-only."""
 
-    def _novel(self, isolated_db, lines):
-        did = _drama(isolated_db, content_mode="novel_narration")
+    def _novel(self, isolated_db, lines, **fields):
+        did = _drama(isolated_db, content_mode="novel_narration", **fields)
         isolated_db.save_lines(did, lines)
         return did
+
+    def _capture(self, monkeypatch):
+        import epub_io
+        seen = {}
+
+        def fake_export(lines, title, author, out_path, field="en", **kw):
+            seen.update(kw, field=field)
+            with open(out_path, "wb") as f:
+                f.write(b"book")
+        monkeypatch.setattr(epub_io, "export_epub", fake_export)
+        return seen
+
+    def test_a_two_language_book_needs_the_english(self, isolated_db):
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
+        with pytest.raises(ConflictError):
+            export_service.generate_epub(did, field="bilingual")
+
+    def test_reading_marks_are_kept_only_for_chinese_and_japanese_originals(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        seen = self._capture(monkeypatch)
+        line = [Line(idx=0, start=0.0, end=1.0, zh="こんにちは", en="Hello")]
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ja"),
+                                     field="bilingual", readings=True)
+        assert seen["field"] == "bilingual" and seen["readings"] is True
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ko"),
+                                     field="bilingual", readings=True)
+        assert seen["readings"] is False
+        export_service.generate_epub(self._novel(isolated_db, line, source_language="ja"),
+                                     field="en", readings=True)
+        assert seen["readings"] is False
+
+    def test_traditional_text_without_opencc_is_read_as_simplified(self, isolated_db, monkeypatch):
+        import importlib.util
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        real_find = importlib.util.find_spec
+        monkeypatch.setattr(importlib.util, "find_spec",
+                            lambda name, *a: None if name == "opencc" else real_find(name, *a))
+        seen = self._capture(monkeypatch)
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")],
+                          chinese_script="traditional")
+        export_service.generate_epub(did, field="bilingual", readings=True)
+        assert seen["chinese_script"] == "simplified"
+
+    def test_reading_marks_without_their_packages_name_what_to_install(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: ["pypinyin"])
+        self._capture(monkeypatch)
+        did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="Hello")])
+        with pytest.raises(DependencyUnavailableError) as exc:
+            export_service.generate_epub(did, field="bilingual", readings=True)
+        assert exc.value.details == {"reason": "missing_package", "package": "pypinyin"}
+        assert export_service.generate_epub(did, field="bilingual") == b"book"
 
     def test_an_untranslated_novel_is_refused_not_exported_empty(self, isolated_db):
         did = self._novel(isolated_db, [Line(idx=0, start=0.0, end=1.0, zh="你好", en="")])
@@ -653,6 +733,18 @@ class TestGenerateAssText:
         text = export_service.generate_ass_text(
             did, speaker_colors={"A": "#123456", "B": "#654321"})
         assert subtitle_ass.ass_color("#123456") in text and subtitle_ass.ass_color("#654321") in text
+
+    def test_supplied_colors_match_character_names(self, isolated_db):
+        did = _ass_drama(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Alice")
+        text = export_service.generate_ass_text(did, speaker_colors={" alice ": "#123456", "B": "#654321"})
+        rows = text.splitlines()
+        styles = {r.split(",")[0][len("Style: "):]: r for r in rows if r.startswith("Style: ")}
+
+        def style_of(words):
+            return next(r.split(",")[3] for r in rows if r.startswith("Dialogue:") and r.endswith(words))
+        assert subtitle_ass.ass_color("#123456") in styles[style_of("Hello")]
+        assert subtitle_ass.ass_color("#654321") in styles[style_of("Bye")]
 
     def test_per_speaker_off_has_no_speaker_styles(self, isolated_db):
         did = _ass_drama(isolated_db)
@@ -969,3 +1061,78 @@ class TestSpeakerNamesInSubtitles:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="door", speaker="A", sfx=True)])
         text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True)
         assert "A:" not in text and "[door]" in text
+
+
+class TestSoundCaptions:
+    def _tagged(self, db):
+        import sensevoice_tags
+        did = _drama(db)
+        db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="哈哈", en="Ha, you're funny.", speaker="A"),
+            Line(idx=1, start=1.0, end=2.0, zh="嗯", en="Mm.", speaker="A"),
+            Line(idx=2, start=2.0, end=3.0, zh="呜", en="I'm sorry.", speaker="B"),
+            Line(idx=3, start=3.0, end=4.0, zh="砰", en="door slams", sfx=True),
+            Line(idx=4, start=4.0, end=5.0, zh="好", en="Fine."),
+        ])
+        ids = [ln.id for ln in lines_from_rows(db.load_lines(did))]
+        sensevoice_tags.save_audio_tags(db.drama_dir(did), {
+            ids[0]: {"emotion": "happy", "events": ["Laughter", "BGM", "Speech"]},
+            ids[1]: {"emotion": "neutral", "events": ["BGM", "Breath"]},
+            ids[2]: {"emotion": "sad", "events": ["Cry", "BGM"]},
+            ids[3]: {"emotion": None, "events": ["Applause"]},
+            ids[4]: {"emotion": None, "events": ["BGM", "Cough"]},
+        })
+        return did
+
+    def test_off_by_default_and_on_marks_the_english(self, isolated_db):
+        did = self._tagged(isolated_db)
+        assert "[" not in export_service.generate_subtitle_text(did, "srt", "en").replace("[door slams]", "")
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True)
+        assert "[laughs] [music] Ha, you're funny." in srt
+        # Music is marked where it starts, not under every line of the scene; after a line
+        # without it (the SFX line), it is marked again.
+        assert "\nMm.\n" in srt and "\n[crying] I'm sorry.\n" in srt
+        assert "\n[music] [coughs] Fine.\n" in srt
+        assert "<i>[door slams]</i>" in srt and "[applause]" not in srt
+
+    def test_vtt_ass_and_bilingual_get_them_and_the_source_export_does_not(self, isolated_db):
+        did = self._tagged(isolated_db)
+        assert "[laughs] [music] Ha" in export_service.generate_subtitle_text(did, "vtt", "en", sound_captions=True)
+        assert "[laughs] [music] Ha" in export_service.generate_ass_text(did, sound_captions=True)
+        assert "[laughs]" not in export_service.generate_ass_text(did)
+        bi = export_service.generate_subtitle_text(did, "srt", "bilingual", sound_captions=True)
+        assert "[laughs] [music] Ha, you're funny.\n哈哈" in bi
+        assert "[" not in export_service.generate_subtitle_text(did, "srt", "zh", sound_captions=True).replace("[砰]", "")
+
+    def test_speaker_name_goes_before_the_sound(self, isolated_db):
+        did = self._tagged(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Alice")
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True, speaker_names=True)
+        assert "Alice: [laughs] [music] Ha" in srt
+
+    def test_untagged_title_exports_unchanged_and_readiness_counts(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="好", en="Fine.")])
+        assert export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True) == \
+            export_service.generate_subtitle_text(did, "srt", "en")
+        assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 0
+        tagged = self._tagged(isolated_db)
+        # Counts what the export shows: "Mm." only continues the music and the SFX line's
+        # applause gives no caption.
+        assert export_service.get_export_readiness(tagged)["sound_captioned_lines"] == 3
+
+    def test_music_starting_under_an_uncaptioned_line_is_marked_on_the_next(self, isolated_db):
+        import sensevoice_tags
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="砰", en="door", sfx=True),
+            Line(idx=1, start=1.0, end=2.0, zh="嗯", en=""),
+            Line(idx=2, start=2.0, end=3.0, zh="好", en="Fine."),
+            Line(idx=3, start=3.0, end=4.0, zh="嗯", en="Mm."),
+        ])
+        ids = [ln.id for ln in lines_from_rows(isolated_db.load_lines(did))]
+        sensevoice_tags.save_audio_tags(isolated_db.drama_dir(did),
+                                        {i: {"events": ["BGM"]} for i in ids})
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True)
+        assert "\n[music] Fine.\n" in srt and "\nMm.\n" in srt
+        assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 1

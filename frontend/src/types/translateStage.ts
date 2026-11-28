@@ -55,6 +55,8 @@ export interface EstimateParams {
   /** A novel's chapters (1-based, inclusive); one alone leaves that side open. */
   chapter_from?: number
   chapter_to?: number
+  /** The Style picked on the form; omitted, the title's own. */
+  style_preset?: string
 }
 
 export interface FallbackEngine {
@@ -135,6 +137,8 @@ export interface GlossaryAffectedParams {
   model?: string
   reflect?: boolean
   job_cost_cap_usd?: number
+  style_preset?: string
+  batch_size?: number
 }
 
 export type GlossaryAffectedRunBody = Omit<TranslateRunStartBody, 'force_retranslate' | 'bulk'> & {

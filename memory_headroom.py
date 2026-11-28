@@ -1,7 +1,7 @@
 """Keep-free headroom for GPU memory (VRAM) and system RAM.
 
 The owner shares one server with other programs (a media server doing
-hardware transcoding, say). Settings > Advanced > Offline and performance lets them reserve some
+hardware transcoding, say). Settings > Keep free memory lets them reserve some
 graphics memory and RAM; before a local model loads, `check` compares the
 model's estimated need and the memory that is free right now with that
 reserve and refuses the load, in plain words, when it would eat into it.
@@ -191,8 +191,8 @@ def check_need(label: str, need_mb, memory: str, free_mb=None) -> None:
     word, setting = _MEMORY_WORDS[memory]
     raise HeadroomError(
         f"Not loading {label}: it needs about {_gb(need_mb)} of {word}, {_gb(free_mb)} is free, "
-        f"and {_gb(reserved)} is kept free for other programs (Settings > Advanced > Offline and performance > {setting}). "
-        "The needed size is an estimate. To go ahead: unload another model (Settings > Loaded now, "
+        f"and {_gb(reserved)} is kept free for other programs (Settings > Keep free memory > {setting}). "
+        "The needed size is an estimate. To go ahead: unload another model (Diagnostics > Loaded now, "
         "once no job is running), use a smaller model or int8 where offered, or lower the setting.",
         vram_need_mb=float(need_mb) if memory == "vram" else None)
 
@@ -270,6 +270,24 @@ def check_separation(use_gpu) -> None:
             return
     # A CPU run (torch sees no CUDA) is judged against system RAM and its reserve, not VRAM.
     check("separation", "separator", bool(use_gpu))
+
+
+# Room kept on top of both estimates before two models load side by side: the estimates are guesses.
+_SIDE_BY_SIDE_MARGIN_MB = 1024
+
+
+def fits_beside_separation(kind: str, name: str, use_gpu: bool) -> bool:
+    """Whether a model of `kind`/`name` can load while vocal separation runs, without either
+    eating into the reserve. Unlike `check`, anything unknown (an unread memory, an unestimated
+    model) says no: this only decides whether to start early, so a guess must not risk a crash."""
+    memory = "vram" if use_gpu else "ram"
+    need = estimate_mb(kind, name)
+    separation = estimate_mb("separation", "separator")
+    reading = read_memory_mb(memory, at_load=True)
+    if need is None or separation is None or reading is None:
+        return False
+    slot = 0 if use_gpu else 1
+    return reading[1] - reserved_mb(memory) >= need[slot] + separation[slot] + _SIDE_BY_SIDE_MARGIN_MB
 
 
 def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:

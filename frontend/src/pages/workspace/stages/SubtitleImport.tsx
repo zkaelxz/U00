@@ -14,6 +14,7 @@ import { applySubtitle, previewSubtitle } from '../../../api/subtitleImport'
 import { startRetime } from '../../../api/workspace'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { ButtonLink } from '../../../components/Button'
+import { buttonClass } from '../../../components/uiClasses'
 import { Field } from '../../../components/Field'
 import { Toggle } from '../../../components/Toggle'
 import { useCanUpload } from '../../../hooks/useHolds'
@@ -267,7 +268,7 @@ export function SubtitleImport({ dramaId, busy, onImported, onRealignStarted, dr
         </div>
       )}
       <div className="actions">
-        <button type="button" className="primary" disabled={!canImport} onClick={runImport}>
+        <button type="button" className={buttonClass('primary')} disabled={!canImport} onClick={runImport}>
           {importing ? 'Importing…' : 'Import'}
         </button>
         {busy && <span className="muted">Wait for the running job to finish.</span>}

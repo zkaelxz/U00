@@ -29,7 +29,7 @@ export function ToolsCard() {
           {error}
         </p>
       )}
-      <Section title="Tools" summary={tools ? plural(tools.tools.length, 'read-only tool') : 'What it can read'} storageKey="assistant.tools" defaultOpen>
+      <Section title="Tools" summary={tools ? plural(tools.tools.length, 'read-only tool') : 'What it can read'}>
       <p className="muted" data-testid="read-only-note">
         {READ_ONLY_NOTE}
       </p>

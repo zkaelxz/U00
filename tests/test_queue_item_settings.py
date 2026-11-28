@@ -164,6 +164,22 @@ def test_the_cost_line_and_the_start_check_estimate_the_same_run(isolated_db, mo
     assert seen[0] == seen[1] == ("claude-haiku-4-5", 9)
 
 
+def test_the_cost_line_and_the_start_check_price_the_items_own_style(isolated_db, monkeypatch, seen_run):
+    styles = []
+
+    def estimate(drama_id, engine_name=None, model=None, batch_size=None, style_preset=None, **kw):
+        styles.append(style_preset)
+        return {"estimated_usd": 1.0, "cap_applies": False}
+    monkeypatch.setattr(translate_run_service, "estimate_translate_cost", estimate)
+    did = _drama()
+    db.update_drama(did, translation_engine="claude")
+
+    q.step_settings(None, did, "translate", settings={"style_preset": "novel"})
+    q._start_translate(None, db.get_drama(did), {"style_preset": "novel"})
+
+    assert styles == ["novel", "novel"] and seen_run["style_preset"] == "novel"
+
+
 def test_a_bad_setting_for_the_cost_line_is_refused(isolated_db):
     with pytest.raises(InvalidInputError):
         q.step_settings(None, _drama(), "translate", settings={"batch_size": 0})

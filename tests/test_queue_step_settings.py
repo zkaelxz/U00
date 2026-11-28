@@ -59,7 +59,7 @@ def test_translate_panel_reads_the_title_engine_the_run_uses(isolated_db, seen_r
     rows = _rows(q.step_settings(None, did, "translate"))
     row = next(r for r in q.step_settings(None, did, "translate")["rows"] if r["label"] == "Engine and model")
     assert row["engine"] == "claude" and row["value"]
-    assert rows["Cost"].startswith(("About $", "No estimate yet")) and "API key" in rows["Cost"]
+    assert rows["Cost"].startswith(("About $", "No estimate yet")) and rows["Cost"].endswith("costs money")
 
 
 def test_thinking_reads_off_for_an_engine_without_the_switch(isolated_db, seen_run):

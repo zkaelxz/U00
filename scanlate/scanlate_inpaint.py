@@ -574,18 +574,26 @@ def _try_ml_inpaint(roi, mask, hf_token, backend):
     return None, error
 
 
-def _flatten_plain_paper(roi, inpainted, mask, inside):
-    """`inpainted` with the inside of a plain white balloon set to its paper
-    colour. The lettering mask misses the faint halo a JPEG leaves round each
-    stroke, and inpainting only repaints the mask, so that halo showed as a
-    ghost under the English. A balloon whose paper varies (tone, a gradient)
-    is returned as it is, as is one too small to measure. The outline's own
-    edge is kept out by eroding the inside first."""
+def _paint_paper(inpainted, fill):
+    if fill is None:
+        return inpainted
+    take, colour = fill
+    out = inpainted.copy()
+    out[take] = colour.astype(inpainted.dtype)
+    return out
+
+
+def _plain_paper_fill(roi, mask, inside):
+    """(pixels to set, paper colour) that flatten the inside of a plain white balloon
+    to its paper colour. The lettering mask misses the faint halo a JPEG leaves round
+    each stroke, and inpainting only repaints the mask, so that halo showed as a ghost
+    under the English. None for a balloon whose paper varies (tone, a gradient) or is
+    too small to measure. The outline's own edge is kept out by eroding the inside first."""
     import cv2
     core = cv2.erode(inside.astype(np.uint8), np.ones((5, 5), np.uint8)).astype(bool)
     paper = core & (mask == 0)
     if int(paper.sum()) < 50:
-        return inpainted
+        return None
     gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     values = gray[paper]
     # The halo is darker than the paper, so the typical value is the median;
@@ -593,10 +601,9 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     median = float(np.median(values))
     light = values[values >= median]
     if float(light.std()) > scanlate_tuning.INPAINT_FLAT_PAPER_STD:
-        return inpainted
+        return None
     if _shaded_away_from_lettering(gray, mask, paper, median):
-        return inpainted
-    out = inpainted.copy()
+        return None
     colour = np.median(roi[paper], axis=0)
     # Art the interior mask spilled over (a pink wall between a burst's lobes, the
     # soft rays of its edge) differs from the paper and is far from the lettering:
@@ -607,9 +614,7 @@ def _flatten_plain_paper(roi, inpainted, mask, inside):
     # Eroded, so the soft rays or shading at the balloon's edge keep their own gradient
     # instead of ending in a staircase where the flat paper begins.
     inner_paper = cv2.erode(like_paper.astype(np.uint8), np.ones((_EDGE_KEEP_PX, _EDGE_KEEP_PX), np.uint8)).astype(bool)
-    take = core & (inner_paper | near)
-    out[take] = colour.astype(inpainted.dtype)
-    return out
+    return core & (inner_paper | near), colour
 
 
 _HALO_REACH_PX = 13
@@ -748,6 +753,24 @@ def _inside_in_crop(inside, box: dict, x: int, y: int, bw: int, bh: int):
     part = part[:bh - max(oy, 0), :bw - max(ox, 0)]
     keep[max(oy, 0):max(oy, 0) + part.shape[0], max(ox, 0):max(ox, 0) + part.shape[1]] = part
     return keep
+
+
+def _extend_inside_to_page_edge(keep, box: dict, x: int, y: int, page_shape) -> None:
+    """Fills, in place, the strip between a box and the page's edge with the box's last row or
+    column of `keep`. Detection boxes stop a pixel or two short of the page, and lettering the
+    page cuts runs on into that strip, so it was left unerased."""
+    h, w = page_shape[:2]
+    bh, bw = keep.shape
+    bottom, right = box["y"] + box["h"] - y, box["x"] + box["w"] - x
+    top, left = box["y"] - y, box["x"] - x
+    if y + bh == h and 0 < bottom < bh:
+        keep[bottom:] = keep[bottom - 1]
+    if x + bw == w and 0 < right < bw:
+        keep[:, right:] = keep[:, right - 1:right]
+    if y == 0 and 0 < top:
+        keep[:top] = keep[top]
+    if x == 0 and 0 < left:
+        keep[:, :left] = keep[:, left:left + 1]
 
 
 def _lettering_glyphs(gray_roi):
@@ -1022,6 +1045,8 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     roi = img[y:y + bh, x:x + bw]
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
     keep = _inside_in_crop(inside, box, x, y, bw, bh) if inside is not None else None
+    if keep is not None:
+        _extend_inside_to_page_edge(keep, box, x, y, img.shape)
     mask, line_only = _erase_mask(gray_roi, keep, spare_art, on_art, roi)
     drop_colour_rules(mask, roi)
     mask = _grown_erase_mask(mask, grow, keep if inside is not None else None)
@@ -1037,6 +1062,12 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     elif inside is None and (spare_art or on_art) and background_is_dark(gray_roi):
         inpainted_roi = _dark_art_inpaint(img, x, y, bw, bh, backend, hf_token)
     fallback_error = None
+    paper_fill = (_plain_paper_fill(roi, mask, keep)
+                  if inside is not None and not background_is_dark(gray_roi) else None)
+    if paper_fill is not None and not (mask.astype(bool) & ~paper_fill[0]).any():
+        # LaMa and OpenCV repaint only mask pixels, and the paper fill then overwrites
+        # every one of them, so running either changes no pixel and only costs time.
+        inpainted_roi = roi.copy()
     resolved = "cv" if inpainted_roi is not None else _resolve_inpaint_backend(backend)
     if resolved == "ml" and inpainted_roi is None:
         context = _ML_CONTEXT_PX if inside is None and on_art else 0
@@ -1046,7 +1077,7 @@ def inpaint_region(image_path: str, box: dict, out_path: str | None = None, padd
     if inpainted_roi is None:
         inpainted_roi = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
     if inside is not None and not background_is_dark(gray_roi):
-        inpainted_roi = _flatten_plain_paper(roi, inpainted_roi, mask, keep)
+        inpainted_roi = _paint_paper(inpainted_roi, paper_fill)
     elif inside is None and on_art and not line_only and not background_is_dark(gray_roi) and mask.any():
         inpainted_roi = _flatten_around_lettering(roi, inpainted_roi, mask)
     img[y:y + bh, x:x + bw] = inpainted_roi

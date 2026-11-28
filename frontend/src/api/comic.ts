@@ -1,10 +1,11 @@
 // Comic viewer API (routes under /api/scanlate/dramas/{id}). The page list
 // and progress need library.read, page text lines.read, saving progress
-// lines.edit, and the page images media.stream (so an <img> can fail with 403).
+// lines.edit, and the page images and their panels media.stream (so an <img> can fail with 403).
 
 import type {
   ComicChapterMarks,
   ComicChapterMarksRequest,
+  ComicPagePanels,
   ComicPagesResponse,
   ComicProgress,
   ComicRegionsResponse,
@@ -65,6 +66,8 @@ export const comicApi = {
   pages: (id: number, f?: Fetch) => getJson<ComicPagesResponse>(`${root(id)}/pages`, f),
   regions: (id: number, pageId: number, f?: Fetch) =>
     getJson<ComicRegionsResponse>(`${root(id)}/pages/${pageId}/regions`, f),
+  panels: (id: number, pageId: number, rtl: boolean, f?: Fetch) =>
+    getJson<ComicPagePanels>(`${root(id)}/pages/${pageId}/panels?rtl=${rtl}`, f),
   progress: (id: number, f?: Fetch) => getJson<ComicProgress>(`${root(id)}/progress`, f),
   // Only the page is sent; the server works out percent_complete.
   saveProgress: (id: number, page: number, f?: Fetch) =>

@@ -365,6 +365,23 @@ class TestProviders:
             local.OllamaEngine(), self.IMAGE, "image/png")
         assert text == "你好" and usage == {"input_tokens": 5, "output_tokens": 2}
         assert len(seen["messages"][0]["images"]) == 1
+        assert seen["options"]["temperature"] == 0.0 and seen["options"]["seed"] == 1
+
+    def test_an_ollama_picture_call_logs_the_servers_own_timing(self, monkeypatch):
+        import applog
+        def chat(base_url, payload):
+            return {"message": {"content": "你好"}, "prompt_eval_count": 5, "eval_count": 2,
+                    "total_duration": 3_000_000_000, "load_duration": 10_000_000,
+                    "prompt_eval_duration": 1_200_000_000, "eval_duration": 1_700_000_000}
+
+        lines = []
+        monkeypatch.setattr(vision, "_ollama_chat", chat)
+        monkeypatch.setattr(applog, "get_logger", lambda: types.SimpleNamespace(
+            info=lambda msg, *a: lines.append(msg % a)))
+        vision.read_image_text(local.OllamaEngine(), self.IMAGE, "image/png")
+        line = next(m for m in lines if "Picture call" in m)
+        assert "server total 3.00s" in line and "read 1.20s (5 tokens)" in line
+        assert "write 1.70s (2 tokens)" in line
 
     def test_deepseek_is_refused(self):
         with pytest.raises(RuntimeError):

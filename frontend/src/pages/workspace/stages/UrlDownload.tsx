@@ -33,6 +33,7 @@ import {
   URL_SETS_VIDEO_ASIDE, isDirectAudioUrl, isDirectMediaUrl, videoQualityLabel,
 } from '../sourceForm'
 import './urlDownload.css'
+import { buttonClass } from '../../../components/uiClasses'
 
 type Props = {
   dramaId: number
@@ -247,7 +248,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
       <div className="actions">
         <button
           type="button"
-          className="primary"
+          className={buttonClass('primary')}
           disabled={!!reason || busy || starting}
           aria-describedby={reason ? reasonId : undefined}
           onClick={() => start()}
@@ -269,7 +270,7 @@ export function UrlDownload({ dramaId, hasAudio, hasSourceVideo, readsBurnedInSu
         <div className="url-download-long" data-testid="url-download-long">
           <p>Download only part of it, or all of it anyway (up to 12 hours; free disk space is checked first).</p>
           <div className="actions">
-            <button type="button" className="secondary" onClick={() => partStartRef.current?.focus()}>
+            <button type="button" className={buttonClass('secondary')} onClick={() => partStartRef.current?.focus()}>
               Download only part
             </button>
             <button type="button" disabled={!!reason || starting} onClick={() => start(true)}>

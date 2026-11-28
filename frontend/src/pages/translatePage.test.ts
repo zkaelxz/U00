@@ -14,6 +14,7 @@ import {
   pickLanguage,
   pickModel,
   swapDirection,
+  severalAccounts,
   visibleHistory,
 } from './translatePage'
 
@@ -89,7 +90,7 @@ describe('languages', () => {
 describe('history', () => {
   it('humanizes languages and engine (no raw codes)', () => {
     const label = historyLabel({ source_language: 'zh', target_language: 'en', engine: 'ollama' })
-    expect(label).toBe('Chinese → English · Ollama (local)')
+    expect(label).toBe('Chinese → English · Ollama')
     expect(historyLabel({ source_language: 'en', target_language: 'ja', engine: 'claude' })).toBe(
       'English → Japanese · Claude',
     )
@@ -114,5 +115,13 @@ describe('history', () => {
     expect(visibleHistory(items, false)).toHaveLength(HISTORY_PREVIEW)
     expect(visibleHistory(items, true)).toHaveLength(items.length)
     expect(visibleHistory([1, 2], false)).toEqual([1, 2])
+  })
+})
+
+describe('severalAccounts', () => {
+  it('is true only when rows come from more than one account', () => {
+    expect(severalAccounts([])).toBe(false)
+    expect(severalAccounts([{ account: 'PC owner' }, { account: 'PC owner' }])).toBe(false)
+    expect(severalAccounts([{ account: 'PC owner' }, { account: 'Alex Example' }])).toBe(true)
   })
 })

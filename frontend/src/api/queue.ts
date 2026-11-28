@@ -8,14 +8,21 @@ export const getQueueStepSettings = (dramaId: number, step: QueueStep, own?: { m
   return getJson<QueueStepSettings>(`/api/queue/settings?drama_id=${dramaId}&step=${step}${extra}`, f)
 }
 // settings: this item's own changes to the title's saved Transcribe options; the title is not changed.
-export const addQueueItem = (dramaId: number, step: QueueStep, settings?: QueueSettingEdits, f?: Fetch) =>
-  postJson<QueueState>('/api/queue/items', { drama_id: dramaId, step, ...(settings ? { settings } : {}) }, f)
+// tonight: the item waits for the night window and an idle PC.
+export const addQueueItem = (dramaId: number, step: QueueStep, settings?: QueueSettingEdits, tonight = false, f?: Fetch) =>
+  postJson<QueueState>('/api/queue/items', { drama_id: dramaId, step, ...(settings ? { settings } : {}), ...(tonight ? { tonight } : {}) }, f)
 // Transcribe, Translate and Export for one title, added together in that order.
-export const addQueueAllSteps = (dramaId: number, f?: Fetch) =>
-  postJson<QueueState>('/api/queue/items/all-steps', { drama_id: dramaId }, f)
+export const addQueueAllSteps = (dramaId: number, tonight = false, f?: Fetch) =>
+  postJson<QueueState>('/api/queue/items/all-steps', { drama_id: dramaId, ...(tonight ? { tonight } : {}) }, f)
 // One step (or 'all') for several titles in one request; a refused title is skipped with its reason.
-export const addQueueBulk = (dramaIds: number[], step: QueueStep | 'all', f?: Fetch) =>
-  postJson<QueueBulkAdded>('/api/queue/items/bulk', { drama_ids: dramaIds, step }, f)
+export const addQueueBulk = (dramaIds: number[], step: QueueStep | 'all', tonight = false, f?: Fetch) =>
+  postJson<QueueBulkAdded>('/api/queue/items/bulk', { drama_ids: dramaIds, step, ...(tonight ? { tonight } : {}) }, f)
+// false is Run now: the item waits only for its turn.
+export const setQueueItemTonight = (id: number, tonight: boolean, f?: Fetch) =>
+  postJson<QueueState>(`/api/queue/items/${id}/tonight`, { tonight }, f)
+// The night window ("HH:MM" on the PC's clock) and the nightly self-check switch.
+export const setQueueNight = (night: { start: string; end: string; self_check: boolean }, f?: Fetch) =>
+  postJson<QueueState>('/api/queue/night', night, f)
 export const moveQueueItem = (id: number, direction: 'up' | 'down', f?: Fetch) =>
   postJson<QueueState>(`/api/queue/items/${id}/move`, { direction }, f)
 export const removeQueueItem = (id: number, f?: Fetch) =>

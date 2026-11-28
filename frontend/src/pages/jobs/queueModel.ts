@@ -1,4 +1,4 @@
-// Pure helpers for the Queue card on the Jobs page (JobQueue.tsx).
+// Pure helpers for the Queue row on the Jobs page (JobQueue.tsx).
 import { humanize, type BadgeTone } from '../../components/labels'
 import type {
   QueueItem, QueueItemStatus, QueueSchedule, QueueSettingEdits, QueueSettingField, QueueSettingRow, QueueState,
@@ -27,6 +27,9 @@ export type AddStep = QueueStep | 'all'
 export const ADD_STEP_LABELS: Record<AddStep, string> = {
   all: 'All steps', transcribe: STEP_LABELS.transcribe, translate: STEP_LABELS.translate, export: STEP_LABELS.export,
 }
+
+export const QUEUE_REPLACES_LINES =
+  'Transcribe replaces the current lines of every ticked title (the old ones stay in line History). The queue starts by itself.'
 
 export const STEP_HELP: Record<AddStep, string> = {
   all: "Adds Transcribe, Translate and Export subtitles for the title, in that order, with its saved options. The queue starts by itself unless it is paused or has a start time.",
@@ -69,6 +72,14 @@ export function runStateText(q: QueueState): string | null {
   return q.items.length ? 'Nothing waiting.' : null
 }
 
+/** The folded Queue row's one line: run state, how many wait, and a pending start time. */
+export function queueSummary(q: QueueState): string {
+  const waiting = waitingCount(q.items)
+  const state = q.state === 'running' ? 'Running' : q.state === 'paused' ? 'Paused' : null
+  const start = q.schedule && !q.schedule.missed ? `starts at ${q.schedule.time}` : q.schedule?.missed ? 'start time missed' : null
+  return [state, waiting ? `${waiting} waiting` : 'Nothing waiting', start].filter(Boolean).join(' · ')
+}
+
 export function scheduleText(s: QueueSchedule | null, now: Date = new Date()): string | null {
   if (!s) return null
   if (s.missed) return `Missed: the start at ${s.time} passed while Baihe was off. Start now?`
@@ -80,7 +91,7 @@ export function scheduleText(s: QueueSchedule | null, now: Date = new Date()): s
 export const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/
 
 // The plain cost line next to a Translate item: which engine, and that it
-// spends money on the owner's key, capped by the Spending settings.
+// spends money, capped by the Spending settings.
 export function translateCostNote(engineLabel: string, paid: boolean, monthlyCap: number): string {
   // Engine descriptions end with a full stop; the sentence supplies its own.
   engineLabel = engineLabel.replace(/\.+$/, '')
@@ -88,7 +99,7 @@ export function translateCostNote(engineLabel: string, paid: boolean, monthlyCap
   const cap = monthlyCap > 0
     ? `It stops at your $${monthlyCap.toFixed(2)} monthly spending cap.`
     : 'No monthly spending cap is set, so the queue will skip it: set one in Settings > Spending.'
-  return `Uses ${engineLabel}. Uses your API key and costs money. ${cap}`
+  return `Uses ${engineLabel}, which costs money. ${cap}`
 }
 
 const STEP_STAGE: Record<QueueStep, StageId> = { transcribe: 'source', translate: 'translate', export: 'export' }

@@ -34,13 +34,13 @@ function describeConnection(data, serverUrl = "") {
   const { dramas, engine_configured: engineConfigured } = data;
   const count = dramas?.length ?? 0;
   const stale = staleExtensionNote(data, serverUrl);
-  return `Connected to Baihe. ${pluralize(count, "drama")} available.` +
+  return `Connected to Baihe. ${pluralize(count, "title")} available.` +
     (engineConfigured ? "" : NO_ENGINE_HINT) + (stale ? ` ${stale}` : "");
 }
 
 async function saveAndTest() {
   const token = tokenEl.value.trim();
-  if (!token) return say("Paste the token from Baihe's Settings first.", true);
+  if (!token) return say("Paste the token from Baihe first.", true);
 
   const serverUrl = serverOrigin(serverEl.value.trim());
   if (serverUrl === null) return say("The Baihe address must start with https://.", true);
