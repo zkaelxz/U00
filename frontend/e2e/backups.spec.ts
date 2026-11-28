@@ -249,7 +249,7 @@ test.describe('Copies from another library or with no clear newest (mocked)', ()
     await expect(block.getByTestId('unmanaged-delete-warning')).toContainText("another PC's backup")
     await block.getByLabel(/Type DELETE to confirm/).fill('DELETE')
     await block.getByRole('button', { name: 'Delete copy', exact: true }).click()
-    await expect(block.getByText(/^Deleted the copy from .* copies? left\.$/)).toBeVisible()
+    await expect(block.getByText(/^Deleted the copy from .* No copies left\.$/)).toBeVisible()
     expect(state.posts).toEqual([
       { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', all: true } },
       { path: '/api/backups/snapshot/delete', body: { confirm: true, confirm_text: 'DELETE', snapshot: OTHER_COPY.name, include_unmanaged: true } },

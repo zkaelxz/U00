@@ -82,7 +82,7 @@ export function SnapshotBlock() {
     <div className="admin-block" data-testid="snapshot-block">
       <p data-testid="snapshot-info">
         {describeSnapshot(snapshot)}
-        {copies.length > 1 ? ` (newest of ${copies.length} copies)` : ''}
+        {usable && !snapshot?.choose_copy && copies.length > 1 ? ` (newest of ${copies.length} copies)` : ''}
       </p>
       <p className="muted">
         Schedule them in the Automatic backups card above.
@@ -130,7 +130,7 @@ export function SnapshotBlock() {
             const left = copies.length - 1
             setNotice(
               !all
-                ? `Deleted the copy from ${deletedLabel}. ${left} ${left === 1 ? 'copy' : 'copies'} left.`
+                ? `Deleted the copy from ${deletedLabel}. ${left === 0 ? 'No copies' : `${left} ${left === 1 ? 'copy' : 'copies'}`} left.`
                 : kept
                   ? `This library's copies deleted; ${kept} other or older ${kept === 1 ? 'copy was' : 'copies were'} left.`
                   : 'All copies deleted.',
