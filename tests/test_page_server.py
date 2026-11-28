@@ -1750,3 +1750,51 @@ def test_quick_read_pages_of_a_title_share_their_names_and_saved_sends_do_not(mo
     page_turns.translate_in_chain(None, url, [], object(), None, None, None)
     assert seen == [{}, {"阿洛": "RLuo"}, None]
     assert page_turns._chapter_names[page_turns._chain_key(None, url)] == {"阿洛": "RLuo"}
+
+
+class TestVideoAndLiveOnLoopback:
+    """The PC's own extension sends Subtitle this video and Start Live captions here, as a member's
+    does to the device-token routes."""
+
+    def test_video_starts_quick_video_as_the_pc_owner(self, token, monkeypatch):
+        from services import quick_video_service
+        seen = {}
+
+        def fake_start(principal, url, profile_id, watch_once, **kw):
+            seen.update(principal=principal, url=url, **kw)
+            return {"drama_id": 12, "watch_once": False}
+        monkeypatch.setattr(quick_video_service, "start", fake_start)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 200 and r.payload == {"drama_id": 12}
+        assert seen["url"] == "https://video.example.com/watch?v=abc"
+        assert seen["principal"]["is_local_owner"] is True and seen["at_pc"] is False
+
+    def test_live_starts_with_no_saved_logins(self, token, monkeypatch):
+        import functools
+        from services import live_service, model_readiness_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(url=url, **kw)
+            return {"session_id": "live_" + "a" * 32}
+        monkeypatch.setattr(live_service, "start_session", functools.wraps(live_service.start_session)(fake_start))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        r = _post(token, {"url": "https://www.twitch.tv/somebody", "source_language": "ja"}, path="/live")
+        assert r.status == 200 and r.payload == {"session_id": "live_" + "a" * 32, "joined": False}
+        assert seen["source_language"] == "ja" and seen["use_saved_cookies"] is False
+        assert seen["engine"] == live_service.default_engine()
+
+    def test_a_refusal_is_the_plain_message(self, token, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import quick_video_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("Pick a translation profile first.")
+        monkeypatch.setattr(quick_video_service, "start", refuse)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 422 and r.payload == {"error": "Pick a translation profile first."}
+
+    @pytest.mark.parametrize("path", ["/video", "/live"])
+    def test_a_missing_link_is_a_400(self, token, path):
+        assert _post(token, {}, path=path).status == 400
