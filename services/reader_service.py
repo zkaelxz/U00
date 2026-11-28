@@ -51,6 +51,7 @@ Permission contract for routes (user decision, 2026-09-29):
 import bisect
 import os
 import re
+import time
 
 import requests
 
@@ -123,25 +124,29 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     drama = ownership_service.require_drama(drama_id)
 
     total, _ = db.load_line_page(drama_id, 0, 0)
+    stamp = None
+    if medium_prompts.kind_for(drama) == "novel":
+        stamp = db.line_text_stamp(drama_id) if not include_html or line is not None \
+            else _turn_line_text_stamp(drama_id, total, (chapter_size, page))
     if not total:
         raise NotFoundError(f"Drama {drama_id} has no lines yet.")
-    starts = page_plan(drama_id, drama, chapter_size, total)
+    starts = page_plan(drama_id, drama, chapter_size, total, stamp)
     if line is not None:
         page = bisect.bisect_right(starts, min(line, total - 1))
     _check_page(page, starts)
-    first, end = _page_range(starts, page, total)
-    _, rows = db.load_line_page(drama_id, first, end - first)
-
-    page_lines = core_module.lines_from_rows(rows)
-    source_language = drama.get("source_language") or "zh"
-    definitions = _cached_definitions(drama_id, source_language)
-
-    ends = None
-    # Editing works on single lines: a joined paragraph has no one line to save to.
-    if include_html and not editable and drama.get("content_mode") == "novel_narration":
-        ends = _narration_paragraph_ends(drama_id)
+    if stamp is not None and not include_html:
+        _start_turn(drama_id, stamp, (chapter_size, page))
     html_str = ""
     if include_html:
+        first, end = _page_range(starts, page, total)
+        _, rows = db.load_line_page(drama_id, first, end - first)
+        page_lines = core_module.lines_from_rows(rows)
+        source_language = drama.get("source_language") or "zh"
+        definitions = _cached_definitions(drama_id, source_language)
+        ends = None
+        # Editing works on single lines: a joined paragraph has no one line to save to.
+        if not editable and drama.get("content_mode") == "novel_narration":
+            ends = _narration_paragraph_ends(drama_id, stamp)
         html_str = reader.build_reader_html(
             page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
             font_size=font_size, line_height=line_height, max_width=max_width, font=font,
@@ -153,9 +158,30 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
 
 
 _PAGE_PLANS: dict = {}
+_TURN_STAMPS: dict = {}
+_TURN_SECONDS = 3.0
 
 
-def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int) -> list:
+def _turn_line_text_stamp(drama_id: int, total: int, turn: tuple) -> tuple:
+    """db.line_text_stamp, shared by the requests of one page turn. The stamp reads every
+    line's text, most of a turn's time on a long novel, and the web app's turn is three
+    requests for one page: the counts (`html` off), which start it, then the document
+    and, a second later, the saved position. Any other request, such as a different
+    page or a document asked for on its own after an edit, reads the text again."""
+    seen = _TURN_STAMPS.get(drama_id)
+    if seen is not None and time.monotonic() - seen[0] < _TURN_SECONDS \
+            and seen[2] == turn and seen[1][0] == total:
+        return seen[1]
+    return db.line_text_stamp(drama_id)
+
+
+def _start_turn(drama_id: int, stamp: tuple, turn: tuple) -> None:
+    if len(_TURN_STAMPS) >= _PARAGRAPH_ENDS_KEPT:
+        _TURN_STAMPS.pop(next(iter(_TURN_STAMPS)), None)
+    _TURN_STAMPS[drama_id] = (time.monotonic(), stamp, turn)
+
+
+def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int, stamp=None) -> list:
     """The line position each Reader page starts at. A novel with chapters starts a page
     at each chapter, so "Read" on a chapter never opens on the tail of the one before;
     a chapter longer than `chapter_size` lines goes on over more pages, each ending at a
@@ -164,9 +190,10 @@ def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int) -> list
     size, so a phone and a PC reading the same title at different sizes don't evict each other."""
     if medium_prompts.kind_for(drama) != "novel":
         return list(range(0, total, chapter_size))
-    ends = _narration_paragraph_ends(drama_id) if drama.get("content_mode") == "novel_narration" else None
+    stamp = stamp or db.line_text_stamp(drama_id)
+    ends = _narration_paragraph_ends(drama_id, stamp) if drama.get("content_mode") == "novel_narration" else None
     ends_key = _PARAGRAPH_ENDS[drama_id][0] if ends is not None and drama_id in _PARAGRAPH_ENDS else None
-    key = (db.line_text_stamp(drama_id), novel_line_chapters_service.chapters_stamp(drama_id), ends_key)
+    key = (stamp, novel_line_chapters_service.chapters_stamp(drama_id), ends_key)
     cached = _PAGE_PLANS.get((drama_id, chapter_size))
     if cached is not None and cached[0] == key:
         return cached[1]
@@ -197,7 +224,7 @@ _PARAGRAPH_ENDS: dict = {}
 _PARAGRAPH_ENDS_KEPT = 16
 
 
-def _narration_paragraph_ends(drama_id: int):
+def _narration_paragraph_ends(drama_id: int, stamp=None):
     """novel_text.narration_paragraph_ends for the whole title, kept between page
     turns: it matches every line against the whole source text, which on a long
     novel costs more than building the page itself."""
@@ -206,7 +233,7 @@ def _narration_paragraph_ends(drama_id: int):
         st = os.stat(path)
     except OSError:
         return None
-    key = (st.st_mtime_ns, st.st_size, db.line_text_stamp(drama_id))
+    key = (st.st_mtime_ns, st.st_size, stamp or db.line_text_stamp(drama_id))
     cached = _PARAGRAPH_ENDS.get(drama_id)
     if cached is not None and cached[0] == key:
         return cached[1]
@@ -509,7 +536,9 @@ def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_
     total, _ = db.load_line_page(drama_id, 0, 0)
     if not total:
         raise NotFoundError(f"Drama {drama_id} has no lines yet.")
-    starts = page_plan(drama_id, drama, chapter_size, total)
+    stamp = _turn_line_text_stamp(drama_id, total, (chapter_size, page)) \
+        if medium_prompts.kind_for(drama) == "novel" else None
+    starts = page_plan(drama_id, drama, chapter_size, total, stamp)
     _check_page(page, starts)
     _, last_row = db.load_line_page(drama_id, _page_range(starts, page, total)[1] - 1, 1)
     last_idx = last_row[0]["idx"]

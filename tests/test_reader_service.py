@@ -1012,6 +1012,24 @@ def test_two_page_sizes_on_one_title_each_keep_their_plan(isolated_db, monkeypat
     assert len(loads) == 3
 
 
+def test_one_page_turn_reads_the_line_text_once(isolated_db, monkeypatch):
+    """A turn is the counts, the document, then the saved position; the text scan that
+    keys the cached plan is most of a turn on a long novel, so the three share it. A
+    document asked for on its own (as after an edit) scans again."""
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(reader_service, "_TURN_STAMPS", {})
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    scans = []
+    real = isolated_db.line_text_stamp
+    monkeypatch.setattr(isolated_db, "line_text_stamp", lambda d: scans.append(d) or real(d))
+    reader_service.get_reader_page(did, page=2, chapter_size=20, include_html=False)
+    reader_service.get_reader_page(did, page=2, chapter_size=20)
+    reader_service.save_reading_position(did, 2, chapter_size=20)
+    assert len(scans) == 1
+    reader_service.get_reader_page(did, page=3, chapter_size=20)
+    assert len(scans) == 2
+
+
 def test_chapters_stamp_follows_the_manifest_file(isolated_db):
     import os
     from services import novel_line_chapters_service as chapters
