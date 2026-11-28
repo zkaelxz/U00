@@ -153,6 +153,14 @@ Never delete these when cleaning up branches; they are the only record of the wo
 - The `pre-streamlit-removal` tag: the removed Streamlit app. (The `legacy/streamlit` and planning branches no longer exist on origin.)
 - `baihe-subtitler` is the default branch; the old `main` branch no longer exists. Open every PR into `baihe-subtitler`.
 
+## Port watchdog (V100 and other service installs)
+If the admin port (8600) stops answering while the process lives on, `installer/port_watchdog.py` restarts the `BaiheStudio` service. A scheduled task runs it every minute; after 3 failed checks in a row it restarts the service. It does not restart when the service is stopped (an update or the owner stopped it), and no more than 2 times an hour. If a job is running (read-only from `library.db`) and 8610 or 8756 still answer, it waits up to 60 minutes before restarting (it only knows the default ports 8610 and 8756; with another household port, a running job doesn't hold it back). The log is `watchdog.log` in the same folder.
+In an elevated PowerShell, from the repo's `installer` folder:
+- Try it first, logging only: `.\install_port_watchdog.ps1 -DryRun`
+- Turn restarts on: `.\install_port_watchdog.ps1` (add `-DataDir <folder>` if it can't find the library)
+- Remove it: `.\install_port_watchdog.ps1 -Remove`
+- Read it: `Get-Content "$env:ProgramFiles\Baihe Studio Services\watchdog\watchdog.log" -Tail 20`. Lines say `failures_seen`, `restarts_done` and, once the port is back, `RECOVERED <n>s after the first failed check`.
+
 ## Logs, support report, locked-out admin
 - Log: `logs/app.log` in the library folder (installed default: `%LOCALAPPDATA%\Baihe Studio\library\logs`). Diagnostics -> "Log" shows recent lines.
 - Header "Report a problem" -> "Copy a report for a bug" copies or downloads a support report (secrets are removed).
