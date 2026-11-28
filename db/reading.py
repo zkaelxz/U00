@@ -320,3 +320,41 @@ def save_view_prefs(drama_id: int, view_prefs: str, profile_id: int | None = Non
             ON CONFLICT(drama_id, profile_id) DO UPDATE SET view_prefs = excluded.view_prefs
         """, (drama_id, profile_id, view_prefs))
         conn.commit()
+
+
+def month_recap(user_id: int, start: str, end: str, visible_to: int | None = None) -> dict:
+    """This account's reading history, read chapters and saved moments from `start` up to `end`
+    (naive UTC ISO strings), on titles `visible_to` may see (None: every title). `titles` has one
+    row per title in the reading history: the days it was opened on, and whether it reached the
+    end then for the first time (a row at 99% or more before `start` means it was finished before)."""
+    visible, vparams = "", []
+    if visible_to is not None:
+        clause, vparams = db.drama_visible_sql("d", visible_to)
+        visible = " AND " + clause
+    with contextlib.closing(db.get_conn()) as conn:
+        profile_id = _profile_id(conn, None, user_id)
+        titles = conn.execute(
+            "SELECT h.drama_id, d.title_en, d.title_zh, COUNT(DISTINCT substr(h.accessed_at, 1, 10)) AS days, "
+            "MAX(h.accessed_at) AS last_at, MAX(COALESCE(h.percent_complete, 0) >= 99) AS reached_end, "
+            "EXISTS (SELECT 1 FROM reading_history e WHERE e.profile_id = h.profile_id "
+            "AND e.drama_id = h.drama_id AND e.accessed_at < ? AND e.percent_complete >= 99) AS ended_before "
+            "FROM reading_history h JOIN dramas d ON d.id = h.drama_id "
+            "WHERE h.profile_id = ? AND h.accessed_at >= ? AND h.accessed_at < ?" + visible +
+            " GROUP BY h.drama_id", [start, profile_id, start, end] + vparams).fetchall()
+        history_days = conn.execute(
+            "SELECT DISTINCT substr(h.accessed_at, 1, 10) AS day FROM reading_history h "
+            "JOIN dramas d ON d.id = h.drama_id "
+            "WHERE h.profile_id = ? AND h.accessed_at >= ? AND h.accessed_at < ?" + visible,
+            [profile_id, start, end] + vparams).fetchall()
+        chapters = conn.execute(
+            "SELECT substr(m.read_at, 1, 10) AS day FROM chapter_marks m JOIN dramas d ON d.id = m.drama_id "
+            "WHERE m.user_id = ? AND m.read_at >= ? AND m.read_at < ?" + visible,
+            [user_id, start, end] + vparams).fetchall()
+        moments = conn.execute(
+            "SELECT substr(b.created_at, 1, 10) AS day FROM watch_bookmarks b JOIN dramas d ON d.id = b.drama_id "
+            "WHERE b.user_id = ? AND b.created_at >= ? AND b.created_at < ?" + visible,
+            [user_id, start, end] + vparams).fetchall()
+    days = {r["day"] for r in history_days} | {r["day"] for r in chapters} | {r["day"] for r in moments}
+    return {"titles": [{**dict(r), "first_finished": bool(r["reached_end"]) and not r["ended_before"]}
+                       for r in titles],
+            "chapters_read": len(chapters), "moments_saved": len(moments), "active_days": len(days)}
