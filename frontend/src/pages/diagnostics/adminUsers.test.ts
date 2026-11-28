@@ -126,6 +126,8 @@ describe('remove admin', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
     expect(auditActionLabel('upload.away')).toBe('Upload from away')
     expect(auditActionLabel('audit.prune')).toBe('Old activity cleared')
+    expect(auditActionLabel('device_token.create')).toBe('Remote access key added')
+    expect(auditActionLabel('pc_profile.hide_existing')).toBe('Existing titles and series made private')
   })
 })
 
@@ -145,6 +147,8 @@ describe('rights toggles', () => {
       expect(rightAbout(p)).toMatch(/\.$/)
     }
     expect(new Set(member.map(rightName)).size).toBe(member.length)
+    // Phone tokens are device tokens too, so this right is also what Grab needs.
+    expect(rightName('extension.send')).toMatch(/Baihe Grab/)
     expect(rightName('some.new')).toBe('some.new')
     expect(rightAbout('some.new')).toBeNull()
   })
