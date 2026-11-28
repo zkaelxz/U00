@@ -14,7 +14,7 @@ import './preamble.css'
 
 const SITE_COVER_NOTICE: Record<string, string> = {
   fetched: 'Cover taken from the site.',
-  kept: 'The site gave no cover-shaped picture, so the cover stays.',
+  kept: 'The site gave no usable picture, so the cover stays.',
   unreachable: "Couldn't reach the site.",
   no_link: 'This title has no saved link to ask.',
 }
@@ -195,7 +195,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                     {grabbing ? 'Making cover…' : 'Make cover from video'}
                   </button>
                 </div>
-                {isComicType(drama.media_type) && (
+                {drama.media_type !== 'novel' && !!drama.source_url && (
                   <div>
                     <button type="button" className={buttonClass('ghost', 'sm')} disabled={refreshing} onClick={refreshFromSite}>
                       {refreshing ? 'Asking the site…' : 'Refresh cover from site'}
