@@ -89,11 +89,6 @@ SCENE_BREAK_GAP_SECONDS = 3.0
 # A pause this long is a cut between scenes, where a subtitle run may start another lane: the
 # line after it loses only the English of a scene that is over.
 SCENE_LANE_GAP_SECONDS = 20.0
-# A part's first batch starts before the part ahead of it has English, so it is shown that
-# part's last lines as source text, and once every part is done it is sent again with their
-# English. Module flags so a timing run can compare each on its own.
-SCENE_SEAM_SOURCE_CONTEXT = True
-SCENE_SEAM_REDO = True
 # When no long pause sits near an even split, a shorter one may cut instead: the parts' speed is
 # set by the longest part, so an off-centre cut wastes most of a lane.
 SCENE_SHORT_PAUSE_FALLBACK = False
@@ -365,8 +360,6 @@ class _TranslateRun:
         self._seed_first_batch_estimate(target_lines, batches)
         chapters = self._chapter_groups(batches) or self._scene_groups(batches)
         finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
-        if finished and chapters and self.lane_label == "Part" and SCENE_SEAM_REDO:
-            self._redo_part_starts(chapters)
         if finished:
             self._recheck_pronouns()
         return self.lines, self.errors
@@ -546,38 +539,6 @@ class _TranslateRun:
             return None
         self.lane_label = "Part"
         return groups
-
-    def _redo_part_starts(self, groups):
-        """Sends each later part's first batch again, now that the English before it exists.
-        A redo that fails keeps the English the part started with."""
-        a = self.args
-        for group in groups[1:]:
-            batch = group[0]
-            if ((a.cancel_check_cb and a.cancel_check_cb()) or self._cap_reached()
-                    or self._would_pass_cap(batch)):
-                return
-            if not all(ln.en.strip() for ln in batch):
-                continue
-            kept = [(ln.en, ln.flag, ln.flag_note) for ln in batch]
-            errors_before = len(self.errors)
-            self._set_batch_context(batch)
-            stopped = False
-            try:
-                self._translate_batch(batch)
-            except Exception as e:
-                stopped = stops_translate_run(e)
-                self.hard_failures.append(e)
-            # The batch's lines were already in translated from the part's own run.
-            self.translated[:] = list({id(ln): ln for ln in self.translated}.values())
-            if self.hard_failures or not self.batch_succeeded or not all(ln.en.strip() for ln in batch):
-                for ln, (en, flag, note) in zip(batch, kept):
-                    ln.en, ln.flag, ln.flag_note = en, flag, note
-                self.hard_failures.clear()
-                del self.errors[errors_before:]
-            elif a.save_cb:
-                a.save_cb(self.lines)
-            if stopped or self.stop_run:
-                return
 
     def _run_chapter_lanes(self, groups) -> bool:
         """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
@@ -1192,8 +1153,10 @@ class _LaneRun(_TranslateRun):
         if not self.reserved:
             self.stop_run = True
         super()._set_batch_context(batch)
-        if (SCENE_SEAM_SOURCE_CONTEXT and self.parent.lane_label == "Part" and self.number > 0
-                and self.bi == 0 and self.args.context_window > 0):
+        # A later part starts before the part ahead of it has English: its last lines go along
+        # as source text, so who is speaking and what was just said carry over the cut.
+        if (self.parent.lane_label == "Part" and self.number > 0 and self.bi == 0
+                and self.args.context_window > 0):
             first = next(i for i, ln in enumerate(self.lines) if ln is batch[0])
             before = [ln.zh for ln in self.lines[max(0, first - self.args.context_window):first]
                       if ln.zh.strip() and not ln.en.strip()]

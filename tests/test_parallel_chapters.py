@@ -432,22 +432,18 @@ def test_a_picked_range_is_not_cut_even_across_a_long_pause(subtitles):
 
 
 class _SeenEngine(_Engine):
-    """Remembers the context of every call, and answers each call with its number."""
+    """Remembers what each call was shown before and after its lines."""
 
-    def __init__(self, fail_on=()):
+    def __init__(self):
         super().__init__()
         self.seen = []
-        self.fail_on = fail_on
 
     def translate_batch(self, zh_lines, context):
         out = super().translate_batch(zh_lines, context)
         with self.lock:
             self.seen.append((list(zh_lines), [en for _zh, en in context.get("recent_context") or []],
                               list(context.get("upcoming_lines") or [])))
-            n = len(self.seen)
-        if n in self.fail_on:
-            raise ValueError("bad reply")
-        return [f"{en} #{n}" for en in out]
+        return out
 
 
 def _run_seen(engine, lines, **kw):
@@ -461,35 +457,6 @@ def test_a_later_parts_first_batch_is_shown_the_source_lines_before_it(subtitles
     _run_seen(engine, _subtitles({9: 25.0, 21: 30.0}))
     first_sends = [upcoming for zh, _recent, upcoming in engine.seen if zh[0] == "s9"]
     assert "s8" in first_sends[0]
-
-
-def test_a_later_parts_first_batch_is_sent_again_with_the_english_before_it(subtitles):
-    engine = _SeenEngine()
-    lines = _subtitles({9: 25.0, 21: 30.0})
-    errors = _run_seen(engine, lines)
-    assert errors == []
-    for start in (9, 21):
-        sends = [(recent, i + 1) for i, (zh, recent, _u) in enumerate(engine.seen) if zh[0] == f"s{start}"]
-        assert len(sends) == 2
-        (first_recent, _), (redo_recent, redo_n) = sends
-        assert not any(en.startswith(f"EN s{start - 1} ") for en in first_recent)
-        assert any(en.startswith(f"EN s{start - 1} ") for en in redo_recent)
-        assert lines[start].en == f"EN s{start} #{redo_n}"
-    assert len(engine.calls) == 10 + 2
-
-
-def test_a_failed_redo_keeps_the_parts_first_english(subtitles, monkeypatch):
-    monkeypatch.setattr(tp, "SCENE_SEAM_REDO", False)
-    probe = _SeenEngine()
-    _run_seen(probe, _subtitles({9: 25.0, 21: 30.0}))
-    monkeypatch.setattr(tp, "SCENE_SEAM_REDO", True)
-    # Every call past the first run's is a redo: fail them all.
-    engine = _SeenEngine(fail_on=set(range(len(probe.seen) + 1, len(probe.seen) + 20)))
-    lines = _subtitles({9: 25.0, 21: 30.0})
-    errors = _run_seen(engine, lines)
-    assert errors == []
-    assert lines[9].en.startswith("EN s9 #") and lines[21].en.startswith("EN s21 #")
-    assert all(ln.en.strip() for ln in lines)
 
 
 def test_a_shorter_pause_cuts_when_no_long_one_is_near_an_even_split(subtitles, monkeypatch):
