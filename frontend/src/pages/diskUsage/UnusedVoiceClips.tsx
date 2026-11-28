@@ -73,10 +73,12 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
               onConfirm={() => move('all', all)}
             />
           </div>
+          {/* One box for every title's clips: a box per title would still stack up the page with many titles. */}
+          <div className="scroll-box" tabIndex={0} role="group" aria-label="Unused clips by title">
           {clips.titles.map((t) => (
             <div key={`${t.title}:${t.clips[0]?.id}`} className="du-clip-title">
               <h2 className="du-clip-heading subhead">{`${clipTitle(t.title)} · ${clipsText(t.clips.length)} · ${formatDecimalBytes(t.size_bytes)}`}</h2>
-              <ul className="du-list scroll-box" tabIndex={0} aria-label={`Unused clips in ${clipTitle(t.title)}`}>
+              <ul className="du-list" aria-label={`Unused clips in ${clipTitle(t.title)}`}>
                 {t.clips.map((c, i) => (
                   <li key={c.id} className="du-row du-trash-row">
                     <div className="du-row-main">
@@ -99,6 +101,7 @@ export function UnusedVoiceClips({ clips, onChanged, onStale }: Props) {
               </ul>
             </div>
           ))}
+          </div>
         </>
       )}
       {clips.titles_in_use > 0 && <p className="muted du-busy">{clipsInUseText(clips.titles_in_use)}</p>}
