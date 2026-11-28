@@ -486,6 +486,17 @@ class TestPerUserJobCaps:
         assert job_launch.start_job("owner_low", lambda: None) is True
         _wait("owner_low")
 
+    def test_an_admin_account_can_start_a_job_when_the_drive_is_nearly_full(self, monkeypatch):
+        # With sign-in on, the PC owner's own requests carry their admin account's user id.
+        from collections import namedtuple
+        usage = namedtuple("usage", "total used free")
+        monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 95 << 30, 5 << 30))
+        admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+        self._as(monkeypatch, admin_id)
+        assert job_launch.start_job("admin_low", lambda: None) is True
+        _wait("admin_low")
+        assert bg.get_status("admin_low")["status"] == "done"
+
     def test_a_gpu_job_at_the_running_cap_waits_without_holding_up_others_then_starts(
             self, monkeypatch):
         self._as(monkeypatch, 7)

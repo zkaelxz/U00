@@ -1032,8 +1032,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
     except user_caps.DiskLowError:
         status, wait_reason = WAITING, _WAITING_FOR_DISK
-        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
-        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
+        rest = (lambda other: user_caps.held_back_by_low_disk(other["user_id"]), DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:

@@ -91,8 +91,19 @@ def refund_daily_start(owner_user_id, day: str | None) -> None:
 
 # Matches the default of the "free disk space" PC alert. A member's download, import or dub can
 # write gigabytes, and nobody is at the PC to notice the drive filling, so their jobs stop
-# starting before the library drive is nearly full. The owner's own jobs are never held back.
+# starting before the library drive is nearly full. The owner's and admins' own jobs are never
+# held back.
 MEMBER_MIN_FREE_GB = 10
+
+
+def held_back_by_low_disk(owner_user_id) -> bool:
+    """Whether this starter's jobs wait for disk space: members only. With sign-in on, the PC
+    owner's own account has a user id like everyone else's, so the admin flag (read now, so a
+    demotion applies at once) is what tells them apart."""
+    if owner_user_id is None:
+        return False
+    user = db.auth_get_user(owner_user_id)
+    return not (user and user["is_admin"])
 
 
 def refuse_if_disk_low(owner_user_id) -> None:
@@ -104,7 +115,8 @@ def refuse_if_disk_low(owner_user_id) -> None:
         free_gb = shutil.disk_usage(db.LIBRARY_DIR).free / 1024 ** 3
     except OSError:
         return
-    if free_gb < MEMBER_MIN_FREE_GB:
+    # The account is looked up only once the drive is low, so a normal start reads nothing more.
+    if free_gb < MEMBER_MIN_FREE_GB and held_back_by_low_disk(owner_user_id):
         raise DiskLowError("This PC is almost out of disk space, so new jobs can't start right now. "
                             "Try again later, or ask the PC owner to free some space.")
 

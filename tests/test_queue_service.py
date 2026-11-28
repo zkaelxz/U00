@@ -728,6 +728,30 @@ def test_a_member_past_their_daily_limit_waits_for_tomorrow_without_retrying_eve
     assert _items()[0]["status"] == "running" and jobs.started == [f"transcribe_{a}"]
 
 
+def test_a_nearly_full_drive_holds_back_only_members_not_an_admins_items(jobs, monkeypatch):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    member = _member()
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    admin = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    theirs = _drama("Theirs", owner_user_id=member["user_id"], is_private=1)
+    admins = _drama("Admin's", owner_user_id=admin_id, is_private=1)
+    q.add_item(member, theirs, "transcribe", False, at_pc=True)
+    q.add_item(admin, admins, "transcribe", False, at_pc=True)
+    q.start(None)
+
+    t0 = q._clock()
+    q.tick(now=t0)
+    members_item, admins_item = _items()
+    assert members_item["status"] == "waiting" and "almost out of disk space" in members_item["reason"]
+    assert admins_item["status"] == "running" and jobs.started == [f"transcribe_{admins}"]
+    with q._lock:
+        rests = {i["drama_id"]: i.get("not_before") for i in q._load()["items"]}
+    assert rests[theirs] == t0 + q.DISK_LOW_RETRY_SECONDS and not rests[admins]
+
+
 def test_a_full_drive_does_not_cut_short_a_members_daily_limit_rest(jobs, monkeypatch):
     from collections import namedtuple
     from jobs import user_caps
