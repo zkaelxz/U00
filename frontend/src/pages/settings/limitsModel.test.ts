@@ -18,11 +18,14 @@ describe('limitLines', () => {
       'Titles you own: 3 of 200',
     ])
   })
-  it('warns from 80% of a limit', () => {
-    const near = (o: Partial<MemberLimits>) => limitLines(limits(o)).filter((l) => l.near).map((l) => l.id)
-    expect(near({ monthly_paid_cap_usd: 1, month_paid_spend_usd: 0.79 })).toEqual([])
-    expect(near({ monthly_paid_cap_usd: 1, month_paid_spend_usd: 0.8 })).toEqual(['spend'])
-    expect(near({ daily_job_limit: 5, jobs_today: 4, titles_owned: 160 })).toEqual(['jobs', 'titles'])
+  it('warns from 80% of a limit, and says Used up once it is reached', () => {
+    const badges = (o: Partial<MemberLimits>) => limitLines(limits(o)).map((l) => [l.id, l.badge])
+    expect(badges({ monthly_paid_cap_usd: 1, month_paid_spend_usd: 0.79 })).toEqual([['spend', null], ['titles', null]])
+    expect(badges({ monthly_paid_cap_usd: 1, month_paid_spend_usd: 0.8 })[0]).toEqual(['spend', 'Almost used up'])
+    expect(badges({ daily_job_limit: 5, jobs_today: 4, titles_owned: 160 })).toEqual(
+      [['jobs', 'Almost used up'], ['titles', 'Almost used up']])
+    expect(badges({ daily_job_limit: 5, jobs_today: 5, titles_owned: 200 })).toEqual([['jobs', 'Used up'], ['titles', 'Used up']])
+    expect(badges({ monthly_paid_cap_usd: 1, month_paid_spend_usd: 1.2 })[0]).toEqual(['spend', 'Used up'])
   })
 })
 

@@ -5,7 +5,7 @@
 import { Badge } from '../../components/Badge'
 import { Card } from '../../components/Card'
 import { useSession } from '../../hooks/useSession'
-import { LIMITS_TITLE, limitLines, myLimits } from './limitsModel'
+import { FULL_LABEL, LIMITS_TITLE, limitLines, myLimits } from './limitsModel'
 
 export function YourLimitsCard() {
   const limits = myLimits(useSession())
@@ -14,7 +14,7 @@ export function YourLimitsCard() {
     <Card title={LIMITS_TITLE} aria-label={LIMITS_TITLE}>
       {limitLines(limits).map((l) => (
         <p key={l.id} data-testid={`limit-${l.id}`}>
-          {l.text}{l.near && <> <Badge tone="warn">Almost used up</Badge></>}
+          {l.text}{l.badge && <> <Badge tone={l.badge === FULL_LABEL ? 'bad' : 'warn'}>{l.badge}</Badge></>}
         </p>
       ))}
     </Card>
