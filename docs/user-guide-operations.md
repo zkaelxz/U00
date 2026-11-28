@@ -208,7 +208,8 @@ except jobs sent from the browser extension, which are held like a member's.
   belong to), Jellyfin, Web search, Watch folder (off by default: audio and video files dropped into one
   folder on the PC become titles, once they have stopped changing, and their Transcribe goes on the Jobs
   queue, or the series' own auto-run takes over when you pick a series; the originals are never deleted, and
-  only moved into a Done folder if you tick that), Browser extension. **Updates:** one Updates card with
+  only moved into a Done folder if you tick that), Weekly log copy (off by default: once a week the cleaned
+  Send logs zip is saved into a folder you pick on the PC, and the last 4 are kept), Browser extension. **Updates:** one Updates card with
   everything that updates: App updates or Update Baihe (whichever this copy uses), Phone app ("Get the newest
   phone app"; the phone's app info shows the installed build as "build <number>", and in the phone app the
   version line at the top of Settings adds "Phone app build <number> · built <date>"), Packages (how many have

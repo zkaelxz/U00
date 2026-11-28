@@ -85,6 +85,11 @@ def start_gpu_queue_poller(interval: float | None = None) -> bool:
                 except Exception as exc:
                     log_warning("automatic backup check failed: %s", exc)
                 try:
+                    from services import log_copy_service
+                    log_copy_service.periodic_tick()
+                except Exception as exc:
+                    log_warning("weekly log copy failed: %s", exc)
+                try:
                     from services import update_service
                     update_service.periodic_tick()
                 except Exception as exc:

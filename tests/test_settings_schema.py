@@ -35,6 +35,8 @@ STATE_KEYS = {
     "backfills.per_line_confidence": "marker that the one-time line-score rescoring has run (services/confidence_backfill_service.py), never shown",
     "migrations.local_ollama_models_cleared": "marker that the one-time clearing of saved local Ollama models has run (services/local_model_cleanup_service.py), never shown",
     "app_update.before": "the library's tables and newest backup when the last app update started (app_update_service), rewritten by each update",
+    "logs.weekly_copy_folder": "the folder the weekly scrubbed log copy is written to; empty = off (log_copy_service)",
+    "logs.weekly_copy_last": "epoch seconds of the last weekly log copy (log_copy_service)",
     "update.app_first_verified": "version, name, SHA-256 and first-verified time of the app update download, so a restart doesn't restart its day's wait (app_update_service)",
     "update.installer_first_verified": "the same for the full installer download (update_service)",
     "update.last_check_failed": "whether the last update check failed, so the next app start checks again (update_service)",

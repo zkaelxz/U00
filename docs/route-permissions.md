@@ -186,6 +186,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
 | `GET /api/diagnostics/install-presets` | admin.diagnostics |
 | `GET /api/diagnostics/log` | admin.diagnostics |
+| `GET /api/diagnostics/log-copy` | local_only() |
+| `PUT /api/diagnostics/log-copy` | local_only() |
 | `GET /api/diagnostics/model-cache` | admin.diagnostics |
 | `POST /api/diagnostics/model-cache/files/{kind}/{name}/delete` | local_only() |
 | `POST /api/diagnostics/model-cache/hf/{revision}/delete` | local_only() |

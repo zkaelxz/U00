@@ -40,9 +40,10 @@ from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsLogTail, DiagnosticsModelCache,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
-                         DiagnosticsSupportReport, error_responses)
+                         DiagnosticsSupportReport, LogCopySettings, LogCopyUpdate, error_responses)
 from lib.errors import ForbiddenError
 from services import diagnostics_gaps_service as svc
+from services import log_copy_service
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_packages_service as packages_svc
 from services import diagnostics_gpu_torch_service as torch_svc
@@ -107,6 +108,19 @@ def get_support_bundle(request: Request):
                **NO_STORE}
     return Response(content=svc.build_support_bundle(), media_type="application/zip",
                     headers=headers)
+
+
+@router.get("/log-copy", dependencies=[local_only()], response_model=LogCopySettings,
+            summary="The weekly scrubbed log copy: on or off, and its folder")
+def get_log_copy():
+    return log_copy_service.overview()
+
+
+@router.put("/log-copy", dependencies=[local_only()], response_model=LogCopySettings,
+            summary="Pick the folder for the weekly scrubbed log copy (empty turns it off)",
+            responses=error_responses(400, 422))
+def put_log_copy(body: LogCopyUpdate):
+    return log_copy_service.set_folder(body.folder)
 
 
 @router.get("/install-presets", dependencies=[require_permission("admin.diagnostics")],
