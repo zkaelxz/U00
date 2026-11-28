@@ -59,9 +59,21 @@ def test_grace_after_a_restart_then_cap_per_hour():
     assert step(s, 3721) == "RESTART"
 
 
+def test_no_restart_while_an_update_runs_or_a_start_is_young():
+    s = pw.State()
+    assert [step(s, t, updating=True) for t in (0, 60, 120, 180)] == ["UPDATING"] * 4
+    # A 4-minute first start, as a new version compiling its .pyc files.
+    assert [step(s, 300 + t, started_ago=60 + t) for t in (0, 60, 120, 180)] == ["STARTING"] * 4
+    assert s.total_restarts == 0 and s.total_skips == 8
+    # Still dead long after it started: the count begins then.
+    assert [step(s, 1000 + t, started_ago=600 + t) for t in (0, 60, 120)] == ["WAIT", "WAIT", "RESTART"]
+
+
 def test_dry_run_logs_and_restarts_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(pw, "port_answers", lambda port: False)
     monkeypatch.setattr(pw, "service_state", lambda: "RUNNING")
+    monkeypatch.setattr(pw, "update_in_progress", lambda: False)
+    monkeypatch.setattr(pw, "service_started_ago", lambda now: None)
     monkeypatch.setattr(pw, "restart_service", lambda: (_ for _ in ()).throw(AssertionError("restarted")))
     args = pw.argparse.Namespace(data_dir=str(tmp_path), state_dir=str(tmp_path), api_port=8600,
                                  other_ports=[8610], failures=3, max_restarts_per_hour=2,
@@ -76,6 +88,8 @@ def test_recovery_logs_the_time_since_the_first_failure(tmp_path, monkeypatch):
     up = {"api": False}
     monkeypatch.setattr(pw, "port_answers", lambda port: up["api"] if port == 8600 else True)
     monkeypatch.setattr(pw, "service_state", lambda: "RUNNING")
+    monkeypatch.setattr(pw, "update_in_progress", lambda: False)
+    monkeypatch.setattr(pw, "service_started_ago", lambda now: None)
     args = pw.argparse.Namespace(data_dir=str(tmp_path), state_dir=str(tmp_path), api_port=8600,
                                  other_ports=[8610], failures=3, max_restarts_per_hour=2,
                                  max_defer_minutes=60, dry_run=True)
@@ -96,3 +110,12 @@ def test_job_is_running_reads_recent_rows_only(tmp_path):
     assert pw.job_is_running(str(tmp_path), now=100 + 60)
     assert not pw.job_is_running(str(tmp_path), now=100 + pw.JOB_FRESH_SECONDS + 1)
     assert not pw.job_is_running(str(tmp_path / "missing"), now=100)
+
+
+def test_update_in_progress_reads_state_words(monkeypatch):
+    out = {"v": ""}
+    monkeypatch.setattr(pw, "_sc", lambda *a: out["v"])
+    for text, expected in (("ZUSTAND : 4  RUNNING", True), ("STATE : 3  STOP_PENDING", True),
+                           ("STATE : 1  STOPPED", False), ("FAILED 1060: not installed", False)):
+        out["v"] = text
+        assert pw.update_in_progress() is expected

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -18,6 +19,12 @@ LOG_KEEP_BYTES = 512 * 1024
 # update counts as a job that is really running.
 JOB_FRESH_SECONDS = 600
 START_GRACE_SECONDS = 120
+# A first start of a new version may compile its .pyc files for minutes
+# (installer/service_update.py HEALTH_WAIT_SECONDS is 300 s), and the service
+# reads RUNNING from the moment its process exists, so a restart in that
+# window would push an update into its rollback.
+START_PROTECT_SECONDS = 360
+UPDATE_SERVICE = "BaiheUpdate"
 CREATE_NO_WINDOW = 0x08000000
 
 
@@ -38,12 +45,15 @@ class State:
     restarts: list = field(default_factory=list)
     total_failures: int = 0
     total_restarts: int = 0
+    total_skips: int = 0
 
 
 def decide(state: State, now: float, cfg: Config, *, api_ok: bool, others_ok: bool,
-           service_running: bool, job_running: bool) -> str:
+           service_running: bool, job_running: bool, updating: bool = False,
+           started_ago: float | None = None) -> str:
     """One minute's decision, changing `state`: OK, WAIT, DEFER_JOB, CAPPED,
-    NOT_RUNNING or RESTART. The caller does the restart."""
+    NOT_RUNNING, UPDATING, STARTING or RESTART. The caller does the restart.
+    `started_ago` is the seconds since the service process started, if known."""
     if api_ok:
         state.failures = 0
         return "OK"
@@ -52,6 +62,11 @@ def decide(state: State, now: float, cfg: Config, *, api_ok: bool, others_ok: bo
         state.failures = 0
         state.outage_started = None
         return "NOT_RUNNING"
+    if updating or (started_ago is not None and started_ago < START_PROTECT_SECONDS):
+        state.failures = 0
+        state.outage_started = None
+        state.total_skips += 1
+        return "UPDATING" if updating else "STARTING"
     if now < state.quiet_until:
         return "WAIT"
     state.failures += 1
@@ -101,7 +116,9 @@ def job_is_running(data_dir: str, now: float) -> bool:
 
 def _sc(*args: str) -> str:
     flags = CREATE_NO_WINDOW if sys.platform == "win32" else 0
-    out = subprocess.run(["sc", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=flags)
+    # By full path: this runs as SYSTEM.
+    exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "sc.exe") if sys.platform == "win32" else "sc"
+    out = subprocess.run([exe, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=flags)
     return out.stdout
 
 
@@ -110,6 +127,49 @@ def service_state() -> str:
         if word in _sc("query", SERVICE):
             return word
     return "UNKNOWN"
+
+
+def update_in_progress() -> bool:
+    # BaiheUpdate runs only for an app update or a package install.
+    out = _sc("query", UPDATE_SERVICE)
+    # State words, not the "STATE" label, which sc translates.
+    return any(word in out for word in ("RUNNING", "START_PENDING", "STOP_PENDING", "PAUSED", "CONTINUE_PENDING"))
+
+
+def service_started_ago(now: float) -> float | None:
+    """Seconds since the BaiheStudio service process started, or None when
+    that can't be read (then only the BaiheUpdate check protects a start)."""
+    if sys.platform != "win32":
+        return None
+    try:
+        return _process_age(now)
+    except Exception:
+        return None
+
+
+def _process_age(now: float) -> float | None:
+    import ctypes
+    from ctypes import wintypes
+    m = re.search(r"PID\s*:\s*(\d+)", _sc("queryex", SERVICE))
+    if not m or int(m.group(1)) == 0:
+        return None
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    # Without these, a handle is passed as a 32-bit int and breaks on 64-bit Windows.
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    handle = k32.OpenProcess(0x1000, False, int(m.group(1)))  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return None
+    try:
+        created, ended, kernel, user = (wintypes.FILETIME() for _ in range(4))
+        if not k32.GetProcessTimes(handle, *(ctypes.byref(t) for t in (created, ended, kernel, user))):
+            return None
+        ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
+        return now - (ticks / 1e7 - 11644473600)  # FILETIME is 100 ns since 1601
+    finally:
+        k32.CloseHandle(handle)
 
 
 def restart_service() -> str:
@@ -158,8 +218,11 @@ def run_once(args, now: float | None = None) -> str:
     running = service_state() == "RUNNING"
     job = False if api_ok else job_is_running(args.data_dir, now)
     was_down_since = state.outage_started
-    action = decide(state, now, cfg, api_ok=api_ok, others_ok=others_ok, service_running=running, job_running=job)
-    counts = (f"failures_seen={state.total_failures} restarts_done={state.total_restarts} "
+    updating = False if api_ok else update_in_progress()
+    started_ago = None if api_ok or not running else service_started_ago(now)
+    action = decide(state, now, cfg, api_ok=api_ok, others_ok=others_ok, service_running=running, job_running=job,
+                    updating=updating, started_ago=started_ago)
+    counts = (f"failures_seen={state.total_failures} restarts_done={state.total_restarts} skips={state.total_skips} "
               f"api_port={args.api_port} other_ports_answer={others_ok} job_running={job}")
     if action == "OK":
         if was_down_since is not None:
@@ -175,6 +238,8 @@ def run_once(args, now: float | None = None) -> str:
         else:
             write_log(args.state_dir, f"RESTARTING {SERVICE} after {cfg.failures_needed} failed checks; {counts}")
             write_log(args.state_dir, f"service state after restart: {restart_service()}")
+    elif action in ("UPDATING", "STARTING"):
+        write_log(args.state_dir, f"{action}: restart skipped; {counts}")
     elif action != "WAIT" or state.failures >= 1:
         write_log(args.state_dir, f"{action} (check {state.failures} of {cfg.failures_needed}); {counts}")
     save_state(state_path, state)
