@@ -1590,7 +1590,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 novelAdded = 0;
             }
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
+            endSend(cancelRequested ? "Cancelled." : e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not save the chapter.");
         }
@@ -2107,17 +2107,19 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
-            if (refused && (chaptersLeft > 1 || (queueRunning && !GrabStore.queue(prefs()).isEmpty()))) {
-                out.append(". Later chapters would be refused too, so it stopped here");
-            }
-            // The queue is kept, only no longer worked through, so it can be started again once the server takes pages.
-            if (refused) queueRunning = false;
             // A chapter where every page was refused must not send the chain on to the next.
-            finishGrab(out.toString(), stored > 0 && !refused);
+            endSend(out.toString(), stored > 0, refused);
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(e.getMessage());
+            endSend(e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not send the pages.");
         }
+    }
+
+    private void endSend(String message, boolean sent, boolean refused) {
+        boolean moreDue = chaptersLeft > 1 || (queueRunning && !GrabStore.queue(prefs()).isEmpty());
+        GrabQueue.AfterSend end = GrabQueue.afterSend(message, sent, refused, queueRunning, moreDue);
+        queueRunning = end.queueRunning;
+        finishGrab(end.message, end.goOn);
     }
 }
