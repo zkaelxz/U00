@@ -26,6 +26,8 @@ class Seg:
 def no_rehear(monkeypatch):
     # The sparse re-hear is not under test; long fake segments would trigger it.
     monkeypatch.setattr(whisper_transcribe, "_rehear_sparse", lambda m, p, k, segs, keys: segs)
+    # The paths are made up; the models here are handed the path, as when the file can't be decoded.
+    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
 
 
 def test_units_of_an_earlier_cut_are_not_mixed_in_after_a_gap(isolated_db, monkeypatch):
@@ -71,7 +73,6 @@ def test_a_tail_that_cannot_be_cut_falls_back_to_the_whole_file(monkeypatch, no_
             return iter([Seg(0.0, 2.0, "whole")]), types.SimpleNamespace(duration=50.0)
 
     monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
-    monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
     out = whisper_transcribe.transcribe_for_timing(
         "/media/a.wav", resume_segments=_segments((0.0, 10.0, "one two three four five")),
         filter_hallucination_repeats=0)

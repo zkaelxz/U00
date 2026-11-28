@@ -59,14 +59,21 @@ def remember_speech_scores() -> bool:
             return True
         try:
             from faster_whisper import vad
-            score = vad.SileroVADModel.__call__
+            current = vad.SileroVADModel.__call__
         except (ImportError, AttributeError):
             return False
+        # Never wrap a wrapper: the class outlives this flag being reset.
+        score = getattr(current, "unwrapped", current)
 
         def remembered(self, audio, *args, **kwargs):
-            samples = audio if audio.flags.c_contiguous else np.ascontiguousarray(audio)
-            key = (audio.shape, audio.dtype.str, args, tuple(sorted(kwargs.items())),
-                   hashlib.blake2b(samples.data, digest_size=16).digest())
+            try:
+                samples = audio if audio.flags.c_contiguous else np.ascontiguousarray(audio)
+                key = (audio.shape, audio.dtype.str, args, tuple(sorted(kwargs.items())),
+                       hashlib.blake2b(samples.data, digest_size=16).digest())
+                hash(key)
+            except (AttributeError, TypeError):
+                # A call shape this memo doesn't know (another faster-whisper) is scored as before.
+                return score(self, audio, *args, **kwargs)
             with _remember_lock:
                 seen = self.__dict__.setdefault("_baihe_scores", OrderedDict())
                 known = seen.get(key)
@@ -74,12 +81,15 @@ def remember_speech_scores() -> bool:
                     seen.move_to_end(key)
             if known is None:
                 known = score(self, audio, *args, **kwargs)
+                if not isinstance(known, np.ndarray):
+                    return known
                 with _remember_lock:
                     seen[key] = known
                     while len(seen) > _REMEMBERED_SCORES:
                         seen.popitem(last=False)
             return known.copy()
 
+        remembered.unwrapped = score
         vad.SileroVADModel.__call__ = remembered
         _remembering = True
         return True
