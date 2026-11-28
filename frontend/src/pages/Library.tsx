@@ -29,6 +29,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { nameLang } from '../hanScript'
 import { languageLabel, mediaTypeLabel } from '../labels'
 import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -41,7 +42,6 @@ import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
-import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
@@ -179,7 +179,7 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
                       : tileText({ title_en: x.title, title_zh: x.titleZh })}
                   </span>
                   <div className="continue-text">
-                    <span className="continue-title">{x.title}</span>
+                    <span className="continue-title" lang={nameLang(x.title, row(x.dramaId) ?? { title_zh: x.titleZh })}>{x.title}</span>
                     <span className="continue-meta">
                       {x.kind === 'read'
                         ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
@@ -387,8 +387,6 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
-  const canSeeGpu = useHolds('admin.diagnostics.read')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
@@ -516,7 +514,6 @@ export default function LibraryPage() {
               <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
             </details>
           )}
-          {canSeeGpu && <GpuLine />}
         </>
       )}
       actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (

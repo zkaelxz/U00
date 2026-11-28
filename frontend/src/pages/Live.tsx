@@ -75,10 +75,9 @@ function ShowEveryone({ onChange }: { onChange: (on: boolean) => void }) {
   const [on, setOn] = useState(false)
   if (!cancelsAnyJob(useSession())) return null
   return (
-    <label className="checkbox-row">
-      <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); onChange(e.target.checked) }} />
-      Show everyone's sessions
-    </label>
+    <Field label="Show everyone's sessions">
+      <Toggle checked={on} onChange={(v) => { setOn(v); onChange(v) }} />
+    </Field>
   )
 }
 

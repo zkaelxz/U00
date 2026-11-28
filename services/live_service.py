@@ -588,7 +588,7 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
     def hints(texts):
         text = "\n".join(t for t in texts if isinstance(t, str))
         found = [(t["term_original"], t["term_translation"], (t.get("notes") or "")[:HINT_NOTE_CHARS])
-                 for t in llm_tasks.matching_glossary_terms(text, glossary)]
+                 for t in llm_tasks.matching_glossary_terms(text, glossary, cross_script=False)]
         if packs_apply and drama is not None:
             entries = language_pack_service.entries_for_text(drama, text, glossary)
         elif default_packs:

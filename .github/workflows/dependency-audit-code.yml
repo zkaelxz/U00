@@ -29,8 +29,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      # Pinned so the audit that gates Promote Release can't change between a tag and its promote.
       - name: Install pip-audit
-        run: pip install pip-audit
+        run: pip install pip-audit==2.10.1
 
       # The tier files are audited separately because requirements.txt is only
       # their union; each run resolves the full dependency tree, not just the
