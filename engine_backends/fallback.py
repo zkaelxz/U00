@@ -274,16 +274,20 @@ _ENGINE_LABELS = {"deepseek": "DeepSeek", "claude": "Claude", "gemini": "Gemini"
                   "ollama": "Ollama"}
 
 
-def out_of_credit_notice(from_engine: str, to_engine: str, to_model=None) -> str:
+def out_of_credit_notice(from_engine: str, to_engine: str, to_model=None,
+                         handed_back: bool = False) -> str:
     """The finished job's sentence for a switch made because `from_engine`'s account ran dry.
     `to_model` None means the automatic slow switch, whose fallback is always Gemma; a chosen
-    chain names its model, since an Ollama fallback there may be any model."""
-    gemma = to_engine == "ollama" and (to_model is None or str(to_model).startswith("gemma"))
-    if from_engine == "deepseek" and gemma:
-        return OUT_OF_CREDIT_NOTICE
+    chain names its model, since an Ollama fallback there may be any model. handed_back: the
+    fallback couldn't serve and the run went back, so nothing is translating in its place."""
     name = _ENGINE_LABELS.get(from_engine, from_engine)
     page = _TOP_UP_PAGES.get(from_engine)
     top_up = f"Top up at {page}" if page else "Top up that account"
+    if handed_back:
+        return f"{name} is out of credit. {top_up}."
+    gemma = to_engine == "ollama" and (to_model is None or str(to_model).startswith("gemma"))
+    if from_engine == "deepseek" and gemma:
+        return OUT_OF_CREDIT_NOTICE
     to = "Gemma" if gemma else _ENGINE_LABELS.get(to_engine, to_engine)
     if to_engine == "ollama" and not gemma:
         to = f"Ollama ({to_model})"

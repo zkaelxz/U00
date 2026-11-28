@@ -119,19 +119,20 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
 @media (pointer: coarse) { .app-rail .rail-toggle { min-height: 44px; } }
 
 /* Docked: a full-height rail against the left edge, always labelled; the page column moves clear of it instead of being overlapped. */
+:root { --rail-width: 14.4rem; }
 .app-rail.is-docked {
   left: 0;
   top: 0;
   bottom: 0;
   transform: none;
-  width: 14.4rem;
+  width: var(--rail-width);
   max-height: none;
   border-radius: 0;
   border-width: 0 1px 0 0;
   background: var(--surface);
   transition: none;
 }
-.app-shell.has-rail.is-docked { --page-inset-left: calc(14.4rem + var(--space-4)); }
+.app-shell.has-rail.is-docked { --page-inset-left: calc(var(--rail-width) + var(--space-4)); }
 /* The docked open menu, left or right (SideNav.tsx sets .is-listed): labelled rows, each with a small muted icon so a row can be found by its picture as well as its word. The current page is one
    highlighted row and the open title is a row of its own under Library. Floating, minimized, top and bottom show icons only until opened. */
 .app-rail.is-listed { padding: 18px 12px; gap: 2px; }

@@ -210,6 +210,8 @@ def test_the_page_picture_needs_the_setting_and_an_engine_that_reads_pictures(is
     patch_setting(monkeypatch, "scanlate_page_image", True)
     data, mime, scale = run_svc._page_image(did, pid, "claude")
     assert data and mime == "image/jpeg" and scale == 1.0
+    ja = db.create_drama(title_en="Manga", source_language="ja")
+    assert run_svc._page_image(ja, _stored_page(ja), "claude")[1] == "image/png"
     # DeepSeek takes no pictures, but its page is already off the PC, so Gemma may read it.
     assert run_svc._page_image(did, pid, "deepseek") is not None
     assert run_svc._page_image(did, pid, "ollama", "translategemma:27b") is not None
@@ -218,23 +220,33 @@ def test_the_page_picture_needs_the_setting_and_an_engine_that_reads_pictures(is
     assert run_svc._page_image(did, pid, "claude") is None
 
 
-def test_a_page_goes_as_full_colour_jpeg_and_a_screenshot_stays_png():
+def test_a_page_goes_as_jpeg_only_for_a_language_known_to_read_fine_that_way():
     from PIL import JpegImagePlugin
 
     from services import image_text_service
     buf = io.BytesIO()
-    page = Image.new("RGBA", (64, 48), (200, 30, 30, 128))
-    page.save(buf, "PNG")
-    data, mime, scale = run_svc.page_picture(buf.getvalue())
-    assert mime == "image/jpeg" and scale == 1.0
-    with Image.open(io.BytesIO(data)) as sent:
-        # 4:4:4: small coloured lettering keeps its edges.
-        assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
+    Image.new("RGBA", (64, 48), (200, 30, 30, 128)).save(buf, "PNG")
+    for language in ("zh", "ko"):
+        data, mime, scale = run_svc.page_picture(buf.getvalue(), language)
+        assert mime == "image/jpeg" and scale == 1.0
+        with Image.open(io.BytesIO(data)) as sent:
+            # 4:4:4: small coloured lettering keeps its edges.
+            assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
+    for language in ("ja", None, "", "th", "xx"):
+        assert run_svc.page_picture(buf.getvalue(), language)[1] == "image/png"
+    assert run_svc.page_picture(buf.getvalue())[1] == "image/png"
     assert image_text_service._prepared(buf.getvalue())[1] == "image/png"
     clear = io.BytesIO()
     Image.new("RGBA", (64, 48), (0, 0, 0, 0)).save(clear, "PNG")
-    with Image.open(io.BytesIO(run_svc.page_picture(clear.getvalue())[0])) as sent:
+    with Image.open(io.BytesIO(run_svc.page_picture(clear.getvalue(), "zh")[0])) as sent:
         assert min(sent.convert("L").getextrema()) > 245  # a see-through page reads as paper, not black
+
+
+def test_a_title_without_a_language_sends_png(isolated_db, monkeypatch):
+    did = db.create_drama(title_en="Comic", source_language="")
+    pid = _stored_page(did)
+    patch_setting(monkeypatch, "scanlate_page_image", True)
+    assert run_svc._page_image(did, pid, "claude")[1] == "image/png"
 
 
 def test_a_missing_page_file_means_a_text_only_translation(isolated_db, monkeypatch):
@@ -592,7 +604,7 @@ def test_the_extension_tries_gemma_then_haiku_and_a_gemma_failure_starts_the_ski
     monkeypatch.setattr(scanlate_translate, "translate_regions_with_image", with_image)
     patch_setting(monkeypatch, "scanlate_page_image", True)
     monkeypatch.setattr(run_svc, "load_translation_guide", lambda drama: (None, ""))
-    monkeypatch.setattr(run_svc, "page_picture", lambda image: (b"x", "image/png", 1.0))
+    monkeypatch.setattr(run_svc, "page_picture", lambda image, language=None: (b"x", "image/png", 1.0))
     extras = extension_service.page_extras({}, {"engine": "claude"}, _Engine(), b"png")
     bubbles = [{"source_text": "你好", "x": 1, "y": 2, "w": 3, "h": 4}]
     scanlate_translate.translate_page_bubbles(bubbles, _Engine(), {}, **extras)

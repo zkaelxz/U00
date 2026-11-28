@@ -806,3 +806,21 @@ def test_the_finished_job_says_deepseek_is_out_of_credit():
         "errors": [], "translated_count": 3,
         "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": "slow", "detail": "x"}]}))
     assert fb.OUT_OF_CREDIT_NOTICE not in slow
+
+
+def test_a_partial_job_handed_back_from_the_fallback_does_not_say_gemma_is_translating(
+        quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    from services import jobs_service
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    result = jobs_service.project_result({
+        "errors": ["DeepSeek: Insufficient Balance"], "translated_count": 5,
+        "fallbacks": list(engine.events)})
+    outcome, message = jobs_service.derive_outcome("done", None, result)
+    assert outcome == "partial"
+    assert "DeepSeek is out of credit. Top up at platform.deepseek.com." in message
+    assert "translating for now" not in message

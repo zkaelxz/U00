@@ -10,9 +10,11 @@ import { useEffect, useState } from 'react'
 import { ApiError } from '../api/client'
 import { dismissSameDriveNote, getBackupSettings } from '../api/backups'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { isMember, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import { BACKUP_PROBLEM_TEXT } from '../pages/backupsFormat'
 import type { AutoBackupSettings } from '../types/backups'
+import { backupBannerWanted } from './backupBannerGate'
 import { WarnBar } from './WarnBar'
 
 export const POLL_MS = 10 * 60_000
@@ -20,10 +22,11 @@ const HIDE_ON = [401, 403, 404]
 
 export function BackupHealthBanner() {
   const pc = usePcOnly()
+  const wanted = backupBannerWanted(pc, isMember(useSession()))
   const [problem, setProblem] = useState<AutoBackupSettings['problem']>(null)
   const [dismissed, setDismissed] = useState<AutoBackupSettings['problem']>(null)
   useEffect(() => {
-    if (pc !== 'local') return
+    if (!wanted) return
     let live = true
     let timer: ReturnType<typeof setInterval> | undefined
     const load = () =>
@@ -44,8 +47,8 @@ export function BackupHealthBanner() {
       live = false
       if (timer) clearInterval(timer)
     }
-  }, [pc])
-  if (pc !== 'local' || !problem || problem === dismissed) return null
+  }, [wanted])
+  if (!wanted || !problem || problem === dismissed) return null
   const text = BACKUP_PROBLEM_TEXT[problem]
   return (
     <WarnBar

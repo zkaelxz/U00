@@ -72,7 +72,7 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(diagnostics, "scan_model_folder", lambda kind, *a, **k: [
         {"name": f"{kind}.bin", "size_bytes": 3, "path": ABS_PATH}])
     monkeypatch.setattr(settings_service, "resolve_key",
-                        lambda name: HF_TOKEN if name == "hf_token" else None)
+                        lambda name, env_path=None: HF_TOKEN if name == "hf_token" else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
     monkeypatch.setattr(settings_service, "get_settings_overview", lambda env_path=None: {
         "endpoints": {"ollama_url": "http://192.0.2.5:11434"}, "preferences": {"folder": ABS_PATH},

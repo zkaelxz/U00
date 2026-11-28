@@ -2,7 +2,8 @@
 
     python tools/export_openapi.py OUT.json
 
-`cd frontend && npm run gen:api` runs this and then openapi-typescript. The app
+`cd frontend && npm run gen:api` runs this and then openapi-typescript. Only the
+models are written (no routes), since the frontend uses only `components`. The app
 is built with auth off, because with auth on the schema is not served at all,
 and the document must not depend on the machine's settings.
 """
@@ -104,8 +105,12 @@ def main(argv=None):
     if len(argv) != 1:
         print(__doc__)
         return 2
-    Path(argv[0]).write_text(json.dumps(build_document(), indent=2, sort_keys=True) + "\n",
-                             encoding="utf-8")
+    doc = build_document()
+    # The frontend imports only `components`; the routes' part was two thirds of the
+    # generated file and of every merge conflict in it. Dropped after require_served_fields,
+    # which reads the routes to tell response models from request bodies.
+    doc["paths"] = {}
+    Path(argv[0]).write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return 0
 
 

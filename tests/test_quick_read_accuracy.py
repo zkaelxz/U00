@@ -441,3 +441,26 @@ class TestEnglishOnlyAnswers:
         bubbles = [_bubble("予告犯は誰？")]
         scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
         assert bubbles[0]["translated_text"] == "Who is the Notice Criminal?"
+
+
+class TestMarksOnlyRegions:
+    @pytest.mark.parametrize("source, english", [
+        ("……", "..."), ("？！", "?!"), ("!?", "!?"), ("・・・", "..."), ("〜", "~"), ("♡", "♡"),
+        ("——", "..."), ("あ…", None), ("100", None), ("ㅋㅋ", None), ("ーー", None),
+        ("\u200b", None), ("\u200b……\u200b", "...")])
+    def test_only_punctuation_and_symbols_are_answered_on_the_pc(self, source, english):
+        assert scanlate_translate.marks_only_english(source) == english
+
+    def test_marks_are_answered_without_the_model_and_the_rest_still_go(self, monkeypatch):
+        prompts = TestEnglishOnlyAnswers()._llm(monkeypatch, [{"0": "Wait!"}])
+        bubbles = [_bubble("……"), _bubble("待って！"), _bubble("？！")]
+        scanlate_translate.translate_page_bubbles(bubbles, _LLM(), {"source_language": "ja"})
+        assert [b["translated_text"] for b in bubbles] == ["...", "Wait!", "?!"]
+        assert len(prompts) == 1 and "……" not in prompts[0] and "待って" in prompts[0]
+
+    def test_a_page_of_only_marks_makes_no_call(self, monkeypatch):
+        prompts = TestEnglishOnlyAnswers()._llm(monkeypatch, [])
+        bubbles = [_bubble("……"), _bubble("！")]
+        assert scanlate_translate.translate_page_bubbles(
+            bubbles, _LLM(), {"source_language": "ja"}, previous_context="ctx") == "ctx"
+        assert prompts == [] and [b["translated_text"] for b in bubbles] == ["...", "!"]
