@@ -503,16 +503,7 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         else:
             text = " ".join(_CJK_CHARS.sub("", text).split())
 
-    fonts = {} if fonts is None else fonts
-
-    def load_font(sz):
-        # One font object per face and size, so the widths measured with it are reused.
-        key = (resolved_font_path, sz)
-        if key not in fonts:
-            fonts[key] = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-                          else ImageFont.load_default(sz))
-        return fonts[key]
-
+    load_font = _font_loader(resolved_font_path, {} if fonts is None else fonts)
     if mask is not None:
         laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style, dark,
                                         balance)
@@ -565,6 +556,22 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
 
     if report is not None:
         report["size"] = size
+    _draw_box_lines(draw, box, lines, font, line_height, align, fill, style)
+    return image
+
+
+def _font_loader(path: str | None, fonts: dict):
+    """load_font(size) for `path`, making one font object per face and size in `fonts`, so the
+    widths measured with it are reused (_INK_WIDTHS)."""
+    def load_font(sz):
+        if (path, sz) not in fonts:
+            fonts[(path, sz)] = ImageFont.truetype(path, sz) if path else ImageFont.load_default(sz)
+        return fonts[(path, sz)]
+    return load_font
+
+
+def _draw_box_lines(draw, box: dict, lines, font, line_height, align, fill, style) -> None:
+    """The rectangle layout's lines, centred vertically in `box`."""
     total_h = line_height * len(lines)
     start_y = box["y"] + max(0, (box["h"] - total_h) // 2)
     for i, line in enumerate(lines):
@@ -578,7 +585,6 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         else:
             lx = box["x"] + 4
         style.draw_text(draw, (lx, start_y + i * line_height), line, font, fill)
-    return image
 
 
 def _dark_under(gray, box: dict, shape) -> "np.ndarray":
