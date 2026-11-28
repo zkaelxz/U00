@@ -282,3 +282,17 @@ test('household member: the Sharing page asks for no list and points back to Set
   expect(listCalls).toEqual([])
   expect(unmocked).toEqual([])
 })
+
+test('admin: a list that changed while loading says so instead of asking forever', async ({ page }) => {
+  const { listCalls } = await mockSharing(page, ADMIN_ME)
+  // The server counts five but every page repeats the same four, as when items move between requests.
+  await page.route('**/api/sharing/items*', (route) => {
+    listCalls.push(route.request().url())
+    return route.fulfill({ json: { total: 5, offset: 0, limit: 200, items: ITEMS } })
+  })
+  await page.goto('/#/sharing')
+  const card = page.getByRole('region', { name: 'Sharing' })
+  await expect(card.getByText('Some items changed while this list loaded')).toBeVisible()
+  await expect(card.getByRole('group', { name: 'Titles and series' }).getByRole('listitem')).toHaveCount(4)
+  expect(listCalls).toHaveLength(2)
+})

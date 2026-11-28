@@ -102,15 +102,15 @@ function ownerLabel(id: number, displayName: string): string {
 }
 
 /** Every page of the list, in the server's order. */
-async function loadAll(live: () => boolean): Promise<SharingItem[]> {
+async function loadAll(live: () => boolean): Promise<{ items: SharingItem[]; total: number }> {
   let items: SharingItem[] = []
   for (;;) {
     const r = await listSharing(items.length, PAGE)
-    if (!live()) return items
+    if (!live()) return { items, total: r.total }
     const before = items.length
     items = mergePage(items, r.items)
     // Rows can shift between pages; an empty or all-seen page ends the loop rather than asking forever.
-    if (items.length >= r.total || items.length === before) return items
+    if (items.length >= r.total || items.length === before) return { items, total: r.total }
   }
 }
 
@@ -118,6 +118,7 @@ function SharingItems({ owners }: { owners: boolean }) {
   const [items, setItems] = useState<SharingItem[] | null>(null)
   const [people, setPeople] = useState<Owner[]>([])
   const [hidden, setHidden] = useState(false)
+  const [short, setShort] = useState(false)
   const [listError, setListError] = useState<string | null>(null)
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ key: string; text: string } | null>(null)
@@ -128,7 +129,11 @@ function SharingItems({ owners }: { owners: boolean }) {
   useEffect(() => {
     let live = true
     loadAll(() => live).then(
-      (all) => live && setItems(all),
+      (all) => {
+        if (!live) return
+        setItems(all.items)
+        setShort(all.items.length < all.total)
+      },
       (e: unknown) => {
         if (!live) return
         if (isSharingForbidden(e)) setHidden(true)
@@ -298,6 +303,11 @@ function SharingItems({ owners }: { owners: boolean }) {
             </div>
           ))}
         </div>
+      )}
+      {short && (
+        <p className="settings-note" role="status">
+          Some items changed while this list loaded, so it may be missing a few. Reload the page to see them all.
+        </p>
       )}
       {listError && (
         <p className="error" role="alert">
