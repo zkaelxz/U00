@@ -190,6 +190,15 @@ export function isPaletteShortcut(e: KeyLike): boolean {
 
 const SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set(['library', 'settings', 'sources', 'discover'])
 
+// Pages with a search box of their own: the header's search button would be a second one (Ctrl+K still works).
+const OWN_SEARCH_ROUTES: ReadonlySet<Route['name']> = new Set([
+  'library', 'make-subtitles', 'discover', 'sources', 'updates', 'jobs', 'settings',
+])
+
+export function pageHasOwnSearch(route: Route): boolean {
+  return OWN_SEARCH_ROUTES.has(route.name)
+}
+
 type GlobalShortcut = 'search' | 'sheet'
 
 /** What a key does on this page, or null. Pure, so the mapping is testable without a DOM. */

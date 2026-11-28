@@ -94,7 +94,12 @@ body {
   border-radius: 0;
   box-shadow: none;
 }
-.drama-card { background: none; border-color: var(--border); box-shadow: none; }
+/* Title cards are plain rows: no box, the cover lines up with the toolbar; the open title keeps its accent edge. */
+.drama-card,
+.drama-card:hover,
+.drama-card:focus-within { background: none; border-color: transparent; box-shadow: none; }
+.drama-card.selected { border-color: var(--accent); }
+.drama-grid .drama-tile { margin-left: 0; }
 /* Review sits on hairlines, not glass: the toolbar keeps its border width (only the bottom edge is drawn) and the toolbox and list draw theirs as outer shadows, so no height moves (the phone toolbar's scroll thresholds depend on page heights). */
 .review-toolbox,
 .review-lines { background: none; border: 0; border-radius: 0; box-shadow: 0 -1px 0 var(--border); }

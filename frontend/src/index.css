@@ -1035,8 +1035,11 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 
 /* Continue shelf */
 .stats-placeholder { min-height: 1.5em; }
-.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: var(--space-3); }
-.continue-item { container-type: inline-size; display: flex; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.continue-shelf { display: grid; gap: var(--space-2); min-width: 0; }
+.continue-head { margin: 0; color: var(--muted); font-family: inherit; font-size: var(--text-sm); font-weight: var(--weight-bold); letter-spacing: 0.06em; text-transform: uppercase; }
+/* Up to four plain tiles side by side (no boxes); a narrow window drops to as many columns as fit. */
+.continue-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr)); gap: var(--space-3) var(--space-5); }
+.continue-item { container-type: inline-size; display: flex; }
 /* Lines apart (space-between) so the buttons of tiles side by side line up at the bottom. */
 .continue-row { flex: 1; display: flex; flex-wrap: wrap; align-items: center; align-content: space-between; gap: var(--space-2) var(--space-3); min-width: 0; }
 .continue-tile { flex: none; }
@@ -1048,7 +1051,8 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 /* A tile too narrow for most labels beside the title puts every button on its own row, so tiles side by side match
    whatever their labels. */
 @container (max-width: 28rem) {
-  .continue-row > .continue-next { flex-basis: 100%; }
+  .continue-row > .continue-open { flex-basis: 100%; }
+  .continue-row > .continue-next { flex: 0 0 auto; margin-left: calc(36px + var(--space-3)); }
 }
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
@@ -1062,11 +1066,9 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .continue-placeholder .skeleton-text { width: 80%; clip-path: inset(3px 0 round var(--radius-sm)); }
 .continue-placeholder .skeleton-text.short { width: 50%; }
 @media (max-width: 640px) {
-  .continue-card { padding: var(--space-3); }
-  .continue-item { padding: var(--space-2); }
   /* A phone shows one tile at a time: its button always takes the row under the text, a full thumb target, so a
      short label and a long one sit the same. */
-  .continue-row > .continue-next { flex-basis: 100%; min-height: 44px; }
+  .continue-row > .continue-next { flex-basis: 100%; margin-left: 0; min-height: 44px; }
 }
 
 /* Toolbar: search, scope, filters, view, select */
@@ -1079,6 +1081,15 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .toolbar-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); flex: 0 1 auto; min-width: 0; }
 .toolbar-filters select { width: 11rem; min-width: 0; }
 .toolbar-row { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 100%; flex-wrap: wrap; min-width: 0; }
+.toolbar-row > .toolbar-search { flex: 1 1 16rem; max-width: 28rem; }
+.filters-menu { position: relative; }
+.filters-menu > summary { list-style: none; cursor: pointer; }
+.filters-menu > summary::-webkit-details-marker { display: none; }
+.filters-menu > summary::after { content: '▾'; margin-left: var(--space-1); }
+.filters-menu-panel { position: absolute; top: calc(100% + var(--space-1)); left: 0; z-index: 20; display: grid; gap: var(--space-3); width: max-content; max-width: min(34rem, 90vw); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-pop); }
+.filters-menu-panel .toolbar-filters select, .filters-menu-panel .filters select { width: 15rem; }
+.quick-row { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; }
+.quick-row > .library-series-links { margin: 0 0 0 auto; }
 /* Selects in a toolbar row keep a natural width: the global 100% would make each one a full-width row. */
 .toolbar-row select { width: auto; flex: 0 1 15rem; min-width: 10rem; }
 .toolbar-end { display: flex; align-items: center; gap: var(--space-1); margin-left: auto; }

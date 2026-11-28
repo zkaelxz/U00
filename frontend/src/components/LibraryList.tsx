@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
 import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
+import { useDetailsMenu } from '../hooks/useDetailsMenu'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
@@ -69,6 +70,8 @@ interface Props {
   onVisible?: (items: DramaSummary[]) => void
   // The page shows a failed load once, with Retry; the list reports it instead of drawing its own line.
   onLoadError: (error: unknown) => void
+  // Shown at the right end of the quick-filter row.
+  chipsEnd?: ReactNode
 }
 
 // Two to three native radios drawn as one segmented control.
@@ -90,7 +93,7 @@ function Segmented<T extends string>({ label, name, value, options, onChange }: 
 
 export function LibraryList({
   selectedId, onSelect, reloadKey = 0, checked, onCheckedChange, selectMode, onSelectModeChange, onItems, onCreate, series = null, seriesError = false,
-  onRetrySeries, onVisible, onLoadError, continuing,
+  onRetrySeries, onVisible, onLoadError, continuing, chipsEnd,
 }: Props) {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('')
@@ -323,29 +326,29 @@ export function LibraryList({
     </div>
   )
   const moreFilters = <MoreFiltersFold value={more} onChange={setMore} reloadKey={reloadKey} />
+  const filtersMenu = (
+    <FiltersMenu count={activeFilters}>
+      {(open) => (
+        <>
+          {statusSelects}
+          <MoreFilterFields value={more} onChange={setMore} reloadKey={reloadKey} active={open} />
+        </>
+      )}
+    </FiltersMenu>
+  )
   const scopeControl = (
     <Segmented<Scope>
       label="Search in" name="library-scope" value={scope} onChange={setScope}
       options={[['titles', 'Titles'], ['lines', 'Lines']]}
     />
   )
-  // The select sits invisibly over the icon, so a tap opens the platform's own picker.
-  const sortIcon = (
-    <label className="sort-icon" title="Sort order">
-      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4" />
-      </svg>
-      <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
-        {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-      </select>
-    </label>
-  )
+  const sortIcon = <SortIcon sort={sort} onSort={setSort} />
   const groupSelect = (
     <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
       {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
     </select>
   )
-  const quickChips = (
+  const quickChips = scope === 'titles' && !emptyLibrary && (
     <div className="quick-chips" role="group" aria-label="Quick filter">
       {QUICK_FILTERS.map((q) => (
         <button key={q} type="button" className="quick-chip" aria-pressed={quickFilter === q} onClick={() => setQuickFilter(q)}>
@@ -354,6 +357,7 @@ export function LibraryList({
       ))}
     </div>
   )
+  const searchBox = <SearchBox lines={scope === 'lines'} value={search} onChange={setSearch} />
   const viewControl = (
     <Segmented<View>
       label="View" name="library-view" value={phone && view === 'list' ? 'grid' : view} onChange={setView}
@@ -365,18 +369,24 @@ export function LibraryList({
     <section className="library-list" aria-labelledby="library-heading">
       <h2 id="library-heading" className="visually-hidden">Titles</h2>
       <form className="library-toolbar" role="search" onSubmit={submit} hidden={emptyLibrary}>
-        <div className="toolbar-search">
-          <input
-            type="search"
-            placeholder={scope === 'titles' ? 'Search titles, people, tags and series' : 'Search every line, then press Enter'}
-            aria-label={scope === 'titles' ? 'Search titles, people, tags and series' : 'Search all lines'}
-            maxLength={200}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          {scope === 'lines' && <button type="submit" className={buttonClass('secondary')}>Search</button>}
-        </div>
-        {phone ? (
+        {phone ? searchBox : (
+          <div className="toolbar-row">
+            {searchBox}
+            {scopeControl}
+            {scope === 'titles' && (
+              <>
+                {filtersMenu}
+                {sortIcon}
+                {groupSelect}
+              </>
+            )}
+            <div className="toolbar-end">
+              {scope === 'titles' && viewControl}
+              {selectControls}
+            </div>
+          </div>
+        )}
+        {phone && (
           <div className="toolbar-row">
             <button type="button" className={buttonClass('secondary')} onClick={() => setFiltersOpen(true)}>
               Filters{activeFilters > 0 && ` (${activeFilters})`}
@@ -385,25 +395,14 @@ export function LibraryList({
             {scope === 'titles' && viewControl}
             <div className="toolbar-end">{selectControls}</div>
           </div>
-        ) : (
-          <>
-            {scope === 'titles' && statusSelects}
-            {scope === 'titles' && moreFilters}
-            <div className="toolbar-row">
-              {scopeControl}
-              {scope === 'titles' && (
-                <>
-                  {sortIcon}
-                  {groupSelect}
-                  {viewControl}
-                </>
-              )}
-              <div className="toolbar-end">{selectControls}</div>
-            </div>
-          </>
         )}
       </form>
-      {scope === 'titles' && !emptyLibrary && quickChips}
+      {(quickChips || chipsEnd) && (
+        <div className="quick-row">
+          {quickChips}
+          {chipsEnd}
+        </div>
+      )}
       <Sheet open={phone && filtersOpen} title="Filters" onClose={() => setFiltersOpen(false)}>
         <div className="filter-sheet">
           {scopeControl}
@@ -438,8 +437,8 @@ export function LibraryList({
               {shown.length === 0 && !filtered && onCreate && (
                 <Card title="No titles yet" meta="Add one to start transcribing, translating or reading.">
                   <div className="actions">
-                    {/* A phone's header already has the primary Add; a computer's Add box has none until something is given. */}
-                    <button type="button" className={buttonClass(phone ? 'secondary' : 'primary')} onClick={onCreate}>Add</button>
+                    {/* The page's own + Add (a phone's bar) is the primary one. */}
+                    <button type="button" className={buttonClass('secondary')} onClick={onCreate}>Add</button>
                   </div>
                 </Card>
               )}
@@ -547,18 +546,77 @@ function SkeletonGrid() {
   )
 }
 
-// Studio, author, voice actor, language, type and custom tags. The data-driven
-// choices load when the fold is first opened (and again after a create/delete).
+// The select sits invisibly over the icon, so a tap opens the platform's own picker.
+function SortIcon({ sort, onSort }: { sort: TitleSort; onSort: (next: string) => void }) {
+  return (
+    <label className="sort-icon" title="Sort order">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4" />
+      </svg>
+      <select aria-label="Sort by" value={sort} onChange={(e) => onSort(e.target.value)}>
+        {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
+    </label>
+  )
+}
+
+function SearchBox({ lines, value, onChange }: { lines: boolean; value: string; onChange: (next: string) => void }) {
+  const label = lines ? 'Search all lines' : 'Search titles, people, tags and series'
+  return (
+    <div className="toolbar-search">
+      <input
+        type="search"
+        placeholder={lines ? 'Search every line, then press Enter' : label}
+        aria-label={label}
+        maxLength={200}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {lines && <button type="submit" className={buttonClass('secondary')}>Search</button>}
+    </div>
+  )
+}
+
+// Status, reading state and the rest of the filters in one menu, so the toolbar stays one row on a computer.
+function FiltersMenu({ count, children }: { count: number; children: (open: boolean) => ReactNode }) {
+  const ref = useDetailsMenu()
+  const [open, setOpen] = useState(false)
+  return (
+    <details ref={ref} className="filters-menu" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary className={buttonClass('secondary')}>Filters{count > 0 && ` (${count})`}</summary>
+      <div className="filters-menu-panel" role="group" aria-label="Filters">{children(open)}</div>
+    </details>
+  )
+}
+
+// The phone sheet's fold around the same fields.
 function MoreFiltersFold({ value, onChange, reloadKey }: {
   value: MoreFilters
   onChange: (next: MoreFilters) => void
   reloadKey: number
 }) {
   const [open, setOpen] = useState(false)
+  const n = moreFilterCount(value)
+  return (
+    <details className="more-filters" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
+      <summary>More filters{n > 0 && ` (${n})`}</summary>
+      <MoreFilterFields value={value} onChange={onChange} reloadKey={reloadKey} active={open} />
+    </details>
+  )
+}
+
+// Studio, author, voice actor, language, type and custom tags. The data-driven choices load when the fields are
+// first shown (`active`), and again after a create/delete.
+function MoreFilterFields({ value, onChange, reloadKey, active }: {
+  value: MoreFilters
+  onChange: (next: MoreFilters) => void
+  reloadKey: number
+  active: boolean
+}) {
   const [options, setOptions] = useState<LibraryFilterOptions | null>(null)
   const [error, setError] = useState(false)
   useEffect(() => {
-    if (!open) return
+    if (!active) return
     let cancelled = false
     getFilterOptions().then(
       (o) => {
@@ -572,7 +630,7 @@ function MoreFiltersFold({ value, onChange, reloadKey }: {
     return () => {
       cancelled = true
     }
-  }, [open, reloadKey])
+  }, [active, reloadKey])
 
   const n = moreFilterCount(value)
   const set = (key: Exclude<keyof MoreFilters, 'tags'>) => (e: { target: { value: string } }) =>
@@ -586,8 +644,7 @@ function MoreFiltersFold({ value, onChange, reloadKey }: {
     </select>
   )
   return (
-    <details className="more-filters" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
-      <summary>More filters{n > 0 && ` (${n})`}</summary>
+    <>
       <div className="filters">
         {pick('Studio', 'studio', options?.studios)}
         {pick('Author', 'author', options?.authors)}
@@ -626,6 +683,6 @@ function MoreFiltersFold({ value, onChange, reloadKey }: {
           Clear these filters
         </button>
       )}
-    </details>
+    </>
   )
 }
