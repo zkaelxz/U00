@@ -574,8 +574,8 @@ final class BaiheClient {
     }
 
     /** Shown for a refused token, because the server's own text ("Authentication required.") says nothing to do. */
-    static final String TOKEN_HELP = "Baihe did not accept the token. Make a phone token at the PC in Baihe: "
-            + "Settings > Extension tokens per computer, then paste it in Grab > Settings.";
+    static final String TOKEN_HELP = "Baihe didn't accept this key. Make a new one in Baihe "
+            + "(Settings > Remote access keys) and paste it in Grab > Settings.";
 
     /**
      * What to show for a refused call: a fixed line for a refused token, else the server's own text.

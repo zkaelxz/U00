@@ -51,10 +51,10 @@ public class GrabSettingsActivity extends Activity {
         LinearLayout card = card();
         EditText server = field("Server address", prefs().getString(GrabActivity.KEY_SERVER, ""), false);
         // The saved token is never shown again; an empty field keeps the one already saved.
-        EditText token = field("Token (starts with baihe_dt_)", "", true);
+        EditText token = field("Key (starts with baihe_dt_)", "", true);
         card.addView(server);
         card.addView(token);
-        card.addView(text("Make the token at the PC in Baihe: Settings > Extension tokens per computer.", 13, false, palette.muted, 8));
+        card.addView(text("Make a key in Baihe: Settings > My account and look > Remote access keys, then paste it here.", 13, false, palette.muted, 8));
         connectionStatus = text("", 14, false, palette.muted, 4);
         card.addView(connectionStatus);
         card.addView(button("Save and connect", palette.accent, v -> saveConnection(server, token)));
@@ -75,7 +75,8 @@ public class GrabSettingsActivity extends Activity {
         style.addView(text("Typeface", 14, true, palette.text, 12));
         style.addView(choices(TextStyle.FONTS, now.font, i -> prefs().edit().putInt("text_font", i).apply()));
         style.addView(toggle("Outline the letters", now.outline, on -> prefs().edit().putBoolean("text_outline", on).apply()));
-        style.addView(text("Larger text can get tight in small bubbles. Changes apply to pages translated from now on.", 13, false, palette.muted, 8));
+        style.addView(text("Larger text can get tight in small bubbles. Applies to pages you read with Read now from now on; "
+                + "saved chapters use the title's own lettering on the PC.", 13, false, palette.muted, 8));
         list.addView(style);
 
         list.addView(section("Block more sites"));
@@ -110,7 +111,7 @@ public class GrabSettingsActivity extends Activity {
         String candidate = ServerAddress.tokenToCheck(token.getText().toString(),
                 prefs().getString(GrabActivity.KEY_TOKEN, ""), origin, prefs().getString(GrabActivity.KEY_SERVER, ""));
         if (candidate.isEmpty()) {
-            connectionStatus.setText("Enter the token.");
+            connectionStatus.setText("Enter the key.");
             return;
         }
         connectionStatus.setText("Checking...");

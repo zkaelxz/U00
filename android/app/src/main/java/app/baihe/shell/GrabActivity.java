@@ -469,7 +469,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set the server and token in Settings, then share again.");
+            say("Set the server and key in Settings, then share again.");
             showSettings();
             return;
         }
@@ -634,7 +634,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -734,7 +734,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -763,7 +763,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -788,7 +788,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -813,7 +813,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void setTranslate(boolean on) {
         translateOn = on;
         web.evaluateJavascript(on ? PageTranslate.ON : PageTranslate.OFF, null);
-        if (on) say("Translating this page to English. Save and Read now use the original page.");
+        if (on) say("Translating this page to English with Google Translate. Save and Read now still use the original page.");
     }
 
     /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
@@ -1125,7 +1125,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
