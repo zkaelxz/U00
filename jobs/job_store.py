@@ -469,22 +469,23 @@ def _log_interrupted(rec: dict, why: str) -> None:
     """One app.log line per row the sweep closes. Only the id, the kind
     (the description up to its first "(", which is where a title or source
     name would start) and the numbers: the progress message can name files."""
-    import background_jobs as bj
-    kind = (rec.get("description") or "").split("(", 1)[0].strip()[:60] or "job"
-    progress = rec.get("progress")
-    if rec.get("status") == "queued":
-        where = "was queued, not started"
-    elif isinstance(progress, (int, float)):
-        where = f"was running at {round(progress * 100)}%"
-    else:
-        where = "was running"
-    if str(rec.get("job_id")).startswith(bj.BULK_POLL_JOB_PREFIX):
-        what = "the bulk batch resume at startup decides whether it runs again"
-    else:
-        what = "not started again; left for the person to run again"
+    # Logging only: a row with odd values must never stop the sweep closing it.
     with contextlib.suppress(Exception):
         import applog
+        import background_jobs as bj
         from engine_backends import shared
+        kind = (rec.get("description") or "").split("(", 1)[0].strip()[:60] or "job"
+        progress = rec.get("progress")
+        if rec.get("status") == "queued":
+            where = "was queued, not started"
+        elif isinstance(progress, (int, float)):
+            where = f"was running at {round(progress * 100)}%"
+        else:
+            where = "was running"
+        if str(rec.get("job_id")).startswith(bj.BULK_POLL_JOB_PREFIX):
+            what = "the bulk batch resume at startup decides whether it runs again"
+        else:
+            what = "not started again; left for the person to run again"
         applog.get_logger().warning(shared.redact_secrets(
             f"Interrupted job {rec.get('job_id')} ({kind}): {where} when its server stopped "
             f"({why}); marked interrupted, {what}."))
