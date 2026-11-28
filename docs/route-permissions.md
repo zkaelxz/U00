@@ -242,12 +242,14 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/dramas` | library.create |
 | `POST /api/dramas/by-links` | library.read |
 | `POST /api/dramas/covers/backfill` | admin.library |
+| `POST /api/dramas/covers/from-site` | admin.library |
 | `GET /api/dramas/duplicates` | library.read |
 | `POST /api/dramas/duplicates/scan` | admin.library |
 | `POST /api/dramas/same` | library.create |
 | `DELETE /api/dramas/{drama_id}` | local_only() |
 | `GET /api/dramas/{drama_id}/cover` | library.read |
 | `POST /api/dramas/{drama_id}/cover` | media.upload |
+| `POST /api/dramas/{drama_id}/cover/from-site` | admin.library |
 | `POST /api/dramas/{drama_id}/cover/from-video` | admin.library |
 | `POST /api/dramas/{drama_id}/delete-mine` | lines.edit |
 | `POST /api/dramas/{drama_id}/duplicate` | library.create |

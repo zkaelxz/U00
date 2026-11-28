@@ -17483,6 +17483,13 @@ export interface components {
              */
             status: string;
         };
+        /** SiteCoverResult */
+        SiteCoverResult: {
+            /** Drama Id */
+            drama_id: number;
+            /** Outcome */
+            outcome: string;
+        };
         /** SnapshotCopy */
         SnapshotCopy: {
             /** Created At */
