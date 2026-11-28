@@ -1315,6 +1315,27 @@ def test_the_paid_check_is_skipped_without_a_key_a_cap_or_room_under_it(night_en
     assert _usage_rows() == 0
 
 
+def test_a_keyless_engine_is_still_checked_and_metered(night_engine):
+    from services import queue_night as n
+    _engine, status, _cap = night_engine
+    status["needs_key"] = False      # a hosted Ollama model is billed though it needs no key
+    assert n._paid_check()["status"] == "pass" and _usage_rows() == 1
+
+
+def test_the_self_check_makes_no_unmetered_translation_call(night_engine, monkeypatch):
+    import background_jobs
+    from services import queue_night as n, real_model_check_service as checks
+    ran = []
+    monkeypatch.setattr(checks, "_CHECKS", tuple(
+        (cid, label, lambda cid=cid, **_kw: ran.append(cid) or "ok")
+        for cid, label in (("asr", "Transcription"), ("ocr", "OCR"), ("translate", "Translation (Ollama)"))))
+    monkeypatch.setattr(checks.whisper_models, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(background_jobs, "set_result", lambda *a, **k: None)
+    n.run_self_check()
+    assert ran == ["asr", "ocr"] and _usage_rows() == 1
+
+
 def test_a_blank_answer_fails_the_paid_check(night_engine, monkeypatch):
     from services import queue_night as n
     engine, _status, _cap = night_engine

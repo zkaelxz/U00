@@ -359,15 +359,17 @@ def _run_check(check_id: str, label: str, fn, **options) -> dict:
     return {"id": check_id, "label": label, "status": status, "reason": _redact(reason)}
 
 
-def run_checks(speech_clip=None, expected_text=None, before_check=None, on_result=None) -> list:
-    """Runs every check in order and returns their results. The app's job
+def run_checks(speech_clip=None, expected_text=None, before_check=None, on_result=None,
+               only=None) -> list:
+    """Runs every check in order (or the ids in `only`) and returns their results. The app's job
     calls this, so every caller reports the same checks.
     before_check(index, label) may raise to stop the run; on_result gets
     each result as it lands."""
     results = []
     options = {"asr": {"speech_clip": speech_clip, "expected_text": expected_text}}
+    chosen = [c for c in _CHECKS if only is None or c[0] in only]
     try:
-        for i, (check_id, label, fn) in enumerate(_CHECKS):
+        for i, (check_id, label, fn) in enumerate(chosen):
             if before_check:
                 before_check(i, label)
             halted = False

@@ -151,10 +151,10 @@ def maybe_start_self_check(night: dict, now: float) -> bool:
 
 
 def _paid_check() -> Optional[dict]:
-    """One short metered call to the default translation engine, so a refused key or an empty
-    balance shows up before a night's run. It is logged like any paid request, so it counts in the
-    monthly cap; skipped for an engine without a key, and for a capped engine with no cap set or the
-    cap spent (unattended paid work always has a ceiling)."""
+    """The night's one translation call, to the default translation engine, so a refused key, an
+    empty balance or a stopped Ollama shows up before a night's run. It is metered like any paid
+    request, so it counts in the monthly cap; skipped for an engine whose key is missing, and for a
+    capped engine with no cap set or the cap spent (unattended paid work always has a ceiling)."""
     from engine_backends import engine_registry
     from lib.errors import UnsupportedOperationError
     from services import (engine_routing_service, settings_service, translate_run_service,
@@ -163,7 +163,7 @@ def _paid_check() -> Optional[dict]:
     free_tier = engine == "gemini" and bool(settings_service.resolve_gemini_free_tier(None))
     try:
         status = engine_routing_service.engine_status(engine)
-        if not status["needs_key"] or not status["key_configured"]:
+        if status["needs_key"] and not status["key_configured"]:
             return None
         if translate_run_service.engine_cap_applies(engine, free_tier, None) \
                 and not translate_run_service.month_cap_usd():
@@ -203,9 +203,11 @@ def run_self_check() -> None:
     def before_check(i, label):
         if background_jobs.is_cancel_requested(CHECK_JOB_ID):
             raise background_jobs.JobCancelled()
-        background_jobs.update_progress(CHECK_JOB_ID, i / 4, f"Checking {label.lower()}")
+        background_jobs.update_progress(CHECK_JOB_ID, i / 3, f"Checking {label.lower()}")
 
-    results = checks.run_checks(before_check=before_check)
+    # Its Ollama translation check is unmetered and may be a hosted, billed model: the engine
+    # check below makes the night's one translation call, through the monthly cap.
+    results = checks.run_checks(before_check=before_check, only=("asr", "ocr"))
     paid = _paid_check()
     if paid:
         results.append(paid)
