@@ -68,9 +68,6 @@ _DOUBLEABLE_FUNCTION_WORDS = frozenset(
 # below are only cheap on subtitle-sized input.
 MAX_LINE_CHARS = 4000
 
-_OPEN_QUOTES = '“‘'
-_CLOSE_QUOTES = '”’'
-
 
 def has_cjk_letters(text: str) -> bool:
     """True when `text` holds ideographs, kana, hangul or Thai -- not English, so
