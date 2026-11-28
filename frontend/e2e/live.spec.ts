@@ -23,7 +23,7 @@ test('read chat is sent with Start and the chat shows beside the lines', async (
   m.state.status = 'running'
   m.state.chat = { state: 'reading', message: 'Reading the chat.', next_id: 2, messages: [
     { id: 1, author: 'Ann', text: '今天好开心', paid: '', sent_at: 0, translation: 'So happy today', state: 'done' },
-    { id: 2, author: 'Bo', text: '加油', paid: '$5.00', translation: '', state: 'pending' },
+    { id: 2, author: 'Bo', text: '加油', paid: '$5.00', sent_at: 0, translation: '', state: 'pending' },
   ] }
   const live = await openLive(page)
   await openMoreOptions(live)
@@ -550,7 +550,7 @@ test('the form offers and starts on what the server says, and a remembered choic
     ollama: true,
     liveOptions: {
       whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'translategemma:27b',
-      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480 },
+      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480, spend_limit_usd: 2 },
     },
   })
   const live = await openLive(page)

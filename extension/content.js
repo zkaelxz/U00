@@ -96,6 +96,8 @@
     capture: null,
     visible: null,
     missed: null,
+    // The running Baihe subs over the page's player, or null.
+    subs: null,
   };
   // A Quick translate answer has no copy in the library, so a later save of the same picture
   // must go to the app instead of being treated as done.
@@ -2280,10 +2282,207 @@
     return true;
   }
 
+  // -- Baihe subs over the page's own player ---------------------------
+  //
+  // Only <video>/<audio> and currentTime are read, never a site's player markup, so a site
+  // redesign can't break it.
+
+  const SUBS_NUDGE_STEP = 0.5;
+  const SUBS_COLORS = ["#ffffff", "#ffe27a", "#9ee6ff", "#ffb3c7", "#b8f5a6", "#d7c2ff"];
+
+  // What makes the page one video, as the app matches it: a site that changes video without
+  // reloading (YouTube) must not keep showing the last one's lines.
+  function subsPageKey() {
+    const page = new URL(location.href);
+    // Bilibili's part 1 is also its page with no ?p.
+    const ids = ["v", "id", "p"].map((k) => `${k}=${page.searchParams.get(k) || (k === "p" ? "1" : "")}`).join("&");
+    return `${page.host}${page.pathname.replace(/\/+$/, "")}?${ids}`;
+  }
+
+  function mainMedia() {
+    const all = [...document.querySelectorAll("video, audio")];
+    const area = (el) => {
+      if (el.tagName !== "VIDEO") return 0;
+      const r = el.getBoundingClientRect();
+      return Math.max(0, r.width) * Math.max(0, r.height);
+    };
+    const rank = (el) => [el.paused ? 0 : 1, area(el), Number.isFinite(el.duration) ? el.duration : 0];
+    all.sort((a, b) => {
+      const ra = rank(a), rb = rank(b);
+      for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return rb[i] - ra[i];
+      return 0;
+    });
+    return all.find((el) => el.tagName === "AUDIO" || area(el) > 0) || null;
+  }
+
+  function subsColor(name) {
+    if (!name) return SUBS_COLORS[0];
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    return SUBS_COLORS[1 + (h % (SUBS_COLORS.length - 1))];
+  }
+
+  // The lines showing at media time t; a cue list is sorted by start, so the scan stops early.
+  function cuesAt(cues, t) {
+    const out = [];
+    for (const cue of cues) {
+      if (cue.start > t) break;
+      if (cue.end > t) out.push(cue);
+    }
+    return out;
+  }
+
+  function ensureSubsStyles() {
+    if (document.getElementById("baihe-subs-styles")) return;
+    const style = document.createElement("style");
+    style.id = "baihe-subs-styles";
+    style.textContent = `
+      #baihe-subs { position: fixed; z-index: 2147483400; pointer-events: none;
+                    display: flex; flex-direction: column; justify-content: space-between; }
+      #baihe-subs.baihe-subs-audio { left: 0; right: 0; bottom: 0; height: auto; min-height: 64px;
+                                     background: rgba(0,0,0,0.78); }
+      .baihe-subs-chip { align-self: flex-start; pointer-events: auto; display: flex; gap: 4px;
+                         align-items: center; margin: 8px; padding: 3px 6px; border-radius: 6px;
+                         background: rgba(0,0,0,0.62); color: #fff; font: 12px/1.3 "Segoe UI", sans-serif; }
+      .baihe-subs-chip button { font: inherit; cursor: pointer; background: rgba(255,255,255,0.18);
+                                color: #fff; border: none; border-radius: 4px; padding: 2px 6px; }
+      .baihe-subs-lines { text-align: center; padding: 0 6% 7%; }
+      #baihe-subs.baihe-subs-audio .baihe-subs-lines { padding: 4px 16px 12px; }
+      .baihe-subs-line { display: inline-block; margin: 2px 0; padding: 2px 8px; border-radius: 4px;
+                         background: rgba(0,0,0,0.72); font: 600 clamp(14px, 2.2vw, 26px)/1.3 "Segoe UI", sans-serif;
+                         white-space: pre-wrap; text-shadow: 0 1px 2px #000; }
+    `;
+    document.documentElement.appendChild(style);
+  }
+
+  function stopSubs(subs, note) {
+    if (!subs || subs.stopped) return;
+    subs.stopped = true;
+    if (state.subs === subs) state.subs = null;
+    clearInterval(subs.timer);
+    for (const [target, name, fn] of subs.listeners) target.removeEventListener(name, fn);
+    subs.root.remove();
+    if (note) toast(note);
+  }
+
+  // Returns false when the lines can't be shown: a <video> or <audio> that is itself fullscreen
+  // draws none of its children, so there is nowhere to put them.
+  function placeSubs(subs) {
+    const full = document.fullscreenElement;
+    if (full && (full.tagName === "VIDEO" || full.tagName === "AUDIO")) return false;
+    // In fullscreen only the fullscreen element's own children are drawn.
+    const host = full || document.documentElement;
+    if (subs.root.parentNode !== host) host.appendChild(subs.root);
+    if (subs.media.tagName !== "VIDEO") return true;
+    const r = subs.media.getBoundingClientRect();
+    Object.assign(subs.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    return true;
+  }
+
+  function drawSubs(subs) {
+    if (subs.stopped) return;
+    if (subsPageKey() !== subs.pageKey) {
+      stopSubs(subs, "Baihe subs turned off: this is a different video.");
+      return;
+    }
+    if (!subs.media.isConnected) subs.media = mainMedia() || subs.media;
+    const showing = subs.media.isConnected && placeSubs(subs);
+    subs.root.style.display = showing ? "" : "none";
+    if (!showing) return;
+    const shown = cuesAt(subs.cues, subs.media.currentTime - subs.nudge);
+    const key = shown.map((c) => `${c.start}|${c.en}`).join("\n");
+    if (key === subs.shownKey) return;
+    subs.shownKey = key;
+    subs.lines.textContent = "";
+    for (const cue of shown) {
+      const line = document.createElement("div");
+      const text = document.createElement("span");
+      text.className = "baihe-subs-line";
+      text.style.color = subsColor(cue.speaker);
+      text.textContent = cue.en;
+      line.appendChild(text);
+      subs.lines.appendChild(line);
+    }
+  }
+
+  function subsChip(subs) {
+    const chip = document.createElement("div");
+    chip.className = "baihe-subs-chip";
+    const label = document.createElement("span");
+    const nudge = (step) => {
+      subs.nudge = Math.round((subs.nudge + step) * 10) / 10;
+      label.textContent = subs.nudge ? `Baihe subs: on (${subs.nudge > 0 ? "+" : ""}${subs.nudge} s)` : "Baihe subs: on";
+      subs.shownKey = null;
+      drawSubs(subs);
+    };
+    const button = (text, title, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = text;
+      b.title = title;
+      b.addEventListener("click", (event) => { event.stopPropagation(); onClick(); });
+      return b;
+    };
+    label.textContent = "Baihe subs: on";
+    chip.append(label,
+      button("−0.5 s", "Show the lines half a second earlier", () => nudge(-SUBS_NUDGE_STEP)),
+      button("+0.5 s", "Show the lines half a second later", () => nudge(SUBS_NUDGE_STEP)),
+      button("Off", "Turn Baihe subs off", () => stopSubs(subs)));
+    return chip;
+  }
+
+  // Bumped by every on and off, so an answer that arrives after a later switch is dropped.
+  let subsGeneration = 0;
+
+  function turnOffSubs() {
+    subsGeneration++;
+    stopSubs(state.subs);
+  }
+
+  async function startSubs() {
+    const generation = ++subsGeneration;
+    stopSubs(state.subs);
+    const media = mainMedia();
+    if (!media) return { ok: true, data: { media: false } };
+    const pageKey = subsPageKey();
+    const answer = await chrome.runtime.sendMessage({ type: "fetchSiteSubs", url: location.href });
+    if (generation !== subsGeneration) return { ok: true, data: { superseded: true } };
+    if (!answer || !answer.ok) return answer || { ok: false, error: "No answer from the extension." };
+    const data = answer.data || {};
+    if (!data.found || !Array.isArray(data.cues) || !data.cues.length) {
+      return { ok: true, data: { media: true, found: !!data.found, title: data.title || "", count: 0 } };
+    }
+    ensureSubsStyles();
+    const root = document.createElement("div");
+    root.id = "baihe-subs";
+    if (media.tagName !== "VIDEO") root.className = "baihe-subs-audio";
+    const lines = document.createElement("div");
+    lines.className = "baihe-subs-lines";
+    const subs = { media, root, lines, pageKey, nudge: 0, shownKey: null, listeners: [],
+                   cues: [...data.cues].sort((a, b) => a.start - b.start) };
+    root.append(subsChip(subs), lines);
+    state.subs = subs;
+    const redraw = () => drawSubs(subs);
+    for (const [target, name] of [[media, "timeupdate"], [media, "seeked"], [window, "resize"],
+                                  [window, "scroll"], [document, "fullscreenchange"]]) {
+      target.addEventListener(name, redraw, { passive: true });
+      subs.listeners.push([target, name, redraw]);
+    }
+    // timeupdate comes only about four times a second, too coarse for a line's start.
+    subs.timer = setInterval(redraw, 150);
+    redraw();
+    return { ok: true, data: { media: true, found: true, title: data.title || "", count: subs.cues.length,
+                               cutOff: !!data.cut_off } };
+  }
+
   chrome.runtime.onMessage.addListener((message, sender, respond) => {
     (async () => {
       try {
         switch (message && message.type) {
+          case "showSiteSubs":
+            if (message.on) respond(await startSubs());
+            else { turnOffSubs(); respond({ ok: true, data: { on: false } }); }
+            break;
           case "translateVisible":
             respond(await translateVisible(message));
             break;
@@ -2329,6 +2528,7 @@
               visibleRun: state.visible ? { running: true, text: state.visible.text } : null,
               textPage: isTextPage(),
               hasSelection: !!selectedText(),
+              siteSubs: !!state.subs,
               // The page's own host. The popup uses this to key "which
               // drama does this site go to", rather than reading
               // `tab.url` -- that needs the `tabs` permission or an
@@ -2353,5 +2553,6 @@
                      isTextPage, chapterHeading, saveNovelText, pageFacts, chapterTitles,
                      looksLikeChallengePage, sampleSignature, waitForStableSignature,
                      captureChapter, cancelCapture, captureTally, keepWaiting, unreadableLog, placeBox, regionsByKey, requestCancel,
-                     completenessLine, nextChapterUrl, looksGated, rememberAnswer, answerFor };
+                     completenessLine, nextChapterUrl, looksGated, rememberAnswer, answerFor,
+                     cuesAt, subsPageKey, mainMedia, startSubs, stopSubs, turnOffSubs };
 })();

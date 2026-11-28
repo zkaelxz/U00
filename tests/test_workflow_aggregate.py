@@ -135,3 +135,11 @@ def test_every_file_that_needs_an_optional_library_runs_in_the_optional_job():
                      if _skips_whole_file_without(p) & extras
                      and p.relative_to(ROOT).as_posix() not in listed)
     assert missing == []
+
+
+def test_a_run_that_reuses_on_approval_records_what_the_tree_needed():
+    """The push after the merge shortens its run from this record; the reused run covered the rest."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "tools/ci_tested_tree.py --on-approval) || out=$needed" in text
+    assert 'record=$needed || record=$out' in text
+    assert 'printf \'%s\\n\' "$record" | python3 tools/ci_tested_tree.py --write tested.json' in text

@@ -33,3 +33,21 @@
 .add-box-preview > div { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .add-box-preview dt { color: var(--muted); min-width: 10rem; }
 .add-box-preview dd { margin: 0; }
+/* The Add tab: one quiet column on the page, no box, with the recent link runs as plain rows under it. */
+.add-box-page { display: grid; gap: var(--space-3); width: 100%; max-width: 48rem; margin: var(--space-4) auto 0; justify-self: center; align-self: center; }
+.add-box-page > .card-title { font-size: var(--text-xl); font-weight: var(--weight-bold); }
+.add-box-page.is-dragging { border: 0; outline: 2px dashed var(--accent); outline-offset: var(--space-3); border-radius: var(--radius-md); }
+.add-box-page .add-box-quiet { margin: 0; }
+@media (pointer: coarse), (max-width: 640px) { .add-box-page .add-box-quiet > button.link { display: inline-flex; align-items: center; min-height: 44px; } }
+/* The dot only separates the two on one line; once they wrap it would dangle. */
+@media (max-width: 640px) { .add-box-quiet-sep { display: none; } }
+.add-runs { display: grid; gap: var(--space-2); width: 100%; max-width: 48rem; margin: var(--space-5) auto 0; justify-self: center; align-self: center; }
+.add-runs > * { margin: 0; }
+.add-runs-title { font-size: var(--text-sm); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.add-runs-list { list-style: none; margin: 0; padding: 0; }
+.add-run { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2) var(--space-3); padding-block: var(--space-2); border-top: 1px solid var(--border); }
+.add-run-name { min-width: 0; overflow-wrap: anywhere; }
+.add-run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.add-runs > .btn { justify-self: start; }
+/* Keep Done watching beside Open instead of on a full row of its own (index.css gives .confirm-button one on phones). */
+.add-run-actions .confirm-button { display: inline-flex; flex: 0 0 auto; }

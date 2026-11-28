@@ -88,7 +88,7 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
   return (
     <>
       <section
-        className={`card add-box${dragging ? ' is-dragging' : ''}`}
+        className={`add-box ${onPage ? 'add-box-page' : 'card'}${dragging ? ' is-dragging' : ''}`}
         aria-label="Add"
         onDragOver={drops ? (e) => { e.preventDefault(); setDragging(true) } : undefined}
         onDragLeave={drops ? () => setDragging(false) : undefined}
@@ -132,6 +132,11 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
             ) : run.file || run.flow.phase === 'error' ? (
               <FilePlan run={run} onChooseFile={chooseFile} onMake={makeElsewhere} onClear={clearFile}
                 onOnlyAdd={() => run.file && newTitle({ fileName: run.file.name })} />
+            ) : onPage ? (
+              <p className="muted add-box-quiet">
+                {canCreate && <><button type="button" className="link" onClick={() => newTitle(null)}>Add a title by hand</button><span className="add-box-quiet-sep" aria-hidden="true">·</span></>}
+                <span>Just want to translate some pasted text? <a className="touch-link" href={routeHref({ name: 'translate' })}>Open Text</a></span>
+              </p>
             ) : (
               <div className="add-box-quiet">
                 {canCreate && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => newTitle(null)}>Add a title by hand</button>}

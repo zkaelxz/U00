@@ -10,7 +10,7 @@ import { openMenu } from './settingsNav'
 // remote-admin personas.
 
 const rows = (page: import('@playwright/test').Page) => page.getByTestId('jobs-table').locator('tbody > tr[data-testid^="job-row-"]')
-const chip = (page: import('@playwright/test').Page, name: string) => page.getByRole('group', { name: 'Status' }).getByRole('button', { name })
+const chip = (page: import('@playwright/test').Page, name: string | RegExp) => page.getByRole('group', { name: 'Status' }).getByRole('button', { name })
 const error = (status: number, message: string) => ({ status, json: { error: { code: 'x', message } } })
 
 test('running jobs first, with title and stage links, a progress bar and live duration', async ({ page }) => {
@@ -48,7 +48,7 @@ test('running jobs first, with title and stage links, a progress bar and live du
 
 test('a title-less job links its Stage cell to the page the server names', async ({ page }) => {
   const t = Math.floor(Date.now() / 1000)
-  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other', status: 'done', outcome: 'ok', started_at: t - 60, finished_at: t - 50 }
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, drama_id: null, kind: 'other' as const, status: 'done', outcome: 'ok', started_at: t - 60, finished_at: t - 50 }
   await mockJobsApi(page, [
     { ...base, job_id: 'sources_search', description: 'Search sources', page: 'sources' },
     { ...base, job_id: 'deno_install', description: 'Install Deno', page: 'diagnostics' },
@@ -466,11 +466,11 @@ test('the running-jobs dot stays visible when the dock is icons only', async ({ 
 // A worker that returned, but whose work failed: the server calls it done and the outcome says failed.
 function failedTranscription() {
   const t = Math.floor(Date.now() / 1000)
-  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3 }
+  const base = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe' as const, drama_id: 3 }
   return [
     { ...base, job_id: 'transcribe_3', status: 'done', description: 'Transcription (title #3)', started_at: t - 120, finished_at: t - 100, outcome: 'failed', outcome_message: 'The speech model could not be downloaded.' },
     { ...base, job_id: 'translate_3', status: 'done', description: 'Translation (title #3)', started_at: t - 90, finished_at: t - 60, outcome: 'ok', outcome_message: 'Finished.' },
-    { ...base, job_id: 'ocr_4', status: 'error', description: 'Audio emotion tags (drama #4)', error: 'Audio emotion tags need: pip install funasr', started_at: t - 50, finished_at: t - 40, outcome: 'failed', outcome_message: 'Audio emotion tags need: pip install funasr', drama_id: 4, kind: 'other' },
+    { ...base, job_id: 'ocr_4', status: 'error', description: 'Audio emotion tags (drama #4)', error: 'Audio emotion tags need: pip install funasr', started_at: t - 50, finished_at: t - 40, outcome: 'failed', outcome_message: 'Audio emotion tags need: pip install funasr', drama_id: 4, kind: 'other' as const },
   ]
 }
 
@@ -559,7 +559,7 @@ for (const scheme of ['light', 'dark'] as const) {
 test('a long job name wraps inside the Job column and never runs into Title', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 })
   const t = Math.floor(Date.now() / 1000)
-  const long = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe', drama_id: 3, job_id: 'transcribe_compare_3', status: 'done', description: 'Comparing transcription of 183 line(s) (title #3)', started_at: t - 120, finished_at: t - 50, outcome: 'ok', outcome_message: 'Finished.' }
+  const long = { progress: null, message: '', error: null, gpu_touching: false, updated_at: t, owned_by_me: true, page: null, kind: 'transcribe' as const, drama_id: 3, job_id: 'transcribe_compare_3', status: 'done', description: 'Comparing transcription of 183 line(s) (title #3)', started_at: t - 120, finished_at: t - 50, outcome: 'ok', outcome_message: 'Finished.' }
   await mockJobsApi(page, [...pageJobs(), long], true)
   await page.goto('/#/jobs')
   await chip(page, 'All').click()

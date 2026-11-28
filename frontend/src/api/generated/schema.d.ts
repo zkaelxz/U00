@@ -4537,6 +4537,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ext-bridge/subs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Device token: the English lines of your title made from this video page, for its own player */
+        post: operations["post_subs_api_ext_bridge_subs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ext-bridge/text": {
         parameters: {
             query?: never;
@@ -14540,6 +14557,11 @@ export interface components {
              * @default false
              */
             reading_line?: boolean;
+            /**
+             * Sound Captions
+             * @default false
+             */
+            sound_captions?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -17372,6 +17394,13 @@ export interface components {
              * @default false
              */
             ear_placement?: boolean;
+            /** Field */
+            field?: ("en" | "zh" | "bilingual") | null;
+            /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -17383,6 +17412,11 @@ export interface components {
             per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;
@@ -20968,6 +21002,11 @@ export interface components {
             fully_translated: boolean;
             /** Overlap Count */
             overlap_count: number;
+            /**
+             * Sound Captioned Lines
+             * @default 0
+             */
+            sound_captioned_lines: number;
             /** Total Lines */
             total_lines: number;
             /** Zh Filled */
@@ -22711,6 +22750,11 @@ export interface components {
             en: string | {
                 [key: string]: string;
             };
+            /**
+             * Link
+             * @default
+             */
+            link: string;
             /** Note */
             note: string;
             /** Source */
@@ -47441,6 +47485,7 @@ export interface operations {
                 wrap_chars_source?: number;
                 tidy_timing?: boolean;
                 speaker_names?: boolean;
+                sound_captions?: boolean;
                 reading_line?: boolean;
             };
             header?: never;
@@ -47750,6 +47795,26 @@ export interface operations {
         };
     };
     get_sites_api_ext_bridge_sites_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    post_subs_api_ext_bridge_subs_post: {
         parameters: {
             query?: never;
             header?: never;

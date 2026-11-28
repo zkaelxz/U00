@@ -1,7 +1,9 @@
-"""After a merge to the base branch, which CI jobs a green PR run of the identical tree already ran.
+"""Which CI jobs a green PR run of the identical tree already ran: after a merge to the base branch, and
+when auto-merge is turned on.
 
     python tools/ci_tested_tree.py --write tested.json < outputs      (PR run: record what it tests)
     python tools/ci_tested_tree.py --after-merge < outputs           (push run: drop what was run)
+    python tools/ci_tested_tree.py --on-approval < outputs           (auto-merge turned on: drop what was run)
 
 `outputs` is the `name=true|false` lines tools/ci_changes.py printed. A squash merge of a PR whose
 last green run tested the same merge tree adds nothing that run did not test, so the push run keeps
@@ -10,7 +12,9 @@ broken lookup may cost minutes, never skip a job. A merge that changes CI or dep
 (ci_changes' "everything" files) always runs everything, since the PR run used its own copy of the
 workflow; so does a run from a fork, a newer run of the same tree that did not pass, and a merge onto
 a base other than the one the run tested (which also covers a rebase merge of several commits). A nightly
-scheduled run still runs everything.
+scheduled run still runs everything. Turning auto-merge on starts a new run of the same PR; it keeps
+only what the newest earlier run of the same head skipped (the browser tests it deferred), and only when
+that run is green, from this repo, and tested the same merge tree on the same base.
 """
 import argparse
 import io
@@ -125,24 +129,43 @@ def find_tested(repo, sha, tree, base_tree, token, get=_get):
     merged = [p for p in pulls if p.get("merge_commit_sha") == sha and p.get("merged_at")
               and (p.get("base") or {}).get("ref") == BASE_BRANCH]
     for pr in merged:
-        runs = get(f"{_API}/repos/{repo}/actions/workflows/tests.yml/runs"
-                   f"?event=pull_request&head_sha={pr['head']['sha']}&per_page=20", token)
-        for run in sorted(runs.get("workflow_runs", []), key=lambda r: r.get("run_number", 0), reverse=True):
-            record = _record(repo, run, token, get)
-            if record is None or record.get("tree") != tree or record.get("base_tree") != base_tree:
-                continue
-            # A fork's record is its own word, so it may stop a skip but never vouch for one.
-            if ((run.get("head_repository") or {}).get("full_name") != repo
-                    or run.get("status") != "completed" or run.get("conclusion") != "success"):
-                return None
-            return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
+        found = find_tested_at_head(repo, pr["head"]["sha"], tree, base_tree, token, get)
+        if found is not _NOT_FOUND:
+            return found
     return None
+
+
+_NOT_FOUND = object()
+
+
+def find_tested_at_head(repo, head_sha, tree, base_tree, token, get=_get, skip_run_id=None, strict=False):
+    """The outputs of the newest PR run at `head_sha` that recorded `tree` on `base_tree` when that run
+    is green and from this repo; None when it is not; _NOT_FOUND when no run recorded those trees."""
+    runs = get(f"{_API}/repos/{repo}/actions/workflows/tests.yml/runs"
+               f"?event=pull_request&head_sha={head_sha}&per_page=20", token)
+    for run in sorted(runs.get("workflow_runs", []), key=lambda r: r.get("run_number", 0), reverse=True):
+        if skip_run_id is not None and str(run.get("id")) == str(skip_run_id):
+            continue
+        record = _record(repo, run, token, get)
+        if record is None and strict and run.get("status") == "completed" and run.get("conclusion") not in ("success", "cancelled", "skipped"):
+            # Its record failed to upload, so it may be a failed run of this very tree.
+            return None
+        if record is None or record.get("tree") != tree or record.get("base_tree") != base_tree:
+            continue
+        # A fork's record is its own word, so it may stop a skip but never vouch for one.
+        if ((run.get("head_repository") or {}).get("full_name") != repo
+                or run.get("status") != "completed" or run.get("conclusion") != "success"):
+            return None
+        print(f"ci_tested_tree: reusing run {run.get('id')} {run.get('html_url', '')}", file=sys.stderr)
+        return parse_outputs("\n".join(f"{k}={v}" for k, v in record["outputs"].items()))
+    return _NOT_FOUND
 
 
 def main(argv=None, stdin=None, stdout=None, env=None, tree=_tree, get=_get, merged_files=_merged_files):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--write", metavar="PATH")
     parser.add_argument("--after-merge", action="store_true")
+    parser.add_argument("--on-approval", action="store_true")
     args = parser.parse_args(argv)
     env = os.environ if env is None else env
     stdout = stdout or sys.stdout
@@ -164,13 +187,18 @@ def main(argv=None, stdin=None, stdout=None, env=None, tree=_tree, get=_get, mer
     try:
         if any(ci_changes._forces_everything(f.strip()) for f in merged_files() if f.strip()):
             raise ValueError("the merge changes CI or dependency files")
-        tested = find_tested(env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], tree(), tree("HEAD^1"),
-                             env["GITHUB_TOKEN"], get)
+        if args.on_approval:
+            tested = find_tested_at_head(env["GITHUB_REPOSITORY"], env["PR_HEAD_SHA"], tree(), tree("HEAD^1"),
+                                         env["GITHUB_TOKEN"], get, skip_run_id=env["GITHUB_RUN_ID"], strict=True)
+            tested = None if tested is _NOT_FOUND else tested
+        else:
+            tested = find_tested(env["GITHUB_REPOSITORY"], env["GITHUB_SHA"], tree(), tree("HEAD^1"),
+                                 env["GITHUB_TOKEN"], get)
     except Exception as exc:
-        print(f"ci_tested_tree: {type(exc).__name__}: {exc}; running everything the push needs", file=sys.stderr)
+        print(f"ci_tested_tree: {type(exc).__name__}: {exc}; running everything this run needs", file=sys.stderr)
         tested = None
     if tested is None:
-        print("ci_tested_tree: no green PR run of this tree; running everything the push needs", file=sys.stderr)
+        print("ci_tested_tree: no green PR run of this tree; running everything this run needs", file=sys.stderr)
         print_outputs(push, stdout)
     else:
         print("ci_tested_tree: a green PR run tested this tree; running only what it skipped", file=sys.stderr)
