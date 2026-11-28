@@ -272,6 +272,24 @@ def check_separation(use_gpu) -> None:
     check("separation", "separator", bool(use_gpu))
 
 
+# Room kept on top of both estimates before two models load side by side: the estimates are guesses.
+_SIDE_BY_SIDE_MARGIN_MB = 1024
+
+
+def fits_beside_separation(kind: str, name: str, use_gpu: bool) -> bool:
+    """Whether a model of `kind`/`name` can load while vocal separation runs, without either
+    eating into the reserve. Unlike `check`, anything unknown (an unread memory, an unestimated
+    model) says no: this only decides whether to start early, so a guess must not risk a crash."""
+    memory = "vram" if use_gpu else "ram"
+    need = estimate_mb(kind, name)
+    separation = estimate_mb("separation", "separator")
+    reading = read_memory_mb(memory, at_load=True)
+    if need is None or separation is None or reading is None:
+        return False
+    slot = 0 if use_gpu else 1
+    return reading[1] - reserved_mb(memory) >= need[slot] + separation[slot] + _SIDE_BY_SIDE_MARGIN_MB
+
+
 def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:
     """The ASR / aligner loaders' one hook; a cached model needs no check."""
     if not cached:

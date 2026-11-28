@@ -14,6 +14,7 @@ import glob
 import os
 import shutil
 import tempfile
+import threading
 import time
 import types
 from typing import Optional
@@ -299,7 +300,15 @@ class _PipelineRun:
     def _transcribe_audio(self):
         o, rep = self.o, self.rep
         if o.separate_vocals_first:
-            failed = self._separate_vocals()
+            preload = self._start_whisper_preload()
+            failed = {"failed_reason": "error"}
+            try:
+                failed = self._separate_vocals()
+            finally:
+                if preload is not None:
+                    self._finish_whisper_preload(preload)
+                    if failed:
+                        whisper_models.release_gpu_models()   # the run stops here: free the early model
             if failed:
                 return failed
         if rep.cancelled():
@@ -352,6 +361,44 @@ class _PipelineRun:
         elif event == "device":
             self.sep_device = _separation_device_label(value)
             self.rep.progress(0.0, self._sep_message(0.0))
+
+    def _start_whisper_preload(self):
+        """Starts loading Whisper while the vocals are separated, which takes seconds to
+        minutes that the load would otherwise add after it. Only a model already on disk (a
+        download reports its own progress, in order) and only when memory holds both models;
+        otherwise the load waits for the separation, as before."""
+        o = self.o
+        if self.vad_run or o.use_groq:
+            return None
+        vocals_path = os.path.join(os.path.dirname(self.audio_path), "vocals.wav")
+        if _reusable_vocals(vocals_path, self.audio_path):
+            return None
+        if not (o.local_model_path or whisper_models.is_whisper_model_cached(o.whisper_size)):
+            return None
+        if not memory_headroom.fits_beside_separation("whisper", o.local_model_path or o.whisper_size,
+                                                      bool(o.use_gpu)):
+            return None
+
+        def load():
+            try:
+                whisper_models.load_whisper_model(o.whisper_size, use_gpu=o.use_gpu,
+                                                  local_model_path=o.local_model_path)
+            except Exception:
+                pass  # the load after the separation tries again and reports the error
+        thread = threading.Thread(target=load, name="whisper-preload", daemon=True)
+        thread.start()
+        return thread
+
+    def _finish_whisper_preload(self, thread):
+        thread.join()
+        o = self.o
+        info = whisper_models.get_whisper_device_info(o.whisper_size, use_gpu=o.use_gpu,
+                                                      local_model_path=o.local_model_path)
+        # A GPU load that fell back to the CPU beside the separation must not stand for the
+        # run: alone on the card it would have fit.
+        if o.use_gpu and info.get("gpu_error"):
+            whisper_models.forget_whisper_model(o.whisper_size, use_gpu=o.use_gpu,
+                                                local_model_path=o.local_model_path)
 
     def _separate_vocals(self):
         o, rep = self.o, self.rep
