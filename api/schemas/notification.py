@@ -51,7 +51,7 @@ class NotificationEvent(BaseModel):
     # (POST /api/live/follows/{follow_id}/start) and a scheduled start (Unix
     # seconds, shown in the viewer's own time).
     follow_id: Optional[int] = None
-    action: Optional[Literal["start_live"]] = None
+    action: Optional[Literal["start_live", "retry_queue"]] = None
     starts_at: Optional[float] = None
     # A "waiting" entry: the page its Open link goes to.
     target: Optional[NotificationTarget] = None

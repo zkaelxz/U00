@@ -31,6 +31,7 @@ from typing import Optional
 import db
 from engine_backends import shared as engine_shared
 from engine_backends import engine_registry
+from engine_backends import local as local_engine
 from lib import model_offline
 from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
@@ -685,14 +686,102 @@ def cancel_item(principal, item_id: int) -> dict:
     return get_queue(principal)
 
 
+def _back_to_waiting(item: dict, at_pc: bool) -> None:
+    item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
+                held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+
+
 def retry_item(principal, item_id: int, *, at_pc: bool) -> dict:
     def change(doc, item):
         if item["status"] not in RETRYABLE:
             raise ConflictError("Only a failed, skipped, cancelled or interrupted item can be retried.")
-        item.update(status=WAITING, reason="", job_id=None, started_at=None, finished_at=None,
-                    held=False, not_before=None, at_pc=item["at_pc"] and at_pc)
+        _back_to_waiting(item, at_pc)
         _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
+
+
+def interrupted_since(since: float) -> list:
+    """The job id of each item a restart stopped at or after `since` (None for
+    one whose job had not started): what the restart notice counts, and the
+    cut-off jobs it must not count a second time."""
+    with _lock:
+        doc = _load()
+    return [i["job_id"] for i in doc["items"] if i["status"] == INTERRUPTED
+            and i["reason"] in (_INTERRUPTED, _NOT_STARTED) and (i["finished_at"] or 0) >= since]
+
+
+def _needs_paid(engine, model) -> bool:
+    """The rule the start routes apply (api.auth.require_engines_allowed): an
+    engine not open to every account, or an Ollama hosted tag outside the
+    members' ones."""
+    return not engine_registry.open_to_all_accounts(engine) or (
+        engine == "ollama" and local_engine.cloud_model_needs_paid(model))
+
+
+# Steps that translate or name with an engine of their own choosing, the title's otherwise.
+_ENGINE_STEPS = ("translate", NAMES, LINES, RUN_TRANSLATE, RUN_SCANLATE)
+
+
+def _may_use_paid(item: dict) -> bool:
+    """Could this item run on an engine the caller may not use? Advisory, on
+    what the item would run with now (its own engine, else the title's): the
+    real gate is still the start, with the adder's rights. Raises a
+    ServiceError for transcribe settings that no longer apply."""
+    settings = item.get("settings") or {}
+    if settings.get("use_groq"):
+        return True
+    drama = db.get_drama(item["drama_id"])
+    if item["step"] in _ENGINE_STEPS:
+        engine = settings.get("engine") or (_translate_engine(drama) if drama else None)
+        if engine is None:
+            return False
+        model = settings.get("model")
+        if model is None and drama and not settings.get("engine"):
+            model = _queued_model_and_batch(drama, engine)[0]
+        return _needs_paid(engine, model or engine_registry.effective_default_model(engine))
+    if item["step"] == "transcribe" and drama:
+        return bool(transcribe_options_service.apply_run_overrides(drama, settings).get("use_groq"))
+    return False
+
+
+def retry_interrupted(principal, *, holds_paid: bool, at_pc: bool) -> dict:
+    """The restart notice's "Run them again": every interrupted item the
+    caller may change goes back to waiting, as Retry does, and the queue
+    starts when the caller may start it. An item that could run on a paid
+    engine is left as it is unless the caller holds engines.paid, even
+    though it would run with its adder's rights: the press is what starts it.
+    For such a caller an item whose saved settings no longer apply is left
+    too, for its own Retry to explain; a caller with engines.paid skips that
+    check, so the item goes back and fails at its start."""
+    retried = skipped_paid = skipped_stale = 0
+    with _lock:
+        doc = _load()
+        for item in doc["items"]:
+            if item["status"] != INTERRUPTED or not _sees(principal, item) \
+                    or not _may_change(principal, item):
+                continue
+            if not holds_paid:
+                try:
+                    paid = _may_use_paid(item)
+                except ServiceError:
+                    skipped_stale += 1
+                    continue
+                if paid:
+                    skipped_paid += 1
+                    continue
+            _back_to_waiting(item, at_pc)
+            retried += 1
+        if retried and _controls(principal):
+            doc["state"], doc["notice"] = ACTIVE, None
+            if doc["schedule"] and doc["schedule"]["missed"]:
+                doc["schedule"] = None
+        elif retried:
+            _auto_start(doc, ownership_service.user_id(principal))
+        started = doc["state"] == ACTIVE
+        _save(doc)
+    _wake.set()
+    return {"retried": retried, "skipped_paid": skipped_paid, "skipped_stale": skipped_stale,
+            "started": bool(retried) and started}
 
 
 def clear_finished(principal) -> dict:
