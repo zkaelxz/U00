@@ -710,30 +710,43 @@ def current_generation(job_id: str) -> int:
     return _generations.get(job_id, 0)
 
 
+class _Abortable:
+    """fn() started on a helper thread; result() waits for it. The thread is
+    abandoned (daemon), not killed: for a call like yt-dlp's in-process
+    lookup, which has no cancel point of its own."""
+
+    def __init__(self, fn):
+        self._box = {}
+
+        def work():
+            try:
+                self._box["value"] = fn()
+            except BaseException as exc:
+                self._box["error"] = exc
+
+        self._worker = threading.Thread(target=work, daemon=True, name="live-resolve")
+        self._worker.start()
+
+    def running(self) -> bool:
+        return self._worker.is_alive()
+
+    def result(self, should_stop, poll: float = 0.25):
+        """fn()'s result, or background_jobs.JobCancelled as soon as should_stop() is true."""
+        while True:
+            self._worker.join(poll)
+            if not self._worker.is_alive():
+                break
+            if should_stop():
+                raise background_jobs.JobCancelled("live")
+        if "error" in self._box:
+            raise self._box["error"]
+        return self._box["value"]
+
+
 def _run_abortable(fn, should_stop, poll: float = 0.25):
     """Runs fn() on a helper thread and returns its result, or raises
-    background_jobs.JobCancelled as soon as should_stop() is true. The
-    thread is abandoned (daemon), not killed: for a call like yt-dlp's
-    in-process lookup, which has no cancel point of its own."""
-    box = {}
-
-    def work():
-        try:
-            box["value"] = fn()
-        except BaseException as exc:
-            box["error"] = exc
-
-    worker = threading.Thread(target=work, daemon=True, name="live-resolve")
-    worker.start()
-    while True:
-        worker.join(poll)
-        if not worker.is_alive():
-            break
-        if should_stop():
-            raise background_jobs.JobCancelled("live")
-    if "error" in box:
-        raise box["error"]
-    return box["value"]
+    background_jobs.JobCancelled as soon as should_stop() is true."""
+    return _Abortable(fn).result(should_stop, poll)
 
 
 class _LiveRun(ChunkCaptioner):
@@ -806,18 +819,24 @@ class _LiveRun(ChunkCaptioner):
 
     def run(self):
         self.report("Resolving the stream address...")
+        # The lookup is network only and the load disk and GPU only, so the lookup
+        # runs on its own thread meanwhile; the model is still loaded through the
+        # runner, as when the two ran one after the other. A bad link is reported
+        # once the load is done.
+        lookup = _Abortable(
+            lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
+                                       cookies_file=self.cookies_file, proxy=self.proxy))
+        if not self._warm_whisper():
+            return
+        if lookup.running():
+            self.report("Resolving the stream address...")
         try:
-            self.source_url = _run_abortable(
-                lambda: resolve_stream_url(self.url, cookies_browser=self.cookies_browser,
-                                           cookies_file=self.cookies_file, proxy=self.proxy),
-                self.should_stop)
+            self.source_url = lookup.result(self.should_stop)
         except background_jobs.JobCancelled:
             background_jobs.update_progress(self.job_id, 1.0, "Stopped.")
             return
         if self.stream_url_check is not None:
             self.stream_url_check(self.source_url)
-        if not self._warm_whisper():
-            return
         self._capture_and_caption()
 
     def _warm_whisper(self):

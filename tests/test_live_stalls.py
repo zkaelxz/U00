@@ -747,6 +747,44 @@ class TestWarmStart:
         assert order[0] == ("warm", "small", True)
         assert any(n.startswith("Whisper small ready in") for n in notes)
 
+    def test_the_model_loads_while_the_stream_address_is_looked_up(self, job, monkeypatch):
+        stream, start, notes = job
+        loading, looking = threading.Event(), threading.Event()
+
+        def resolve(url, **kw):
+            looking.set()
+            if not loading.wait(PROMPT):
+                raise RuntimeError("the lookup ran before the load")
+            return "http://stream"
+
+        def warm(size, gpu, cb=None):
+            loading.set()
+            looking.wait(PROMPT)
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        monkeypatch.setattr(live_whisper, "warm_up", warm)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture",
+                            lambda *a, **k: captured.append(a[0]) or FakeProc())
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: [])
+        started = time.monotonic()
+        assert start("live_overlap_load", Engine())
+        assert _wait(lambda: captured)
+        assert captured == ["http://stream"] and time.monotonic() - started < PROMPT
+
+    def test_a_bad_link_still_fails_with_its_message_after_the_load(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: None)
+
+        def resolve(url, **kw):
+            raise lt.LiveCaptureError("Couldn't resolve that stream URL: private video")
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: captured.append(1))
+        assert start("live_bad_link", Engine())
+        assert _wait(lambda: background_jobs.get_status("live_bad_link")["status"] == "error")
+        assert "private video" in background_jobs.get_status("live_bad_link")["error"]
+        assert captured == []
+
     def test_a_failed_warm_up_does_not_stop_the_job(self, job, monkeypatch):
         stream, start, notes = job
 
