@@ -5,11 +5,11 @@ html[data-style='soft'] {
   --font-sans: 'Nunito', 'Quicksand', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
   --font-heading: var(--font-sans);
   --wash-1: transparent; --wash-2: transparent;
-  --bg: #f4f0ff; --surface: #ffffff; --surface-2: #ece6ff; --border: #e3dcf7; --text: #231942; --muted: #5d5380;
-  --accent: #5a37e6; --accent-text: #5a37e6; --highlight: #e7e0ff; --field-bg: #ffffff; --field-edge: #7d71a8;
-  --glass: #ffffff; --glass-edge: transparent; --glass-shadow: 0 10px 30px rgba(80, 50, 200, 0.14);
-  --btn: #ffffff; --btn-edge: transparent; --btn-shadow: 0 3px 10px rgba(80, 50, 200, 0.16); --active: #ffffff;
-  --soft-lift: 0 10px 30px rgba(80, 50, 200, 0.12);
+  --bg: #f7f5f1; --surface: #ffffff; --surface-2: #eeebe5; --border: #e3dfd7; --text: #26222d; --muted: #5c5864;
+  --accent: #5548b5; --accent-text: #5548b5; --highlight: #ebe8f3; --field-bg: #ffffff; --field-edge: #827d8c;
+  --glass: #ffffff; --glass-edge: transparent; --glass-shadow: 0 10px 30px rgba(40, 30, 60, 0.10);
+  --btn: #ffffff; --btn-edge: transparent; --btn-shadow: 0 3px 10px rgba(40, 30, 60, 0.12); --active: #ffffff;
+  --soft-lift: 0 8px 24px rgba(40, 30, 60, 0.09);
 }
 @media (prefers-color-scheme: dark) {
 }
@@ -45,7 +45,7 @@ html[data-style='soft'] .jobs-menu-btn,
 html[data-style='soft'] .notify-bell-btn,
 html[data-style='soft'] .theme-menu-btn { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
 html[data-style='soft'] .btn.btn-primary:not(:disabled),
-html[data-style='soft'] .btn.btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #d946ef)); border-color: transparent; box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent); }
+html[data-style='soft'] .btn.btn-primary:hover:not(:disabled) { background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 80%, #000)); border-color: transparent; box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent); }
 html[data-style='soft'] .btn.btn-ghost { background: transparent; box-shadow: none; }
 html[data-style='soft'] .card,
 html[data-style='soft'] .panel,
