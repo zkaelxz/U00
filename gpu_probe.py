@@ -39,6 +39,13 @@ def _take(key) -> tuple[bool, Any]:
     return True, readings.pop(key)
 
 
+def prefetched_busy() -> bool:
+    """The prefetched busy reading, left in place for the decision it was
+    taken for; False when there is no fresh one."""
+    readings = getattr(_local, "readings", None)
+    return bool(readings and readings.get("busy") and time.monotonic() - readings["at"] <= MAX_AGE_SECONDS)
+
+
 def external_gpu_is_busy() -> bool:
     import diagnostics_torch
     found, value = _take("busy")

@@ -455,6 +455,7 @@ def _promote_one_queued_gpu_job(dropped):
     if _gpu_queue:
         _retire_unless_next_uses_it(dropped)
         gpu_probe.prefetch()
+        warm_worker.retire_if_the_card_reads_busy()
     with _lock:
         if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
             return

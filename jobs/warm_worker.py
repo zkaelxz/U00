@@ -20,6 +20,7 @@ import tempfile
 import threading
 import time
 
+import gpu_probe
 import job_process_result
 from jobs import process_worker
 from lib import proc_kill
@@ -158,7 +159,14 @@ def _windows_child_pids(me) -> list:
                     ("dwFlags", wintypes.DWORD), ("szExeFile", ctypes.c_wchar * 260)]
     try:
         kernel32 = getattr(ctypes, "WinDLL")("kernel32", use_last_error=True)
+        # Declared, or ctypes passes and returns plain ints: a 64-bit handle would be cut short.
+        kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
         kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        for walk in (kernel32.Process32FirstW, kernel32.Process32NextW):
+            walk.argtypes = [wintypes.HANDLE, ctypes.POINTER(Entry)]
+            walk.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
         snapshot = kernel32.CreateToolhelp32Snapshot(0x2, 0)   # TH32CS_SNAPPROCESS
         if not snapshot or snapshot == wintypes.HANDLE(-1).value:
             return []
@@ -249,7 +257,8 @@ def _vram_note() -> str:
         load = diagnostics_torch.external_gpu_load()
     except Exception:
         return ""
-    return f", VRAM used {load['memory_used_mb']:.0f} MB" if load else ""
+    used = (load or {}).get("memory_used_mb")
+    return f", VRAM used {used:.0f} MB" if used is not None else ""
 
 
 def _others_need_the_gpu(job_id) -> str:
@@ -284,6 +293,7 @@ class _Worker:
         self.idle_since = 0.0
         self.idle_round = 0
         self.jobs = 0
+        self.retired = False
 
     def fits(self, key) -> bool:
         """Caller holds _lock. Same settings, still running, and inside the
@@ -297,6 +307,14 @@ class _Worker:
             self.started = True
             self._receive.close()   # the child has its own copy
         self.conn.send((job.seq, job.channel.path, job.target, job.args))
+
+    def now_idle(self) -> int:
+        """Caller holds _lock. Marks the worker idle from now: the round that
+        idle-limit timer must still see."""
+        self.busy = False
+        self.idle_since = time.monotonic()
+        self.idle_round += 1
+        return self.idle_round
 
     def kill(self):
         proc_kill.kill_tree(self.proc)
@@ -314,8 +332,14 @@ class _Worker:
             pass
 
     def retire(self, reason):
-        """Ends this worker and everything it started; it runs no job."""
+        """Ends this worker and everything it started; it runs no job. Once
+        only: its process group id may belong to another process by a second
+        call."""
         import job_process_kill
+        with _lock:
+            if self.retired:
+                return
+            self.retired = True
         try:
             self.conn.close()
         except OSError:
@@ -384,13 +408,32 @@ def retire_idle(reason, keep_key=None):
     worker.retire(reason)
 
 
+def retire_if_the_card_reads_busy():
+    """Right after gpu_probe.prefetch, before a slot check a job that fits the
+    idle worker is about to pass through: the busy reading may be the worker's
+    own memory, and the job would queue behind it until its idle limit. The
+    worker is retired and the card read again, once."""
+    if idle_key() is not None and gpu_probe.prefetched_busy():
+        retire_idle("the GPU looked busy to the job that would reuse it")
+        gpu_probe.prefetch()
+
+
+def _arm_idle_timer(worker, idle_round):
+    timer = threading.Timer(IDLE_LIMIT_S, _retire_if_idle_since, (worker, idle_round))
+    timer.daemon = True
+    timer.start()
+
+
 def _retire_if_idle_since(worker, idle_round):
-    """The idle limit's timer: retires worker if it has been idle since then."""
+    """The idle limit's timer: retires worker if it has been idle since then,
+    also when it is no longer _current (a replacement that found the slot
+    taken), which nothing else would end."""
     global _current
     with _lock:
-        if _current is not worker or worker.busy or worker.idle_round != idle_round:
+        if worker.busy or worker.idle_round != idle_round:
             return
-        _current = None
+        if _current is worker:
+            _current = None
     worker.retire("idle limit")
 
 
@@ -520,18 +563,13 @@ class WarmJob:
         worker = self._worker
         reason = _others_need_the_gpu(self.job_id)
         with _lock:
-            worker.busy = False
-            worker.idle_since = time.monotonic()
-            worker.idle_round += 1
-            idle_round = worker.idle_round
+            idle_round = worker.now_idle()
         if reason:
             _forget(worker)
             worker.retire(reason)
             return
         _log(f"job {self.job_id}: warm worker pid {worker.proc.pid} idle{_vram_note()}")
-        timer = threading.Timer(IDLE_LIMIT_S, _retire_if_idle_since, (worker, idle_round))
-        timer.daemon = True
-        timer.start()
+        _arm_idle_timer(worker, idle_round)
 
     def _lost(self):
         self._state = "lost"
@@ -588,10 +626,13 @@ class WarmJob:
         worker = self._worker
         with _lock:
             fresh = not worker.started
-            worker.busy = False
+            idle_round = worker.now_idle()
         if fresh:
             _forget(worker)
             worker.release()
+        else:
+            # Its earlier timer may have fired while this job held it.
+            _arm_idle_timer(worker, idle_round)
         if self._stale is not None:
             # Off this thread: the caller may hold the job lock.
             threading.Thread(target=self._stale.retire, args=("a start that failed",),
