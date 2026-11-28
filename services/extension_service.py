@@ -250,7 +250,7 @@ def page_extras(drama, config: dict, engine, image: bytes | None) -> dict:
     name = config.get("engine") or ""
     readers = (run.picture_readers(engine, name)
                if image and settings_service.get("scanlate_page_image") else [])
-    picture = run.page_picture(image) if image and readers else None
+    picture = run.page_picture(image, (drama or {}).get("source_language")) if image and readers else None
     if picture is not None:
         data, mime, scale = picture
         extras["page_image"] = {
