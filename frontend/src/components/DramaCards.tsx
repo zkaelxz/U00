@@ -107,6 +107,7 @@ function CardText({ d }: { d: DramaSummary }) {
 function SelectCards({ items, checked, onToggle }: {
   items: DramaSummary[]; checked?: ReadonlySet<number>; onToggle: (id: number) => void
 }) {
+  const showCovers = useContext(ShowCoversContext)
   return (
     <ul className="drama-grid selecting">
       {items.map((d) => {
@@ -115,7 +116,7 @@ function SelectCards({ items, checked, onToggle }: {
         // The card (li) toggles selection on click; without stopPropagation on the checkbox label a click on it would toggle twice.
         return (
           <li key={d.id} className={on ? 'drama-card selected' : 'drama-card'} onClick={() => onToggle(d.id)}>
-            <DramaTile d={d} />
+            {showCovers && <DramaTile d={d} />}
             <label className="card-check" onClick={(e) => e.stopPropagation()}>
               <input type="checkbox" checked={on} onChange={() => onToggle(d.id)} aria-label={`Select ${title}`} />
             </label>

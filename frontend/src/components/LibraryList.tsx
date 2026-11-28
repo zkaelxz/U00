@@ -557,7 +557,6 @@ function SkeletonGrid() {
   )
 }
 
-// The select sits invisibly over the icon, so a tap opens the platform's own picker.
 // The quick filters, then the grouping choices, in one chip row.
 function QuickChips({ filter, onFilter, group, onGroup }: {
   filter: string
@@ -566,7 +565,7 @@ function QuickChips({ filter, onFilter, group, onGroup }: {
   onGroup: (next: string) => void
 }) {
   return (
-    <div className="quick-chips" role="group" aria-label="Quick filter">
+    <div className="quick-chips" role="group" aria-label="Filter and group">
       {QUICK_FILTERS.map((q) => (
         <button key={q} type="button" className="quick-chip" aria-pressed={filter === q} onClick={() => onFilter(q)}>
           {q ? tagLabel(q) : 'All titles'}
@@ -593,6 +592,7 @@ function CoversSwitch({ on, onChange }: { on: boolean; onChange: (next: boolean)
   )
 }
 
+// The select sits invisibly over the icon, so a tap opens the platform's own picker.
 function SortIcon({ sort, onSort }: { sort: TitleSort; onSort: (next: string) => void }) {
   return (
     <label className="sort-icon" title="Sort order">
