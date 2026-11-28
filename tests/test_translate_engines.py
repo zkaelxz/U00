@@ -1474,7 +1474,7 @@ class TestEmptyTranslationsAreErrors:
         assert len(errors) == 1
         assert errors[0]["lines"] == [0, 1, 2]
         assert "3 of 3 lines got no translation" in errors[0]["error"]
-        assert "smaller batch size" in errors[0]["error"]
+        assert "left them out" in errors[0]["error"]
         assert [l.en for l in lines] == ["old"] * 3
 
     def test_partial_reply_keeps_good_lines(self):
