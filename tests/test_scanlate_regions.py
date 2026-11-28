@@ -476,7 +476,9 @@ class TestSfxSkipByDefault:
                 drawn.append(text)
             return img
         monkeypatch.setattr(scanlate_render, "render_text_in_box", draw)
-        _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"))
+        # The halo draws floating text twice (a mask pass, then the page); these tests count what is set.
+        _, skipped_blank = scanlate_render.process_page(bubble_page, bubbles, str(tmp_path / "out.png"),
+                                                        look=scanlate_fonts.TypesetStyle(halo=False))
         return inpainted, drawn, skipped_blank
 
     def test_sfx_is_not_inpainted_or_replaced_by_default(self, bubble_page, tmp_path, monkeypatch):
