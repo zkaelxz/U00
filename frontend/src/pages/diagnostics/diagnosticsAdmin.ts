@@ -172,6 +172,9 @@ export function headerBadges(
   return out
 }
 
+/** "Loading…" in place of the badges only while a read is still out: once one failed, its error banner says why. */
+export const headerLoading = (badges: HeaderBadge[], failed: boolean) => !badges.length && !failed
+
 // ---- Speaker detection ----
 
 // The checks below are pyannote's only: Nemotron, the default model, needs no token, so a missing

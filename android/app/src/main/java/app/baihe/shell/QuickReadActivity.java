@@ -40,16 +40,20 @@ public class QuickReadActivity extends Activity {
     private File savedDir;
     // True even when the folder was refused, so leaving never clears or detaches a grab it does not own.
     private boolean savedMode;
+    private boolean toldNoOriginals;
     private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         cache = new LruCache<>(6);
         // Reading has long stretches with no touch, and the screen would otherwise dim mid-page.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         list = new ListView(this);
         list.setDivider(null);
+        // The theme's window colour is white for sepia; the gaps between pages take the look's own.
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(GrabUi.Palette.saved(this).bg));
         adapter = new PageAdapter();
         list.setAdapter(adapter);
         list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
@@ -114,7 +118,11 @@ public class QuickReadActivity extends Activity {
     private void flipOriginal(int position) {
         File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
         if (!original.isFile()) {
-            android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            // A saved chapter never keeps originals, so saying it on every tap would only repeat itself.
+            if (savedMode && toldNoOriginals) return;
+            toldNoOriginals = savedMode;
+            android.widget.Toast.makeText(this, savedMode ? "Saved chapters keep the English pages only."
+                    : "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         if (!showingOriginal.remove(position)) showingOriginal.add(position);
@@ -294,7 +302,9 @@ public class QuickReadActivity extends Activity {
             String message;
             try {
                 SavedChapters.Saved saved = SavedChapters.save(root, pages, title);
-                message = saved == null ? "Nothing to save yet." : "Saved " + saved.pages + " pages. Find them in Grab > More > Saved chapters.";
+                message = saved == null ? "Nothing to save yet." : "Saved " + saved.pages + " pages. Find them in Grab > More > Saved chapters."
+                        + (saved.removed > 0 ? " The phone keeps your " + SavedChapters.MAX_CHAPTERS
+                                + " newest chapters, so the oldest was removed." : "");
             } catch (java.io.IOException e) {
                 message = "Could not save: the phone may be full.";
             }

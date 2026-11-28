@@ -76,6 +76,11 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/library/history': EMPTY,
   '/api/library/continue': EMPTY,
   '/api/library/home': { running: [], running_count: 0, can_control_queue: true },
+  // Asked only in a month's first week, so a spec's unmocked list doesn't change with the date.
+  '/api/library/recap': {
+    month: '2026-10', titles_read: 0, titles_finished: 0, chapters_read: 0, moments_saved: 0, active_days: 0,
+    most_days: null, spend_usd: null,
+  },
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
   '/api/translate/engines': { items: [], default_engine: null },
