@@ -445,6 +445,24 @@ def test_a_busy_fallback_is_not_handed_back(novel, quick_slow_line, monkeypatch)
     assert engine.active == 1 and not engine._state.fallback_failed
 
 
+def test_a_timed_out_fallback_is_not_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=OllamaUnavailableError("ollama_timeout", "slow"))
+    with pytest.raises(OllamaUnavailableError):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_an_unreachable_ollama_is_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    assert engine.translate_batch(["a"], {}) == ["deepseek a"]
+    assert engine._state.fallback_failed
+
+
 def test_failed_attempts_of_a_slow_switch_run_are_billed_by_the_pipeline():
     from services import workspace_job_service as wjs
     engine = _switching(primary_delay=0.0)

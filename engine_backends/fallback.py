@@ -231,7 +231,7 @@ def _cannot_serve(e: Exception) -> bool:
     """The fallback isn't there at all (no server, refused sign-in), as opposed to a busy
     moment (rate limit, outage, timeout) that the pipeline's own retries wait out."""
     if type(e).__name__ == "OllamaUnavailableError":
-        return True
+        return getattr(e, "reason", None) != "ollama_timeout"
     status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
     if status in (401, 403):
         return True
