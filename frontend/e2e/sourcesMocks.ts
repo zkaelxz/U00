@@ -40,6 +40,7 @@ export const SETTINGS = {
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
   proxy_configured: false,
   cache_modes: ['none', 'temporary', 'keep_originals', 'keep_translated', 'keep_both'],
+  extension_sites: [{ name: 'Blacktoon', host: 'blacktoon511.com' }],
   cache: { entries: 120, bytes: 45_200_000 },
 }
 
