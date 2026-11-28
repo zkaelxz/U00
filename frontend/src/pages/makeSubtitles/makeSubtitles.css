@@ -35,7 +35,7 @@
 .add-box-preview dd { margin: 0; }
 /* The Add tab: one quiet column on the page, no box, with the recent link runs as plain rows under it. */
 .add-box-page { display: grid; gap: var(--space-3); width: 100%; max-width: 48rem; margin: var(--space-4) auto 0; justify-self: center; align-self: center; }
-.add-box-page > .card-title { font-size: 1.25rem; font-weight: var(--weight-bold); }
+.add-box-page > .card-title { font-size: var(--text-xl); font-weight: var(--weight-bold); }
 .add-box-page.is-dragging { border: 0; outline: 2px dashed var(--accent); outline-offset: var(--space-3); border-radius: var(--radius-md); }
 .add-box-page .add-box-quiet { margin: 0; }
 @media (pointer: coarse), (max-width: 640px) { .add-box-page .add-box-quiet > button.link { display: inline-flex; align-items: center; min-height: 44px; } }
