@@ -775,7 +775,10 @@
     layer.style.top = `${rect.top + window.scrollY}px`;
     layer.style.width = `${rect.width}px`;
     layer.style.height = `${rect.height}px`;
-    layer.classList.toggle("baihe-hidden", !state.overlaysVisible);
+    // A reader that pages in place swaps the element's picture, and one that unloads far pages blanks it
+    // and puts it back later: the English shows only while the picture it was read from is there.
+    const swapped = entry.picture != null && pictureOf(el) !== entry.picture;
+    layer.classList.toggle("baihe-hidden", !state.overlaysVisible || swapped);
     const boxes = layer.children;
     const visible = entry.regions.filter((r) => (r.translated_text || r.source_text) && !r.left_alone);
     for (let i = 0; i < boxes.length && i < visible.length; i += 1) {
@@ -821,9 +824,7 @@
   function repositionAll() {
     for (const el of state.active.keys()) {
       const entry = state.active.get(el);
-      // A reader that pages in place keeps the element and swaps its picture, so the old English must go.
-      const swapped = entry && entry.picture != null && pictureOf(el) !== entry.picture;
-      if (!el.isConnected || swapped) {
+      if (!el.isConnected) {
         if (entry) entry.layer.remove();
         state.active.delete(el);
         continue;
@@ -1201,7 +1202,7 @@
       return {
         ok: false,
         // The block is picked by length from the whole page, so scrolling would change nothing.
-        error: "No story text found on this page. Select the passage you want and press Translate again.",
+        error: "No story text found on this page. Select the passage you want and press Translate text again.",
       };
     }
     const response = await chrome.runtime.sendMessage({
@@ -1281,7 +1282,7 @@
         continue;
       }
       return { sentAny, limit: size, failure: { done, reason: response.error || "That didn't work.",
-                                                status: response.status } };
+                                                status: response.status, timedOut: !!response.timedOut } };
     }
     return { sentAny, failure: null, limit: size };
   }
@@ -1436,6 +1437,9 @@
     const unverified = new Set();
     const fromCache = [];
     const byAddress = await fetchByAddressWanted(store);
+    // A reader that pages in place can swap a picture while its batch is out; that answer is for the old page.
+    const readAs = new Map();
+    const stillShows = (el) => { const p = readAs.get(el); return p == null || pictureOf(el) === p; };
     for (const [position, el] of chosen.entries()) {
       try {
         const extracted = byAddress && addressOnly(el) ? await addressEntry(el) : await extractBytes(el);
@@ -1445,6 +1449,7 @@
           fromCache.push(el);
           continue;
         }
+        readAs.set(el, pictureOf(el));
         if (extracted.unverified) unverified.add(extracted.hash);
         const entry = pending.get(extracted.hash);
         if (entry) {
@@ -1487,7 +1492,7 @@
       if (!entry || run.cancelled) return;
       const regions = regionsOf(page);
       rememberAnswer(page.key, regions, store);
-      for (const el of entry.elements) drawOverlay(el, regions);
+      for (const el of entry.elements) if (stillShows(el)) drawOverlay(el, regions);
       drawnEarly.add(page.key);
     };
     const sendRange = async (batch, range) => {
@@ -1512,6 +1517,7 @@
         if (!regions) continue;
         rememberAnswer(extracted.hash, regions, store);
         for (const el of elements) {
+          if (!stillShows(el)) continue;
           if (!drawnEarly.has(extracted.hash)) drawOverlay(el, regions);
           drawn += 1;
         }
@@ -1566,7 +1572,7 @@
         // Without a status the reason can be a raw network error, so only the place is named; with one, the
         // app answered and its own reason (a limit, a removed right, a deleted title) is what to act on.
         message: `Translated ${f.done} of ${images.length} pages; stopped at page ${f.done + 1}` +
-                 (f.status ? `: ${f.reason}` : " because the app stopped answering"),
+                 (f.status || f.timedOut ? `: ${f.reason}` : " because the app stopped answering"),
       };
     }
     if (serverStop) {

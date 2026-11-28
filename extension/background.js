@@ -780,7 +780,8 @@ async function chapterOutcome(tabId, kind, { dramaId, store }) {
   if (!r.ok) return { status: "failed", reason: r.error || "capture failed" };
   if (r.data.reason === "cancelled") return { status: "cancelled" };
   if (r.data.reason === "error") return { status: "failed", reason: r.data.message };
-  if (r.data.stored || r.data.translated) return { status: "saved" };
+  // A page the library already has also counts as stored, so only newly translated pages mean "saved".
+  if (r.data.translated || r.data.cached) return { status: "saved" };
   return { status: "skipped", reason: r.data.alreadyStored ? "already in your library" : "no pages found" };
 }
 

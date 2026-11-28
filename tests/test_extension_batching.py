@@ -182,8 +182,15 @@ def test_a_stopped_chapter_names_the_apps_reason_only_when_the_app_answered(scen
     assert got["stopped"] == "Translated 1 of 2 pages; stopped at page 2" + ending
 
 
-def test_a_page_swapped_in_place_loses_the_old_english():
-    out = subprocess.run(["node", str(HARNESS), "content", "a_page_swapped_in_place_loses_the_old_english"],
+def test_a_page_swapped_in_place_hides_the_old_english_until_it_comes_back():
+    out = subprocess.run(["node", str(HARNESS), "content", "a_page_swapped_in_place_hides_the_old_english"],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
-    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "before": 1, "unchanged": 1, "after": 0}
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "shown": [False], "swapped": [True], "back": [False]}
+
+
+def test_a_page_swapped_while_its_batch_is_out_does_not_get_the_old_english():
+    out = subprocess.run(["node", str(HARNESS), "content", "a_page_swapped_while_its_batch_is_out_is_not_drawn"],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "drawn": 0}

@@ -30,6 +30,7 @@ const els = {
   continueNovel: document.getElementById("continueNovel"),
   continueComic: document.getElementById("continueComic"),
   continueQuickNote: document.getElementById("continueQuickNote"),
+  seriesCountRow: document.getElementById("seriesCountRow"),
   seriesCount: document.getElementById("seriesCount"),
   dramaTitle: document.getElementById("dramaTitle"),
   typeset: document.getElementById("typeset"),
@@ -387,7 +388,11 @@ async function load() {
       say("Paste a new token from Baihe's Settings (Browser extension on the PC, Remote access keys on another computer).");
     } else {
       showNotice("Can't reach Baihe.", "Retry", load);
-      say("Check that Baihe is running and that Settings > Browser extension is switched on.");
+      // The Browser extension switch is on the PC's own Settings and does not gate a copy on another computer.
+      const saved = (await chrome.runtime.sendMessage({ type: "getSettings" }))?.data || {};
+      say(saved.serverUrl
+        ? "Check that the Baihe PC is on and that the address in the extension's options is right."
+        : "Check that Baihe is running and that Settings > Browser extension is switched on.");
     }
     return;
   }
@@ -863,6 +868,7 @@ function setSaveMode(save, { remember = true } = {}) {
   els.dramaPick.hidden = !save;
   // Each chapter's drawing is lost when the tab moves to the next, so a quick run would pay for pages nobody sees.
   els.continueComic.hidden = !save;
+  els.seriesCountRow.hidden = !save;
   els.continueQuickNote.hidden = save;
   showNovelSection();
   if (remember) chrome.storage.local.set({ quickTranslate: !save }).catch(() => {});

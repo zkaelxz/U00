@@ -382,3 +382,15 @@ def test_a_second_press_while_sending_sends_nothing_more_and_the_result_links_th
     html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
     for element_id in ("tab-video", "panel-video", "sendVideo", "startLive", "liveLanguage", "openInBaihe"):
         assert f'id="{element_id}"' in html
+
+
+def test_quick_translate_hides_the_several_chapters_controls_and_says_why():
+    out = _node("popup_controls", "x")
+    assert out["quick"] == {"continueComic": False, "seriesCountRow": False, "continueQuickNote": True}
+    assert out["save"] == {"continueComic": True, "seriesCountRow": True, "continueQuickNote": False}
+
+
+def test_the_draw_over_page_switch_is_saved_and_applied_to_the_open_page_at_once():
+    out = _node("popup_controls", "x")
+    assert out["stored"] == [{"overlay": False}]
+    assert [7, {"type": "setOverlays", "visible": False}] in out["toTab"]
