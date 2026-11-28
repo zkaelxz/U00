@@ -474,7 +474,7 @@ class LiveSessionStatus(BaseModel):
     # Names fixed during the stream (POST .../names), oldest first.
     name_fixes: List[LiveNameFix] = []
     can_fix_names: bool = False
-    # Whether the session was started with a title's or series' glossary, so a fix can be saved there.
+    # Whether this caller may also save a fix into the glossary the session was started with.
     has_glossary: bool = False
     cues: List[LiveCue]
     next_index: int

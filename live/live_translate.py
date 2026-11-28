@@ -351,6 +351,7 @@ _SUBSCRIBE_RE = re.compile(r"チャンネル登録|subscribe|구독", re.IGNOREC
 MAX_NAME_FIXES = 50
 MAX_FIX_SOURCE_CHARS = 40
 MAX_FIX_ENGLISH_CHARS = 80
+MAX_PROMPTED_FIXES = 10
 
 
 class TermHints:
@@ -373,13 +374,18 @@ class TermHints:
             self._fixes.pop(source, None)
             self._fixes[source] = english
 
+    def has_room(self, source: str) -> bool:
+        with self._lock:
+            return source in self._fixes or len(self._fixes) < MAX_NAME_FIXES
+
     def fixes(self) -> list:
         with self._lock:
             return list(self._fixes.items())
 
     @property
     def names(self) -> str:
-        fixed = [s for s, _ in self.fixes() if s not in self._names]
+        # The newest few only: the previous chunk's tail comes after these and needs its room too.
+        fixed = [s for s, _ in self.fixes() if s not in self._names][-MAX_PROMPTED_FIXES:]
         if not fixed:
             return self._names
         return self._names + "、".join(fixed) + "。"

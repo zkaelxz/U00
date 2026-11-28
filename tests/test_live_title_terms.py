@@ -352,3 +352,27 @@ def test_saving_needs_a_glossary_and_one_the_caller_may_change(isolated_db, monk
         live_service.add_name_fix(sid, "月岡", "Tsukioka", save_to_glossary=True, principal=OWNER)
     assert db.list_glossary_terms(series) == [] and live_service.name_fixes(sid) == []
     live_service._sessions.clear()
+
+
+def test_a_full_session_refuses_before_writing_the_glossary(isolated_db, monkeypatch):
+    from live import live_translate
+    _, series = _title()
+    sid, _ = _started(monkeypatch, series_id=series)
+    for n in range(live_translate.MAX_NAME_FIXES):
+        live_service.add_name_fix(sid, f"名{n}", "N", principal=OWNER)
+    with pytest.raises(live_service.ConflictError):
+        live_service.add_name_fix(sid, "星野", "Hoshino", save_to_glossary=True, principal=OWNER)
+    assert db.list_glossary_terms(series) == []
+    # Only the newest fixes are primed, so the previous chunk's tail keeps its room.
+    assert live_service._sessions[sid]["term_hints"].names.count("、") == live_translate.MAX_PROMPTED_FIXES - 1
+    live_service._sessions.clear()
+
+
+def test_the_save_is_offered_only_to_whoever_may_make_it(isolated_db, monkeypatch):
+    did, _ = _title()
+    target = ("drama", did)
+    editor = {**OWNER, "permissions": ["lines.edit"]}
+    assert live_service._may_save_fix(editor, target) is True
+    assert live_service._may_save_fix(editor, None) is False
+    no_edit = {"user_id": 3, "is_admin": False, "is_local_owner": False, "admin_override": False, "permissions": ["library.read"]}
+    assert live_service._may_save_fix(no_edit, target) is False

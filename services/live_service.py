@@ -870,6 +870,8 @@ def add_name_fix(session_id, source, english, save_to_glossary=False, principal=
         raise ForbiddenError("Only the person who started this session can fix a name in it.")
     if hints is None or _status(job) not in ("queued", "running"):
         raise ConflictError("This session has ended.")
+    if not hints.has_room(source):
+        raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
     if save_to_glossary:
         if target is None:
             raise InvalidInputError("This session doesn't use a glossary.")
@@ -909,6 +911,15 @@ def _may_fix_names(principal, session_id, entry) -> bool:
     if owner is None:
         return bool(principal.get("is_admin"))
     return uid is not None and uid == owner
+
+
+def _may_save_fix(principal, target) -> bool:
+    """Whether a fix by this caller can also go into the session's glossary, so the page offers it."""
+    if target is None:
+        return False
+    if principal is not None and "lines.edit" not in (principal.get("permissions") or ()):
+        return False
+    return ownership_service.can_edit(principal, *target)
 
 
 def name_fixes(session_id) -> list:
@@ -983,7 +994,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "stream": entry.get("stream"),
             "name_fixes": name_fixes(session_id),
             "can_fix_names": _may_fix_names(principal, session_id, entry),
-            "has_glossary": entry.get("glossary_target") is not None,
+            "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
 
