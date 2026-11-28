@@ -98,3 +98,11 @@ def test_a_faster_whisper_without_the_hooks_is_not_an_error(monkeypatch):
     del sys.modules["faster_whisper.vad"].SileroVADModel
     with vad_model.gated() as on:
         assert on is False
+
+
+def test_the_installed_faster_whisper_has_the_hooks_the_gate_patches():
+    vad = pytest.importorskip("faster_whisper.vad")
+    transcribe = pytest.importorskip("faster_whisper.transcribe")
+    assert callable(vad.get_vad_model) and callable(transcribe.get_speech_timestamps)
+    pytest.importorskip("onnxruntime")
+    assert vad.SileroVADModel(vad_model.PINNED_PATH) is not None

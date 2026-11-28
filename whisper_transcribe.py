@@ -493,7 +493,8 @@ def _decode_randomness_kwargs(choice: str) -> dict:
 
 def _transcribe(model, audio, kwargs: dict, standalone_extra_speech: bool):
     """standalone_extra_speech: the detector also keeps the stand-alone stretches only Silero v6.2
-    hears (vad_model.gated). Live turns it off: it was measured on whole titles, not short chunks."""
+    hears (vad_model.gated). Live and the one-line re-hears turn it off: it was measured on whole
+    titles, and on a short slice any v6.2 stretch is far from the rest."""
     if not standalone_extra_speech:
         return model.transcribe(audio, **kwargs)
     import vad_model
