@@ -749,7 +749,8 @@ def auth_delete_inactive_member(user_id: int) -> bool:
             conn.execute("DELETE FROM reading_history WHERE profile_id IN "
                          "(SELECT id FROM profiles WHERE user_id = ?)", (user_id,))
             conn.execute("DELETE FROM profiles WHERE user_id = ?", (user_id,))
-            conn.execute("DELETE FROM app_settings WHERE key = ?", (f"quick_video.profile_id.{user_id}",))
+            conn.execute("DELETE FROM app_settings WHERE key IN (?, ?)",
+                         (f"quick_video.profile_id.{user_id}", f"account_prefs.{user_id}"))
         conn.commit()
         return cur.rowcount > 0
 

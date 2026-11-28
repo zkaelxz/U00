@@ -246,6 +246,7 @@ export const MODEL_DOWNLOAD_IDS: Record<string, string[]> = {
   'SenseVoice (FunASR)': ['sensevoice'],
   'manga-ocr': ['manga_ocr'],
   'LaMa-manga': ['lama_manga'],
+  'audio-separator': ['vocal_separation_fv4'],
   'Nemotron-3-Diarization': ['nemotron_diarization'],
   'pyannote diarization model': ['pyannote_diarization'],
   'Whisper (faster-whisper)': [

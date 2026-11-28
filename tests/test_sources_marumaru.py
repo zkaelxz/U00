@@ -156,6 +156,30 @@ class TestLandingPage:
             a.search("x")
         assert store.domain_proposals("marumaru") == []
 
+    def test_a_json_redirect_to_the_new_address_is_proposed(self):
+        old, new = f"{BASE}/api/search?q=x", "https://marumaru999.com"
+        routes = {old: Response(200, {"content-type": "application/json"},
+                                                  b"{}", new + "/api/search?q=x"),
+                  marumaru.LANDING_URL: Response(522, {}, b"", ""),
+                  new + "/": html(self.HOME)}
+        a, _ = _adapter(routes)
+        with pytest.raises(SourceUnavailable):
+            a.search("x")
+        assert "marumaru999.com" in {p["host"] for p in store.domain_proposals("marumaru")}
+
+    def test_the_landing_page_is_read_before_the_unreachable_alert(self, monkeypatch):
+        from sources import domains
+        seen = []
+        monkeypatch.setattr(domains, "_unreachable_hook",
+                            lambda *_: seen.append(store.domain_proposals("marumaru")))
+        routes = {f"{BASE}/api/search?q=x": Response(522, {}, b"", ""),
+                  marumaru.LANDING_URL: html(self.LANDING),
+                  "https://marumaru109.com/": html(self.HOME)}
+        a, _ = _adapter(routes)
+        with pytest.raises(SourceUnavailable):
+            a.search("x")
+        assert seen == []
+
 
 def test_fast_is_offered_and_never_slower_than_normal():
     from sources import pacing
@@ -165,3 +189,11 @@ def test_fast_is_offered_and_never_slower_than_normal():
     fast = pacing.apply_level(base, marumaru.MarumaruSource.pacing_profile, "fast")
     assert (fast.min_delay, fast.max_delay, fast.max_concurrent) == (1.0, 2.5, 2)
     assert fast.session_break_min_requests == base.session_break_min_requests
+
+
+def test_default_domain_is_throttled_and_homepage():
+    from sources.domains import hostport
+
+    host = hostport(marumaru.BASE_URL)
+    assert host in marumaru.MarumaruSource.host_min_interval
+    assert marumaru.MarumaruSource.homepage == marumaru.BASE_URL

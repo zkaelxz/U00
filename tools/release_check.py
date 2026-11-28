@@ -479,7 +479,7 @@ def run_app_translation(clip: dict, opts, spend: Spend) -> dict:
         scene_aware_batches=bool(settings_service.get("scene_aware_batches")),
         **timing_settings_service.translate_limits(), usage_cb=usage_cb,
         check_replies=settings_service.reply_guard_override(), reasoning=settings_service.reasoning_override(engine_name),
-        parallel_chapters=settings_service.parallel_chapters(),
+        parallel_chapters=settings_service.parallel_chapters(engine_name),
         cost_cap_usd=spend.cap - spend.used if paid else None)
     wall = time.monotonic() - started
     english = {ln.id: ln.en or "" for ln in lines}

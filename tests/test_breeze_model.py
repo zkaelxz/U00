@@ -70,7 +70,7 @@ class TestRegistry:
         from services import model_readiness_service, settings_service
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         monkeypatch.setattr(settings_service, "get", lambda key, *a: gpu if key == "use_gpu" else None)
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: sep_ready)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: sep_ready)
         pack = drama.pop("pack", True)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: pack)
         assert transcribe_options_service.effective_separate_vocals({"source_language": "zh", **drama}) is expected
@@ -80,7 +80,7 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         real_get = settings_service.get
         monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: True)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: True)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
         did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
         # The form shows Off on large-v3; the user picks Breeze and saves without touching the switch.
@@ -96,7 +96,7 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         real_get = settings_service.get
         monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: ready)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: ready)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
 
     @pytest.mark.parametrize("ready", [True, False])
@@ -270,3 +270,23 @@ class TestPinnedDownload:
         for name in ("config.json", "model.bin", "tokenizer.json", "preprocessor_config.json"):
             (folder / name).write_bytes(b"x")
         assert wm.is_whisper_model_cached(KEY)
+
+
+def test_the_breeze_default_needs_the_model_the_title_would_load(monkeypatch, tmp_path):
+    """A title that chose FV4 on a PC with only the original model must not count as ready,
+    or its default run would start a download."""
+    import zipfile
+    import audio_preprocess
+    from services import model_readiness_service, settings_service
+    monkeypatch.setattr(audio_preprocess, "MODEL_DIR", str(tmp_path))
+    monkeypatch.setattr(audio_preprocess, "MIN_CHECKPOINT_BYTES", 1)
+    with zipfile.ZipFile(tmp_path / audio_preprocess.MEL_ROFORMER_VOCAL_MODEL, "w") as z:
+        z.writestr("w", "x")
+    monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
+    monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else None)
+    monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
+    drama = {"source_language": "zh", "separate_vocals_first": None, "whisper_size": KEY}
+    assert transcribe_options_service.effective_separate_vocals({**drama, "separation_backend": "auto"})
+    assert not transcribe_options_service.effective_separate_vocals(
+        {**drama, "separation_backend": "mel_roformer_fv4"})
+    assert model_readiness_service.separation_ready("auto")

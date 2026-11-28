@@ -226,13 +226,12 @@ def test_a_page_goes_as_jpeg_only_for_a_language_known_to_read_fine_that_way():
     from services import image_text_service
     buf = io.BytesIO()
     Image.new("RGBA", (64, 48), (200, 30, 30, 128)).save(buf, "PNG")
-    for language in ("zh", "ko"):
-        data, mime, scale = run_svc.page_picture(buf.getvalue(), language)
-        assert mime == "image/jpeg" and scale == 1.0
-        with Image.open(io.BytesIO(data)) as sent:
-            # 4:4:4: small coloured lettering keeps its edges.
-            assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
-    for language in ("ja", None, "", "th", "xx"):
+    data, mime, scale = run_svc.page_picture(buf.getvalue(), "zh")
+    assert mime == "image/jpeg" and scale == 1.0
+    with Image.open(io.BytesIO(data)) as sent:
+        # 4:4:4: small coloured lettering keeps its edges.
+        assert sent.format == "JPEG" and JpegImagePlugin.get_sampling(sent) == 0
+    for language in ("ja", "ko", None, "", "th", "xx"):
         assert run_svc.page_picture(buf.getvalue(), language)[1] == "image/png"
     assert run_svc.page_picture(buf.getvalue())[1] == "image/png"
     assert image_text_service._prepared(buf.getvalue())[1] == "image/png"
