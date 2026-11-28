@@ -346,15 +346,18 @@ def list_translate_history(limit: int = 50, visible_to: int | None = None) -> Li
     """Most recent first. `visible_to` (auth B2): only that user's own rows
     (rows with no user -- the PC, the extension -- are for admins and the
     local owner, who pass None)."""
+    # owner_found and owner_display_name name each row's account (ownership_service.owner_name).
+    select = ("SELECT h.*, u.id AS owner_found, u.display_name AS owner_display_name "
+              "FROM translate_history h LEFT JOIN users u ON u.id = h.user_id ")
     with contextlib.closing(db.get_conn()) as conn:
         if visible_to is None:
             rows = conn.execute(
-                "SELECT * FROM translate_history ORDER BY created_at DESC LIMIT ?", (limit,)
+                select + "ORDER BY h.created_at DESC LIMIT ?", (limit,)
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT * FROM translate_history WHERE user_id = ? "
-                "ORDER BY created_at DESC LIMIT ?", (visible_to, limit)).fetchall()
+                select + "WHERE h.user_id = ? "
+                "ORDER BY h.created_at DESC LIMIT ?", (visible_to, limit)).fetchall()
     return [dict(r) for r in rows]
 
 
