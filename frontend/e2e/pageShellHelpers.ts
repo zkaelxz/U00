@@ -6,7 +6,7 @@ import { animationsSettled } from './mockHelpers'
 // stages and the readers are not on this list: they do not use the shell yet.
 export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' }[] = [
   { hash: '#/settings', width: 'narrow' },
-  { hash: '#/make-subtitles', width: 'narrow' },
+  { hash: '#/make-subtitles', width: 'wide' },
   { hash: '#/admin', width: 'narrow' },
   { hash: '#/assistant', width: 'narrow' },
   { hash: '#/translate', width: 'standard' },

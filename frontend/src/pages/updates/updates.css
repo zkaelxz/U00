@@ -8,3 +8,5 @@
 .updates-main { display: flex; flex-direction: column; min-width: 0; }
 .updates-title { font-weight: 600; overflow-wrap: anywhere; }
 .updates-sub { overflow-wrap: anywhere; }
+.updates-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.updates-head > p { margin: 0; }
