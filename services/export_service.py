@@ -35,6 +35,7 @@ import sensevoice_tags
 import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
+from engine_backends import alignment_check
 from services import (
     ear_marks_service,
     metadata_service,
@@ -822,12 +823,17 @@ def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
     with restructure_service.exclusive_write(drama_id):
         drama, lines = _load_drama_and_lines(drama_id)
         targets = [ln for ln in lines if ln.flag == subtitle_formats.READING_SPEED_FLAG]
+        displaced = [ln for ln in lines if alignment_check.READING_SPEED_TAIL in (ln.flag_note or "")
+                     and ln.flag == alignment_check.ALIGNMENT_FLAG]
         history_id = None
-        if targets:
+        if targets or displaced:
             history_id = db.save_line_history_snapshot(drama_id, lines, READING_SPEED_CLEAR_LABEL)
             for ln in targets:
                 ln.flag = None
                 ln.flag_note = ""
+            for ln in displaced:
+                alignment_check.drop_displaced_reading_speed(ln)
+        targets += displaced
         unflagged = [ln for ln in lines if not ln.flag]
         reflagged = (subtitle_formats.flag_dense_lines(
             lines, mode=subtitle_formats.flagging_mode_of(drama),
