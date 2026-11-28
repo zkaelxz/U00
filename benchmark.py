@@ -31,9 +31,8 @@ substitutions differently than raw character overlap does, so a
 noticeably wrong translation with the right words in a different order
 can still score deceptively high, and vice versa.
 
-History is stored in the database (db.py's benchmark_cases/benchmark_runs
-tables) rather than a JSON file, for the same reason everything else in
-this app is: it lives in the same backed-up, always-present sqlite file
+Cases are stored in the database (db.py's benchmark_cases table) rather
+than a JSON file, for the same reason everything else in this app is: it lives in the same backed-up, always-present sqlite file
 already used for dramas/lines/glossary, not a separate file the person
 has to remember exists.
 """
@@ -127,37 +126,6 @@ def run_transcription_case(case: dict, whisper_size: str = "medium", use_gpu: bo
             "segments": segments}
 
 
-def run_translation_case(case: dict, engine):
-    """
-    case: {"source_text": the text to translate, "reference_text": optional
-    known-good translation}.
-
-    Runs the given engine's own translate_batch() -- whichever engine the
-    caller picked (Claude/DeepSeek/Gemini/etc),
-    exactly the call every real translated line in this app goes through.
-    """
-    started = time.monotonic()
-    try:
-        result = engine.translate_batch([case["source_text"]], {})
-        output_text = result[0] if result else ""
-        error = None
-    except Exception as exc:
-        output_text = ""
-        error = str(exc) or type(exc).__name__
-    duration = time.monotonic() - started
-
-    reference = case.get("reference_text")
-    score = score_text_similarity(output_text, reference) if reference else None
-    cost = 0.0
-    if hasattr(engine, "last_usage"):
-        from engine_backends import pricing
-        usage = engine.last_usage
-        cost = pricing.estimate_cost(
-            getattr(engine, "model", ""), usage.get("input_tokens", 0), usage.get("output_tokens", 0))
-    return {"output_text": output_text, "score": score, "duration_seconds": duration,
-            "error": error, "cost_usd": cost}
-
-
 def run_ocr_case(case: dict, backend: str = "tesseract"):
     """
     case: {"input_path": a page/panel image, "source_language": "zh"/"ja"/"ko",
@@ -181,37 +149,3 @@ def run_ocr_case(case: dict, backend: str = "tesseract"):
     reference = case.get("reference_text")
     score = score_text_similarity(output_text, reference) if reference else None
     return {"output_text": output_text, "score": score, "duration_seconds": duration, "error": error}
-
-
-# Maps a case's own "stage" to the function that runs it -- run_suite()
-# dispatches through this instead of an if/elif chain, so adding a new
-# stage later (e.g. hardsub OCR, or a dubbing/TTS quality check) is one
-# registry entry, not a new branch buried in the orchestration loop.
-_STAGE_RUNNERS = {
-    "transcription": run_transcription_case,
-    "translation": run_translation_case,
-    "ocr": run_ocr_case,
-}
-
-
-def run_suite(cases: list, stage: str, **kwargs):
-    """
-    Runs every case in `cases` (all of the SAME stage -- "transcription",
-    "translation", or "ocr") through that stage's runner, with `kwargs`
-    passed through (e.g. engine=..., whisper_size=..., backend=...).
-
-    Returns a list of result dicts, one per case, each with the case's
-    own "id" merged in so a caller can match a result back to its case
-    (e.g. to save it against the right benchmark_cases row) -- a case's
-    own failure is isolated to its own result (see each runner's own
-    try/except), never stopping the rest of the suite.
-    """
-    runner = _STAGE_RUNNERS.get(stage)
-    if runner is None:
-        raise ValueError(f"Unknown benchmark stage: {stage!r} -- expected one of {list(_STAGE_RUNNERS)}")
-    results = []
-    for case in cases:
-        result = runner(case, **kwargs)
-        result["case_id"] = case.get("id")
-        results.append(result)
-    return results

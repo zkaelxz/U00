@@ -5,6 +5,7 @@ import type { TranscribeConfig, TranscribeConfigUpdate } from '../../../types/wo
 import {
   advancedDraft, defaultSeparateVocals, withSeparateTouched, formFromConfig, promptSummary, switchesSummary, withoutUntouchedSeparateVocals, type ConfigForm,
 } from './transcribeConfigForm'
+import separateVocalsDefaults from './separateVocalsDefaults.json'
 
 const off = {
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, split_by_sentences: false,
@@ -88,6 +89,13 @@ describe('the separate-vocals switch for a title that never chose', () => {
     expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, use_groq: true })).toBe(false)
     expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, asr_backend_choice: 'qwen3_asr' })).toBe(false)
   })
+
+  // The same table pins the server's effective_separate_vocals (tests/test_breeze_model.py), so the
+  // switch shown before a save can't drift from what the run will do.
+  it.each(separateVocalsDefaults)('agrees with the server on $whisper_size, $asr_backend_choice, Groq $use_groq, ready $separator_ready',
+    ({ separator_ready, separates, ...form }) => {
+      expect(defaultSeparateVocals({ separates_on_breeze_by_default: separator_ready }, form)).toBe(separates)
+    })
 })
 
 describe('the draft of a title that never chose the separate-vocals switch', () => {

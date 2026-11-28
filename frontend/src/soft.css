@@ -49,6 +49,8 @@ html[data-style='soft'] .drama-card,
 html[data-style='soft'] .tools-stack,
 html[data-style='soft'] .discover-panel,
 html[data-style='soft'] .sheet { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+html[data-style='soft'] .continue-item { padding: var(--space-2) var(--space-3); border-radius: var(--radius-panel); background: var(--surface); box-shadow: var(--soft-lift); }
+html[data-style='soft'] .drama-grid .drama-tile { margin-left: var(--space-3); }
 html[data-style='soft'] .continue-tile:not([class*='tile-h']) { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
 html[data-style='soft'] .drama-tile[class*='tile-h'],
 html[data-style='soft'] .continue-tile[class*='tile-h'] { border: 0; border-radius: 20px; }

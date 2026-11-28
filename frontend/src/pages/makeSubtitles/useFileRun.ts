@@ -35,19 +35,11 @@ const RUN_POLL_MS = 2000
 const lostRun = () =>
   new ApiError(404, { code: 'not_found', message: 'Lost track of this run while the page was closed. Open the title to see how far it got.' })
 
-type EngineList = Awaited<ReturnType<typeof translateApi.engineList>>
-type SettingsData = Awaited<ReturnType<typeof getSettings>>
-// The Library's box has nothing to load until a file is given.
-const noEngines = (): Promise<EngineList | null> => Promise.resolve(null)
-const noSettings = (): Promise<SettingsData | null> => Promise.resolve(null)
-
 /**
  * File to English SRT in one go: the choices, the run and its resume after a reload. The stage stepper
- * stays the way to fix a step that went wrong: a failure links to the stage that owns it. On the Add
- * page (`runs`) it runs here; in the Library's box it only collects the choices, and the run is handed
- * to the Add page so the title list is not pushed down. `request` is such a hand-off, started once.
+ * stays the way to fix a step that went wrong: a failure links to the stage that owns it.
  */
-export function useFileRun({ runs, request = null }: { runs: boolean; request?: FileRunRequest | null }) {
+export function useFileRun() {
   const [flow, dispatch] = useReducer(flowReducer, IDLE)
   const [saved, setSaved] = usePersistedState<unknown>('makeSubtitles.run', null)
   const [language, setLanguage] = usePersistedState('makeSubtitles.language', 'zh')
@@ -66,16 +58,12 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   const [cancelError, setCancelError] = useState<unknown>(null)
   // Why the form is showing again with a title already in the Library (null dramaId: nothing was created).
   const [note, setNote] = useState<{ kind: 'cancelled' | 'upload-lost'; dramaId: number | null } | null>(null)
-  // A hand-off that arrived while a saved run was still going. It stays out of the choices on screen,
-  // which that run's later steps read, until the box is back.
-  const [waiting, setWaiting] = useState<FileRunRequest | null>(null)
   const uploadAbort = useRef<AbortController | null>(null)
 
-  const loading = runs || !!file
   const [enginesTry, setEnginesTry] = useState(0)
-  const engines = useLoad(loading ? translateApi.engineList : noEngines, enginesTry)
+  const engines = useLoad(translateApi.engineList, enginesTry)
   // Only labels the variant option; a person who cannot read Settings just sees the generic wording.
-  const settings = useLoad(loading ? getSettings : noSettings, 0)
+  const settings = useLoad(getSettings, 0)
   const defaultLocale = settings.data?.preferences.default_locale
   const list = engines.data?.items ?? []
   const defaultEngine = list.find((e) => e.name === engines.data?.default_engine)?.name ?? list[0]?.name ?? ''
@@ -88,10 +76,9 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   useEffect(() => { run.current = { title: file ? titleFor(file.name, title) : title, dramaId } })
   const stepNow = flow.phase === 'running' ? flow.step : null
 
-  // Refs, not deps: setSaved is a fresh function each render, and `runs` never changes mid-run.
-  const runsRef = useLatest(runs)
+  // A ref, not a dep: setSaved is a fresh function each render.
   const setSavedRef = useLatest(setSaved)
-  useEffect(() => { if (runsRef.current) setSavedRef.current(savedFor(flow)) }, [flow, runsRef, setSavedRef])
+  useEffect(() => { setSavedRef.current(savedFor(flow)) }, [flow, setSavedRef])
 
   const fail = useCallback((error: unknown) => { setResuming(false); setJobId(null); dispatch({ type: 'fail', error }) }, [setJobId])
 
@@ -208,39 +195,17 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
     } finally { if (uploadAbort.current === abort) uploadAbort.current = null }
   }
 
-  const fillBox = useCallback((r: FileRunRequest) => {
-    setFile(r.file)
-    setPickedEngine(r.engine)
-    setLanguage(r.language)
-    setTitle(r.title)
-    setVariant(r.variant)
-  }, [setLanguage, setPickedEngine])
-
-  // Once, after the first render: a run saved in storage wins over a hand-off. The hand-off then waits
-  // untouched, so the saved run never translates with a translator or variant picked for another file.
+  // Once, after the first render: a run saved in storage is followed again.
   const resumed = useRef(false)
-  const startRef = useLatest(start)
   useEffect(() => {
-    if (resumed.current || !runs) return
+    if (resumed.current) return
     resumed.current = true
     const s = parseSaved(saved)
     // A run that died before the upload finished has nothing to follow.
     // eslint-disable-next-line react/set-state-in-effect -- the resumed run must start from the first render's choices, and the guard above makes this a single pass
-    if (s && s.step !== 'upload') { resumedFrom.current = s; setResuming(true); dispatch({ type: 'resume', saved: s }); setWaiting(request); return }
+    if (s && s.step !== 'upload') { resumedFrom.current = s; setResuming(true); dispatch({ type: 'resume', saved: s }); return }
     if (s) setNote({ kind: 'upload-lost', dramaId: s.dramaId })
-    if (request) { fillBox(request); void startRef.current(request) }
-  }, [saved, runs, request, fillBox, startRef])
-
-  // Once the box is back, the waiting file is put in it to be started by hand: nobody pressed for it yet.
-  // One effect covers every way back (Make another, a cancel, any failure), and it lands after Make
-  // another's own clearing of the box.
-  const boxBack = flow.phase === 'idle' || flow.phase === 'error'
-  useEffect(() => {
-    if (!waiting || !boxBack) return
-    // eslint-disable-next-line react/set-state-in-effect -- the extra render happens once, when a waiting file is offered
-    setWaiting(null)
-    fillBox(waiting)
-  }, [waiting, boxBack, fillBox])
+  }, [saved])
 
   const cancel = () => {
     if (jobId) cancelJob(jobId).then(() => setCancelError(null), setCancelError)
@@ -264,7 +229,7 @@ export function useFileRun({ runs, request = null }: { runs: boolean; request?: 
   return {
     flow, file, setFile, language, setLanguage, engine, setPickedEngine, list, engines, retryEngines: () => setEnginesTry((n) => n + 1),
     title, setTitle, variant, setVariant, defaultLocale, setBlockers, blocker: blockerText(!!file, blockers, engine),
-    job, jobId, stepNow, sent, note, waiting, cancelError, downloadError, srt,
+    job, jobId, stepNow, sent, note, cancelError, downloadError, srt,
     start, refused, choices, cancel, download, reset,
     /** The run's progress or its result, which takes the box's place on the Add page. */
     showingRun: flow.phase === 'running' || flow.phase === 'done',

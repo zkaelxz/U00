@@ -19,10 +19,11 @@ function stateOf(c: NovelLineChapterRow) {
   return c.reviewed >= c.line_count ? `${base}, reviewed` : `${base}, ${c.reviewed} reviewed`
 }
 
-export function ChapterJump({ dramaId, page, pageSize, onGo }: {
+export function ChapterJump({ dramaId, page, starts, onGo }: {
   dramaId: number
   page: number
-  pageSize: number
+  // The line each page starts at (the page answer's page_starts).
+  starts: number[]
   onGo: (page: number) => void
 }) {
   const [chapters, setChapters] = useState<NovelLineChapterRow[]>([])
@@ -39,7 +40,7 @@ export function ChapterJump({ dramaId, page, pageSize, onGo }: {
   }, [chapters, query])
   // A title with no saved chapters has nothing to jump between.
   if (chapters.length < 2) return null
-  const current = chapterAt(chapters, page, pageSize)
+  const current = chapterAt(chapters, page, starts)
   return (
     <>
       <button type="button" className="reader-chapter-btn" aria-haspopup="dialog" onClick={() => setOpen(true)}>
@@ -54,7 +55,7 @@ export function ChapterJump({ dramaId, page, pageSize, onGo }: {
               {c.part && c.part !== shown[i - 1]?.part && <li className="reader-chapter-part">{c.part}</li>}
               <li>
                 <button type="button" aria-current={c === current ? 'true' : undefined}
-                  onClick={() => { setOpen(false); onGo(chapterPage(c.first_idx, pageSize)) }}>
+                  onClick={() => { setOpen(false); onGo(chapterPage(c.first_idx, starts)) }}>
                   <span>{label(c)}{c.title_en && <span className="muted"> · {c.title_en}</span>}</span>
                   <span className="muted">{stateOf(c)}</span>
                 </button>
