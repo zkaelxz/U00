@@ -196,7 +196,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           </div>
         )}
         {total > 0 && !tv.on && !focused && <SaveSession cues={session.cues} />}
-        {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
+        {!active && total > 0 && !tv.on && <button type="button" className={buttonClass('secondary')} data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
     </div>
   )

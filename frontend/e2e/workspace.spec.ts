@@ -483,7 +483,7 @@ test('the primary action is Transcribe, options are collapsed and changed option
   await page.goto('/#/drama/1/source')
   await openTranscribeOptions(page)
   const region = transcribeCard(page)
-  await expect(region.locator('button.primary')).toHaveText('Transcribe')
+  await expect(region.locator('button.btn-primary')).toHaveText('Transcribe')
   await expect(page.getByTestId('settings-summary')).toContainText('Chinese')
   // On Tools, not here: the tuning fields are not visible on the Transcribe tab.
   await expect(page.getByLabel('Beam size', { exact: true })).toBeHidden()
