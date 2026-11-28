@@ -985,7 +985,9 @@ they are; each fold remembers how you left it. "Extra names to expect" sits with
   transcribing (about 5 minutes for a two-hour stream on a V100 GPU, run in half precision, which is about as
   long as the transcription itself). Transcribing the same audio again reuses the vocals the last run
   separated (kept beside the audio until the audio is replaced or a storage cleanup removes them), so only the
-  first run pays for it. A title that has never chosen this switch has it on when it transcribes with
+  first run pays for it. After an app update, a PC that has the separation pack but not the newer FV4 model
+  downloads it (about 0.9 GB) in the quiet hours (3 to 6 am), when nothing is running, no update is waiting and
+  there are 3 GB free; it tries once a night. A title that has never chosen this switch has it on when it transcribes with
   Breeze-ASR-25 (Chinese; on three hand-corrected Chinese titles Breeze scored 0.675 with it against 0.623
   without), provided the GPU is on and the separation pack and its model are both installed (a model left
   behind without the pack keeps it off); with any other model it is off, because it hurt large-v3. Turning it
