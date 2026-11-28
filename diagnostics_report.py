@@ -308,6 +308,30 @@ def redact_for_support(text) -> str:
     return text
 
 
+# Only for the Send logs bundle, which carries whole log files rather than the
+# error lines the rest of Diagnostics shows: those can hold sign-in traffic
+# (cookie headers, a password typed into a source's sign-in form, a session
+# JWT) and account emails. Kept out of redact_for_support so job messages and
+# install output shown elsewhere don't change.
+_BUNDLE_PATTERNS = [
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"), "[EMAIL]"),
+    (re.compile(r"(?i)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(passw(?:or)?d[\"']?\s*[:=]\s*[\"']?)[^\s\"',;}]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9_\-.=+/]{8,}"), r"\1[REDACTED]"),
+    (re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"), "[REDACTED]"),
+]
+
+
+def redact_for_bundle(text) -> str:
+    """redact_for_support plus emails, cookie headers, passwords, bearer
+    tokens and JWTs. Runs these first so an email's user name is gone before
+    redact_for_support swaps account names for [USER] inside it."""
+    text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
+    for pattern, repl in _BUNDLE_PATTERNS:
+        text = pattern.sub(repl, text)
+    return redact_for_support(text)
+
+
 def format_diagnostics_report(results: dict, hf_cache: list | None = None,
                               model_versions: list | None = None) -> str:
     """Plain-text "copy diagnostics for support" report -- built from the

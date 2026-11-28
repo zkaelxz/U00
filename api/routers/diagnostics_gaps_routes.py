@@ -5,7 +5,8 @@ read-only overview (diagnostics_routes.py) lacks. Thin: see services/diagnostics
 Reads are `admin.diagnostics`: setup checks, model cache (list
 only), pyannote readiness (`check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history,
-log tail with keyword filter, the support report and
+log tail with keyword filter, the support report, the Send logs zip
+(the report, system info, recent job records and app.log, scrubbed) and
 install presets (packages grouped by task, installed versions, approx.
 sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
 status plus a CUDA check in a fresh Python; 409 while a job or another
@@ -28,7 +29,7 @@ exposed.
 
 from typing import Literal
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Response
 
 from api.auth import local_only, require_permission
 from api.schemas import (DiagnosticsAdminConfirm,
@@ -86,6 +87,15 @@ def get_log(n: int = Query(svc.LOG_TAIL_DEFAULT, ge=0, le=svc.LOG_TAIL_MAX),
             summary="A redacted plain-text report safe to share")
 def get_support_report():
     return {"report": svc.build_support_report()}
+
+
+@router.get("/support-bundle", dependencies=[require_permission("admin.diagnostics")],
+            summary="Send logs: a scrubbed zip of the support report, system info, "
+                    "recent job records and app.log (binary download)")
+def get_support_bundle():
+    return Response(content=svc.build_support_bundle(), media_type="application/zip",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{svc.support_bundle_filename()}"'})
 
 
 @router.get("/install-presets", dependencies=[require_permission("admin.diagnostics")],

@@ -3,7 +3,7 @@ services/diagnostics_gaps_service.py -- the read-only Diagnostics reports
 services/diagnostics_service.py's overview does not cover: setup checks (as
 check_setup.py reports them), model versions, model-cache listing,
 pyannote/HF-token readiness, finished-job history, a shareable support
-report and a capped log tail.
+report, the Send logs zip and a capped log tail.
 
 No HTTP types. Every string that could carry a
 secret, a token, the OS username or a local path goes through
@@ -19,7 +19,11 @@ services (benchmark_lab_service, maintenance_assistant_service,
 sources_signin_service).
 """
 
+import io
+import json
 import os
+import time
+import zipfile
 
 import background_jobs
 import db
@@ -35,6 +39,11 @@ LOG_TAIL_DEFAULT = 50
 LOG_TAIL_MAX = 200
 # A filter looks this far back, not only at the lines a plain view would show.
 LOG_FILTER_SCAN = 5000
+
+# Send logs: app.log and its rotated copies (applog keeps 3 of 5 MB each), newest
+# first, up to this many bytes in all; the oldest part is what gets cut.
+BUNDLE_LOG_BYTES = 5_000_000
+BUNDLE_JOBS = 50
 
 
 # job_id prefixes this app actually uses (see job_launch.start_job
@@ -228,3 +237,92 @@ def build_support_report(recent_error_lines: int = 20) -> str:
     extra.append("Recent errors:" if errors else "Recent errors: none")
     extra.extend(f"  {ln}" for ln in errors)
     return redact_for_support(report + "\n" + "\n".join(extra))
+
+
+def _log_files() -> list:
+    """app.log, app.log.1, ... newest first, as applog's rotation names them."""
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    paths = [os.path.join(log_dir, "app.log" + (f".{i}" if i else "")) for i in range(10)]
+    return [p for p in paths if os.path.isfile(p)]
+
+
+def _read_tail(path: str, max_bytes: int) -> str:
+    with open(path, "rb") as fh:
+        size = fh.seek(0, os.SEEK_END)
+        start = max(0, size - max_bytes)
+        fh.seek(start)
+        data = fh.read(max_bytes)
+    if start:
+        # Drop the partial first line rather than ship half a record.
+        data = data.split(b"\n", 1)[1] if b"\n" in data else b""
+    return data.decode("utf-8", errors="replace")
+
+
+def _bundle_jobs() -> list:
+    out = []
+    for r in db.list_job_records(finished_limit=BUNDLE_JOBS)[:BUNDLE_JOBS]:
+        started, ended = r.get("started_at"), r.get("finished_at")
+        out.append({
+            # job_id is "<kind>_<drama id>" or a fixed name: no title, nothing
+            # the person typed.
+            "job_id": diagnostics_report.redact_for_bundle(r.get("job_id")),
+            "status": r.get("status"),
+            "progress": r.get("progress"),
+            "gpu_touching": bool(r.get("gpu_touching")),
+            "started_at": started,
+            "finished_at": ended,
+            "duration_seconds": (ended - started) if started and ended else None,
+            "message": diagnostics_report.redact_for_bundle(r.get("message")) or None,
+            "error": diagnostics_report.redact_for_bundle(r.get("error")) or None,
+        })
+    return out
+
+
+def _bundle_system() -> dict:
+    import platform
+    import sys
+    from services import diagnostics_service, settings_service, update_service
+    settings = settings_service.get_settings_overview()
+    settings.pop("choices", None)
+    # Endpoint URLs can name a machine on the home network: configured or not only.
+    settings["endpoints"] = {k: bool(v) for k, v in (settings.get("endpoints") or {}).items()}
+    try:
+        gpu = diagnostics_service.get_gpu_reading()
+    except Exception:
+        gpu = {"found": None}
+    return {
+        "app": update_service.version_info(),
+        "os": f"{platform.system()} {platform.release()} ({platform.machine()})",
+        "python": sys.version.split()[0],
+        "gpu": {k: gpu.get(k) for k in ("found", "name", "vram_total_gb")},
+        "optional_dependencies": {k: bool(v.get("installed"))
+                                  for k, v in diagnostics.check_all_dependencies().items()},
+        "settings": settings,
+    }
+
+
+def build_support_bundle() -> bytes:
+    """The Send logs zip: the support report, system info and settings,
+    the last BUNDLE_JOBS job records and up to BUNDLE_LOG_BYTES of app.log.
+    Every text in it goes through redact_for_bundle on the way in."""
+    scrub = diagnostics_report.redact_for_bundle
+    buf = io.BytesIO()
+    with diagnostics_report.reusing_account_names(), \
+            zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("support-report.txt", scrub(build_support_report()))
+        zf.writestr("system.json", scrub(json.dumps(_bundle_system(), indent=2, default=str)))
+        zf.writestr("jobs.json", json.dumps(_bundle_jobs(), indent=2, default=str))
+        budget = BUNDLE_LOG_BYTES
+        for path in _log_files():
+            if budget <= 0:
+                break
+            cut = os.path.getsize(path) > budget
+            text = _read_tail(path, budget)
+            budget = 0 if cut else budget - len(text.encode("utf-8"))
+            zf.writestr("logs/" + os.path.basename(path),
+                        "\n".join(scrub(ln) for ln in text.splitlines()) + "\n")
+    return buf.getvalue()
+
+
+def support_bundle_filename(now: float | None = None) -> str:
+    return time.strftime("baihe-logs-%Y%m%d-%H%M%S.zip", time.localtime(now))

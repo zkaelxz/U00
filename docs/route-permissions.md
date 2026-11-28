@@ -215,6 +215,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/reset-library` | local_only() |
 | `GET /api/diagnostics/resources` | admin.diagnostics.read |
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
+| `GET /api/diagnostics/support-bundle` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |
 | `GET /api/diagnostics/upgrade-check` | admin.diagnostics |
 | `GET /api/diagnostics/voice-engines` | admin.diagnostics |

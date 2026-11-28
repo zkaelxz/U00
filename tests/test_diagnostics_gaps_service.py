@@ -1002,3 +1002,79 @@ def test_log_filter_looks_past_the_lines_a_plain_view_shows(isolated_db):
         f.write("".join(f"INFO line {i}\n" for i in range(300)))
     assert all("early failure" not in ln for ln in svc.get_log_tail(svc.LOG_TAIL_MAX))
     assert svc.get_log_tail(50, keyword="ERROR") == ["ERROR early failure"]
+
+
+# Planted in the Send logs bundle; none may come out.
+_BUNDLE_SECRETS = {
+    "email": "alex.example@example.com",
+    "cookie": "Cookie: sid=PLAINCOOKIEVALUE; theme=dark",
+    "password": 'password: "hunter2hunter2"',
+    "bearer": "Bearer PLAINBEARERVALUE123",
+    "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGV4In0.c2lnbmF0dXJlc2ln",
+    "signed": "https://cdn.example.com/a.mp4?X-Amz-Signature=SIGNEDVALUE&Expires=1",
+}
+_BUNDLE_LEAKS = ("alex.example", "PLAINCOOKIEVALUE", "hunter2hunter2", "PLAINBEARERVALUE123",
+                 "eyJhbGciOiJIUzI1NiJ9", "SIGNEDVALUE", "Expires=1")
+
+
+def _bundle(monkeypatch):
+    import io
+    import zipfile
+    from services import diagnostics_service
+    monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
+    monkeypatch.setattr(diagnostics, "scan_hf_cache", lambda d=None: [])
+    monkeypatch.setattr(diagnostics, "check_dependency", lambda name: name != "pydub")
+    monkeypatch.setattr(diagnostics_service, "get_gpu_reading", lambda: {
+        "found": True, "name": "NVIDIA GeForce RTX 3080", "vram_used_gb": 1.0, "vram_total_gb": 12.0})
+    with zipfile.ZipFile(io.BytesIO(svc.build_support_bundle())) as zf:
+        return {n: zf.read(n).decode("utf-8") for n in zf.namelist()}
+
+
+def _write_log(name, lines):
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, name), "w", encoding="utf-8") as f:
+        f.write("".join(ln + "\n" for ln in lines))
+
+
+def test_support_bundle_scrubs_planted_secrets(isolated_db, monkeypatch):
+    home = os.path.expanduser("~")
+    dirty = " ".join([DIRTY, *_BUNDLE_SECRETS.values(), f"saved {home}/Videos/clip.mp4"])
+    _write_log("app.log", ["INFO started", f"ERROR {dirty}"])
+    _write_log("app.log.1", [f"ERROR older {dirty}"])
+    db.save_job_record("translate_7", "error", message=dirty, error=dirty,
+                       started_at=10.0, finished_at=14.0)
+    files = _bundle(monkeypatch)
+    assert sorted(files) == ["jobs.json", "logs/app.log", "logs/app.log.1",
+                             "support-report.txt", "system.json"]
+    everything = "\n".join(files.values())
+    _assert_clean(everything)
+    for leak in _BUNDLE_LEAKS + (home, db.LIBRARY_DIR):
+        assert leak not in everything, leak
+    assert "[EMAIL]" in files["logs/app.log"] and "INFO started" in files["logs/app.log"]
+    job = json.loads(files["jobs.json"])[0]
+    assert job["job_id"] == "translate_7" and job["status"] == "error"
+    assert job["duration_seconds"] == 4.0 and "[REDACTED]" in job["error"]
+    system = json.loads(files["system.json"])
+    assert system["gpu"] == {"found": True, "name": "NVIDIA GeForce RTX 3080", "vram_total_gb": 12.0}
+    assert system["optional_dependencies"]["pydub"] is False
+    assert "choices" not in system["settings"]
+    assert all(isinstance(v, bool) for v in system["settings"]["endpoints"].values())
+
+
+def test_support_bundle_caps_the_logs_newest_first(isolated_db, monkeypatch):
+    monkeypatch.setattr(svc, "BUNDLE_LOG_BYTES", 2_000)
+    _write_log("app.log", [f"INFO new line {i:04d}" for i in range(500)])
+    _write_log("app.log.1", ["INFO old line"])
+    files = _bundle(monkeypatch)
+    assert "logs/app.log.1" not in files
+    log = files["logs/app.log"]
+    assert "new line 0499" in log and "new line 0000" not in log
+    assert len(log.encode()) <= 2_000
+    assert log.splitlines()[0].startswith("INFO new line ")    # no half line at the cut
+
+
+def test_bundle_redaction_keeps_ordinary_text():
+    import diagnostics_report
+    text = "INFO translated 12 lines with claude in 3.2s (cookie browser: none, 2 GB free)"
+    assert diagnostics_report.redact_for_bundle(text) == text
