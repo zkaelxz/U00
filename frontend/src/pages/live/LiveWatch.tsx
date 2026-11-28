@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 
-import { feedCues, isActive, lagLine, statusLine, statusTone } from '../../api/live'
+import { EXTEND_OFFER_SECONDS, describeLiveError, extendLabel, extendLive, feedCues, isActive, lagLine, statusLine, statusTone } from '../../api/live'
 import { buttonClass } from '../../components/uiClasses'
 import { cancelsAnyJob, useSession } from '../../hooks/useSession'
 import { usePcOnly } from '../../hooks/usePcOnly'
@@ -65,6 +65,10 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   const [tvTextSize, setTvTextSize] = usePersistedState<TvTextSize>('live.tvTextSize', 'l')
   const [showOriginal, setShowOriginal] = usePersistedState<boolean>('live.showOriginal', true)
   const [tab, setTab] = useState<'lines' | 'chat'>('lines')
+  const [extending, setExtending] = useState(false)
+  const [extendError, setExtendError] = useState<string | null>(null)
+  // The status after a press arrives with the next push; until then the press's own answer hides the offer.
+  const [extendedFor, setExtendedFor] = useState<string | null>(null)
 
   // The picture exists only while the session runs and Stop has not been
   // pressed: leaving it mounted would keep the stream's audio playing.
@@ -123,6 +127,14 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
   // A warning (reconnecting, lines left untranslated) keeps the status, lag and notes on screen; routine ones fold away.
   const calm = !session.status || (statusTone(session.status) === 'muted' && !/untranslated/.test(lag ?? ''))
   const focused = focus && active && !tv.on && calm
+  if (extendedFor === session.id && (session.status?.time_left_seconds ?? 0) >= EXTEND_OFFER_SECONDS) setExtendedFor(null)
+  const extend = !stopping && extendedFor !== session.id && session.status ? extendLabel(session.status) : null
+  const addTime = () => {
+    setExtending(true)
+    setExtendError(null)
+    extendLive(session.id).then(() => setExtendedFor(session.id), (err: unknown) => setExtendError(describeLiveError(err)))
+      .finally(() => setExtending(false))
+  }
   const stopBar = active && !tv.on && (
     <div className="live-stopbar">
       <button type="button" className={buttonClass('secondary')} onClick={onStop} disabled={stopping === 'now'} aria-busy={stopping === 'now' || undefined}>
@@ -131,6 +143,11 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
       <button type="button" className={buttonClass('secondary')} data-testid="live-focus-toggle" onClick={() => onFocus(!focus)}>
         {focus ? 'Show controls' : 'Hide controls'}
       </button>
+      {extend && (
+        <button type="button" className={buttonClass('secondary')} data-testid="live-extend" onClick={addTime} disabled={extending} aria-busy={extending || undefined}>
+          {extend}
+        </button>
+      )}
     </div>
   )
 
@@ -167,6 +184,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
         <p className={session.status ? statusTone(session.status) : 'muted'} data-testid="live-status" role="status" hidden={focused}>
           {session.status ? statusLine(session.status, total) : 'Connecting…'}
         </p>
+        {extendError && <p className="error" role="alert">{extendError}</p>}
         {lag && !focused && <p className="muted" data-testid="live-lag">{lag}</p>}
         {!focused && !!session.status?.notes?.length && (
           <ul className="muted live-notes" data-testid="live-notes" aria-label="Live events">

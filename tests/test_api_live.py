@@ -181,6 +181,7 @@ def test_404_and_422(client):
     unknown = "live_" + "0" * 32
     assert client.get(f"/api/live/sessions/{unknown}").status_code == 404
     assert client.post(f"/api/live/sessions/{unknown}/stop").status_code == 404
+    assert client.post(f"/api/live/sessions/{unknown}/extend").status_code == 404
     assert client.get("/api/live/sessions/not-a-session").status_code == 422
     assert client.post("/api/live/sessions/x/stop").status_code == 422
     for body in ({"url": "file:///etc/passwd", "engine": "fake"},

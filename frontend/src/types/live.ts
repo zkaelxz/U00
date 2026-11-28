@@ -19,6 +19,7 @@ export type LiveSessionStatus = Schemas['LiveSessionStatus']
 export type LiveSessionSummary = Schemas['LiveSessionSummary']
 
 export type LiveSessionStopped = Schemas['LiveSessionStopped']
+export type LiveSessionExtended = Schemas['LiveSessionExtended']
 
 export type LiveNameFix = Schemas['LiveNameFix']
 

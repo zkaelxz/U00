@@ -33,6 +33,7 @@ __all__ = [
     "LiveNameFixes",
     "LiveStreamRef",
     "LiveSessionSummary",
+    "LiveSessionExtended",
     "LiveSessionStopped",
     "LiveChatMessage",
     "LiveChatPage",
@@ -476,6 +477,10 @@ class LiveSessionStatus(BaseModel):
     can_fix_names: bool = False
     # Whether this caller may also save a fix into the glossary the session was started with.
     has_glossary: bool = False
+    # Until the time limit stops a running session; None without a limit or once it stopped.
+    time_left_seconds: Optional[int] = None
+    # Whether this caller may move that limit (POST .../extend).
+    can_extend: bool = False
     cues: List[LiveCue]
     next_index: int
 
@@ -519,6 +524,11 @@ class LiveSessionSummary(BaseModel):
     # What the stream chips show: the language and the site, never the link.
     source_language: Optional[str] = None
     stream: Optional[LiveStreamRef] = None
+
+
+class LiveSessionExtended(BaseModel):
+    session_id: str
+    time_left_seconds: int
 
 
 class LiveSessionStopped(BaseModel):

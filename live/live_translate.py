@@ -710,6 +710,31 @@ def current_generation(job_id: str) -> int:
     return _generations.get(job_id, 0)
 
 
+# When each running session with a time limit stops, on time.monotonic()'s clock,
+# so its owner can move the limit without a restart (extend_time_limit).
+_deadlines = {}
+_deadlines_lock = threading.Lock()
+
+
+def extend_time_limit(job_id: str, seconds: float, longest: float) -> float | None:
+    """Moves a running session's hard stop `seconds` later, but never more than
+    `longest` from now; returns the seconds left, or None for a session that is
+    not running or has no limit."""
+    with _deadlines_lock:
+        box = _deadlines.get(job_id)
+        if box is None:
+            return None
+        now = time.monotonic()
+        box[0] = max(box[0], min(box[0] + seconds, now + longest))
+        return box[0] - now
+
+
+def time_left(job_id: str) -> float | None:
+    with _deadlines_lock:
+        box = _deadlines.get(job_id)
+        return None if box is None else max(0.0, box[0] - time.monotonic())
+
+
 def _run_abortable(fn, should_stop, poll: float = 0.25):
     """Runs fn() on a helper thread and returns its result, or raises
     background_jobs.JobCancelled as soon as should_stop() is true. The
@@ -756,7 +781,6 @@ class _LiveRun(ChunkCaptioner):
         self.cookies_browser = cookies_browser
         self.cookies_file = cookies_file
         self.overlap_seconds = max(0.0, min(float(overlap_seconds or 0), segment_seconds / 2))
-        self.max_seconds = max_seconds
         self.stream_url_check = stream_url_check
         self.proxy = proxy
         self.report_stage = report_stage
@@ -767,7 +791,10 @@ class _LiveRun(ChunkCaptioner):
         self.delayed_player = delayed_player
         self.report_player = report_player
         self.my_generation = bump_generation(job_id)
-        self.started = time.monotonic()
+        self.deadline = None if max_seconds is None else [time.monotonic() + max_seconds]
+        if self.deadline is not None:
+            with _deadlines_lock:
+                _deadlines[job_id] = self.deadline
         self.note = report_note or (lambda text, key=None: None)
         self.runner = live_whisper.WhisperRunner(
             self.should_stop, self.note, clock=whisper_clock, gpu=use_gpu)
@@ -801,8 +828,13 @@ class _LiveRun(ChunkCaptioner):
             background_jobs.update_progress(self.job_id, 0.0, message)
 
     def time_up(self):
-        return (self.max_seconds is not None
-                and time.monotonic() - self.started >= self.max_seconds)
+        with _deadlines_lock:
+            return self.deadline is not None and time.monotonic() >= self.deadline[0]
+
+    def forget_deadline(self):
+        with _deadlines_lock:
+            if self.deadline is not None and _deadlines.get(self.job_id) is self.deadline:
+                del _deadlines[self.job_id]
 
     def run(self):
         self.report("Resolving the stream address...")
@@ -1243,8 +1275,8 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     padded_*.wav left in out_dir by an earlier run before ffmpeg starts.
 
     max_seconds: a hard stop -- once this much wall-clock time has passed
-    since the call began, capture stops as if Stop were pressed. None
-    means no limit.
+    since the call began, capture stops as if Stop were pressed
+    (extend_time_limit moves it). None means no limit.
 
     stream_url_check: optional callable run on the stream URL yt-dlp
     resolved, before anything fetches it; it raises to refuse (the API
@@ -1273,11 +1305,15 @@ def run_live_job(job_id: str, url: str, out_dir: str, segment_seconds: int,
     reconnects (_LiveRun._reconnect) and, if the stream does not come back,
     ends like a stream that simply ends: a normal finish.
     """
+    live_run = None
     try:
-        _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size, engine,
-                 use_gpu, poll_interval, cookies_browser, cookies_file, overlap_seconds,
-                 max_seconds, stream_url_check, proxy, report_stage, reply_without_thinking,
-                 report_note, whisper_clock, report_stats, term_hints, spend_guard,
-                 delayed_player, report_player).run()
+        live_run = _LiveRun(job_id, url, out_dir, segment_seconds, source_language, whisper_size,
+                            engine, use_gpu, poll_interval, cookies_browser, cookies_file,
+                            overlap_seconds, max_seconds, stream_url_check, proxy, report_stage,
+                            reply_without_thinking, report_note, whisper_clock, report_stats,
+                            term_hints, spend_guard, delayed_player, report_player)
+        live_run.run()
     finally:
+        if live_run is not None:
+            live_run.forget_deadline()
         drop_generation(job_id)

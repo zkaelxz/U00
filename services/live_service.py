@@ -93,6 +93,7 @@ def language_chunk(language: str, captions=None) -> dict:
 MAX_MINUTES_RANGE = (1, 240)
 WHISPER_NAME_TERMS = 20
 DEFAULT_MAX_MINUTES = 60
+EXTEND_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
@@ -877,6 +878,25 @@ def stop_session(session_id, principal=None) -> dict:
     return {"session_id": session_id, "stopping": True, "finishing": False}
 
 
+def extend_session(session_id, principal=None) -> dict:
+    """Moves a running session's time limit EXTEND_MINUTES later, never past
+    MAX_MINUTES_RANGE's longest from now; nothing restarts, and the spend limit
+    still applies. Its starter only, as for name fixes: it keeps an engine busy longer."""
+    job = _require(session_id, principal)
+    with _lock:
+        entry = _sessions.get(session_id) or {}
+    if not _may_fix_names(principal, session_id, entry):
+        raise ForbiddenError("Only whoever started this session can give it more time.")
+    left = None
+    if (job or {}).get("status") == "running":
+        left = live_translate.extend_time_limit(session_id, EXTEND_MINUTES * 60,
+                                                MAX_MINUTES_RANGE[1] * 60)
+    if left is None:
+        raise ConflictError("This session is not running with a time limit.")
+    add_note(session_id, f"Time limit moved: stops in about {round(left / 60)} min.", key="time-limit")
+    return {"session_id": session_id, "time_left_seconds": int(left)}
+
+
 def add_name_fix(session_id, source, english, save_to_glossary=False, principal=None) -> dict:
     """Later captions of the session translate `source` as `english`, and Whisper is primed with
     it. Captions already shown keep their text. The session's owner only, like Stop; a viewer who
@@ -973,6 +993,11 @@ _FIXED_TEXT_PREFIXES = tuple(f"{cls.__name__}: " for cls in (
     live_translate.LiveCaptureError, InvalidInputError, DependencyUnavailableError))
 
 
+def _time_left(status, session_id) -> Optional[int]:
+    left = live_translate.time_left(session_id) if status == "running" else None
+    return None if left is None else int(left)
+
+
 def get_session(session_id, after=0, principal=None) -> dict:
     """{status, message, progress, cues[after:], next_index, the lag figures}.
     Never a traceback, a filesystem path or a key. A cue is added untranslated and
@@ -1024,6 +1049,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "stream": entry.get("stream"),
             "name_fixes": name_fixes(session_id),
             "can_fix_names": _may_fix_names(principal, session_id, entry),
+            "time_left_seconds": _time_left(status, session_id),
+            "can_extend": status == "running" and _may_fix_names(principal, session_id, entry),
             "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}
