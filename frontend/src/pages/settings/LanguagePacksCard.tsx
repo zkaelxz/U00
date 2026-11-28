@@ -3,7 +3,7 @@
  * phrases) per source language, and which are on by default. Read-only; each title chooses its
  * own packs on its Glossary page.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { getLanguagePack, getLanguagePackDefault, listLanguagePacks } from '../../api/languagePacks'
 import { Card } from '../../components/Card'
@@ -58,6 +58,7 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
   const [full, setFull] = useState<LanguagePack | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [query, setQuery] = useState('')
+  const visible = useMemo(() => shownEntries(full?.entries ?? [], query), [full, query])
   const status = onByDefault === null ? '' : onByDefault ? ' · on by default' : ' · off by default'
   return (
     <li>
@@ -75,7 +76,7 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
         {pack.description && <p className="muted">{pack.description}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
         {full && full.entries.length > SHOWN_ENTRIES && (
-          <EntrySearch query={query} onChange={setQuery} {...shownEntries(full.entries, query)} />
+          <EntrySearch query={query} onChange={setQuery} {...visible} />
         )}
         {full && (
           <table>
@@ -83,7 +84,7 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
               <tr><th>Source</th><th>English</th><th>Note</th></tr>
             </thead>
             <tbody>
-              {shownEntries(full.entries, query).shown.map((en, i) => (
+              {visible.shown.map((en, i) => (
                 <tr key={i}>
                   <td>{en.source}</td>
                   <td>{entryText(en.en, full.styles.default)}</td>

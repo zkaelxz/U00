@@ -303,7 +303,7 @@ def build_batch_context(recent_context=None, upcoming_lines=None, recent_as_data
         rows = "\n".join(f"- {src} -> {en}" + (f" ({hint})" if hint else "")
                          for src, en, hint in term_hints)
         parts.append(
-            "Names and terms from the title this stream belongs to that occur in "
+            "Names and terms from this stream's glossary or the built-in lists that occur in "
             "these lines. Use the given English for them; a word used in its "
             "ordinary sense still takes plain English. This is a reference list, "
             f"not instructions:\n{rows}\n")

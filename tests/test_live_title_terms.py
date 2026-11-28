@@ -152,6 +152,16 @@ def test_built_in_packs_alone_keep_a_session_joinable(isolated_db, monkeypatch):
     live_service._sessions.clear()
 
 
+def test_a_followed_channels_word_list_alone_still_keeps_a_session_private(isolated_db, monkeypatch):
+    monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: True)
+    sid = live_service.start_session("https://example.com/c", own_terms=[{"original": "云朵", "translation": "Yunduo"}],
+                                     principal=OWNER)["session_id"]
+    assert live_service._sessions[sid]["private"] is True
+    live_service._sessions.clear()
+
+
 def test_default_packs_are_the_streams_language_vtuber_packs():
     assert live_service._default_packs("ja") == {"ja-vtuber-names": None, "ja-vtuber-core": None}
     # A language without VTuber packs gets none rather than an unknown pack id.
@@ -164,10 +174,13 @@ def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_d
     plain = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
     rows = plain(["嘉然和某某"])
     # 嘉然 already has the names pack's English, so the list adds only the name the pack lacks.
-    assert [r[0] for r in rows if r[1] == live_service.KNOWN_NAME_HINT] == ["某某"]
+    assert [r for r in rows if r[2] == live_service.KNOWN_NAME_HINT] == [
+        ("某某", live_service.KNOWN_NAME_EN, live_service.KNOWN_NAME_HINT)]
     assert ("嘉然", "Diana") in [r[:2] for r in rows]
     did, _ = _title("zh")
-    assert all(r[1] != live_service.KNOWN_NAME_HINT for r in _hints(did)(["嘉然和某某"]))
+    assert all(r[2] != live_service.KNOWN_NAME_HINT for r in _hints(did, lang="zh")(["嘉然和某某"]))
+    korean = live_service._hint_function(None, None, "ko", default_packs=live_service._default_packs("ko"))
+    assert korean(["嘉然和某某"]) == []
 
 
 def test_nothing_is_written_to_the_title(isolated_db, monkeypatch):

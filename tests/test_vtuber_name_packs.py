@@ -105,8 +105,8 @@ def test_rebuild_keeps_hand_written_entries_and_applies_overrides(tmp_path, monk
     assert pack["version"] == 4 and pack["entries"][0]["source"] == "手寫"
     assert "舊的" not in by_source and "範例鈴" not in by_source and "範例·鈴" in by_source
     assert by_source["靈球"]["en"] == "Ghost Balls"
-    # Another pack of the language already has 鈴鈴, so its entry stays the only one.
-    assert "鈴鈴" not in by_source and "铃铃" in by_source
+    # Another pack of the language already has 鈴鈴, so its entry stays the only one, in both scripts.
+    assert "鈴鈴" not in by_source and "铃铃" not in by_source
     assert "院長" in (tmp_path / "review.md").read_text(encoding="utf-8")
 
 
@@ -129,3 +129,72 @@ def test_the_agency_spelling_wins_and_wikidata_adds_the_other_languages_names():
     assert zh["只在維基"]["link"] == "https://www.wikidata.org/wiki/Q2"
     # No English label means no rendering to give, so the item adds nothing.
     assert "英語なし" not in ja
+
+
+def test_wikidata_in_the_other_script_is_the_same_vtuber_not_a_rival():
+    pytest.importorskip("opencc")
+    row = vnp.parse_profile("sample-rin", "tw", PROFILE)
+    wikidata = [{"qid": "Q9", "gender": "", "labels": {"en": ["Sample Rin"], "zh-hans": ["范例·铃"]}}]
+    kept, held = vnp.filter_candidates(vnp.candidates([row], (), wikidata), _Words(), {"zh": set(), "ja": set()})
+    assert {"範例鈴", "范例铃"} <= {e["source"] for e in kept["zh"]}
+    assert not [h for h in held if h[1] in ("範例鈴", "范例铃")]
+
+
+def test_a_wikidata_label_equal_to_someone_elses_nickname_is_not_that_vtuber():
+    pytest.importorskip("opencc")
+    a = {**vnp.parse_profile("a", "jp", PROFILE), "original": "はじめの人", "nicknames": ["Mochi (おもちもち)"]}
+    wikidata = [{"qid": "Q7", "gender": "", "labels": {"en": ["Other Mochi"], "ja": ["おもちもち"], "zh": ["另一个名字"]}}]
+    kept, _ = vnp.filter_candidates(vnp.candidates([a], (), wikidata), _Words(), {"zh": set(), "ja": set()})
+    zh = {e["source"]: e for e in kept["zh"]}
+    assert zh["另一个名字"]["en"] == "Other Mochi" and zh["另一个名字"]["link"].endswith("/Q7")
+    # Both claim おもちもち: one as a nickname, one as a name, so the name owner keeps it.
+    assert {e["source"]: e for e in kept["ja"]}["おもちもち"]["en"] == "Other Mochi"
+
+
+def test_a_name_listed_twice_by_its_owner_still_beats_a_rivals_nickname():
+    pytest.importorskip("opencc")
+    a = {**vnp.parse_profile("a", "tw", PROFILE), "nicknames": []}
+    b = {**vnp.parse_profile("b", "tw", PROFILE), "original": "別人名字", "nicknames": ["Rin (範例鈴)"]}
+    wikidata = [{"qid": "Q1", "gender": "", "labels": {"en": ["Sample Rin"], "zh-hant": ["範例鈴"]}}]
+    kept, _ = vnp.filter_candidates(vnp.candidates([a, b], (), wikidata), _Words(), {"zh": set(), "ja": set()})
+    assert {e["source"]: e for e in kept["zh"]}["範例鈴"]["link"].endswith("/a/")
+
+
+def test_a_nickname_ending_in_an_address_term_is_held_back():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("a", "jp", PROFILE), "original": "範例りん", "nicknames": ["Rin-chan (りんりんちゃん)"]}
+    kept, held = vnp.filter_candidates(vnp.candidates([row]), _Words(), {"zh": set(), "ja": set()},
+                                       {"ja": {"ちゃん"}})
+    assert ("りんりんちゃん", "ends with an address term") in [(h[1], h[4]) for h in held]
+    assert "範例りん" in {e["source"] for e in kept["ja"]}
+
+
+def test_a_failed_list_page_does_not_wipe_cached_profiles(tmp_path, monkeypatch):
+    cached = {"slug": "old-one", "category": "jp", "fetched": "2026-11-27"}
+    (tmp_path / "profiles.jsonl").write_text(json.dumps(cached) + "\n", encoding="utf-8")
+    monkeypatch.setattr(vnp, "_category_slugs", lambda session, category: ([], category != "jp"))
+    vnp.fetch(tmp_path, refresh_max=0)
+    assert "old-one" in vnp.load_cache(tmp_path)
+    monkeypatch.setattr(vnp, "_category_slugs", lambda session, category: ([], True))
+    vnp.fetch(tmp_path, refresh_max=0)
+    assert vnp.load_cache(tmp_path) == {}
+
+
+def test_a_build_that_the_app_would_refuse_fails_instead_of_writing(tmp_path, monkeypatch):
+    pytest.importorskip("opencc")
+    packs = tmp_path / "packs"
+    packs.mkdir()
+    for language in ("ja", "zh"):
+        (packs / f"{language}-vtuber-names.json").write_text(json.dumps({
+            "id": f"{language}-vtuber-names", "version": 1, "language": language, "title": "T",
+            "description": "D", "entries": [{"source": "手寫", "en": "Hand"}]}), encoding="utf-8")
+    long_name = {**vnp.parse_profile("sample-rin", "tw", PROFILE), "name": "N" * 300, "nicknames": []}
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / "profiles.jsonl").write_text(json.dumps(long_name, ensure_ascii=False) + "\n", encoding="utf-8")
+    monkeypatch.setattr(vnp, "PACK_DIR", packs)
+    monkeypatch.setattr(vnp, "_Words", _Words)
+    before = (packs / "zh-vtuber-names.json").read_text(encoding="utf-8")
+    with pytest.raises(vnp.language_packs.PackError):
+        vnp.build(cache, None)
+    assert (packs / "zh-vtuber-names.json").read_text(encoding="utf-8") == before

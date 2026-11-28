@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getLanguagePack, getTitleLanguagePacks, setLanguagePackDefault, setTitleLanguagePacks } from '../../../api/languagePacks'
 import { pcOnlyFetch } from '../../../api/pcOnly'
@@ -51,15 +51,17 @@ function PackEntries({ pack, inGlossary, canAdd, onAdded, onError }: {
     }
   }, [open, loaded, pack.id, onError])
 
+  const visible = useMemo(() => shownEntries(loaded?.entries ?? [], query), [loaded, query])
+
   return (
     <details className="lp-entries" onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
       <summary>View entries ({pack.entry_count})</summary>
       {loaded && loaded.entries.length > SHOWN_ENTRIES && (
-        <EntrySearch query={query} onChange={setQuery} {...shownEntries(loaded.entries, query)} />
+        <EntrySearch query={query} onChange={setQuery} {...visible} />
       )}
       {loaded && (
         <ul className="lp-list">
-          {shownEntries(loaded.entries, query).shown.map((entry) => {
+          {visible.shown.map((entry) => {
             const have = inGlossary.has(entry.source) || added.has(entry.source)
             return (
               <li key={entry.source} className="lp-entry">

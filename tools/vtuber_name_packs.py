@@ -28,6 +28,7 @@ import argparse
 import html
 import json
 import math
+import os
 import re
 import sys
 import time
@@ -37,6 +38,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PACK_DIR = REPO_ROOT / "language_pack_data"
 OVERRIDES = Path(__file__).resolve().parent / "vtuber_name_overrides.json"
+# Run as `python tools/vtuber_name_packs.py` sys.path[0] is tools/, not the repo.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+import language_packs  # noqa: E402
 SITE = "https://hololist.net"
 # Hololist country categories and the pack language whose streams name them.
 CATEGORIES = {"jp": "ja", "tw": "zh", "cn": "zh", "hk": "zh"}
@@ -109,18 +114,22 @@ def parse_profile(slug, category, body) -> dict:
 
 
 def _category_slugs(session, category):
-    first = _get(session, f"{SITE}/category/{category}/") or ""
+    """(slugs, complete): complete is False when any list page failed to load."""
+    first = _get(session, f"{SITE}/category/{category}/")
+    if not first:
+        return [], False
     last = max([int(n) for n in re.findall(rf"/category/{category}/page/(\d+)/", first)] or [1])
-    slugs = []
+    slugs, complete = [], True
     for page in range(1, last + 1):
         body = first if page == 1 else _get(session, f"{SITE}/category/{category}/page/{page}/")
         if not body:
+            complete = False
             continue
         grid = body[body.find('<div class="row g-2">'):].split("Showing ")[0]
         for slug in re.findall(r'<a href="https://hololist\.net/([^"/?]+)/">\s*<img', grid):
             if slug not in NAV_SLUGS and slug not in slugs:
                 slugs.append(slug)
-    return slugs
+    return slugs, complete
 
 
 def load_cache(cache_dir: Path) -> dict:
@@ -146,9 +155,11 @@ def fetch(cache_dir: Path, refresh_max: int):
     rows = load_cache(cache_dir)
     session = requests.Session()
     session.headers["User-Agent"] = "glossary-builder (low-rate; respects robots.txt)"
-    listed = {}
+    listed, complete = {}, True
     for category in CATEGORIES:
-        for slug in _category_slugs(session, category):
+        slugs, whole = _category_slugs(session, category)
+        complete = complete and whole
+        for slug in slugs:
             listed.setdefault(slug, category)
         print(f"{category}: {sum(1 for c in listed.values() if c == category)} listed", flush=True)
     today = datetime.now(timezone.utc)
@@ -163,9 +174,11 @@ def fetch(cache_dir: Path, refresh_max: int):
         if n % 50 == 0 or n == len(todo):
             _save_cache(cache_dir, rows)
             print(f"fetched {n}/{len(todo)}", flush=True)
-    # A profile no longer listed in any category was removed or moved off these countries.
-    for slug in [s for s in rows if s not in listed]:
-        del rows[slug]
+    # A profile no longer listed in any category was removed or moved off these countries. Only a
+    # complete listing can show that: a failed page would otherwise wipe its profiles from the cache.
+    if complete:
+        for slug in [s for s in rows if s not in listed]:
+            del rows[slug]
     _save_cache(cache_dir, rows)
 
 
@@ -187,7 +200,11 @@ def _official(session) -> list:
         out.append({"native": _text(native), "en": _text(en), "link": link, "agency": "hololive production"})
     body = _get(session, NIJISANJI_TALENTS) or ""
     m = re.search(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', body, re.S)
-    for liver in (json.loads(m.group(1))["props"]["pageProps"].get("allLivers", []) if m else []):
+    try:
+        livers = json.loads(m.group(1))["props"]["pageProps"]["allLivers"] if m else []
+    except (ValueError, KeyError, TypeError):
+        livers = []
+    for liver in livers:
         if liver.get("name") and liver.get("enName") and liver.get("slug"):
             out.append({"native": liver["name"].strip(), "en": liver["enName"].strip(),
                         "link": f"https://www.nijisanji.jp/talents/l/{liver['slug']}", "agency": "NIJISANJI"})
@@ -195,11 +212,13 @@ def _official(session) -> list:
 
 
 def _wikidata(session) -> list:
-    """[{qid, gender, labels: {language: [label]}}] for every VTuber on Wikidata (CC0). Labels
-    only: an item's aliases can hold the real name of the person behind the avatar."""
+    """[{qid, gender, labels: {language: [label]}}] for every VTuber character on Wikidata (CC0).
+    Labels only, and no item that is a human (Q5): those labels and any item's aliases can hold
+    the real name of the person behind the avatar."""
     langs = ", ".join(f'"{lang}"' for lang in WIKIDATA_LANGS)
     query = f"""SELECT ?i ?text ?g WHERE {{
       {{ ?i wdt:P106 wd:{WIKIDATA_VTUBER} }} UNION {{ ?i wdt:P31 wd:{WIKIDATA_VTUBER} }}
+      FILTER NOT EXISTS {{ ?i wdt:P31 wd:Q5 }}
       ?i rdfs:label ?text FILTER(LANG(?text) IN ({langs}))
       OPTIONAL {{ ?i wdt:P21 ?g }} }}"""
     resp = session.get(WIKIDATA_SPARQL, params={"query": query, "format": "json"}, timeout=120)
@@ -220,8 +239,14 @@ def fetch_reference(cache_dir: Path):
     import requests
     cache_dir.mkdir(parents=True, exist_ok=True)
     session = requests.Session()
-    session.headers["User-Agent"] = "glossary-builder (low-rate; respects robots.txt)"
+    # Wikidata asks for a User-Agent with contact details; give yours at run time, never in the repo.
+    session.headers["User-Agent"] = os.environ.get("GLOSSARY_BUILDER_UA",
+                                                   "glossary-builder (low-rate; respects robots.txt)")
     for name, rows in (("official.json", _official(session)), ("wikidata.json", _wikidata(session))):
+        if not rows:
+            # A failed or changed page keeps the last good copy instead of emptying it.
+            print(f"{name}: nothing read, kept the previous file", flush=True)
+            continue
         (cache_dir / name).write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
         print(f"{name}: {len(rows)}", flush=True)
 
@@ -290,10 +315,17 @@ def _note(row, nickname: bool) -> str:
     return ("; ".join(facts) + ". Keep the name as written; never turn it into he/she.")[:300]
 
 
-def _native_names(row) -> set:
-    names = {row["original"], re.sub(r"[\s·・]", "", row["original"])}
-    names.update(p[1] for p in map(_split_nickname, row["nicknames"]) if p)
-    return {n for n in names if n}
+def _original_names(row, converters) -> set:
+    """The VTuber's own name as written, joined, and in the other Chinese script: what another
+    source's label must equal to be the same VTuber (a nickname could belong to someone else)."""
+    names = {row["original"], _joined(row["original"])}
+    names.update(conv.convert(n) for n in list(names) for conv in converters)
+    return {n for n in names if n and CJK.search(n)}
+
+
+def _joined(name):
+    # Speech never carries the separator, so the joined form is what a transcript holds.
+    return re.sub(r"[\s·・]", "", name)
 
 
 def candidates(rows, official=(), wikidata=()):
@@ -303,12 +335,12 @@ def candidates(rows, official=(), wikidata=()):
     import opencc
     converters = (opencc.OpenCC("t2s"), opencc.OpenCC("s2t"))
     spelled = {o["native"]: o for o in official}
-    spelled.update({re.sub(r"\s", "", o["native"]): o for o in official})
+    spelled.update({_joined(o["native"]): o for o in official})
     out = []
     by_native = {}
     for row in rows:
         if row.get("platforms"):
-            for native in _native_names(row):
+            for native in _original_names(row, converters):
                 by_native.setdefault(native, row)
     for row in rows:
         if not row.get("platforms"):
@@ -318,8 +350,7 @@ def candidates(rows, official=(), wikidata=()):
         names = []
         if row["original"] and CJK.search(row["original"]):
             names.append((row["original"], row["name"], "name"))
-            # Speech never carries the separator, so the joined form is what a transcript holds.
-            joined = re.sub(r"[\s·・]", "", row["original"])
+            joined = _joined(row["original"])
             if joined != row["original"]:
                 names.append((joined, row["name"], "name"))
         for nick in row["nicknames"]:
@@ -336,11 +367,10 @@ def candidates(rows, official=(), wikidata=()):
                     else _note(row, kind == "nickname"))
             for source in _variants(native, language, converters):
                 out.append((language, source, en, note, link, kind, row["slug"]))
-    hololist_named = {n for n, r in by_native.items() if r["original"]}
     for o in official:
-        if o["native"] not in hololist_named and CJK.search(o["native"]):
+        if o["native"] not in by_native and _joined(o["native"]) not in by_native and CJK.search(o["native"]):
             note = f"VTuber; {o['agency']}. Keep the name as written; never turn it into he/she."
-            for native in {o["native"], re.sub(r"\s", "", o["native"])}:
+            for native in {o["native"], _joined(o["native"])}:
                 out.append(("ja", native, o["en"], note, o["link"], "name", o["link"]))
     for item in wikidata:
         labels = item["labels"]
@@ -365,8 +395,11 @@ def candidates(rows, official=(), wikidata=()):
     return out
 
 
-def filter_candidates(cands, words, taken):
-    """(kept, held): kept entries per language, and held-back ones with the reason."""
+def filter_candidates(cands, words, taken, suffixes=None):
+    """(kept, held): kept entries per language, and held-back ones with the reason. `suffixes`:
+    per language, the address terms of the built-in packs (ちゃん, 姐姐). A nickname ending in one
+    would claim that text even with the names pack off, so the address hint is lost."""
+    suffixes = suffixes or {}
     by_source = {}
     for c in cands:
         by_source.setdefault((c[0], c[1]), []).append(c)
@@ -381,10 +414,12 @@ def filter_candidates(cands, words, taken):
             reason = "one character"
         elif len(source) > 40:
             reason = "too long"
-        elif len(owners) > 1 and not (c[5] == "name" and sum(1 for g in group if g[5] == "name") == 1):
+        elif len(owners) > 1 and len({g[6] for g in group if g[5] == "name"}) != 1:
             reason = "used by " + ", ".join(sorted(owners))
         elif len(source) <= MAX_CHECKED_LEN and words.is_common(source, language):
             reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"
+        elif c[5] != "name" and any(source.endswith(x) and source != x for x in suffixes.get(language, ())):
+            reason = "ends with an address term"
         if reason:
             held.append((language, source, c[2], c[4], reason))
         else:
@@ -401,16 +436,24 @@ def build(cache_dir: Path, review: Path):
         path = PACK_DIR / f"{language}-vtuber-names.json"
         packs[language] = json.loads(path.read_text(encoding="utf-8"))
         hand[language] = [e for e in packs[language]["entries"] if not e.get("link")]
-    # A source another pack of the language already has keeps that pack's entry.
+    import opencc
+    converters = (opencc.OpenCC("t2s"), opencc.OpenCC("s2t"))
+    suffixes = {"ja": set(), "zh": set()}
+    # A source another pack of the language already has keeps that pack's entry, in both scripts,
+    # so Simplified and Traditional text get the same rendering.
     for path in sorted(PACK_DIR.glob("*.json")):
         other = json.loads(path.read_text(encoding="utf-8"))
         for language in ([other["language"]] if other["language"] in taken else list(taken)
                          if other["language"] == "any" else []):
-            taken[language].update(e["source"] for e in other["entries"] if not e.get("link"))
+            for e in other["entries"]:
+                if not e.get("link"):
+                    taken[language].update(_variants(e["source"], language, converters))
+                if other["id"] == f"{language}-address":
+                    suffixes[language].add(e["source"])
     reference = {name: json.loads((cache_dir / f"{name}.json").read_text(encoding="utf-8"))
                  if (cache_dir / f"{name}.json").exists() else [] for name in ("official", "wikidata")}
     kept, held = filter_candidates(candidates(rows, reference["official"], reference["wikidata"]),
-                                   _Words(), taken)
+                                   _Words(), taken, suffixes)
     for language, pack in packs.items():
         fixes = overrides.get(language, {})
         generated = []
@@ -420,10 +463,17 @@ def build(cache_dir: Path, review: Path):
                 generated.append(entry)
             elif not fix.get("drop"):
                 generated.append({**entry, **{k: v for k, v in fix.items() if k in ("en", "note")}})
-        pack["entries"] = hand[language] + generated
-        pack["version"] = pack["version"] + 1
-        (PACK_DIR / f"{language}-vtuber-names.json").write_text(
-            json.dumps(pack, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+        entries = hand[language] + generated
+        if entries != pack["entries"]:
+            pack["entries"] = entries
+            pack["version"] += 1
+        text = json.dumps(pack, ensure_ascii=False, indent=1) + "\n"
+        # The app skips a pack that fails its checks, hand-written entries and all, with only a log
+        # line, so a bad build must fail here instead.
+        language_packs.validate_pack(json.loads(text), f"{language}-vtuber-names.json")
+        if len(text.encode("utf-8")) > language_packs.MAX_PACK_BYTES:
+            raise SystemExit(f"{language}-vtuber-names.json would be larger than the app loads.")
+        (PACK_DIR / f"{language}-vtuber-names.json").write_text(text, encoding="utf-8")
         print(f"{language}: {len(hand[language])} hand-written + {len(generated)} generated", flush=True)
     if review:
         lines = ["| language | source | English | reason | profile |", "|---|---|---|---|---|"]
