@@ -40,6 +40,7 @@ import { InboxCard } from './settings/InboxCard'
 import { QuickVideoCard } from './settings/QuickVideoCard'
 import { JellyfinSection } from './settings/JellyfinSection'
 import { NotificationsSection } from './settings/NotificationsSection'
+import { NO_DESKTOP_POPUPS } from './settings/notifications'
 import { PcAlertsCard } from './settings/PcAlertsCard'
 import { OllamaKeyCard } from './settings/OllamaKeyCard'
 import { showOllamaKey } from './settings/ollamaKeyModel'
@@ -51,6 +52,8 @@ import { PhoneAppCard } from './settings/PhoneAppCard'
 import { inPhoneShell } from '../phoneShell'
 import { AdvancedCard, DefaultsCard, EndpointsCard, KeepFreeMemory, SpendingCard } from './settings/PreferencesSections'
 import { SharingCard } from './settings/SharingCard'
+import { SchemaCard } from './settings/SchemaCard'
+import { blockedPhrasesSummary } from './settings/schemaValues'
 import { TimingSettingsCard } from './settings/TimingSettingsCard'
 import { useDeveloperMode } from './assistant/developerMode'
 import { TranscriptionExperimentsCard } from './settings/TranscriptionExperimentsCard'
@@ -396,6 +399,18 @@ export default function SettingsPage() {
               </SettingsCard>
             )}
             {shown('timing-splitting') && <SettingsCard id="timing-splitting"><TimingSettingsCard {...prefProps} /></SettingsCard>}
+            {shown('blocked-phrases') && (
+              <SettingsCard id="blocked-phrases">
+                <SchemaCard
+                  {...prefProps}
+                  section="Transcription experiments"
+                  keys={['blocked_phrases']}
+                  as="card"
+                  title="Blocked phrases"
+                  summary={blockedPhrasesSummary(settings.preferences.blocked_phrases)}
+                />
+              </SettingsCard>
+            )}
             {shown('transcription-experiments') && <SettingsCard id="transcription-experiments"><TranscriptionExperimentsCard /></SettingsCard>}
           </>
         ))}
@@ -403,7 +418,15 @@ export default function SettingsPage() {
           <>
             {shown('notifications') && (
               <SettingsCard id="notifications">
-                <NotificationsSection popupOn={settings.notify_on_completion} notifyToggle={<div className="setting-list">{toggleField('notify_on_completion')}</div>} />
+                <NotificationsSection
+                  popupOn={settings.notify_on_completion && settings.desktop_popups !== false}
+                  notifyToggle={
+                    <div className="setting-list">
+                      {toggleField('notify_on_completion')}
+                      {settings.desktop_popups === false && <p className="muted">{NO_DESKTOP_POPUPS}</p>}
+                    </div>
+                  }
+                />
               </SettingsCard>
             )}
             {shown('pc-alerts') && <SettingsCard id="pc-alerts"><PcAlertsCard /></SettingsCard>}

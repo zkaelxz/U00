@@ -395,6 +395,8 @@ class SettingsOverview(BaseModel):
     gpu_limit_enabled: bool
     gpu_max_parallel: int = 1
     notify_on_completion: bool
+    # False when Baihe runs as the boot service (Session 0): a pop-up has no desktop to show on.
+    desktop_popups: bool = True
     use_gpu: bool = False
     gemini_free_tier: bool = False
     bulk_auto_resume: bool = False

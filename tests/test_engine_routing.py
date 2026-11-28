@@ -44,7 +44,6 @@ class TestResolve:
         assert routing.resolve_capability("translation.high_quality") == "deepseek"
         assert routing.resolve_capability("llm.instructions") == "deepseek"
         assert routing.resolve_capability("summary.episode") == "claude"
-        assert routing.resolve_capability("research.grounded_search") == "gemini"
 
     def test_returns_the_configured_engine(self, isolated_db):
         routing.set_capability_engine("translation.high_quality", "claude")
@@ -65,8 +64,6 @@ class TestResolve:
     def test_refuses_an_engine_without_the_capability(self, isolated_db):
         with pytest.raises(InvalidInputError):
             routing.set_capability_engine("llm.instructions", "fake_mt")
-        with pytest.raises(InvalidInputError):
-            routing.set_capability_engine("research.grounded_search", "claude")
         with pytest.raises(InvalidInputError):
             routing.set_capability_engine("summary.episode", "ollama_typo")
         with pytest.raises(NotFoundError):

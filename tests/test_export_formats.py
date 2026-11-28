@@ -238,6 +238,15 @@ class TestAss:
         assert subtitle_ass.ASS_PRESETS["Streamer clip"]["bold"] is True
         assert subtitle_ass.ASS_PRESETS["Streamer clip"]["outline_width"] > subtitle_ass.ASS_PRESETS["Clean"]["outline_width"]
 
+    def test_colors_by_label_reads_names_and_labels(self):
+        names = {"SPEAKER_00": "Wei", "SPEAKER_01": "Wei", "SPEAKER_02": "Lin"}
+        assert subtitle_ass.colors_by_label({"wei": "#111111", "SPEAKER_00": "#222222", "Nobody": "#333333"}, names) == {
+            "SPEAKER_00": "#222222", "SPEAKER_01": "#111111", "Nobody": "#333333"}
+        # A character named like another speaker's label leaves that label typed as itself; a blank name matches nothing.
+        assert subtitle_ass.colors_by_label({"SPEAKER_01": "#444444", "": "#555555"},
+                                            {"SPEAKER_00": "SPEAKER_01", "SPEAKER_01": "Lin", "SPEAKER_02": "  "}) == {
+            "SPEAKER_00": "#444444", "SPEAKER_01": "#444444", "": "#555555"}
+
     def test_speaker_colours_are_distinct_by_default(self):
         colors = subtitle_ass.default_speaker_colors(["A", "B", "C", None])
         assert len(set(colors.values())) == 3 and None not in colors
