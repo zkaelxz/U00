@@ -35,6 +35,8 @@ public class QuickReadActivity extends Activity {
     private final java.util.Map<String, int[]> pageSizes = new java.util.HashMap<>();
     private final java.util.Map<String, Long> headerFailedAt = new java.util.HashMap<>();
     private final java.util.Map<String, Long> decodeFailedAt = new java.util.HashMap<>();
+    // What a screen reader says for a page, read from its sidecar off the touch thread; keyed like the cache.
+    private final java.util.Map<String, String> descriptions = new java.util.HashMap<>();
     private final java.util.Map<String, Integer> redone = new java.util.HashMap<>();
     private PageAdapter adapter;
     // The footer is read from the grab's state, which its thread changes at any moment; ListView throws
@@ -659,14 +661,28 @@ public class QuickReadActivity extends Activity {
                     bitmap = BitmapFactory.decodeFile(source.getPath(), options);
                 }
                 Bitmap decoded = bitmap;
-                runOnUiThread(() -> shown(source.getPath(), key, size, decoded));
+                String described = describe(source, position + 1);
+                runOnUiThread(() -> shown(source.getPath(), key, size, decoded, described));
             });
         } catch (java.util.concurrent.RejectedExecutionException closing) {
             decoding.remove(key);
         }
     }
 
-    private void shown(String path, String key, int[] size, Bitmap bitmap) {
+    /** The page's number and its English from the sidecar beside it; just the number when there is none. */
+    private static String describe(File page, int number) {
+        File meta = new File(page.getParentFile(), reportName(page.getName()));
+        if (!meta.isFile()) return "Page " + number;
+        try {
+            org.json.JSONObject info = new org.json.JSONObject(new String(
+                    java.nio.file.Files.readAllBytes(meta.toPath()), java.nio.charset.StandardCharsets.UTF_8));
+            return PageDecode.description(number, info.optJSONArray("regions"));
+        } catch (java.io.IOException | org.json.JSONException e) {
+            return "Page " + number;
+        }
+    }
+
+    private void shown(String path, String key, int[] size, Bitmap bitmap, String described) {
         decoding.remove(key);
         if (isDestroyed()) return;
         Integer generation = redone.get(path);
@@ -682,10 +698,12 @@ public class QuickReadActivity extends Activity {
         }
         decodeFailedAt.remove(key);
         cache.put(key, bitmap);
+        descriptions.put(key, described);
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
             if (row instanceof ImageView && PageDecode.rowStillShows(row.getTag(), key)) {
                 ((ImageView) row).setImageBitmap(bitmap);
+                row.setContentDescription(described);
                 row.setMinimumHeight(0);
             }
         }
@@ -746,9 +764,11 @@ public class QuickReadActivity extends Activity {
             Bitmap bitmap = cache.get(key);
             if (bitmap != null) {
                 view.setImageBitmap(bitmap);
+                view.setContentDescription(descriptions.getOrDefault(key, "Page " + (position + 1)));
                 view.setMinimumHeight(0);
             } else {
                 view.setImageDrawable(null);
+                view.setContentDescription("Page " + (position + 1));
                 int[] size = sizeOf(fileFor(position));
                 int rowWidth = parent.getWidth() > 0 ? parent.getWidth() : getResources().getDisplayMetrics().widthPixels;
                 view.setMinimumHeight(PageDecode.placeholderHeight(rowWidth, size[0], size[1],

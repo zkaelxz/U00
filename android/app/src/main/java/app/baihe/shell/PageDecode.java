@@ -46,4 +46,23 @@ final class PageDecode {
     static boolean rowStillShows(Object rowTag, String key) {
         return key.equals(rowTag);
     }
+
+    /** A screen reader reads a description in one go; text past this is still in the page's own text. */
+    static final int DESCRIPTION_MAX = 4000;
+
+    /** "Page N: " and the page's English in reading order (the source where a box has none), as the web reader's alt does. */
+    static String description(int number, org.json.JSONArray regions) {
+        if (regions == null) return "Page " + number;
+        java.util.TreeMap<Integer, String> byIdx = new java.util.TreeMap<>();
+        for (int i = 0; i < regions.length(); i++) {
+            org.json.JSONObject r = regions.optJSONObject(i);
+            if (r == null) continue;
+            String text = r.optString("translated_text", "").trim();
+            if (text.isEmpty()) text = r.optString("source_text", "").trim();
+            if (!text.isEmpty()) byIdx.put(r.optInt("idx", i), text);
+        }
+        if (byIdx.isEmpty()) return "Page " + number + ", no text";
+        String all = "Page " + number + ": " + String.join(" ", byIdx.values());
+        return all.length() > DESCRIPTION_MAX ? all.substring(0, DESCRIPTION_MAX - 1).trim() + "\u2026" : all;
+    }
 }

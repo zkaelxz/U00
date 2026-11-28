@@ -171,10 +171,11 @@ final class AppUpdate {
      */
     static String install(Context context, File apk) {
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
+        int id = -1;
         try {
             PackageInstaller.SessionParams params =
                     new PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL);
-            int id = installer.createSession(params);
+            id = installer.createSession(params);
             try (PackageInstaller.Session session = installer.openSession(id);
                  InputStream in = new FileInputStream(apk);
                  OutputStream out = session.openWrite("baihe-shell", 0, apk.length())) {
@@ -191,6 +192,14 @@ final class AppUpdate {
             }
             return null;
         } catch (IOException | RuntimeException e) {
+            // An uncommitted session otherwise lingers until Android expires it.
+            if (id >= 0) {
+                try {
+                    installer.abandonSession(id);
+                } catch (RuntimeException ignored) {
+                    // already gone or committed
+                }
+            }
             // The message can hold the saved file's path, so only its leading words are kept.
             String detail = e.getMessage() == null ? "" : e.getMessage().replaceAll("/\\S+", "").trim();
             if (detail.length() > 80) detail = detail.substring(0, 80);
