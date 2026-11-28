@@ -23,6 +23,12 @@ HELP_ROUTE = "settings"
 # own browser. Matched on the host and its subdomains.
 BUILT_IN_EXTENSION_ONLY_HOSTS = ("mangafire.to", "kagane.moe", "syosetu.org", "novelpia.com",
                                   "novel.naver.com", "novel18.syosetu.com", "soraraw.com")
+# Sites shown read-only in Manage sources: they have no adapter, so they are not counted there.
+# The host is the address in use today (blacktoon's number rotates and its pattern below accepts any).
+EXTENSION_ONLY_SITES = (("Blacktoon", "blacktoon511.com"), ("MangaFire", "mangafire.to"),
+                        ("Kagane", "kagane.moe"), ("Syosetu novel18", "novel18.syosetu.com"),
+                        ("Syosetu.org", "syosetu.org"), ("Novelpia", "novelpia.com"),
+                        ("Naver Novel", "novel.naver.com"), ("SoraRaw", "soraraw.com"))
 # blacktoon rotates its number (510, 511, ...), so any digits match.
 _ROTATING_EXTENSION_ONLY_HOST = re.compile(r"(^|\.)blacktoon\d*\.com$")
 

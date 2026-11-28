@@ -20,7 +20,7 @@ from voice import dub_narration
 import novel_text
 from voice import voice_venv
 from jobs import job_launch
-from services import ownership_service, settings_service
+from services import characters_service, model_readiness_service, ownership_service, settings_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
@@ -209,7 +209,7 @@ def require_can_generate(tts_engine: str, characters, narrate_original: bool = F
         raise DependencyUnavailableError(reason)
 
 
-def apply_narration_result(drama_id: int, result: dict) -> None:
+def apply_narration_result(drama_id: int, result: dict, clips_at_start=None) -> None:
     """on_done hook body: persists a finished narration run -- field-scoped
     save_lines(dub_filename, start, end) and status "dubbed". The subprocess's
     returned lines are only a source of those fields, matched by permanent line
@@ -220,6 +220,7 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     lines from the translate flow."""
     if db.get_drama(drama_id) is None:
         return
+    _keep_clip_transcripts(drama_id, (result or {}).get("clip_transcripts") or {}, clips_at_start or {})
     lines = [ln for ln in (result or {}).get("lines") or [] if ln.id is not None]
     failed = {e.get("line_idx") for e in (result or {}).get("errors") or []}
     # A failed unit made no clip, so a name left from an earlier run would point at stale audio.
@@ -230,6 +231,27 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
         return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
     _remove_unused_clips(drama_id)
+
+
+def _clip_whisper():
+    """The Whisper a clip's transcript is written with ({"local_model_path"}), or None when it is
+    not on this PC: the Settings folder as transcription uses it, else the cached large-v3."""
+    local = settings_service.get("whisper_model_path") or None
+    if not model_readiness_service.whisper_ready(dub_narration.CLIP_TRANSCRIPT_WHISPER, local):
+        return None
+    return {"local_model_path": local}
+
+
+def _keep_clip_transcripts(drama_id: int, transcripts: dict, clips_at_start: dict) -> None:
+    """Saves the transcript Whisper wrote for a speaker's clip, so later runs and Voices use it
+    (and it can be corrected there). Only while the speaker still has the clip it was heard
+    from and no transcript: one typed or a clip changed during the run wins."""
+    rows = {c["speaker_label"]: c for c in db.list_characters(drama_id)}
+    for label, text in transcripts.items():
+        row = rows.get(label)
+        if (row and row.get("ref_audio_filename") and row.get("ref_audio_filename") == clips_at_start.get(label)
+                and not (row.get("ref_text") or "").strip()):
+            db.upsert_character(drama_id, label, ref_text=text[:characters_service.MAX_REF_TEXT_LEN])
 
 
 def _save_narration_times(drama_id: int, times: dict) -> bool:
@@ -326,13 +348,15 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
                                narrate_original=narrate_original, source_language=source_lang,
-                               pace=_narration_pace())
+                               pace=_narration_pace(), use_gpu=bool(settings_service.get("use_gpu")),
+                               clip_whisper=_clip_whisper())
+    clips_at_start = {c["speaker_label"]: c.get("ref_audio_filename") for c in chars}
     started = job_launch.start_process_job(
         job_id, worker, args=(lines, ddir, clone_map),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Narration (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
-        on_done=lambda _jid, result: apply_narration_result(drama_id, result),
+        on_done=lambda _jid, result: apply_narration_result(drama_id, result, clips_at_start),
         on_partial=lambda jid, payload: apply_narration_part(drama_id, jid, payload),
         # A cancel kills the worker before it can remove its half-written track.
         on_finish=lambda _jid: dub_narration.remove_partial_track(ddir),
