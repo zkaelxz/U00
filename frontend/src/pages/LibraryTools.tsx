@@ -217,8 +217,9 @@ function AddVoiceForm({ pc, onAdded }: { pc: PcMode; onAdded: () => void }) {
 }
 
 // A Library list whose rows have a rename and a PC-only two-step delete (presets, voice bank).
-function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
+function DeletableList({ pc, label, help, items, remove, rename, onDeleted, extra }: {
   pc: PcMode
+  label: string
   help: string
   items: { id: number; name: string; meta: string | null }[] | undefined
   remove: (id: number) => Promise<unknown>
@@ -242,7 +243,7 @@ function DeletableList({ pc, help, items, remove, rename, onDeleted, extra }: {
   }
   return (
     <>
-      <ul className="deletable-list scroll-box" tabIndex={0}>
+      <ul className="deletable-list scroll-box" tabIndex={0} aria-label={label}>
         {items?.map((x) => (
           <li key={x.id}>
             {renamingId === x.id ? (
@@ -390,6 +391,7 @@ function VoiceBankList({ pc, voices, onChanged }: { pc: PcMode; voices: LibraryV
       )}
       <DeletableList
         pc={pc}
+        label="Voice bank list"
         help="Characters that used it keep their own copy."
         items={shown.map((v) => ({
           id: v.id, name: v.name,
@@ -528,6 +530,7 @@ export default function LibraryToolsPage() {
             list={(props) => (
               <DeletableList
                 pc={pc}
+                label="Profiles list"
                 help="Titles that used it keep their settings."
                 remove={deletePreset}
                 rename={renamePreset}

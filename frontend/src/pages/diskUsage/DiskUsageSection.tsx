@@ -113,7 +113,7 @@ function ProgramFiles({ items, bytes }: { items: DiskUsageItem[]; bytes: number 
         <span className="du-size num">{formatDecimalBytes(bytes)}</span>
       </summary>
       <p className="muted du-why">Part of the program, not your data. They can&apos;t be moved or cleared from here.</p>
-      <ul className="du-program-list scroll-box" tabIndex={0}>
+      <ul className="du-program-list scroll-box" tabIndex={0} aria-label="Program files">
         {items.map((i) => (
           <li key={i.path}><span>{i.name}</span> <span className="muted num">{sizeLine(i)}</span></li>
         ))}
