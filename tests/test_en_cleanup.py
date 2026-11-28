@@ -210,6 +210,9 @@ def test_a_plan_without_glossary_terms_passes_none():
     ("Fine—I'll do it.", "Fine, I'll do it."),
     ("Line one—\nLine two——", "Line one...\nLine two..."),
     ("—", "..."),
+    ("<i>Wait—</i>", "<i>Wait...</i>"),
+    ("{\\i1}Wait—{\\i0}", "{\\i1}Wait...{\\i0}"),
+    ("He—<i>left</i> now", "He, <i>left</i> now"),
 ])
 def test_drop_em_dashes(before, after):
     assert ec.drop_em_dashes(before) == after

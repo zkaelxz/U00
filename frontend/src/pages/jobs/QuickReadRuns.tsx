@@ -29,7 +29,9 @@ export function QuickReadRuns() {
     try {
       await action()
     } catch (e) {
+      // load() clears the error on success, which would wipe the refusal at once.
       setError(e)
+      return
     }
     void load()
   }

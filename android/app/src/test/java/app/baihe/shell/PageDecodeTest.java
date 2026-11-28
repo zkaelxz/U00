@@ -56,4 +56,13 @@ public class PageDecodeTest {
         assertEquals(Integer.MAX_VALUE, PageDecode.cacheBytes(16L * 1024 * 1024 * 1024));
         assertEquals(1, PageDecode.cacheBytes(0));
     }
+
+    @Test
+    public void aPageIsDescribedByItsEnglishInReadingOrder() throws Exception {
+        org.json.JSONArray regions = new org.json.JSONArray(
+                "[{\"idx\":1,\"translated_text\":\"Second\"},{\"idx\":0,\"translated_text\":\"\",\"source_text\":\"Original\"}]");
+        assertEquals("Page 3: Original Second", PageDecode.description(3, regions));
+        assertEquals("Page 3, no text", PageDecode.description(3, new org.json.JSONArray("[]")));
+        assertEquals("Page 3", PageDecode.description(3, null));
+    }
 }

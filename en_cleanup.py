@@ -171,6 +171,7 @@ _JOINING_WORDS = frozenset("who which the a an and but or if because so to of".s
 _NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
 # A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
 _TAG_END_RE = re.compile(r"(?:^|\n)[ \t]*(?:<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\})+[ \t]*$")
+_LEADING_TAGS_RE = re.compile(r"(?:<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\})+")
 _OPENERS = "\"'“‘([{"
 _CLOSERS = "”’)]}"
 
@@ -185,8 +186,11 @@ def _dash_replacement(text: str, m, line_prefixes) -> str:
     line_head = before.rsplit("\n", 1)[-1].strip(" \t")
     if _TAG_END_RE.search(before) or (line_head and all(c in line_prefixes for c in line_head)):
         return " " if m.group(0)[:1] in " \t" else ""
-    closes_quote = nxt in _CLOSERS or (nxt in "\"'" and not re.match(r".\w", after))
-    if not nxt or nxt == "\n" or closes_quote:
+    # "<i>Wait—</i>": a closing tag after the dash doesn't make it mid-sentence.
+    look = _LEADING_TAGS_RE.sub("", after, count=1) if after[:1] in "<{" else after
+    look_nxt = look[:1]
+    closes_quote = look_nxt in _CLOSERS or (look_nxt in "\"'" and not re.match(r".\w", look))
+    if not look_nxt or look_nxt == "\n" or closes_quote:
         return "" if prev in ".!?…,;:" else ("…" if "…" in text else "...")
     if nxt in ".!?…,;:":
         return ""

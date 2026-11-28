@@ -57,7 +57,8 @@ public class MainActivity extends Activity {
     private static final String UPDATE_WAITS_FOR_ALLOW = "update_waits_for_allow";
     /** When this process last asked for a newer build; 0 before the first ask. */
     private long updateTriedAt;
-    private boolean updateDownloading;
+    // Static: a theme switch recreates the activity mid-download, and the new one must still see it.
+    private static volatile boolean updateDownloading;
     private long declinedVersion;
     private boolean updateOffered;
     private View customView;
@@ -891,6 +892,7 @@ public class MainActivity extends Activity {
     /** Once this app is on the saved APK's build or newer, the file has served its purpose. */
     private void clearInstalledUpdate() {
         new Thread(() -> {
+            if (updateDownloading) return; // the half-written file reads as version 0, which counts as done
             File apk = AppUpdate.savedApk(this);
             if (apk.isFile() && AppUpdate.savedApkDone(apkVersion(apk), installedVersion())) apk.delete();
         }).start();

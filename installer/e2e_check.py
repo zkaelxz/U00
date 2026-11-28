@@ -331,7 +331,10 @@ def cmd_wait_download(args) -> int:
     deadline = time.time() + args.timeout
     body = None
     while time.time() < deadline:
-        _, body = _request("GET", UPDATE_STATUS, args.port)
+        try:
+            _, body = _request("GET", UPDATE_STATUS, args.port)
+        except (OSError, ValueError):
+            body = None  # the app may be restarting; keep polling until the deadline
         if isinstance(body, dict) and body.get("download") in ("verified", "failed"):
             break
         time.sleep(2)

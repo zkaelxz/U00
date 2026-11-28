@@ -22,6 +22,7 @@ Security rules kept here:
 import hashlib
 import hmac
 import ipaddress
+import math
 import re
 import secrets
 import sqlite3
@@ -651,6 +652,11 @@ def refuse_if_paid_limit_reached(user_id) -> None:
         raise UnsupportedOperationError(paid_limits.PAID_LIMIT_MESSAGE)
 
 
+def _spend_for_display(spend: float) -> float:
+    # Rounded up, $4.996 of a $5 cap would read "$5.00 of $5.00, Used up" while runs are still allowed.
+    return math.floor(spend * 100 + 1e-6) / 100
+
+
 def own_limits(user_id) -> dict | None:
     """A member's own limits and how much of each is used, numbers only; None for an
     admin, whom none of them hold back."""
@@ -661,7 +667,7 @@ def own_limits(user_id) -> dict | None:
     return {"daily_job_limit": user_caps.jobs_per_day(user_id),
             "jobs_today": user_caps.jobs_today(user_id),
             "monthly_paid_cap_usd": paid_limits.paid_limit_usd(user_id),
-            "month_paid_spend_usd": round(db.get_user_month_spend(user_id), 2),
+            "month_paid_spend_usd": _spend_for_display(db.get_user_month_spend(user_id)),
             "title_limit": drama_service.MEMBER_TITLE_LIMIT,
             "titles_owned": db.count_dramas_owned_by(user_id)}
 

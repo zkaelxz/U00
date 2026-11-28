@@ -1278,6 +1278,14 @@ def test_a_member_sees_their_own_limits_and_nobody_elses(isolated_db):
         "month_paid_spend_usd": 0.0, "title_limit": 200, "titles_owned": 0}
 
 
+def test_spend_just_under_the_cap_is_not_shown_as_the_cap(isolated_db):
+    c = _remote(_app())
+    m, ms = _paid_member(limit=5)
+    with db.spending_for(m["id"]):
+        db.log_usage(None, "claude", "m", "translate", 1, 1, 4.996)
+    assert c.get("/api/auth/me", headers=_h(ms)).json()["limits"]["month_paid_spend_usd"] == 4.99
+
+
 def test_the_generated_types_say_me_may_leave_limits_out(monkeypatch):
     # me() deletes `limits` and `preferences` when None, so the frontend types must not
     # promise them; every other served field stays required.
