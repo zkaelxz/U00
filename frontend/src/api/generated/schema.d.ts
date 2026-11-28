@@ -6989,6 +6989,13 @@ export interface components {
             /** Opened */
             opened: boolean;
         };
+        /** ExtensionSite */
+        ExtensionSite: {
+            /** Host */
+            host: string;
+            /** Name */
+            name: string;
+        };
         /**
          * ExtensionStatus
          * @description No port and no token, ever.
@@ -17496,6 +17503,13 @@ export interface components {
              */
             status: string;
         };
+        /** SiteCoverResult */
+        SiteCoverResult: {
+            /** Drama Id */
+            drama_id: number;
+            /** Outcome */
+            outcome: string;
+        };
         /** SnapshotCopy */
         SnapshotCopy: {
             /** Created At */
@@ -18698,6 +18712,11 @@ export interface components {
             check_interval_hours: number;
             /** Demo Source Enabled */
             demo_source_enabled: boolean;
+            /**
+             * Extension Sites
+             * @description Sites that work only through the browser extension, shown read-only.
+             */
+            extension_sites: components["schemas"]["ExtensionSite"][];
             /** Extraction Diagnostics */
             extraction_diagnostics: boolean;
             /** Max Concurrent */
