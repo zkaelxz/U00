@@ -233,6 +233,58 @@ class TestTranslationOnItsOwnThread:
             assert c["text"].startswith("c") and c["translated"].startswith("[translation failed")
             assert "sk-ant" not in c["translated"]
 
+    def test_chunks_that_waited_go_together_in_one_request_by_id(self, job, monkeypatch):
+        stream, start = job
+        seen, whisper_started = _whisper_by_chunk(monkeypatch)
+        engine = Gate(held=["c0l0"])
+        stream.add(2)
+        assert start("live_merge", engine)
+        assert engine.entered["c0l0"].wait(PROMPT)
+        for idx in (1, 2):
+            stream.add(1)
+            assert whisper_started(idx).wait(PROMPT)
+        assert _wait(lambda: len(_result("live_merge")) == 6)
+        engine.open["c0l0"].set()
+        assert _wait(lambda: [c["translation"] for c in _result("live_merge")] == ["done"] * 6)
+        assert [c["translated"] for c in _result("live_merge")] == [
+            "EN c0l0", "EN c0l1", "EN c1l0", "EN c1l1", "EN c2l0", "EN c2l1"]
+        # Chunk 0 alone, then chunks 1 and 2 in one request whose lines carry their own ids.
+        assert [lines for lines, _ in engine.calls] == [["c0l0", "c0l1"], ["c1l0", "c1l1", "c2l0", "c2l1"]]
+        assert len(set(engine.calls[1][1])) == 4
+        assert start.stats[-1]["translations_skipped"] == 0
+        assert _wait(lambda: start.stats[-1]["chunks_measured"] == 3)
+
+    def test_a_failing_sentence_in_merged_chunks_fails_only_its_own_chunk(self, job, monkeypatch):
+        from live import live_cue_translation
+        stream, start = job
+        _, whisper_started = _whisper_by_chunk(monkeypatch)
+
+        class NoMergedReply(Gate):
+            def translate_batch(self, lines, context):
+                replies = super().translate_batch(lines, context)
+                return [] if len(lines) > 2 else replies
+        real = live_cue_translation.CueTranslator.translate
+
+        def translate(self, text):
+            if text == "c1l0":
+                raise RuntimeError("term lookup broke")
+            return real(self, text)
+        monkeypatch.setattr(live_cue_translation.CueTranslator, "translate", translate)
+        engine = NoMergedReply(held=["c0l0"])
+        stream.add(2)
+        assert start("live_merge_fail", engine)
+        assert engine.entered["c0l0"].wait(PROMPT)
+        for idx in (1, 2):
+            stream.add(1)
+            assert whisper_started(idx).wait(PROMPT)
+        assert _wait(lambda: len(_result("live_merge_fail")) == 6)
+        engine.open["c0l0"].set()
+        assert _wait(lambda: "pending" not in [c["translation"] for c in _result("live_merge_fail")])
+        result = _result("live_merge_fail")
+        assert [c["translation"] for c in result] == ["done", "done", "failed", "failed", "done", "done"]
+        assert [c["translated"] for c in result[4:]] == ["EN c2l0", "EN c2l1"]
+        assert "term lookup broke" in result[2]["translated"]
+
     def test_a_full_queue_skips_the_oldest_waiting_chunk_and_whisper_never_waits(
             self, job, monkeypatch):
         stream, start = job
@@ -450,8 +502,7 @@ class IdKeyedEngine:
         def call_model(numbered):
             self.requests.append(numbered)
             return self.reply(numbered)
-        return request_translations_with_retry(lines, None, call_model, max_retries=0,
-                                               line_ids=context.get("line_ids"))
+        return request_translations_with_retry(lines, None, call_model, max_retries=0)
 
 
 class TestChunkTranslator:
@@ -945,3 +996,135 @@ class TestStreamBreaks:
         assert _wait(lambda: len(b.captures) == 2)
         assert _wait(lambda: running[-1] is False)
         assert len(started) == 1 and started[0].stopped
+
+    # The app log is what a user's report of a long session is read from.
+
+    def test_a_reconnect_resolves_again_and_logs_it_without_any_url(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.resolve_outcomes[:] = ["http://stream/first?sig=SECRET1", "http://stream2/next?sig=SECRET2"]
+        b.stream.add(2)
+        assert b.start("live_log", Gate())
+        assert _wait(lambda: len(_result("live_log")) == 1)
+        b.start.proc.error = "The stream stopped sending audio."
+        assert _wait(lambda: len(b.captures) == 2)
+        # The new capture fetches the newly resolved address, not the expired one.
+        assert len(b.resolves) == 2 and b.captures[1][0] == "http://stream2/next?sig=SECRET2"
+        b.stream.add(2)
+        assert _wait(lambda: len(_result("live_log")) == 3)
+        assert live_pipeline.request_finish("live_log")
+        assert _ended("live_log")
+        log = _app_log()
+        assert "Live: stream broke off (The stream stopped sending audio.)" in log
+        assert "Live: re-resolved stream address after 0 min" in log
+        assert "Live: after reconnect: chunk 2" in log
+        assert "Live: resources (reconnect): RSS" in log
+        assert "Live: session ended: Stop" in log
+        assert "://" not in log and "SECRET" not in log and "stream2" not in log
+
+    def test_the_end_reason_names_the_time_limit(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(1)
+        assert b.start("live_limit", Gate(), max_seconds=0.3)
+        assert _ended("live_limit")
+        assert "Live: session ended: max-minutes" in _app_log()
+
+    def test_the_end_reason_names_a_real_stream_end(self, breaks, monkeypatch):
+        b = breaks
+        _whisper_by_chunk(monkeypatch, cues_per_chunk=1)
+        b.stream.add(2)
+        assert b.start("live_over_log", Gate())
+        assert _wait(lambda: len(_result("live_over_log")) == 1)
+        b.start.proc.code = 0
+        assert _ended("live_over_log")
+        assert "Live: session ended: the stream ended" in _app_log()
+
+
+def _app_log():
+    import db
+    path = os.path.join(db.LIBRARY_DIR, "logs", "app.log")
+    if not os.path.exists(path):
+        return ""
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
+class TestSessionLog:
+    """Notes for the long-session risks, on a fake clock."""
+
+    class Clock:
+        def __init__(self):
+            self.now = 1000.0
+
+        def __call__(self):
+            return self.now
+
+    def _log(self, spend=None):
+        notes, clock = [], self.Clock()
+        stats = live_pipeline.LagStats(None)
+        log = live_pipeline.SessionLog(lambda text, key=None: notes.append(text), stats,
+                                       spend=spend, clock=clock)
+        return log, stats, notes, clock
+
+    def test_more_than_three_reconnects_in_ten_minutes_shows_the_stalling_note(self):
+        log, _, notes, clock = self._log()
+        for n in range(1, 4):
+            log.broke("The stream stopped sending audio.", n, n, 10.0 * n, 0)
+            clock.now += 60
+        assert live_pipeline.STALLING_NOTE not in notes
+        log.broke("The stream stopped sending audio.", 4, 4, 40.0, 0)
+        assert notes.count(live_pipeline.STALLING_NOTE) == 1
+
+    def test_reconnects_spread_over_more_than_ten_minutes_show_no_note(self):
+        log, _, notes, clock = self._log()
+        for n in range(1, 6):
+            log.broke("The stream stopped sending audio.", n, n, 10.0 * n, 0)
+            clock.now += 301
+        assert live_pipeline.STALLING_NOTE not in notes
+
+    def test_lag_past_thirty_seconds_shows_the_falling_behind_note(self):
+        log, stats, notes, _ = self._log()
+        stats.chunk_done(10.0, 15.0)
+        log.tick()
+        assert live_pipeline.LAG_NOTE not in notes
+        stats.chunk_done(10.0, 25.0)
+        log.tick()
+        log.tick()
+        assert notes.count(live_pipeline.LAG_NOTE) == 1
+
+    def test_spend_shows_a_note_once_it_reaches_eighty_percent(self):
+        spent = {"usd": 1.0}
+        log, _, notes, _ = self._log(spend=lambda: (spent["usd"], 2.0))
+        log.tick()
+        assert not any("spend limit" in n for n in notes)
+        spent["usd"] = 1.6
+        log.tick()
+        log.tick()
+        assert [n for n in notes if "spend limit" in n] == [
+            "This session has used 80% of its spend limit ($1.60 of $2.00)."]
+
+
+def test_start_timeline_logs_each_milestone_once_with_seconds_since_start(monkeypatch):
+    lines = []
+    monkeypatch.setattr(live_whisper, "_log", lambda level, text: lines.append(text))
+    ticks = iter([0.0, 2.5, 9.0])
+    timeline = live_pipeline.StartTimeline(clock=lambda: next(ticks))
+    timeline.mark("Whisper ready")
+    timeline.mark("Whisper ready")
+    timeline.mark("first English")
+    assert lines == ["Live: start +2.5 s: Whisper ready", "Live: start +9.0 s: first English"]
+    assert timeline.has("first English") and not timeline.has("first chunk closed")
+
+
+def test_session_stats_line_has_counts_and_error_kinds_only(monkeypatch):
+    lines = []
+    monkeypatch.setattr(live_whisper, "_log", lambda level, text: lines.append(text))
+    stats = live_pipeline.LagStats(None)
+    for total in (4.0, 6.0, 5.0):
+        stats.chunk_done(10.0, total)
+    stats.failed(RuntimeError("429 Too Many Requests for /home/alex/clip.mkv"))
+    log = live_pipeline.SessionLog(lambda *a, **k: None, stats)
+    log.session_stats("end")
+    assert lines == ["Live: stats (end): 3 chunks, median 5.0 s each, worst lag 16.0 s, "
+                     "0 translations skipped, errors: 429 1"]

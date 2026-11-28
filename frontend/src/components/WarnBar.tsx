@@ -7,7 +7,7 @@ export function WarnBar({ children, action, onDismiss, tone = 'warn', role = 'st
   onDismiss?: () => void
   tone?: 'warn' | 'bad'
   role?: 'status' | 'alert'
-  /** Sits in the app shell above the page, so it takes the shell's side margins. */
+  /** Sits in the app shell above the page: lines up with the page's edges and keeps a gap from its heading. */
   shell?: boolean
   testId?: string
   /** The whole message, for the tooltip when a wide screen cuts the line short. */

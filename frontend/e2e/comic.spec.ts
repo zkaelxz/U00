@@ -52,6 +52,17 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   expect(s.unmocked).toEqual([])
 })
 
+test("with Text off each page's picture is described by its English, and a page without text says so", async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhua', pageCount: 3, lastPage: 1, noRegions: [1] })
+  await page.goto('/#/comic/7')
+  const img = (n: number) => page.getByTestId('comic-page').nth(n).locator('img')
+  await expect(img(0)).toHaveAttribute('alt', 'Page 1: Where did you go last night? (p1) Nowhere. I was reading. (p1) Then why is the lamp still warm? (p1)')
+  await expect(img(1)).toHaveAttribute('alt', 'Page 2, no text')
+  // The text boxes themselves stay hidden.
+  await expect(page.getByTestId('comic-boxes')).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('a long vertical chapter keeps only the pages around the reader loaded', async ({ page }) => {
   const s = await mockComic(page, { mediaType: 'manhua', pageCount: 150, lastPage: 75 })
   await page.goto('/#/comic/7')

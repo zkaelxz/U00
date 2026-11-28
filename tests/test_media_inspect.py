@@ -197,6 +197,15 @@ class TestDurationSeconds:
         assert "media length unknown for broken.mp4" in log
         assert "moov atom not found" in log
 
+    def test_the_logged_reason_names_the_file_not_its_folder(self, monkeypatch, isolated_db):
+        def run(cmd, **kwargs):
+            raise subprocess.CalledProcessError(
+                1, cmd, stderr="/library/7/narration_track.flac: Invalid data found when processing input")
+        monkeypatch.setattr(subprocess, "run", run)
+        assert mi.duration_seconds("/library/7/narration_track.flac") is None
+        log = _app_log_text()
+        assert "narration_track.flac: Invalid data" in log and "/library/7" not in log
+
     @pytest.mark.parametrize("duration", [None, "N/A", "0", "nan", "inf"])
     def test_a_missing_or_unusable_length_returns_none_and_logs_it(self, monkeypatch,
                                                                     isolated_db, duration):

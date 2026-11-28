@@ -306,7 +306,6 @@ class TestOwnership:
     @pytest.mark.parametrize("call", [
         lambda: reader_service.get_caption_tracks(999),
         lambda: reader_service.get_media_availability(999),
-        lambda: reader_service.media_file_path(999, "original"),
         lambda: reader_service.get_reading_overview(999),
         lambda: reader_service.save_reading_position(999, 1),
         lambda: reader_service.get_notes(999),
@@ -368,7 +367,7 @@ class TestMedia:
         assert info["original"] == "video" and info["narration"] is True and "dub" not in info
         assert info["captions_overlay"] is True
         assert os.sep not in repr(info)
-        kind, path = reader_service.media_file_path(did, "original")
+        kind, path = reader_service._media_paths(did, isolated_db.get_drama(did))["original"]
         assert kind == "video" and path.endswith("v.mp4")
 
     def test_old_dub_track_plays_as_narration_until_a_narration_track_exists(self, isolated_db):
@@ -377,9 +376,9 @@ class TestMedia:
         self._media(isolated_db, did, "a.wav")
         self._media(isolated_db, did, "dub_track.wav")
         assert reader_service.get_media_availability(did)["narration"] is True
-        assert reader_service.media_file_path(did, "narration")[1].endswith("dub_track.wav")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("dub_track.wav")
         self._media(isolated_db, did, "narration_track.wav")
-        assert reader_service.media_file_path(did, "narration")[1].endswith("narration_track.wav")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("narration_track.wav")
 
     def test_a_flac_narration_track_plays_and_wins_over_a_wav(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav")
@@ -388,18 +387,15 @@ class TestMedia:
         self._media(isolated_db, did, "narration_track.wav")
         self._media(isolated_db, did, "narration_track.flac")
         assert reader_service.get_media_availability(did)["narration"] is True
-        assert reader_service.media_file_path(did, "narration")[1].endswith("narration_track.flac")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("narration_track.flac")
 
-    def test_audio_only_has_no_overlay_and_missing_file_is_404(self, isolated_db):
+    def test_audio_only_has_no_overlay_and_a_missing_file_is_not_offered(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav", source_video_filename="gone.mp4")
         isolated_db.save_lines(did, _lines(1))
         self._media(isolated_db, did, "a.wav")
         info = reader_service.get_media_availability(did)
         assert info["original"] == "audio" and info["captions_overlay"] is False
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did, "narration")
-        with pytest.raises(InvalidInputError):
-            reader_service.media_file_path(did, "../etc")
+        assert "narration" not in reader_service._media_paths(did, isolated_db.get_drama(did))
 
 
 class TestProgressNotes:
@@ -433,6 +429,35 @@ class TestProgressNotes:
         assert reader_service.get_reading_overview(did)["length_display"] == "2m"   # 440 words at 220 wpm
         empty = _drama(isolated_db)
         assert reader_service.get_reading_overview(empty)["line_count"] == 0
+
+    def test_a_narrated_texts_length_is_its_narration_track(self, isolated_db, monkeypatch):
+        import media_inspect
+        did = _drama(isolated_db, media_type="novel")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=0.0, zh="你", en="one two")])
+        os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+        track = os.path.join(isolated_db.drama_dir(did), "narration_track.flac")
+        with open(track, "wb") as f:
+            f.write(b"\x00" * 16)
+        lengths = {os.path.realpath(track): 3 * 3600 + 20 * 60}
+        monkeypatch.setattr(media_inspect, "duration_seconds", lambda path, **kw: lengths.get(os.path.realpath(path)))
+        assert reader_service.get_reading_overview(did)["length_display"] == "3h 20m"
+        with open(track, "ab") as f:   # a rebuilt track is probed again
+            f.write(b"\x00")
+        lengths.clear()   # unreadable: back to the reading time
+        assert reader_service.get_reading_overview(did)["length_display"] == "under a minute"
+
+    def test_a_timed_titles_length_never_probes_its_narration(self, isolated_db, monkeypatch):
+        import media_inspect
+        did = _drama(isolated_db, media_type="audio_drama")
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=120.0, zh="你", en="hi")])
+        os.makedirs(isolated_db.drama_dir(did), exist_ok=True)
+        with open(os.path.join(isolated_db.drama_dir(did), "dub_track.wav"), "wb") as f:
+            f.write(b"\x00" * 16)
+
+        def probe(*a, **k):
+            raise AssertionError("probed")
+        monkeypatch.setattr(media_inspect, "duration_seconds", probe)
+        assert reader_service.get_reading_overview(did)["length_display"] == "2m"
 
     def test_notes_round_trip_and_validation(self, isolated_db):
         did = _drama(isolated_db)
@@ -810,22 +835,18 @@ class TestReviewFixes:
         outside.write_bytes(b"\x00" * 16)
         os.symlink(str(outside), os.path.join(isolated_db.drama_dir(did), "dub_track.wav"))
         os.makedirs(os.path.join(isolated_db.drama_dir(did), "narration_track.wav"))
-        for kind in ("original", "narration"):
-            with pytest.raises(NotFoundError):
-                reader_service.media_file_path(did, kind)
+        assert reader_service._media_paths(did, isolated_db.get_drama(did)) == {}
         info = reader_service.get_media_availability(did)
         assert info["original"] is None and not info["narration"]
 
     def test_media_extension_whitelist_and_no_symlinked_original(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.txt")
         self._file(isolated_db, did, "a.txt")
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did, "original")
+        assert "original" not in reader_service._media_paths(did, isolated_db.get_drama(did))
         did2 = _drama(isolated_db, audio_filename="a.wav")
         real = self._file(isolated_db, did2, "real.wav")
         os.symlink(real, os.path.join(isolated_db.drama_dir(did2), "a.wav"))
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did2, "original")
+        assert "original" not in reader_service._media_paths(did2, isolated_db.get_drama(did2))
 
     def test_clear_wiki_requires_confirm(self, isolated_db):
         did = _drama(isolated_db)
@@ -911,3 +932,133 @@ def test_a_longest_annotated_line_is_segmented_in_bounded_chunks_with_the_same_t
     assert len(cut_sizes) <= len(text) // (segment.MAX_SEGMENT_CHARS // 2)
     shown = "".join(re.findall(r'data-word="([^"]*)"', out))
     assert shown == text
+
+
+# -- pages follow chapters ----------------------------------------------------
+
+def _chaptered_novel(db, chapter_paragraphs):
+    """A narrated novel: per chapter a heading line, then paragraphs of 1-3 lines each.
+    Returns (drama id, chapter start positions, the positions that end a paragraph)."""
+    import novel_text
+    did = _drama(db, title_en="N", content_mode="novel_narration")
+    lines, source, heads, ends = [], [], [], set()
+    for c, shapes in enumerate(chapter_paragraphs, 1):
+        heads.append(len(lines))
+        ends.add(len(lines))
+        lines.append(f"第{c}章 标题")
+        source.append(f"第{c}章 标题")
+        for p, parts in enumerate(shapes):
+            pieces = [f"第{c}章{p}段{k}句。" for k in range(parts)]
+            lines += pieces
+            ends.add(len(lines) - 1)
+            source.append("".join(pieces))
+    db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh=t, en=f"E{i}")
+                        for i, t in enumerate(lines)])
+    with open(os.path.join(db.drama_dir(did), novel_text.NOVEL_SOURCE_FILENAME), "w", encoding="utf-8") as f:
+        f.write("\n".join(source))
+    return did, heads, ends, len(lines)
+
+
+class TestChapterPages:
+    # Uneven chapters; chapter 2's paragraphs of 3 lines straddle every multiple of 20.
+    SHAPES = [[1] * 7, [3] * 15, [1, 2] * 4, [2] * 30, [1] * 3]
+
+    def test_every_chapter_opens_a_page_and_no_page_ends_inside_a_paragraph(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did, heads, ends, total = _chaptered_novel(isolated_db, self.SHAPES)
+        starts = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+        assert set(heads) <= set(starts)
+        bounds = starts + [total]
+        assert all(0 < b - a <= 20 for a, b in zip(bounds, bounds[1:]))
+        assert all(b - 1 in ends for b in bounds[1:])
+        # A fixed 20-line page would have opened chapter 2 mid-page.
+        assert heads[1] % 20 != 0
+
+    def test_a_page_shows_only_its_own_lines_and_line_finds_its_page(self, isolated_db, monkeypatch):
+        calls = _stub_render(monkeypatch)
+        did, heads, _ends, total = _chaptered_novel(isolated_db, self.SHAPES)
+        r = reader_service.get_reader_page(did, line=heads[3], chapter_size=20)
+        starts = r["page_starts"]
+        assert starts[r["page"] - 1] == heads[3]
+        assert calls[-1]["lines"][0].zh == "第4章 标题"
+        assert r["page_count"] == len(starts)
+        last = reader_service.get_reader_page(did, line=10_000, chapter_size=20)
+        assert last["page"] == len(starts)
+
+    def test_saved_position_is_the_pages_last_line(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did, heads, _ends, _total = _chaptered_novel(isolated_db, self.SHAPES)
+        starts = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+        page = starts.index(heads[2])
+        saved = reader_service.save_reading_position(did, page, chapter_size=20)
+        assert saved["last_line_idx"] == heads[2] - 1
+        # Resuming by that line lands on the same page whatever the old page number meant.
+        assert reader_service.get_reader_page(did, line=saved["last_line_idx"], chapter_size=20)["page"] == page
+
+    def test_a_subtitle_title_keeps_fixed_pages(self, isolated_db, monkeypatch):
+        _stub_render(monkeypatch)
+        did = _drama(isolated_db, title_en="D")
+        isolated_db.save_lines(did, [Line(idx=i, start=float(i), end=float(i + 1), zh="第1章 x" if i == 5 else "你好",
+                                          en="x") for i in range(45)])
+        assert reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"] == [0, 20, 40]
+
+
+def test_the_page_plan_is_rebuilt_when_the_saved_chapters_change(isolated_db, monkeypatch):
+    """The saved chapters can change (a chapter list re-imported) while every line stays
+    as it was; the cached plan must not outlive them."""
+    from services import novel_line_chapters_service as chapters
+    _stub_render(monkeypatch)
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    stamp, found = ["a"], [[0, 10]]
+    monkeypatch.setattr(chapters, "chapters_stamp", lambda _d: tuple(stamp))
+    monkeypatch.setattr(chapters, "start_positions", lambda _d, _t: list(found[0]))
+    first = reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+    found[0] = [0, 5]
+    assert reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"] == first
+    stamp[0] = "b"
+    assert 5 in reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
+
+
+def test_two_page_sizes_on_one_title_each_keep_their_plan(isolated_db, monkeypatch):
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(reader_service, "_PAGE_PLANS", {})
+    monkeypatch.setattr(reader_service, "_PARAGRAPH_ENDS", {})
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    loads = []
+    real = isolated_db.load_line_texts
+    monkeypatch.setattr(isolated_db, "load_line_texts", lambda d: loads.append(d) or real(d))
+    for size in (20, 40, 20, 40):
+        reader_service.page_plan(did, isolated_db.get_drama(did), size, _total)
+    # Built once per size; the narration's paragraph ends load the texts once more.
+    assert len(loads) == 3
+
+
+def test_one_page_turn_reads_the_line_text_once(isolated_db, monkeypatch):
+    """A turn is the counts, the document, then the saved position; the text scan that
+    keys the cached plan is most of a turn on a long novel, so the three share it. A
+    document asked for on its own (as after an edit) scans again."""
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(reader_service, "_TURN_STAMPS", {})
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    scans = []
+    real = isolated_db.line_text_stamp
+    monkeypatch.setattr(isolated_db, "line_text_stamp", lambda d: scans.append(d) or real(d))
+    reader_service.get_reader_page(did, page=2, chapter_size=20, include_html=False)
+    reader_service.get_reader_page(did, page=2, chapter_size=20)
+    reader_service.save_reading_position(did, 2, chapter_size=20)
+    assert len(scans) == 1
+    reader_service.get_reader_page(did, page=3, chapter_size=20)
+    assert len(scans) == 2
+
+
+def test_chapters_stamp_follows_the_manifest_file(isolated_db):
+    import os
+    from services import novel_line_chapters_service as chapters
+    from sources import chapter_manifest
+    did = _drama(isolated_db, title_en="N")
+    before = chapters.chapters_stamp(did)
+    path = chapter_manifest.manifest_path(did)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("{}")
+    assert chapters.chapters_stamp(did) != before

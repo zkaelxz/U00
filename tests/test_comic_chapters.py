@@ -69,6 +69,7 @@ def test_old_title_is_one_unknown_group(client, drama, isolated_db):
 @pytest.mark.parametrize("junk", ["{not json", "[]", '{"chapters": 3, "hidden": "x"}', ""])
 def test_broken_manifest_never_fails_the_page_list(client, drama, junk):
     _add(drama, ("c1", "One", "src"), 1)
+    _drop_backup(drama)
     import db
     with open(os.path.join(db.drama_dir(drama), comic_chapters.MANIFEST_NAME), "w") as f:
         f.write(junk)
@@ -275,8 +276,13 @@ def _manifest_path(drama):
     return comic_chapters._path(drama)
 
 
+def _drop_backup(drama):
+    os.remove(comic_chapters._backup_path(drama))
+
+
 def test_unreadable_manifest_is_not_overwritten(client, drama):
     _add(drama, ("c1", "One", "src"), 2)
+    _drop_backup(drama)
     path = _manifest_path(drama)
     with open(path, "w", encoding="utf-8") as f:
         f.write('{"version": 1, "chapters": [')  # truncated by a crash
@@ -297,6 +303,7 @@ def test_unreadable_manifest_is_not_overwritten(client, drama):
 
 def test_import_keeps_pages_when_label_write_is_refused(drama, isolated_db):
     _add(drama, ("c1", "One", "src"), 1)
+    _drop_backup(drama)
     with open(_manifest_path(drama), "w", encoding="utf-8") as f:
         f.write("not json")
     assert _add(drama, ("c2", "Two", "src"), 2) == 2
@@ -313,6 +320,30 @@ def test_oversized_manifest_is_unreadable_and_kept(drama):
     with pytest.raises(comic_chapters.ManifestUnreadable):
         comic_chapters.set_hidden(drama, ["pages/a.png"], True)
     assert os.path.getsize(path) == len(blob)
+
+
+@pytest.mark.parametrize("damage", ["", '{"version": 1, "chapters": ['])
+def test_unreadable_manifest_recovers_from_the_last_good_copy(drama, damage):
+    one = comic_chapters.chapter_ref("c1", "One", "src")
+    comic_chapters.record_pages(drama, one, ["pages/a.png"])
+    comic_chapters.set_hidden(drama, ["pages/a.png"], True)
+    with open(_manifest_path(drama), "w", encoding="utf-8") as f:
+        f.write(damage)  # what a power cut mid-save can leave
+    manifest = comic_chapters.load(drama)
+    assert [c["id"] for c in manifest["chapters"]] == ["c1"]
+    assert manifest["hidden"] == ["pages/a.png"]
+    comic_chapters.record_pages(drama, comic_chapters.chapter_ref("c2", "Two", "src"), ["pages/b.png"])
+    with open(_manifest_path(drama), encoding="utf-8") as f:
+        assert [c["id"] for c in json.load(f)["chapters"]] == ["c1", "c2"]
+
+
+def test_both_copies_unreadable_still_refuses(drama):
+    comic_chapters.record_pages(drama, comic_chapters.chapter_ref("c1", "One", "src"), ["pages/a.png"])
+    for path in (_manifest_path(drama), comic_chapters._backup_path(drama)):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("not json")
+    with pytest.raises(comic_chapters.ManifestUnreadable):
+        comic_chapters.set_hidden(drama, ["pages/a.png"], True)
 
 
 def test_write_stays_under_the_read_cap(drama, monkeypatch):
@@ -356,7 +387,7 @@ def test_replace_is_retried_on_permission_error(drama, monkeypatch):
     real, calls = os.replace, []
 
     def flaky(src, dst):
-        calls.append(src)
+        calls.append(dst)
         if len(calls) < 3:
             raise PermissionError("in use")
         real(src, dst)
@@ -364,7 +395,8 @@ def test_replace_is_retried_on_permission_error(drama, monkeypatch):
     monkeypatch.setattr(os, "replace", flaky)
     monkeypatch.setattr(comic_chapters.time, "sleep", lambda s: None)
     comic_chapters.set_hidden(drama, ["pages/a.png"], True)
-    assert len(calls) == 3
+    assert len(calls) == 4  # two refusals, then the last good copy and the manifest
+    assert calls[-1] == _manifest_path(drama)
     assert comic_chapters.load(drama)["hidden"] == ["pages/a.png"]
     assert not [n for n in os.listdir(os.path.dirname(_manifest_path(drama))) if n.endswith(".tmp")]
 

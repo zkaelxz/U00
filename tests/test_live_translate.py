@@ -245,6 +245,29 @@ class TestResolveStreamUrl:
         with pytest.raises(StreamEnded):
             lt.resolve_stream_url("https://example.com/live", live_only=True)
 
+    def test_the_page_title_is_handed_on_once_resolved(self, monkeypatch):
+        import types
+        fake_module = types.ModuleType("yt_dlp")
+
+        class FakeYDL:
+            def __init__(self, opts):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                return {"url": "https://cdn.example/live.m3u8", "title": "【雑談】まったりお話し"}
+
+        fake_module.YoutubeDL = FakeYDL
+        monkeypatch.setitem(sys.modules, "yt_dlp", fake_module)
+        titles = []
+        lt.resolve_stream_url("https://example.com/live", on_title=titles.append)
+        assert titles == ["【雑談】まったりお話し"]
+
     def _install_fake_yt_dlp_with_attempt_log(self, monkeypatch, extract_info_fn, opts_log=None):
         import types
         fake_module = types.ModuleType("yt_dlp")
@@ -557,7 +580,7 @@ class TestRunLiveJobCookiesPassthrough:
         import background_jobs
         seen = {}
 
-        def fake_resolve(url, cookies_browser=None, cookies_file=None, proxy=None):
+        def fake_resolve(url, cookies_browser=None, cookies_file=None, proxy=None, on_title=None):
             seen["cookies_browser"] = cookies_browser
             seen["cookies_file"] = cookies_file
             raise lt.LiveCaptureError("stop here -- only checking what was passed in")
@@ -661,6 +684,38 @@ class TestRunLiveJobContextCarrying:
 
         assert seen_prompts[0] == ""  # no previous chunk yet
         assert seen_prompts[1] == "text from chunk 0"  # chunk 0's own tail
+        background_jobs.clear_job(job_id)
+
+    def test_glossary_names_stay_out_of_whisper_but_the_hints_still_reach_the_session(self, monkeypatch, job_id="test_live_names"):
+        import background_jobs
+        from jobs import job_table
+        background_jobs.clear_job(job_id)
+        job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
+                                          "error": None, "cancel_requested": False, "result": None}
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://fake-stream")
+
+        class FakeProc:
+            error = None
+
+            def poll(self):
+                return None
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: FakeProc())
+        monkeypatch.setattr(lt, "stop_capture", lambda *a, **k: None)
+        monkeypatch.setattr(lt, "list_completed_chunks",
+                            lambda out_dir, last: [(0, "chunk_00000.wav")] if last == -1 else [])
+        seen = []
+
+        def fake_process_chunk(*a, **kw):
+            seen.append(kw.get("name_prompt"))
+            return []
+        monkeypatch.setattr(lt, "process_chunk", fake_process_chunk)
+        monkeypatch.setattr(background_jobs, "is_cancel_requested", lambda jid: bool(seen))
+
+        hints = lt.TermHints(names="阿洛。")
+        lt.run_live_job(job_id, "http://example.com/live", "/fake/out", 20,
+                         "zh", "medium", engine=None, poll_interval=0.01, term_hints=hints)
+
+        assert seen == [""] and hints.names == "阿洛。"
         background_jobs.clear_job(job_id)
 
 
@@ -1481,3 +1536,51 @@ class TestFirstChunkLeadIn:
         assert lengths == [pytest.approx(6.0, abs=0.1), pytest.approx(5.0, abs=0.1)]
         first = _read_samples(os.path.join(out_dir, "chunk_00000.wav"))
         assert max(abs(x) for x in first[:int(2.9 * 16000)]) == 0
+
+
+# Made-up stream titles: kana means Japanese, hangul Korean, Thai script Thai;
+# Han characters alone, Latin letters and a stray の say nothing.
+_TITLES = [
+    ("【雑談】まったりお話しする配信", "ja"), ("歌枠！みんなで歌おう", "ja"), ("初見さん歓迎 ゲーム実況", "ja"),
+    ("マイクラ建築", "ja"), ("今日はのんびり", "ja"), ("APEX ランク回す", "ja"),
+    ("노래방 방송 함께해요", "ko"), ("[LIVE] 오늘의 게임", "ko"), ("먹방 라이브", "ko"),
+    ("新年快乐 来聊天吧", None), ("【原神】今天抽卡", None), ("小明の直播间 聊天", None),
+    ("唱歌直播 欢迎来玩", None), ("游戏实况 第十天", None), ("周末杂谈", None),
+    ("Just chatting", None), ("MINECRAFT LIVE 24/7", None), ("", None), ("2026 ❤ stream", None),
+    ("ไลฟ์สดเล่นเกม", "th"), ("คุยเล่นกัน", "th"),
+    ("今日も配信 雑談", None), ("今日もまったり配信", "ja"), ("新人VTuber デビュー", "ja"), ("歌ってみた", "ja"),
+    ("한국어 공부 같이해요", "ko"), ("台湾美食 直播", None), ("日本語の勉強", None),
+    ("《王者荣耀》上分", None), ("ASMR 囁き", None), ("Kpop dance cover", None),
+    ("【原神・星穹铁道・直播】今天抽卡", None), ("鬼灭之刃・无限城・同人", None), ("游戏ー直播ー聊天", None),
+]
+
+
+@pytest.mark.parametrize("title,language", _TITLES)
+def test_a_stream_title_gives_its_language_away_only_by_its_own_script(title, language):
+    from live.live_resolve import title_language
+    assert title_language(title) == language
+
+
+def test_the_title_notice_speaks_only_when_the_title_disagrees_with_the_captions():
+    from live.live_resolve import title_language_notice
+    assert title_language_notice("【雑談】まったりお話し", "zh") == (
+        "This stream's title looks Japanese, but captions are set to Chinese. If the speech is "
+        "Japanese, stop and start again with that language.")
+    assert "looks Korean" in title_language_notice("노래방 방송", "ja")
+    assert title_language_notice("【雑談】まったりお話し", "ja") is None
+    assert title_language_notice("新年快乐 来聊天吧", "ja") is None
+    assert title_language_notice("Just chatting", "zh") is None
+
+
+def test_a_session_set_to_another_language_than_its_title_gets_a_note(monkeypatch, tmp_path):
+    notes = []
+
+    def resolve(url, on_title=None, **kw):
+        on_title("【雑談】まったりお話し")
+        raise lt.LiveCaptureError("stop here")
+    monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+    monkeypatch.setattr(lt.live_whisper, "warm_up", lambda size, gpu, cb=None: None)
+    with pytest.raises(lt.LiveCaptureError):
+        lt.run_live_job("live_title_lang", "https://example.com/live", str(tmp_path), 10, "zh", "small",
+                        object(), report_note=lambda text, key=None: notes.append((text, key)))
+    assert [key for _, key in notes if key == "title-language"] == ["title-language"]

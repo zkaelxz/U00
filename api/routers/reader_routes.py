@@ -33,8 +33,7 @@ ffmpeg time). The rich .apkg only embeds audio clips for a caller holding
 the response carries `X-Audio-Omitted: true`. `X-Clips-Missing: true` means some
 cards lost their clip (ffmpeg failed or the time budget ran out); only the flag is sent. Downloads are named like the Export UI's (`<Title> - vocabulary.csv`) through
 `export_service.content_disposition`, never a path. Media files themselves are played through
-/api/media and /api/dub; `media_file_path` is not exposed here, nor is
-the series glossary (the glossary routes cover it).
+/api/media and /api/dub; the series glossary is not exposed here either (the glossary routes cover it).
 """
 
 from typing import Literal, Optional
@@ -119,11 +118,13 @@ def get_reader_page(
         readings: bool = Query(True, description="Pinyin or kana above each word; words stay clickable without them."),
         html: bool = Query(True, description="Off: `html` is empty; the web app loads the document "
                                              "from the page.html route instead."),
-        edit: bool = Query(False, description="Single lines with an edit button, not joined paragraphs.")):
+        edit: bool = Query(False, description="Single lines with an edit button, not joined paragraphs."),
+        line: Optional[int] = Query(None, ge=0, description="A line position: answer with the page "
+                                                             "that holds it instead of `page`.")):
     return reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
         line_height=line_height, max_width=max_width, font=font, readings=readings,
-        include_html=html, editable=edit)
+        include_html=html, editable=edit, line=line)
 
 
 @router.get("/dramas/{drama_id}/page.html", dependencies=[require_permission("lines.read")],

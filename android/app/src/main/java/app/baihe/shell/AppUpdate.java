@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -49,6 +50,59 @@ final class AppUpdate {
     /** Returned by {@link #check} when the server could not be asked, so the caller tries again sooner. */
     static final long CHECK_FAILED = -1;
 
+    /** The PC's rule for its own updates: a check that got an answer waits a day for the next one. */
+    static final long CHECK_EVERY_MS = 24L * 60 * 60_000;
+    /** After a failed check, every open of or return to the app asks again, and so does this timer while it stays open. */
+    static final long POLL_EVERY_MS = 60L * 60_000;
+    /** A launch fires both a resume and a page load; one ask covers both. */
+    static final long OPEN_GAP_MS = 60_000;
+
+    /**
+     * Whether an automatic check is due: always after a failed one, otherwise a day after the server last
+     * answered. {@code lastAnsweredAt} is 0 before any answer; {@code lastTriedAt} is when this process last asked.
+     */
+    static boolean checkDue(long now, long lastAnsweredAt, boolean failed, long lastTriedAt) {
+        if (lastTriedAt <= now && now - lastTriedAt < OPEN_GAP_MS) return false;
+        if (failed) return true;
+        // A clock set back must not hold the next check off for longer than a day.
+        return lastAnsweredAt <= 0 || lastAnsweredAt > now || now - lastAnsweredAt >= CHECK_EVERY_MS;
+    }
+
+    /** Where Install update keeps the downloaded APK until this app is on its build. */
+    static File savedApk(Context context) {
+        File dir = new File(context.getCacheDir(), "updates");
+        dir.mkdirs();
+        return new File(dir, "baihe-shell.apk");
+    }
+
+    /** Install update reuses a saved APK only when it is the very build the PC offers now. */
+    static boolean reuseSavedApk(long savedVersion, long offered) {
+        return savedVersion > 0 && savedVersion == offered;
+    }
+
+    /** A saved APK has served its purpose once this app is on its build or newer; 0 is a file Android can't read. */
+    static boolean savedApkDone(long savedVersion, long installed) {
+        return savedVersion <= 0 || savedVersion <= installed;
+    }
+
+    /** Why a downloaded file must not go to the installer, or null when it is a newer build of this app. */
+    static String apkProblem(String ownPackage, String apkPackage, long apkVersion, long installed) {
+        if (apkPackage == null) return "The downloaded update isn't an Android app the phone can read, so it was deleted. Try again.";
+        if (!apkPackage.equals(ownPackage)) return "The PC handed over a different app instead of the Baihe update, so it was not installed.";
+        if (apkVersion <= installed) return "The update on the PC is not newer than this app, so there is nothing to install.";
+        return null;
+    }
+
+    /** What to tell the person when the APK download got an HTTP answer other than 200. */
+    static String downloadProblem(int status) {
+        if (status == 401 || status == 403) return "Baihe on the PC did not accept this phone's sign-in. Sign in again, then try the update.";
+        if (status == 404) return "The PC no longer holds a phone-app build. On the PC, press Get the newest phone app in Settings > Updates, then try again.";
+        return "The PC could not hand over the update (HTTP " + status + "). Try again in a minute.";
+    }
+
+    static final String DOWNLOAD_UNREACHABLE = "Could not reach the PC to download the update. Check the phone can open Baihe, then try again.";
+    static final String DOWNLOAD_CUT_OFF = "The update download was cut off before it finished. Try again.";
+
     /** The offered versionCode, 0 when the server holds none, or {@link #CHECK_FAILED} when it could not be asked.
      * {@code refresh} makes the server look at GitHub first, for a build published since it last looked. */
     static long check(String address, String cookie, boolean refresh) {
@@ -74,12 +128,14 @@ final class AppUpdate {
         }
     }
 
-    /** Saves the offered APK to {@code target}; false when the server did not hand over a file. */
-    static boolean download(String address, String cookie, File target) {
+    /** Saves the offered APK to {@code target}; null when the whole file arrived, otherwise what went wrong. */
+    static String download(String address, String cookie, File target) {
         try {
             HttpURLConnection conn = open(address + "/api/app/android/apk", cookie);
             try {
-                if (conn.getResponseCode() != 200) return false;
+                int status = conn.getResponseCode();
+                if (status != 200) return downloadProblem(status);
+                long expected = conn.getContentLengthLong();
                 long total = 0;
                 try (InputStream in = conn.getInputStream(); OutputStream out = new FileOutputStream(target)) {
                     byte[] buffer = new byte[16 * 1024];
@@ -88,26 +144,32 @@ final class AppUpdate {
                         total += n;
                         if (total > MAX_APK_BYTES) {
                             target.delete();
-                            return false;
+                            return "The update on the PC is larger than any phone-app build, so it was not downloaded.";
                         }
                         out.write(buffer, 0, n);
                     }
                 }
-                return total > 0;
+                // A dropped Wi-Fi connection can end the stream early without an error.
+                if (total == 0 || (expected >= 0 && total != expected)) {
+                    target.delete();
+                    return DOWNLOAD_CUT_OFF;
+                }
+                return null;
             } finally {
                 conn.disconnect();
             }
         } catch (IOException | RuntimeException e) {
             target.delete();
-            return false;
+            return DOWNLOAD_UNREACHABLE;
         }
     }
 
     /**
-     * Hands the saved APK to Android's installer, which asks the user to confirm (and, the
-     * first time, to allow installs from Baihe). Returns false if the session could not start.
+     * Hands the saved APK to Android's installer, which asks the person to confirm. The caller has
+     * already made sure installs from Baihe are allowed. Returns null once the session is committed,
+     * otherwise a short reason Android gave for not starting it.
      */
-    static boolean install(Context context, File apk) {
+    static String install(Context context, File apk) {
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         try {
             PackageInstaller.SessionParams params =
@@ -127,9 +189,13 @@ final class AppUpdate {
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
                 session.commit(result.getIntentSender());
             }
-            return true;
+            return null;
         } catch (IOException | RuntimeException e) {
-            return false;
+            // The message can hold the saved file's path, so only its leading words are kept.
+            String detail = e.getMessage() == null ? "" : e.getMessage().replaceAll("/\\S+", "").trim();
+            if (detail.length() > 80) detail = detail.substring(0, 80);
+            Log.w("BaiheUpdate", "install session failed: " + e.getClass().getSimpleName() + " " + detail);
+            return detail.isEmpty() ? e.getClass().getSimpleName() : e.getClass().getSimpleName() + ": " + detail;
         }
     }
 

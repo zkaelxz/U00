@@ -80,8 +80,8 @@ function SettingsCard({ data, defaults, onSaved }: { data: SeriesPageData; defau
     <Card title="Default title settings" className="series-defaults-card">
       <p className="muted">
         A new title in this series starts with these. A title moved into the series gets them only for settings it has
-        no value for. Not set: the title keeps the app's own default. API keys and the paid-only switches (Groq
-        transcription, Thinking) stay per title.
+        no value for. Not set: the title keeps the app's own default. API keys and the paid-only Groq
+        transcription switch stay per title.
       </p>
       {readOnly && <p className="muted">You can't change this series' defaults.</p>}
       {GROUPS.map((g) => (

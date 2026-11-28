@@ -11,6 +11,7 @@ import importlib.util
 import json
 import os
 from typing import Optional
+import audio_preprocess
 import background_jobs
 import core as core_module
 import whisper_models
@@ -74,7 +75,7 @@ def effective_separate_vocals(drama: dict) -> bool:
     if not separation_pack_installed():
         return False
     from services import model_readiness_service  # imports this module at load
-    return model_readiness_service.separation_ready()
+    return model_readiness_service.separation_ready(drama.get("separation_backend"))
 
 
 def rehear_row(drama: dict) -> dict:
@@ -118,7 +119,7 @@ def stored_min_pause_sec(drama) -> float:
 _BOOL_FIELDS = ("separate_vocals_first", "realign_long_segments", "whisper_fast_mode",
                 "whisper_repeat_guard", "split_by_sentences", "vocabulary_hint", "use_groq",
                 "difficult_audio")
-_SEPARATION_BACKENDS = ("auto", "audio_separator")
+_SEPARATION_BACKENDS = ("auto", "audio_separator", *audio_preprocess.SEPARATION_MODELS)
 
 
 def check_transcribe_fields(fields: dict, source_language) -> dict:

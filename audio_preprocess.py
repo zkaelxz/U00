@@ -32,9 +32,17 @@ from typing import Any
 import memory_headroom
 from lib.pid import pid_alive
 
-# Kimberley Jensen's Mel-Band RoFormer vocal model, as named in
-# audio-separator's own model registry (models.json).
+# Mel-Band RoFormer vocal models, as named in audio-separator's own model registry
+# (models.json), which also says where it downloads them from. FV4 (Gabox's fine-tune) dropped
+# fewer characters than Kimberley Jensen's original on every hand-corrected clip tried, so it is
+# the default; the original stays selectable and is what a PC that only has it keeps using.
 MEL_ROFORMER_VOCAL_MODEL = "vocals_mel_band_roformer.ckpt"
+MEL_ROFORMER_FV4_MODEL = "mel_band_roformer_vocals_fv4_gabox.ckpt"
+SEPARATION_MODELS = {"mel_roformer_fv4": MEL_ROFORMER_FV4_MODEL,
+                     "mel_roformer_original": MEL_ROFORMER_VOCAL_MODEL}
+# Names that mean "the default model": "auto", plus what older titles, series defaults and
+# saved profiles can hold from before there was a choice.
+DEFAULT_SEPARATION_NAMES = ("auto", "audio_separator", "demucs")
 # BAIHE_AUDIO_SEP_MODEL_DIR: set by portable.py's activate_portable_mode()
 # under portable mode, so a copied app folder's downloaded
 # separator model comes with it -- audio-separator itself has no env var
@@ -403,9 +411,10 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     """Writes just the vocals of audio_path to out_path and returns
     out_path, using Mel-Band RoFormer through audio-separator.
 
-    backend: "auto" and "audio_separator" are the same engine. "demucs" is
-    accepted as the same engine too: a title, series default or saved profile
-    written while Demucs existed can still hold it, and must keep running.
+    backend: a SEPARATION_MODELS key, or one of DEFAULT_SEPARATION_NAMES for
+    separation_model()'s choice. "demucs" is among those: a title, series
+    default or saved profile written while Demucs existed can still hold it,
+    and must keep running.
 
     progress_cb, if given, is called with a 0..1 fraction as separation
     proceeds chunk by chunk. cancel_check_cb, if given, is checked
@@ -415,12 +424,36 @@ def separate_vocals(audio_path: str, out_path: str, backend: str = "auto",
     choice). event_cb(event, value), if given, reports "loading" (the
     backend name, before the model is downloaded/loaded, which cannot report
     progress) and "device" ("gpu" or "cpu", once the model is loaded)."""
-    if backend in ("auto", "demucs"):
-        backend = "audio_separator"
-    run = _BACKENDS[backend]  # an unknown name fails before anything else
+    model = separation_model(backend)  # an unknown name fails before anything else
+    run = _BACKENDS["audio_separator"]
     memory_headroom.check_separation(use_gpu)
-    return run(audio_path, out_path, progress_cb=progress_cb,
+    return run(audio_path, out_path, model=model, progress_cb=progress_cb,
                cancel_check_cb=cancel_check_cb, use_gpu=use_gpu, event_cb=event_cb)
+
+
+def separation_model(backend: str = "auto") -> str:
+    """The checkpoint a run with this backend name loads. A default name picks FV4 when it is
+    on disk, else the original when that is (a PC that separated before keeps working with no
+    download, offline too), else FV4, which the run then downloads. KeyError for an unknown name."""
+    if backend not in DEFAULT_SEPARATION_NAMES:
+        return SEPARATION_MODELS[backend]
+    for model in (MEL_ROFORMER_FV4_MODEL, MEL_ROFORMER_VOCAL_MODEL):
+        if _checkpoint_ok(os.path.join(MODEL_DIR, model)):
+            return model
+    return MEL_ROFORMER_FV4_MODEL
+
+
+def download_separation_model(model: str, cancel_check_cb=None) -> None:
+    """Fetches `model` (and its config) into MODEL_DIR without loading it, under the same
+    guard as a run's first-use download."""
+    try:
+        from audio_separator.separator import Separator
+    except ImportError as exc:
+        raise VocalSeparationError(
+            "Mel-Band RoFormer vocal separation needs: pip install audio-separator") from exc
+    separator = Separator(model_file_dir=MODEL_DIR)
+    _load_with_download_guard(model, lambda: separator.download_model_and_data(model),
+                              cancel_check_cb=cancel_check_cb)
 
 
 def _free_cached_gpu_memory() -> None:
@@ -440,7 +473,7 @@ def separate_vocals_audio_separator(audio_path: str, out_path: str,
                                      progress_cb=None, cancel_check_cb=None,
                                      use_gpu=None, event_cb=None) -> str:
     """Mel-Band RoFormer via audio-separator. Downloads the model once
-    (to ~/.cache/audio-separator-models) on first use. The model is
+    (to MODEL_DIR) on first use. The model is
     loaded once and reused across every chunk, not reloaded per chunk.
     use_gpu=False is refused: the library cannot be told to stay on the CPU."""
     try:

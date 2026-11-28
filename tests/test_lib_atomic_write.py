@@ -1,4 +1,5 @@
 """lib/atomic_write.py: the one temp-file-then-replace writer, and the services that use it."""
+import errno
 import json
 import os
 
@@ -21,6 +22,54 @@ def test_text_and_binary_round_trip(tmp_path):
     aw.atomic_write(str(tmp_path / "b.bin"), b"\x00\x01", binary=True)
     assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "héllo"
     assert (tmp_path / "b.bin").read_bytes() == b"\x00\x01"
+
+
+def test_the_temp_file_is_fsynced_before_the_rename(tmp_path, monkeypatch):
+    calls = []
+    real_fsync, real_replace = aw.os.fsync, aw.os.replace
+    monkeypatch.setattr(aw.os, "fsync", lambda fd: (calls.append("fsync"), real_fsync(fd)))
+    monkeypatch.setattr(aw.os, "replace", lambda a, b: (calls.append("replace"), real_replace(a, b)))
+    aw.atomic_write(str(tmp_path / "a.txt"), "x")
+    assert calls == ["fsync", "replace"]
+
+
+@pytest.mark.parametrize("code", [errno.EINVAL, errno.ENOTSUP])
+def test_a_filesystem_without_fsync_still_gets_the_write(tmp_path, monkeypatch, code):
+    def unsupported(fd):
+        raise OSError(code, "fsync not supported")
+    monkeypatch.setattr(aw.os, "fsync", unsupported)
+    aw.atomic_write(str(tmp_path / "a.txt"), "x")
+    assert (tmp_path / "a.txt").read_text() == "x"
+
+
+@pytest.mark.parametrize("windows", [True, False])
+def test_ebadf_from_fsync_means_no_fsync_on_windows_only(tmp_path, monkeypatch, windows):
+    def refused(fd):
+        raise OSError(errno.EBADF, "Bad file descriptor")
+    monkeypatch.setattr(aw, "_ON_WINDOWS", windows)
+    monkeypatch.setattr(aw.os, "fsync", refused)
+    target = tmp_path / "a.txt"
+    target.write_text("old")
+    if windows:
+        aw.atomic_write(str(target), "new")
+        assert target.read_text() == "new"
+    else:
+        with pytest.raises(OSError):
+            aw.atomic_write(str(target), "new")
+        assert target.read_text() == "old"
+
+
+@pytest.mark.parametrize("code", [errno.EIO, errno.ENOSPC])
+def test_a_failed_fsync_keeps_the_old_file(tmp_path, monkeypatch, code):
+    def failed(fd):
+        raise OSError(code, "fsync failed")
+    monkeypatch.setattr(aw.os, "fsync", failed)
+    target = tmp_path / "a.txt"
+    target.write_text("old")
+    with pytest.raises(OSError):
+        aw.atomic_write(str(target), "new")
+    assert target.read_text() == "old"
+    assert os.listdir(tmp_path) == ["a.txt"]
 
 
 def test_replaces_an_existing_file_and_leaves_no_temp(tmp_path):

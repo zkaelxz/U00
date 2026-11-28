@@ -17,9 +17,12 @@ the drama's own folder.
 No FastAPI import.
 """
 import contextlib
+import html
 import io
 import os
+import re
 import tempfile
+import threading
 from typing import TypeGuard
 
 import db
@@ -144,6 +147,70 @@ def cover_file(drama_id: int):
     if os.path.dirname(path) != folder or not os.path.isfile(path):
         raise NotFoundError("This title has no cover.")
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]
+
+
+# Cover tiles are drawn 150-250 px wide (two columns on a phone); 480 stays sharp
+# on a high-density screen.
+_THUMB_WIDTH = 480
+_THUMB_QUALITY = 82
+_THUMB_FOLDER = "reader_cache"
+# A first Library visit asks for every cover at once; each decode of a 25-megapixel
+# cover takes a few hundred MB.
+_THUMB_SLOTS = threading.BoundedSemaphore(2)
+
+
+def cover_thumb(drama_id: int):
+    """(path, media type) of a small JPEG copy of the cover for lists, made once
+    beside the title and remade when the cover changes; the cover itself when the
+    copy can't be made or isn't smaller. A cover is kept at full size (up to 25
+    megapixels), and a Library page drew every one of them at list size."""
+    path, media_type = cover_file(drama_id)
+    st = os.stat(path)
+    folder = os.path.join(os.path.dirname(path), _THUMB_FOLDER)
+    stamp = f"cover.{st.st_mtime_ns}.{st.st_size}"
+    thumb = os.path.join(folder, f"{stamp}.thumb.jpg")
+    try:
+        made = os.path.isfile(thumb)
+        if not made:
+            with _THUMB_SLOTS:
+                # Another request may have made it while this one waited.
+                made = os.path.isfile(thumb) or _write_thumb(path, folder, stamp, thumb)
+        if made and os.path.getsize(thumb) < st.st_size:
+            return thumb, "image/jpeg"
+    except Exception:
+        pass
+    return path, media_type
+
+
+def _write_thumb(path: str, folder: str, stamp: str, thumb: str) -> bool:
+    """False, writing nothing, for a cover already no wider than a thumb."""
+    from PIL import Image
+    # A restored library puts cover files back unchecked, so only the parsers an upload may use.
+    with Image.open(path, formats=tuple(_FORMATS)) as img:
+        if img.width <= _THUMB_WIDTH:
+            return False
+        os.makedirs(folder, exist_ok=True)
+        img.load()
+        if img.mode != "RGB":
+            rgba = img.convert("RGBA")
+            img = Image.new("RGB", rgba.size, "white")
+            img.paste(rgba, mask=rgba.getchannel("A"))
+        img = img.resize((_THUMB_WIDTH, max(1, round(img.height * _THUMB_WIDTH / img.width))),
+                         Image.Resampling.LANCZOS)
+        fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                img.save(fh, "JPEG", quality=_THUMB_QUALITY, optimize=True)
+            os.replace(tmp, thumb)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+            raise
+    for name in os.listdir(folder):
+        if name.startswith("cover.") and name.endswith(".thumb.jpg") and not name.startswith(stamp + "."):
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(folder, name))
+    return True
 
 
 # Short, because the automatic cover runs inside an upload or download job that can't be cancelled meanwhile.
@@ -284,20 +351,103 @@ def cover_referer(cover_url: str, page_url: str) -> str:
     return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
 
 
-def fetch_site_cover(drama_id: int, cover_url: str, page_url: str) -> bool:
+def fetch_site_cover(drama_id: int, cover_url: str, page_url: str, replace: bool = False) -> bool:
     """Best-effort cover from a picture a site shows for the series. lib.http checks every hop is a
-    public address and save_cover re-encodes the bytes, so only a clean image is kept."""
+    public address and save_cover re-encodes the bytes, so only a clean image is kept. `replace`
+    is for a caller that has already decided the current cover may go."""
     if not cover_url:
         return False
     from services import quick_read_fetch
     try:
         data, _reason = quick_read_fetch.fetch_one(
             cover_url, {"referer": cover_referer(cover_url, page_url or "")}, MAX_COVER_BYTES)
+        if data and replace and not _is_portrait(data):
+            # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
+            return False
         if data:
-            save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
+            save_cover(drama_id, io.BytesIO(data), only_if_missing=not replace)
             return True
     except Exception:
         pass
+    return False
+
+
+def _is_portrait(data: bytes) -> bool:
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data), formats=tuple(_FORMATS)) as img:
+            return img.height >= img.width * 0.9
+    except Exception:
+        return False
+
+
+_META_TAG = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_ATTR = re.compile(r"""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_PAGE_BYTES = 1024 * 1024
+_PAGE_TIMEOUT = (5, 15)
+# og:image first: sites name the series picture there, and twitter:image is the same picture on the rest.
+_COVER_META = ("og:image", "og:image:url", "og:image:secure_url", "twitter:image")
+
+
+def cover_url_from_html(page_html: str, page_url: str) -> str:
+    """The picture a page names for itself in its og:image / twitter:image tag, as an absolute
+    http(s) address, or "". Only meta tags are read, so a script or comment can't supply one."""
+    from urllib.parse import urljoin, urlsplit
+    found = {}
+    for tag in _META_TAG.findall(page_html or ""):
+        attrs = {m[0].lower(): html.unescape(m[1] or m[2]).strip() for m in _META_ATTR.findall(tag)}
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key in _COVER_META and attrs.get("content"):
+            found.setdefault(key, attrs["content"])
+    for key in _COVER_META:
+        if key in found:
+            try:
+                url = urljoin(page_url or "", found[key])
+                if urlsplit(url).scheme in ("http", "https"):
+                    return url
+            except ValueError:
+                continue
+    return ""
+
+
+def site_cover_url(page_url: str) -> str | None:
+    """The cover address a stored page link names; "" when the page names none, None when it can't be read."""
+    from lib import http
+    from services import quick_read_fetch
+    try:
+        response = http.get(page_url, timeout=_PAGE_TIMEOUT, max_bytes=_PAGE_BYTES,
+                            headers={"User-Agent": quick_read_fetch.FALLBACK_USER_AGENT,
+                                     "Accept": "text/html,*/*;q=0.8"}, max_error_bytes=1024)
+    except Exception:
+        return None
+    return cover_url_from_html(response.text(), page_url) if response.ok else None
+
+
+# Mean grey difference (0-255) under which two pictures count as the same page.
+_SAME_PICTURE_TOLERANCE = 6
+
+
+def cover_is_first_page(drama_id: int) -> bool:
+    """True when the stored cover is page one of the comic: what the automatic cover made before
+    a site picture was tried, so it may be replaced, unlike a picture the person chose."""
+    from PIL import Image, ImageChops, ImageStat
+    from comic_chapters import load as load_manifest
+    from services import comic_view_service
+    try:
+        cover_path, _ = cover_file(drama_id)
+        hidden = set(load_manifest(drama_id)["hidden"])
+        for page in db.list_pages(drama_id):
+            found = None if page.get("filename") in hidden else \
+                comic_view_service.safe_file(drama_id, page.get("filename"))
+            if found is None:
+                continue
+            with Image.open(cover_path, formats=tuple(_FORMATS)) as cover, Image.open(found[0]) as first:
+                if cover.size != first.size:
+                    return False
+                a, b = (im.convert("L").resize((32, 32)) for im in (cover, first))
+                return ImageStat.Stat(ImageChops.difference(a, b)).mean[0] < _SAME_PICTURE_TOLERANCE
+    except Exception:
+        return False
     return False
 
 

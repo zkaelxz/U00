@@ -14,13 +14,13 @@ import { LIVE_REFRESH_MS, pageSignature, translatingNote } from './liveRefresh'
  * check, so a reload never lands on something the reader is doing. Returns the note to show, or null when no
  * translation is running. Counts come from the line-chapters route, so a title with no saved chapters never refreshes.
  */
-export function useLiveRefresh(dramaId: number, page: number | null, pageSize: number, hold: () => boolean, onChange: () => void) {
+export function useLiveRefresh(dramaId: number, page: number | null, first: number, last: number, hold: () => boolean, onChange: () => void) {
   const { jobs } = useJobs()
   const running = activeJobsFor(jobs ?? [], dramaId).some((j) => j.kind === 'translate')
   const [note, setNote] = useState<string | null>(null)
   const seen = useRef<string | null>(null)
   const pending = useRef(false)
-  const latest = useLatest({ page, pageSize, hold, onChange })
+  const latest = useLatest({ page, first, last, hold, onChange })
   const wasRunning = useRef(false)
 
   const check = useCallback(async () => {
@@ -33,7 +33,7 @@ export function useLiveRefresh(dramaId: number, page: number | null, pageSize: n
     const cur = latest.current
     setNote(translatingNote(chapters))
     if (cur.page === null) return
-    const sig = pageSignature(chapters, cur.page, cur.pageSize)
+    const sig = pageSignature(chapters, cur.first, cur.last)
     if (seen.current !== null && sig !== seen.current) pending.current = true
     seen.current = sig
     if (pending.current && !cur.hold()) {
@@ -46,7 +46,7 @@ export function useLiveRefresh(dramaId: number, page: number | null, pageSize: n
   useEffect(() => {
     seen.current = null
     pending.current = false
-  }, [dramaId, page, pageSize])
+  }, [dramaId, page, first, last])
 
   useInterval(() => void check(), running ? LIVE_REFRESH_MS : null, { pauseWhenHidden: true })
 
@@ -69,7 +69,8 @@ export function useLiveRefresh(dramaId: number, page: number | null, pageSize: n
 export function useLiveFrame(
   dramaId: number,
   page: number | null,
-  pageSize: number,
+  first: number,
+  last: number,
   frameRef: RefObject<HTMLIFrameElement | null>,
   busy: boolean,
   reload: () => void,
@@ -89,7 +90,8 @@ export function useLiveFrame(
   const note = useLiveRefresh(
     dramaId,
     page,
-    pageSize,
+    first,
+    last,
     () => state.current.selecting || busyNow.current,
     () => {
       restoreY.current = state.current.y

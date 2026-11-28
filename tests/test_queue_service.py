@@ -12,11 +12,11 @@ from jobs import job_launch, job_runner
 import db
 from engine_backends import local
 from core import Line
-from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError
+from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoundError, UnsupportedOperationError
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
                       translate_run_service)
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default", "free_engine")
+pytestmark = pytest.mark.usefixtures("isolated_db", "free_engine")
 
 
 WAIT = 10
@@ -271,6 +271,28 @@ def test_restart_marks_the_running_item_interrupted_and_runs_nothing(jobs):
     assert jobs.started == [f"transcribe_{a}"]
     q.retry_item(None, state["items"][0]["id"], at_pc=True)
     assert _items()[0]["status"] == "waiting"
+
+
+def test_restart_logs_each_interrupted_item_once(jobs, monkeypatch):
+    from tests.test_jobs_store import app_log_lines
+    logged = app_log_lines(monkeypatch, "Interrupted queue item")
+    a, b, c = _drama("A"), _drama("B"), _drama("C")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, c, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    q._append_items(None, b, [("transcribe", {})], True, now=True)
+    first, _, second = (i["id"] for i in _items())
+    db.save_job_record(f"transcribe_{a}", "cancelled", error=background_jobs.INTERRUPTED_MESSAGE)
+    q.restore_at_startup()
+    q.restore_at_startup()
+    assert logged == [
+        f"Interrupted queue item {first} (transcribe, title #{a}): was running (job transcribe_{a}) "
+        "when Baihe stopped; marked interrupted, left for the person to press Retry.",
+        f"Interrupted queue item {second} (transcribe, title #{b}): was due to start, not started "
+        "when Baihe stopped; marked interrupted, left for the person to press Retry.",
+    ]
+    assert [i["status"] for i in _items()] == ["interrupted", "waiting", "interrupted"]
 
 
 def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
@@ -1264,6 +1286,112 @@ def test_bulk_and_all_steps_adds_can_wait_for_tonight(jobs):
     assert [i["tonight"] for i in _items()] == [True, True, True, True]
 
 
+def test_a_titles_later_steps_wait_behind_its_tonight_transcribe(jobs, idle, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.set_item_tonight(None, transcribe_a, True)
+    monkeypatch.setattr(q, "_clock", lambda: _at(15))
+    q.tick(now=_at(15))
+    # Title B goes ahead; A's Translate and Export must not start before A's Transcribe.
+    assert jobs.started == [f"transcribe_{b}"]
+    jobs.finish(f"transcribe_{b}")
+    q.tick(now=_at(15, 1))
+    assert jobs.started == [f"transcribe_{b}"]
+    assert _status() == [("transcribe", "waiting"), ("translate", "waiting"), ("export", "waiting"),
+                         ("transcribe", "done")]
+    assert [i["reason"] for i in _items()[1:3]] == ["Waits for this title's earlier step, which runs tonight."] * 2
+    q.tick(now=_at(1, 5, day=29))
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(1, 6, day=29))
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_run_now_on_a_later_step_is_refused_while_its_titles_earlier_step_waits_for_tonight(jobs, idle):
+    a = _drama("A")
+    q.add_all_steps(None, a, True, at_pc=True, tonight=True)
+    transcribe_a, translate_a, _export_a = (i["id"] for i in _items())
+    with pytest.raises(ConflictError, match="Press Run now on that step first"):
+        q.set_item_tonight(None, translate_a, False)
+    assert [i["tonight"] for i in _items()] == [True, True, True]
+    q.tick(now=_at(15))
+    assert jobs.started == []
+    # Run now on the Transcribe lets it, and then the Translate, run in turn by day.
+    q.set_item_tonight(None, transcribe_a, False)
+    q.set_item_tonight(None, translate_a, False)
+    q.tick(now=_at(15, 1))
+    assert jobs.started == [f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(15, 2))
+    assert jobs.started == [f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_a_titles_later_steps_wait_behind_its_paused_transcribe(jobs):
+    a, b = _drama("A"), _drama("B")
+    q.add_all_steps(None, a, True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.hold_item(None, transcribe_a, True)
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}"]
+    jobs.finish(f"transcribe_{b}")
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}"]
+    assert [i["reason"] for i in _items()[1:3]] == ["Waits for this title's earlier step, which is paused."] * 2
+    q.hold_item(None, transcribe_a, False)
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}"]
+    jobs.finish(f"transcribe_{a}")
+    q.tick()
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}", f"translate_{a}"]
+
+
+def test_resuming_a_paused_step_restarts_the_queue_when_another_accounts_later_step_waits(jobs):
+    member = _member()
+    a = _drama("A", owner_user_id=member["user_id"], is_private=1)
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(member, a, "translate", True, at_pc=True)
+    transcribe_a = _items()[0]["id"]
+    q.hold_item(None, transcribe_a, True)
+    q.tick()
+    assert jobs.started == []
+    # The member's Translate still waits, so the queue stays running and Resume needs no Start.
+    assert q.get_queue(None)["state"] == "running"
+    q.hold_item(None, transcribe_a, False)
+    q.tick()
+    assert jobs.started == [f"transcribe_{a}"]
+
+
+@pytest.mark.parametrize("refusal", ["returns False", "raises"])
+def test_a_self_check_that_did_not_start_leaves_the_night_unrecorded(jobs, idle, monkeypatch, refusal):
+    from jobs import job_launch
+    from services import library_admin_service, queue_night
+    started = {"value": False}
+    ran = []
+
+    def start_job(job_id, target, *a, **kw):
+        ran.append(job_id)
+        if not started["value"] and refusal == "raises":
+            raise ConflictError("Baihe is stopping.")
+        return started["value"]
+    monkeypatch.setattr(job_launch, "start_job", start_job)
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: False)
+    if refusal == "raises":
+        with pytest.raises(ConflictError):
+            q.night_tick(now=_at(2))
+    else:
+        q.night_tick(now=_at(2))
+    assert ran == ["nightly_check"]
+    assert queue_night._state()["night"] is None
+    started["value"] = True
+    q.night_tick(now=_at(2, 5))
+    q.night_tick(now=_at(2, 10))
+    assert ran == ["nightly_check"] * 2
+    assert queue_night._state()["night"] == "2026-11-28"
+
+
 def test_the_morning_summary_is_sent_once_after_the_window(jobs, idle, monkeypatch):
     from services import notification_service, queue_night
     told = []
@@ -1476,3 +1604,122 @@ def test_a_page_started_step_offers_no_run_tonight(jobs):
     q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1", now=True)
     q._append_items(None, _drama("B"), [("transcribe", {})], True)
     assert [i["page_run"] for i in q.get_queue(None)["items"]] == [True, True, False]
+
+
+def _restart(jobs):
+    """Two items, the first running, then a restart in this test's process."""
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    db.save_job_record(f"transcribe_{a}", "cancelled", error=background_jobs.INTERRUPTED_MESSAGE)
+    jobs.finish(f"transcribe_{a}")
+    return a, b
+
+
+def test_a_restart_counts_the_items_it_stopped(jobs):
+    import time
+    before = time.time() - 1
+    a, _b = _restart(jobs)
+    q.restore_at_startup()
+    assert q.interrupted_since(before) == [f"transcribe_{a}"]
+    assert q.interrupted_since(time.time() + 60) == []
+
+
+def test_run_them_again_puts_interrupted_items_back_and_starts_the_queue(jobs):
+    a, _b = _restart(jobs)
+    q.restore_at_startup()
+    assert q.get_queue(None)["state"] == "idle"
+    out = q.retry_interrupted(None, holds_paid=True, at_pc=True)
+    assert out == {"retried": 1, "skipped_paid": 0, "skipped_stale": 0, "started": True}
+    state = q.get_queue(None)
+    assert state["state"] == "running"
+    assert [i["status"] for i in state["items"]] == ["waiting", "waiting"]
+
+
+def test_run_them_again_leaves_a_paid_item_for_a_presser_without_engines_paid(jobs):
+    free, paid = _drama("Free", engine="echo"), _drama("Paid", engine="claude")
+    q.add_item(None, free, "translate", True, at_pc=True)
+    q.add_item(None, paid, "translate", True, at_pc=True)
+    with q._lock:
+        doc = q._load()
+        for item in doc["items"]:
+            q._finish(item, q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_paid"] == 1
+    by_title = {i["title"]: i["status"] for i in q.get_queue(None)["items"]}
+    assert by_title == {"Free": "waiting", "Paid": "interrupted"}
+
+
+def _interrupt_all():
+    with q._lock:
+        doc = q._load()
+        for item in doc["items"]:
+            q._finish(item, q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+
+
+def test_the_paid_check_follows_the_engine_the_item_would_run_on(monkeypatch):
+    def item(step, settings=None, did=0):
+        return {"step": step, "settings": settings or {}, "drama_id": did}
+    paid_title = _drama("Paid", engine="claude")
+    # A free engine of the item's own wins over the title's saved paid one.
+    assert q._may_use_paid(item("run_translate", {"engine": "echo"}, paid_title)) is False
+    assert q._may_use_paid(item("translate", {}, paid_title)) is True
+    # Ollama is open to every account on its members' hosted tag, not on another hosted tag.
+    assert q._may_use_paid(item("names", {"engine": "ollama", "model": "gemma4:31b-cloud"}, paid_title)) is False
+    assert q._may_use_paid(item("names", {"engine": "ollama", "model": "qwen3-coder:480b-cloud"}, paid_title)) is True
+    # An engine without a model is judged on that engine's default, as the start is.
+    monkeypatch.setattr(q.engine_registry, "effective_default_model",
+                        lambda e: "qwen3-coder:480b-cloud" if e == "ollama" else None)
+    assert q._may_use_paid(item("names", {"engine": "ollama"}, paid_title)) is True
+    # Page-run steps count too.
+    assert q._may_use_paid(item("run_scanlate", {"engine": "claude"}, paid_title)) is True
+    assert q._may_use_paid(item("lines", {}, paid_title)) is True
+    assert q._may_use_paid(item("export", {}, paid_title)) is False
+
+
+def test_run_them_again_skips_an_item_whose_settings_no_longer_apply(jobs, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    _interrupt_all()
+
+    def stale(drama, settings):
+        if drama["id"] == a:
+            raise InvalidInputError("That Whisper model is no longer offered.")
+        return dict(drama)
+    monkeypatch.setattr(q.transcribe_options_service, "apply_run_overrides", stale)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_stale"] == 1 and out["skipped_paid"] == 0
+    assert [i["status"] for i in q.get_queue(None)["items"]] == ["interrupted", "waiting"]
+
+
+def test_run_them_again_skips_an_item_whose_transcriber_is_gone(jobs, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    _interrupt_all()
+
+    def gone(drama, settings):
+        if drama["id"] == a:
+            raise UnsupportedOperationError("That transcriber isn't available on this PC.")
+        return dict(drama)
+    monkeypatch.setattr(q.transcribe_options_service, "apply_run_overrides", gone)
+    out = q.retry_interrupted(None, holds_paid=False, at_pc=True)
+    assert out["retried"] == 1 and out["skipped_stale"] == 1
+
+
+def test_run_them_again_touches_only_the_callers_items(jobs):
+    member = auth_service.add_user("member@example.com")
+    theirs = _drama("Theirs")
+    q.add_item(None, theirs, "transcribe", True, at_pc=True)
+    with q._lock:
+        doc = q._load()
+        q._finish(doc["items"][0], q.INTERRUPTED, q._INTERRUPTED, 0.0)
+        q._save(doc)
+    principal = {"user_id": member["id"], "is_admin": False, "permissions": ("jobs.start",)}
+    assert q.retry_interrupted(principal, holds_paid=True, at_pc=False)["retried"] == 0
+    assert q.get_queue(None)["items"][0]["status"] == "interrupted"

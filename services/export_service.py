@@ -35,6 +35,7 @@ import sensevoice_tags
 import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
+from engine_backends import alignment_check
 from services import (
     ear_marks_service,
     metadata_service,
@@ -336,7 +337,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     `style` (font, size, bold, italic, primary, outline, outline_width,
     shadow, alignment, sfx_alignment, notes_alignment) override it, and
     missing keys keep the preset's values. speaker_colors is
-    {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
+    {speaker label or character name: "#RRGGBB"}; when omitted and per_speaker_colors is
     true, subtitle_ass.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
     Overlapping cues keep their saved times (players stack them, which is
@@ -392,14 +393,14 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     if frame_aspect is TITLE_VIDEO:
         frame_aspect = title_frame_aspect(drama_id, drama)
 
+    speaker_names = _speaker_display_names(drama_id)
     if not per_speaker_colors:
         colors = {}
     elif speaker_colors is not None:
-        colors = dict(speaker_colors)
+        colors = subtitle_ass.colors_by_label(speaker_colors, speaker_names)
     else:
         colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
 
-    speaker_names = _speaker_display_names(drama_id)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
     ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 
@@ -812,33 +813,43 @@ READING_SPEED_CLEAR_LABEL = "before clearing reading-speed flags"
 
 def clear_reading_speed_flags(drama_id: int, recheck: bool = False) -> dict:
     """Clears the flag and its note on every line whose flag is exactly
-    reading_speed, after a "before clearing reading-speed flags" snapshot
-    (undo from the line history). Other flags, notes and text are untouched.
+    reading_speed, and the reading-speed note a source-match doubt displaced
+    (the line keeps that doubt), after a "before clearing reading-speed flags"
+    snapshot (undo from the line history). Other flags, notes and text are untouched.
     recheck=True then flags again at the title's current mode, so a changed
     setting takes effect on lines that were flagged before. Raises
     NotFoundError for an unknown drama id, ConflictError while a job runs.
-    Returns {"cleared_count", "flagged_count", "history_id"}; history_id is
-    None when there was nothing to clear."""
+    Returns {"cleared_count", "still_flagged_count", "flagged_count", "history_id"};
+    still_flagged_count is how many of the cleared ones were displaced notes, whose
+    line still shows its source-match flag. history_id is None when there was
+    nothing to clear."""
     with restructure_service.exclusive_write(drama_id):
         drama, lines = _load_drama_and_lines(drama_id)
         targets = [ln for ln in lines if ln.flag == subtitle_formats.READING_SPEED_FLAG]
+        displaced = [ln for ln in lines if alignment_check.READING_SPEED_TAIL in (ln.flag_note or "")
+                     and ln.flag == alignment_check.ALIGNMENT_FLAG]
         history_id = None
-        if targets:
+        if targets or displaced:
             history_id = db.save_line_history_snapshot(drama_id, lines, READING_SPEED_CLEAR_LABEL)
             for ln in targets:
                 ln.flag = None
                 ln.flag_note = ""
+            for ln in displaced:
+                alignment_check.drop_displaced_reading_speed(ln)
+        targets += displaced
         unflagged = [ln for ln in lines if not ln.flag]
         reflagged = (subtitle_formats.flag_dense_lines(
             lines, mode=subtitle_formats.flagging_mode_of(drama),
             dismissed=reading_speed_dismissal.load_dismissed(drama_id)) if recheck else 0)
-        cleared = len(targets)
+        cleared, still_flagged = len(targets), len(displaced)
         if targets or reflagged:
             # The drama lock doesn't keep out single-line edits (they don't take it).
             kept = save_flags(drama_id, lines, ("en", "start", "end"), with_next=recheck)
             cleared = sum(1 for ln in targets if ln.id not in kept)
+            still_flagged = sum(1 for ln in displaced if ln.id not in kept)
             reflagged = sum(1 for ln in unflagged if ln.flag and ln.id not in kept)
-    return {"cleared_count": cleared, "flagged_count": reflagged, "history_id": history_id}
+    return {"cleared_count": cleared, "still_flagged_count": still_flagged,
+            "flagged_count": reflagged, "history_id": history_id}
 
 
 def run_auto_qc_flagging(drama_id: int) -> dict:
