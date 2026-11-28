@@ -49,7 +49,7 @@ function SeriesList() {
 // Also the "Saved manga" section of Library tools.
 export function SavedSeriesRows({ items }: { items: SavedSeries[] }) {
   return (
-    <ul className="manga-series" aria-label="Saved series">
+    <ul className="manga-series scroll-box" tabIndex={0} aria-label="Saved series">
       {items.map((s) => {
         const last = lastReadOf(s.source, s.series)
         const resume = continueHref(s.source, s.series, last)

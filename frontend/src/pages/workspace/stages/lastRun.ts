@@ -23,7 +23,7 @@ export function lastRunFor(jobs: readonly JobRecord[] | null, dramaId: number, i
 const count = (v: unknown): number | null =>
   typeof v === 'number' && Number.isFinite(v) ? v : Array.isArray(v) ? v.length : null
 
-// The count keys services/jobs_service.py RESULT_ALLOWED_KEYS can carry, in
+// The count keys jobs/job_results.py RESULT_ALLOWED_KEYS can carry, in
 // display order; each reads as "12 lines", "3 failed". Bulk library runs
 // count dramas, not lines.
 const COUNTS: [key: string, text: (n: number) => string][] = [

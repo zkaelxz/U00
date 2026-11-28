@@ -276,7 +276,13 @@ Raw and translated text side by side, for proofing and language learning.
   (Find & add, Sources, the extension) get the picture the site shows for the series, else a frame of the
   video or page one of a comic. Once after an update, every older title with no cover gets one from its own
   video or comic page; admins can run that again (`POST /api/dramas/covers/backfill`). A cover you set
-  yourself is never replaced. The folder list at **Library > Series** shows the cover of each series' first
+  yourself is never replaced. A comic added from a link gets the picture that page names for the series
+  (its `og:image`), else page one. Older comics keep page one until you press **Refresh cover from site** in
+  Credits and cover (one request through the source's own paced client; a picture that isn't cover-shaped is
+  ignored). The same button on a video with a saved link takes the platform's own thumbnail (YouTube, Twitch
+  and the like), wide or not, replacing the current cover. Admins can do 30 comics per press with `POST /api/dramas/covers/from-site`; nothing calls a site by
+  itself after an update, and the log says how many were fetched, kept or unreachable per source. **Pick a page and crop** (comics) and **Pick a frame and crop** (videos) in Credits and cover let you
+  choose the picture and drag a cover-shaped box over it. The folder list at **Library > Series** shows the cover of each series' first
   title that has one.
 - **Metadata**: cover, genre, publication status, chapter count, custom tags, private notes, reading/listening
   time estimates.

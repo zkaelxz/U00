@@ -8,6 +8,7 @@ import os
 
 import db
 from services import jobs_service
+from jobs import job_results
 from lib.errors import NotFoundError
 
 import pytest
@@ -119,7 +120,7 @@ class TestJobResults:
         assert "Users" not in text and "/srv" not in text and "x.example" not in text
 
     def test_outcomes_per_job_shape(self):
-        d = jobs_service.derive_outcome
+        d = job_results.derive_outcome
         assert d("done", None, {"failed_reason": "cancelled"})[0] == "cancelled"
         assert d("done", None, {"failed_reason": "empty_kept_existing",
                                 "existing_line_count": 4})[0] == "kept_existing"
@@ -134,57 +135,57 @@ class TestJobResults:
         assert d("running", None, None) == (None, None)
 
     def test_a_failed_reason_without_a_status_sentence_still_says_what_failed(self):
-        d = jobs_service.derive_outcome
-        for reason in jobs_service.RESULT_ONLY_REASON_MESSAGES:
+        d = job_results.derive_outcome
+        for reason in job_results.RESULT_ONLY_REASON_MESSAGES:
             outcome, message = d("done", None, {"failed_reason": reason})
             assert outcome == "failed" and message != "The job did not finish."
         assert d("done", None, {"failed_reason": "not_applied", "detail": "A line changed."}) == (
             "failed", "Nothing was changed. A line changed.")
 
     def test_a_translate_run_that_wrote_nothing_after_errors_is_failed_not_done(self):
-        d = jobs_service.derive_outcome
-        projected = jobs_service.project_result({"errors": ["batch 1: rate limited"], "translated_count": 0})
+        d = job_results.derive_outcome
+        projected = job_results.project_result({"errors": ["batch 1: rate limited"], "translated_count": 0})
         assert d("done", None, projected) == ("failed", "Nothing was translated. First problem: batch 1: rate limited")
-        some = jobs_service.project_result({"errors": ["batch 2: rate limited"], "translated_count": 7})
+        some = job_results.project_result({"errors": ["batch 2: rate limited"], "translated_count": 7})
         assert d("done", None, some)[0] == "partial"
-        assert d("done", None, jobs_service.project_result({"errors": [], "translated_count": 0}))[0] == "ok"
+        assert d("done", None, job_results.project_result({"errors": [], "translated_count": 0}))[0] == "ok"
 
     def test_transcribe_warnings_are_partial(self):
         for key in ("gpu_fallback", "word_align_error", "forced_align_error",
                     "coverage_warning"):
-            result = jobs_service.project_result({"line_count": 5, key: "boom"})
+            result = job_results.project_result({"line_count": 5, key: "boom"})
             assert result[key] == "boom"
-            outcome, message = jobs_service.derive_outcome("done", None, result)
+            outcome, message = job_results.derive_outcome("done", None, result)
             assert outcome == "partial" and "boom" in message
-        assert "CPU" in jobs_service.derive_outcome("done", None, {"gpu_fallback": "x"})[1]
-        outcome, message = jobs_service.derive_outcome(
+        assert "CPU" in job_results.derive_outcome("done", None, {"gpu_fallback": "x"})[1]
+        outcome, message = job_results.derive_outcome(
             "done", None, {"flags_needing_recheck": [7]})
         assert outcome == "partial" and "recheck" in message
-        assert jobs_service.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
+        assert job_results.derive_outcome("done", None, {"line_count": 5, "gpu_fallback": None})[0] == "ok"
         notice = "Transcription ran on the CPU because the GPU couldn't be used (x). This was slower than on the GPU."
-        result = jobs_service.project_result({"line_count": 5, "gpu_fallback": "x", "device_notice": notice})
-        assert jobs_service.derive_outcome("done", None, result) == ("partial", notice)
+        result = job_results.project_result({"line_count": 5, "gpu_fallback": "x", "device_notice": notice})
+        assert job_results.derive_outcome("done", None, result) == ("partial", notice)
 
     def test_transcribe_stage_seconds_keep_only_the_recorded_known_stages(self):
-        result = jobs_service.project_result({"line_count": 5, "stage_seconds": {
+        result = job_results.project_result({"line_count": 5, "stage_seconds": {
             "separate": 12.345, "transcribe": 80, "align": True, "load": -1, "C:/secret": 3, "decode_vad": "x"}})
         assert result["stage_seconds"] == {"separate": 12.35, "transcribe": 80}
-        assert "stage_seconds" not in jobs_service.project_result({"line_count": 5, "stage_seconds": {}})
+        assert "stage_seconds" not in job_results.project_result({"line_count": 5, "stage_seconds": {}})
 
     def test_cancelled_bulk_run_is_cancelled(self):
-        assert jobs_service.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
+        assert job_results.derive_outcome("done", None, {"status": "cancelled"})[0] == "cancelled"
 
     def test_a_cancelled_bulk_review_pass_is_not_called_a_translation(self, isolated_db):
         for job_id, text in (("bulk_translate_4", "The bulk translation was cancelled."),
                              ("bulk_flag_4", "The job was cancelled."),
                              ("bulk_consistency_4", "The job was cancelled.")):
             db.save_job_record(job_id, status="done",
-                               result_json=jobs_service.project_result_json({"status": "cancelled"}))
+                               result_json=job_results.project_result_json({"status": "cancelled"}))
             job = jobs_service.get_job(job_id)
             assert (job["outcome"], job["outcome_message"]) == ("cancelled", text)
 
     def test_translate_error_dicts_are_formatted(self):
-        result = jobs_service.project_result({"errors": [
+        result = job_results.project_result({"errors": [
             {"batch_index": 0, "lines": [2, 3], "error": "timeout with key sk-ABCDEFGHIJKLMNOP12345"},
             {"batch_index": 1, "lines": [7], "error": "bad json"}]})
         assert result["errors"][0].startswith("lines 3-4: timeout")
@@ -192,7 +193,7 @@ class TestJobResults:
         assert result["errors"][1] == "line 8: bad json"
 
     def test_a_narration_error_names_its_line(self):
-        result = jobs_service.project_result({"errors": [
+        result = job_results.project_result({"errors": [
             {"line_idx": 4, "error": "This speaker has no voice set up."}]})
         assert result["errors"] == ["line 5: This speaker has no voice set up."]
 
@@ -202,19 +203,19 @@ class TestJobResults:
         def boom():
             raise OSError("no user")
         monkeypatch.setattr(getpass, "getuser", boom)
-        result = jobs_service.project_result({"detail": "at /home/x/models/m.bin sk-ABCDEFGHIJKLMNOP12345"})
+        result = job_results.project_result({"detail": "at /home/x/models/m.bin sk-ABCDEFGHIJKLMNOP12345"})
         assert "/home/x" not in result["detail"] and "sk-ABCDEFGHIJKLMNOP12345" not in result["detail"]
 
     def test_projection_failure_still_mirrors_status(self, isolated_db, monkeypatch):
         def broken(_result):
             raise RuntimeError("projection broke")
-        monkeypatch.setattr(jobs_service, "project_result_json", broken)
+        monkeypatch.setattr(job_results, "project_result_json", broken)
         _run_job_with_result("j_broken", {"line_count": 1})
         job = jobs_service.get_job("j_broken")
         assert job["status"] == "done" and job["result"] is None
 
     def test_oversized_result_is_capped(self):
-        out = jobs_service.project_result({"errors": ["e" * 400] * 500})
+        out = job_results.project_result({"errors": ["e" * 400] * 500})
         assert len(str(out)) <= 9000
 
 
@@ -224,36 +225,36 @@ class TestFallbackAndBulkProjection:
     def test_fallbacks_projected_as_engine_names_and_counts_only(self):
         events = [{"from": "claude", "to": "deepseek", "reason": "RateLimitError",
                    "detail": f"429 with {self.SECRET}"}] * 2
-        out = jobs_service.project_result({"errors": [], "fallbacks": events})
+        out = job_results.project_result({"errors": [], "fallbacks": events})
         assert out["fallbacks"] == [{"from": "claude", "to": "deepseek", "count": 2}]
         assert self.SECRET not in str(out) and "429" not in str(out)
         # Stable on re-projection (a stored row is re-projected on read).
-        assert jobs_service.project_result(out)["fallbacks"] == out["fallbacks"]
+        assert job_results.project_result(out)["fallbacks"] == out["fallbacks"]
 
     def test_fallback_shows_in_outcome_message(self):
-        out = jobs_service.project_result({"errors": [],
+        out = job_results.project_result({"errors": [],
                                            "fallbacks": [{"from": "claude", "to": "gemini"}]})
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "ok" and "claude to gemini" in msg
 
     def test_speaker_count_hint_shows_in_outcome_without_making_it_partial(self):
-        out = jobs_service.project_result({"speaker_count_hint": "Only 2 speakers found."})
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        out = job_results.project_result({"speaker_count_hint": "Only 2 speakers found."})
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "ok" and "Only 2 speakers found." in msg
 
     def test_a_capped_source_match_check_shows_in_outcome_without_making_it_partial(self):
         from services import workspace_job_service
-        out = jobs_service.project_result({"errors": [], "translated_count": 3,
+        out = job_results.project_result({"errors": [], "translated_count": 3,
                                            "judge_skipped": workspace_job_service.JUDGE_CAP_SKIPPED})
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "ok"
         assert "engine check in Source match was skipped because the cost cap was reached" in msg
 
     def test_a_skipped_source_match_check_gives_its_reason_without_making_it_partial(self):
         from services import workspace_job_service
-        out = jobs_service.project_result({"errors": [], "translated_count": 3,
+        out = job_results.project_result({"errors": [], "translated_count": 3,
                                            "source_match_skipped": workspace_job_service.SOURCE_MATCH_UNAVAILABLE})
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "ok"
         assert "Ollama did not answer or bge-m3 is not installed on it" in msg
 
@@ -265,30 +266,30 @@ class TestFallbackAndBulkProjection:
         return base
 
     def test_bulk_every_drama_failed_is_failed(self):
-        out = jobs_service.project_result(self._bulk(errors={3: f"bad key {self.SECRET}"}))
+        out = job_results.project_result(self._bulk(errors={3: f"bad key {self.SECRET}"}))
         assert out["bulk"]["failed"][0]["drama_id"] == 3
         assert self.SECRET not in str(out)
-        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+        assert job_results.derive_outcome("done", None, out)[0] == "failed"
 
     def test_bulk_all_skipped_is_failed(self):
-        out = jobs_service.project_result(self._bulk(skipped_no_key=[1, 2]))
+        out = job_results.project_result(self._bulk(skipped_no_key=[1, 2]))
         assert out["bulk"]["skipped"]["no_key"] == {"count": 2, "drama_ids": [1, 2]}
-        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
+        assert job_results.derive_outcome("done", None, out)[0] == "failed"
 
     def test_bulk_some_failed_is_partial(self):
-        out = jobs_service.project_result(self._bulk(translated=[1], errors={2: "boom"}))
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        out = job_results.project_result(self._bulk(translated=[1], errors={2: "boom"}))
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "partial" and "1 failed" in msg
 
     def test_bulk_all_translated_is_ok(self):
-        out = jobs_service.project_result(self._bulk(translated=[1, 2]))
-        assert jobs_service.derive_outcome("done", None, out)[0] == "ok"
+        out = job_results.project_result(self._bulk(translated=[1, 2]))
+        assert job_results.derive_outcome("done", None, out)[0] == "ok"
 
     def test_bulk_projection_is_bounded_and_survives_storage(self, isolated_db):
         result = self._bulk(translated=list(range(100)),
                             errors={i: "x" * 900 for i in range(100, 150)})
         db.save_job_record("b1", status="done",
-                           result_json=jobs_service.project_result_json(result))
+                           result_json=job_results.project_result_json(result))
         job = jobs_service.get_job("b1")
         bulk = job["result"]["bulk"]
         assert bulk["translated_count"] == 100 and len(bulk["translated_ids"]) <= 20
@@ -299,42 +300,42 @@ class TestFallbackAndBulkProjection:
     def test_bulk_with_chinese_errors_is_trimmed_never_dropped(self, isolated_db):
         result = self._bulk(errors={i: "密钥已被撤销" * 20 for i in range(20)},
                             skipped_no_key=list(range(100, 120)))
-        out = jobs_service.project_result(result)
+        out = job_results.project_result(result)
         import json
         assert len(json.dumps(out, ensure_ascii=False).encode("utf-8")) <= 8000
         assert out["bulk"]["failed_count"] == 20
         assert all(len(f["error"].encode("utf-8")) <= 120 for f in out["bulk"]["failed"])
-        assert jobs_service.derive_outcome("done", None, out)[0] == "failed"
-        db.save_job_record("b2", status="done", result_json=jobs_service.project_result_json(result))
+        assert job_results.derive_outcome("done", None, out)[0] == "failed"
+        db.save_job_record("b2", status="done", result_json=job_results.project_result_json(result))
         assert jobs_service.get_job("b2")["outcome"] == "failed"
 
     def test_bulk_partly_translated_drama_is_partial(self):
-        out = jobs_service.project_result(self._bulk(partial={4: "batch errors"}))
+        out = job_results.project_result(self._bulk(partial={4: "batch errors"}))
         assert out["bulk"]["partial"] == [{"drama_id": 4, "reason": "batch errors"}]
-        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+        assert job_results.derive_outcome("done", None, out)[0] == "partial"
 
     def test_bulk_stopped_by_a_failure_streak_says_why(self, isolated_db):
         result = self._bulk(errors={1: "bad key", 2: "bad key", 3: "bad key"},
                             stopped="Stopped: 3 titles in a row failed")
-        out = jobs_service.project_result(result)
-        outcome, msg = jobs_service.derive_outcome("done", None, out)
+        out = job_results.project_result(result)
+        outcome, msg = job_results.derive_outcome("done", None, out)
         assert outcome == "failed" and msg.endswith("Stopped: 3 titles in a row failed.")
         # Also once stored and read back.
-        db.save_job_record("b3", status="done", result_json=jobs_service.project_result_json(result))
+        db.save_job_record("b3", status="done", result_json=job_results.project_result_json(result))
         assert jobs_service.get_job("b3")["outcome_message"] == msg
 
     def test_kept_your_edit_as_a_count_or_a_list_of_ids(self):
         # Re-segment and the off-peak batch store a count; Fix flagged stores line ids.
         for kept in (2, [7, 9]):
-            outcome, msg = jobs_service.derive_outcome("done", None, {"kept_your_edit": kept})
+            outcome, msg = job_results.derive_outcome("done", None, {"kept_your_edit": kept})
             assert outcome == "ok" and msg.startswith("2 line(s) edited while it ran")
 
     def test_bulk_cancelled(self):
-        out = jobs_service.project_result(self._bulk(cancelled=True))
+        out = job_results.project_result(self._bulk(cancelled=True))
         assert out["bulk"]["cancelled"] is True
-        assert jobs_service.derive_outcome("done", None, out)[0] == "cancelled"
-        out = jobs_service.project_result(self._bulk(translated=[1], cancelled=True))
-        assert jobs_service.derive_outcome("done", None, out)[0] == "partial"
+        assert job_results.derive_outcome("done", None, out)[0] == "cancelled"
+        out = job_results.project_result(self._bulk(translated=[1], cancelled=True))
+        assert job_results.derive_outcome("done", None, out)[0] == "partial"
 
 
 class TestGetJob:
@@ -465,14 +466,14 @@ class TestDeleteJobs:
 class TestJobKindAndDramaId:
     def test_every_drama_prefix_has_a_kind(self):
         import background_jobs
-        assert set(jobs_service.JOB_KIND_BY_PREFIX) == set(background_jobs.DRAMA_JOB_PREFIXES)
+        assert set(job_results.JOB_KIND_BY_PREFIX) == set(background_jobs.DRAMA_JOB_PREFIXES)
 
-    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    @pytest.mark.parametrize("prefix", sorted(job_results.JOB_KIND_BY_PREFIX))
     def test_prefix_table(self, prefix):
-        expected = jobs_service.JOB_KIND_BY_PREFIX[prefix]
+        expected = job_results.JOB_KIND_BY_PREFIX[prefix]
         assert expected in ("transcribe", "translate", "align", "dub", "export",
                             "review", "import", "other")
-        assert jobs_service.job_kind(f"{prefix}12") == expected
+        assert job_results.job_kind(f"{prefix}12") == expected
 
     @pytest.mark.parametrize("job_id, kind", [
         ("translate_5", "translate"), ("bulk_translate_5", "translate"),
@@ -482,12 +483,12 @@ class TestJobKindAndDramaId:
         ("sourceimport_5", "import"), ("resplit_5", "align"),
     ])
     def test_known_ids(self, job_id, kind):
-        assert jobs_service.job_kind(job_id) == kind
+        assert job_results.job_kind(job_id) == kind
 
     @pytest.mark.parametrize("job_id", ["mystery_5", "translate_", "translate_x", "xtranslate_5",
                                         "discover_bulk_extract", "", None])
     def test_unknown_ids_are_other(self, job_id):
-        assert jobs_service.job_kind(job_id) == "other"
+        assert job_results.job_kind(job_id) == "other"
 
     def test_record_carries_drama_id_and_kind(self, isolated_db):
         db.save_job_record("translate_7", status="done")
@@ -507,7 +508,7 @@ class TestJobKindAndDramaId:
 
 
 class TestJobPage:
-    @pytest.mark.parametrize("prefix", sorted(jobs_service.JOB_KIND_BY_PREFIX))
+    @pytest.mark.parametrize("prefix", sorted(job_results.JOB_KIND_BY_PREFIX))
     def test_every_drama_prefix_is_a_title_job(self, prefix):
         assert jobs_service.job_page(f"{prefix}12") == "title"
 

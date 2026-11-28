@@ -14,7 +14,8 @@ from jobs import job_launch, job_runner
 import whisper_models
 from lib import ct2_repo
 import diagnostics
-from services import (diarization_service, jobs_service, notification_service, settings_service,
+from jobs import job_results
+from services import (diarization_service, notification_service, settings_service,
                       speech_coverage_service,
                       transcribe_pipeline, transcribe_service)
 from lib.errors import UnsupportedOperationError
@@ -108,7 +109,7 @@ class TestRefusedDownloadFailsTheJob:
         assert job["status"] == "error"
         assert "could not be downloaded" in job["error"] and "added_tokens.json" in job["error"]
         assert "/" not in job["error"] and "http" not in job["error"]
-        assert jobs_service.derive_outcome(job["status"], job["error"], job["result"])[0] == "failed"
+        assert job_results.derive_outcome(job["status"], job["error"], job["result"])[0] == "failed"
 
     def test_the_bell_says_failed_with_the_reason(self, drama):
         _run(*drama)
@@ -133,7 +134,7 @@ class TestZeroLines:
         assert job["status"] == "done"
         assert job["result"]["failed_reason"] == "no_lines"
         assert "ASR output" in job["result"]["stage_summary"] and ": 0" in job["result"]["stage_summary"]
-        outcome, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        outcome, message = job_results.derive_outcome(job["status"], None, job["result"])
         assert outcome == "partial"
         assert message.startswith("Finished but found no lines")
         for hint in ("More sensitive", "large-v3-turbo", "silent"):
@@ -186,7 +187,7 @@ class TestSpeakerDetectionSkipped:
         self._installed(True)
         _, job = _run(*drama, diarize_requested=True)
         assert job["result"]["diarize_skipped_reason"] == "no Hugging Face token"
-        outcome, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        outcome, message = job_results.derive_outcome(job["status"], None, job["result"])
         assert outcome == "partial"
         assert "Speaker detection did not run: no Hugging Face token." in message
         assert self._bell(job).endswith("Speaker detection did not run: no Hugging Face token.")
@@ -207,13 +208,13 @@ class TestSpeakerDetectionSkipped:
     def test_zero_lines_names_it(self, drama, monkeypatch):
         monkeypatch.setattr(transcribe_pipeline, "transcribe_for_timing", lambda *a, **k: [])
         _, job = _run(*drama, hf_token="hf_x", diarize_requested=True)
-        _, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        _, message = job_results.derive_outcome(job["status"], None, job["result"])
         assert "Speaker detection did not run: the transcription produced no lines." in message
 
     def test_switch_off_says_nothing(self, drama):
         _, job = _run(*drama)
         assert job["result"]["diarize_skipped_reason"] is None
-        assert "Speaker detection" not in jobs_service.derive_outcome("done", None, job["result"])[1]
+        assert "Speaker detection" not in job_results.derive_outcome("done", None, job["result"])[1]
 
     def test_nemotron_starts_without_a_token_only_when_asked(self, drama):
         settings_service.set_settings({"speaker_model": "nemotron"})
@@ -234,7 +235,7 @@ class TestSpeakerDetectionSkipped:
         did, audio = drama
         _, job = _run(did, audio, diarize_requested=True, diarize_audio_path=audio)
         assert job["result"]["diarize_started"] is False and not self.started
-        _, message = jobs_service.derive_outcome(job["status"], None, job["result"])
+        _, message = job_results.derive_outcome(job["status"], None, job["result"])
         assert "Speaker detection did not run: Nemotron speaker detection needs" in message
         assert "Speaker detection pack" in message
 
@@ -293,7 +294,7 @@ class TestModelDownloadWordingPerJobKind:
 
 class TestHardsubNoText:
     def test_outcome_is_partial_with_reasons(self):
-        outcome, message = jobs_service.derive_outcome("done", None, {"failed_reason": "no_text"})
+        outcome, message = job_results.derive_outcome("done", None, {"failed_reason": "no_text"})
         assert outcome == "partial"
         assert message.startswith("Finished but found no on-screen text")
         assert "OCR language" in message and "burned-in" in message

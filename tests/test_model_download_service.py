@@ -424,3 +424,101 @@ def test_a_cancelled_fv4_download_reads_as_cancelled(monkeypatch):
     monkeypatch.setattr(audio_preprocess, "download_separation_model", cancel)
     with pytest.raises(background_jobs.JobCancelled):
         svc.CATALOG["vocal_separation_fv4"]["fetch"](lambda f, m: None, lambda: True)
+
+
+class TestPreferredModelsTick:
+    """After an update the preferred default model is fetched in the quiet hours only, once a night."""
+
+    @pytest.fixture
+    def night(self, models, monkeypatch, tmp_path):
+        from services import app_update_service as aus
+        from services import update_service
+        state, fetched = models
+        monkeypatch.setattr(update_service, "current_version", lambda: "0.2.1")
+        monkeypatch.setattr(aus, "in_quiet_hours", lambda now=None: True)
+        real_pending = aus.update_pending
+        monkeypatch.setattr(aus, "update_pending", lambda: False)
+        monkeypatch.setattr(svc.importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(svc, "_free_bytes", lambda folder: 50 * 1024 ** 3)
+        monkeypatch.setattr(svc, "_preferred_model_dir", lambda: str(tmp_path))
+        self.aus = aus
+        self._real_pending = real_pending
+        self.monkeypatch = monkeypatch
+        return state, fetched
+
+    def _wait(self):
+        wait_for_job(svc.job_id("vocal_separation_fv4"))
+
+    def test_fetches_the_missing_model_in_the_quiet_hours(self, night):
+        state, fetched = night
+        svc.preferred_models_tick()
+        self._wait()
+        assert fetched == ["vocal_separation_fv4"]
+
+    @pytest.mark.parametrize("why", ["daytime", "update_waiting", "low_disk", "no_separator", "job_running"])
+    def test_waits_when_the_night_is_not_free(self, night, why):
+        state, fetched = night
+        mp = self.monkeypatch
+        if why == "daytime":
+            mp.setattr(self.aus, "in_quiet_hours", lambda now=None: False)
+        elif why == "update_waiting":
+            mp.setattr(self.aus, "update_pending", lambda: True)
+        elif why == "low_disk":
+            mp.setattr(svc, "_free_bytes", lambda folder: 1024 ** 3)
+        elif why == "no_separator":
+            mp.setattr(svc.importlib.util, "find_spec", lambda name: None)
+        else:
+            mp.setattr(svc.background_jobs, "active_job_ids", lambda: ["x"])
+        svc.preferred_models_tick()
+        assert fetched == []
+
+    def test_one_try_a_night(self, night):
+        state, fetched = night
+        state["vocal_separation_fv4"] = False
+        svc.preferred_models_tick()
+        self._wait()
+        state["vocal_separation_fv4"] = False
+        svc.preferred_models_tick()
+        assert fetched == ["vocal_separation_fv4"]
+
+    def test_nothing_when_it_is_already_on_disk(self, night):
+        import db
+        state, fetched = night
+        state["vocal_separation_fv4"] = True
+        svc.preferred_models_tick()
+        assert fetched == []
+        assert db.get_app_setting(svc._PREFERRED_VERSION_KEY) == "0.2.1"
+
+    def test_a_source_checkout_does_nothing(self, night):
+        from services import update_service
+        state, fetched = night
+        self.monkeypatch.setattr(update_service, "current_version", lambda: None)
+        svc.preferred_models_tick()
+        assert fetched == []
+
+    def test_a_low_disk_night_still_uses_up_the_night(self, night):
+        import db
+        state, fetched = night
+        self.monkeypatch.setattr(svc, "_free_bytes", lambda folder: 1024 ** 3)
+        svc.preferred_models_tick(now=1_700_000_000)
+        assert db.get_app_setting(svc._PREFERRED_TRIED_KEY) is not None
+        self.monkeypatch.setattr(svc, "_free_bytes", lambda folder: 50 * 1024 ** 3)
+        svc.preferred_models_tick(now=1_700_000_000)
+        assert fetched == []
+        svc.preferred_models_tick(now=1_700_000_000 + 2 * 86400)
+        self._wait()
+        assert fetched == ["vocal_separation_fv4"]
+
+    def test_a_failing_check_never_raises(self, night):
+        from services import update_service
+        def boom():
+            raise OSError("manifest unreadable")
+        self.monkeypatch.setattr(update_service, "current_version", boom)
+        svc.preferred_models_tick()
+
+    def test_update_pending_sees_a_verified_update(self, night):
+        from services import app_update_service as real
+        self.monkeypatch.setattr(real, "update_pending", self._real_pending)
+        self.monkeypatch.setattr(self.aus, "_verified", {"version": "9"})
+        self.monkeypatch.setattr(self.aus, "apply_busy", lambda: False)
+        assert self.aus.update_pending() is True

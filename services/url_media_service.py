@@ -425,8 +425,8 @@ def _error_snippet(raw, keep_end: bool = False) -> str:
     scrubber (URLs, secrets, paths, user name) and is capped to one short line."""
     if not isinstance(raw, str) or not raw.strip():
         return ""
-    from services import jobs_service
-    text = _CONTROL_RE.sub(" ", jobs_service.scrub_text(shared.redact_secrets(raw)))
+    from jobs import job_results
+    text = _CONTROL_RE.sub(" ", job_results.scrub_text(shared.redact_secrets(raw)))
     text = re.sub(r"^\s*ERROR:\s*", "", " ".join(text.split()))
     # ffmpeg names the failure on its last line (keep_end); yt-dlp on its first.
     return text[-ERROR_SNIPPET_MAX:] if keep_end else text[:ERROR_SNIPPET_MAX]

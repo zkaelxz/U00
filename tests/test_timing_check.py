@@ -332,9 +332,9 @@ class TestStart:
             svc.start_timing_check(drama)
 
     def test_timing_check_job_is_a_line_writing_review_job(self):
-        from services import jobs_service
+        from jobs import job_results
         assert "timingchk_" in background_jobs.LINE_WRITING_JOB_PREFIXES
-        assert jobs_service.JOB_KIND_BY_PREFIX["timingchk_"] == "review"
+        assert job_results.JOB_KIND_BY_PREFIX["timingchk_"] == "review"
 
 
 class TestAutoRun:

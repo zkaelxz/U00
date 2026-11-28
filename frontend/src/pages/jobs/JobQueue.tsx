@@ -205,7 +205,7 @@ export function JobQueue({ titles, addSignal = 0, onShown }: Props) {
       {items.length === 0 ? (
         <p className="muted" data-testid="queue-empty">No steps yet. Add one below.</p>
       ) : (
-        <ol className="queue-items" aria-label="Queue items" data-testid="queue-items">
+        <ol className={showAll ? 'queue-items scroll-box' : 'queue-items'} aria-label="Queue items" data-testid="queue-items" tabIndex={showAll ? 0 : undefined}>
           {shown.map((item, n) => (
             <QueueRow
               key={item.id}

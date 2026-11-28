@@ -86,7 +86,7 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     """run_translate_job catches batch errors (e.g. a revoked key), so the
     per-drama job ends "done" with errors; that is not a translated drama."""
     import types
-    from services import jobs_service
+    from jobs import job_results
     did = isolated_db.create_drama(title_en="D", media_type="audio_drama",
                                    content_mode="audio_drama", status="aligned",
                                    translation_engine="fake")
@@ -118,9 +118,9 @@ def test_bulk_drama_done_with_batch_errors_is_not_translated(isolated_db, monkey
     wjs.run_bulk_series_translate_job("bulk_revoked", [did], {})
     result = captured["result"]
     assert result["translated"] == [] and result["partial"] == {did: "batch errors"}
-    projected = jobs_service.project_result(result)
+    projected = job_results.project_result(result)
     assert "sk-ABCDEFGHIJKLMNOP12345" not in str(projected)
-    assert jobs_service.derive_outcome("done", None, projected)[0] == "partial"
+    assert job_results.derive_outcome("done", None, projected)[0] == "partial"
     background_jobs.clear_job(f"translate_{did}")
     background_jobs.clear_job("bulk_revoked")
 

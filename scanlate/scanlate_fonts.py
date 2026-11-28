@@ -69,13 +69,20 @@ class TypesetStyle:
     FONTS = {"bangers": "Bangers-Regular.ttf"}
 
     def __init__(self, min_font: Any = 0, stroke: bool = False, align: str = "auto",
-                 erase_grow: Any = 1.0, bubble_fill: Any = 0, font: str = "default"):
+                 erase_grow: Any = 1.0, bubble_fill: Any = 0, font: str = "default", halo: bool = True):
         self.font = font if font in self.FONTS else "default"
         self.min_font = int(max(0, min(_finite(min_font, 0), 40)))
         self.erase_grow = max(1.0, min(_finite(erase_grow, 1.0), 3.0))
         self.bubble_fill = int(max(0, min(_finite(bubble_fill, 0), 100)))
         self.stroke = bool(stroke)
+        self.halo = bool(halo)
         self.align = align if align in self.ALIGNS else "auto"
+
+    def outlined(self) -> "TypesetStyle":
+        """This style with the outline on, for lettering the halo sits under."""
+        copy = TypesetStyle.__new__(TypesetStyle)
+        copy.__dict__.update(self.__dict__, stroke=True)
+        return copy
 
     def font_file(self) -> str | None:
         """The chosen bundled font's path, or None to keep the usual face choice."""

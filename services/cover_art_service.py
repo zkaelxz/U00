@@ -17,8 +17,10 @@ the drama's own folder.
 No FastAPI import.
 """
 import contextlib
+import html
 import io
 import os
+import re
 import tempfile
 import threading
 from typing import TypeGuard
@@ -349,20 +351,126 @@ def cover_referer(cover_url: str, page_url: str) -> str:
     return page_url if cover.hostname == page.hostname else f"{page.scheme}://{page.netloc}/"
 
 
-def fetch_site_cover(drama_id: int, cover_url: str, page_url: str) -> bool:
-    """Best-effort cover from a picture a site shows for the series. lib.http checks every hop is a
-    public address and save_cover re-encodes the bytes, so only a clean image is kept."""
-    if not cover_url:
-        return False
+def _download_cover(cover_url: str, page_url: str, client=None) -> bytes | None:
+    """The picture's bytes, or None when it can't be downloaded."""
     from services import quick_read_fetch
     try:
-        data, _reason = quick_read_fetch.fetch_one(
-            cover_url, {"referer": cover_referer(cover_url, page_url or "")}, MAX_COVER_BYTES)
-        if data:
-            save_cover(drama_id, io.BytesIO(data), only_if_missing=True)
-            return True
+        referer = cover_referer(cover_url, page_url or "")
+        if client is not None:
+            # The source's own paced client, so a pass over many titles keeps its per-site gap.
+            return client.get(cover_url, classify_body=False, headers={"Referer": referer} if referer else {}).content or None
+        return quick_read_fetch.fetch_one(cover_url, {"referer": referer}, MAX_COVER_BYTES)[0]
     except Exception:
-        pass
+        return None
+
+
+def _store_site_cover(drama_id: int, data: bytes, replace: bool, portrait_only: bool = True) -> bool:
+    if replace and portrait_only and not _is_portrait(data):
+        # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
+        return False
+    try:
+        save_cover(drama_id, io.BytesIO(data), only_if_missing=not replace)
+        return True
+    except Exception:
+        return False
+
+
+def fetch_site_cover(drama_id: int, cover_url: str, page_url: str, replace: bool = False, client=None) -> bool:
+    """Best-effort cover from a picture a site shows for the series. lib.http checks every hop is a
+    public address and save_cover re-encodes the bytes, so only a clean image is kept. `replace`
+    is for a caller that has already decided the current cover may go."""
+    data = _download_cover(cover_url, page_url, client) if cover_url else None
+    return bool(data) and _store_site_cover(drama_id, data, replace)
+
+
+def _is_portrait(data: bytes) -> bool:
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data), formats=tuple(_FORMATS)) as img:
+            return img.height >= img.width * 0.9
+    except Exception:
+        return False
+
+
+_META_TAG = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
+_META_ATTR = re.compile(r"""([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+_PAGE_BYTES = 1024 * 1024
+_PAGE_TIMEOUT = (5, 15)
+# og:image first: sites name the series picture there, and twitter:image is the same picture on the rest.
+_COVER_META = ("og:image", "og:image:url", "og:image:secure_url", "twitter:image")
+
+
+def cover_url_from_html(page_html: str, page_url: str) -> str:
+    """The picture a page names for itself in its og:image / twitter:image tag, as an absolute
+    http(s) address, or "". Only meta tags are read, so a script or comment can't supply one."""
+    from urllib.parse import urljoin, urlsplit
+    found = {}
+    for tag in _META_TAG.findall(page_html or ""):
+        attrs = {m[0].lower(): html.unescape(m[1] or m[2]).strip() for m in _META_ATTR.findall(tag)}
+        key = (attrs.get("property") or attrs.get("name") or "").lower()
+        if key in _COVER_META and attrs.get("content"):
+            found.setdefault(key, attrs["content"])
+    for key in _COVER_META:
+        if key in found:
+            try:
+                url = urljoin(page_url or "", found[key])
+                if urlsplit(url).scheme in ("http", "https"):
+                    return url
+            except ValueError:
+                continue
+    return ""
+
+
+def paced_client(link: str):
+    """The source's own paced client for `link` (its per-host gap, slowdown and health record apply),
+    with the page and picture caps this service uses."""
+    from sources import generic_import
+    client = generic_import.http_client(None, link)
+    client.max_page_bytes = _PAGE_BYTES
+    client.max_image_bytes = MAX_COVER_BYTES
+    return client
+
+
+def site_cover_url(page_url: str, client=None) -> str | None:
+    """The cover address a stored page link names; "" when the page names none, None when it can't be read."""
+    from lib import http
+    from services import quick_read_fetch
+    try:
+        if client is not None:
+            return cover_url_from_html(client.get(page_url, classify_body=False).text, page_url)
+        response = http.get(page_url, timeout=_PAGE_TIMEOUT, max_bytes=_PAGE_BYTES,
+                            headers={"User-Agent": quick_read_fetch.FALLBACK_USER_AGENT,
+                                     "Accept": "text/html,*/*;q=0.8"}, max_error_bytes=1024)
+    except Exception:
+        return None
+    return cover_url_from_html(response.text(), page_url) if response.ok else None
+
+
+# Mean grey difference (0-255) under which two pictures count as the same page.
+_SAME_PICTURE_TOLERANCE = 6
+
+
+def cover_is_first_page(drama_id: int) -> bool:
+    """True when the stored cover is page one of the comic: what the automatic cover made before
+    a site picture was tried, so it may be replaced, unlike a picture the person chose."""
+    from PIL import Image, ImageChops, ImageStat
+    from comic_chapters import load as load_manifest
+    from services import comic_view_service
+    try:
+        cover_path, _ = cover_file(drama_id)
+        hidden = set(load_manifest(drama_id)["hidden"])
+        for page in db.list_pages(drama_id):
+            found = None if page.get("filename") in hidden else \
+                comic_view_service.safe_file(drama_id, page.get("filename"))
+            if found is None:
+                continue
+            with Image.open(cover_path, formats=tuple(_FORMATS)) as cover, Image.open(found[0]) as first:
+                if cover.size != first.size:
+                    return False
+                a, b = (im.convert("L").resize((32, 32)) for im in (cover, first))
+                return ImageStat.Stat(ImageChops.difference(a, b)).mean[0] < _SAME_PICTURE_TOLERANCE
+    except Exception:
+        return False
     return False
 
 
@@ -386,3 +494,51 @@ def fill_missing_cover(drama_id: int, cover_url: str = "", page_url: str = "",
     except Exception:
         pass
     return False
+
+
+def _log_press(kind: str, client, outcome: str) -> None:
+    import applog
+    applog.get_logger().info(f"site cover press ({kind}): 1 tried, outcome {outcome}, source {client.source}")
+
+
+def refresh_site_cover(drama_id: int, client=None, only_first_page: bool = False) -> str:
+    """Replaces the cover with the picture the title's stored link names. A comic takes the series
+    picture from its page and needs it cover-shaped; a video takes the platform's own thumbnail
+    (yt-dlp's address, else the page's og:image), wide or not. Returns "fetched"; "kept" when the
+    site gave nothing usable (the cover stays); "unreachable" when the page or picture couldn't be
+    read; "skipped" when `only_first_page` and the cover is one the person chose; "no_link" when
+    the title has no stored link."""
+    drama = _require_drama(drama_id)
+    link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
+    if not link.startswith(("http://", "https://")):
+        return "no_link"
+    comic = (drama.get("media_type") or "").lower() in ("manga", "manhwa", "manhua")
+    if only_first_page and drama.get("cover_art_filename") and not cover_is_first_page(drama_id):
+        return "skipped"
+    client = client or paced_client(link)
+    picture = _video_thumbnail_url(link) if not comic else ""
+    if not picture:
+        picture = site_cover_url(link, client)
+    if picture is None:
+        outcome = "unreachable"
+    elif not picture:
+        outcome = "kept"
+    else:
+        data = _download_cover(picture, link, client)
+        if data is None:
+            outcome = "unreachable"
+        else:
+            outcome = "fetched" if _store_site_cover(drama_id, data, True, portrait_only=comic) else "kept"
+    if not only_first_page:
+        _log_press("comic" if comic else "video", client, outcome)
+    return outcome
+
+
+def _video_thumbnail_url(link: str) -> str:
+    """The thumbnail address yt-dlp reports for the link ("" when it reports none or the read
+    fails; the page's og:image is then tried)."""
+    from services import link_details_service
+    try:
+        return str(link_details_service.video_link_fields(link, lambda: False).get("thumbnail_url") or "")
+    except Exception:
+        return ""

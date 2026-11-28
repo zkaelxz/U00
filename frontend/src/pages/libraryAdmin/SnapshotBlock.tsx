@@ -80,7 +80,10 @@ export function SnapshotBlock() {
 
   return (
     <div className="admin-block" data-testid="snapshot-block">
-      <p data-testid="snapshot-info">{describeSnapshot(snapshot)}</p>
+      <p data-testid="snapshot-info">
+        {describeSnapshot(snapshot)}
+        {usable && !snapshot?.choose_copy && copies.length > 1 ? ` (newest of ${copies.length} copies)` : ''}
+      </p>
       <p className="muted">
         Schedule them in the Automatic backups card above.
       </p>
@@ -121,11 +124,13 @@ export function SnapshotBlock() {
       {mode === 'delete' && (
         <DeleteSnapshot
           copies={copies}
-          onDone={(all, kept) => {
+          onDone={(all, kept, deletedLabel) => {
             setMode('idle')
+            // Only the newest copy is summarised above, so name what was removed.
+            const left = copies.length - 1
             setNotice(
               !all
-                ? 'Copy deleted.'
+                ? `Deleted the copy from ${deletedLabel}. ${left === 0 ? 'No copies' : `${left} ${left === 1 ? 'copy' : 'copies'}`} left.`
                 : kept
                   ? `This library's copies deleted; ${kept} other or older ${kept === 1 ? 'copy was' : 'copies were'} left.`
                   : 'All copies deleted.',
@@ -322,7 +327,7 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
             </Field>
           )}
           <p className="muted">Pick the title to restore. Nothing changes until you confirm.</p>
-          <ul className="snapshot-dramas" aria-label="Titles in the copy">
+          <ul className="snapshot-dramas scroll-box" tabIndex={0} aria-label="Titles in the copy">
             {shown.map((d) => (
               <li key={d.id}>
                 <button type="button" onClick={() => setPicked(d)}>
@@ -361,7 +366,7 @@ const ALL_INCLUDING = '*all-including-unmanaged'
 function DeleteSnapshot({ copies, onDone, onCancel }: {
   // Every copy, newest first.
   copies: SnapshotCopy[]
-  onDone: (all: boolean, keptUnmanaged: number) => void
+  onDone: (all: boolean, keptUnmanaged: number, deletedLabel: string) => void
   onCancel: () => void
 }) {
   const { managed, unmanaged } = splitCopies(copies)
@@ -381,7 +386,7 @@ function DeleteSnapshot({ copies, onDone, onCancel }: {
     deleteSnapshot(all ? { all: true, ...extra } : { snapshot: which, ...extra }).then(
       (r) => {
         setBusy(false)
-        onDone(all, r.kept_unmanaged ?? 0)
+        onDone(all, r.kept_unmanaged ?? 0, chosen ? describeCopy(chosen) : '')
       },
       (e: unknown) => {
         setBusy(false)

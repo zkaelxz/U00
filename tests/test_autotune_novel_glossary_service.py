@@ -128,7 +128,7 @@ class TestAutotune:
     def test_a_cpu_rerun_after_a_gpu_crash_finishes_saying_it_ran_on_the_cpu(
             self, isolated_db, monkeypatch):
         from jobs import crash_retry
-        from services import jobs_service
+        from jobs import job_results
         did = _audio_drama(isolated_db)
         captured = {}
         monkeypatch.setattr(job_launch, "start_process_job",
@@ -142,8 +142,8 @@ class TestAutotune:
         # The Auto-tune panel reads it from the status.
         _fake_done(monkeypatch, f"autotune_{did}", result)
         assert at.get_autotune_status(did)["result"]["device_notice"] == notice
-        assert jobs_service.derive_outcome(
-            "done", None, jobs_service.project_result(result))[0] == "partial"
+        assert job_results.derive_outcome(
+            "done", None, job_results.project_result(result))[0] == "partial"
         # A run that never crashed keeps its result as it was.
         assert captured["kw"]["on_done"]("j", {"results": []}) == {"results": []}
 

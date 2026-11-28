@@ -7,6 +7,7 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageInstaller;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -165,9 +166,10 @@ final class AppUpdate {
 
     /**
      * Hands the saved APK to Android's installer, which asks the person to confirm. The caller has
-     * already made sure installs from Baihe are allowed. Returns false if the session could not start.
+     * already made sure installs from Baihe are allowed. Returns null once the session is committed,
+     * otherwise a short reason Android gave for not starting it.
      */
-    static boolean install(Context context, File apk) {
+    static String install(Context context, File apk) {
         PackageInstaller installer = context.getPackageManager().getPackageInstaller();
         try {
             PackageInstaller.SessionParams params =
@@ -187,18 +189,28 @@ final class AppUpdate {
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
                 session.commit(result.getIntentSender());
             }
-            return true;
+            return null;
         } catch (IOException | RuntimeException e) {
-            return false;
+            // The message can hold the saved file's path, so only its leading words are kept.
+            String detail = e.getMessage() == null ? "" : e.getMessage().replaceAll("/\\S+", "").trim();
+            if (detail.length() > 80) detail = detail.substring(0, 80);
+            Log.w("BaiheUpdate", "install session failed: " + e.getClass().getSimpleName() + " " + detail);
+            return detail.isEmpty() ? e.getClass().getSimpleName() : e.getClass().getSimpleName() + ": " + detail;
         }
     }
 
+    /** Whether the last fetchText got any HTTP answer, so a caller can tell a silent PC from a refusal. */
+    static volatile boolean lastFetchAnswered;
+
     /** A small text answer (at most 64 KB) from the signed-in server, or null when it could not be had. */
     static String fetchText(String url, String cookie) {
+        lastFetchAnswered = false;
         try {
             HttpURLConnection conn = open(url, cookie);
             try {
-                if (conn.getResponseCode() != 200) return null;
+                int status = conn.getResponseCode();
+                lastFetchAnswered = true;
+                if (status != 200) return null;
                 try (InputStream in = conn.getInputStream()) {
                     byte[] buffer = new byte[64 * 1024];
                     int filled = 0;

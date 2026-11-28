@@ -117,6 +117,7 @@ export async function mockAccess(page: Page, s: MockState, over: Partial<AccessM
       auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
       proxy_configured: m.proxyConfigured,
       cache_modes: ['none', 'temporary', 'keep_originals', 'keep_translated', 'keep_both'],
+      extension_sites: [],
       cache: { entries: 120, bytes: 45_200_000 },
     })
   })

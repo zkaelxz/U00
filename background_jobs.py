@@ -31,6 +31,7 @@ One machine, one process owning each job: not a distributed job queue.
 
 import math
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -263,6 +264,17 @@ DRAMA_JOB_PREFIXES = LINE_WRITING_JOB_PREFIXES + (
     "comparetx_", "retime_", "speechcov_", "restructure_", "hardsub_reference_",
     "earmarks_",
 )
+
+
+def drama_id_of_job(job_id):
+    """The drama a `<prefix><drama_id>` job id (DRAMA_JOB_PREFIXES) is for,
+    else None. Only an exact prefix followed by digits counts."""
+    job_id = str(job_id or "")
+    for prefix in DRAMA_JOB_PREFIXES:
+        rest = job_id[len(prefix):]
+        if job_id.startswith(prefix) and re.fullmatch(r"[0-9]{1,18}", rest):
+            return int(rest)
+    return None
 # Drama jobs that start without being asked for, only read the title's media and write
 # their own cache file (ear marks for Watch). Busy checks don't count them, so opening
 # Watch never blocks an edit; whatever removes or replaces the title's files stops them
