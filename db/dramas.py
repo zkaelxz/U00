@@ -417,14 +417,17 @@ def list_dramas_recently_active(n: int = 10, visible_to: int | None = None):
     return [dict(r) for r in rows]
 
 
+# Answered from idx_lines_drama_en (db/schema.py) alone, without reading the line rows.
+LINE_PROGRESS_SQL = ("SELECT drama_id, COUNT(*) AS n, "
+                     "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
+                     "FROM lines GROUP BY drama_id")
+
+
 def line_progress_by_drama() -> dict:
     """{drama_id: (line_count, translated_count)} for every drama with lines,
     in one query, for the Library list's per-title progress."""
     with contextlib.closing(db.get_conn()) as conn:
-        rows = conn.execute(
-            "SELECT drama_id, COUNT(*) AS n, "
-            "SUM(CASE WHEN TRIM(COALESCE(en, '')) != '' THEN 1 ELSE 0 END) AS done "
-            "FROM lines GROUP BY drama_id").fetchall()
+        rows = conn.execute(LINE_PROGRESS_SQL).fetchall()
     return {r["drama_id"]: (r["n"], r["done"] or 0) for r in rows}
 
 

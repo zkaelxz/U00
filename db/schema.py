@@ -2,6 +2,8 @@
 content (dramas, lines, series, annotations, reading, review, tools, bulk jobs,
 metadata research). init_db in db/__init__.py runs them in a fixed order."""
 
+import time
+
 import db
 
 
@@ -807,9 +809,32 @@ def _create_metadata_research_tables(conn):
     """)
 
 
-def _create_core_indexes(conn):
-    conn.executescript("""
+LINE_PROGRESS_INDEX = "idx_lines_drama_en"
 
+
+def _create_line_progress_index(conn) -> str | None:
+    """Lets line_progress_by_drama count from the index alone instead of reading every line row
+    and its word timings. A plain column index, not one on an expression: older SQLite (3.46 in CI)
+    uses an expression index there but still reads each row, which is slower than no index.
+    Returns a log line when it builds the index, since that copies every English line once."""
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?",
+                    (LINE_PROGRESS_INDEX,)).fetchone():
+        return None
+    page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+    pages_before = conn.execute("PRAGMA page_count").fetchone()[0]
+    started = time.monotonic()
+    conn.execute(f"CREATE INDEX IF NOT EXISTS {LINE_PROGRESS_INDEX} ON lines(drama_id, en)")
+    took = time.monotonic() - started
+    pages_after = conn.execute("PRAGMA page_count").fetchone()[0]
+    lines = conn.execute("SELECT COUNT(*) FROM lines").fetchone()[0]
+    return (f"Library: built the line count index over {lines} lines in {took:.1f} s; the library "
+            f"grew {(pages_after - pages_before) * page_size / 1e6:.1f} MB "
+            f"({pages_before * page_size / 1e6:.1f} to {pages_after * page_size / 1e6:.1f} MB)")
+
+
+def _create_core_indexes(conn) -> str | None:
+    built = _create_line_progress_index(conn)
+    conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_lines_drama ON lines(drama_id);
         CREATE INDEX IF NOT EXISTS idx_characters_drama ON characters(drama_id);
         CREATE INDEX IF NOT EXISTS idx_pages_drama ON pages(drama_id);
@@ -833,3 +858,4 @@ def _create_core_indexes(conn):
         CREATE INDEX IF NOT EXISTS idx_translate_history_created ON translate_history(created_at);
         CREATE INDEX IF NOT EXISTS idx_voice_bank_name ON voice_bank(name);
     """)
+    return built
