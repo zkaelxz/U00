@@ -33,6 +33,8 @@ LOG_TAIL_DEFAULT = 50
 
 
 LOG_TAIL_MAX = 200
+# A filter looks this far back, not only at the lines a plain view would show.
+LOG_FILTER_SCAN = 5000
 
 
 # job_id prefixes this app actually uses (see job_launch.start_job
@@ -193,8 +195,8 @@ def get_job_history() -> list:
 
 
 def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
-    """The last n (capped at LOG_TAIL_MAX) redacted log lines, optionally
-    filtered by keyword."""
+    """The last n (capped at LOG_TAIL_MAX) redacted log lines; with a keyword,
+    the newest n matches in the last LOG_FILTER_SCAN lines."""
     import applog
     try:
         n = int(n)
@@ -205,7 +207,8 @@ def get_log_tail(n: int = LOG_TAIL_DEFAULT, keyword: str = "") -> list:
         return []
     # Redact first, then filter: filtering raw lines would let a keyword
     # probe for text that redaction hides (a path, a user name, a key).
-    return applog.filter_lines([redact_for_support(ln) for ln in applog.tail(n)], keyword or "")
+    scan = LOG_FILTER_SCAN if (keyword or "").strip() else n
+    return applog.filter_lines([redact_for_support(ln) for ln in applog.tail(scan)], keyword or "")[-n:]
 
 
 def build_support_report(recent_error_lines: int = 20) -> str:

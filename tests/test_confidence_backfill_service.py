@@ -70,3 +70,50 @@ def test_a_title_that_cannot_be_read_is_skipped_and_the_pass_finishes_once(isola
     assert svc.run_once() == 2
     assert _scores(isolated_db, bad) == [0.5, 0.5] and _scores(isolated_db, good) == [0.75, 0.25]
     assert svc.run_once() == 0
+
+
+def test_startup_does_not_wait_for_the_pass(isolated_db, monkeypatch):
+    import threading
+    import api.__main__ as entry
+    release = threading.Event()
+    monkeypatch.setattr(svc, "run_once", lambda: release.wait(5))
+    entry._open_library(isolated_db)
+    assert not svc.wait(0)
+    release.set()
+    assert svc.wait(5)
+
+
+def test_the_background_pass_scores_old_lines_once(isolated_db):
+    did = isolated_db.create_drama(title_en="A")
+    isolated_db.save_lines(did, [_line(0, "你好", 0.9), _line(1, "再见", 0.3)])
+    svc.start_in_background()
+    assert svc.wait(5)
+    assert _scores(isolated_db, did) == [0.75, 0.25]
+    svc.start_in_background()
+    assert svc.wait(5)
+    assert _scores(isolated_db, did) == [0.75, 0.25]
+
+
+def test_a_failed_background_pass_is_logged_and_left_for_the_next_start(isolated_db, monkeypatch):
+    import applog
+
+    def broken():
+        raise RuntimeError("boom")
+    logged = []
+    monkeypatch.setattr(svc, "run_once", broken)
+    monkeypatch.setattr(applog.get_logger(), "warning", lambda msg, **kw: logged.append((msg, kw)))
+    svc.start_in_background()
+    assert svc.wait(5)
+    assert logged == [("Line scores were not rescored", {"exc_info": True})]
+    assert not isolated_db.get_app_setting("backfills.per_line_confidence")
+
+
+def test_a_restored_backup_from_before_the_pass_gets_its_lines_scored(isolated_db):
+    from tests.test_library_admin_service import _backup_bytes, _restore
+    did = isolated_db.create_drama(title_en="A")
+    isolated_db.save_lines(did, [_line(0, "你好", 0.9), _line(1, "再见", 0.3)])
+    data = _backup_bytes()
+    assert svc.run_once() == 2
+    _restore(data)
+    assert svc.wait(5)
+    assert _scores(isolated_db, did) == [0.75, 0.25]
