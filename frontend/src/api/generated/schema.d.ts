@@ -52382,7 +52382,7 @@ export interface operations {
     list_dramas_api_library_dramas_get: {
         parameters: {
             query?: {
-                /** @description Substring of title or summary. */
+                /** @description Substring of a title, summary, author, studio, voice actor, tag or series name. */
                 search?: string;
                 studio?: string;
                 author?: string;

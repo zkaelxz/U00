@@ -34,7 +34,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   // Back to Titles: the same text now filters titles (no match), and
   // Clear filters brings the whole library back.
   await page.getByRole('radio', { name: 'Titles' }).check()
-  await expect(page.getByLabel('Search title or summary')).toHaveValue('zzz-no-such-line')
+  await expect(page.getByLabel('Search titles, people, tags and series')).toHaveValue('zzz-no-such-line')
   await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
@@ -425,7 +425,7 @@ test('the shelf waits for the Library list instead of showing Open, and a search
   await expect(signal).toHaveAttribute('href', '#/drama/3/review')
   await expect(page.locator('.continue-placeholder')).toHaveCount(0)
 
-  await page.getByLabel('Search title or summary').fill('Signal')
+  await page.getByLabel('Search titles, people, tags and series').fill('Signal')
   const titles = page.getByRole('region', { name: 'Titles' })
   await expect(titles.getByRole('link', { name: "Heaven Official's Blessing", exact: true })).toHaveCount(0)
   await expect(titles.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
