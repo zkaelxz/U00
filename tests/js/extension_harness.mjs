@@ -56,7 +56,7 @@ function classes() {
            remove: (c) => on.delete(c), contains: (c) => on.has(c) };
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true }) {
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true, onProgress = null }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -123,7 +123,10 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
             return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
           if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
-          if (message.type === "progress") progress.push(message);
+          if (message.type === "progress") {
+            progress.push(message);
+            if (onProgress) onProgress(message);
+          }
           if (message.type === "captureSummary") summaries.push(message);
           return { ok: true };
         },
@@ -132,7 +135,8 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
-  document.addEventListener = () => {};
+  document.loadListeners = [];
+  document.addEventListener = (type, fn) => { if (type === "load") document.loadListeners.push(fn); };
   sandbox.innerHeight = 800;
   sandbox.scrollY = 0;
   sandbox.scrollTo = () => {};
@@ -261,6 +265,70 @@ async function content(scenario) {
       const result = await h.ask(visible);
       return { ok: result.ok, error: result.error, shots: h.shots.length, sent: h.sent.flatMap((m) => m.images).length };
     }
+    case "capture_keeps_reading_while_a_batch_is_out": {
+      // Three pages at first; two more load while the first batch is out, and two more while the second is.
+      const urls = [1, 2, 3, 4, 5, 6, 7].map((n) => `https://s1.bzcdn.net/p/${n}.jpg`);
+      const distinct = async ({ url }) => ({
+        ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
+                          content_type: "image/jpeg", url } });
+      const images = urls.slice(0, 3).map((u, i) => placed(fakeImg(u), i * 100));
+      const readWhileOut = [];
+      let h = null;
+      const onSend = async () => {
+        const n = h.sent.length;
+        if (n > 2) return;
+        const more = urls.slice(1 + 2 * n, 3 + 2 * n);
+        more.forEach((u, k) => images.push(placed(fakeImg(u), (1 + 2 * n + k) * 100)));
+        const until = Date.now() + 1500;
+        while (Date.now() < until && !more.every((u) => h.fetched.includes(u))) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        readWhileOut.push(more.every((u) => h.fetched.includes(u)));
+      };
+      const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
+      h = loadContent({ images, fetchImage: distinct, onSend, sendReply });
+      const result = await h.ask(capture);
+      return { ok: result.ok, readWhileOut, batches: h.sent.map((m) => m.images.map((i) => i.url)),
+               progress: h.progress.map((m) => m.text) };
+    }
+    case "capture_answer_for_a_recycled_element_draws_when_its_picture_returns": {
+      // A recycling reader moves the <img> on to the next page while its batch is out, then shows
+      // the first page again later: its English is drawn then, and not while the picture still loads.
+      const page = placed(img(), 0);
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const showPage = (url, complete) => Object.assign(page, { src: url, currentSrc: complete ? url : page.currentSrc, complete });
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => {
+          // The reader has set the next page's src, which has not loaded yet: currentSrc still names this page.
+          showPage(IMG_URL_2, false);
+          return { pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) };
+        } });
+      const result = await h.ask(capture);
+      const drawnFor = () => [...h.sandbox.__baihe.state.active.values()].map((e) => e.picture);
+      const afterAnswer = drawnFor();
+      const load = () => h.sandbox.document.loadListeners.forEach((fn) => fn({ target: page }));
+      showPage(IMG_URL, false);
+      load();
+      const whileLoading = drawnFor();
+      showPage(IMG_URL, true);
+      load();
+      return { ok: result.ok, afterAnswer, whileLoading, returned: drawnFor() };
+    }
+    case "capture_first_batch_size": {
+      // Eight pages on screen: the first request is as many pages as the app translates at once.
+      const sizes = {};
+      for (const store of [false, true]) {
+        const urls = Array.from({ length: 8 }, (_, n) => `https://s1.bzcdn.net/p/${n + 1}.jpg`);
+        const distinct = async ({ url }) => ({
+          ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
+                            content_type: "image/jpeg", url } });
+        const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
+        const h = loadContent({ images: urls.map((u, i) => placed(fakeImg(u), i * 100)), fetchImage: distinct, sendReply });
+        await h.ask(store ? { ...capture, dramaId: 5, store: true } : capture);
+        sizes[store ? "saved" : "overlay"] = h.sent.map((m) => m.images.length);
+      }
+      return sizes;
+    }
     case "page_drawn_before_its_batch_answers": {
       // The worker forwards a finished page while its batch is still out; the batch's own
       // answer then carries no pages. The page must be drawn before that answer arrives.
@@ -367,6 +435,21 @@ async function content(scenario) {
       return run(capture, { images: [img()], fetchImage: okImage() });
     case "capture_tainted_img_needs_permission":
       return run(capture, { images: [img()], fetchImage: needsPermission });
+    case "capture_waits_for_a_page_still_loading":
+    case "capture_gives_up_on_a_page_that_never_loads": {
+      // At the end of the sweep a picture is still loading; the reader only mounts page 2 once it has.
+      const arrives = scenario === "capture_waits_for_a_page_still_loading";
+      const loading = Object.assign(fakeImg(""), { complete: false, naturalWidth: 0, addEventListener() {} });
+      const images = [placed(fakeImg(IMG_URL), 0), loading];
+      container(images);
+      const onProgress = (m) => {
+        if (!arrives || !/ — waiting for more pages/.test(m.text) || loading.complete) return;
+        loading.complete = true;
+        images.push(placed(fakeImg(IMG_URL_2), 1200));
+      };
+      const result = await run(capture, { images, fetchImage: byUrl, onProgress });
+      return { ok: result.ok, fetched: result.fetched };
+    }
     case "capture_tainted_canvas_no_url": {
       const canvas = fakeCanvas(800, 1200);
       container([canvas]);
@@ -1014,6 +1097,7 @@ async function novel(scenario) {
       return {
         revoked: await run({ ok: false, status: 401, error: "a valid token header is required" }),
         refused: await run({ ok: false, status: 403, error: "no" }),
+        refusedLine: await run({ ok: false, status: 403, error: "Your account can't send pages from this device." }, {}, true),
         down: await run({ ok: false, error: "Couldn't reach Baihe" }),
         downLine: await run({ ok: false, error: "Couldn't reach Baihe" }, {}, true),
         downRemoteLine: await run({ ok: false, error: "Couldn't reach Baihe" }, { serverUrl: "https://baihe.example" }, true),

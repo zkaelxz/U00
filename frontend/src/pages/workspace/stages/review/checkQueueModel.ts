@@ -84,7 +84,18 @@ const saidByKind = (matches: (note: string) => boolean): ReadNote => (note) => (
 
 // engine_backends/alignment_check.py flag_note, shift_note and JUDGED_NOTES, which runs before this one also wrote.
 const COMPARE = ' Compare it with the lines around it.'
-const readSourceMatch: ReadNote = (note) => {
+// A doubt that took a form flag's place keeps that flag's note after " Also (<what>): ", shown with the details.
+const splitAlso = (note: string): [string, string] => {
+  const m = /^([\s\S]*?) Also \(([^)]+)\): ([\s\S]*)$/.exec(note)
+  return m ? [m[1], `Also ${m[2]}: ${m[3]}`] : [note, '']
+}
+const readSourceMatch: ReadNote = (whole) => {
+  const [note, also] = splitAlso(whole)
+  const read = readSourceMatchNote(note)
+  if (!read || !also) return read
+  return { ...read, details: [read.details, also].filter(Boolean).join(' ') }
+}
+const readSourceMatchNote: ReadNote = (note) => {
   const own = new RegExp(`^Source match: the English reads unlike its source line \\(similarity ${NUM}\\)$`).exec(note)
   if (own) return { text: `This English reads unlike its source line.${COMPARE}`, details: `Similarity to its own source line: ${own[1]}.` }
   const shift = new RegExp(`^Source match: the English fits the (next|previous) line's source better \\(${NUM}\\) than its own \\(${NUM}\\)$`).exec(note)

@@ -1,7 +1,7 @@
 /** The Series folder list: streamers first once any series has one, then series, each opening its Series page. */
 import { useMemo, useState } from 'react'
 
-import { coverUrl } from '../../api/metadata'
+import { coverThumbUrl } from '../../api/metadata'
 import { listAllSeries } from '../../api/series'
 import { ButtonLink } from '../../components/Button'
 import { Card } from '../../components/Card'
@@ -85,7 +85,7 @@ export default function SeriesListPage({ streamer }: { streamer?: string }) {
               <li key={s.id}>
                 <a className="series-folder" href={routeHref({ name: 'series', id: s.id })}>
                   {s.cover_title_id ? (
-                    <img className="series-folder-cover" src={coverUrl(s.cover_title_id)} alt="" loading="lazy" />
+                    <img className="series-folder-cover" src={coverThumbUrl(s.cover_title_id)} alt="" loading="lazy" />
                   ) : (
                     <span className="series-folder-icon" aria-hidden="true">📁</span>
                   )}

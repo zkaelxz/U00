@@ -393,6 +393,29 @@ class TestClipTranscriptsWhisperWrote:
         assert texts == {"A": "你好。", "B": "", "C": "Typed meanwhile."}
 
 
+class TestPartSpokenSoFar:
+    def test_its_times_are_saved_and_the_job_says_how_many_lines_play(self, isolated_db, monkeypatch):
+        did = _drama(isolated_db, [_line(0, "A"), _line(1, "A"), _line(2, "A")], status="translated")
+        rows = isolated_db.load_line_objects(did)
+        # Edited while the run went: the part's save keeps it.
+        rows[0].en = "edited"
+        isolated_db.save_lines(did, rows, fields=("en",))
+        results = []
+        monkeypatch.setattr(listen_service.background_jobs, "set_result",
+                            lambda job_id, result, mirror=False: results.append((job_id, result, mirror)))
+        times = [(rows[0].id, 0.0, 1.0, "dub_clips/line_0000_aaaaaaaaaa.wav"),
+                 (rows[1].id, 1.35, 2.0, "dub_clips/line_0001_bbbbbbbbbb.wav"),
+                 (rows[2].id, 2.0, 2.0, None)]
+        with isolated_db.job_line_fields("dub_1", ("dub_filename", "start", "end")):
+            listen_service.apply_narration_part(did, "dub_1", {"times": times})
+        saved = isolated_db.load_line_objects(did)
+        assert [(ln.start, ln.end, ln.dub_filename) for ln in saved] == [t[1:] for t in times]
+        assert saved[0].en == "edited"
+        assert results == [("dub_1", {"playable_lines": 2}, True)]
+        # Not "dubbed" until the whole track is made.
+        assert isolated_db.get_drama(did)["status"] == "translated"
+
+
 class TestUnusedClipsAfterARun:
     """Each voice or text change left the old clips behind (about 170 MB per narrated hour).
     After a run's lines are saved, only clips no line of the title names are deleted, and

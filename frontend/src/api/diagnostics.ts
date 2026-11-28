@@ -27,7 +27,7 @@ import type {
 } from '../types/diagnostics'
 import type { DiagnosticsJobStarted } from '../types/diagnosticsInstalls'
 import type { PendingInstallPlan } from '../types/pendingInstall'
-import { getJson, postJson, type Fetch } from './client'
+import { fetchBody, getJson, postJson, type Fetch } from './client'
 import { pcOnlyFetch } from './pcOnly'
 
 const BASE = '/api/diagnostics'
@@ -83,6 +83,13 @@ export function getLog(n: number, keyword = '', f?: Fetch) {
 }
 
 export const getSupportReport = (f?: Fetch) => getJson<DiagnosticsSupportReport>(`${BASE}/support-report`, f)
+
+// Send logs: the scrubbed zip, named by the server (its Content-Disposition).
+export const getSupportBundle = (f?: Fetch) =>
+  fetchBody(`${BASE}/support-bundle`, {}, async (r) => ({
+    blob: await r.blob(),
+    filename: /filename="([^"]+)"/.exec(r.headers.get('content-disposition') ?? '')?.[1] ?? 'baihe-logs.zip',
+  }), f)
 
 // Starts a background job (answers at once); follow it with getDependencyInstall
 // (api/diagnosticsInstalls.ts) and stop it with cancelDependencyInstall.

@@ -34,3 +34,13 @@ def test_the_running_line_is_cut_but_its_count_is_whole(isolated_db, monkeypatch
     _queue(monkeypatch, [(d, "translate", "waiting", None) for d in ids])
     out = home.get_home()
     assert len(out["running"]) == home.SHELF_LIMIT and out["running_count"] == home.SHELF_LIMIT + 2
+
+
+def test_the_running_line_does_not_count_lines(isolated_db, monkeypatch):
+    did = _title("A")
+    _queue(monkeypatch, [(did, "translate", "running", None)])
+
+    def scanned():
+        raise AssertionError("the whole-table line count ran")
+    monkeypatch.setattr(db, "line_progress_by_drama", scanned)
+    assert [e["drama_id"] for e in home.get_home()["running"]] == [did]

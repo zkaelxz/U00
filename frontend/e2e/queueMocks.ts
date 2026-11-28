@@ -31,7 +31,6 @@ const SETTINGS_ROWS: Record<string, { label: string; value: string; engine?: str
     { label: 'Tone and character voice', value: 'Audio drama (spoken aloud)' },
     { label: 'English variant', value: 'en-US' },
     { label: 'Batch size', value: '20' },
-    { label: 'Thinking', value: 'Off' },
     { label: 'Glossary', value: 'Off, no glossary terms yet' },
     { label: 'Language packs', value: 'Off' },
     { label: 'VTuber names', value: 'Off' },

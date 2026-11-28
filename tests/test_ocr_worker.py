@@ -588,3 +588,18 @@ def test_a_korean_gpu_failure_leaves_the_chinese_gpu_reader_on(monkeypatch):
     assert ocr_worker._ko_off_reason and ocr_worker._gpu_off_reason is None
     monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: True)
     assert ocr_worker._gpu_allowed("ko") is False
+
+
+def test_a_burst_of_reads_logs_one_stats_line_when_the_next_burst_starts(monkeypatch):
+    logged = []
+    monkeypatch.setattr(ocr_worker, "_log", lambda text, warning=False: logged.append(text))
+    monkeypatch.setattr(ocr_worker, "_burst", {"gpu": 0, "cpu": 0, "seconds": [], "last": 0.0, "gpu_loads": 0})
+    clock = iter([100.0, 101.0, 102.0, 300.0])
+    monkeypatch.setattr(ocr_worker.time, "monotonic", lambda: next(clock))
+    ocr_worker._note_read(False, 18.0)
+    ocr_worker._note_read(True, 0.5)
+    ocr_worker._note_read(True, 0.7)
+    assert logged == []
+    ocr_worker._note_read(True, 0.4)
+    assert logged == ["Text reader stats: 2 reads on the GPU, 1 on the CPU, 0 GPU loads, "
+                      "seconds per read median 0.7, max 18.0"]

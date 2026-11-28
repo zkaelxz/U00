@@ -1190,8 +1190,12 @@ def test_fix_flagged_hears_each_line_with_the_titles_saved_decoding(isolated_db,
 
 def hung_fixflag_hear(audio_path, windows, settings, scratch_dir, result_queue):
     """gpu_process_job body for the real-process test: a Whisper call that never returns."""
-    with open(os.environ["FIXFLAG_TEST_MARKER"], "w") as f:
+    # Written aside and renamed in: the test polls for the marker and reads it
+    # at once, so it must never see the file before the pid is in it.
+    marker = os.environ["FIXFLAG_TEST_MARKER"]
+    with open(marker + ".tmp", "w") as f:
         f.write(str(os.getpid()))
+    os.replace(marker + ".tmp", marker)
     time.sleep(600)
 
 

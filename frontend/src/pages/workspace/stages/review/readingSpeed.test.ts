@@ -10,15 +10,20 @@ describe('reading speed check', () => {
   })
 
   it('reports the cleared count and where to undo', () => {
-    expect(clearMessage({ cleared_count: 8609, flagged_count: 0, history_id: 4 }, false)).toBe(
+    expect(clearMessage({ cleared_count: 8609, still_flagged_count: 0, flagged_count: 0, history_id: 4 }, false)).toBe(
       'Cleared 8609 reading-speed flags. Undo from Records → Line history.')
-    expect(clearMessage({ cleared_count: 1, flagged_count: 0, history_id: 4 }, false)).toContain('1 reading-speed flag.')
+    expect(clearMessage({ cleared_count: 1, still_flagged_count: 0, flagged_count: 0, history_id: 4 }, false)).toContain('1 reading-speed flag.')
+  })
+
+  it('says when a cleared note leaves its line with a Source match flag', () => {
+    expect(clearMessage({ cleared_count: 3, still_flagged_count: 1, flagged_count: 0, history_id: 4 }, false)).toBe(
+      'Cleared 3 reading-speed flags (1 of them under a Source match flag, which stays). Undo from Records → Line history.')
   })
 
   it('reports the re-flag count for a re-check, and nothing to do', () => {
-    expect(clearMessage({ cleared_count: 10, flagged_count: 1, history_id: 4 }, true)).toContain(
+    expect(clearMessage({ cleared_count: 10, still_flagged_count: 0, flagged_count: 1, history_id: 4 }, true)).toContain(
       'flagged 1 line again')
-    expect(clearMessage({ cleared_count: 0, flagged_count: 0, history_id: null }, true)).toBe(
+    expect(clearMessage({ cleared_count: 0, still_flagged_count: 0, flagged_count: 0, history_id: null }, true)).toBe(
       'No reading-speed flags to clear.')
   })
 })

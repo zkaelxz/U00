@@ -93,9 +93,8 @@ def _flattened(im):
 
 def _encoded(im, page: bool = False) -> tuple:
     """(bytes, mime) of a decoded picture written out fresh: a screenshot as PNG, a
-    comic page as JPEG at quality 95 with full colour detail (in comic translation
-    tests it scored the same as PNG at a third of the bytes or less), and either as
-    a smaller JPEG when too big for a provider."""
+    comic page in a language that allows it as JPEG at quality 95 with full colour
+    detail, and either as a smaller JPEG when too big for a provider."""
     out = io.BytesIO()
     if page:
         _flattened(im).save(out, "JPEG", quality=PAGE_JPEG_QUALITY, subsampling=0)
@@ -141,9 +140,16 @@ def _prepared(content: bytes, page: bool = False) -> tuple:
     return data, mime, width, height
 
 
-def prepare_picture(content: bytes) -> tuple:
-    """A comic page for a page translation: sized like a screenshot, sent as JPEG."""
-    return _prepared(content, page=True)
+# Japanese and Korean pages lost accuracy at JPEG q95 in the comic tests (lower chrF, and
+# more empty regions for Japanese); Chinese pages did not, and send a third of
+# the bytes or less.
+JPEG_PAGE_LANGUAGES = ("zh",)
+
+
+def prepare_picture(content: bytes, source_language: Optional[str] = None) -> tuple:
+    """A comic page for a page translation: sized like a screenshot, sent as JPEG only
+    when the title's language is known to read fine that way, otherwise as PNG."""
+    return _prepared(content, page=source_language in JPEG_PAGE_LANGUAGES)
 
 
 def _estimate(engine_name: str, model: Optional[str], use_free_tier: bool,

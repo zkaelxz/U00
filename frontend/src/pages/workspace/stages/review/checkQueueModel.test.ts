@@ -179,6 +179,13 @@ describe('queue reasons', () => {
     }
   })
 
+  it('keeps the form flag a source match doubt took the place of under Details', () => {
+    const r = say('source_mismatch',
+      'Source match: the English reads unlike its source line (similarity 0.42) Also (too fast to read): 22 characters a second')
+    expect(r?.text).toBe('This English reads unlike its source line. Compare it with the lines around it.')
+    expect(r?.details).toBe('Similarity to its own source line: 0.42. Also too fast to read: 22 characters a second')
+  })
+
   it('reads the other shapes a note can take', () => {
     expect(say('glossary_missing', 'Glossary: 夷陵老祖 -> Yiling Patriarch; 魏婴 -> Wei Ying; 蓝湛 -> Lan Zhan missing (+2 more)')).toEqual({
       text: 'The glossary writes 夷陵老祖 as “Yiling Patriarch”, 魏婴 as “Wei Ying”, 蓝湛 as “Lan Zhan” and 2 more names, but the English doesn’t use those names. ' +

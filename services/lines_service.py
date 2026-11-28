@@ -379,9 +379,10 @@ def apply_find_replace(drama_id: int, matches) -> dict:
     """Applies a previewed find-and-replace. Each match is
     {id, old_text, new_text}; a line whose current translation no longer
     equals old_text (edited since Preview) -- or that no longer exists --
-    is skipped as stale instead of being overwritten. Writes `en` (and
-    clears a `source_changed` flag the new English answers), then corrects
-    translation memory. Returns
+    is skipped as stale instead of being overwritten. A line that already
+    holds new_text counts as applied and is not written again. Writes `en`
+    (and clears a `source_changed` flag the new English answers), then
+    corrects translation memory. Returns
     {applied, stale, applied_ids, stale_ids}."""
     if not isinstance(matches, (list, tuple)):
         raise InvalidInputError("matches must be a list.")
@@ -399,9 +400,14 @@ def apply_find_replace(drama_id: int, matches) -> dict:
 
     drama = ownership_service.require_drama(drama_id)
     by_id = {ln.id: ln for ln in db.load_line_objects(drama_id)}
-    writes, stale_ids, pairs = [], [], {}
+    writes, stale_ids, pairs, already_ids = [], [], {}, []
     for lid, (old_text, new_text) in wanted.items():
         ln = by_id.get(lid)
+        if ln is not None and ln.en == new_text != old_text:
+            # Sent again after a request that saved but whose answer was lost: this
+            # same change is already there, which is not someone else's edit.
+            already_ids.append(lid)
+            continue
         if ln is None or ln.en != old_text:
             stale_ids.append(lid)
             continue
@@ -421,6 +427,8 @@ def apply_find_replace(drama_id: int, matches) -> dict:
         if drama.get("series_id"):
             for old_text, new_text in (pairs[lid] for lid in applied_ids):
                 db.update_translation_memory_after_replace(drama["series_id"], old_text, new_text)
+    done = {*already_ids, *applied_ids}
+    applied_ids = [lid for lid in wanted if lid in done]
     return {"applied": len(applied_ids), "stale": len(stale_ids),
             "applied_ids": applied_ids, "stale_ids": stale_ids}
 

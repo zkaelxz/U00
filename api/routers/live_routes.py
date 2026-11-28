@@ -9,7 +9,8 @@ Start fetches a public URL through yt-dlp from this PC, so it needs
 engine runs the default (Ollama), so it is gated as that, but an Ollama `-cloud` tag
 outside `MEMBER_CLOUD_MODELS` also needs `engines.paid`. Reading a session is `library.read`; stopping one is
 `jobs.cancel`. Fixing a name mid-stream is `media.import_url` (as Start) and
-the session's owner only; saving that fix to the glossary also needs `lines.edit`. Sessions live in this process only (404 after a restart).
+the session's owner only; saving that fix to the glossary also needs `lines.edit`. Giving a running
+session more time is `media.import_url` (as Start) and its owner only. Sessions live in this process only (404 after a restart).
 """
 
 from typing import List
@@ -20,7 +21,8 @@ from fastapi.responses import FileResponse
 from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
 from api.schemas import (LiveChatPage, LiveFormOptions, LiveNameFixAdd, LiveNameFixes, LiveOllamaCheck,
-                         LiveSessionStart, LiveSessionStarted, LiveSessionStatus, LiveSessionStopped,
+                         LiveSessionExtended, LiveSessionStart, LiveSessionStarted, LiveSessionStatus,
+                         LiveSessionStopped,
                          LiveSessionSummary, error_responses)
 from lib.errors import ForbiddenError
 from lib.storage_errors import require_readable
@@ -99,6 +101,14 @@ def get_chat(request: Request, session_id: str = _SID, after: int = Query(0, ge=
              summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
 def post_stop(request: Request, session_id: str = _SID):
     return live_service.stop_session(session_id, principal=request.state.principal)
+
+
+@router.post("/sessions/{session_id}/extend", dependencies=[require_permission("media.import_url")],
+             response_model=LiveSessionExtended,
+             summary="Give a running session 60 more minutes before its time limit (its starter only)",
+             responses=error_responses(403, 404, 409, 422))
+def post_extend(request: Request, session_id: str = _SID):
+    return live_service.extend_session(session_id, principal=request.state.principal)
 
 
 @router.post("/sessions/{session_id}/names", dependencies=[require_permission("media.import_url")],

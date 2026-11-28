@@ -17,7 +17,7 @@ import db
 from engine_backends.alignment_check import ALIGNMENT_FLAG
 from engine_backends.flag_reasons import FLAG_REASONS
 from engine_backends.glossary_check import GLOSSARY_FLAG, missing_terms
-from services import line_provenance_service, ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service, translate_thinking_service
+from services import line_provenance_service, ownership_service, profile_service, settings_service, stronger_engine_service, translate_run_service
 from lib.errors import InvalidInputError, UnsupportedOperationError
 
 log = logging.getLogger(__name__)
@@ -57,25 +57,21 @@ def doubtful_config_fields(drama_id: int) -> dict:
     informed one. The estimate is None for a free engine or when it can't be made; it
     prices the model and batch size the redo itself will use (the title's last run's)."""
     rows = _doubtful_rows(drama_id)
-    estimate, lower_bound, refused, above_cap = None, False, False, False
+    estimate, refused, above_cap = None, False, False
     engine = stronger_engine_service.stronger_engine_or_none(drama_id) if rows else None
     if engine:
         try:
             model, batch_size = translate_run_service.run_model_and_batch_size(drama_id, engine)
-            made = translate_thinking_service.annotate_estimate(
-                translate_run_service.estimate_translate_cost(
-                    drama_id, engine_name=engine, model=model, batch_size=batch_size,
-                    force_retranslate=True, line_ids={r["id"] for r in rows}), drama_id, None)
+            made = translate_run_service.estimate_translate_cost(
+                drama_id, engine_name=engine, model=model, batch_size=batch_size,
+                force_retranslate=True, line_ids={r["id"] for r in rows})
             estimate = None if made["free"] else made["estimated_usd"]
-            # The redo runs with the title's thinking choice, whose hidden output the estimate can't see.
-            lower_bound = bool(estimate is not None and made["estimate_is_lower_bound"])
             refused, above_cap = bool(made["monthly_refusal"]), bool(made["estimate_above_cap"])
         except Exception:
             # The estimate is advice on a page that must still load: a missing key or an
             # offline engine is reported when the redo starts, and anything else is logged.
             log.info("No cost estimate for the doubtful-lines redo of title %s", drama_id, exc_info=True)
     return {"doubtful_flagged_count": len(rows), "doubtful_redo_estimate_usd": estimate,
-            "doubtful_redo_estimate_is_lower_bound": lower_bound,
             "doubtful_redo_monthly_refusal": refused, "doubtful_redo_above_cap": above_cap}
 
 
@@ -103,7 +99,7 @@ def _rows_for_ids(drama_id: int, line_ids: list) -> list:
 
 
 def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
-               thinking: bool | None = None, line_ids: list | None = None,
+               line_ids: list | None = None,
                kind: str = KIND_GLOSSARY) -> dict:
     """Runs the stronger engine over the flagged lines. `engine` is the name the
     caller was checked for; a Settings change since is refused rather than run
@@ -134,6 +130,6 @@ def start_redo(drama_id: int, engine: str, allow_paid_summary: bool = True,
         drama_id, engine_name=name, force_retranslate=True, line_ids=[r["id"] for r in rows],
         own_lines_only=True, expected_en={r["id"]: r["en"] for r in rows},
         locale=locale, style_note=style_note,
-        allow_paid_summary=allow_paid_summary, thinking=thinking,
+        allow_paid_summary=allow_paid_summary,
         replace_flags=DOUBTFUL_FLAGS if doubtful else frozenset())
     return {**started, "line_ids": started.get("line_ids", [r["id"] for r in rows])}

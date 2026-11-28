@@ -74,7 +74,10 @@ def test_the_popup_names_the_auto_choice_and_says_what_happened():
 
 def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     out = _node("popup_health_failure")
-    assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
+    assert out["revoked"] == "Baihe didn't accept this token."
+    # A 403 is a good token without the right: a new token would not help, so Baihe's reason is shown instead.
+    assert out["refused"] == "Baihe refused this browser."
+    assert out["refusedLine"] == "Your account can't send pages from this device."
     assert out["down"] == "Can't reach Baihe."
     assert "Settings > Browser extension" in out["downLine"]
     # A copy on another computer never sees the PC-only Browser extension card, and that switch doesn't gate it.

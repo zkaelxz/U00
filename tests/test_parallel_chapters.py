@@ -315,6 +315,14 @@ def test_a_saved_choice_is_kept_and_clamped(isolated_db):
     assert settings_service.parallel_chapters() == 3
 
 
+def test_deepseek_gets_six_lanes_only_at_the_top_setting(isolated_db):
+    from services import settings_service
+    assert settings_service.parallel_chapters("deepseek") == 6
+    assert settings_service.parallel_chapters("claude") == 3
+    settings_service.set_settings({"novel_parallel_chapters": 2})
+    assert settings_service.parallel_chapters("deepseek") == 2
+
+
 @pytest.mark.parametrize("parallel", [1, 3])
 def test_a_batch_priced_over_what_is_left_is_not_sent(novel, parallel):
     # Each call costs 1.0 and a batch is one or more calls: the run stops before the spend
@@ -588,6 +596,7 @@ def quick_slow_line(monkeypatch):
     monkeypatch.setattr(fb, "SLOW_REQUEST_SECONDS", 0.05)
     monkeypatch.setattr(fb, "SLOW_SECONDS_PER_LINE", 0.01)
     monkeypatch.setattr(fb, "_slow_until", {})
+    monkeypatch.setattr(fb, "_slow_reason", {})
 
 
 def _switching(primary_delay, fallback_error=None):
@@ -729,3 +738,97 @@ def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
     monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
     deepseek = _Timed("deepseek", "deepseek-flash")
     assert translate_run_options.with_slow_switch(deepseek) is deepseek
+
+
+def _first_batch_under_budget(monkeypatch, **kw):
+    monkeypatch.setattr(tp, "novel_batch_chars", lambda engine: 10)
+    engine = _Engine()
+    lines = [_Line(i, "第1章" if i == 0 else "字" * 4) for i in range(9)]
+    tp.translate_lines_with_engine(lines, engine, drama_meta={"id": 1}, batch_size=9, **kw)
+    # The first request is the first batch; later checks may ask again.
+    return len(engine.calls[0])
+
+
+def test_a_default_batch_size_still_keeps_the_novel_character_budget(novel, monkeypatch):
+    # The run service always passes a size; only one the user chose lifts the budget.
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=True) <= 3
+    assert _first_batch_under_budget(monkeypatch, novel_char_budget=False) == 9
+    assert _first_batch_under_budget(monkeypatch) == 9
+
+
+def test_the_budget_of_a_slow_switch_run_is_its_starting_engines():
+    from engine_backends.fallback import SlowSwitchEngine
+    first, second = _Engine(), _Engine()
+    assert tp._planning_engine(SlowSwitchEngine([first, second], ["deepseek", "ollama"])) is first
+    assert tp._planning_engine(first) is first
+
+
+class _NoCredit(Exception):
+    status_code = 402
+
+
+def test_a_deepseek_out_of_credit_moves_the_run_to_the_fallback_at_once(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("ollama ") for ln in lines)
+    assert [e["reason"] for e in engine.events] == [fb.OUT_OF_CREDIT]
+    # The next run starts on the fallback and still says why.
+    after = _switching(primary_delay=0.0)
+    assert after.active == 1 and after.events[0]["reason"] == fb.OUT_OF_CREDIT
+
+
+def test_out_of_credit_after_a_slow_switch_is_still_reported(quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine._state.switched = True
+    engine._state.events.append({"from": "deepseek", "to": "ollama", "reason": "slow"})
+    # A lane whose chapter began before the slow switch still asks DeepSeek.
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    assert engine.translate_batch(["a"], {}) == ["ollama a"]
+    assert [e["reason"] for e in engine.events] == ["slow", fb.OUT_OF_CREDIT]
+
+
+def test_out_of_credit_with_no_fallback_says_deepseek_is_out_of_credit(quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 0 and engine._state.fallback_failed
+    # The next run asks DeepSeek again rather than an Ollama that isn't there.
+    assert _switching(primary_delay=0.0).active == 0
+
+
+def test_the_finished_job_says_deepseek_is_out_of_credit():
+    from services import jobs_service
+    result = jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": fb.OUT_OF_CREDIT,
+                       "detail": "Error code: 402 - Insufficient Balance"}]})
+    assert "Insufficient" not in str(result)
+    _, message = jobs_service.derive_outcome("done", None, result)
+    assert fb.OUT_OF_CREDIT_NOTICE in message
+    _, slow = jobs_service.derive_outcome("done", None, jobs_service.project_result({
+        "errors": [], "translated_count": 3,
+        "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": "slow", "detail": "x"}]}))
+    assert fb.OUT_OF_CREDIT_NOTICE not in slow
+
+
+def test_a_partial_job_handed_back_from_the_fallback_does_not_say_gemma_is_translating(
+        quick_slow_line):
+    from engine_backends.local import OllamaUnavailableError
+    from services import jobs_service
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    engine.engines[0].error = _NoCredit("Insufficient Balance")
+    with pytest.raises(_NoCredit):
+        engine.translate_batch(["a"], {})
+    result = jobs_service.project_result({
+        "errors": ["DeepSeek: Insufficient Balance"], "translated_count": 5,
+        "fallbacks": list(engine.events)})
+    outcome, message = jobs_service.derive_outcome("done", None, result)
+    assert outcome == "partial"
+    assert "DeepSeek is out of credit. Top up at platform.deepseek.com." in message
+    assert "translating for now" not in message

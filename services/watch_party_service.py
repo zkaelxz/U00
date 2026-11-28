@@ -77,11 +77,6 @@ def create_room(principal, drama_id: int) -> dict:
         return _view(_rooms[code])
 
 
-def get_room(principal, code: str) -> dict:
-    with _lock:
-        return _view(_room(principal, code))
-
-
 def set_state(principal, code: str, playing: bool, position: float) -> dict:
     if not isinstance(playing, bool) or isinstance(position, bool) or not isinstance(position, (int, float)) \
             or not math.isfinite(position) or not 0 <= position <= MAX_POSITION_SECONDS:

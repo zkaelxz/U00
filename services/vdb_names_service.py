@@ -13,7 +13,8 @@ A title uses the list only when it opted in (off by default; stored per title
 in app_settings like the language-pack choice). Then the names that occur in
 the title's text are offered as read-only suggestions in the glossary panel
 and added to the translate prompt as plain "Known names" text. A glossary term
-always wins over a name here.
+always wins over a name here. A zh or ja Live session with no title or series
+picked uses the list without opting in (live_service._hint_function).
 
 Status and every response hold booleans and counts only: never a path or URL.
 """
