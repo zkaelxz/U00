@@ -1,6 +1,8 @@
 """Step 99: suggest a stronger engine for a hard line (suggest only, never
 switch or write). Mocked throughout: no network, no real keys."""
 
+import json
+
 import pytest
 
 import db
@@ -148,6 +150,24 @@ class TestTryLine:
         assert zh == ["林婉笑了"] and ctx["line_ids"] == [ids[1]]
         assert ctx["recent_context"] == [("你好", "Hello")]
         assert "Lin Wan" in repr(ctx["glossary_terms"]) and ctx["style_guidelines"]
+
+    def test_uses_the_titles_last_run_locale_and_style_note(self, drama, engine):
+        did, ids, _ = drama
+        settings_service.set_settings({"default_locale": "en-GB"})
+        db.update_drama(did, translate_start_json=json.dumps({"locale": "en-AU", "style_note": "Plain and short."}))
+        svc.try_line(did, ids[1], "claude")
+        ctx = engine.contexts[0][1]
+        assert ctx["locale"] == "en-AU" and ctx["style_note"] == "Plain and short."
+
+    def test_uses_the_titles_last_run_style_preset(self, drama, engine, monkeypatch):
+        did, ids, _ = drama
+        from services import workspace_job_service
+        presets, real = [], workspace_job_service.build_run_style_context
+        monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                            lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+        db.update_drama(did, translate_start_json=json.dumps({"style_preset": "novel"}))
+        svc.try_line(did, ids[1], "claude")
+        assert presets == ["novel"]
 
     def test_character_hints_reach_the_prompt(self, drama, engine, monkeypatch):
         did, ids, _ = drama

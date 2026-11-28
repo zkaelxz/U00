@@ -299,6 +299,18 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _faster_whisper_stub_forgotten():
+    """Many tests put a plain-module faster_whisper stub straight into sys.modules;
+    left there, a later test's `import faster_whisper.vad` fails with "not a package"."""
+    before = sys.modules.get("faster_whisper")
+    yield
+    if before is None:
+        sys.modules.pop("faster_whisper", None)
+    else:
+        sys.modules["faster_whisper"] = before
+
+
+@pytest.fixture(autouse=True)
 def _home_addresses_forgotten():
     """url_guard refuses the home's own public addresses process-wide; one
     test's remote-health check must not make the next test's fetch refused."""
@@ -565,12 +577,13 @@ def _join_leftover_job_threads(timeout=5.0):
     running, one finishes during the next test's setup in the same worker
     and writes its job record while that test initialises its database
     ("database is locked" in CI, 2026-09-30). Only job runner/watcher
-    threads are joined; the long-lived heartbeat thread is not."""
+    threads (and the line-rescoring pass a restore starts) are joined; the
+    long-lived heartbeat thread is not."""
     deadline = time.monotonic() + timeout
     for t in threading.enumerate():
         if t is threading.current_thread():
             continue
-        if t.name.startswith(("job:", "job-watcher:")):
+        if t.name.startswith(("job:", "job-watcher:", "confidence-backfill")):
             t.join(max(0.0, deadline - time.monotonic()))
 
 

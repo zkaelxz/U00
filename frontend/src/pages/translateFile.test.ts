@@ -14,7 +14,7 @@ import {
   readTranslateFile,
 } from './translateFile'
 import { MAX_TRANSLATE_TEXT_CHARS } from '../api/translate'
-import { DownloadResultButton, OpenFileField } from './TranslateFileControls'
+import { DownloadResultButton, FileStatus, OpenFileField } from './TranslateFileControls'
 import { MAX_EPUB_BYTES } from './translateEpub'
 import { buildEpub, stripTags } from './translateEpubFixture'
 
@@ -156,25 +156,26 @@ describe('Translate file controls', () => {
     expect(t.setFileMessage).toHaveBeenCalledWith('"book.epub" is not a readable EPUB (it could not be unzipped).')
   })
 
-  it('renders a labelled file input limited to .txt/.md/.epub', () => {
+  it('renders a labelled file input limited to .txt/.md/.epub, described by its status', () => {
     const html = renderToStaticMarkup(
-      createElement(OpenFileField, { sourceName: 'ep1.txt', message: null, target: target() }),
+      createElement(OpenFileField, { id: 'f', statusId: 'f-status', target: target() }),
     )
-    const id = /<input[^>]*id="([^"]+)"/.exec(html)?.[1]
-    expect(id).toBeTruthy()
-    expect(html).toContain(`for="${id}"`)
+    expect(html).toMatch(/<input[^>]*id="f"/)
+    expect(html).toContain('for="f"')
     expect(html).toContain('Open a file')
     expect(html).toContain('accept=".txt,.md,.epub"')
-    expect(html).toContain('Loaded ep1.txt')
+    expect(html).toContain('aria-describedby="f-hint f-status"')
+    expect(html).toContain('.txt, .md or .epub; replaces the text')
   })
 
-  it('shows the accepted types as visible text, and a file error in place of it', () => {
-    const idle = renderToStaticMarkup(
-      createElement(OpenFileField, { sourceName: null, message: null, target: target() }),
+  it('the file status names the loaded file, and shows a file error in place of it', () => {
+    const loaded = renderToStaticMarkup(
+      createElement(FileStatus, { id: 's', sourceName: 'ep1.txt', message: null }),
     )
-    expect(idle).toContain('.txt, .md or .epub; replaces the text below')
+    expect(loaded).toContain('role="status"')
+    expect(loaded).toContain('Loaded ep1.txt')
     const failed = renderToStaticMarkup(
-      createElement(OpenFileField, { sourceName: 'ep1.txt', message: 'Not a text file.', target: target() }),
+      createElement(FileStatus, { id: 's', sourceName: 'ep1.txt', message: 'Not a text file.' }),
     )
     expect(failed).toContain('role="alert"')
     expect(failed).toContain('Not a text file.')

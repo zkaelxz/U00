@@ -74,3 +74,17 @@ test('phone: mode off shows only the Settings link', async ({ page }) => {
   await expect(link).toBeVisible()
   await expectNoSidewaysScroll(page)
 })
+
+test('phone: the pinned question box stays above the bottom bar after an answer', async ({ page }) => {
+  await mockAssistant(page, { developerMode: true })
+  await page.goto('/#/assistant')
+  const chat = page.getByRole('region', { name: 'Ask the assistant' })
+  await chat.getByRole('textbox', { name: 'Question' }).fill('Why does translate skip lines?')
+  await chat.getByRole('button', { name: 'Ask', exact: true }).click()
+  await expect(chat.getByTestId('assistant-answer')).toBeVisible()
+  await page.evaluate(() => window.scrollTo(0, 0))
+  const bar = await page.locator('.phone-bar').boundingBox()
+  const ask = await chat.getByRole('button', { name: 'Ask', exact: true }).boundingBox()
+  expect(bar && ask).toBeTruthy()
+  expect(ask!.y + ask!.height).toBeLessThanOrEqual(bar!.y)
+})

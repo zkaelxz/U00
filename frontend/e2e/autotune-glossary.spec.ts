@@ -281,7 +281,7 @@ test.describe('Glossary from novel', () => {
     await expect(page.getByTestId('novel-glossary')).toContainText('Added 2.')
     // The apply names the run whose proposals were shown.
     expect(JSON.parse(applyBody)).toEqual({ terms: ['魏婴', '云深不知处'], run_id: 'run-1' })
-    await expect(page.getByTestId('novel-glossary').locator('button.primary')).toHaveCount(1)
+    await expect(page.getByTestId('novel-glossary').locator('button.btn-primary')).toHaveCount(1)
   })
 
   test('Fresh suggestions sends ?fresh=true only while it is on', async ({ page }) => {

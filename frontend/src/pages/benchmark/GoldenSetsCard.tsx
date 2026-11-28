@@ -20,7 +20,6 @@ import { TIER_HELP, TIER_LABELS, plainError, setDisplayName, stageLabel, benchma
 
 type Props = {
   sets: BenchmarkSet[]
-  options: BenchmarkOptions
   pc: PcMode
   phone: boolean
   onChanged: () => void
@@ -28,8 +27,8 @@ type Props = {
 
 const setKey = (s: Pick<BenchmarkSet, 'stage' | 'tier' | 'set_name'>) => `${s.stage ?? ''}|${s.tier}|${s.set_name}`
 
-/** Golden sets: one row per stage, tier and set; its cases on demand; import and add (PC only). */
-export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
+/** Golden sets: one row per stage, tier and set; its cases on demand; build a set from a title (PC only). */
+export function GoldenSetsCard({ sets, pc, phone, onChanged }: Props) {
   const [openSet, setOpenSet] = useState<BenchmarkSet | null>(null)
   const total = sets.reduce((n, s) => n + s.case_count, 0)
   const shown = openSet && sets.find((s) => setKey(s) === setKey(openSet))
@@ -42,7 +41,7 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
     >
       {sets.length === 0 ? (
         <p className="muted">
-          A golden set is a list of source lines with a reference answer. Import one below (a public test set, or your own
+          A golden set is a list of source lines with a reference answer. Import one under Add cases (a public test set, or your own
           corrected lines), then run engines against it.
         </p>
       ) : phone ? (
@@ -96,13 +95,21 @@ export function GoldenSetsCard({ sets, options, pc, phone, onChanged }: Props) {
 
       {shown && <CasesPanel key={setKey(shown)} set={shown} pc={pc} onChanged={onChanged} onClose={() => setOpenSet(null)} />}
 
-      <ClipImportSection options={options} pc={pc} onDone={onChanged} />
       <BuildSetSection pc={pc} onDone={onChanged} />
+    </BenchSection>
+  )
+}
+
+/** Add cases (PC only, so its pane is left out elsewhere): clips, corrections, hard-sub reading, import, one case. */
+export function AddCasesPanel({ sets, options, pc, onChanged }: Omit<Props, 'phone'> & { options: BenchmarkOptions }) {
+  return (
+    <>
+      <ClipImportSection options={options} pc={pc} onDone={onChanged} />
       <CorrectionsSection sets={sets} pc={pc} onDone={onChanged} />
       <HardSubReadingSection pc={pc} />
       <ImportSection options={options} pc={pc} onDone={onChanged} />
       <AddCaseSection options={options} pc={pc} onDone={onChanged} />
-    </BenchSection>
+    </>
   )
 }
 
@@ -271,7 +278,7 @@ function ImportSection({ options, pc, onDone }: { options: BenchmarkOptions; pc:
   }
 
   return (
-    <Section title="Import golden set" summary="Paste JSONL or TSV" storageKey="benchmark.import" defaultOpen>
+    <Section title="Import golden set" summary="Paste JSONL or TSV">
       <p className="muted">
         Paste a test set you already have (e.g. a FLORES-200 or WMT slice you downloaded, or your own corrected lines).
         Nothing is downloaded. Only import sets whose licence allows your use (FLORES-200 is CC BY-SA 4.0; check the WMT terms for each year). At most 500 cases per import; a case already in the set is skipped.
@@ -357,7 +364,7 @@ function AddCaseSection({ options, pc, onDone }: { options: BenchmarkOptions; pc
   }
 
   return (
-    <Section title="Add one case" summary="A translation case by hand" storageKey="benchmark.addCase" defaultOpen>
+    <Section title="Add one case" summary="A translation case by hand">
       <div className="field-row">
         <Field label="Label">
           <input value={label} maxLength={120} onChange={(e) => setLabel(e.target.value)} />

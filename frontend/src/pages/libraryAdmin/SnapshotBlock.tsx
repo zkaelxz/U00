@@ -93,7 +93,7 @@ export function SnapshotBlock() {
           <button type="button" onClick={() => open('import')}>
             From a backup file…
           </button>
-          <button type="button" className="danger" disabled={!snapshot?.exists} onClick={() => open('delete')}>
+          <button type="button" className={buttonClass('danger')} disabled={!snapshot?.exists} onClick={() => open('delete')}>
             Delete a copy…
           </button>
         </div>

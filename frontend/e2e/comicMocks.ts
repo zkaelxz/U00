@@ -329,6 +329,13 @@ export async function mockComic(page: Page, over: Partial<ComicMockOptions> = {}
       })),
     })
   })
+  // Every page but the last has two panels, top and bottom; the last shows whole.
+  await page.route(new RegExp(`${root}/pages/\\d+/panels(\\?.*)?$`), (route) => {
+    const url = record(route)
+    const pid = Number(url.pathname.split('/').at(-2))
+    const half = { x: 0.05, w: 0.9, h: 0.45 }
+    return json(route, { page_id: pid, panels: pid - id * 100 < opts.pageCount ? [{ ...half, y: 0.03 }, { ...half, y: 0.52 }] : [] })
+  })
   await page.route(new RegExp(`${root}/progress$`), (route) => {
     record(route)
     if (route.request().method() === 'POST') {

@@ -10,6 +10,8 @@ from api.schemas.common import AssStyleOverrides, ConfirmRequest, DramaDetail, D
 
 __all__ = [
     "LibraryHome",
+    "LibraryRecap",
+    "LibraryRecapTitle",
     "LibraryRunningEntry",
     "LibraryShelfTitle",
     "CaptureNote",
@@ -117,6 +119,8 @@ class ExportReadiness(BaseModel):
     overlap_count: int
     auto_qc_issue_count: int
     dense_line_count: int
+    # Lines with a current left or right ear mark: Export offers ASS placement only then.
+    ear_marked_lines: int = 0
 
 
 class FlagActionResult(BaseModel):
@@ -703,6 +707,24 @@ class LibraryHome(BaseModel):
     can_control_queue: bool
 
 
+class LibraryRecapTitle(BaseModel):
+    drama_id: int
+    title: str
+    days: int
+
+
+class LibraryRecap(BaseModel):
+    """One account's month (UTC). `spend_usd` is the PC's spend, null for a caller who can't open Spend history."""
+    month: str
+    titles_read: int
+    titles_finished: int
+    chapters_read: int
+    moments_saved: int
+    active_days: int
+    most_days: Optional[LibraryRecapTitle] = None
+    spend_usd: Optional[float] = None
+
+
 class LibraryFilterOptions(BaseModel):
     studios: List[str]
     authors: List[str]
@@ -758,6 +780,7 @@ class BurnPreviewStart(BaseModel):
     per_speaker_colors: bool = False
     wrap_chars_en: Optional[int] = Field(default=None, ge=0, le=200)
     wrap_chars_source: Optional[int] = Field(default=None, ge=0, le=200)
+    ear_placement: bool = False
 
 
 class BurnPreviewStarted(BaseModel):

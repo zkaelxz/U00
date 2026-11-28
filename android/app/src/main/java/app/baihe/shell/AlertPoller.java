@@ -40,10 +40,15 @@ final class AlertPoller {
         if (fresh.isEmpty()) return;
         ensureChannel(context);
         if (fresh.size() > AlertFeed.MAX_SEPARATE) {
-            show(context, 1, fresh.size() + " new updates in Baihe", null);
+            show(context, 1, fresh.size() + " new updates in Baihe", AlertFeed.sharedRoute(fresh));
             return;
         }
         for (AlertFeed.Item item : fresh) show(context, (int) (item.id % 100000) + 100, item.text, item.route);
+    }
+
+    /** The next check only learns where the list stands, as on the first one. */
+    static void forget(SharedPreferences prefs) {
+        prefs.edit().remove(MARK_ID).remove(MARK_AT).apply();
     }
 
     private static void remember(SharedPreferences prefs, List<AlertFeed.Item> items) {

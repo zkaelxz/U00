@@ -1,5 +1,5 @@
 /*
- * Left drawer for screens narrower than 600px, opened by the Menu button or the phone bar's More. The drawer is a
+ * Left drawer for screens 640px and narrower, opened by the Menu button or the phone bar's More. The drawer is a
  * modal <dialog>, so the page behind is inert, Esc closes it and the browser
  * returns focus to whatever opened it; the same NavGroups as the dock fill it.
  */

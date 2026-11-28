@@ -7,6 +7,7 @@ import { routeHref, useRoute } from '../router'
 import { copyText } from './clipboard'
 import { couldNotReachBaihe } from './errorMessages'
 import { errorText } from './errorFallbackText'
+import { buttonClass } from './uiClasses'
 
 function ErrorFallback({ error }: { error: unknown }) {
   const [copied, setCopied] = useState<'idle' | 'ok' | 'failed'>('idle')
@@ -40,7 +41,7 @@ function ErrorFallback({ error }: { error: unknown }) {
             {copied === 'ok' ? 'Copied' : copied === 'failed' ? 'Copy failed, select the text above' : 'Copy error'}
           </button>
         )}
-        <button type="button" className="primary" onClick={() => window.location.reload()}>
+        <button type="button" className={buttonClass('primary')} onClick={() => window.location.reload()}>
           Reload
         </button>
         {canDiagnose && <a href="#/diagnostics">Open Diagnostics</a>}

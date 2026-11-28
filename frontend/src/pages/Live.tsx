@@ -60,6 +60,7 @@ import { parseStreamUrl } from './live/embedLogic'
 import './live.css'
 import { AI_ENGINE_LABEL } from '../helpText'
 import { routeHref, useRoute } from '../router'
+import { buttonClass } from '../components/uiClasses'
 
 const numValue = (n: number | null) => (n !== null && Number.isFinite(n) ? n : '')
 
@@ -75,10 +76,9 @@ function ShowEveryone({ onChange }: { onChange: (on: boolean) => void }) {
   const [on, setOn] = useState(false)
   if (!cancelsAnyJob(useSession())) return null
   return (
-    <label className="checkbox-row">
-      <input type="checkbox" checked={on} onChange={(e) => { setOn(e.target.checked); onChange(e.target.checked) }} />
-      Show everyone's sessions
-    </label>
+    <Field label="Show everyone's sessions">
+      <Toggle checked={on} onChange={(v) => { setOn(v); onChange(v) }} />
+    </Field>
   )
 }
 
@@ -221,7 +221,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
               </select>
             </Field>
           )}
-          {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you." chosen={chosen} testId="live-chosen-note" />}
+          {auto && <ChosenForYouNote text="The engine and the rest of the caption settings are chosen for you. Each session stops after 60 minutes." chosen={chosen} testId="live-chosen-note" />}
           {ollama.note && <OllamaNote check={ollama} alert={startPressed} />}
           {modelNote && <p className="muted" data-testid="live-model-note">{modelNote}</p>}
           {!auto && <Section storageKey="live.more" title="More options" summary="Translator, model, captions">
@@ -258,7 +258,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
           )}
           {!auto && <Section storageKey="live.advanced" title="Advanced (defaults are fine)" summary={advancedSummary(startForm, opts)}>
             <div className="preset-note-row">
-              <button type="button" className="secondary" data-testid="live-fast-captions" disabled={active || busy}
+              <button type="button" className={buttonClass('secondary')} data-testid="live-fast-captions" disabled={active || busy}
                 onClick={() => setPrefs(applyCaptionPreset(prefs, 'fast'))}>
                 Fast captions
               </button>
@@ -268,7 +268,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
               </HelpTip>
             </div>
             <div className="preset-note-row">
-              <button type="button" className="secondary" data-testid="live-balanced-captions" disabled={active || busy}
+              <button type="button" className={buttonClass('secondary')} data-testid="live-balanced-captions" disabled={active || busy}
                 onClick={() => setPrefs(applyCaptionPreset(prefs, 'balanced'))}>
                 Balanced captions
               </button>
@@ -342,7 +342,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
           </Section>}
           {!active && (
             <div className="actions">
-              <button type="submit" className="primary" disabled={!!blocker || busy}>
+              <button type="submit" className={buttonClass('primary')} disabled={!!blocker || busy}>
                 {busy ? 'Starting…' : 'Start'}
               </button>
             </div>

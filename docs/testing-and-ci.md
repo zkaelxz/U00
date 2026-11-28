@@ -32,8 +32,8 @@ access), and ownership checks. When in doubt, treat a PR as risky. Release tags 
 
 1. **Finished.** The thread that opened a PR owns it until it is merged or closed. When the work is done, that thread merges the
    base in once, has the change reviewed (`docs/engineering-standards.md`, section 3) and marks the PR ready. That starts the
-   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start a run, and turn auto-merge on (which starts
-   the full one), only while fewer than two other PR runs are going: more than that queue behind each other.
+   full run ("Draft PRs" below). Marking a PR ready is not a merge order. Start the run and turn auto-merge on
+   straight away once the review has passed; there is no wait for other PR runs (owner, 2026-11-28).
 2. **The order.** Once the independent review passes (and, for a risky PR, the security review), the owning thread checks the lane
    (step 3), merges the base in first if the lane is overlap, and turns auto-merge on; GitHub merges it when the checks are
    green. No typed "Merge NNNN" or other word from the owner is needed, and none is a merge order.

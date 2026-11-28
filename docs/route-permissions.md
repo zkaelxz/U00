@@ -413,6 +413,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/presets` | library.read |
 | `POST /api/library/presets/{preset_id}/delete` | local_only() |
 | `POST /api/library/presets/{preset_id}/rename` | admin.library |
+| `GET /api/library/recap` | library.read |
 | `GET /api/library/recent` | library.read |
 | `GET /api/library/search` | library.read + lines.read |
 | `GET /api/library/series` | library.read |
@@ -463,6 +464,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/sessions` | media.import_url |
 | `GET /api/live/sessions/{session_id}` | library.read |
 | `GET /api/live/sessions/{session_id}/chat` | library.read |
+| `POST /api/live/sessions/{session_id}/names` | media.import_url |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
 | `POST /api/media-link/probe` | media.import_url |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |
@@ -569,6 +571,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/ear-marks` | lines.read |
+| `POST /api/reader/dramas/{drama_id}/ear-marks` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/lines/{line_id}/study` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
@@ -660,6 +664,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}` | lines.read |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
 | `HEAD /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
+| `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/panels` | media.stream |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.read |
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.edit |
 | `DELETE /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |

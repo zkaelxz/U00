@@ -24,7 +24,8 @@ import zlib
 from jobs import job_launch, job_runner
 import db
 from engine_backends import echo
-from services import assistant_settings_service, auth_service, pc_profile_service
+from services import (assistant_settings_service, auth_service, confidence_backfill_service,
+                      pc_profile_service)
 from services import library_restore_service as lrs
 from services.library_admin_service import (RESTORE_CONFIRM_TEXT, any_job_running, has_disk_room,
                                             require_confirm)
@@ -202,7 +203,7 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                 raise ConflictError(_BUSY)
             # A finished job's thread can still be writing to the database
             # that is about to be renamed aside.
-            if not job_runner.wait_for_job_threads(10.0):
+            if not (job_runner.wait_for_job_threads(10.0) and confidence_backfill_service.wait(10.0)):
                 raise ConflictError("A background job is still finishing; try again in a moment.")
 
         try:
@@ -225,4 +226,6 @@ def restore_backup(zip_bytes, confirm=False, confirm_text="", actor_id=None) -> 
                                  + lrs.account_counts(outcome))
     finally:
         job_launch.release_exclusive()
+    # An older backup has no rescoring marker; its lines would stay unscored until the next start.
+    confidence_backfill_service.start_in_background()
     return {"restored": True, "sessions_revoked": revoked, **(outcome or {})}
