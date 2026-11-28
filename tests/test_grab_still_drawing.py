@@ -12,17 +12,20 @@ NODE = shutil.which("node")
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="node is not installed")
 
-# Pages are built as nested [tag, className, children] lists; the picture marked "*" is the
-# one asked about.
+# Pages are built as nested [tag, className, children, width] lists (a picture is 600 wide
+# unless given); the picture whose class has "*" is the one asked about.
 FAKE_DOM = r"""
+const MIN_SIDE = 200;
+const PICTURES = ["img", "canvas", "amp-img"];
 function build(spec, parent) {
-  const [tag, cls, kids] = spec;
-  const el = { tagName: tag, className: cls, parentElement: parent || null, children: [] };
+  const [tag, cls, kids, width] = spec;
+  const el = { tagName: tag, className: cls, parentElement: parent || null };
   el.children = (kids || []).map((k) => build(k, el));
-  const all = () => el.children.flatMap((c) => [c, ...c.all()]);
-  el.all = all;
-  el.querySelectorAll = (sel) => all().filter((n) => sel.split(", ").includes(n.tagName));
-  el.querySelector = (sel) => all().find((n) => n.className.includes(sel.match(/"(.*)"/)[1])) || null;
+  el.all = () => el.children.flatMap((c) => [c, ...c.all()]);
+  el.contains = (other) => { for (let n = other; n; n = n.parentElement) if (n === el) return true; return false; };
+  el.getBoundingClientRect = () => ({ width: width ?? (PICTURES.includes(tag) ? 600 : 0) });
+  el.querySelectorAll = (sel) => el.all().filter((n) => sel.startsWith("[class*=")
+    ? n.className.includes(sel.match(/"(.*)"/)[1]) : sel.split(", ").includes(n.tagName));
   return el;
 }
 const root = build(JSON.parse(process.argv[1]));
@@ -32,7 +35,7 @@ const target = [root, ...root.all()].find((n) => n.className.includes("*"));
 
 def _still_drawing(page):
     src = GRAB_JS.read_text(encoding="utf-8")
-    start = src.index("  function holdsAnotherPicture(")
+    start = src.index("  // Whole class words only")
     end = src.index("  // A canvas taller than the screen")
     script = FAKE_DOM + src[start:end] + "\nconsole.log(JSON.stringify(stillDrawing(target)));"
     done = subprocess.run([NODE, "-e", script, json.dumps(page)], capture_output=True, text=True,
@@ -62,4 +65,25 @@ def test_a_page_wrapper_marked_loading_still_waits():
 
 def test_a_wrapper_marked_loaded_does_not_wait():
     page = _chapter(["div", "item loaded", [["div", "spinner loading"], ["img", "*"]]], ["div", "item", [["img", ""]]])
+    assert _still_drawing(page) is False
+
+
+def test_a_spinner_picture_in_the_page_own_wrapper_still_waits():
+    page = _chapter(["div", "item", [["img", "spinner loading", [], 40], ["img", "*"]]], ["div", "item", [["img", ""]]])
+    assert _still_drawing(page) is True
+
+
+def test_a_loading_wrapper_with_a_small_badge_still_waits():
+    page = _chapter(["div", "item loading", [["img", "badge", [], 24], ["img", "*"]]], ["div", "item", [["img", ""]]])
+    assert _still_drawing(page) is True
+
+
+def test_the_img_inside_an_amp_img_is_not_another_page():
+    page = _chapter(["div", "item", [["div", "spinner loading"], ["amp-img", "*", [["img", ""]]]]],
+                    ["div", "item", [["img", ""]]])
+    assert _still_drawing(page) is True
+
+
+def test_a_lazy_loader_mark_on_the_picture_does_not_wait():
+    page = _chapter(["div", "item", [["img", "* lazyloading"]]], ["div", "item", [["img", ""]]])
     assert _still_drawing(page) is False
