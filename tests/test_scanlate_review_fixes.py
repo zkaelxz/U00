@@ -43,6 +43,16 @@ def test_large_dark_art_running_off_the_box_edge_is_not_erased():
     assert mask[:, :20].sum() == 0 and mask[18:22, 30:34].all()
 
 
+def test_lettering_in_the_strip_between_a_box_and_the_page_edge_is_erased():
+    page = np.full((100, 100, 3), 255, np.uint8)
+    page[90:100, 20:80] = (60, 60, 200)             # lettering the page cuts, 1 px below the box
+    box = {"x": 10, "y": 40, "w": 80, "h": 59}
+    inside = np.ones((59, 80), bool)
+    scanlate_inpaint.inpaint_region("x.png", box, image=page, inside=inside, backend="cv")
+    assert page[99, 20:80].min() > 200
+    assert page[60, 50].min() == 255                # the rest of the page is left alone
+
+
 def test_storage_cleanup_forgets_the_typeset_files_it_deleted(isolated_db):
     did = db.create_drama(title_en="t")
     pid = db.create_page(did, 0, "pages/a.png", 10, 10)
