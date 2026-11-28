@@ -93,6 +93,8 @@
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --ok-soft: color-mix(in srgb, var(--ok) 14%, transparent);
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
+  /* The warning bar's own opaque yellow: --warn-soft is a translucent tint that turns grey-tan over the blue page. */
+  --warn-bar-bg: #fdecc8;
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
   /* Selected rows and tinted boxes: mixed with the page colour so dark, OLED and sepia get the same step as light. */
@@ -139,6 +141,7 @@
     --bad: #ef7b73;
     --ok: #5fc08c;
     --warn: #e0a24a;
+    --warn-bar-bg: #3a2c10;
     --info: #7aa2ec;
     --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
     --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
@@ -172,6 +175,7 @@
   --bad: #ef7b73;
   --ok: #5fc08c;
   --warn: #e0a24a;
+  --warn-bar-bg: #3a2c10;
   --info: #7aa2ec;
   --speaker-1-bg: hsl(230 45% 24%); --speaker-1-fg: hsl(230 80% 80%);
   --speaker-2-bg: hsl(20 45% 24%); --speaker-2-fg: hsl(20 80% 80%);
@@ -202,6 +206,7 @@
   --muted: #a0a0a0;
   --border: #262626;
   --highlight: #10161f;
+  --warn-bar-bg: #2e2208;
   --shadow-pop: none;
 }
 
@@ -219,6 +224,7 @@
   --border: #cdbf9d;
   --highlight: #e2d3ae;
   --warn: #7a4600;
+  --warn-bar-bg: #f6e0a0;
   --ok: #175c2d;
   --bad: #9c1f18;
   --shadow-pop: 0 2px 8px color-mix(in srgb, #3b3220 20%, transparent);
@@ -534,7 +540,7 @@ dd { margin: 0; }
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
 /* WarnBar (components/WarnBar.tsx): one thin line. With a mouse a long message is cut short and its full text is the
    tooltip; a touch screen can't hover, so there it wraps instead. */
-.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
+.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-bar-bg); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
 .warn-bar-bad { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
 .warn-bar-shell { margin: var(--space-3) var(--space-4) 0; }
 .warn-bar-text { flex: 1 1 auto; min-width: 0; }
