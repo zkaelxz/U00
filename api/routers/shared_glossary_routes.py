@@ -5,14 +5,12 @@ services/shared_glossary_service.py.
     GET  /api/shared-glossaries                              library.read  every group (name, counts)
     POST /api/shared-glossaries                              lines.edit    create a group
     POST /api/shared-glossaries/{group_id}/delete            lines.edit    its creator or any admin
-    GET  /api/shared-glossaries/{group_id}/terms             library.read
     POST /api/shared-glossaries/{group_id}/terms             lines.edit    its creator or an admin
     POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete  lines.edit  its creator or an admin
 
 A group the caller may not change answers 404 from the service. A series joins
 or leaves a group through /api/series/{series_id}/shared-glossary.
 """
-
 
 from fastapi import APIRouter, Path, Request
 
