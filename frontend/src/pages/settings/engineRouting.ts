@@ -100,7 +100,8 @@ interface EngineRow {
 const KEY_ONLY_COST: Record<string, string> = { groq: 'Paid', hf_token: 'Free' }
 
 export function costText(e: EngineRouteStatus): string {
-  if (e.tags.includes('local')) return 'Free · runs on this PC'
+  // Ollama needs no key in Baihe, but it runs only hosted models, billed per token.
+  if (e.engine === 'ollama') return 'Paid · billed by Ollama'
   return e.needs_key ? 'Paid' : 'Free'
 }
 

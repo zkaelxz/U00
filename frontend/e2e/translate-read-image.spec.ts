@@ -36,7 +36,7 @@ test('reads a chosen picture into the text box and appends the next one', async 
   const panel = page.getByRole('group', { name: 'Read from a screenshot' })
 
   // DeepSeek takes no pictures, so it is not offered.
-  await expect(panel.getByLabel('Read with', { exact: true }).locator('option')).toHaveText(['Claude', 'Ollama (local)'])
+  await expect(panel.getByLabel('Read with', { exact: true }).locator('option')).toHaveText(['Claude', 'Ollama'])
   await expect(panel.getByRole('button', { name: 'Read the text' })).toBeDisabled()
 
   await panel.locator('input[type=file]').setInputFiles({ name: 'frame.png', mimeType: 'image/png', buffer: PNG })

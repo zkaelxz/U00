@@ -35,7 +35,7 @@ function Form({ state, series, onSaved }: { state: InboxState; series: SeriesLis
     <>
       <p className="muted">
         When this is on, an audio or video file you drop into the folder becomes a title and its Transcribe goes on the
-        Jobs queue (start the queue on the Jobs page). In a series with auto-run on, the series' own run takes over
+        Jobs queue, which starts by itself unless it is paused or set to start later. In a series with auto-run on, the series' own run takes over
         instead, inside its spending ceiling. Files are taken only once they have stopped changing, so a copy in
         progress is left alone. Your originals are never deleted.
       </p>

@@ -79,7 +79,7 @@ const TOGGLE_HELP: Partial<Record<SettingsToggleKey, string>> = {
   notify_on_completion: 'Shows a Windows pop-up on this PC when a job finishes.',
   use_gpu: 'Transcribe on the GPU when there is one (faster).',
   bulk_auto_resume:
-    'Resumes interrupted translation batches at startup. Off by default: resumed batches can spend on your engine account.',
+    'After a restart, batches on the Gemini free tier start again by themselves. Batches on a paid engine wait until you press Resume on the title, and one notification says so, so nothing is spent until then.',
 }
 
 // Cards that disappear with a feature switch (lib/features.py). The extension's

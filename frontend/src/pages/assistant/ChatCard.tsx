@@ -389,7 +389,7 @@ function LadderSection({ settings, onSettings }: { settings: AssistantSettings; 
   return (
     <Section title="Escalation order" summary={summary} storageKey="assistant.tiers">
       <p className="muted">
-        When an answer isn’t enough, you can ask the next tier, one step at a time and only when you choose. Keep tier 1 on Ollama so questions start on this PC. Engines with no key are skipped. After the last tier, prepare a report for a developer.
+        When an answer isn’t enough, you can ask the next tier, one step at a time and only when you choose. Engines with no key are skipped. After the last tier, prepare a report for a developer.
       </p>
       <ol className="assistant-tier-list" aria-label="Tiers in use">
         {tiers.map((t) => (
@@ -590,7 +590,7 @@ function EngineSection({ settings, engine, model, onEngine, onModel, onSettings 
   return (
     <Section title="Engine" summary={summary} storageKey="assistant.engine">
       <div className="assistant-engine">
-        <Field label={AI_ENGINE_LABEL} help="Which AI answers. The default, Ollama, runs on this PC; a cloud engine needs your OK to receive code and logs.">
+        <Field label={AI_ENGINE_LABEL} help="Which AI answers. Every engine, Ollama included, runs outside this PC, so each one needs your OK to receive code and logs.">
           <select
             value={engine}
             onChange={(e) => {

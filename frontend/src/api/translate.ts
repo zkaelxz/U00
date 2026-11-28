@@ -49,7 +49,7 @@ const ENGINE_DISPLAY_NAMES: Record<string, string> = {
   deepseek: 'DeepSeek',
   gemini: 'Gemini',
   openai: 'OpenAI',
-  ollama: 'Ollama (local)',
+  ollama: 'Ollama',
   nllb: 'NLLB (removed)', // still shown for old history rows
 }
 
