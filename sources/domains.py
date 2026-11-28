@@ -59,6 +59,9 @@ _HOST_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-
 # Sites that change by counting up (name108 -> name113) are probed this many numbers ahead, at most
 # once a day and only after a whole day of every domain failing, so a short outage never spends requests.
 NEXT_NUMBERS = 10
+# The probes run inside the request that found every domain dead, so they stop after this long
+# in total; the rest wait for the next day's try.
+NUMBERS_BUDGET_SECONDS = 30.0
 _NUMBERED_WAIT_SECONDS = 24 * 3600
 _NUMBERED_HOST = re.compile(r"^([a-z][a-z-]*?)(\d{1,4})(\..+)$")
 
@@ -245,6 +248,7 @@ class SiteDomains:
             return False
         listed = {hostport(o) for o in self.origins()}
         tried, found = 0, False
+        deadline = time.monotonic() + NUMBERS_BUDGET_SECONDS
         for host in listed:
             match = _NUMBERED_HOST.match(host)
             if not match:
@@ -254,6 +258,8 @@ class SiteDomains:
                 candidate = f"{prefix}{n}{suffix}"
                 if candidate in listed:
                     continue
+                if time.monotonic() >= deadline:
+                    break
                 tried += 1
                 try:
                     home = self.client.get(f"https://{candidate}/", action="Checking a possible new address",

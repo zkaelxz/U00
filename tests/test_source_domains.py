@@ -307,6 +307,14 @@ class TestNextNumbers:
         assert _hosts() == ["xbanxia20.org"]
         assert health.get("xbanxia") is None or health.get("xbanxia").get("state") != "backoff"
 
+    def test_the_probes_stop_at_their_time_budget(self, world, monkeypatch):
+        site, t = self._site({})
+        clock = iter(range(0, 1000, 12))   # each look at the clock is 12 s later
+        monkeypatch.setattr(domains.time, "monotonic", lambda: next(clock))
+        site._try_next_numbers(now=0.0)
+        site._try_next_numbers(now=self.DAY)
+        assert 0 < len(self._probed(t)) < domains.NEXT_NUMBERS
+
     def test_a_host_that_redirects_elsewhere_is_not_proposed(self, world):
         site, t = self._site({"https://xbanxia11.org/": _moved("https://other.example/")})
         site._try_next_numbers(now=0.0)
