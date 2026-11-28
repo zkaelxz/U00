@@ -293,3 +293,12 @@ def test_lookalike_host_is_not_stopped(isolated_db):
     ext.require_url_not_extension_only("https://mangafire.to.example/title/1")
     ext.require_url_not_extension_only("https://notblacktoon511.com/webtoon/1.html")
     ext.require_url_not_extension_only("https://blacktoon511.com.example/webtoon/1.html")
+
+
+def test_extension_sites_row_lists_blacktoon_and_only_hosts_the_import_stop_covers(isolated_db):
+    from services import sources_registry_service as reg
+
+    shown = reg.get_settings()["extension_sites"]
+    assert {"name": "Blacktoon", "host": "blacktoon511.com"} in shown
+    assert all(ext._is_built_in_extension_only_host(x["host"]) for x in shown)
+    assert not {x["host"] for x in shown} & {s["homepage"] for s in reg.list_sources()}

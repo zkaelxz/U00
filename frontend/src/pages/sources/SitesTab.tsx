@@ -179,6 +179,12 @@ export function SitesTab({ phone, sources, settings, onSource, onHealth }: Props
           </table>
         </div>
       )}
+      {!!settings?.extension_sites.length && (
+        <p className="muted" data-testid="extension-sites">
+          Works through the browser extension only (not searched or counted here):{' '}
+          {settings.extension_sites.map((x) => `${x.name} (${x.host})`).join(', ')}.
+        </p>
+      )}
     </ManageCard>
   )
 }
