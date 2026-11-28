@@ -122,10 +122,11 @@ def refuse_if_disk_low(owner_user_id) -> None:
     if free_gb >= MEMBER_MIN_FREE_GB:
         return
     # The request's own principal must be an admin's too: a device token or scheduled work acts
-    # for an admin account with member rights only, so it is held like a member's.
+    # for an admin account with member rights only, so it is held like a member's, and so is a
+    # queue item it added (held_for_disk, set by the queue runner).
     principal = acting.acting_principal() or {}
     if not (principal.get("user_id") == owner_user_id and principal.get("is_admin")
-            and _is_admin_account(owner_user_id)):
+            and not principal.get("held_for_disk") and _is_admin_account(owner_user_id)):
         raise DiskLowError("This PC is almost out of disk space, so new jobs can't start right now. "
                             "Try again later, or ask the PC owner to free some space.")
 

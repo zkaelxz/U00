@@ -758,20 +758,56 @@ def test_a_failed_account_read_for_the_disk_hold_rests_the_item_instead_of_leavi
     from jobs import user_caps
     usage = namedtuple("usage", "total used free")
     monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    member = _member()
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    admin = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    q.add_item(member, _drama("A", owner_user_id=member["user_id"], is_private=1), "transcribe", False,
+               at_pc=True)
+    q.add_item(admin, _drama("B", owner_user_id=admin_id, is_private=1), "transcribe", False, at_pc=True)
 
     def unreadable(_uid):
         raise RuntimeError("database is locked")
     monkeypatch.setattr(user_caps, "held_back_by_low_disk", unreadable)
-    member = _member()
-    q.add_item(member, _drama("A", owner_user_id=member["user_id"], is_private=1), "transcribe", False,
-               at_pc=True)
     q.start(None)
     t0 = q._clock()
     q.tick(now=t0)
     with q._lock:
-        item = q._load()["items"][0]
-    assert item["status"] == "waiting" and "almost out of disk space" in item["reason"]
-    assert item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+        members_item, admins_item = q._load()["items"]
+    assert members_item["status"] == "waiting" and "almost out of disk space" in members_item["reason"]
+    # The admin's item could not be checked, so it rests too rather than escaping the hold.
+    assert admins_item["status"] == "waiting" and admins_item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+    assert jobs.started == []
+
+
+@pytest.mark.parametrize("added_by", ["device_token", "before_by_admin_was_recorded"])
+def test_an_admin_accounts_item_not_added_with_admin_rights_is_held_on_a_nearly_full_drive(
+        jobs, monkeypatch, added_by):
+    from collections import namedtuple
+    from jobs import user_caps
+    usage = namedtuple("usage", "total used free")
+    monkeypatch.setattr(user_caps.shutil, "disk_usage", lambda _p: usage(100 << 30, 0, 5 << 30))
+    admin_id = db.auth_create_user("admin@example.com", is_admin=True)
+    session = {"user_id": admin_id, "is_admin": True, "permissions": ["jobs.start"]}
+    # A device token acts for the admin account with member rights only.
+    token = {"user_id": admin_id, "is_admin": False, "device_token_id": 1, "permissions": ["jobs.start"]}
+    held = _drama("Held", owner_user_id=admin_id, is_private=1)
+    runs = _drama("Runs", owner_user_id=admin_id, is_private=1)
+    q.add_item(token if added_by == "device_token" else session, held, "transcribe", False, at_pc=True)
+    q.add_item(session, runs, "transcribe", False, at_pc=True)
+    if added_by == "before_by_admin_was_recorded":
+        with q._lock:
+            doc = q._load()
+            doc["items"][0].pop("by_admin")
+            q._save(doc)
+    q.start(None)
+
+    t0 = q._clock()
+    q.tick(now=t0)
+    with q._lock:
+        held_item, runs_item = q._load()["items"]
+    assert held_item["status"] == "waiting" and "almost out of disk space" in held_item["reason"]
+    assert held_item["not_before"] == t0 + q.DISK_LOW_RETRY_SECONDS
+    assert runs_item["status"] == "running" and jobs.started == [f"transcribe_{runs}"]
 
 
 def test_a_full_drive_does_not_cut_short_a_members_daily_limit_rest(jobs, monkeypatch):
