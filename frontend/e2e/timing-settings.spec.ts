@@ -93,3 +93,17 @@ test('Developer Mode adds the voice detection rows, and 0 is a real value where 
   await expect(card.getByRole('alert')).toContainText('from 1 to 4')
   expect(unmocked).toEqual([])
 })
+
+test('Blocked phrases: the saved list shows, and clearing it saves an empty list', async ({ page }) => {
+  const { posts, unmocked } = await mockTimingSettings(page)
+  await openCard(page)
+  const card = page.getByRole('region', { name: 'Blocked phrases' })
+  const box = card.getByLabel('Blocked phrases', { exact: true })
+  await expect(box).toHaveValue(/\S/)
+  await box.fill('')
+  await card.getByRole('button', { name: 'Save' }).click()
+  await expect(card.getByRole('status')).toHaveText('Saved.')
+  expect(posts).toEqual([{ blocked_phrases: '' }])
+  await expect(card.getByText('Nothing blocked')).toBeVisible()
+  expect(unmocked).toEqual([])
+})

@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 
+import type { AuthMe } from '../api/auth'
 import { ApiError } from '../api/client'
+import { resetSessionForTests } from '../hooks/useSession'
 import { errorAction } from './errorActions'
 import { describeError, MISSING_PACKAGE_TITLE } from './errorMessages'
 
@@ -40,5 +42,25 @@ describe('the error heading follows the cause', () => {
 
   it('links an internal error to the log', () => {
     expect(errorAction(new ApiError(500, { code: 'internal_error', message: 'x' }))).toEqual({ label: 'Open the log', href: '#/diagnostics?card=log' })
+  })
+})
+
+describe('no link to a page the viewer cannot open', () => {
+  afterEach(() => resetSessionForTests())
+  const member = (permissions: string[]): AuthMe => ({
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'internet', permissions,
+    user: { id: 2, email: 'member@example.com', display_name: 'Member', is_admin: false, is_local_owner: false },
+  } as AuthMe)
+
+  it('a member gets no Open Settings or Open Diagnostics button', () => {
+    resetSessionForTests({ status: 'ready', me: member(['lines.edit']) })
+    expect(errorAction(dep({ reason: 'no_key', engine: 'groq' }))).toBeNull()
+    expect(errorAction(dep({ reason: 'missing_package', package: 'paddleocr' }))).toBeNull()
+  })
+
+  it('an account with the rights keeps them', () => {
+    resetSessionForTests({ status: 'ready', me: member(['admin.settings', 'admin.diagnostics']) })
+    expect(errorAction(dep({ reason: 'no_key', engine: 'groq' }))?.label).toBe('Open Settings')
+    expect(errorAction(dep({ reason: 'missing_package', package: 'paddleocr' }))?.label).toBe('Open Diagnostics')
   })
 })

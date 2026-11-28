@@ -315,7 +315,8 @@ def authenticate(authorization_headers, ip: str = "", now: float | None = None) 
             limiter.record(key)
         raise UnauthenticatedError(_GENERIC_401)
     if PERMISSION not in principal["permissions"]:
-        raise ForbiddenError("Not allowed.")
+        raise ForbiddenError("Your account can't send pages from this device. Ask the PC owner to turn on "
+                             "'Browser extension and Baihe Grab' for you in People and access.")
     if row["last_used_at"] is None or now - row["last_used_at"] >= _TOUCH_INTERVAL_SECONDS:
         device_tokens.touch(row["id"], now, auth_service.ip_prefix(ip))
     return principal

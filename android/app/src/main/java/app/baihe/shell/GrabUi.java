@@ -80,7 +80,7 @@ final class GrabUi {
      * partial result or a failure stays because it is the only record of what happened.
      */
     static Kind kindOf(String message, boolean sent) {
-        if (message.startsWith("Opened ") || (sent && !message.contains("Not sent"))) return Kind.OK;
+        if (message.startsWith("Opened ") || (sent && !message.contains("Not sent") && !message.contains("without English"))) return Kind.OK;
         if (sent) return Kind.INFO;
         return Kind.BAD;
     }

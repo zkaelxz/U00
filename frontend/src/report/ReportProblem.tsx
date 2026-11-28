@@ -1,10 +1,10 @@
 /*
- * "Report a problem": a header button and its dialog.
+ * "Report a problem": the dialog.
  *
- *   <ReportProblemButton />   the button; renders the dialog while it is open
+ *   <ReportProblemHost />     renders the dialog while it is open
  *   openReportDialog()        (./reportDialogStore) opens it from anywhere, e.g.
- *                             an error fallback, while a <ReportProblemButton/>
- *                             is mounted
+ *                             the You menu, while a <ReportProblemHost/> is
+ *                             mounted
  *
  * The dialog sends the notes, an optional screenshot (PC only: the field is
  * hidden off the PC, and the server refuses one) and the capture buffers
@@ -33,31 +33,20 @@ import {
   buildIdFrom, buildReport, clientMarkdown, githubIssueUrl, sanitizeReport, sanitizeText, screenshotProblem,
   type IssueFields,
 } from './reportBundle'
-import { closeReportDialog, isReportDialogOpen, openReportDialog, subscribeReportDialog } from './reportDialogStore'
+import { closeReportDialog, isReportDialogOpen, subscribeReportDialog } from './reportDialogStore'
 import './reportProblem.css'
 import { buttonClass } from '../components/uiClasses'
 
-// `hidden` keeps the dialog mounted while another control (the phone menu) opens it.
-export function ReportProblemButton({ hidden = false }: { hidden?: boolean }) {
+// Renders the dialog while it is open; the You menu, the phone drawer and a job's panel open it with openReportDialog().
+export function ReportProblemHost() {
   const open = useSyncExternalStore(subscribeReportDialog, isReportDialogOpen, isReportDialogOpen)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  // The dialog unmounts on close, so focus is handed back here explicitly —
+  // The dialog unmounts on close, so focus is handed back to its opener explicitly —
   // after the unmount, since the page is inert while the modal is still open.
   const close = () => {
-    closeReportDialog()
-    requestAnimationFrame(() => buttonRef.current?.focus())
+    const opener = closeReportDialog()
+    requestAnimationFrame(() => opener?.focus())
   }
-  return (
-    <>
-      <button ref={buttonRef} type="button" className="report-btn" aria-label="Report a problem" title="Report a problem" aria-haspopup="dialog" onClick={openReportDialog} style={hidden ? { display: 'none' } : undefined}>
-        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="9" />
-          <path d="M9.6 9.5a2.5 2.5 0 1 1 3.6 2.2c-.8.4-1.2 1-1.2 1.8M12 17h.01" />
-        </svg>
-      </button>
-      {open && <ReportProblemDialog onClose={close} />}
-    </>
-  )
+  return open ? <ReportProblemDialog onClose={close} /> : null
 }
 
 // `markdown` is what Copy report copies; `issue`/`issueMarkdown` feed the public link.
@@ -196,7 +185,7 @@ function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             is saved and before it goes into the GitHub link; the server log is never put in the link.
           </p>
           <div className="actions report-actions">
-            <button type="submit" className="primary" disabled={sending}>
+            <button type="submit" className={buttonClass('primary')} disabled={sending}>
               {sending ? 'Sending…' : 'Send report'}
             </button>
             <button type="button" className={buttonClass('secondary')} onClick={onClose}>Cancel</button>
@@ -264,7 +253,7 @@ function ReportResult({ result, hadScreenshot, onClose }: {
         </div>
       )}
       <div className="actions report-actions">
-        <button type="button" className="primary" onClick={() => void copy()}>Copy report</button>
+        <button type="button" className={buttonClass('primary')} onClick={() => void copy()}>Copy report</button>
         {canShare && (
           <button type="button" className={buttonClass('secondary')} onClick={() => void share()}>Share…</button>
         )}

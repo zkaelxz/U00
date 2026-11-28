@@ -10,6 +10,7 @@ from typing import NamedTuple
 from bulk.bulk_translate import BATCH_PRICE_FACTOR, zh_hash
 import db
 import emotion
+from en_cleanup import drop_em_dashes
 import source_change
 from engine_backends import pricing, shared, flag_reasons
 from engine_backends import line_text
@@ -215,7 +216,7 @@ def _apply_bulk_results_once(bulk_job_id: int, results: list, logged: set) -> di
                 continue
             if fixes_text:
                 translation = substitute_terms(translation, ln.zh)
-            ln.en = translation
+            ln.en = drop_em_dashes(translation, ln.zh)
             source_change.clear_for_new_english(ln)
             counts["applied"] += 1
 

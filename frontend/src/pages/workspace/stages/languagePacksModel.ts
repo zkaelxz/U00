@@ -41,3 +41,16 @@ export function termFromEntry(entry: LanguagePackEntry, pack: TitleLanguagePack)
     policy: honorific ? 'contextual' : 'translate_meaning',
   }
 }
+
+/** Entries shown at once; the VTuber name packs hold thousands, so the rest are found by search. */
+export const SHOWN_ENTRIES = 100
+
+/** The entries whose source, English or note contain `query` (all when empty), at most SHOWN_ENTRIES. */
+export function shownEntries(entries: LanguagePackEntry[], query: string): { shown: LanguagePackEntry[]; matching: number } {
+  const q = query.trim().toLowerCase()
+  const matching = q
+    ? entries.filter((e) => [e.source, typeof e.en === 'string' ? e.en : Object.values(e.en).join(' '), e.note]
+        .some((text) => text.toLowerCase().includes(q)))
+    : entries
+  return { shown: matching.slice(0, SHOWN_ENTRIES), matching: matching.length }
+}

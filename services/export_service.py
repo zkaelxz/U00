@@ -31,10 +31,12 @@ import core as core_module
 import db
 import media_inspect
 import reading_speed_dismissal
+import sensevoice_tags
 import subtitle_ass
 import subtitle_formats
 from lib.safe_paths import is_device_name
 from services import (
+    ear_marks_service,
     metadata_service,
     ownership_service,
     restructure_service,
@@ -166,10 +168,52 @@ def subtitle_disposition(drama_id: int, field: str, ext: str, noun: str = "subti
         drama_id, what, field_language(drama, field), ext))
 
 
-def _load_drama_and_lines(drama_id: int):
+def _load_drama_and_lines(drama_id: int, with_words: bool = False):
     drama = ownership_service.require_drama(drama_id)
-    lines = db.load_line_objects(drama_id)
+    lines = db.load_line_objects(drama_id, with_words=with_words)
     return drama, lines
+
+
+def require_reading_packages(lines, drama: dict) -> None:
+    """A reading row needs the Reader's word packages for every language its
+    lines are in; say which to install rather than fail on the first line."""
+    import segment
+    languages = {getattr(ln, "lang", None) or drama.get("source_language") or "zh" for ln in lines}
+    missing = sorted({name for lang in languages & {"zh", "ja"} for name in segment.missing_reader_packages(lang)})
+    if missing:
+        raise DependencyUnavailableError(
+            f"The reading line needs the {', '.join(missing)} package, which isn't installed. "
+            "Install it in Diagnostics > Packages.",
+            details={"reason": "missing_package", "package": missing[0]})
+
+
+def _reading_rows(lines, drama: dict) -> dict:
+    """{line id: its pinyin or kana row}, from the line's own text, so a
+    speaker name or a wrap added later is not read out."""
+    import segment
+    script = drama.get("chinese_script") or "simplified"
+    rows = {}
+    for ln in lines:
+        lang = getattr(ln, "lang", None) or drama.get("source_language") or "zh"
+        reading = "" if getattr(ln, "sfx", False) else segment.reading_text(ln.zh or "", lang, script)
+        if reading:
+            rows[ln.id] = reading
+    return rows
+
+
+def _with_reading_rows(lines, rows: dict):
+    """Copies of `lines` with the reading row above the original text. It
+    goes on after wrapping: the source wrap width counts characters, and a
+    pinyin row is several times longer than the line it reads."""
+    if not rows:
+        return lines
+    out = []
+    for ln in lines:
+        c = copy.copy(ln)
+        if rows.get(ln.id):
+            c.zh = f"{rows[ln.id]}\n{ln.zh}"
+        out.append(c)
+    return out
 
 
 def break_language(drama: dict) -> dict:
@@ -280,7 +324,9 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
                       notes_as_separate_line: bool = False,
                       wrap_chars_en: Optional[int] = None,
                       wrap_chars_source: Optional[int] = None,
-                      frame_aspect=TITLE_VIDEO) -> str:
+                      frame_aspect=TITLE_VIDEO, sound_captions: bool = False,
+                      reading_line: bool = False, karaoke: bool = False,
+                      ear_placement: bool = False) -> str:
     """Generates ASS subtitle text for one drama --
     pure and read-only, returns text only.
 
@@ -290,17 +336,22 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     `style` (font, size, bold, italic, primary, outline, outline_width,
     shadow, alignment, sfx_alignment, notes_alignment) override it, and
     missing keys keep the preset's values. speaker_colors is
-    {speaker_label: "#RRGGBB"}; when omitted and per_speaker_colors is
+    {speaker label or character name: "#RRGGBB"}; when omitted and per_speaker_colors is
     true, subtitle_ass.default_speaker_colors picks one per speaker in
     the drama; per_speaker_colors=False means one style for everyone.
     Overlapping cues keep their saved times (players stack them, which is
     how two speakers talking at once stay readable); SRT is the format that
     trims them. Lines are wrapped as generate_subtitle_text does.
+    sound_captions as generate_subtitle_export's.
     notes_as_separate_line requires include_notes. frame_aspect is the
     video's width / height (video_frame_aspect), so long CJK rows are broken
     to fit a portrait picture; None assumes landscape, and the default
     reads it from the title's own video (a downloaded file is most likely
-    played over that video).
+    played over that video). reading_line and karaoke apply to the original
+    text ("zh" and "bilingual"): see subtitle_ass.source_rows.
+    ear_placement puts lines heard in one ear of a
+    stereo title at the bottom left or right (ear_marks_service's current
+    marks; none when they are missing or out of date).
 
     Not done here: persisting the style per drama (it's per-request), the
     Package zip, "Mark as exported" (mark_exported), and any binary/file
@@ -330,31 +381,40 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
     check_wrap(wrap_chars_en, "wrap_chars_en")
     check_wrap(wrap_chars_source, "wrap_chars_source")
 
-    drama, lines = _load_drama_and_lines(drama_id)
+    drama, lines = _load_drama_and_lines(drama_id, with_words=karaoke)
+    if reading_line and field != "en":
+        require_reading_packages(lines, drama)
     # An ASS file always has a header, so without this an untranslated title
     # gives an empty track, and a burned-in export re-encodes for nothing.
     _require_exportable_text(lines, field)
+    if sound_captions:
+        lines = _with_sound_captions(lines, field, _sound_tags(drama_id))
     if frame_aspect is TITLE_VIDEO:
         frame_aspect = title_frame_aspect(drama_id, drama)
 
+    speaker_names = _speaker_display_names(drama_id)
     if not per_speaker_colors:
         colors = {}
     elif speaker_colors is not None:
-        colors = dict(speaker_colors)
+        colors = subtitle_ass.colors_by_label(speaker_colors, speaker_names)
     else:
         colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
 
-    speaker_names = _speaker_display_names(drama_id)
     notes_by_idx = _load_notes_by_idx(drama_id) if include_notes else None
     ass_header, ass_header_key = subtitle_ass.ass_header_for(drama.get("ass_styles"), lines)
 
+    wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
+    source_text = subtitle_ass.source_rows(
+        merged_style, field, None if notes_as_separate_line else notes_by_idx, wrap_chars,
+        frame_aspect, reading_line=reading_line, karaoke=karaoke, **break_language(drama))
     return subtitle_ass.lines_to_ass(
         lines, merged_style, field, notes_by_idx,
-        speaker_colors=colors, speaker_names=speaker_names,
-        wrap_chars=build_wrap_chars(wrap_chars_en, wrap_chars_source),
+        speaker_colors=colors, speaker_names=speaker_names, wrap_chars=wrap_chars,
         title=drama.get("title_en") or drama.get("title_zh") or "",
         notes_as_separate_line=notes_as_separate_line, frame_aspect=frame_aspect,
-        ass_header=ass_header, ass_header_key=ass_header_key, **break_language(drama))
+        ass_header=ass_header, ass_header_key=ass_header_key, source_text=source_text,
+        ear_placement=ear_marks_service.fresh_sides(drama_id, lines) if ear_placement else None,
+        **break_language(drama))
 
 
 def get_export_readiness(drama_id: int) -> dict:
@@ -392,6 +452,8 @@ def get_export_readiness(drama_id: int) -> dict:
         "overlap_count": len(overlaps),
         "auto_qc_issue_count": len(qc_issues),
         "dense_line_count": len(dense),
+        "sound_captioned_lines": _sound_captioned_count(drama_id, lines),
+        "ear_marked_lines": len(ear_marks_service.fresh_sides(drama_id, lines)),
     }
 
 
@@ -505,6 +567,59 @@ def _speaker_display_names(drama_id: int) -> dict:
             if c.get("character_name")}
 
 
+# What a SenseVoice event (sensevoice_tags.EVENTS) reads as in a sound caption. Speech and
+# breathing are left out: one is every line, the other is under most of a quiet drama.
+SOUND_CAPTIONS = {"Laughter": "laughs", "Cry": "crying", "Applause": "applause",
+                  "Cough": "coughs", "Sneeze": "sneezes", "BGM": "music"}
+
+
+def _sound_tags(drama_id: int) -> dict:
+    """{line id: [caption words]} from the title's audio tags (Review > Audio tags)."""
+    tags = sensevoice_tags.load_audio_tags(db.drama_dir(drama_id))
+    return {lid: [SOUND_CAPTIONS[e] for e in (t.get("events") or []) if e in SOUND_CAPTIONS]
+            for lid, t in tags.items() if isinstance(t, dict)}
+
+
+def _sound_captioned_count(drama_id: int, lines) -> int:
+    return len(_caption_words(lines, _sound_tags(drama_id)))
+
+
+def _caption_words(lines, tags: dict) -> dict:
+    """{id(line): caption words} for the lines that get a caption. Music is marked only on the
+    first line of a run of tagged lines, since SenseVoice hears it under every line of a scored
+    scene. A line that can't carry a caption (SFX, no English) can end a run but not start
+    one, or the music would never be marked."""
+    words_by_line, music_before = {}, False
+    for ln in sorted(lines, key=lambda ln: ln.start):
+        words = tags.get(getattr(ln, "id", None)) or []
+        music = "music" in words
+        if not ln.en.strip() or getattr(ln, "sfx", False):
+            music_before = music_before and music
+            continue
+        shown = [w for w in words if w != "music"] if music and music_before else words
+        music_before = music
+        if shown:
+            words_by_line[id(ln)] = shown
+    return words_by_line
+
+
+def _with_sound_captions(lines, field: str, tags: Optional[dict]):
+    """Copies of `lines` whose English starts "[laughs] " and so on (_caption_words); `lines`
+    itself when the option is off. The source-language export is left as it is, since the
+    captions are English words. SFX lines already say what the sound is."""
+    if tags is None or field == "zh":
+        return lines
+    shown = _caption_words(lines, tags)
+    out = []
+    for ln in lines:
+        words = shown.get(id(ln))
+        if words:
+            ln = copy.copy(ln)
+            ln.en = " ".join(f"[{w}]" for w in words) + " " + ln.en
+        out.append(ln)
+    return out
+
+
 def _with_speaker_names(lines, field: str, names: Optional[dict]):
     """Copies of `lines` whose first shown row starts "Name: " (see core.cue_speaker_name);
     `lines` itself when the option is off."""
@@ -534,7 +649,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
                              wrap_chars_source: Optional[int] = None,
                              tidy_timing: bool = False,
                              fps: Optional[float] = None,
-                             speaker_names: bool = False) -> dict:
+                             speaker_names: bool = False,
+                             sound_captions: bool = False, reading_line: bool = False) -> dict:
     """Generates SRT, VTT or LRC subtitle text for one drama -- pure and
     read-only: never writes to the database, never flags a line, never
     writes a file to disk. The caller decides what to do with the
@@ -559,6 +675,12 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     in SRT and LRC, a <v Name> tag in VTT. Lines with no speaker, and SFX
     cues, are unchanged.
 
+    sound_captions (default off) starts the English of a line the title's audio tags heard
+    laughter, crying, applause, a cough, a sneeze or music under with "[laughs] " and so on
+    (_with_sound_captions); a title never tagged exports as before.
+    reading_line (SRT and VTT, "zh" and "bilingual") puts a pinyin or kana
+    row above each original text.
+
     tidy_timing (SRT and bilingual SRT only, default off) runs
     subtitle_formats.tidy_cue_timing at `fps`; without one, the frame rate
     ffprobe reads from the title's video (bounded timeout), else 24: it is
@@ -582,6 +704,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     # above it, and players, cue numbers and the timing tidy go by order.
     lines = sorted(core_module.lines_from_rows(rows), key=lambda ln: ln.start)
     _require_exportable_text(lines, field)
+    lines = _with_sound_captions(lines, field, _sound_tags(drama_id) if sound_captions else None)
+    readings = {}
+    if reading_line and field != "en" and fmt != "lrc":
+        require_reading_packages(lines, drama)
+        readings = _reading_rows(lines, drama)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
     wrap_chars = build_wrap_chars(wrap_chars_en, wrap_chars_source)
@@ -589,6 +716,11 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     names = _speaker_display_names(drama_id) if speaker_names else None
 
     if fmt == "vtt":
+        if readings:
+            # The original is wrapped here, before its reading row goes on, so the writer leaves it as it is.
+            lines = _with_reading_rows(subtitle_formats.wrap_lines(
+                lines, wrap_chars and {"zh": wrap_chars.get("zh")}, **break_language(drama)), readings)
+            wrap_chars = wrap_chars and {**wrap_chars, "zh": None}
         return _export_result(subtitle_formats.lines_to_vtt(
             lines, field, notes_by_idx, wrap_chars, **break_language(drama), speaker_names=names))
     if fmt == "lrc":
@@ -600,8 +732,8 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     timed, report = (subtitle_formats.tidy_cue_timing(export_lines, fps) if tidy_timing
                      else (export_lines, None))
     # The name goes in before wrapping, so the first row still fits the wrap width with it.
-    wrapped = subtitle_formats.wrap_lines(_with_speaker_names(timed, field, names), wrap_chars,
-                                          **break_language(drama))
+    wrapped = _with_reading_rows(subtitle_formats.wrap_lines(
+        _with_speaker_names(timed, field, names), wrap_chars, **break_language(drama)), readings)
     if field == "bilingual":
         text = core_module.lines_to_bilingual_srt(wrapped, notes_by_idx=notes_by_idx)
     else:

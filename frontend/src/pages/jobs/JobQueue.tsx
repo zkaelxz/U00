@@ -10,12 +10,11 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { hasStatus } from '../../api/client'
 import {
   addQueueAllSteps, addQueueItem, cancelQueueItem, clearFinishedQueueItems, holdQueueItem, resumeQueueItem, getQueue, moveQueueItem, pauseQueue, removeQueueItem, retryQueueItem,
-  getQueueStepSettings, setQueuePolicy, setQueueSchedule, startQueue,
+  getQueueStepSettings, setQueueItemTonight, setQueueNight, setQueuePolicy, setQueueSchedule, startQueue,
 } from '../../api/queue'
 import { getTranslateConfig } from '../../api/translateStage'
 import { Badge } from '../../components/Badge'
 import { SettingsMentions } from '../../components/SettingLink'
-import { Card } from '../../components/Card'
 import { ConfirmButton } from '../../components/ConfirmButton'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import { withoutExceptionNames } from '../../components/errorMessages'
@@ -30,11 +29,10 @@ import type {
   QueueItem, QueueSettingEdits, QueueSettingField, QueueSettingValue, QueueState, QueueStep, QueueStepSettings,
 } from '../../types/queue'
 import {
-  ADD_STEP_LABELS, HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, runStateText, scheduleText,
+  ADD_STEP_LABELS, HHMM, STEP_HELP, changedEdits, STEP_LABELS, canRemove, canRetry, finishedCount, itemName, queueSummary, runStateText, scheduleText,
   type AddStep, savedSettingValue, settingsStage, queueStatusLabel, statusTone, translateCostNote,
 } from './queueModel'
 import { useInterval } from '../../hooks/useInterval'
-import { usePersistedState } from '../../hooks/usePersistedState'
 
 // Fast while something runs, so a finished item shows up without a reload.
 const ACTIVE_POLL_MS = 5000
@@ -43,9 +41,15 @@ const SEARCHABLE_TITLES = 30
 // A long queue shows this many rows first, so the page doesn't scroll on for screens.
 const SHOWN_ITEMS = 20
 
-type Props = { titles: ReadonlyMap<number, string> }
+type Props = {
+  titles: ReadonlyMap<number, string>
+  /** Each change opens the queue on its add form (the page's + Add to queue). */
+  addSignal?: number
+  /** Whether this viewer is shown the queue at all, so the page offers + Add to queue only then. */
+  onShown?: (shown: boolean) => void
+}
 
-export function JobQueue({ titles }: Props) {
+export function JobQueue({ titles, addSignal = 0, onShown }: Props) {
   const [queue, setQueue] = useState<QueueState | null>(null)
   const [hidden, setHidden] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -58,9 +62,12 @@ export function JobQueue({ titles }: Props) {
   const [edits, setEdits] = useState<QueueSettingEdits>({})
   const [fields, setFields] = useState<QueueSettingField[]>([])
   const [time, setTime] = useState('')
+  const [tonight, setTonight] = useState(false)
+  // The night window being edited; null shows the saved one.
+  const [night, setNight] = useState<{ start: string; end: string } | null>(null)
   const [showAll, setShowAll] = useState(false)
   const refocus = useRef<string | null>(null)
-  const [folded, setFolded] = usePersistedState<boolean>('jobs.queueFolded.v1', false)
+  const titleSelect = useRef<HTMLSelectElement>(null)
 
   // Kept apart from `error` so the next good read clears it without hiding a refused action's reason.
   const [loadError, setLoadError] = useState<unknown>(null)
@@ -75,7 +82,15 @@ export function JobQueue({ titles }: Props) {
   }, [])
 
   useEffect(load, [load])
+  const shownToViewer = !hidden && queue !== null
+  useEffect(() => { onShown?.(shownToViewer) }, [onShown, shownToViewer])
   const active = queue?.state === 'running' || !!queue?.items.some((i) => i.status === 'running')
+  // A run that starts opens the fold, so its progress is in view; the viewer may fold it again.
+  const [runStarts, setRunStarts] = useState({ active: false, count: 0 })
+  if (runStarts.active !== active) setRunStarts({ active, count: runStarts.count + (active ? 1 : 0) })
+  useEffect(() => {
+    if (addSignal > 0) titleSelect.current?.focus()
+  }, [addSignal])
   useInterval(load, active ? ACTIVE_POLL_MS : IDLE_POLL_MS, { pauseWhenHidden: true })
   // The poll skips hidden ticks, so catch up at once on return instead of showing a stale queue until the next one.
   useEffect(() => {
@@ -131,8 +146,6 @@ export function JobQueue({ titles }: Props) {
   if (hidden) return null
   if (queue === null) return loadError ? <ErrorBanner error={loadError} /> : null
   const items = queue.items
-  // A running queue stays open so its progress is never hidden; the saved choice returns once it stops.
-  const open = active || !folded
   const full = items.length >= queue.max_items
   const sched = scheduleText(queue.schedule)
   const done = finishedCount(items)
@@ -148,8 +161,8 @@ export function JobQueue({ titles }: Props) {
     const id = Number(dramaId)
     if (!id) return
     const request = step === 'all'
-      ? () => addQueueAllSteps(id)
-      : () => addQueueItem(id, step, changedEdits(fields, edits))
+      ? () => addQueueAllSteps(id, tonight)
+      : () => addQueueItem(id, step, changedEdits(fields, edits), tonight)
     void act(request).then(() => setEdits({}))
   }
   const move = (item: QueueItem, dir: 'up' | 'down') => {
@@ -158,17 +171,11 @@ export function JobQueue({ titles }: Props) {
   }
 
   return (
-    <Card
-      title={
-        <button type="button" className="queue-fold" aria-expanded={open} aria-disabled={active || undefined}
-          onClick={() => { if (!active) setFolded(!folded) }}>
-          <span className="queue-fold-arrow" aria-hidden="true">{open ? '▾' : '▸'}</span>Queue
-        </button>
-      }
-      meta={runStateText(queue)} className="queue-card" aria-label="Queue"
-    >
-      {!open && <><ErrorBanner error={loadError} /><ErrorBanner error={error} onDismiss={() => setError(null)} /></>}
-      {open && <>
+    <section className="queue-section" aria-label="Queue">
+      <ErrorBanner error={loadError} />
+      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <Section title="Queue" summary={queueSummary(queue)} defaultOpen={items.length > 0} openSignal={addSignal + runStarts.count}>
+      {runStateText(queue) && <p className="muted" data-testid="queue-state">{runStateText(queue)}</p>}
       <Section title="How the queue works">
         <p className="muted">Line up steps for your titles and they start by themselves and run one at a time, unless the queue is paused or has a start time.</p>
         {queue.can_control && (
@@ -177,9 +184,8 @@ export function JobQueue({ titles }: Props) {
             <p className="muted">Stop the queue when an item fails: off, a failed item is marked and the next one starts. Skipped and cancelled items never stop the queue.</p>
           </>
         )}
+        <p className="muted">Tonight: the item waits for the night hours and starts once no one has used this PC's keyboard or mouse for 10 minutes. Run now puts it back in line.</p>
       </Section>
-      <ErrorBanner error={loadError} />
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {queue.notice && <p className="queue-notice" role="status">{queue.notice}</p>}
 
       {queue.schedule?.missed && queue.can_control ? (
@@ -214,6 +220,7 @@ export function JobQueue({ titles }: Props) {
               onHold={() => void act(() => holdQueueItem(item.id))}
               onResume={() => void act(() => resumeQueueItem(item.id))}
               onCancel={() => void act(() => cancelQueueItem(item.id))}
+              onTonight={(on) => void act(() => setQueueItemTonight(item.id, on))}
             />
           ))}
         </ol>
@@ -231,7 +238,7 @@ export function JobQueue({ titles }: Props) {
       )}
       <div className="queue-add" role="group" aria-label="Add to queue">
         <Field label="Title">
-          <select className="w-md" value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
+          <select ref={titleSelect} className="w-md" value={dramaId} onChange={(e) => { setDramaId(e.target.value); setEdits({}) }}>
             <option value="">Pick a title</option>
             {titleOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
           </select>
@@ -240,6 +247,9 @@ export function JobQueue({ titles }: Props) {
           <select className="w-md" value={step} onChange={(e) => { setStep(e.target.value as AddStep); setEdits({}) }}>
             {(Object.keys(ADD_STEP_LABELS) as AddStep[]).map((s) => <option key={s} value={s}>{ADD_STEP_LABELS[s]}</option>)}
           </select>
+        </Field>
+        <Field label="Tonight">
+          <Toggle checked={tonight} onChange={setTonight} />
         </Field>
         <button type="button" className={buttonClass('secondary')} disabled={busy || !dramaId || full} onClick={add}>
           Add to queue
@@ -296,7 +306,29 @@ export function JobQueue({ titles }: Props) {
               </button>
             )}
           </div>
+          <div className="queue-row" role="group" aria-label="Night hours">
+            <Field label="Night from">
+              <input type="time" value={night?.start ?? queue.night.start} onChange={(e) => setNight({ start: e.target.value, end: night?.end ?? queue.night.end })} />
+            </Field>
+            <Field label="Night until">
+              <input type="time" value={night?.end ?? queue.night.end} onChange={(e) => setNight({ start: night?.start ?? queue.night.start, end: e.target.value })} />
+            </Field>
+            {night && (
+              <button
+                type="button"
+                className={buttonClass('secondary')}
+                disabled={busy || !HHMM.test(night.start) || !HHMM.test(night.end) || night.start === night.end}
+                onClick={() => void act(() => setQueueNight({ ...night, self_check: queue.night.self_check })).then(() => setNight(null))}
+              >
+                Save night hours
+              </button>
+            )}
+          </div>
           <div className="setting-list">
+            <Field label="Nightly self-check" help="Once a night, when nothing runs: a short test of transcription, comic reading and the translation key. You get an alert only when the same part fails two nights in a row.">
+              <Toggle checked={queue.night.self_check} disabled={busy}
+                onChange={(on) => void act(() => setQueueNight({ start: queue.night.start, end: queue.night.end, self_check: on }))} />
+            </Field>
             <Field label="Stop the queue when an item fails">
               <Toggle checked={queue.stop_on_failure} disabled={busy} onChange={(on) => void act(() => setQueuePolicy({ stop_on_failure: on }))} />
             </Field>
@@ -316,8 +348,8 @@ export function JobQueue({ titles }: Props) {
           </button>
         </div>
       )}
-      </>}
-    </Card>
+      </Section>
+    </section>
   )
 }
 
@@ -464,16 +496,19 @@ type RowProps = {
   onHold: () => void
   onResume: () => void
   onCancel: () => void
+  onTonight: (on: boolean) => void
 }
 
-export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry, onHold, onResume, onCancel }: RowProps) {
+export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove, onRetry, onHold, onResume, onCancel, onTonight }: RowProps) {
   const name = itemName(item)
+  const waiting = item.status === 'waiting'
   return (
     <li className="queue-item" data-testid={`queue-item-${item.id}`}>
       <div className="queue-item-head">
         <a href={routeHref({ name: 'drama', id: item.drama_id, stage: null })}>{item.title}</a>
         <span>{STEP_LABELS[item.step]}</span>
         <Badge tone={item.held ? 'warn' : statusTone(item.status)}>{item.held ? 'Paused' : queueStatusLabel(item.status)}</Badge>
+        {item.tonight && waiting && <Badge tone="info">Tonight</Badge>}
       </div>
       {item.reason && <p className={item.status === 'failed' ? 'error' : 'muted'}>{withoutExceptionNames(item.reason)}</p>}
       {item.changed_settings.length > 0 && (
@@ -505,6 +540,17 @@ export function QueueRow({ item, first, last, busy, monthlyCap, onMove, onRemove
             ) : (
               <button type="button" className={buttonClass('secondary')} aria-label={`Pause ${name}`} disabled={busy} onClick={onHold}>
                 Pause
+              </button>
+            )
+          )}
+          {waiting && (
+            item.tonight ? (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Run now ${name}`} disabled={busy} onClick={() => onTonight(false)}>
+                Run now
+              </button>
+            ) : !item.page_run && (
+              <button type="button" className={buttonClass('secondary')} aria-label={`Run tonight ${name}`} disabled={busy} onClick={() => onTonight(true)}>
+                Run tonight
               </button>
             )
           )}

@@ -43,6 +43,39 @@ test('shows source and result side by side on desktop, with humanized history', 
   await expect(row).not.toContainText('fake')
 })
 
+for (const [width, height] of [[1280, 720], [1536, 864]]) {
+  test(`Translate stays on screen beside the boxes at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height })
+    await page.goto('/#/translate')
+    // The engine note appears once the engine list loads and moves the boxes down; measure after it.
+    await expect(page.getByTestId('engine-note')).toBeVisible()
+    const translate = page.getByRole('button', { name: 'Translate', exact: true })
+    const box = await translate.boundingBox()
+    expect(box && box.y + box.height <= height).toBe(true)
+    const src = await page.getByLabel('Text to translate').boundingBox()
+    expect(src && box && box.y > src.y + src.height - 1).toBe(true)
+  })
+}
+
+test('the + menu loads a file and closes; the file name stays in view', async ({ page }) => {
+  await page.goto('/#/translate')
+  const menu = page.getByText('+ File or screenshot')
+  await menu.click()
+  await expect(page.getByText('Open a file…')).toBeVisible()
+  await page.getByLabel('Open a file…').setInputFiles({ name: 'ep1.txt', mimeType: 'text/plain', buffer: Buffer.from('你好') })
+  await expect(page.getByText('Open a file…')).toBeHidden()
+  await expect(page.getByRole('status').filter({ hasText: 'Loaded ep1.txt' })).toBeVisible()
+  await expect(page.getByLabel('Text to translate')).toHaveValue('你好')
+  await menu.click()
+  await page.keyboard.press('Escape')
+  await expect(page.getByText('Open a file…')).toBeHidden()
+  // Choosing a row hides it; focus goes back to the menu button, not to the top of the page.
+  await menu.click()
+  await page.getByRole('button', { name: 'Read from a screenshot…' }).click()
+  await expect(page.getByRole('group', { name: 'Read from a screenshot' })).toBeVisible()
+  await expect(menu).toBeFocused()
+})
+
 test('swap flips the languages in one press and is remembered', async ({ page }) => {
   await page.goto('/#/translate')
   await expect(page.getByLabel('Source language')).toHaveValue('zh')
@@ -106,10 +139,28 @@ test('clears history after a second press, then shows the empty list', async ({ 
   await expect(page.getByTestId('translate-history').locator('li').first()).toContainText('再见')
 
   await page.getByRole('button', { name: 'Clear history' }).click()
-  await page.getByRole('button', { name: 'Confirm clear translation history' }).click()
+  await page.getByRole('button', { name: "Clear everyone's Text history on this PC?" }).click()
   await expect(page.getByText('No translations yet.')).toBeVisible()
   await expect(page.getByTestId('translate-history')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Clear history' })).toHaveCount(0)
+})
+
+test("history names each row's account once it holds more than one", async ({ page }) => {
+  const row = (source_text: string, account: string) => ({
+    source_text, translated_text: 'x', source_language: 'zh', target_language: 'en', engine: 'fake',
+    created_at: '2026-09-29 12:00:00', account,
+  })
+  let items = [row('一', 'PC owner'), row('二', 'Alex Example')]
+  await page.route('**/api/translate/history**', (r) => r.fulfill({ json: { items } }))
+  await page.goto('/#/translate')
+  const list = page.getByTestId('translate-history')
+  await expect(list.locator('li').nth(0)).toContainText('PC owner')
+  await expect(list.locator('li').nth(1)).toContainText('Alex Example')
+
+  items = [row('三', 'PC owner')]
+  await page.reload()
+  await expect(list).toContainText('三')
+  await expect(list).not.toContainText('PC owner')
 })
 
 test('another device sees why it cannot clear history', async ({ page }) => {

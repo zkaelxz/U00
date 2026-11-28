@@ -347,16 +347,56 @@ def dedup_overlap(segments: list, overlap_seconds: float, tail_text: str,
 _SUBSCRIBE_RE = re.compile(r"チャンネル登録|subscribe|구독", re.IGNORECASE)
 
 
+# A name fixed during a stream is one short word or phrase, and a session keeps a handful.
+MAX_NAME_FIXES = 50
+MAX_FIX_SOURCE_CHARS = 40
+MAX_FIX_ENGLISH_CHARS = 80
+MAX_PROMPTED_FIXES = 10
+
+
 class TermHints:
     """The glossary a session translates with: calling it looks terms up in some texts (for the
-    translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none)."""
+    translator), and `names` is the glossary's own names as a Whisper prompt ("" when there are none).
+    Names fixed during the stream (add_fix) win in both: first in the lookup, and last in the
+    prompt, since Whisper keeps only the end of a long one. The viewer has just seen the
+    glossary's or the model's reading go wrong."""
 
-    def __init__(self, lookup, names: str = ""):
+    def __init__(self, lookup=None, names: str = ""):
         self.lookup = lookup
-        self.names = names
+        self._names = names
+        self._fixes: dict = {}
+        self._lock = threading.Lock()
+
+    def add_fix(self, source: str, english: str) -> None:
+        with self._lock:
+            if source not in self._fixes and len(self._fixes) >= MAX_NAME_FIXES:
+                raise ValueError("too many fixes")
+            self._fixes.pop(source, None)
+            self._fixes[source] = english
+
+    def has_room(self, source: str) -> bool:
+        with self._lock:
+            return source in self._fixes or len(self._fixes) < MAX_NAME_FIXES
+
+    def fixes(self) -> list:
+        with self._lock:
+            return list(self._fixes.items())
+
+    @property
+    def names(self) -> str:
+        # The newest few only: the previous chunk's tail comes after these and needs its room too.
+        primed = set(re.split(r"[、。]", self._names))
+        fixed = [s for s, _ in self.fixes() if s not in primed][-MAX_PROMPTED_FIXES:]
+        if not fixed:
+            return self._names
+        return self._names + "、".join(fixed) + "。"
 
     def __call__(self, texts):
-        return self.lookup(texts)
+        text = "\n".join(t for t in texts if isinstance(t, str))
+        fixed = [(s, e, "") for s, e in self.fixes() if s in text]
+        taken = {row[0] for row in fixed}
+        found = self.lookup(texts) if self.lookup is not None else []
+        return fixed + [row for row in found if row[0] not in taken]
 
 
 def drop_name_list_echo(segments: list, names: str) -> list:
@@ -619,7 +659,7 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb, prompt_every_window=False))
+        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()

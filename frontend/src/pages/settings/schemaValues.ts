@@ -2,12 +2,19 @@
 import type { SettingsSchemaRow } from '../../types/settings'
 import { checkPath, type Parsed } from './preferences'
 
-// A zero or unset number reads as blank: the placeholder says what blank means.
+// An unset number reads as blank: the placeholder says what blank means. A zero reads as blank only where blank
+// saves back as 0; elsewhere ("0 = never" over a default of 2, "0 = no cap" over the .env cap) it must stay 0, or
+// the next save of the card would quietly put the default back.
 export function toDraftValue(row: SettingsSchemaRow, saved: unknown): string | boolean {
   if (row.type === 'bool') return saved === true
-  if (row.type === 'int' || row.type === 'float') return saved == null || saved === 0 ? '' : String(saved)
+  if (row.type === 'int' || row.type === 'float') return saved == null || (saved === 0 && row.default === 0) ? '' : String(saved)
   if (row.type === 'json') return JSON.stringify(saved ?? row.default ?? {}, null, 2)
   return saved == null ? '' : String(saved)
+}
+
+export function blockedPhrasesSummary(text: string | null | undefined): string {
+  const n = (text ?? '').split('\n').filter((l) => l.trim()).length
+  return n === 0 ? 'Nothing blocked' : `${n} phrase${n === 1 ? '' : 's'}`
 }
 
 export function toSavedValue(row: SettingsSchemaRow, raw: string | boolean): Parsed<unknown> {

@@ -9,6 +9,8 @@ import math
 import re
 import unicodedata
 
+from en_cleanup import drop_em_dashes
+
 # Thresholds are deliberately generous: a false alarm costs a paid re-ask, a
 # miss only leaves today's behaviour.
 WORDS_PER_CJK_CHAR = 0.5       # subtitle English runs about half a word per CJK character
@@ -319,7 +321,7 @@ def guard_batch(chunk: list, redo, stop, allowed_runs=(), novel: bool = False) -
             if p not in still or len(line_problems(sources[p], candidate[p], allowed_runs, novel)) < len(
                     line_problems(sources[p], replies[p], allowed_runs, novel)):
                 replies[p] = candidate[p]
-                live[p].en = candidate[p]
+                live[p].en = drop_em_dashes(candidate[p], sources[p])
     return [(live[p], reason)
             for p, reason in suspect_positions(sources, replies, allowed_runs, novel).items()]
 

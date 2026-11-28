@@ -19,7 +19,7 @@ import env_reader
 from jobs import job_settings
 import memory_headroom
 import stored_settings
-from lib import settings_schema
+from lib import desktop_session, settings_schema
 from lib.errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
@@ -166,6 +166,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
         "gpu_max_parallel": job_settings.get_gpu_max_parallel(),
         "notify_on_completion": job_settings.get_notify_on_completion(),
+        "desktop_popups": desktop_session.has_desktop(),
         "use_gpu": get("use_gpu"),
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),

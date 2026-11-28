@@ -73,7 +73,13 @@ def test_not_saving_does_not_report_stored_or_flag():
 def test_the_no_engine_note_says_where_to_set_one_and_offers_ollama():
     note = js("NO_ENGINE_NOTE")
     assert "Settings" in note and "Browser extension" in note
-    assert "Ollama" in note and "free" in note.lower()
+    # Ollama is hosted and billed now, so the note must not call it free.
+    assert "Ollama" in note and "billed" in note and "free" not in note.lower()
+
+
+def test_a_copy_on_another_computer_is_told_who_picks_the_engine():
+    note = js("NO_ENGINE_NOTE_REMOTE")
+    assert "whoever runs the Baihe PC" in note and "Browser extension" in note
 
 
 def test_a_stopped_run_shows_its_message_and_is_flagged():
@@ -255,11 +261,11 @@ def test_cancel_says_so_at_once_aborts_the_request_in_flight_and_stays_cancelled
     assert out["sends"] == 0 and out["outcome"] is True
 
 
-def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None, expected=0):
+def _complete(found, entries, repeats=(), unreadable=(), counts=None, timing=None, expected=0, store=True):
     counts = counts or {"untranslatedLines": 0}
     timing = timing or {"read": 0, "translate": 0, "typeset": 0, "pages": 0}
     expression = ("window.__baihe.completenessLine(" + ", ".join(json.dumps(a) for a in (
-        found, list(entries), list(repeats), list(unreadable), counts, timing, expected)) + ")")
+        found, list(entries), list(repeats), list(unreadable), counts, timing, expected, store)) + ")")
     return _node("content_expression", expression)
 
 
@@ -287,6 +293,14 @@ def test_a_clean_capture_says_all_saved_and_names_nothing_missing():
     entries = [{"position": i, "status": "saved"} for i in range(1, 4)]
     text = _complete(3, entries)
     assert text == "Saved 3 of 3 pages"
+
+
+def test_a_quick_translate_capture_says_translated_not_saved():
+    entries = [{"position": i, "status": "read"} for i in range(1, 4)]
+    assert _complete(3, entries, store=False) == "Translated 3 of 3 pages, drawn on this page only"
+    counts = {"translated": 3, "noText": 1, "noEnglish": 1}
+    tally = _node("content_expression", "window.__baihe.captureTally(3, " + json.dumps(counts) + ', "", [], "", "", false)')
+    assert "1 with no text found" in tally and "1 with text read but no English back" in tally and "saved" not in tally
 
 
 def test_the_closing_line_says_when_the_reader_shows_more_pages_than_were_found():
@@ -368,3 +382,15 @@ def test_a_second_press_while_sending_sends_nothing_more_and_the_result_links_th
     html = (Path(__file__).resolve().parents[1] / "extension" / "popup.html").read_text(encoding="utf-8")
     for element_id in ("tab-video", "panel-video", "sendVideo", "startLive", "liveLanguage", "openInBaihe"):
         assert f'id="{element_id}"' in html
+
+
+def test_quick_translate_hides_the_several_chapters_controls_and_says_why():
+    out = _node("popup_controls", "x")
+    assert out["quick"] == {"continueComic": False, "seriesCountRow": False, "continueQuickNote": True}
+    assert out["save"] == {"continueComic": True, "seriesCountRow": True, "continueQuickNote": False}
+
+
+def test_the_draw_over_page_switch_is_saved_and_applied_to_the_open_page_at_once():
+    out = _node("popup_controls", "x")
+    assert out["stored"] == [{"overlay": False}]
+    assert [7, {"type": "setOverlays", "visible": False}] in out["toTab"]

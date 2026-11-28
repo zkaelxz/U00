@@ -22,7 +22,7 @@ test('rules: Fast is disabled and says so where unvetted, a change posts, a refu
 
   const settings = await openManage(page)
 
-  const alpha = settings.getByRole('combobox', { name: 'Rules: Alpha Comics' })
+  const alpha = settings.getByRole('combobox', { name: 'Pace: Alpha Comics' })
   await expect(alpha).toHaveValue('normal')
   // The stored values stay careful / normal / fast; the words are Gentle / Standard / Fast.
   await expect(alpha.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast (not available)'])
@@ -31,7 +31,7 @@ test('rules: Fast is disabled and says so where unvetted, a change posts, a refu
   await expect(settings.getByText("Fast is only available for sites whose rules we've checked.")).toHaveCount(1)
   await expect(settings.locator('tbody tr', { hasText: 'Alpha Comics' })).not.toContainText('Fast is')
   // A site whose rules were checked offers a plain Fast.
-  const beta = settings.getByRole('combobox', { name: 'Rules: Beta Novels' })
+  const beta = settings.getByRole('combobox', { name: 'Pace: Beta Novels' })
   await expect(beta.locator('option')).toHaveText(['Gentle', 'Standard', 'Fast'])
   await expect(beta.locator('option[value="fast"]')).toBeEnabled()
 

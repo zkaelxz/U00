@@ -9,6 +9,7 @@
  * unzipped in memory, so it gets the smaller MAX_EPUB_BYTES cap.
  */
 import { MAX_TRANSLATE_TEXT_CHARS } from '../api/translate'
+import { saveInShell } from '../phoneShell'
 import { EpubError, MAX_EPUB_BYTES, extractEpubText, type HtmlToText } from './translateEpub'
 
 const ACCEPTED_EXTENSIONS = ['.txt', '.md', '.epub'] as const
@@ -191,7 +192,9 @@ function browserDeps(): DownloadDeps {
 
 /** Save text as a UTF-8 .txt via Blob + object URL. */
 export function downloadText(text: string, filename: string, deps: DownloadDeps = browserDeps()) {
-  const url = deps.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }))
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+  if (saveInShell(blob, filename)) return
+  const url = deps.createObjectURL(blob)
   try {
     deps.click(url, filename)
   } finally {

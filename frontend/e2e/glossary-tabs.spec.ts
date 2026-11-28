@@ -58,21 +58,21 @@ test('Instructions: project and series are saved separately, each with a count a
   await gotoTranslate(page, 'glossary')
   await glossaryTab(page, 'Instructions')
   const state = page.getByTestId('instructions-state')
-  await expect(state).toHaveText('Project: not set · Series: not set')
+  await expect(state).toHaveText('Title: not set · Series: not set')
 
-  await page.getByLabel('Project instructions').fill('Keep honorifics')
+  await page.getByLabel('Title instructions').fill('Keep honorifics')
   await expect(page.getByTestId('project-instructions-count')).toHaveText('15 characters')
   // Typing alone claims nothing: the line follows what was saved.
-  await expect(state).toHaveText('Project: not set · Series: not set')
-  await page.getByRole('button', { name: 'Save project instructions' }).click()
-  await expect(state).toHaveText('Project: set, 15 characters · Series: not set')
+  await expect(state).toHaveText('Title: not set · Series: not set')
+  await page.getByRole('button', { name: 'Save title instructions' }).click()
+  await expect(state).toHaveText('Title: set, 15 characters · Series: not set')
   expect(saved).toEqual([{ scope: 'project', body: { text: 'Keep honorifics' } }])
 
   await region(page).getByText('Series instructions', { exact: true }).first().click()
   await page.getByLabel('Series instructions').fill('Names stay in pinyin')
   await expect(page.getByTestId('series-instructions-count')).toHaveText('20 characters')
   await page.getByRole('button', { name: 'Save series instructions' }).click()
-  await expect(state).toHaveText('Project: set, 15 characters · Series: set, 20 characters')
+  await expect(state).toHaveText('Title: set, 15 characters · Series: set, 20 characters')
   expect(saved.map((s) => s.scope)).toEqual(['project', 'series'])
 })
 

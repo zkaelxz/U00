@@ -31,7 +31,7 @@ test('novel: AI fallback engine, check before importing, correct, save profile, 
   await card.getByRole('switch', { name: 'Let AI help if the page is unclear' }).click()
   const engine = card.getByRole('combobox', { name: 'AI engine' })
   await expect(engine).toHaveValue('claude')
-  await expect(engine.locator('option')).toHaveText(['Claude (default)', 'Gemini', 'Ollama (on this PC)'])
+  await expect(engine.locator('option')).toHaveText(['Claude (default)', 'Gemini', 'Ollama'])
   await engine.selectOption('ollama')
   await card.getByRole('switch', { name: 'Check before importing' }).click()
   await card.getByRole('button', { name: 'Import text' }).click()

@@ -159,6 +159,16 @@ class TestTryLine:
         ctx = engine.contexts[0][1]
         assert ctx["locale"] == "en-AU" and ctx["style_note"] == "Plain and short."
 
+    def test_uses_the_titles_last_run_style_preset(self, drama, engine, monkeypatch):
+        did, ids, _ = drama
+        from services import workspace_job_service
+        presets, real = [], workspace_job_service.build_run_style_context
+        monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                            lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+        db.update_drama(did, translate_start_json=json.dumps({"style_preset": "novel"}))
+        svc.try_line(did, ids[1], "claude")
+        assert presets == ["novel"]
+
     def test_character_hints_reach_the_prompt(self, drama, engine, monkeypatch):
         did, ids, _ = drama
         from services import workspace_job_service

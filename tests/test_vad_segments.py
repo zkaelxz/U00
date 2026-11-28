@@ -116,3 +116,66 @@ def test_fixed_spans_fold_a_tiny_tail_into_the_window_before_it():
 
 def test_fixed_spans_of_nothing_is_nothing():
     assert fixed_spans(0.0, 8.0) == []
+
+
+def _remembering_silero(monkeypatch):
+    import sys
+    import types
+    scored = []
+
+    class SileroVADModel:
+        def __call__(self, audio, num_samples=512):
+            scored.append(audio.shape[0])
+            n = num_samples if isinstance(num_samples, int) else 512
+            return (np.abs(audio).reshape(-1, n).mean(axis=1) * 10)[:, None]
+
+    fake_vad = types.SimpleNamespace(SileroVADModel=SileroVADModel)
+    monkeypatch.setitem(sys.modules, "faster_whisper", types.SimpleNamespace(vad=fake_vad))
+    monkeypatch.setitem(sys.modules, "faster_whisper.vad", fake_vad)
+    monkeypatch.setattr(vad_segments, "_remembering", False)
+    assert vad_segments.remember_speech_scores()
+    return SileroVADModel, scored
+
+
+def test_a_file_scored_once_is_not_scored_again_and_gets_the_same_scores(monkeypatch):
+    model_class, scored = _remembering_silero(monkeypatch)
+    model = model_class()
+    audio = np.concatenate([np.zeros(SR), tone(2)]).astype(np.float32)
+    audio = np.pad(audio, (0, 512 - audio.shape[0] % 512))
+    first = model(audio)
+    first[:] = -1                       # a caller changing its copy changes nothing kept
+    again = model(audio.copy())
+    assert scored == [audio.shape[0]]
+    assert (again == (np.abs(audio).reshape(-1, 512).mean(axis=1) * 10)[:, None]).all()
+    other = audio.copy()
+    other[0] = 0.5
+    model(other)
+    assert scored == [audio.shape[0]] * 2
+
+
+def test_remembered_scores_give_the_same_spans_as_scoring_afresh(monkeypatch):
+    # The submodule, not the package: other test files leave a stub faster_whisper module behind.
+    vad = pytest.importorskip("faster_whisper.vad")
+    SileroVADModel, get_vad_model = vad.SileroVADModel, vad.get_vad_model
+    # The model is shared by the whole test process, so start from the plain method and no scores.
+    fresh = getattr(SileroVADModel.__call__, "unwrapped", SileroVADModel.__call__)
+    monkeypatch.setattr(SileroVADModel, "__call__", fresh)
+    monkeypatch.setattr(vad_segments, "_remembering", False)
+    monkeypatch.delitem(get_vad_model().__dict__, "_baihe_scores", raising=False)
+    audio = np.concatenate([np.zeros(SR), tone(3), np.zeros(SR), tone(1)]).astype(np.float32)
+    with monkeypatch.context() as m:
+        m.setattr(vad_segments, "remember_speech_scores", lambda: False)
+        expected = [speech_spans(audio, SR, threshold=t, min_silence_ms=150) for t in (0.4, 0.5)]
+    assert vad_segments.remember_speech_scores()
+    assert [speech_spans(audio, SR, threshold=t, min_silence_ms=150) for t in (0.4, 0.5)] == expected
+    assert len(get_vad_model().__dict__["_baihe_scores"]) == 1
+    padded = np.pad(audio, (0, 512 - audio.shape[0] % 512))
+    assert np.array_equal(get_vad_model()(padded), fresh(get_vad_model(), padded))
+
+
+def test_a_call_the_memo_cannot_key_is_scored_as_before(monkeypatch):
+    model_class, scored = _remembering_silero(monkeypatch)
+    audio = np.zeros(1024, dtype=np.float32)
+    model_class()(audio, num_samples=[512])  # an unhashable argument
+    model_class()(audio, num_samples=[512])
+    assert scored == [1024, 1024]

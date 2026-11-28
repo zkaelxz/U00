@@ -7,7 +7,7 @@ type Schemas = components['schemas']
 export type AssistantSettings = Schemas['AssistantSettings']
 
 export type AssistantSettingsPatch = Partial<
-  Pick<AssistantSettings, 'developer_mode' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
+  Pick<AssistantSettings, 'developer_mode' | 'quick_read_keep_pages' | 'engine' | 'model' | 'roles_enabled' | 'review_engine' | 'review_model' | 'cloud_consent'>
 > & { tiers?: string[] | null }
 
 interface AssistantTool {

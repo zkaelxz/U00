@@ -58,7 +58,7 @@ Apply to every new or reworked React page. A reviewer can check each with a yes 
     Alternatives use `.btn-secondary`; quiet or tertiary actions (Estimate cost, Detect speakers only,
     Details, Clear) use `.btn-ghost`; destructive actions use `.btn-danger`, placed last and set apart.
     `.btn-sm` is only for dense rows (list rows, card footers, the Review toolbar) and still gets 44px on
-    touch. Legacy `button.primary` and `.badge` are styled like the kit until their screens migrate.
+    touch. Legacy `.badge` is styled like the kit until its screens migrate; a text link inside a sentence stays `button.link`.
 18. **Navigation that acts like a button is a `ButtonLink`.** "Open workspace", "Read", "Go to Source"
     and "Resume" are `a.btn`, not underlined text. Underlined links are only for links inside a sentence;
     `button.link` is retired except inside prose.

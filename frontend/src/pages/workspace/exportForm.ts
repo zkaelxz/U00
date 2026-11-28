@@ -30,7 +30,11 @@ export interface AssForm {
   includeNotes: boolean
   tidyTiming: boolean
   speakerNames: boolean
+  soundCaptions: boolean
   notesAsSeparateLine: boolean
+  readingLine: boolean
+  karaoke: boolean
+  earPlacement: boolean
   wrapEn: string
   wrapSource: string
   baseName: string
@@ -39,7 +43,8 @@ export interface AssForm {
 export const emptyAssForm = (preset: string): AssForm => ({
   field: 'en', preset, font: '', size: '', outlineWidth: '', shadow: '', primary: '', outline: '',
   bold: '', italic: '', alignment: '', sfxAlignment: '', notesAlignment: '', speakerColors: '',
-  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, notesAsSeparateLine: false, wrapEn: '', wrapSource: '', baseName: '',
+  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, soundCaptions: false, notesAsSeparateLine: false,
+  earPlacement: false, readingLine: false, karaoke: false, wrapEn: '', wrapSource: '', baseName: '',
 })
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
@@ -142,7 +147,8 @@ export function buildAssRequest(
     if (value) style[key] = value
   }
 
-  const colors = parseSpeakerColors(form.speakerColors)
+  // With Colour each speaker off the export uses one style, so typed colours would be dropped: neither check nor send them.
+  const colors = form.perSpeakerColors ? parseSpeakerColors(form.speakerColors) : {}
   if (colors.error) return { error: colors.error }
   const wrapEn = parseWrap(form.wrapEn)
   const wrapSource = parseWrap(form.wrapSource)
@@ -159,7 +165,20 @@ export function buildAssRequest(
   if (colors.colors) request.speaker_colors = colors.colors
   if (wrapEn.value !== undefined) request.wrap_chars_en = wrapEn.value
   if (wrapSource.value !== undefined) request.wrap_chars_source = wrapSource.value
+  if (form.soundCaptions) request.sound_captions = true
+  if (form.earPlacement) request.ear_placement = true
+  if (form.field !== 'en') {
+    if (form.readingLine) request.reading_line = true
+    if (form.karaoke) request.karaoke = true
+  }
   return { request }
+}
+
+/** The language a reading line is written for (pinyin or kana), or null: Korean is written in Hangul, which already
+ * spells the sound. A title saved without a language is Chinese, as the server treats it. */
+export function readingLanguage(sourceLanguage: string | null | undefined): 'zh' | 'ja' | null {
+  const lang = sourceLanguage || 'zh'
+  return lang === 'zh' || lang === 'ja' ? lang : null
 }
 
 export const MAX_BASE_NAME = 100
