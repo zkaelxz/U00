@@ -26,13 +26,13 @@ def _run(kind, scenario):
 
 
 class TestChapterCapture:
-    def test_the_capture_keeps_reading_pages_while_its_first_small_batch_is_out(self):
+    def test_the_first_batch_is_waited_for_and_later_ones_are_read_past(self):
         out = _run("content", "capture_keeps_reading_while_a_batch_is_out")
         assert out["ok"] is True
-        assert out["readWhileOut"] is True
-        urls = [f"https://s1.bzcdn.net/p/{n}.jpg" for n in range(1, 6)]
-        # The first batch goes at three pages; the rest follow in reading order, one batch at a time.
-        assert out["batches"] == [urls[:3], urls[3:]]
+        # The first answer lands while its pages are still on screen; after that the scroll goes on.
+        assert out["readWhileOut"] == [False, True]
+        urls = [f"https://s1.bzcdn.net/p/{n}.jpg" for n in range(1, 8)]
+        assert out["batches"] == [urls[:3], urls[3:5], urls[5:]]
         assert any("translating 1-3 of 3" in p for p in out["progress"]), out["progress"]
 
     def test_english_for_a_recycled_element_is_drawn_when_its_picture_shows_again(self):

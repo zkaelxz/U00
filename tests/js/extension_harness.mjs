@@ -266,22 +266,24 @@ async function content(scenario) {
       return { ok: result.ok, error: result.error, shots: h.shots.length, sent: h.sent.flatMap((m) => m.images).length };
     }
     case "capture_keeps_reading_while_a_batch_is_out": {
-      // Three pages at first, two more that the reader loads while the first batch is out.
-      const urls = [1, 2, 3, 4, 5].map((n) => `https://s1.bzcdn.net/p/${n}.jpg`);
+      // Three pages at first; two more load while the first batch is out, and two more while the second is.
+      const urls = [1, 2, 3, 4, 5, 6, 7].map((n) => `https://s1.bzcdn.net/p/${n}.jpg`);
       const distinct = async ({ url }) => ({
         ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
                           content_type: "image/jpeg", url } });
       const images = urls.slice(0, 3).map((u, i) => placed(fakeImg(u), i * 100));
-      let readWhileOut = null;
+      const readWhileOut = [];
       let h = null;
-      const onSend = async (message) => {
-        if (h.sent.length !== 1) return;
-        images.push(placed(fakeImg(urls[3]), 300), placed(fakeImg(urls[4]), 400));
-        const until = Date.now() + 3000;
-        while (Date.now() < until && !urls.slice(3).every((u) => h.fetched.includes(u))) {
+      const onSend = async () => {
+        const n = h.sent.length;
+        if (n > 2) return;
+        const more = urls.slice(1 + 2 * n, 3 + 2 * n);
+        more.forEach((u, k) => images.push(placed(fakeImg(u), (1 + 2 * n + k) * 100)));
+        const until = Date.now() + 1500;
+        while (Date.now() < until && !more.every((u) => h.fetched.includes(u))) {
           await new Promise((resolve) => setTimeout(resolve, 10));
         }
-        readWhileOut = urls.slice(3).every((u) => h.fetched.includes(u));
+        readWhileOut.push(more.every((u) => h.fetched.includes(u)));
       };
       const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
       h = loadContent({ images, fetchImage: distinct, onSend, sendReply });
