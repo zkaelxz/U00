@@ -101,6 +101,30 @@ class TestDramaCRUD:
         results = isolated_db.list_dramas(search="dragons")
         assert len(results) == 1
 
+    def test_search_matches_people_tags_and_series_every_viewer_sees(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Night Radio")
+        found = {
+            "Alex Writer": isolated_db.create_drama(title_en="One", author="Alex Writer"),
+            "Sam Romaji": isolated_db.create_drama(title_en="Two", author="山本", author_romanized="Sam Romaji"),
+            "Echo Studio": isolated_db.create_drama(title_en="Three", studio="Echo Studio"),
+            "Kim Voice": isolated_db.create_drama(title_en="Four", voice_actors="Kim Voice, Lee Voice"),
+            "Lee Roman": isolated_db.create_drama(title_en="Five", voice_actors_romanized="Lee Roman"),
+            "slowburn": isolated_db.create_drama(title_en="Six", custom_tags="Favorite,slowburn"),
+            "Night Radio": isolated_db.create_drama(title_en="Seven", series_id=sid),
+        }
+        for term, did in found.items():
+            assert [d["id"] for d in isolated_db.list_dramas(search=term)] == [did], term
+
+    def test_search_never_reads_old_private_notes_or_another_members_private_title(self, isolated_db):
+        isolated_db.create_drama(title_en="Noted", personal_notes="secretword")
+        assert isolated_db.list_dramas(search="secretword") == []
+        a = isolated_db.auth_create_user("a@example.com")
+        b = isolated_db.auth_create_user("b@example.com")
+        mine = isolated_db.create_drama(title_en="Private", author="Hidden Writer",
+                                        owner_user_id=a, is_private=1)
+        assert [d["id"] for d in isolated_db.list_dramas(search="Hidden Writer", visible_to=a)] == [mine]
+        assert isolated_db.list_dramas(search="Hidden Writer", visible_to=b) == []
+
 
 class TestDramaColumnCheck:
     BAD_KEYS = ["nope", "title en", "title_en'", "title_en;", "title_en -- ", "Title_en", "id"]
@@ -449,30 +473,16 @@ class TestBenchmarkCasesAndRuns:
         isolated_db.delete_benchmark_case(case_id)
         assert isolated_db.list_benchmark_cases() == []
 
-    def test_save_and_list_runs_for_a_case(self, isolated_db):
+    def test_deleting_a_case_cascades_to_its_old_runs(self, isolated_db):
+        # Upgraded libraries can still hold rows from the removed benchmark runner.
+        import contextlib
         case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        isolated_db.save_benchmark_run(case_id, {"output_text": "hi", "score": 0.9,
-                                                  "duration_seconds": 1.2, "error": None},
-                                        run_label="first try")
-        runs = isolated_db.list_benchmark_runs(case_id)
-        assert len(runs) == 1
-        assert runs[0]["score"] == 0.9
-        assert runs[0]["run_label"] == "first try"
-
-    def test_deleting_a_case_cascades_to_its_runs(self, isolated_db):
-        case_id = isolated_db.create_benchmark_case("a", "transcription", "audio_drama")
-        isolated_db.save_benchmark_run(case_id, {"output_text": "hi", "score": 0.9,
-                                                  "duration_seconds": 1.0, "error": None})
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            conn.execute("INSERT INTO benchmark_runs (case_id, output_text) VALUES (?, 'hi')", (case_id,))
+            conn.commit()
         isolated_db.delete_benchmark_case(case_id)
-        assert isolated_db.list_benchmark_runs(case_id) == []
-
-
-    def test_cost_defaults_to_zero_when_omitted(self, isolated_db):
-        case_id = isolated_db.create_benchmark_case("a", "translation", "novel")
-        isolated_db.save_benchmark_run(case_id, {"output_text": "x", "score": 1.0,
-                                                  "duration_seconds": 0.5, "error": None})
-        runs = isolated_db.list_benchmark_runs(case_id)
-        assert runs[0]["cost_usd"] == 0.0
+        with contextlib.closing(isolated_db.get_conn()) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM benchmark_runs").fetchone()[0] == 0
 
 
 class TestImportTimeSafety:

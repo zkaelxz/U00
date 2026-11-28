@@ -4,6 +4,7 @@ import path from 'node:path'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { ctrlS, openFoldFor } from './reviewFolds'
 import { installHitArea } from './hitArea'
+import { shot } from './shots'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -17,8 +18,8 @@ test.beforeEach(async ({ page }) => {
 const repoRoot = path.resolve(process.cwd(), '..')
 const libraryDir = path.join(repoRoot, 'frontend', 'test-results', 'e2e-library')
 
-function python(code: string) {
-  execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot })
+function python(code: string): string {
+  return execFileSync(process.env.PYTHON ?? 'python', ['-c', `import db\ndb.configure_library_dir(${JSON.stringify(libraryDir)})\n${code}`], { cwd: repoRoot, encoding: 'utf8' })
 }
 
 test.beforeEach(() => {
@@ -324,6 +325,68 @@ test('find and replace previews then applies and shows stale ids', async ({ page
   await page.getByRole('button', { name: /Apply 1 change/ }).click()
   await expect(page.getByTestId('fr-result')).toContainText('Applied 0; skipped 1')
   await expect(page.getByTestId('fr-stale')).toContainText('Skipped: #3')
+})
+
+// A rename across a long title: more matches than one Apply request takes (1,000), all real API calls.
+// 1,100 of 1,200 lines name the character; one is edited behind the page's back after Preview, so
+// the outcome must split into applied + stale that add back up to what Preview showed.
+test('find and replace renames a character on 1,100 of 1,200 lines in one Apply', async ({ page }) => {
+  test.setTimeout(90_000)
+  python(`
+from core import Line
+db.save_lines(3, [Line(idx=i, start=i * 2.0, end=i * 2.0 + 1.5, zh=f'第{i}句',
+                       en=f'Line {i}: the wind rose.' if i % 12 == 0 else f'Line {i}: Mira looked back.')
+                  for i in range(1200)])
+`)
+  await page.goto('/#/drama/3/review')
+  await expect(rows(page).first()).toBeVisible()
+
+  // Find: the toolbar search stops at its first answer and offers the next one.
+  await page.getByLabel('Search lines').fill('Mira')
+  await expect(page.getByTestId('search-count')).toHaveText('First 200 matches shown; there may be more.')
+  await page.getByRole('button', { name: 'Load more matches' }).click()
+  await expect(page.getByTestId('search-count')).toHaveText('First 400 matches shown; there may be more.')
+  await page.getByRole('button', { name: 'Clear search' }).click()
+
+  await page.getByRole('button', { name: 'Replace…' }).click()
+  const panel = page.getByRole('region', { name: 'Find and replace' })
+  await panel.getByLabel('Find', { exact: true }).fill('Mira')
+  await panel.getByLabel('Replace with').fill('Mira Vale')
+  await panel.getByRole('button', { name: 'Preview' }).click()
+  await expect(panel.getByTestId('fr-matches').locator('li')).toHaveCount(1100)
+  const applyButton = panel.getByRole('button', { name: 'Apply 1100 changes' })
+  await expect(applyButton).toBeEnabled()
+  await shot(page, 'find-replace-1100-preview')
+
+  python(`
+import contextlib
+with contextlib.closing(db.get_conn()) as c:
+    c.execute("UPDATE lines SET en = 'Line 1: someone else looked back.' WHERE drama_id = 3 AND idx = 1")
+    c.commit()
+`)
+  const started = Date.now()
+  await applyButton.click()
+  const result = panel.getByTestId('fr-result')
+  await expect(result).toBeVisible({ timeout: 30_000 })
+  const applySeconds = (Date.now() - started) / 1000
+  await expect(result).toContainText('Applied 1099; skipped 1 that changed since the preview.')
+  await expect(panel.getByTestId('fr-stale')).toHaveText('Skipped: #2')
+  await expect(result).not.toContainText('Stopped partway')
+  await expect(panel.getByRole('button', { name: /Apply the rest/ })).toHaveCount(0)
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await shot(page, 'find-replace-1100-applied')
+  // Two requests (1,000 + 100) plus a reload of the page's lines: about 0.4 s on a dev machine. The
+  // bar leaves CI's slower, shared runners twenty-fold headroom and still fails a per-line save loop.
+  console.log(`find-replace apply of 1100 matches: ${applySeconds.toFixed(2)} s`)
+  expect(applySeconds).toBeLessThan(10)
+
+  const counts = python(`
+import contextlib
+with contextlib.closing(db.get_conn()) as c:
+    rows = c.execute('SELECT en FROM lines WHERE drama_id = 3').fetchall()
+print(sum('Mira Vale' in r[0] for r in rows), sum('Mira Vale Vale' in r[0] for r in rows), len(rows))
+`)
+  expect(counts.trim()).toBe('1099 0 1200')
 })
 
 test('a finished review job refetches the lines', async ({ page }) => {

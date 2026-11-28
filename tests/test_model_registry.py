@@ -571,6 +571,17 @@ class TestModelOverrides:
         assert engine_registry.model_override_for_default("ollama") is None
         assert engine_registry.get_engine("ollama", None).model == "gemma4:31b-cloud"
 
+    def test_a_saved_local_default_is_ignored_and_a_hosted_one_kept(self, isolated_db):
+        # Saved before local models were removed: honouring it would make every
+        # Ollama call without a model fail.
+        isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3:8b"})
+        assert engine_registry.model_override_for_default("ollama") is None
+        assert engine_registry.effective_default_model("ollama") == "gemma4:31b-cloud"
+        isolated_db.set_app_setting("pref.ollama_cloud_default", True)
+        isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY,
+                                    {"ollama": "gpt-oss:120b-cloud"})
+        assert engine_registry.effective_default_model("ollama") == "gpt-oss:120b-cloud"
+
 
 def test_an_oversized_model_list_is_refused(monkeypatch):
 

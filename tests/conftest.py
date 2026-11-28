@@ -40,7 +40,10 @@ import db
 # wrote source_health rows into its sources.db. So the whole run is
 # pointed at a temp library here, before any test module is imported, and
 # isolated_db still gives each test that asks a fresh one on top.
-REAL_LIBRARY_DIR = os.path.abspath(db.LIBRARY_DIR)
+# Set once per process: a test that imports `tests.conftest` runs this file a
+# second time after db is already redirected, and the guard would then treat the
+# session's temp library as the real one.
+REAL_LIBRARY_DIR = os.environ.setdefault("BAIHE_TEST_REAL_LIBRARY_DIR", os.path.abspath(db.LIBRARY_DIR))
 def rmtree_retrying(path, tries=5, pause=0.5):
     """Windows can't delete a sqlite file something still has open, and
     ignore_errors=True then leaves the folder in %TEMP% for good. The
@@ -478,14 +481,6 @@ def _template_library(tmp_path_factory):
     finally:
         db.configure_library_dir(previous)
     return template
-
-
-@pytest.fixture
-def local_ollama_default(isolated_db):
-    """Makes Ollama's default a model on this PC (qwen3:4b), for a test that is
-    about the free, GPU-bound path; the built-in default is hosted and billed."""
-    from engine_backends import engine_registry
-    isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3:4b"})
 
 
 @pytest.fixture

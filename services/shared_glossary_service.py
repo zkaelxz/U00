@@ -77,11 +77,6 @@ def delete_group(principal, group_id) -> dict:
     return {"deleted": True, "group_id": group["id"], "series_unlinked": group["series_count"]}
 
 
-def list_terms(principal, group_id) -> list:
-    group = _group(group_id)
-    return [glossary_service._serialize(r) for r in db.list_shared_glossary_terms(group["id"])]
-
-
 def save_term(principal, group_id, term_fields: dict) -> dict:
     """Create or update a group term, with the same field rules as a series
     term. With "id" it is updated in place; without, it is keyed on the original

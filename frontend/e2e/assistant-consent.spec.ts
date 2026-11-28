@@ -33,3 +33,14 @@ test('Settings lists every cloud engine with its own consent switch', async ({ p
   await expect(card.getByRole('switch', { name: 'Send code and logs to Claude' })).toHaveAttribute('aria-checked', 'false')
   await expect(card.getByRole('switch', { name: 'Send code and logs to Gemini' })).toHaveAttribute('aria-checked', 'true')
 })
+
+test('Developer Mode shows the Keep Quick read pages switch, and it saves', async ({ page }) => {
+  const s = await mockAssistant(page, { developerMode: true })
+  await page.goto('/#/settings')
+  await openSettingsGroups(page, 'Advanced')
+  const keep = page.getByRole('region', { name: 'Developer Mode' }).getByRole('switch', { name: 'Keep Quick read pages for debugging' })
+  await expect(keep).toHaveAttribute('aria-checked', 'false')
+  await keep.click()
+  await expect(keep).toHaveAttribute('aria-checked', 'true')
+  expect(s.calls.filter((c) => c.method === 'POST' && c.path === '/api/assistant/settings').map((c) => c.body)).toContainEqual({ quick_read_keep_pages: true })
+})

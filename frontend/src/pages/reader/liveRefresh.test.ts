@@ -11,23 +11,23 @@ const chapters = [ch(1, 0, 40, 40), ch(2, 40, 40, 12), ch(3, 80, 40, 0)]
 
 describe('pageSignature', () => {
   it('changes when a chapter on the page gains English', () => {
-    const before = pageSignature(chapters, 2, 40)
-    const after = pageSignature([chapters[0], ch(2, 40, 40, 20), chapters[2]], 2, 40)
+    const before = pageSignature(chapters, 40, 79)
+    const after = pageSignature([chapters[0], ch(2, 40, 40, 20), chapters[2]], 40, 79)
     expect(after).not.toBe(before)
   })
 
   it('ignores chapters that are not on the page', () => {
-    const before = pageSignature(chapters, 1, 40)
-    const after = pageSignature([chapters[0], chapters[1], ch(3, 80, 40, 30)], 1, 40)
+    const before = pageSignature(chapters, 0, 39)
+    const after = pageSignature([chapters[0], chapters[1], ch(3, 80, 40, 30)], 0, 39)
     expect(after).toBe(before)
   })
 
   it('covers every chapter a page spans', () => {
-    expect(pageSignature(chapters, 1, 80)).toBe('1:40,2:12')
+    expect(pageSignature(chapters, 0, 79)).toBe('1:40,2:12')
   })
 
   it('is null when there are no chapters', () => {
-    expect(pageSignature([], 1, 40)).toBeNull()
+    expect(pageSignature([], 0, 39)).toBeNull()
   })
 })
 

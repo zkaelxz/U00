@@ -51,6 +51,17 @@ def report_checkpoint_unit(result_queue, scope: str, unit_id, payload):
         pass
 
 
+def report_partial(result_queue, payload):
+    """For a process-job worker: hands work finished so far (plain Python only) to the
+    run's on_partial hook in the parent (start_process_job). Best effort, like
+    report_progress: the final result still carries everything."""
+    exit_if_parent_gone()
+    try:
+        result_queue.put(("partial", payload))
+    except Exception:
+        pass
+
+
 def error_item(exc: BaseException) -> tuple:
     """The final ("error", type name, message, traceback) item for a worker
     whose body raised. The parent shows the type and message and writes the

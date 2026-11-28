@@ -65,7 +65,7 @@ test('at 360px the loading grid matches the loaded card height and a long title 
 })
 
 for (const width of [390, 320]) {
-  test(`at ${width}px each Continue button takes its own full-width row, 44px tall, with nothing cut off`, async ({ page }) => {
+  test(`at ${width}px each Continue button sits small on the right, 44px tall, with nothing cut off`, async ({ page }) => {
     await page.setViewportSize({ width, height: 780 })
     const long = 'A rather long title that needs two lines on a phone'
     await page.route('**/api/library/continue', (r) => r.fulfill({ json: { items: [{
@@ -93,25 +93,24 @@ for (const width of [390, 320]) {
     await expect(shelf.getByRole('link', { name: 'Translate 11,234 lines: Grandmaster of Demonic Cultivation', exact: true })).toBeVisible()
     const boxes = await shelf.locator('.continue-item').evaluateAll((items) => items.map((li) => {
       const btn = li.querySelector('.continue-next') as HTMLElement
-      const text = li.querySelector('.continue-text') as HTMLElement
       const title = li.querySelector('.continue-title') as HTMLElement
       const inner = li.getBoundingClientRect()
       const b = btn.getBoundingClientRect()
-      const t = text.getBoundingClientRect()
-      const pad = parseFloat(getComputedStyle(li).paddingLeft) + parseFloat(getComputedStyle(li).paddingRight)
+      const cs = getComputedStyle(li)
+      const pad = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight) + parseFloat(cs.borderLeftWidth) + parseFloat(cs.borderRightWidth)
       // The label's own box: the button's scrollWidth also counts the ::after that widens its tap area.
       const range = document.createRange()
       range.selectNodeContents(btn)
       const label = range.getBoundingClientRect()
       return {
-        below: b.top >= t.bottom, height: b.height, fullWidth: Math.abs(b.width - (inner.width - pad - 2)) <= 1,
+        height: b.height, onRight: Math.abs(b.right - (inner.right - pad / 2)) <= 1, notFullWidth: b.width < inner.width - pad - 24,
         insideItem: b.left >= inner.left && b.right <= inner.right,
         buttonCut: label.left < b.left || label.right > b.right || label.bottom > b.bottom, titleCut: title.scrollWidth > title.clientWidth,
       }
     }))
     expect(boxes).toHaveLength(2)
     for (const box of boxes) {
-      expect(box).toMatchObject({ below: true, fullWidth: true, insideItem: true, buttonCut: false, titleCut: false })
+      expect(box).toMatchObject({ onRight: true, notFullWidth: true, insideItem: true, buttonCut: false, titleCut: false })
       expect(box.height).toBeGreaterThanOrEqual(44)
     }
     await expectNoSidewaysScroll(page)

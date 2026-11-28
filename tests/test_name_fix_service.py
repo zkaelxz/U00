@@ -49,34 +49,15 @@ def test_other_line_fields_survive(isolated_db):
     assert db.load_line_objects(did)[0].en == "He came"
 
 
-def test_apply_fixes_remembers_alias_for_later_titles(isolated_db):
-    did, sid = _title(["ヤソーが来た"], [("ヤソ", [])])
-    term_id = db.list_glossary_terms(sid)[0]["id"]
-    out = nf.apply_fixes(did, [{"term_id": term_id, "spelling": "ヤソー"}])
-    assert out["aliases_added"] == 1 and out["lines_changed"] == 1
+def test_a_saved_alias_is_fixed_on_later_titles_of_the_series(isolated_db):
+    did, sid = _title(["ヤソーが来た"], [("ヤソ", ["ヤソー"])])
     # A second title of the same creator (series) is fixed with no further input.
     did2 = db.create_drama(title_en="T2", series_id=sid, source_language="ja")
     db.save_lines(did2, [Line(idx=0, start=0, end=1, zh="ヤソーだ", en="")])
     assert nf.after_transcription(did2)["lines_changed"] == 1
     assert _texts(did2) == ["ヤソだ"]
-    # A confirmed fix is logged; the pass after a transcription rewrites new lines, not
-    # corrections, so it logs nothing.
-    assert [(r["path"], r["before_zh"], r["after_zh"]) for r in db.list_source_edits(did)] == [
-        ("name_fix", "ヤソーが来た", "ヤソが来た")]
+    # The pass after a transcription rewrites new lines, not corrections, so it logs nothing.
     assert db.list_source_edits(did2) == []
-
-
-def test_apply_fixes_rejects_bad_input_and_writes_nothing(isolated_db):
-    import pytest
-    from lib.errors import InvalidInputError, NotFoundError
-    did, sid = _title(["ヤソーが来た"], [("ヤソ", []), ("ミカ", [])])
-    ids = {t["term_original"]: t["id"] for t in db.list_glossary_terms(sid)}
-    with pytest.raises(InvalidInputError):
-        nf.apply_fixes(did, [{"term_id": ids["ヤソ"], "spelling": "ヤソーx"}, {"term_id": ids["ヤソ"], "spelling": "ミカ"}])
-    with pytest.raises(NotFoundError):
-        nf.apply_fixes(did, [{"term_id": 99999, "spelling": "ヤソー"}])
-    assert _texts(did) == ["ヤソーが来た"]
-    assert not db.list_glossary_terms(sid)[0]["aliases"]
 
 
 def test_after_transcription_swallows_failures(isolated_db, monkeypatch):

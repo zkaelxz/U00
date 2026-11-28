@@ -19,7 +19,7 @@ import env_reader
 from jobs import job_settings
 import memory_headroom
 import stored_settings
-from lib import settings_schema
+from lib import desktop_session, settings_schema
 from lib.errors import InvalidInputError
 
 # Per settings key, the env var name(s) to read, in priority order -- the
@@ -166,6 +166,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
         "gpu_max_parallel": job_settings.get_gpu_max_parallel(),
         "notify_on_completion": job_settings.get_notify_on_completion(),
+        "desktop_popups": desktop_session.has_desktop(),
         "use_gpu": get("use_gpu"),
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),
@@ -368,12 +369,19 @@ def reasoning_override(engine_name):
     return "less" if key and get(key) == "less" else None
 
 
-def parallel_chapters() -> int:
+# The saved value tops out at 3; at that top an engine with a roomy rate limit gets
+# more lanes. Below it the person asked for fewer, so that is kept.
+_TOP_LANES = 3
+_MORE_LANES = {"deepseek": 6}
+
+
+def parallel_chapters(engine_name: str | None = None) -> int:
     """How many novel chapters one run may translate at once."""
     try:
-        return max(1, min(3, int(str(get("novel_parallel_chapters")))))
+        lanes = max(1, min(_TOP_LANES, int(str(get("novel_parallel_chapters")))))
     except (TypeError, ValueError):
         return 1
+    return _MORE_LANES.get(engine_name or "", lanes) if lanes == _TOP_LANES else lanes
 
 
 def reply_guard_override():

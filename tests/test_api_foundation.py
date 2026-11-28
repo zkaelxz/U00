@@ -403,7 +403,9 @@ class TestSettingsEndpoint:
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
-                             "month_spend_counted_usd", "month_spend_imported_usd", "month_spend_reset_at", "choices"}
+                             "month_spend_counted_usd", "month_spend_imported_usd", "month_spend_reset_at", "choices",
+                             "desktop_popups"}
+        assert isinstance(body["desktop_popups"], bool)
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]
         assert "monthly_cap_usd" not in body["engine_keys"]
@@ -887,6 +889,7 @@ class TestTranscribeConfigEndpoints:
             "beam_size": 5, "min_silence_ms": 1000, "vad_threshold": 0.5, "sensitivity_preset": "normal", "effective_vad_threshold": 0.5,
             "hallucination_silence_sec": 0.0, "min_pause_sec": 0.35,
             "separate_vocals_first": False, "separation_backend": "auto",
+            "separate_vocals_chosen": False, "separates_on_breeze_by_default": body["separates_on_breeze_by_default"],
             "realign_long_segments": False, "whisper_fast_mode": False,
             "whisper_repeat_guard": False, "split_by_sentences": False, "difficult_audio": False, "vocabulary_hint": False, "use_groq": False,
             "has_video_source": False, "hardsub_ocr_backend": "auto",

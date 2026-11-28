@@ -465,13 +465,40 @@ def close_stale(job_id: str, cutoff: float) -> bool:
     return _close_one(job_id, "COALESCE(updated_at, 0) < ? AND owner_pid IS ?", (cutoff, pid))
 
 
-def sweep_dead_owners(stale_seconds: float, records=None) -> int:
+def _log_interrupted(rec: dict, why: str) -> None:
+    """One app.log line per row the sweep closes. Only the id, the kind
+    (the description up to its first "(", which is where a title or source
+    name would start) and the numbers: the progress message can name files."""
+    # Logging only: a row with odd values must never stop the sweep closing it.
+    with contextlib.suppress(Exception):
+        import applog
+        import background_jobs as bj
+        from engine_backends import shared
+        kind = (rec.get("description") or "").split("(", 1)[0].strip()[:60] or "job"
+        progress = rec.get("progress")
+        if rec.get("status") == "queued":
+            where = "was queued, not started"
+        elif isinstance(progress, (int, float)):
+            where = f"was running at {round(progress * 100)}%"
+        else:
+            where = "was running"
+        if str(rec.get("job_id")).startswith(bj.BULK_POLL_JOB_PREFIX):
+            what = "the bulk batch resume at startup decides whether it runs again"
+        else:
+            what = "not started again; left for the person to run again"
+        applog.get_logger().warning(shared.redact_secrets(
+            f"Interrupted job {rec.get('job_id')} ({kind}): {where} when its server stopped "
+            f"({why}); marked interrupted, {what}."))
+
+
+def sweep_dead_owners(stale_seconds: float, records=None, closed_out=None) -> int:
     """Closes every queued/running row that is not live in this process and
     whose owner is gone (close_if_owner_gone) or has not heartbeated for
     `stale_seconds`. Also marks this process's own running jobs whose
     worker thread is gone (job_runner.reconcile_dead_workers). `records`:
     the job_records rows the caller has just read, so they aren't read
-    twice. Returns how many rows it closed."""
+    twice. `closed_out`: a list each closed row is appended to. Returns how
+    many rows it closed."""
     import background_jobs as bj
     from jobs import job_runner
     job_runner.reconcile_dead_workers()
@@ -481,9 +508,16 @@ def sweep_dead_owners(stale_seconds: float, records=None) -> int:
         job_id = rec.get("job_id")
         if rec.get("status") not in ACTIVE or bj.get_status(job_id):
             continue
-        if close_if_owner_gone(rec) or (
-                (rec.get("updated_at") or 0) < cutoff and close_stale(job_id, cutoff)):
-            closed += 1
+        if close_if_owner_gone(rec):
+            why = "its process is gone"
+        elif (rec.get("updated_at") or 0) < cutoff and close_stale(job_id, cutoff):
+            why = f"no heartbeat for {int(stale_seconds // 60)} min"
+        else:
+            continue
+        _log_interrupted(rec, why)
+        closed += 1
+        if closed_out is not None:
+            closed_out.append(rec)
     return closed
 
 

@@ -3,6 +3,7 @@ tests/test_applog.py -- applog.py's log-line keyword filter (Step 18
 item 4) and its secret-redaction filter. tail()/get_logger() themselves are already exercised indirectly
 via tests/test_background_jobs.py and tests/test_word_align.py.
 """
+import logging
 import os
 import sys
 
@@ -64,6 +65,13 @@ class TestSecretRedaction:
         assert "RuntimeError: 401 Unauthorized for key" in text   # traceback still written
         assert self.KEY not in text
 
+    def test_a_key_logged_through_another_modules_logger_is_redacted(self, isolated_db):
+        applog.get_logger()
+        logging.getLogger("some.lib").warning("key %s", self.KEY)
+        text = self._log_text()
+        assert "some.lib: key" in text
+        assert self.KEY not in text
+
     def test_a_record_without_secrets_is_unchanged(self, isolated_db):
         applog.get_logger().info("job %s finished in %.1fs", "abc", 2.5)
         assert "job abc finished in 2.5s" in self._log_text()
@@ -74,3 +82,45 @@ class TestSecretRedaction:
         under background_jobs' lock)."""
         applog.get_logger().warning("bad %d", "not a number")   # must not raise
         assert "could not be formatted" in self._log_text()
+
+
+def test_a_module_loggers_warning_reaches_the_app_log(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    logging.getLogger("some_module_example").warning("module warning reaches the file")
+    logging.getLogger("some_module_example").info("module info stays out")
+    lines = "\n".join(applog.tail(50))
+    assert "module warning reaches the file" in lines
+    assert "module info stays out" not in lines
+
+
+def test_a_library_that_sets_its_own_debug_level_stays_out_below_warning(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    chatty = logging.getLogger("chatty_library_example")
+    chatty.setLevel(logging.DEBUG)
+    try:
+        chatty.debug("library debug line")
+        chatty.info("library info line")
+        chatty.warning("library warning line")
+    finally:
+        chatty.setLevel(logging.NOTSET)
+    lines = "\n".join(applog.tail(50))
+    assert "library warning line" in lines
+    assert "library debug line" not in lines and "library info line" not in lines
+
+
+def test_a_module_loggers_traceback_is_redacted_in_the_app_log(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    key = "sk-examplemodulekey0123456789abcdef"
+    try:
+        raise RuntimeError(f"rejected {key}")
+    except RuntimeError:
+        logging.getLogger("x").warning("module call failed with %s", key, exc_info=True)
+    lines = "\n".join(applog.tail(50))
+    assert "module call failed with" in lines and "RuntimeError: rejected" in lines
+    assert key not in lines

@@ -308,3 +308,38 @@ class TestPrivateVoices:
         library_service.set_voice_bank_private(entry, True)
         assert library_service.set_voice_bank_private(entry, False)["is_private"] is False
         assert [e["name"] for e in library_service.list_voice_bank(self.MEMBER)] == ["v"]
+
+
+class TestSearchLines:
+    def test_a_capped_answer_says_more_exist_and_starts_at_the_newest_title(self, isolated_db):
+        from core import Line
+        ids = []
+        for n in range(3):
+            did = _make(isolated_db, title_en=f"T{n}")
+            isolated_db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh="字", en=f"cat {i}")
+                                         for i in range(20)])
+            ids.append(did)
+        out = library_service.search_lines("cat", limit=50)
+        assert out["count"] == 50 and out["more"] is True
+        assert [h["drama_id"] for h in out["items"][:20]] == [ids[2]] * 20
+        assert [h["idx"] for h in out["items"][:3]] == [0, 1, 2]
+        assert ids[0] in {h["drama_id"] for h in out["items"]}
+        whole = library_service.search_lines("cat", limit=60)
+        assert whole["count"] == 60 and whole["more"] is False
+
+
+    def test_the_search_can_stop_at_its_cap_without_sorting_every_match(self, isolated_db, monkeypatch):
+        # Ordered by an inner column, SQLite must find and sort every match before the first 51.
+        import contextlib
+        real, seen = isolated_db.get_conn, []
+
+        def traced():
+            conn = real()
+            conn.set_trace_callback(seen.append)
+            return conn
+        monkeypatch.setattr(isolated_db, "get_conn", traced)
+        library_service.search_lines("cat", limit=50)
+        [sql] = [s for s in seen if "CROSS JOIN lines l" in s]
+        with contextlib.closing(real()) as conn:
+            plan = [r[-1] for r in conn.execute("EXPLAIN QUERY PLAN " + sql)]
+        assert "USE TEMP B-TREE FOR ORDER BY" not in plan, plan

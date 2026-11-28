@@ -12,236 +12,1310 @@ Part of the [user guide](user-guide.md).
 | `deepseek` | Paid, far cheaper than Claude | Strong on Chinese; a good default for context-aware, glossary-aware work. |
 | `gemini` | Paid, cheap (Flash-Lite tier); key from aistudio.google.com | Strong on Chinese/Japanese. Translation only: transcription still uses Whisper. Lineup changes often; see `GEMINI_MODELS`. |
 | `openai` | Paid per token; `BAIHE_OPENAI_KEY` | GPT models (default `gpt-6-luna`; also `gpt-6.1-terra` and `gpt-6.1-sol`) over Chat Completions; a saved `gpt-5`, `gpt-5-mini` or `gpt-5-nano` runs as `gpt-6-luna`. Newer GPT-6+ models appear in the picker after Diagnostics > Model status with "Also offer models … that this app doesn't know yet" ticked, costed at a high ceiling ($5 in / $40 out per 1M tokens) because their real price is unknown; see `OPENAI_MODELS`. |
-| `ollama` | Hosted by Ollama, billed per token | Starts on Ollama's hosted Gemma 4 31B (`gemma4:31b-cloud`), which sends the text to Ollama's servers (sign in with `ollama signin`), is billed per token and counts toward your monthly cap. TranslateGemma 27B and 12B are no longer offered; the model pickers (Translate and Live) list every chat model you have pulled in Ollama (embedding models are left out), and a saved title, preset or default that names a removed model runs on Gemma 4 31B instead. Settings > Translation > "Allow a hosted Ollama model as the default" (on by default) carries a title's own hosted model into re-runs, queued runs and Library batches; off, those run on Gemma 4 31B, and a hosted default saved earlier in Diagnostics > Model status is ignored. Any account may use gemma4:31b-cloud (on the PC's Ollama account, counted toward the monthly cap); an account without paid-engine permission cannot pick any other hosted model. |
+| `ollama` | Hosted by Ollama, billed per token | Starts on Ollama's hosted Gemma 4 31B (`gemma4:31b-cloud`), which sends the text to Ollama's servers (sign in with `ollama signin`), is billed per token and counts toward your monthly cap. TranslateGemma 27B and 12B are no longer offered; the model pickers (Translate and Live) list every chat model you have pulled in Ollama (embedding models are left out), and a saved title, preset or default that names a removed model runs on Gemma 4 31B instead, as does a saved default or browser-extension model that names any local model (a tag not ending in -cloud). The first start of 0.2.0 clears every saved local model once (in titles, presets, the default and tier models, the browser extension, queued items, the assistant and the re-evaluation baseline), so each follows the default Ollama model; hosted models are kept, and the log says how many were cleared. Settings > Translation > "Allow a hosted Ollama model as the default" (on by default) carries a title's own hosted model into re-runs, queued runs and Library batches; off, those run on Gemma 4 31B, and a hosted default saved earlier in Diagnostics > Model status is ignored. Any account may use gemma4:31b-cloud (on the PC's Ollama account, counted toward the monthly cap); an account without paid-engine permission cannot pick any other hosted model. |
 
-Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel reference; an engine that can't follow instructions tags everything "Narrator". **Split and name speakers** with no AI key set still cuts the pasted text into lines of up to 200 characters and marks every one "Narrator" without any AI call, and says so; add a key in Settings and run it again to tag speakers. Its **Model** is a list of the engine's models (for Ollama, the ones installed) with "Engine default" first; an engine with no list keeps a typed box. "Replace the N existing lines" is a switch. **One narrator, skip speaker tagging** splits the text into lines and marks every line "Narrator" with no AI call and no cost, for one voice reading the whole novel. **First chapter** and **Last chapter** run only those chapters (blank means all; the same number twice is one chapter): only their lines are cut, tagged and paid for, other chapters' lines are left as they are, and chapters not run yet get none, so you can do a book a few chapters at a time. A short line under the options gives the estimated cost for the chosen chapters; a paid engine with no monthly cap set asks you to tick a box accepting the estimate first. If Review merged or split lines, a chapter run is refused (run all chapters instead). While a translation or narration is running on the title, Split and name speakers is refused with "Wait for the running translation to finish, or stop it first." (or "narration") instead of stopping it.
+Claude, DeepSeek, Gemini, OpenAI and Ollama can tag speakers for novel-narration mode and take the novel
+reference; an engine that can't follow instructions tags everything "Narrator". **Split and name speakers**
+with no AI key set still cuts the pasted text into lines of up to 200 characters and marks every one
+"Narrator" without any AI call, and says so; add a key in Settings and run it again to tag speakers. Its
+**Model** is a list of the engine's models (for Ollama, the ones installed) with "Engine default" first; an
+engine with no list keeps a typed box. "Replace the N existing lines" is a switch. **One narrator, skip
+speaker tagging** splits the text into lines and marks every line "Narrator" with no AI call and no cost, for
+one voice reading the whole novel. **First chapter** and **Last chapter** run only those chapters (blank means
+all; the same number twice is one chapter): only their lines are cut, tagged and paid for, other chapters'
+lines are left as they are, and chapters not run yet get none, so you can do a book a few chapters at a time.
+A short line under the options gives the estimated cost for the chosen chapters; a paid engine with no monthly
+cap set asks you to tick a box accepting the estimate first. If Review merged or split lines, a chapter run is
+refused (run all chapters instead). While a translation or narration is running on the title, Split and name
+speakers is refused with "Wait for the running translation to finish, or stop it first." (or "narration")
+instead of stopping it.
 
-**Prompt wording by content type.** The translator's prompt follows the title's content mode: audio dramas and ASMR get spoken-line rules (one breath, delivery cues kept), novels get prose rules (English a native novelist would write: subjects supplied, clauses joined or split, idioms by sense not word, standard double quotation marks), streamer VODs get live-caption rules, and video dramas get subtitle rules. The notes on a series character (speaking style, relationships) are passed to the translator as voice notes for that title's named characters, so keep them short.
+**Prompt wording by content type.** The translator's prompt follows the title's content mode: audio dramas and
+ASMR get spoken-line rules (one breath, delivery cues kept), novels get prose rules (English a native novelist
+would write: subjects supplied, clauses joined or split, idioms by sense not word, standard double quotation
+marks), streamer VODs get live-caption rules, and video dramas get subtitle rules. The notes on a series
+character (speaking style, relationships) are passed to the translator as voice notes for that title's named
+characters, so keep them short.
 
-**A narrated novel reads as prose.** The Reader joins the chunks back into paragraphs with the English as the main text, and Review leaves out the fake timestamp and the speaker.
+**A narrated novel reads as prose.** The Reader joins the chunks back into paragraphs with the English as the
+main text, and Review leaves out the fake timestamp and the speaker.
 
-**Batch size.** Translate > More options has "Batch size" (lines per request; 1 to 90). Left alone, DeepSeek and Ollama's hosted gemma4:31b-cloud send 90 lines at a time, Gemini Pro sends 60, and every other model (Claude included) sends 30.
+**Batch size.** Translate > More options has "Batch size" (lines per request; 1 to 90). Left alone, DeepSeek
+and Ollama's hosted gemma4:31b-cloud send 90 lines at a time, Gemini Pro sends 60, and every other model
+(Claude included) sends 30. Left alone on a novel, a request also stops at the model's size limit for its text
+(about 4,000 Chinese characters for Ollama models, 6,000 for DeepSeek, Claude Haiku and Gemini Flash, 10,000
+for Claude Sonnet, Opus and Gemini Pro); a batch size you choose is used as it is. Lines a reply leaves empty
+are asked again in halves, then one line per request (up to 12 lines per batch); lines still empty after that
+are listed as "got no translation" in the job result.
 
-**Context from recent lines.** Translate > More options has "Context before" and "Context ahead" (number fields; the defaults are 10 before and 6 ahead, and 30 and 15 for a narrated novel, whose batches also end at paragraph breaks; 0 turns it off). They show LLM engines how the preceding lines were already translated, so pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one streamer comes from assigning them to the same series. After a translate run, the title's Translate form starts from that run's style, style note, English variant, model, batch size and context sizes, and the Queue, the Library batch, **Redo these with …** and Review's "Retranslate these" repeat them. A Chinese novel that reads as historical (palace, sect or martial-arts setting) and has no style note yet starts with a built-in historical style note in More options (literary voice, single-quoted dialogue, pinyin names and kinship terms, the original's point of view kept); clear it or write your own to change it. Members' runs use it too. Modern novels, and any title with a note of its own or a Settings default note, are unchanged.
+**Context from recent lines.** Translate > More options has "Context before" and "Context ahead" (number
+fields; the defaults are 10 before and 6 ahead, and 30 and 15 for a narrated novel, whose batches also end at
+paragraph breaks; 0 turns it off). They show LLM engines how the preceding lines were already translated, so
+pronouns and relation-only references stay consistent across batches. Consistency across separate VODs of one
+streamer comes from assigning them to the same series. After a translate run, the title's Translate form
+starts from that run's style, style note, English variant, model, batch size and context sizes, and the Queue,
+the Library batch, **Redo these with …** and Review's "Retranslate these" repeat them. A Chinese novel that
+reads as historical (palace, sect or martial-arts setting) and has no style note yet starts with a built-in
+historical style note in More options (literary voice, single-quoted dialogue, pinyin names and kinship terms,
+the original's point of view kept); clear it or write your own to change it. Members' runs use it too. Modern
+novels, and any title with a note of its own or a Settings default note, are unchanged.
 
-**Settings chosen for members.** On a member account, Translate (Simple or Full) shows "The engine and settings are chosen for you." instead of the engine, model, cost estimate and More options. Their run sends none of those: it uses what the title has saved (genre guidance and she/her included), which an admin sets, on the title's engine, or on Ollama when that engine is one their account may not use (below). Read from video sends no engine either.
+**Settings chosen for members.** On a member account, Translate (Simple or Full) shows "The engine and
+settings are chosen for you." instead of the engine, model, cost estimate and More options. Their run sends
+none of those: it uses what the title has saved (genre guidance and she/her included), which an admin sets, on
+the title's engine, or on Ollama when that engine is one their account may not use (below). Read from video
+sends no engine either.
 
-**Engine for accounts without paid engines.** When a translation or a line tool (Improve, Why this?, Alternatives, Grammar, Shorten) is left on the default engine and that default is one the account may not use (a paid engine or a hosted Ollama model other than gemma4:31b-cloud), it runs on Ollama instead of being refused: on gemma4:31b-cloud when Settings allows a hosted Ollama model as the default, else on Ollama's own default model. An engine picked by hand is never swapped.
+**Engine for accounts without paid engines.** When a translation or a line tool (Improve, Why this?,
+Alternatives, Grammar, Shorten) is left on the default engine and that default is one the account may not use
+(a paid engine or a hosted Ollama model other than gemma4:31b-cloud), it runs on Ollama instead of being
+refused: on gemma4:31b-cloud when Settings allows a hosted Ollama model as the default, else on Ollama's own
+default model. An engine picked by hand is never swapped.
 
-**Reply check.** After each batch on an AI engine, Baihe checks replies that carry every id but look wrong: two lines merged into one, text shifted onto a neighbouring line, a duplicate, or source-language script left in the English (script from glossary terms and quotes is allowed). Those lines are asked again once, in at most two extra requests per batch, and a reply is replaced only if the new one fails fewer checks. A line that still looks wrong is kept and flagged "check: may be merged or shifted". The extra requests are billed like any other and count toward the spending cap. It does not run in Reflect mode or Translate by sentence. A local Ollama reply cut off where the model began a quote ("I'm curious about ") is asked again too, and Ollama is told to write quotes inside a line as curly quotes; a line still cut off after that is left untranslated rather than kept half. By default (Settings > Engines and keys > Translation style > "Check translations for merged or shifted lines" = Auto) it runs only for engines other than Claude and Gemini Pro, which rarely need it; choose On to check every engine or Off to never check. With **Translate by sentence** on, a sentence the model returns in one piece (or repeats in every part) is split across its parts by length, and those parts are flagged "check: ... split across the parts by length" so you can check each matches its audio. The switch is saved for the title as soon as you change it, and every run uses the saved choice; if the save is refused (for someone without the right to change title details), the switch goes back and says so.
+**Reply check.** After each batch on an AI engine, Baihe checks replies that carry every id but look wrong:
+two lines merged into one, text shifted onto a neighbouring line, a duplicate, or source-language script left
+in the English (script from glossary terms and quotes is allowed). Those lines are asked again once, in at
+most two extra requests per batch, and a reply is replaced only if the new one fails fewer checks. A line that
+still looks wrong is kept and flagged "check: may be merged or shifted". The extra requests are billed like
+any other and count toward the spending cap. It does not run in Reflect mode or Translate by sentence. A local
+Ollama reply cut off where the model began a quote ("I'm curious about ") is asked again too, and Ollama is
+told to write quotes inside a line as curly quotes; a line still cut off after that is left untranslated
+rather than kept half. By default (Settings > Engines and keys > Translation style > "Check translations for
+merged or shifted lines" = Auto) it runs only for engines other than Claude and Gemini Pro, which rarely need
+it; choose On to check every engine or Off to never check. With **Translate by sentence** on, a sentence the
+model returns in one piece (or repeats in every part) is split across its parts by length, and those parts are
+flagged "check: ... split across the parts by length" so you can check each matches its audio. The switch is
+saved for the title as soon as you change it, and every run uses the saved choice; if the save is refused (for
+someone without the right to change title details), the switch goes back and says so.
 
-**No em dashes.** Every English translation (subtitles, novels, Live captions, comic pages, and the fix, retry and stronger-engine line tools) comes back without em dashes: a mid-sentence dash becomes a comma, a short explaining ending gets a colon ("he wants: revenge"), a cut-off line or a stutter gets "..." ("I... I can't"), and a dash at the start of a line is dropped. A number range keeps a hyphen; hyphens, ranges like 1–3 and the source text are left alone. Review's English cleanup has an **Em dashes** rule for lines translated before.
+**Em dashes only where the original has them.** When the source line has a dash of its own (such as "——" or
+"―"), the English keeps its em dashes. Otherwise every English translation (subtitles, novels, Live captions,
+comic pages, and the fix, retry and stronger-engine line tools) comes back without them: a mid-sentence dash
+becomes a comma, a short explaining ending gets a colon ("he wants: revenge"), a cut-off line or a stutter
+gets "..." ("I... I can't"), a dash at the start of a line is dropped, and a novel's divider line ("————————")
+becomes "* * *" without an AI call. A number range keeps a hyphen; hyphens, ranges like 1–3 and the source
+text are left alone. Review's English cleanup has an **Em dashes** rule for lines translated before, which
+follows the same source check.
 
-**Reasoning (Claude Sonnet 5.5 and GPT-6 Luna).** Settings > Engines and keys > Translation style has "Claude Sonnet 5.5 reasoning" and "GPT-6 Luna reasoning", each Default or Less. Sonnet 5.5 is Default unless you change it; Luna is Less unless you change it. Less makes a Translate run on that model reason less: on one 90-line Mandarin stream chunk, Luna went from 67 s to 24 s and under half the cost with about the same quality, and Sonnet 5.5 from 27 s to 12 s and 40% less cost with slightly worse slang and nicknames. It applies only to those two models (Terra, Sol and other Claude models are unchanged) and to Translate runs (including the Claude bulk batch), not to Live, Compare or the review passes.
+**Reasoning (Claude Sonnet 5.5 and GPT-6 Luna).** Settings > Engines and keys > Translation style has "Claude
+Sonnet 5.5 reasoning" and "GPT-6 Luna reasoning", each Default or Less. Sonnet 5.5 is Default unless you
+change it; Luna is Less unless you change it. Less makes a Translate run on that model reason less: on one
+90-line Mandarin stream chunk, Luna went from 67 s to 24 s and under half the cost with about the same
+quality, and Sonnet 5.5 from 27 s to 12 s and 40% less cost with slightly worse slang and nicknames. It
+applies only to those two models (Terra, Sol and other Claude models are unchanged) and to Translate runs
+(including the Claude bulk batch), not to Live, Compare or the review passes.
 
-**Source match check.** On by default (Settings > Engines and keys > Translation style > "Flag translations that don't match their source"). When on, a finished translation run compares each line's English with its source using the `bge-m3` model on your Ollama server (run `ollama pull bge-m3` once) and flags lines that look shifted, skipped or about something else. Review says why in plain words: "This English reads unlike its source line", or "This English may belong to the next line" (or the previous one) when a line's English looks like it slid onto its neighbour; the similarity scores behind it are under **Details**. In tests on made-up one-line mix-ups it caught about 80%, on shifts of 2 to 5 lines about 70%, and wrongly flagged about 2% of correct lines. A line the model cannot score (an Ollama 0.24 bug makes bge-m3 fail on long texts; Baihe then scores them in short pieces) is left unflagged and noted in the log. When the translation engine is an AI model, the few lines the check doubts are also shown to that same engine, which says whether each one really carries the wrong English; that costs a few extra requests billed like the translation, and a line it finds fine is left unflagged (in tests this cut wrongly flagged lines from about 2.5% to about 1% and raised the catch of one-line mix-ups from about 80% to about 90%, shifts of 2 to 5 lines are caught about as before). On real runs this cost a few cents per few hundred lines on Claude (about $0.03 for 427 lines), about $0.01 on DeepSeek and under $0.002 on gemma4:31b-cloud; the estimate before Translate shows it as its own part of the price while the check would run. Review then says "The engine check says this English translates a neighbouring line" or "...doesn't match its line". These requests count toward the run's cost cap and the monthly cap: one that would pass either is not sent, and the finished job says "The engine check in Source match was skipped because the cost cap was reached." While the check runs, the job shows "Checking source match: N of M lines"; Cancel then ends the job as cancelled with the translation saved and the check unfinished. It changes no text, skips lines whose source is under three characters, never replaces another flag, and does nothing if Ollama or the model is missing. It does not catch small meaning errors such as a flipped negation. It runs after Translate from the Workspace, not after the off-peak bulk run.
+**Source match check.** On by default (Settings > Engines and keys > Translation style > "Flag translations
+that don't match their source"). When on, a finished translation run compares each line's English with its
+source using the `bge-m3` model on your Ollama server (run `ollama pull bge-m3` once) and flags lines that
+look shifted, skipped or about something else. Review says why in plain words: "This English reads unlike its
+source line", or "This English may belong to the next line" (or the previous one) when a line's English looks
+like it slid onto its neighbour; the similarity scores behind it are under **Details**. In tests on made-up
+one-line mix-ups it caught about 80%, on shifts of 2 to 5 lines about 70%, and wrongly flagged about 2% of
+correct lines. A line the model cannot score (an Ollama 0.24 bug makes bge-m3 fail on long texts; Baihe then
+scores them in short pieces) is left unflagged and noted in the log. When the translation engine is an AI
+model, the few lines the check doubts are also shown to that same engine, which says whether each one really
+carries the wrong English; that costs a few extra requests billed like the translation, and a line it finds
+fine is left unflagged (in tests this cut wrongly flagged lines from about 2.5% to about 1% and raised the
+catch of one-line mix-ups from about 80% to about 90%, shifts of 2 to 5 lines are caught about as before). On
+real runs this cost a few cents per few hundred lines on Claude (about $0.03 for 427 lines), about $0.01 on
+DeepSeek and under $0.002 on gemma4:31b-cloud; the estimate before Translate shows it as its own part of the
+price while the check would run. Review then says "The engine check says this English translates a
+neighbouring line" or "...doesn't match its line". These requests count toward the run's cost cap and the
+monthly cap: one that would pass either is not sent, and the finished job says "The engine check in Source
+match was skipped because the cost cap was reached." While the check runs, the job shows "Checking source
+match: N of M lines"; Cancel then ends the job as cancelled with the translation saved and the check
+unfinished. It changes no text, skips lines whose source is under three characters, also checks a line already
+flagged as too fast to read: its doubt takes that flag's place, the reading speed note stays under
+**Details**, and the reading speed flag comes back if a later run finds the English fine (**Clear
+reading-speed flags** clears that kept note too, and dismissing the Source match flag drops it); any other
+flag stays as it is; it does nothing if Ollama or the model is missing. It does not catch small meaning errors
+such as a flipped negation. It runs after Translate from the Workspace, not after the off-peak bulk run.
 
-**Source match model.** Under Settings > Translation style, a line says whether `bge-m3` is installed on your Ollama server, and on the PC itself a Download button installs it through Ollama (about 1.2 GB; Ollama must be running) with a progress bar and a Cancel button; a cancelled download keeps what arrived and carries on from there next time. Without the model, or when Ollama does not answer, the Source match check does nothing, and the finished translation job says so and why.
+**Source match model.** Under Settings > Translation style, a line says whether `bge-m3` is installed on your
+Ollama server, and on the PC itself a Download button installs it through Ollama (about 1.2 GB; Ollama must be
+running) with a progress bar and a Cancel button; a cancelled download keeps what arrived and carries on from
+there next time. Without the model, or when Ollama does not answer, the Source match check does nothing, and
+the finished translation job says so and why.
 
-**Chapters or scenes at once.** Settings > Engines and keys > Translation style > "Chapters or scenes translated at once" (1 to 3, default 3). A novel translated on Claude, GPT, DeepSeek, a paid Gemini key or an Ollama hosted model (a name ending in -cloud) works through up to that many chapters at the same time, which was about twice as fast on the same chapters in tests, at about the same cost and quality; the progress line reads "Chapter 2 of 6, batch 1 of 2". Batches inside a chapter still run in order, so only the first batch of a chapter misses the English of the chapter before it. Several requests run at once, so a provider's rate limit can slow a run; a spending cap still holds (a capped run is less parallel, and a batch is not sent when it would cost more than what is left, priced like the dearest batch so far, or from the estimate before any batch is done, so a run stops a little early rather than passing the cap). A model on this PC and the Gemini free tier always translate one chapter at a time, and a novel with one chapter has nothing to run side by side. A subtitle title (audio drama, video, stream) is cut the same way into up to that many parts at pauses of 20 seconds or more, the ones nearest an even split with each part at least one batch long, and the parts run side by side ("Part 2 of 3, batch 1 of 4"); the first batch after a cut sees the lines before it in the original language only (the episode brief, when on, still describes the whole title), and a title with no such pause, or a run of picked lines (Re-translate selected, redo of flagged lines), runs as before. Set it to 1 for the old one-after-another run. A copy that saved 1 while this was a Developer Mode setting keeps 1.
+**Chapters or scenes at once.** Settings > Engines and keys > Translation style > "Chapters or scenes
+translated at once" (1 to 3, default 3). A novel translated on Claude, GPT, DeepSeek, a paid Gemini key or an
+Ollama hosted model (a name ending in -cloud) works through up to that many chapters at the same time, which
+was about twice as fast on the same chapters in tests, at about the same cost and quality; the progress line
+reads "Chapter 2 of 6, batch 1 of 2". Batches inside a chapter still run in order, so only the first batch of
+a chapter misses the English of the chapter before it. Several requests run at once, so a provider's rate
+limit can slow a run; a spending cap still holds (a capped run is less parallel, and a batch is not sent when
+it would cost more than what is left, priced like the dearest batch so far, or from the estimate before any
+batch is done, so a run stops a little early rather than passing the cap). A model on this PC and the Gemini
+free tier always translate one chapter at a time, and a novel with one chapter has nothing to run side by
+side. A subtitle title (audio drama, video, stream) is cut the same way into up to that many parts at pauses
+of 20 seconds or more, the ones nearest an even split with each part at least one batch long, and the parts
+run side by side ("Part 2 of 3, batch 1 of 4"); the first batch after a cut sees the lines before it in the
+original language only (the episode brief, when on, still describes the whole title), and a title with no such
+pause, or a run of picked lines (Re-translate selected, redo of flagged lines), runs as before. Set it to 1
+for the old one-after-another run. A copy that saved 1 while this was a Developer Mode setting keeps 1.
 
-**When DeepSeek is slow.** A DeepSeek translation run (not Reflect or bulk, and with no fallback engine chosen) moves to Ollama's hosted Gemma 4 31B (gemma4:31b-cloud) when two DeepSeek requests in a row take more than 10 seconds for about 15 lines (longer batches are allowed the same pace per line). The move happens when the next chapter starts, so a chapter is never translated by two models; chapters already under way finish on DeepSeek, and chapters still run side by side. For 30 minutes after that, a new DeepSeek run starts on Gemma straight away. Gemma's requests are billed and counted against the caps like any other, and the text goes to Ollama's servers. If Gemma can't be reached (Ollama not running or not signed in), the run goes back to DeepSeek. The job's result lists the switch.
+**When DeepSeek is slow.** A DeepSeek translation run (not Reflect or bulk, and with no fallback engine
+chosen) moves to Ollama's hosted Gemma 4 31B (gemma4:31b-cloud) when two DeepSeek requests in a row take more
+than 10 seconds for about 15 lines (longer batches are allowed the same pace per line). The move happens when
+the next chapter starts, so a chapter is never translated by two models; chapters already under way finish on
+DeepSeek, and chapters still run side by side. For 30 minutes after that, a new DeepSeek run starts on Gemma
+straight away. When DeepSeek says the account is out of credit, the run moves to Gemma at once, mid-chapter
+(DeepSeek can't translate anything until it is topped up), and the finished job says "DeepSeek is out of
+credit. Top up at platform.deepseek.com; Gemma is translating for now."; new DeepSeek runs start on Gemma for
+the next 30 minutes. Gemma's requests are billed and counted against the caps like any other, and the text
+goes to Ollama's servers. If Gemma can't be reached (Ollama not running or not signed in), the run goes back
+to DeepSeek; if DeepSeek is out of credit, the run then reports DeepSeek's out-of-credit error, the finished
+job says only "DeepSeek is out of credit. Top up at platform.deepseek.com.", and the next run tries DeepSeek
+first. The job's result lists the switch.
 
-**Bulk batch replies.** A finished Bulk batch (Claude or Gemini) checks each reply the way a normal run does: a reply that is empty, JSON, reasoning text, still in the source script or far too long for its line is not written; the line stays blank and is flagged "check: the model's reply for this line was unusable" with the rejected text in the note so you can copy it back, and the batch summary counts it as rejected. Setting the reply check to Off turns this off here too. If saving a finished batch fails before any English was written (a locked database), it is tried once more from the same results without logging the cost twice; one unreadable reply no longer costs the replies next to it. Two cases are not covered: if the app stops while a finished batch is being applied, or the provider reports the batch failed or expired, the paid output may need to be bought again.
+**Bulk batch replies.** A finished Bulk batch (Claude or Gemini) checks each reply the way a normal run does:
+a reply that is empty, JSON, reasoning text, still in the source script or far too long for its line is not
+written; the line stays blank and is flagged "check: the model's reply for this line was unusable" with the
+rejected text in the note so you can copy it back, and the batch summary counts it as rejected. Setting the
+reply check to Off turns this off here too. If saving a finished batch fails before any English was written (a
+locked database), it is tried once more from the same results without logging the cost twice; one unreadable
+reply no longer costs the replies next to it. Two cases are not covered: if the app stops while a finished
+batch is being applied, or the provider reports the batch failed or expired, the paid output may need to be
+bought again.
 
-**Check and revise and Think harder** were removed from Translate. A title or profile that had either saved now translates normally; a Check and revise Bulk batch sent earlier still finishes. The Release preset still turns on Auto QC but no longer adds the three-pass check.
+**Check and revise and Think harder** were removed from Translate. A title or profile that had either saved
+now translates normally; a Check and revise Bulk batch sent earlier still finishes. The Release preset still
+turns on Auto QC but no longer adds the three-pass check.
 
 ### Translation guide (style, terms, and notes)
 
 Configured per drama in the Workspace's Translate stage.
 
-In Guided, Review's tools under the line list show only **Look for problems**, **Change many lines** and **Finish** (a link to the group Guided leaves out opens Look for problems), and the bar above the lines leaves out **Compact rows**, **Go to #** and **Shortcuts**; All tools has them all.
-In Guided, Review opens on **Need a look**: the unchecked lines a check flagged or Whisper was unsure of, riskiest first (a line with no speaker, on a title where other lines have one, comes last, with its **Speaker?** buttons on the card), with a **Need a look N** | **All M** pair of round tabs, "F of M look fine" at the far right end of the row (lines with no English count as neither) and an **i** saying why lines are listed. Each card says why it is there in everyday words (for example "The glossary writes 夷陵老祖 as “Yiling Patriarch”, but the English doesn’t use that name…", or "Whisper was unsure of this line (N% sure)", or "This line has no speaker yet."); the open card gives the whole sentence, on its own line under the card's number, time and speaker, and the others a few words in a chip at the end of their row ("Too fast to read: 25 characters a second", "Whisper was unsure of this line (58% sure)"); from 641 px wide a closed card is one row (number and time with the speaker's name under them, source and English, chip; the chip drops under them when the row has no room for both), with its speaker button, reading speed and badges shown once it opens, and queue cards have no tick box (Space and Shift+Space do nothing on them, not even scroll the page; with media, Space still plays the line). Two more reasons have their own words: a line Whisper may have made up ("Whisper may have written something that was not said here", with what gave it away, and **Re-transcribe…**) and a line another speaker talks over ("Another speaker talks over this line. Type what they say, or delete the line."); a translation reply that could not be used keeps its reason and the reply in the sentence. The open card shows the English under an **English** label in a box (click it to edit) and, in order, **Play line** (with media), the one action that fits the reason (**Glossary** for a glossary or name flag, **Re-transcribe…** for source text that looks off, engines that heard it differently or a line Whisper was unsure of, **Snap to speech** for a timing flag once the timing check has a fix, **Keep English** for a changed source, and the engine retry for a blocked line), **Re-write**, **✗ Wrong** and **〰 Partly** (your own verdict on the English: pressing the one a line has clears it; a marked line is not checked, checking it clears the mark, and a change to its English clears it too; a tag on the line shows the mark, a **Marked N** view beside Need a look and All lists the marked lines, appearing once a line is marked, and marked lines come first in Need a look), and at the far right a green **Looks right, next** (or R), which marks the line checked and opens the next card, with **Undo** above the list; **Edit details**, **Dismiss flag** and **Snap to speech** are in the card's **More** menu and on D and F. On an audio title the player and waveform are folded away, in Need a look and under All alike, so the lines come first; the **Player** button in the header's **More** row brings back the seek bar, speed, subtitles and waveform, and the choice is remembered for both. When nothing needs a look the player and waveform stay out in Need a look, so **Transcribe this gap** is still there; under All the gap arrows bring the waveform out when used, and a sound file that fails to play brings the player out with its error. A video that won't play switches to the title's audio file, if it has one, from the same spot, with a note saying so; the error names the video or the audio, whichever failed. From 1100 px wide, the tools beside the cards open on a **This line** tab with three cards: **Line N sound** (a small picture of the line's sound with half a second either side, **Play** and its start and end times; audio titles only), **Why it is listed** (the whole reason, a note when Whisper was also unsure of a flagged line, and **Glossary** for a glossary flag) and **Around it** (the line before and after, each opening that line among all lines); the open card's chip then keeps to a few words. Picking another tab is remembered as before, and a link that names a tools group opens that group; while another tab shows, the open card has the whole sentence and **In context** after Re-write, as it has narrower than 1100 px. Under the cards, two plain links: **Read them all** switches to All and brings its first line into view, and **Mark the rest as checked…** (asks first) marks the other unflagged lines checked the way Mark episode reviewed does, leaving marked lines alone and saying how many; pressed while a line Whisper was unsure of or a line with no speaker is still listed or the list runs past one page, it says why under the links instead of asking. A line says how many lines have no English yet with **Show untranslated**. The filters, the step buttons and Replace… are under All (on a wider screen Replace… ends the filter row; **Select all shown** and the step buttons share one row at any width). On a wider screen the title's main button (**Check the 3 lines**, or whatever the next step is) sits first in the switch's row, left of the switch, in Need a look and under All. On a phone there is no Need a look | All row: the queue shows one card at a time, straight under the **Step 4 of 5 · Review** button, which also says "1 of 3 to look at" at its right end with a thin progress bar under it. The card's first line is **Line 24** · 1:02.5 (and the speaker), with **In context** at the right (it drops to the next line, still at the right, when both do not fit); then a **Why:** box with the reason, the source, the English box (tap it to edit), the buttons (**Play line** with media, the fitting action, **Re-write**, **✗ Wrong**, **〰 Partly** and a **⋯** for the card's menu) and, at the card's bottom edge, "Next: line 12, too fast to read · line 7, Whisper was unsure". The bar at the bottom has two buttons, **Skip** (skip for now) and a green **Looks right ›** (looks right, next) twice as wide. Under it the phone's menu stays, as words only: **Library**, **Add**, **Jobs** and **More**. Under the card, the footer says how many other lines have no warnings, with the (i) that says why lines are listed, **Read them all** and **Mark the rest as checked…**; **Read them all** (or **In context**) shows All, whose first row is the main button (**Check the 3 lines**, only while lines need a look), which goes back to the queue; once a line is marked, **Marked** is among All's filters there. The player is folded away there too, with its **Player** button in the header's **More** panel, and the Review tools are behind one **Checks and tools** button (a running job still shows above it; a link to a tools group or a button that needs a tool opens it). The header's **More** button, at the right of the title, opens **Add media**, **Redo transcription**, **Glossary**, **Search**, Open folder, the source link and **Player**; the steps, the main button (on the Review step while something may need a look) and the Guided / All tools switch are behind the **Step 4 of 5 · Review** button on its own row under the title (a long title wraps beside the back arrow). Opening one of the two panels closes the other. A link that names lines (Ctrl+K, a flagged-lines link) opens on those lines instead. Each of the two views, Need a look and All, reopens on the line you were last on in it, when you open the title and when you switch to it, kept for each title in this browser ("Back where you stopped, on line N." above the list, and the line lights up for a moment); a glance at a filter or a search does not move it, and a card no longer listed opens the first card.
-In Guided, the Run tab leaves out its **Advanced options** (the tuning and the speaker-count and re-detect controls); the basic choices, Transcribe and the estimate stay, and All tools shows everything.
-While an audio or video title has no lines yet, its Guided page shows a title panel under the steps with tabs: **Video** (only when the title has a source video; a plain player), **Glossary** (**Open glossary**), **Details** (**Open details**, which opens Media > Details, and **Where settings come from**) and, for a title in a series, **Episodes** (the series' titles with how far each episode is). Translate and Export are left out until there are lines. Once it has lines, the title page is the Review step's page: the lines and Review's tools as described above, under the same header and step row, with the current step outlined. It opens on **Need a look**, or on **All** while some lines still have no English (a link that names lines still wins), and both it and the Review step's page lead back to the Library. For a title in a series, the tools' tab row there ends with an **Episodes** tab: the series' titles with how far each is, the open one marked, each opening that title; it is never remembered as the title's last tab and no link opens it. Pressing another step keeps the header and the step row above it, with the step itself in place of the lines, and the open step is outlined.
-A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and **Read** above the list, and without the Media and Review tabs; each button opens the matching stage under a slim header (a **‹ Title page** link back to the title page) with a row of **Steps**, **Media**, **Translate** and **Export** links under it, so you can move between stages without switching to All tools; the same goes for the buttons on the comic Guided page. On a novel title the main button is the next step: **Translate** once the title has lines (with saved chapters but no lines yet, **Translate** runs the same steps as **Continue** in the link box: lines, speaker tags and the glossary scan, then the glossary review), and **Review** (above Translate) once every line has English. Pasting novel text on a title with no saved chapters saves it as that title's chapters (split at the chapter headings), and the attached count is chapters, not paragraphs. **Read** always opens the Reader. Once translation has started, the link box becomes **Add chapters from a link** with an **Add from link** button: it imports the chapter, appends only the new chapters to the translation text and adds lines for that new text after the saved ones (only the new lines get speakers tagged; every saved line, including ones you edited, merged or split in Review, is left exactly as it is); it never starts a translation, so press Translate afterwards. While a translation or narration is running on the title it waits instead of stopping it: it says "Wait for the running translation to finish, or stop it first.", and pressing **Add from link** again afterwards adds the chapters it already imported. The box has the same AI engine, model and **One narrator, skip speaker tagging** choices as Continue, and tagging the new chapters uses the engine you picked; a paid engine with no monthly cap set asks you to tick a box accepting the cost first. If the translation text is not exactly the first saved chapters (pasted, edited or cut) it stops and says so instead of overwriting or guessing; add the chapters in the Media tab then. An EPUB is split into chapters by its own table of contents (a document the contents doesn't name continues the chapter before it), and a blank title, author or cover is filled from the book's metadata. Once the title has lines, each chapter row also shows how far it is translated (Not translated, a count such as 12 of 40 lines translated, or Translated) and a **Read** link that opens the Reader at that chapter's first page. A chapter that has some English also has **Translate again**: it shows how many lines will be translated and the most it can cost, then runs the normal translation on just that chapter with the title's saved engine, glossary and style. Lines you edited by hand are left alone unless you tick **Include the N hand-edited lines**, and the old English stays in the line history. When the glossary scan has finished, a **Cast found in the text** card lists the people it found, with the pronouns it read from the text and a short note on who each is: tick the right ones, change any pronouns, and press **Apply to characters**. Nothing is saved before that, no model call is made for it, and pronouns that are already set (on the title's character or the series character) are never replaced; a new name is kept as a series character when the title has a series.
-A novel title with no lines yet also has a link box: **Import from link** puts a run on the PC's queue that imports the chapters, splits them into lines, tags speakers and finds glossary terms (on the Jobs page: Import chapters, Prepare the text, Make lines, Find names; it goes on with the page closed, and any account that may start jobs can run it from a phone; a title that already has its own text and no saved chapters is refused rather than have its text replaced), then stops at **Review glossary and translate**, which opens the Translate tab with the scan's review already open (**Review proposals** reopens it if you cancel): tick the names, then **Add N terms and start translation** adds them and starts the translation, and **Next: Review** opens the result. Under the link, **One narrator, skip speaker tagging** and the AI engine and model that tag speakers are chosen before the first import (and remembered per browser); the chapter range and the price show once the chapters are in. The link box also has a **Skip the glossary review** switch, off by default and remembered per browser: with it on, the chain adds the proposed terms that are not in the glossary yet and have a translation, then starts translating without stopping, and the title page then leads with **Review** once it finishes; this last part needs the page open when the scan ends. Before **Continue** the link box shows the same choices as Split and name speakers (AI engine, model, **One narrator, skip speaker tagging**, first and last chapter, cost estimate), remembered per browser except the chapters, and both the tagging and a skipped-review translation use the engine and chapters you picked. On the Translate tab, **More options** has **First chapter** and **Last chapter** for a novel: only those chapters are estimated and translated, chapters already translated are skipped, and Bulk is not available with a chapter choice. Chapters are numbered from the novel's text, as Split and name speakers numbers them, so a book whose lines start at chapter 50 is translated from chapter 50; if lines were edited, merged or split in Review since, each chapter is found by its heading line, and a chapter choice is refused when a heading was edited. If a step fails, the title says why it stopped and **Continue** picks up from where the title is.
+In Guided, Review's tools under the line list show only **Look for problems**, **Change many lines** and
+**Finish** (a link to the group Guided leaves out opens Look for problems), and the bar above the lines leaves
+out **Compact rows**, **Go to #** and **Shortcuts**; All tools has them all.
+In Guided, Review opens on **Need a look**: the unchecked lines a check flagged or Whisper was unsure of,
+riskiest first (a line with no speaker, on a title where other lines have one, comes last, with its
+**Speaker?** buttons on the card), with a **Need a look N** | **All M** pair of round tabs, "F of M look fine"
+at the far right end of the row (lines with no English count as neither) and an **i** saying why lines are
+listed. Each card says why it is there in everyday words (for example "The glossary writes 夷陵老祖 as “Yiling
+Patriarch”, but the English doesn’t use that name…", or "Whisper was unsure of this line (N% sure)", or "This
+line has no speaker yet."); the open card gives the whole sentence, on its own line under the card's number,
+time and speaker, and the others a few words in a chip at the end of their row ("Too fast to read: 25
+characters a second", "Whisper was unsure of this line (58% sure)"); from 641 px wide a closed card is one row
+(number and time with the speaker's name under them, source and English, chip; the chip drops under them when
+the row has no room for both), with its speaker button, reading speed and badges shown once it opens, and
+queue cards have no tick box (Space and Shift+Space do nothing on them, not even scroll the page; with media,
+Space still plays the line). Two more reasons have their own words: a line Whisper may have made up ("Whisper
+may have written something that was not said here", with what gave it away, and **Re-transcribe…**) and a line
+another speaker talks over ("Another speaker talks over this line. Type what they say, or delete the line.");
+a translation reply that could not be used keeps its reason and the reply in the sentence. The open card shows
+the English under an **English** label in a box (click it to edit) and, in order, **Play line** (with media),
+the one action that fits the reason (**Glossary** for a glossary or name flag, **Re-transcribe…** for source
+text that looks off, engines that heard it differently or a line Whisper was unsure of, **Snap to speech** for
+a timing flag once the timing check has a fix, **Keep English** for a changed source, and the engine retry for
+a blocked line), **Re-write**, **✗ Wrong** and **〰 Partly** (your own verdict on the English: pressing the one
+a line has clears it; a marked line is not checked, checking it clears the mark, and a change to its English
+clears it too; a tag on the line shows the mark, a **Marked N** view beside Need a look and All lists the
+marked lines, appearing once a line is marked, and marked lines come first in Need a look), and at the far
+right a green **Looks right, next** (or R), which marks the line checked and opens the next card, with
+**Undo** above the list; **Edit details**, **Dismiss flag** and **Snap to speech** are in the card's **More**
+menu and on D and F. On an audio title the player and waveform are folded away, in Need a look and under All
+alike, so the lines come first; the **Player** button in the header's **More** row brings back the seek bar,
+speed, subtitles and waveform, and the choice is remembered for both. When nothing needs a look the player and
+waveform stay out in Need a look, so **Transcribe this gap** is still there; under All the gap arrows bring
+the waveform out when used, and a sound file that fails to play brings the player out with its error. A video
+that won't play switches to the title's audio file, if it has one, from the same spot, with a note saying so;
+the error names the video or the audio, whichever failed. From 1100 px wide, the tools beside the cards open
+on a **This line** tab with three cards: **Line N sound** (a small picture of the line's sound with half a
+second either side, **Play** and its start and end times; audio titles only), **Why it is listed** (the whole
+reason, a note when Whisper was also unsure of a flagged line, and **Glossary** for a glossary flag) and
+**Around it** (the line before and after, each opening that line among all lines); the open card's chip then
+keeps to a few words. Picking another tab is remembered as before, and a link that names a tools group opens
+that group; while another tab shows, the open card has the whole sentence and **In context** after Re-write,
+as it has narrower than 1100 px. Under the cards, two plain links: **Read them all** switches to All and
+brings its first line into view, and **Mark the rest as checked…** (asks first) marks the other unflagged
+lines checked the way Mark episode reviewed does, leaving marked lines alone and saying how many; pressed
+while a line Whisper was unsure of or a line with no speaker is still listed or the list runs past one page,
+it says why under the links instead of asking. A line says how many lines have no English yet with **Show
+untranslated**. The filters, the step buttons and Replace… are under All (on a wider screen Replace… ends the
+filter row; **Select all shown** and the step buttons share one row at any width). On a wider screen the
+title's main button (**Check the 3 lines**, or whatever the next step is) sits first in the switch's row, left
+of the switch, in Need a look and under All. On a phone there is no Need a look | All row: the queue shows one
+card at a time, straight under the **Step 4 of 5 · Review** button, which also says "1 of 3 to look at" at its
+right end with a thin progress bar under it. The card's first line is **Line 24** · 1:02.5 (and the speaker),
+with **In context** at the right (it drops to the next line, still at the right, when both do not fit); then a
+**Why:** box with the reason, the source, the English box (tap it to edit), the buttons (**Play line** with
+media, the fitting action, **Re-write**, **✗ Wrong**, **〰 Partly** and a **⋯** for the card's menu) and, at
+the card's bottom edge, "Next: line 12, too fast to read · line 7, Whisper was unsure". The bar at the bottom
+has two buttons, **Skip** (skip for now) and a green **Looks right ›** (looks right, next) twice as wide.
+Under it the phone's menu stays, as words only: **Library**, **Add**, **Jobs** and **More**. Under the card,
+the footer says how many other lines have no warnings, with the (i) that says why lines are listed, **Read
+them all** and **Mark the rest as checked…**; **Read them all** (or **In context**) shows All, whose first row
+is the main button (**Check the 3 lines**, only while lines need a look), which goes back to the queue; once a
+line is marked, **Marked** is among All's filters there. The player is folded away there too, with its
+**Player** button in the header's **More** panel, and the Review tools are behind one **Checks and tools**
+button (a running job still shows above it; a link to a tools group or a button that needs a tool opens it).
+The header's **More** button, at the right of the title, opens **Add media**, **Redo transcription**,
+**Glossary**, **Search**, Open folder, the source link and **Player**; the steps, the main button (on the
+Review step while something may need a look) and the Guided / All tools switch are behind the **Step 4 of 5 ·
+Review** button on its own row under the title (a long title wraps beside the back arrow). Opening one of the
+two panels closes the other. A link that names lines (Ctrl+K, a flagged-lines link) opens on those lines
+instead. Each of the two views, Need a look and All, reopens on the line you were last on in it, when you open
+the title and when you switch to it, kept for each title in this browser ("Back where you stopped, on line N."
+above the list, and the line lights up for a moment); a glance at a filter or a search does not move it, and a
+card no longer listed opens the first card.
+In Guided, the Run tab leaves out its **Advanced options** (the tuning and the speaker-count and re-detect
+controls); the basic choices, Transcribe and the estimate stay, and All tools shows everything.
+While an audio or video title has no lines yet, its Guided page shows a title panel under the steps with tabs:
+**Video** (only when the title has a source video; a plain player), **Glossary** (**Open glossary**),
+**Details** (**Open details**, which opens Media > Details, and **Where settings come from**) and, for a title
+in a series, **Episodes** (the series' titles with how far each episode is). Translate and Export are left out
+until there are lines. Once it has lines, the title page is the Review step's page: the lines and Review's
+tools as described above, under the same header and step row, with the current step outlined. It opens on
+**Need a look**, or on **All** while some lines still have no English (a link that names lines still wins),
+and both it and the Review step's page lead back to the Library. For a title in a series, the tools' tab row
+there ends with an **Episodes** tab: the series' titles with how far each is, the open one marked, each
+opening that title; it is never remembered as the title's last tab and no link opens it. Pressing another step
+keeps the header and the step row above it, with the step itself in place of the lines, and the open step is
+outlined.
+A novel title opens on its saved chapters with **Translate**, **Add chapters**, **Glossary**, **Export** and
+**Read** above the list, and without the Media and Review tabs; each button opens the matching stage under a
+slim header (a **‹ Title page** link back to the title page) with a row of **Steps**, **Media**, **Translate**
+and **Export** links under it, so you can move between stages without switching to All tools; the same goes
+for the buttons on the comic Guided page. On a novel title the main button is the next step: **Translate**
+once the title has lines (with saved chapters but no lines yet, **Translate** runs the same steps as
+**Continue** in the link box: lines, speaker tags and the glossary scan, then the glossary review), and
+**Review** (above Translate) once every line has English. Pasting novel text on a title with no saved chapters
+saves it as that title's chapters (split at the chapter headings), and the attached count is chapters, not
+paragraphs. **Read** always opens the Reader. Once translation has started, the link box becomes **Add
+chapters from a link** with an **Add from link** button: it imports the chapter, appends only the new chapters
+to the translation text and adds lines for that new text after the saved ones (only the new lines get speakers
+tagged; every saved line, including ones you edited, merged or split in Review, is left exactly as it is); it
+never starts a translation, so press Translate afterwards. While a translation or narration is running on the
+title it waits instead of stopping it: it says "Wait for the running translation to finish, or stop it
+first.", and pressing **Add from link** again afterwards adds the chapters it already imported. The box has
+the same AI engine, model and **One narrator, skip speaker tagging** choices as Continue, and tagging the new
+chapters uses the engine you picked; a paid engine with no monthly cap set asks you to tick a box accepting
+the cost first. If the translation text is not exactly the first saved chapters (pasted, edited or cut) it
+stops and says so instead of overwriting or guessing; add the chapters in the Media tab then. An EPUB is split
+into chapters by its own table of contents (a document the contents doesn't name continues the chapter before
+it), and a blank title, author or cover is filled from the book's metadata. Once the title has lines, each
+chapter row also shows how far it is translated (Not translated, a count such as 12 of 40 lines translated, or
+Translated) and a **Read** link that opens the Reader at that chapter's first page. A chapter that has some
+English also has **Translate again**: it shows how many lines will be translated and the most it can cost,
+then runs the normal translation on just that chapter with the title's saved engine, glossary and style. Lines
+you edited by hand are left alone unless you tick **Include the N hand-edited lines**, and the old English
+stays in the line history. When the glossary scan has finished, a **Cast found in the text** card lists the
+people it found, with the pronouns it read from the text and a short note on who each is: tick the right ones,
+change any pronouns, and press **Apply to characters**. Nothing is saved before that, no model call is made
+for it, and pronouns that are already set (on the title's character or the series character) are never
+replaced; a new name is kept as a series character when the title has a series.
+A novel title with no lines yet also has a link box: **Import from link** puts a run on the PC's queue that
+imports the chapters, splits them into lines, tags speakers and finds glossary terms (on the Jobs page: Import
+chapters, Prepare the text, Make lines, Find names; it goes on with the page closed, and any account that may
+start jobs can run it from a phone; a title that already has its own text and no saved chapters is refused
+rather than have its text replaced), then stops at **Review glossary and translate**, which opens the
+Translate tab with the scan's review already open (**Review proposals** reopens it if you cancel): tick the
+names, then **Add N terms and start translation** adds them and starts the translation, and **Next: Review**
+opens the result. Under the link, **One narrator, skip speaker tagging** and the AI engine and model that tag
+speakers are chosen before the first import (and remembered per browser); the chapter range and the price show
+once the chapters are in. The link box also has a **Skip the glossary review** switch, off by default and
+remembered per browser: with it on, the chain adds the proposed terms that are not in the glossary yet and
+have a translation, then starts translating without stopping, and the title page then leads with **Review**
+once it finishes; this last part needs the page open when the scan ends. Before **Continue** the link box
+shows the same choices as Split and name speakers (AI engine, model, **One narrator, skip speaker tagging**,
+first and last chapter, cost estimate), remembered per browser except the chapters, and both the tagging and a
+skipped-review translation use the engine and chapters you picked. On the Translate tab, **More options** has
+**First chapter** and **Last chapter** for a novel: only those chapters are estimated and translated, chapters
+already translated are skipped, and Bulk is not available with a chapter choice. Chapters are numbered from
+the novel's text, as Split and name speakers numbers them, so a book whose lines start at chapter 50 is
+translated from chapter 50; if lines were edited, merged or split in Review since, each chapter is found by
+its heading line, and a chapter choice is refused when a heading was edited. If a step fails, the title says
+why it stopped and **Continue** picks up from where the title is.
 
-An audio drama or video title has a **Guided** / **All tools** switch in its header, which is the title's own view and not the menu's Simple / Advanced (on a phone, in All tools it is in the Title actions menu and in Guided behind the **Step N of 5** button). All tools is the workspace with the Transcribe, Translate, Review and Export tabs (the first one is called Media on a comic). Guided, opened from a link with no stage, shows one row of five step links under the header (Add, Transcribe, Translate, Review, Export), each one line that says where the title stands and opens the matching stage: for example **Done · Transcribe, 24 lines**, **Now · Translate, 18 of 30 left**, **Next · Review, 3 lines need a look**, then **Export** alone (Review says "nothing needs a look" only once it is the current step; before that a count of none says nothing); pointing at a step shows its longer note. The current step (or, on a stage page, the open one) is outlined, and the current step's action is the one main button, under the steps (on a wider screen, first in the row of the Need a look | All switch wherever the lines are shown): **Add media**, **Transcribe and build glossary**, **Translate 18 lines**, **Check the 3 lines** (where the lines are shown, it opens Need a look on its first card in place) or **Export** (once nothing needs a look). On the current step's own page the main button is left out, since that page has its own button for the step (Review keeps it: there it opens Need a look in place). On a phone title page on the Translate step, the lines' **Check the N lines** button is an outline button, so **Translate N lines** is the one main button. On the title page and the Review step's page a chip after the title's name gives its kind and, when known, its languages (**Audio drama · Chinese to English**); where the name and the chip do not fit side by side the chip drops under the name, so the header's controls keep the row. A phone's header leaves the chip out. The header holds **Add media** (when it is not the main button), **Redo transcription** (once there are lines), **Glossary**, **Search** (once there are lines: it shows All and puts the cursor in the lines' search box, from the title page or from another step's page), the switch and **More**, which opens a row with **Open folder**, the source page link (or **Add a source link**, which opens Media > Details with Edit details open and the link field ready to type in, also when Details is already showing) and, on an audio title, the **Player** button. Where the name and all the controls cannot share one row (a docked menu beside a window about 1100 px wide), the controls move under the name together as one line. On a phone the header has **More** (**Add media**, **Redo transcription**, **Glossary**, **Search**, Open folder, the source link and **Player**) at the right of the name and, on its own row under it, one button such as **Step 3 of 5 · Translate** that opens the steps (one per line) and the Guided / All tools switch, with the main button across the page under the header (inside that panel on the Review step while something may need a look, so the first card comes first; once nothing does, **Export** stays under the header); a title's episodes are in the Episodes tab described above, or in the title panel before it has lines. The choice is remembered in this browser, Guided is the default until someone picks All tools, and a link that names a stage always opens that stage. Guided also trims the stages: in Review, a line shows its start time only (no end time, characters-per-second number or dub file name; the number still appears on a line flagged for reading speed), and under All the active line's buttons are Play, Edit details, Re-write, Wrong, Mixed, Mark checked and any flag button (on a phone, Mark wrong, Mark mixed and the clearing of a mark are in the line's **⋯** menu), with Why this?, Split and Merge left to the line's **⋯** menu and their keys (Need a look's cards have their own buttons, described above); Add media leaves out Only this part, Import subtitle file and Keep original files (a subtitle file dropped on the file box still opens Import subtitle file with it); Translate says its engine, style and English variant in one line with a **Change** button that opens the four choices, Estimate cost and Re-translate, and leaves out More options and the Characters and Reference novel tabs (a link that names one of those tabs, such as the Reader's **Edit in Translate** under Characters, still opens it); Export offers only Video with a subtitle track and Subtitle file (where the title has a source video). All tools shows everything. Novels and comics have the switch too: a novel opens on its novel page (Guided) and All tools is the stage workspace; a comic's Guided page has **Open in Scanlate**, **Add pages**, **Glossary** and **Export** above its **Chapters** (each with its page count and how many pages have text; one opens the reader on that chapter) and the **Titles in this series**, and All tools is the workspace; a comic's Media tab shows its **Pages** (how many pages and chapters, with **Open in Scanlate**) and keeps the older text-only reading from page images in a fold named **Text only, from page images**, with no novel text or EPUB boxes. Each of the three groups remembers its own choice. On the Guided page of an audio or video title that has audio but no lines yet, **Transcribe and build glossary** puts a run on the PC's queue that transcribes it with the saved options, finds names for the glossary, then stops at **Review the glossary**; translating starts from there. The run starts at once without the queue's own Start (after an item already running there), goes on with the page closed, and shows on the Jobs page as **Transcribe** and **Find names**; opening the title again shows how far it got instead of offering the button again. If a step fails, or Baihe restarts before the run ends, the title says why it stopped in plain words (a worker that crashed reads "Transcription stopped unexpectedly."), **See details** opens that step's job on the Jobs page with its details open, and the button reads **Continue**, which goes on from the stopped step and skips the steps already done. A start the server refuses (a title that transcribes from a pasted transcript, say) is not a stopped run: the reason shows and the button keeps its name.
+An audio drama or video title has a **Guided** / **All tools** switch in its header, which is the title's own
+view and not the menu's Simple / Advanced (on a phone, in All tools it is in the Title actions menu and in
+Guided behind the **Step N of 5** button). All tools is the workspace with the Transcribe, Translate, Review
+and Export tabs (the first one is called Media on a comic). Guided, opened from a link with no stage, shows
+one row of five step links under the header (Add, Transcribe, Translate, Review, Export), each one line that
+says where the title stands and opens the matching stage: for example **Done · Transcribe, 24 lines**, **Now ·
+Translate, 18 of 30 left**, **Next · Review, 3 lines need a look**, then **Export** alone (Review says
+"nothing needs a look" only once it is the current step; before that a count of none says nothing); pointing
+at a step shows its longer note. The current step (or, on a stage page, the open one) is outlined, and the
+current step's action is the one main button, under the steps (on a wider screen, first in the row of the Need
+a look | All switch wherever the lines are shown): **Add media**, **Transcribe and build glossary**,
+**Translate 18 lines**, **Check the 3 lines** (where the lines are shown, it opens Need a look on its first
+card in place) or **Export** (once nothing needs a look). On the current step's own page the main button is
+left out, since that page has its own button for the step (Review keeps it: there it opens Need a look in
+place). On a phone title page on the Translate step, the lines' **Check the N lines** button is an outline
+button, so **Translate N lines** is the one main button. On the title page and the Review step's page a chip
+after the title's name gives its kind and, when known, its languages (**Audio drama · Chinese to English**);
+where the name and the chip do not fit side by side the chip drops under the name, so the header's controls
+keep the row. A phone's header leaves the chip out. The header holds the switch and **More**, which opens a
+row with **Add media** (when it is not the main button), **Redo transcription** (once there are lines),
+**Glossary**, **Search** (once there are lines: it shows All and puts the cursor in the lines' search box,
+from the title page or from another step's page, and closes the row), **Open folder**, the source page link
+(or **Add a source link**, which opens Media > Details with Edit details open and the link field ready to type
+in, also when Details is already showing) and, on an audio title, the **Player** button. Where the name and
+the switch with More cannot share one row (a docked menu beside a narrow window), they move under the name
+together as one line. On a phone the header has **More** (**Add media**, **Redo transcription**, **Glossary**,
+**Search**, Open folder, the source link and **Player**) at the right of the name and, on its own row under
+it, one button such as **Step 3 of 5 · Translate** that opens the steps (one per line) and the Guided / All
+tools switch, with the main button across the page under the header (inside that panel on the Review step
+while something may need a look, so the first card comes first; once nothing does, **Export** stays under the
+header); a title's episodes are in the Episodes tab described above, or in the title panel before it has
+lines. The choice is remembered in this browser, Guided is the default until someone picks All tools, and a
+link that names a stage always opens that stage. Guided also trims the stages: in Review, a line shows its
+start time only (no end time, characters-per-second number or dub file name; the number still appears on a
+line flagged for reading speed), and under All the active line's buttons are Play, Edit details, Re-write,
+Wrong, Mixed, Mark checked and any flag button (on a phone, Mark wrong, Mark mixed and the clearing of a mark
+are in the line's **⋯** menu), with Why this?, Split and Merge left to the line's **⋯** menu and their keys
+(Need a look's cards have their own buttons, described above); Add media leaves out Only this part, Import
+subtitle file and Keep original files (a subtitle file dropped on the file box still opens Import subtitle
+file with it); Translate says its engine, style and English variant in one line with a **Change** button that
+opens the four choices, Estimate cost and Re-translate, and leaves out More options and the Characters and
+Reference novel tabs (a link that names one of those tabs, such as the Reader's **Edit in Translate** under
+Characters, still opens it); Export offers only Video with a subtitle track and Subtitle file (where the title
+has a source video). All tools shows everything. Novels and comics have the switch too: a novel opens on its
+novel page (Guided) and All tools is the stage workspace; a comic's Guided page has **Open in Scanlate**,
+**Add pages**, **Glossary** and **Export** above its **Chapters** (each with its page count and how many pages
+have text; one opens the reader on that chapter) and the **Titles in this series**, and All tools is the
+workspace; a comic's Media tab shows its **Pages** (how many pages and chapters, with **Open in Scanlate**)
+and keeps the older text-only reading from page images in a fold named **Text only, from page images**, with
+no novel text or EPUB boxes. Each of the three groups remembers its own choice. On the Guided page of an audio
+or video title that has audio but no lines yet, **Transcribe and build glossary** puts a run on the PC's queue
+that transcribes it with the saved options, finds names for the glossary, then stops at **Review the
+glossary**; translating starts from there. The run starts at once without the queue's own Start (after an item
+already running there), goes on with the page closed, and shows on the Jobs page as **Transcribe** and **Find
+names**; opening the title again shows how far it got instead of offering the button again. If a step fails,
+or Baihe restarts before the run ends, the title says why it stopped in plain words (a worker that crashed
+reads "Transcription stopped unexpectedly."), **See details** opens that step's job on the Jobs page with its
+details open, and the button reads **Continue**, which goes on from the stopped step and skips the steps
+already done. A start the server refuses (a title that transcribes from a pasted transcript, say) is not a
+stopped run: the reason shows and the button keeps its name.
 
-The **Instructions** tab beside **Chapters** holds the title's instructions and its **Term conventions** (one per line, saved as the last section of the same text); both go into every translation, and the conventions also guide the terms the glossary finds in the novel. **Draft from novel** has the title's engine read a sample of the novel and write a style instruction (genre, tone, point of view, voice) into the box for you to edit; nothing is saved until you press **Save**, and it is one paid call on that engine.
+The **Instructions** tab beside **Chapters** holds the title's instructions and its **Term conventions** (one
+per line, saved as the last section of the same text); both go into every translation, and the conventions
+also guide the terms the glossary finds in the novel. **Draft from novel** has the title's engine read a
+sample of the novel and write a style instruction (genre, tone, point of view, voice) into the box for you to
+edit; nothing is saved until you press **Save**, and it is one paid call on that engine.
 
-The Translate stage has four tabs, one screen each (the last one you used is remembered per title): **Translate** (engine, model, style, the estimate and the Translate button, More options, the notices about failed batches or missing glossary names, Bulk batches), **Glossary** (the panel below, with its language packs), **Characters** and **Reference novel** (an existing English translation of the novel, used to keep names consistent). A running job's progress stays above the tabs whichever one you are on. While the engine can't run (no API key, a missing package), the Translate button is off and Retry on the Last run card starts nothing either: it says why under the Translate button. A link can open one with `#/drama/<id>/translate?tab=glossary` (or `translate`, `characters`, `novel`). In every tab only the first card opens by itself; the others are folded and remember how you left them.
+The Translate stage has four tabs, one screen each (the last one you used is remembered per title):
+**Translate** (engine, model, style, the estimate and the Translate button, More options, the notices about
+failed batches or missing glossary names, Bulk batches), **Glossary** (the panel below, with its language
+packs), **Characters** and **Reference novel** (an existing English translation of the novel, used to keep
+names consistent). A running job's progress stays above the tabs whichever one you are on. While the engine
+can't run (no API key, a missing package), the Translate button is off and Retry on the Last run card starts
+nothing either: it says why under the Translate button. A link can open one with
+`#/drama/<id>/translate?tab=glossary` (or `translate`, `characters`, `novel`). In every tab only the first
+card opens by itself; the others are folded and remember how you left them.
 
-The Style field on the Translate tab opens a list in the app's own look, with the styles, tiers and your profiles in groups; tap one to choose it.
-- **Term policies**, per term: keep as pinyin (沈清疑 → Shen Qingyi), hybrid (云隐宗 → Yunyin Sect), translate meaning (听雨阁 → Listening Rain Pavilion), keep + note, or contextual (姐姐 → "jiejie" or "older sister"). Terms are categorized (name, sect, title, honorific, place, artifact, concept...) and grouped by policy in the prompt.
-- **The Glossary panel has seven tabs**, and it remembers the last one per title: **Terms** (the table with a search box, a sort choice and a count of matching terms, Add term), **Find terms** (Suggest terms from the transcript or the novel; on a title with saved chapters a chooser next to it scans one chapter instead of the whole title, and the button then reads **Scan this chapter**, and **Scan all chapters** scans each chapter in turn and adds the terms it finds without overwriting yours (a term must appear at least twice in a chapter; ones you ignored stay out; one call per chapter, so a paid engine is billed per chapter; it runs on the server and carries on if you leave the page), Import or export; every scan, Suggest spellings and the drafted instruction use the model the title last translated with (such as Gemma 31b cloud), or the engine's default when it has none, and a cloud model doesn't wait for the PC's GPU; an imported file saved as GBK, Big5, Shift-JIS, EUC-KR or UTF-16, such as a CSV from Chinese Excel, is read in that encoding), **Names** (Find possible names, the Find similar and Suggest spellings panels, Check names across all titles), **Packs** (language packs and VTuber names), **Instructions** (project and series instructions, each with its own Save and a character count), **Replacements** (whole-word swaps for the series, such as "thee" to "you": every line a translation run writes has them applied, ignoring case; lines already translated are not changed, and a title with no series gets one of its own on the first one you add) and **Re-translate** (re-translate the lines the glossary affects). A scan outlives the page: leave and come back, or reload, and a banner on the Translate stage says "A glossary scan is running" or "Scan finished: N proposals to review" with a button to open it, whether or not "Review glossary before translating" is on. A Suggest spellings answer is kept the same way until the app restarts. Suggest terms from the transcript also lists nicknames and slang, and a term whose meaning the model only inferred from context shows Low even when it repeats, so Select all High leaves it for you to check.
-- **A title's own terms in a series.** A title that had glossary terms before it joined a series keeps them. The Terms tab lists them, they are used in its translations and win over a series term with the same original text (that term then can't be edited or removed from the title), and **Copy to series** adds them to the series glossary, leaving terms the series already has as they are.
-- **Auto-extract terms** proposes terms with a category and policy from a novel or a drama's own transcript; everything goes to a review table first. Given both the original novel and an English translation, it extracts matched pairs. Only terms are stored, never passages. A proposal is kept only if its original text appears in the excerpt the engine read, a character's pronoun counts only when the engine quoted the line that shows it (otherwise it reads "unclear"), a word the engine found ambiguous (such as 阿姨, aunt or nanny) shows its other reading beside the suggestion, and the terms already in your glossary are given to the engine with their English so new terms stay consistent. A passage whose reply the engine cut off is asked again in two halves instead of losing its terms. Terms join the series glossary. A proposal also lists other spellings of the same name that the passage itself shows ("also written"); applying it saves them as the term's aliases, added to any you already had.
-- **Import / export glossaries** as CSV, TSV or JSON (a two-column term/translation sheet works; category, policy, enforce_exact and notes columns are picked up when present). **Download CSV** and **Download JSON** (in Import or export) both carry every column, aliases and banned renderings included, and either file imports back, into this series or another.
-- **Enforce exact** (the glossary's "Exact" column) does a hard find-and-replace after translation for names where drift is unacceptable. It changes a spelling listed in the term's notes only on lines whose source text (or the rest of their sentence, with Translate by sentence) holds the term or one of its aliases, so "Sister" listed for 师姐 stays "sister" on a line that says 姐姐.
-- **Translation notes** flag what didn't survive the crossing (set phrases, puns, allusions, honorifics); they are stored per line and export as a Markdown appendix.
-- **Language packs** (Glossary > Packs) are built-in lists of honorifics, address terms, family words and set phrases for Chinese, Japanese and Korean, plus shared drama terms. Each title turns packs on or off; "View entries" lists a pack and can add one entry to the title's glossary. Settings > Language packs shows every pack with its entries and notes, which are on by default, and lets you open a pack to read it; a title follows the defaults until it gets its own choice, and the title's own glossary always beats a pack entry. Only the entries whose source text occurs in a run go into the prompt, at most 60, the ones used most first. Four VTuber packs (`ja-vtuber-core`, `ja-vtuber-names`, `zh-vtuber-core`, `zh-vtuber-names`) are off by default. The two name packs hold a few thousand Japanese, Taiwanese, Chinese and Hong Kong VTuber names, nicknames and fan names, in both Chinese scripts, each with a short note (agency, pronoun, fan name) and a "Source page" link (Hololist, the agency's own page or Wikidata) that is never sent to the translator; a name that is also an ordinary word is left out. A pack with more than 100 entries shows the first 100 and a search box.
-- **Find similar** (a glossary row's button, which opens it on the Names tab) looks through the title's source lines for other spellings that sound like that term. Nothing is added until you confirm "Add as alias". **Find possible names** (under the glossary table) looks for names written several slightly different ways and offers to make a term from them. Both are free and offline, and change nothing until you confirm.
-- **Address terms** (Glossary > Names > **Find address terms**) counts the common forms of address in the title's source lines (姐姐, 老师, さん, お兄ちゃん, 오빠, 선배 and similar; a form heard at least twice, not already a glossary term or alias), with counts and example lines. For each one type the English rendering, or tick **Keep as-is (romanize)**, then **Add N terms** saves them as glossary terms in the honorific category so the same form is translated the same way across the series. Free and offline; nothing is added until you press Add, and a form already in the glossary is left alone.
-- **Aliases fix the transcript.** After a transcription finishes, every spelling you saved as an alias of a glossary term is rewritten to the term's own text in the title's source lines (only whole names, and never a spelling two terms share). Titles of the same series share the glossary, so a spelling you confirm once is fixed in that creator's later titles too. Translation is told about them as well: the glossary it receives lists each term's aliases ("also written in the source as ..."), so a spelling still in the lines (an imported file, a comic page, a spelling you confirmed after transcribing) is read as the same name. The stored source text is not changed by this, and only aliases you confirmed are sent.
-- **Suggest spellings** (a glossary row's button) asks this title's engine, once, how the English name you type may have been written in the transcript. Only guesses that really appear in the lines are listed, with counts and example lines; nothing is added until you confirm "Add as alias". It uses one engine request (it counts toward the monthly cap and can be cancelled). If the model's answer can't be read, it says so and changes nothing. **Check English names**, in the same panel, is free and lists lines that mention the name but whose English doesn't use the name you typed; it only reports.
-- **Genre guidance** (toggleable): pronoun clarity, kinship terms as intimate address, no softening of romantic content.
-- **Dialogue check** (novels): a line whose source has quoted speech or a speaker tag (道, 說, 问...) but whose translation lost the quotation marks or the tag goes back once, with the other suspect lines, under the same cost cap and Cancel as the other re-asks. A reply that fixes it replaces the line; one that doesn't leaves the line as it was, unflagged.
-- **Glossary check** runs after every translate batch. A line whose source holds a glossary term (or alias), written in either Chinese script (a term typed in Traditional also counts on Simplified lines and the other way round, when OpenCC is installed; a one-character term must match exactly), must have the term's English in its translation. A line that misses goes back once to the same engine, with the missed names listed first, and only a reply that now has the name replaces it. A line still wrong is flagged in Review ("Glossary: <term> missing") and the Translate stage offers **Redo these with <stronger engine>** (the engine picked in **Settings > Which engine does what**; with none picked, the notice links there), limited to those lines and counted against the monthly cap. A local Ollama model also gets the batch's names next to its lines, where it pays attention to them. The re-ask costs one extra request only for the lines that missed. A Gemma 4 stream run with the plain stream prompt checks only the names and terms that prompt lists, so an ordinary word in the glossary (a food, clothing or custom entry) is not demanded or flagged.
-- **Doubtful lines.** When Review flags lines as unlike their source (the optional source-match check) or as uncertain (possible mistranslation, unclear reference, uncertain name, slang), the Translate stage says how many and offers **Redo these lines with <stronger engine>** (the engine picked in **Settings > Which engine does what**, linked the same way), with the estimated cost on the button. It redoes only those lines, counts against the monthly cap, is logged in usage, keeps the old English in History, and clears a flag once the English really changed (the same English keeps it; a flag the new English earns stays). Lines you already checked are left out, and so are lines whose English you changed yourself (find and replace, a memory suggestion), so the redo never overwrites your fix. When this month's spending cap is used up, the notice says so in place of a price. Nothing runs by itself.
-- **Retry these N lines**: when a run has failed batches, the notice on the Translate stage lists the failed lines and says whether they are still empty ("still untranslated") or kept an earlier engine's English ("kept their earlier translation"). The button translates exactly those lines with the engine and model in the form, replacing the earlier English on them (a line-history snapshot is taken first). If the failed reply was cut off, it uses half the batch size.
-- **Episode brief** (Media > Details tab > More details, under Running episode summary): before a translate run over the whole title, one extra request reads the whole episode and writes a short brief (who is who, register, recurring terms, ambiguous lines) that every batch of the run carries; it applies to subtitle and novel-narration titles. The brief is kept in this box so you can edit it: an edited brief is used as written, and clearing it makes the next run write a new one. A wrong brief colours every line, so check it. Settings > Translation style > Read the whole episode before translating turns the extra request off (on by default; it costs one request per episode and delays the first batch). A title in a series with episode numbers also gives each batch the summaries of the episodes before the previous one (never a later episode), besides the previous episode's summary.
-- **Generate summary** (Media > Details tab > More details, under Running episode summary) writes the episode summary from the translated lines with the engine you pick there. It fills the box; press Save to keep it. A translate run that writes no summary says why in its Jobs result ("Summary skipped: no claude key is saved; choose an engine in Settings or add the key"), and the engine used for it is set in Settings (Claude by default; the summary no longer runs on a local Ollama model, and an Ollama choice saved earlier now reads as Claude). Each line is sent with its speaker's name when known, so the summary keeps who did what straight.
-- **Topic chapters** (Media > Details tab > More details, under Topic chapters): **Make topic chapters** asks the engine you pick there (the summary engine by default) to split a long stream into timed chapters, each a start time and a short English title, and saves them at once; it costs one request on a cloud engine, **Make chapters again** replaces them and **Clear** removes them. Each chapter opens the Watch page at that time, where the same list sits above the lines and a click plays from there. **Timestamp list** downloads them as a YouTube-style list (`0:00 Intro`) for a video description, and a soft-subtitle video export (Export) writes them into the .mkv or .mp4 as chapter markers, replacing any the source had.
+The Style field on the Translate tab opens a list in the app's own look, with the styles, tiers and your
+profiles in groups; tap one to choose it.
+- **Term policies**, per term: keep as pinyin (沈清疑 → Shen Qingyi), hybrid (云隐宗 → Yunyin Sect), translate
+  meaning (听雨阁 → Listening Rain Pavilion), keep + note, or contextual (姐姐 → "jiejie" or "older sister"). Terms
+  are categorized (name, sect, title, honorific, place, artifact, concept...) and grouped by policy in the
+  prompt.
+- **The Glossary panel has seven tabs**, and it remembers the last one per title: **Terms** (the table with a
+  search box, a sort choice and a count of matching terms, Add term), **Find terms** (Suggest terms from the
+  transcript or the novel; on a title with saved chapters a chooser next to it scans one chapter instead of
+  the whole title, and the button then reads **Scan this chapter**, and **Scan all chapters** scans each
+  chapter in turn and adds the terms it finds without overwriting yours (a term must appear at least twice in
+  a chapter; ones you ignored stay out; one call per chapter, so a paid engine is billed per chapter; it runs
+  on the server and carries on if you leave the page), Import or export; every scan, Suggest spellings and the
+  drafted instruction use the model the title last translated with (such as Gemma 31b cloud), or the engine's
+  default when it has none, and a cloud model doesn't wait for the PC's GPU; an imported file saved as GBK,
+  Big5, Shift-JIS, EUC-KR or UTF-16, such as a CSV from Chinese Excel, is read in that encoding), **Names**
+  (Find possible names, the Find similar and Suggest spellings panels, Check names across all titles),
+  **Packs** (language packs and VTuber names), **Instructions** (project and series instructions, each with
+  its own Save and a character count), **Replacements** (whole-word swaps for the series, such as "thee" to
+  "you": every line a translation run writes has them applied, ignoring case; lines already translated are not
+  changed, and a title with no series gets one of its own on the first one you add) and **Re-translate**
+  (re-translate the lines the glossary affects). A scan outlives the page: leave and come back, or reload, and
+  a banner on the Translate stage says "A glossary scan is running" or "Scan finished: N proposals to review"
+  with a button to open it, whether or not "Review glossary before translating" is on. A Suggest spellings
+  answer is kept the same way until the app restarts. Suggest terms from the transcript also lists nicknames
+  and slang, and a term whose meaning the model only inferred from context shows Low even when it repeats, so
+  Select all High leaves it for you to check.
+- **A title's own terms in a series.** A title that had glossary terms before it joined a series keeps them.
+  The Terms tab lists them, they are used in its translations and win over a series term with the same
+  original text (that term then can't be edited or removed from the title), and **Copy to series** adds them
+  to the series glossary, leaving terms the series already has as they are.
+- **Auto-extract terms** proposes terms with a category and policy from a novel or a drama's own transcript;
+  everything goes to a review table first. Given both the original novel and an English translation, it
+  extracts matched pairs. Only terms are stored, never passages. A proposal is kept only if its original text
+  appears in the excerpt the engine read, a character's pronoun counts only when the engine quoted the line
+  that shows it (otherwise it reads "unclear"), a word the engine found ambiguous (such as 阿姨, aunt or nanny)
+  shows its other reading beside the suggestion, and the terms already in your glossary are given to the
+  engine with their English so new terms stay consistent. A passage whose reply the engine cut off is asked
+  again in two halves instead of losing its terms. Terms join the series glossary. A proposal also lists other
+  spellings of the same name that the passage itself shows ("also written"); applying it saves them as the
+  term's aliases, added to any you already had.
+- **Import / export glossaries** as CSV, TSV or JSON (a two-column term/translation sheet works; category,
+  policy, enforce_exact and notes columns are picked up when present). **Download CSV** and **Download JSON**
+  (in Import or export) both carry every column, aliases and banned renderings included, and either file
+  imports back, into this series or another.
+- **Enforce exact** (the glossary's "Exact" column) does a hard find-and-replace after translation for names
+  where drift is unacceptable. It changes a spelling listed in the term's notes only on lines whose source
+  text (or the rest of their sentence, with Translate by sentence) holds the term or one of its aliases, so
+  "Sister" listed for 师姐 stays "sister" on a line that says 姐姐.
+- **Translation notes** flag what didn't survive the crossing (set phrases, puns, allusions, honorifics); they
+  are stored per line and export as a Markdown appendix.
+- **Language packs** (Glossary > Packs) are built-in lists of honorifics, address terms, family words and set
+  phrases for Chinese, Japanese and Korean, plus shared drama terms. Each title turns packs on or off; "View
+  entries" lists a pack and can add one entry to the title's glossary. Settings > Language packs shows every
+  pack with its entries and notes, which are on by default, and lets you open a pack to read it; a title
+  follows the defaults until it gets its own choice, and the title's own glossary always beats a pack entry.
+  Only the entries whose source text occurs in a run go into the prompt, at most 60, the ones used most first.
+  Four VTuber packs (`ja-vtuber-core`, `ja-vtuber-names`, `zh-vtuber-core`, `zh-vtuber-names`) are off by
+  default. The two name packs hold a few thousand Japanese, Taiwanese, Chinese and Hong Kong VTuber names,
+  nicknames and fan names, in both Chinese scripts, each with a short note (agency, pronoun, fan name) and a
+  "Source page" link (Hololist, the agency's own page or Wikidata) that is never sent to the translator; a
+  name that is also an ordinary word is left out. A pack with more than 100 entries shows the first 100 and a
+  search box.
+- **Find similar** (a glossary row's button, which opens it on the Names tab) looks through the title's source
+  lines for other spellings that sound like that term. Nothing is added until you confirm "Add as alias".
+  **Find possible names** (under the glossary table) looks for names written several slightly different ways
+  and offers to make a term from them. Both are free and offline, and change nothing until you confirm.
+- **Address terms** (Glossary > Names > **Find address terms**) counts the common forms of address in the
+  title's source lines (姐姐, 老师, さん, お兄ちゃん, 오빠, 선배 and similar; a form heard at least twice, not already a
+  glossary term or alias), with counts and example lines. For each one type the English rendering, or tick
+  **Keep as-is (romanize)**, then **Add N terms** saves them as glossary terms in the honorific category so
+  the same form is translated the same way across the series. Free and offline; nothing is added until you
+  press Add, and a form already in the glossary is left alone.
+- **Aliases fix the transcript.** After a transcription finishes, every spelling you saved as an alias of a
+  glossary term is rewritten to the term's own text in the title's source lines (only whole names, and never a
+  spelling two terms share). Titles of the same series share the glossary, so a spelling you confirm once is
+  fixed in that creator's later titles too. Translation is told about them as well: the glossary it receives
+  lists each term's aliases ("also written in the source as ..."), so a spelling still in the lines (an
+  imported file, a comic page, a spelling you confirmed after transcribing) is read as the same name. The
+  stored source text is not changed by this, and only aliases you confirmed are sent.
+- **Suggest spellings** (a glossary row's button) asks this title's engine, once, how the English name you
+  type may have been written in the transcript. Only guesses that really appear in the lines are listed, with
+  counts and example lines; nothing is added until you confirm "Add as alias". It uses one engine request (it
+  counts toward the monthly cap and can be cancelled). If the model's answer can't be read, it says so and
+  changes nothing. **Check English names**, in the same panel, is free and lists lines that mention the name
+  but whose English doesn't use the name you typed; it only reports.
+- **Genre guidance** (toggleable): pronoun clarity, kinship terms as intimate address, no softening of
+  romantic content.
+- **Dialogue check** (novels): a line whose source has quoted speech or a speaker tag (道, 說, 问...) but whose
+  translation lost the quotation marks or the tag goes back once, with the other suspect lines, under the same
+  cost cap and Cancel as the other re-asks. A reply that fixes it replaces the line; one that doesn't leaves
+  the line as it was, unflagged.
+- **Glossary check** runs after every translate batch. A line whose source holds a glossary term (or alias),
+  written in either Chinese script (a term typed in Traditional also counts on Simplified lines and the other
+  way round, when OpenCC is installed; a one-character term must match exactly), must have the term's English
+  in its translation. A line that misses goes back once to the same engine, with the missed names listed
+  first, and only a reply that now has the name replaces it. A line still wrong is flagged in Review
+  ("Glossary: <term> missing") and the Translate stage offers **Redo these with <stronger engine>** (the
+  engine picked in **Settings > Which engine does what**; with none picked, the notice links there), limited
+  to those lines and counted against the monthly cap. A local Ollama model also gets the batch's names next to
+  its lines, where it pays attention to them. The re-ask costs one extra request only for the lines that
+  missed. A Gemma 4 stream run with the plain stream prompt checks only the names and terms that prompt lists,
+  so an ordinary word in the glossary (a food, clothing or custom entry) is not demanded or flagged.
+- **Doubtful lines.** When Review flags lines as unlike their source (the optional source-match check) or as
+  uncertain (possible mistranslation, unclear reference, uncertain name, slang), the Translate stage says how
+  many and offers **Redo these lines with <stronger engine>** (the engine picked in **Settings > Which engine
+  does what**, linked the same way), with the estimated cost on the button. It redoes only those lines, counts
+  against the monthly cap, is logged in usage, keeps the old English in History, and clears a flag once the
+  English really changed (the same English keeps it; a flag the new English earns stays). Lines you already
+  checked are left out, and so are lines whose English you changed yourself (find and replace, a memory
+  suggestion), so the redo never overwrites your fix. When this month's spending cap is used up, the notice
+  says so in place of a price. Nothing runs by itself.
+- **Retry these N lines**: when a run has failed batches, the notice on the Translate stage lists the failed
+  lines and says whether they are still empty ("still untranslated") or kept an earlier engine's English
+  ("kept their earlier translation"). The button translates exactly those lines with the engine and model in
+  the form, replacing the earlier English on them (a line-history snapshot is taken first). If the failed
+  reply was cut off, it uses half the batch size.
+- **Episode brief** (Media > Details tab > More details, under Running episode summary): before a translate
+  run over the whole title, one extra request reads the whole episode and writes a short brief (who is who,
+  register, recurring terms, ambiguous lines) that every batch of the run carries; it applies to subtitle and
+  novel-narration titles. The brief is kept in this box so you can edit it: an edited brief is used as
+  written, and clearing it makes the next run write a new one. A wrong brief colours every line, so check it.
+  Settings > Translation style > Read the whole episode before translating turns the extra request off (on by
+  default; it costs one request per episode and delays the first batch). A title in a series with episode
+  numbers also gives each batch the summaries of the episodes before the previous one (never a later episode),
+  besides the previous episode's summary.
+- **Generate summary** (Media > Details tab > More details, under Running episode summary) writes the episode
+  summary from the translated lines with the engine you pick there. It fills the box; press Save to keep it. A
+  translate run that writes no summary says why in its Jobs result ("Summary skipped: no claude key is saved;
+  choose an engine in Settings or add the key"), and the engine used for it is set in Settings (Claude by
+  default; the summary no longer runs on a local Ollama model, and an Ollama choice saved earlier now reads as
+  Claude). Each line is sent with its speaker's name when known, so the summary keeps who did what straight.
+- **Topic chapters** (Media > Details tab > More details, under Topic chapters): **Make topic chapters** asks
+  the engine you pick there (the summary engine by default) to split a long stream into timed chapters, each a
+  start time and a short English title, and saves them at once; it costs one request on a cloud engine, **Make
+  chapters again** replaces them and **Clear** removes them. Each chapter opens the Watch page at that time,
+  where the same list sits above the lines and a click plays from there. **Timestamp list** downloads them as
+  a YouTube-style list (`0:00 Intro`) for a video description, and a soft-subtitle video export (Export)
+  writes them into the .mkv or .mp4 as chapter markers, replacing any the source had.
 
 ### Adaptive translation style
 
-Lines you rewrite in Review are recorded as before/after pairs. After 8 or more, they can be analysed into a style profile that is shown for review before it is injected into future translation prompts. Scoped per series when one is assigned, otherwise global. With household accounts, a profile reaches only admins, the PC owner and the person who learned it.
+Lines you rewrite in Review are recorded as before/after pairs. After 8 or more, they can be analysed into a
+style profile that is shown for review before it is injected into future translation prompts. Scoped per
+series when one is assigned, otherwise global. With household accounts, a profile reaches only admins, the PC
+owner and the person who learned it.
 
 ### Review queue
 
-**Need a look** in Full (the chip that used to read Riskiest first; Simple has no such chip because its Need a look tab is the same list with the same count; it sits beside Unsure and shows when some unchecked translated line has a flag or a low Whisper confidence) lists those lines most worrying first. The order adds up what the app already stored: the kind of flag (a changed number or name, a source mismatch or a content block outranks a timing or reading-speed flag) and how unsure Whisper was (a score under 0.8 adds a little, near 0 adds the most). Checked and untranslated lines are left out, and lines never flagged or scored are not listed, so a clean-looking line can still be wrong: this is a reading order, not a verdict.
+**Need a look** in Full (the chip that used to read Riskiest first; Simple has no such chip because its Need a
+look tab is the same list with the same count; it sits beside Unsure and shows when some unchecked translated
+line has a flag or a low Whisper confidence) lists those lines most worrying first. The order adds up what the
+app already stored: the kind of flag (a changed number or name, a source mismatch or a content block outranks
+a timing or reading-speed flag) and how unsure Whisper was (a score under 0.8 adds a little, near 0 adds the
+most). Checked and untranslated lines are left out, and lines never flagged or scored are not listed, so a
+clean-looking line can still be wrong: this is a reading order, not a verdict.
 
-**Next line to check** (beside the Flagged arrows, shown while some translated line is unchecked) opens the next translated line after the one you are on that nobody has marked checked, on any page, and says "No more unchecked lines." at the end. It follows the line order; it does not rank lines by risk.
+**Next line to check** (beside the Flagged arrows, shown while some translated line is unchecked) opens the
+next translated line after the one you are on that nobody has marked checked, on any page, and says "No more
+unchecked lines." at the end. It follows the line order; it does not rank lines by risk.
 
-Under the line list, Review's tools are four groups named by what they are for: **Look for problems** (the four AI checks, each with its own Bulk switch, and their results; Flag lines for review; changed source, gaps, untranslated lines and pacing, with the count of things to look at on the group; Compare transcription; Audio tags), **Change many lines** (Fix flagged lines, Re-translate selected lines, Run 3 times, Structure, Re-split long lines, Merge short lines, Shorten overlong, Fix common errors, Re-time, Re-transcribe selected lines, and Voices: a reference clip, voice bank entry and voice actor per speaker, for cloning), **Records** (notes, versions and line history, Compare versions, Notes export, Edit tendencies, Learn my style; under Line history, **Compare saves side by side** puts any two saves, or a save and the lines now, in two columns with only the changed lines and the changed words marked, J and K or the Previous/Next change buttons step through the changes, and **Use this** on a line copies that side's English into the lines now, with **Undo last**) and **Finish** (Burned subtitle preview, Mark episode reviewed). Guided shows only the AI checks, Flag lines for review, Fix flagged lines and Mark episode reviewed; a button that needs another tool, such as **Transcribe this gap** on the waveform or **Re-transcribe selected** on the selection bar, adds that tool for that title and opens its group. A message that names Records → Line history (the Undo notice after a split, merge, add or delete, a refused Undo, clearing reading-speed flags) has a **Line history** button that opens it, in Guided too. The last group is remembered per title, and `#/drama/3/review?tools=problems` opens a group (`problems`, `change`, `records`, `finish`; a link or bookmark that names one of the old tabs opens the group that now holds it). On the waveform, a dashed "No line here" region marks a stretch with no line, including the one after the last line to the end of the audio when the speech check heard speech there ("speech detected" when the speech check heard speech); the last line's end can be dragged out into that stretch; "Transcribe this gap" (just ＋ on a narrow gap) adds lines for it and, when the run ends while Review is still open, fills them with what it heard (otherwise the text waits under Re-transcribe selected lines), leaving any of them you typed in or retimed meanwhile as you made them ("Add and transcribe" in the Add line form does the same for its line), and the "Gaps" chip next to Flagged jumps to the next one (the arrows beside it step to the previous or next). **Add talk-over lines** (Change many lines > Re-split long lines, beside Reassign speakers) looks, in the saved speaker detection, for a stretch where a second speaker talks over another's line. If that speaker's own next line starts within 1.5 seconds after the stretch (or part way into it), the line is started where their voice begins, so it overlaps the other line; if they have no line near, a blank flagged line is added for you to type into (Whisper cannot hear the quieter voice, so it is not transcribed for you). It is saved to line history and needs Detect speakers to have run. "Find shot changes" on the waveform looks for cuts in the video in the window on screen and marks them with orange ticks; a line edge dragged to within 8 pixels of a tick lands on it, `,` and `.` move the playhead to the previous and next tick, and a title with no video shows an error instead. On a title with a video, **Frame timing** opens the picture at the line's first and last frame side by side: ◀ frame and frame ▶ (or ← and →, Shift for ten frames) step the edge you are on, and `,` and `.` jump it to the previous or next shot change. On a wide screen, a title with a video keeps the video and the waveform pinned in a card beside the line list, so you can adjust a line's edges on the waveform, read the lines and watch the video without scrolling. On a screen at least 1100 px wide, Review fits the window and the page itself does not scroll: the lines scroll on their own, together with their toolbar and Find and replace, and the column beside them (the video at its top, then the checks and tools) scrolls on its own; the waveform sits over the lines there, in their toolbar. On a window under 900 px tall the lines' toolbar scrolls away with the lines instead of staying pinned, so it never covers them. On a smaller screen the video card sits beside the lines as before. In a line's **Edit details**, **Speaker** is a dropdown of the title's speakers with **No speaker** and **Add new speaker…**, which turns the field into a box for typing a new name. The Add line form's Speaker works the same way. The speaker's name on a line is also a button: press it and pick another of the title's speakers, or type a new name and press **Set**, and it is saved at once (with Undo, as below). With lines ticked, the selection bar's **Set speaker…** shows one button per speaker of the title, and pressing one gives every ticked line that speaker (or type a new name under them and press **Set new speaker**), marking them as set by hand; **Undo** puts back each line's old speaker while those lines are unchanged. A line with no speaker, on a title where other lines have one, shows **Speaker?** with up to three speakers to tap: the speaker of the nearest named line above (↑) and below (↓), and the voice speaker detection heard most in that line, named after the speaker now on that voice's other lines (voice), the best-supported first. Nothing is set until you tap one; the **Undo** bar at the bottom puts the line back to no speaker. **Next with no speaker** (N, or Shift+N to go back) jumps to the next such line, and with the keyboard 1, 2 or 3 takes that suggestion and moves on to the next one (on a Need a look card, to the next card). In Guided the same lines are listed in Need a look, last, so tapping a speaker there takes the card out of the list and opens the next one, and checking a line with no speaker takes it out too. A card that is also listed for another reason (a flag, or Whisper's doubt) stays open after the pick and says so under the speaker buttons: "Speaker set to Cray. This line is still listed: too fast to read, 25 characters a second."; **Undo** removes that sentence along with the speaker. A line you set to No speaker yourself, and a sound cue, are skipped. On a phone the selection bar keeps to one row with the count, **Actions…** and **Clear**; **Actions…** lists the bar's actions. In the Translate stage's Characters tab, **Swap speakers…** on a speaker trades its lines with another speaker's (for two labels that are the wrong way round), and **Undo swap** reverses it. Its **Sample** column plays short clips of each speaker, to hear whose voice a label really is: **▶ 1**, **▶ 2** and **▶ 3** play one clip each (hover one for its length and words), and **Find clips** cuts up to three clips of 3 to 12 seconds from the title's audio (from the detected speaker turns, or the speaker's lines), the same clips Review's Voices offers as a reference clip, saying why when none is long enough. When Detect speakers finishes on a title with audio, these clips are cut for every speaker that has none yet, so the column is already filled; clips you made yourself are not replaced. A clip stays with the line it was cut from, so after a swap, rename or merge (or its undo) it plays under whoever now has that line, here and in Voices. A title with no audio has no Sample column. **Pop out** in the player row keeps the player floating: in Chrome or Edge on this PC it becomes a small always-on-top window you resize like any window; in other browsers, on a phone, or on a page that isn't HTTPS or localhost, it floats over the page instead, where you drag its top bar to move it, resize it from the corner handle (drag it, or focus it and press the arrow keys) or with the − and + buttons, and **Return player** puts it back. The floating size is remembered. On a phone the video player starts closed ("Show player" opens it; audio-only titles keep it open) so the lines are on the first screen, and the Gaps chip reads "Gap 1 of 2" with the arrows beside it. Scrolling there shrinks the sticky bar to the filter chips so more lines show, and it stays shrunk until you scroll back to the very top (it no longer flickers while you scroll). On a laptop-sized screen (under 900 px tall) the player's seek bar and the waveform sit under the sticky bar and scroll away with the page, so the bar keeps only the filters and the play row and several lines stay visible. A translation that stops on its engine's errors before writing any English ends as Failed with the first problem, not Done, and pressing Translate again right after Cancel says the previous AI request is still finishing until the engine's own answer comes back or times out. The stage's Next link drops to its own line on tablet-width windows instead of covering the Export tab. With the keyboard, the second Tab stop on Review is **Skip to lines**, which jumps past the menu, header and toolbar to the current line.
+Under the line list, Review's tools are four groups named by what they are for: **Look for problems** (the
+four AI checks, each with its own Bulk switch, and their results; Flag lines for review; changed source, gaps,
+untranslated lines and pacing, with the count of things to look at on the group; Compare transcription; Audio
+tags), **Change many lines** (Fix flagged lines, Re-translate selected lines, Run 3 times, Structure, Re-split
+long lines, Merge short lines, Shorten overlong, Fix common errors, Re-time, Re-transcribe selected lines, and
+Voices: a reference clip, voice bank entry and voice actor per speaker, for cloning), **Records** (notes,
+versions and line history, Compare versions, Notes export, Edit tendencies, Learn my style; under Line
+history, **Compare saves side by side** puts any two saves, or a save and the lines now, in two columns with
+only the changed lines and the changed words marked, J and K or the Previous/Next change buttons step through
+the changes, and **Use this** on a line copies that side's English into the lines now, with **Undo last**) and
+**Finish** (Burned subtitle preview, Mark episode reviewed). Guided shows only the AI checks, Flag lines for
+review, Fix flagged lines and Mark episode reviewed; a button that needs another tool, such as **Transcribe
+this gap** on the waveform or **Re-transcribe selected** on the selection bar, adds that tool for that title
+and opens its group. A message that names Records → Line history (the Undo notice after a split, merge, add or
+delete, a refused Undo, clearing reading-speed flags) has a **Line history** button that opens it, in Guided
+too. The last group is remembered per title, and `#/drama/3/review?tools=problems` opens a group (`problems`,
+`change`, `records`, `finish`; a link or bookmark that names one of the old tabs opens the group that now
+holds it). On the waveform, a dashed "No line here" region marks a stretch with no line, including the one
+after the last line to the end of the audio when the speech check heard speech there ("speech detected" when
+the speech check heard speech); the last line's end can be dragged out into that stretch; "Transcribe this
+gap" (just ＋ on a narrow gap) adds lines for it and, when the run ends while Review is still open, fills them
+with what it heard (otherwise the text waits under Re-transcribe selected lines), leaving any of them you
+typed in or retimed meanwhile as you made them ("Add and transcribe" in the Add line form does the same for
+its line), and the "Gaps" chip next to Flagged jumps to the next one (the arrows beside it step to the
+previous or next). **Add talk-over lines** (Change many lines > Re-split long lines, beside Reassign speakers)
+looks, in the saved speaker detection, for a stretch where a second speaker talks over another's line. If that
+speaker's own next line starts within 1.5 seconds after the stretch (or part way into it), the line is started
+where their voice begins, so it overlaps the other line; if they have no line near, a blank flagged line is
+added for you to type into (Whisper cannot hear the quieter voice, so it is not transcribed for you). It is
+saved to line history and needs Detect speakers to have run. "Find shot changes" on the waveform looks for
+cuts in the video in the window on screen and marks them with orange ticks; a line edge dragged to within 8
+pixels of a tick lands on it, `,` and `.` move the playhead to the previous and next tick, and a title with no
+video shows an error instead. On a title with a video, **Frame timing** opens the picture at the line's first
+and last frame side by side: ◀ frame and frame ▶ (or ← and →, Shift for ten frames) step the edge you are on,
+and `,` and `.` jump it to the previous or next shot change. On a wide screen, a title with a video keeps the
+video and the waveform pinned in a card beside the line list, so you can adjust a line's edges on the
+waveform, read the lines and watch the video without scrolling. On a screen at least 1100 px wide, Review fits
+the window and the page itself does not scroll: the lines scroll on their own, together with their toolbar and
+Find and replace, and the column beside them (the video at its top, then the checks and tools) scrolls on its
+own; the waveform sits over the lines there, in their toolbar. On a window under 900 px tall the lines'
+toolbar scrolls away with the lines instead of staying pinned, so it never covers them. On a smaller screen
+the video card sits beside the lines as before. In a line's **Edit details**, **Speaker** is a dropdown of the
+title's speakers with **No speaker** and **Add new speaker…**, which turns the field into a box for typing a
+new name. The Add line form's Speaker works the same way. The speaker's name on a line is also a button: press
+it and pick another of the title's speakers, or type a new name and press **Set**, and it is saved at once
+(with Undo, as below). With lines ticked, the selection bar's **Set speaker…** shows one button per speaker of
+the title, and pressing one gives every ticked line that speaker (or type a new name under them and press
+**Set new speaker**), marking them as set by hand; **Undo** puts back each line's old speaker while those
+lines are unchanged. A line with no speaker, on a title where other lines have one, shows **Speaker?** with up
+to three speakers to tap: the speaker of the nearest named line above (↑) and below (↓), and the voice speaker
+detection heard most in that line, named after the speaker now on that voice's other lines (voice), the
+best-supported first. Nothing is set until you tap one; the **Undo** bar at the bottom puts the line back to
+no speaker. **Next with no speaker** (N, or Shift+N to go back) jumps to the next such line, and with the
+keyboard 1, 2 or 3 takes that suggestion and moves on to the next one (on a Need a look card, to the next
+card). In Guided the same lines are listed in Need a look, last, so tapping a speaker there takes the card out
+of the list and opens the next one, and checking a line with no speaker takes it out too. A card that is also
+listed for another reason (a flag, or Whisper's doubt) stays open after the pick and says so under the speaker
+buttons: "Speaker set to Cray. This line is still listed: too fast to read, 25 characters a second."; **Undo**
+removes that sentence along with the speaker. A line you set to No speaker yourself, and a sound cue, are
+skipped. On a phone the selection bar keeps to one row with the count, **Actions…** and **Clear**;
+**Actions…** lists the bar's actions. In the Translate stage's Characters tab, **Swap speakers…** on a speaker
+trades its lines with another speaker's (for two labels that are the wrong way round), and **Undo swap**
+reverses it. Its **Sample** column plays short clips of each speaker, to hear whose voice a label really is:
+**▶ 1**, **▶ 2** and **▶ 3** play one clip each (hover one for its length and words), and **Find clips** cuts
+up to three clips of 3 to 12 seconds from the title's audio (from the detected speaker turns, or the speaker's
+lines), the same clips Review's Voices offers as a reference clip, saying why when none is long enough. When
+Detect speakers finishes on a title with audio, these clips are cut for every speaker that has none yet, so
+the column is already filled; clips you made yourself are not replaced. A clip stays with the line it was cut
+from, so after a swap, rename or merge (or its undo) it plays under whoever now has that line, here and in
+Voices. A title with no audio has no Sample column. **Pop out** in the player row keeps the player floating:
+in Chrome or Edge on this PC it becomes a small always-on-top window you resize like any window; in other
+browsers, on a phone, or on a page that isn't HTTPS or localhost, it floats over the page instead, where you
+drag its top bar to move it, resize it from the corner handle (drag it, or focus it and press the arrow keys)
+or with the − and + buttons, and **Return player** puts it back. The floating size is remembered. On a phone
+the video player starts closed ("Show player" opens it; audio-only titles keep it open) so the lines are on
+the first screen, and the Gaps chip reads "Gap 1 of 2" with the arrows beside it. Scrolling there shrinks the
+sticky bar to the filter chips so more lines show, and it stays shrunk until you scroll back to the very top
+(it no longer flickers while you scroll). On a laptop-sized screen (under 900 px tall) the player's seek bar
+and the waveform sit under the sticky bar and scroll away with the page, so the bar keeps only the filters and
+the play row and several lines stay visible. A translation that stops on its engine's errors before writing
+any English ends as Failed with the first problem, not Done, and pressing Translate again right after Cancel
+says the previous AI request is still finishing until the engine's own answer comes back or times out. The
+stage's Next link drops to its own line on tablet-width windows instead of covering the Export tab. With the
+keyboard, the second Tab stop on Review is **Skip to lines**, which jumps past the menu, header and toolbar to
+the current line.
 
-Review > Look for problems > "Flag lines for a second look" asks the translation engine to flag only the already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name, idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss the flag.
+Review > Look for problems > "Flag lines for a second look" asks the translation engine to flag only the
+already-translated lines worth a second look (possible mistranslation, unresolved pronoun, uncertain name,
+idiom). Flags are saved, can be filtered with the "Flagged" tab, and clear when you edit the line or dismiss
+the flag.
 
-A flagged line says why in a plain sentence, the same one its card gives in Guided's Need a look, whichever check set the flag: under the line's number and time in the list, and at the top of its More menu. On a phone the selected line shows a few words instead, and tapping them opens the sentence.
+A flagged line says why in a plain sentence, the same one its card gives in Guided's Need a look, whichever
+check set the flag: under the line's number and time in the list, and at the top of its More menu. On a phone
+the selected line shows a few words instead, and tapping them opens the sentence.
 
-Each translated line can be marked **checked** (the row's "Mark checked" button, the phone sheet, or R): a Checked badge sits on the line, the **Unreviewed** chip lists the translated lines still waiting, and editing the English clears the mark. A mark is refused (409) if the English changed since you read it, so a translate job finishing under your cursor never leaves a Checked badge on text you did not see. Importing a subtitle file that fills every line marks the title translated, as Translate does, and once every line is translated the Translate stage's primary button is **Next: Review**.
+Each translated line can be marked **checked** (the row's "Mark checked" button, the phone sheet, or R): a
+Checked badge sits on the line, the **Unreviewed** chip lists the translated lines still waiting, and editing
+the English clears the mark. A mark is refused (409) if the English changed since you read it, so a translate
+job finishing under your cursor never leaves a Checked badge on text you did not see. Importing a subtitle
+file that fills every line marks the title translated, as Translate does, and once every line is translated
+the Translate stage's primary button is **Next: Review**.
 
-When Whisper transcribes a line, Baihe keeps how sure Whisper was of it. A line it was unsure of and that nobody has checked shows an **Unsure (N)** badge (N is Whisper's own score out of 100, higher meaning surer; it is a ranking, not a probability; each sentence cut from a longer stretch is scored from its own words, so neighbours can differ; lines from before this are rescored once at the first start after the update, and after restoring a backup from before it, where their words kept scores) (on a phone the selected line spells out what the badge means; on a wider screen an (i) beside it does), and the **Unsure** chip (shown only while a title has such lines) lists them worst first, so you can start where errors are likely. Editing a line's source text, or marking it checked, takes it out of that list; lines from other engines, imported subtitles and titles transcribed before this have no score. Whisper also scores each word: in Review's source text, a word it was unsure of has a dotted underline (point at it for "Whisper was unsure of this word"). Lines from Qwen3 and other engines, titles transcribed before this, and lines whose source text was edited show no underlines.
+When Whisper transcribes a line, Baihe keeps how sure Whisper was of it. A line it was unsure of and that
+nobody has checked shows an **Unsure (N)** badge (N is Whisper's own score out of 100, higher meaning surer;
+it is a ranking, not a probability; each sentence cut from a longer stretch is scored from its own words, so
+neighbours can differ; lines from before this are rescored once at the first start after the update, and after
+restoring a backup from before it, where their words kept scores) (on a phone the selected line spells out
+what the badge means; on a wider screen an (i) beside it does), and the **Unsure** chip (shown only while a
+title has such lines) lists them worst first, so you can start where errors are likely. Editing a line's
+source text, or marking it checked, takes it out of that list; lines from other engines, imported subtitles
+and titles transcribed before this have no score. Whisper also scores each word: in Review's source text, a
+word it was unsure of has a dotted underline (point at it for "Whisper was unsure of this word"). Lines from
+Qwen3 and other engines, titles transcribed before this, and lines whose source text was edited show no
+underlines.
 
-Translation memory learns only from lines you mark **Checked** (one line, or Mark episode reviewed below), using the Source and English the line has at that moment; saving an edit to an unchecked line teaches it nothing. Editing a checked line unchecks it, so the edited English reaches memory when you check it again, replacing the older entry for that source; unchecking leaves memory as it is.
+Translation memory learns only from lines you mark **Checked** (one line, or Mark episode reviewed below),
+using the Source and English the line has at that moment; saving an edit to an unchecked line teaches it
+nothing. Editing a checked line unchecks it, so the edited English reaches memory when you check it again,
+replacing the older entry for that source; unchecking leaves memory as it is.
 
-**Mark episode reviewed** (Review > Finish > Mark episode reviewed…, two steps) marks every translated line that is not flagged or already checked as checked, and records the lines you left untouched as approved translations in the series' translation memory, so they appear as Accept suggestions on later episodes. Use it only after reading the whole episode: lines you never read teach their mistakes too. Flagged lines are skipped, a source the memory already holds keeps its entry, and a repeat adds nothing. A title outside a series is marked checked only. Untouched lines are not added to the learned-style samples, which are made of edits only. In Translate > Advanced, **Use approved translations as examples** (off, this run only) adds the series' closest approved pairs to the prompt as examples; a line is never shown its own answer, and whether it improves quality has not been measured.
+**Mark episode reviewed** (Review > Finish > Mark episode reviewed…, two steps) marks every translated line
+that is not flagged or already checked as checked, and records the lines you left untouched as approved
+translations in the series' translation memory, so they appear as Accept suggestions on later episodes. Use it
+only after reading the whole episode: lines you never read teach their mistakes too. Flagged lines are
+skipped, a source the memory already holds keeps its entry, and a repeat adds nothing. A title outside a
+series is marked checked only. Untouched lines are not added to the learned-style samples, which are made of
+edits only. In Translate > Advanced, **Use approved translations as examples** (off, this run only) adds the
+series' closest approved pairs to the prompt as examples; a line is never shown its own answer, and whether it
+improves quality has not been measured.
 
-If a line you are editing was changed elsewhere (another tab, another person, a running job), saving says so; **Reload** shows the other change, says which field it replaced your typing in, and keeps what you typed in the other fields, so you can save again (also when the line is outside the current filter or search). Find and replace saves an open edit of a matched line before applying. An unsaved edit brought back after leaving Review never overwrites a change made elsewhere to a field you typed in: saving it shows the conflict first. Splitting a line together with its translation is refused when the translation changed since you opened the split. A Line history restore's preview counts lines whose flag or SFX mark alone would change, and the restore is refused when a line it would remove got a note after its warning was shown (the warning then counts it). Ticked lines are cleared after re-segmenting, re-splitting, an AI merge or a restore.
+If a line you are editing was changed elsewhere (another tab, another person, a running job), saving says so;
+**Reload** shows the other change, says which field it replaced your typing in, and keeps what you typed in
+the other fields, so you can save again (also when the line is outside the current filter or search). Find and
+replace saves an open edit of a matched line before applying. It applies any number of matches (a name across
+a whole novel), sent 1,000 at a time; if a later part fails, it says how many lines were changed and how many
+were not, and **Apply the rest** sends only the lines not changed yet (Find and replace, the Reader's Replace
+everywhere and Same fix all offer it). Review's search shows 200 matches at a time, says so when there may be
+more, and **Load more matches** adds the next 200 after the last one shown. An unsaved edit brought back after
+leaving Review never overwrites a change made elsewhere to a field you typed in: saving it shows the conflict
+first. Splitting a line together with its translation is refused when the translation changed since you opened
+the split. A Line history restore's preview counts lines whose flag or SFX mark alone would change, and the
+restore is refused when a line it would remove got a note after its warning was shown (the warning then counts
+it). Ticked lines are cleared after re-segmenting, re-splitting, an AI merge or a restore.
 
-When a saved edit changes a word or phrase in a line's English and the same wording, as a whole word with the same capitals, is in other lines of the title, a notice asks **Same fix in N other lines?** with the old and new wording. **Show lines** lists them with the change, **Apply** makes the same change in them (a line changed meanwhile is left as it is, and the message says how many), and **Apply and always** also saves it as one of the series' word replacements, so new translations in the series get it too (a word replacement ignores capitals, so a fix of capitals only has no **Apply and always**). It looks at English only, and a change of a small grammar word such as he, she, is or the is not offered.
+When a saved edit changes a word or phrase in a line's English and the same wording, as a whole word with the
+same capitals, is in other lines of the title, a notice asks **Same fix in N other lines?** with the old and
+new wording. **Show lines** lists them with the change, **Apply** makes the same change in them (a line
+changed meanwhile is left as it is, and the message says how many), and **Apply and always** also saves it as
+one of the series' word replacements, so new translations in the series get it too (a word replacement ignores
+capitals, so a fix of capitals only has no **Apply and always**). It looks at English only, and a change of a
+small grammar word such as he, she, is or the is not offered.
 
-A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged) after it was translated: its English is kept but may no longer match, and Translate and Export show how many such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the English as it is and removes the mark.
+A line marked "Source changed" had its source text changed (by an edit, a re-transcription or Fix flagged)
+after it was translated: its English is kept but may no longer match, and Translate and Export show how many
+such lines remain. In Review checks, "Retranslate these" translates exactly those lines again with the
+Translate stage's starting options, and "Keep English for all" (or "Keep English" on one line) keeps the
+English as it is and removes the mark.
 
-**Fix flagged** re-translates the flagged lines in batches and, on an AI engine, tells it why each line was flagged and shows the English it has now. If the GPU crashes while Fix flagged or Compare transcription is hearing lines, the lines not yet heard are heard again on the CPU. A line whose new English is the same as before stays flagged (nothing was fixed), and the result counts those lines. Unless the reply check is off for that engine (Settings; by default it is off only for Claude and Gemini Pro models), a reply that is JSON, reasoning, a refusal ("I'm sorry, but I can't translate this"), still has source text in it or is far too long is not used: the line keeps its English and flag and the result lists it. This is stricter than a Translate run on a cloud engine, which asks again and flags such a line instead. A line whose source text you changed while it ran keeps your text and its English. Fix flagged, Compare transcription's Also translate and Try with the stronger engine use the English variant, style note and Style of the title's last Translate run, like Re-translate selected (the line AI's Improve uses that Style too); a title that was never translated uses the Settings defaults (a historical novel gets its genre style note). On a stream title with the plain stream prompt on, Fix flagged and the line AI actions use that prompt too. New English that still leaves out a glossary name is saved, but the line stays flagged for that name (with the plain stream prompt, only the names and terms that prompt lists). When hearing a line again changes its source text, the AI is still told the reason you flagged it for, and if no new English lands the line is marked "Source changed" with that reason kept in its note. Fix flagged, the AI flag pass, the consistency check, emotion tagging, translation notes and AI re-segmentation are refused with "the monthly cap is used up" once this month's Spending cap is spent. After a Compare transcription run, **Flag differences** flags the lines the other engine heard differently from the saved text (below about 60% alike), with both versions in the note; it leaves lines that already have a flag or were edited since, and clears its own flag on a rerun where the lines now agree. **Re-split long lines** offers "More" and "Sentence by sentence"; for Chinese and Japanese titles "More" is greyed out, with an Install button, until the word splitter (jieba, or sudachipy for Japanese) is installed. **Preview split** lists the lines it would cut, with each line's number, the times where its new pieces would start and the pieces' text (the first 20, then how many more). The one-click "Split long lines" button uses the fresh-transcription limits (about 12 seconds or 40 characters).
+**Fix flagged** re-translates the flagged lines in batches and, on an AI engine, tells it why each line was
+flagged and shows the English it has now. If the GPU crashes while Fix flagged or Compare transcription is
+hearing lines, the lines not yet heard are heard again on the CPU. A line whose new English is the same as
+before stays flagged (nothing was fixed), and the result counts those lines. Unless the reply check is off for
+that engine (Settings; by default it is off only for Claude and Gemini Pro models), a reply that is JSON,
+reasoning, a refusal ("I'm sorry, but I can't translate this"), still has source text in it or is far too long
+is not used: the line keeps its English and flag and the result lists it. This is stricter than a Translate
+run on a cloud engine, which asks again and flags such a line instead. A line whose source text you changed
+while it ran keeps your text and its English. Fix flagged, Compare transcription's Also translate and Try with
+the stronger engine use the English variant, style note and Style of the title's last Translate run, like
+Re-translate selected (the line AI's Improve uses that Style too); a title that was never translated uses the
+Settings defaults (a historical novel gets its genre style note). On a stream title with the plain stream
+prompt on, Fix flagged and the line AI actions use that prompt too. New English that still leaves out a
+glossary name is saved, but the line stays flagged for that name (with the plain stream prompt, only the names
+and terms that prompt lists). When hearing a line again changes its source text, the AI is still told the
+reason you flagged it for, and if no new English lands the line is marked "Source changed" with that reason
+kept in its note. Fix flagged, the AI flag pass, the consistency check, emotion tagging, translation notes and
+AI re-segmentation are refused with "the monthly cap is used up" once this month's Spending cap is spent.
+After a Compare transcription run, **Flag differences** flags the lines the other engine heard differently
+from the saved text (below about 60% alike), with both versions in the note; it leaves lines that already have
+a flag or were edited since, and clears its own flag on a rerun where the lines now agree. **Re-split long
+lines** offers "More" and "Sentence by sentence"; for Chinese and Japanese titles "More" is greyed out, with
+an Install button, until the word splitter (jieba, or sudachipy for Japanese) is installed. **Preview split**
+lists the lines it would cut, with each line's number, the times where its new pieces would start and the
+pieces' text (the first 20, then how many more). The one-click "Split long lines" button uses the
+fresh-transcription limits (about 12 seconds or 40 characters).
 
 ### Emotion-aware translation
 
-Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS rate and pitch for dubbing.
+Lines are tagged with an emotional register (14, including sarcasm, dry humour, suppressed anger) plus an
+intensity, and the tags are folded into the next translation run for charged lines only. Tags also map to TTS
+rate and pitch for dubbing.
 
 ### Streamer VODs and series
 
-For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the **Source URL** field keeps the original link (auto-filled for URL downloads, and shown without its `?query` part; see **Open original page**). Assign every stream to one **series** to share its glossary, style profile and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character lives at series level: add it from the Characters section, then pick it from the dropdown in later streams. Typing a name does not add it to the series unless you tick "Remember {name} in this series". If you renamed or merged speakers after detection, Remember still builds the voice print, from the detector speakers that sit cleanly on that name's lines (at least 10 seconds); a speaker whose lines share a detector speaker with someone else gets the name but no voice print.
+For a streamer, "English title" and "Original title" are the translated and untranslated stream name, and the
+**Source URL** field keeps the original link (auto-filled for URL downloads, and shown without its `?query`
+part; see **Open original page**). Assign every stream to one **series** to share its glossary, style profile
+and named characters. Speaker labels (`SPEAKER_00`) are not stable across recordings, so a named character
+lives at series level: add it from the Characters section, then pick it from the dropdown in later streams.
+Typing a name does not add it to the series unless you tick "Remember {name} in this series". If you renamed
+or merged speakers after detection, Remember still builds the voice print, from the detector speakers that sit
+cleanly on that name's lines (at least 10 seconds); a speaker whose lines share a detector speaker with
+someone else gets the name but no voice print.
 
 ### Raw novel
 
-A title created as a novel starts in novel-narration mode, so its Media stage leads with the text to translate and the raw-novel upload below is only shown once there is a text to prime from.
+A title created as a novel starts in novel-narration mode, so its Media stage leads with the text to translate
+and the raw-novel upload below is only shown once there is a text to prime from.
 
-One upload of the original-language novel (Workspace > Transcribe > Run > "Raw source novel") feeds transcription priming and, with an English reference translation, matched-pair glossary extraction.
+One upload of the original-language novel (Workspace > Transcribe > Run > "Raw source novel") feeds
+transcription priming and, with an English reference translation, matched-pair glossary extraction.
 
-An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話, 제1화, "Chapter 1") is listed chapter by chapter in the title's saved chapters, with any title page or blurb before chapter 1 as its own entry; a text without headings stays one block. A `.txt` saved in GBK, Big5 or Shift-JIS is read in that encoding whatever the title's script setting. Imported chapters leave out the site's navigation rows and "remember our address" lines, EPUB text leaves out furigana readings and the contents page, and chapter OCR joins each paragraph back together (no spaces between Chinese or Japanese characters). A chapter a site splits over several pages ("下一页", `1_2.html`) comes in as one chapter: importing its address reads its later pages too (up to 10 pages in all), and following next-chapter links joins each chapter's pages when you import them from the review; if a later page can't be read, the pages read so far open in the review instead of being saved. `python tools/novel_import_quality.py` scores these imports on saved examples. Open a chapter in the Source stage's Saved chapters and press **Rename** to change its title: the saved text, the chapter list and the matching line change together, and the previous text is kept beside it as a `.before-edit` copy. **Move earlier** and **Move later** put the chapter one place up or down: the saved text, the chapter list and the chapter's lines move together, each line keeps its translation, and the old order stays in the line history ("before moving a chapter"). Pressing either asks you to confirm first. A move is refused while a chapter import is running or half done, when the lines no longer match the saved chapters word for word, or when the lines have their own times. The `.before-edit` copy is overwritten by each move or rename, so it holds only the latest change. If the translation text is not an exact copy of the saved chapters it is left as it is, and the page says so.
+An uploaded or pasted `.txt` or `.epub` with chapter headings (第1章, 第1話, 제1화, "Chapter 1", also with 正文, 【】 or
+☆ in front, and 最終話, 番外1, 閑話, 후기, "Episode 3", "EP.1", "Ch. 5") is listed chapter by chapter in the title's
+saved chapters, with any title page or blurb before chapter 1 as its own entry; a text without headings stays
+one block. A `.txt` saved in GBK, Big5 or Shift-JIS is read in that encoding whatever the title's script
+setting. Imported chapters leave out the site's navigation rows and "remember our address" lines, EPUB text
+leaves out furigana readings and the contents page, and chapter OCR joins each paragraph back together (no
+spaces between Chinese or Japanese characters). A chapter a site splits over several pages ("下一页", `1_2.html`)
+comes in as one chapter: importing its address reads its later pages too (up to 10 pages in all), and
+following next-chapter links joins each chapter's pages when you import them from the review; if a later page
+can't be read, the pages read so far open in the review instead of being saved.
+`python tools/novel_import_quality.py` scores these imports on saved examples. Open a chapter in the Source
+stage's Saved chapters and press **Rename** to change its title: the saved text, the chapter list and the
+matching line change together, and the previous text is kept beside it as a `.before-edit` copy. **Move
+earlier** and **Move later** put the chapter one place up or down: the saved text, the chapter list and the
+chapter's lines move together, each line keeps its translation, and the old order stays in the line history
+("before moving a chapter"). Pressing either asks you to confirm first. A move is refused while a chapter
+import is running or half done, when the lines no longer match the saved chapters word for word, or when the
+lines have their own times. The `.before-edit` copy is overwritten by each move or rename, so it holds only
+the latest change. If the translation text is not an exact copy of the saved chapters it is left as it is, and
+the page says so.
 
 ## Transcription & OCR
 
 ### Transcription accuracy
 
-The first audio or video you add to an empty title makes the Run tab transcribe it with Whisper; pick "I have a transcript" on the Transcribe stage to paste text instead. A pasted line that matches nothing Whisper heard gets a time guessed from the lines around it and is flagged "Timing uncertain", so Review shows which times to check.
+The first audio or video you add to an empty title makes the Run tab transcribe it with Whisper; pick "I have
+a transcript" on the Transcribe stage to paste text instead. A pasted line that matches nothing Whisper heard
+gets a time guessed from the lines around it and is flagged "Timing uncertain", so Review shows which times to
+check.
 
 Whisper often mishears proper nouns in Chinese without it showing. In order of value:
 1. **A real transcript.**
-2. **Prime it with names.** The series glossary feeds Whisper's `initial_prompt` automatically (only about the last 224 tokens influence decoding, so the glossary's nouns go first, then a bounded excerpt of raw novel prose; `.txt`, `.md` or `.epub`).
-3. **Whisper model**: `large-v3` is the default, by the owner's choice (it read better on his streamer comparisons without adjusting any Whisper setting). That is a readability preference, not a measured accuracy gain: Baihe's own VOD test showed no difference in character errors (turbo 16.4 against large-v3 18.7 on the first 5 minutes, noise about 2 points). It is ~3GB and about twice as slow as `large-v3-turbo` on a CPU, which stays the fast option (~1.6GB). The default is the same on CPU and GPU; titles that saved a model keep it. `medium` and smaller are hidden from the picker everywhere except Live, Developer Mode included; a title that saved one shows it as "older choice, hidden" with a button to switch to large-v3. See "Which Whisper model to pick" in `docs/asr-experiments.md`.
-   - **Before you press Transcribe**, one line says what will run ("This run will use: Whisper · Whisper large-v3 · GPU on"). It says GPU off when the setting is on but the CUDA libraries are missing, because Whisper then runs on the CPU, and GPU on, none found when the setting is on but no NVIDIA GPU was found. With a Qwen3 ASR backend that skips Whisper, the Whisper model and the Whisper-only switches are off ("Not used with Qwen3 ASR") and the line names Qwen3-ASR 1.7B. For stream titles keep Separate vocals first off. The Jobs Details panel says "Engine that ran: Qwen3-ASR (Whisper model setting not used)" for such a run.
-   - **Whisper fast mode** is off by default. It decodes several chunks at once (about 2-4x faster on a GPU, more GPU memory) but can give fewer, longer lines and more errors (our test: 44 lines against 150); try Compare transcription first.
+2. **Prime it with names.** The series glossary feeds Whisper's `initial_prompt` automatically (only about the
+   last 224 tokens influence decoding, so the glossary's nouns go first, then a bounded excerpt of raw novel
+   prose; `.txt`, `.md` or `.epub`).
+3. **Whisper model**: `large-v3` is the default, by the owner's choice (it read better on his streamer
+   comparisons without adjusting any Whisper setting). That is a readability preference, not a measured
+   accuracy gain: Baihe's own VOD test showed no difference in character errors (turbo 16.4 against large-v3
+   18.7 on the first 5 minutes, noise about 2 points). It is ~3GB and about twice as slow as `large-v3-turbo`
+   on a CPU, which stays the fast option (~1.6GB). The default is the same on CPU and GPU; titles that saved a
+   model keep it. `medium` and smaller are hidden from the picker everywhere except Live, Developer Mode
+   included; a title that saved one shows it as "older choice, hidden" with a button to switch to large-v3.
+   See "Which Whisper model to pick" in `docs/asr-experiments.md`.
+   - **Before you press Transcribe**, one line says what will run ("This run will use: Whisper · Whisper
+     large-v3 · GPU on"). It says GPU off when the setting is on but the CUDA libraries are missing, because
+     Whisper then runs on the CPU, and GPU on, none found when the setting is on but no NVIDIA GPU was found.
+     With a Qwen3 ASR backend that skips Whisper, the Whisper model and the Whisper-only switches are off
+     ("Not used with Qwen3 ASR") and the line names Qwen3-ASR 1.7B. For stream titles keep Separate vocals
+     first off. The Jobs Details panel says "Engine that ran: Qwen3-ASR (Whisper model setting not used)" for
+     such a run.
+   - **Whisper fast mode** is off by default. It decodes several chunks at once (about 2-4x faster on a GPU,
+     more GPU memory) but can give fewer, longer lines and more errors (our test: 44 lines against 150); try
+     Compare transcription first.
 4. **Wider beam search** (8-10): costs time only.
-5. **Breeze-ASR-25** (Chinese titles only, about 3 GB, downloaded on first use; once it is downloaded it is what a Chinese title with no saved model starts on, and a title that saved another model keeps it; the picker shows it disabled, with the reason, for Japanese and Korean): a Taiwanese Mandarin Whisper model. In two tests on whispered speech it gave steadier results than large-v3, but it still misses short fillers and can write a credit line over a quiet stretch, so compare it with large-v3 on your title before relying on it.
-6. **Japanese-only models** (Japanese titles only; the picker shows them disabled, with the reason, for Chinese and Korean): `ja-1.5b` (anime and games, about 3 GB, needs a GPU, licence not declared) and `kotoba-v2` (kotoba-whisper v2.0, about 1.5 GB, much faster than large-v3). kotoba gives line timing only: install the Qwen3 forced aligner (Diagnostics) and Baihe refines the times; without it the Whisper line times are kept and the job reports that timing was not refined. If a transcription is interrupted (a crash, a power cut, Cancel), starting Transcribe again on the same title with the same file and settings continues after the last finished two minutes of audio instead of starting over; any changed setting or a different file starts from the beginning, and fast mode, Groq, Mixed languages and the Qwen3 speech-detection backends always start over. Groq takes audio up to 25 MB on its free plan and 100 MB on a paid plan: a file over 100 MB is refused before anything is uploaded, with a message to use local Whisper.
-7. **Indonesian and Thai** (source languages, Whisper only: the Qwen3 backends and the forced aligner do not cover them). Indonesian uses large-v3 with the speech detector off, for titles and Live, because on a test stream it treated talk over loud game music as silence (about 61% of the meaning kept against 37%, at about 1.8 times the time; a few invented lines can appear in gaps); English said in an Indonesian stream stays English. Thai can use **Thonburian** (`thonburian-large-v3`, Thai titles and Live only, about 3 GB, downloaded on first use, best on a GPU): once it is downloaded it is what a Thai title or stream with no saved model starts on. On a test stream it made fewer errors than large-v3 (CER 0.20 against 0.26). It writes text only, so each line takes its times from where the speech detector heard speech, in pieces of up to 15 s, and a long line is cut by length with estimated times. Thai lines are measured in letters, not counting vowel and tone marks, and cut at the spaces Thai writes between phrases. Comics and Quick read stay Chinese, Japanese and Korean.
+5. **Breeze-ASR-25** (Chinese titles only, about 3 GB, downloaded on first use; once it is downloaded it is
+   what a Chinese title with no saved model starts on, and a title that saved another model keeps it; the
+   picker shows it disabled, with the reason, for Japanese and Korean): a Taiwanese Mandarin Whisper model. In
+   two tests on whispered speech it gave steadier results than large-v3, but it still misses short fillers and
+   can write a credit line over a quiet stretch, so compare it with large-v3 on your title before relying on
+   it.
+6. **Japanese-only models** (Japanese titles only; the picker shows them disabled, with the reason, for
+   Chinese and Korean): `ja-1.5b` (anime and games, about 3 GB, needs a GPU, licence not declared) and
+   `kotoba-v2` (kotoba-whisper v2.0, about 1.5 GB, much faster than large-v3). kotoba gives line timing only:
+   install the Qwen3 forced aligner (Diagnostics) and Baihe refines the times; without it the Whisper line
+   times are kept and the job reports that timing was not refined. If a transcription is interrupted (a crash,
+   a power cut, Cancel), starting Transcribe again on the same title with the same file and settings continues
+   after the last finished two minutes of audio instead of starting over; any changed setting or a different
+   file starts from the beginning, and fast mode, Groq, Mixed languages and the Qwen3 speech-detection
+   backends always start over. Groq takes audio up to 25 MB on its free plan and 100 MB on a paid plan: a file
+   over 100 MB is refused before anything is uploaded, with a message to use local Whisper.
+7. **Indonesian and Thai** (source languages, Whisper only: the Qwen3 backends and the forced aligner do not
+   cover them). Indonesian uses large-v3 with the speech detector off, for titles and Live, because on a test
+   stream it treated talk over loud game music as silence (about 61% of the meaning kept against 37%, at about
+   1.8 times the time; a few invented lines can appear in gaps); English said in an Indonesian stream stays
+   English. Thai can use **Thonburian** (`thonburian-large-v3`, Thai titles and Live only, about 3 GB,
+   downloaded on first use, best on a GPU): once it is downloaded it is what a Thai title or stream with no
+   saved model starts on. On a test stream it made fewer errors than large-v3 (CER 0.20 against 0.26). It
+   writes text only, so each line takes its times from where the speech detector heard speech, in pieces of up
+   to 15 s, and a long line is cut by length with estimated times. Thai lines are measured in letters, not
+   counting vowel and tone marks, and cut at the spaces Thai writes between phrases. Comics and Quick read
+   stay Chinese, Japanese and Korean.
 
-The Transcribe stage (Media on a comic or novel) has three sub-tabs (the last one you used is remembered per title): **Add media** (where the lines come from, upload (with a **Choose a file** button, like the Add box's) or URL, import a subtitle file, Keep original files; the media file box also takes a dropped file, and a dropped `.srt`, `.vtt`, `.ass` or `.lrc` lands in Import subtitle file), **Run** (the language and the Transcribe button come first, with the time estimate, any Still needed line and the last run; the model, Chinese script, transcript text and Detect speakers sit under **More options**, whose closed line names the current choices; Advanced options, Auto-tune and Speech coverage sit under **Tools**; both folds remember how you left them) and **Details** (titles, language, media type, series, status, episode, summary, link and tags, then the credits: author, studio, director, cast, genre, the cover and romanized names, Fill in details; an account that can't save title details sees only its From the audio mode, no Read with AI (paid) under Fill from link, and no Create + fill with AI on the New title sheet, so a page or research lookup never spends for a result that would be refused). Details holds one draft: switching tabs keeps what you typed, and a dot on the tab shows it holds unsaved edits. Novels and comics have only Add media and Details. A link can open one with `#/drama/<id>/source?tab=transcribe` (or `add`, `details`; the old `tools` link opens Run with Tools unfolded, and `credits` lands on Details). In every tab only the first card opens by itself; the others are folded and remember how you left them. When Transcribe uploads a picked audio file and the run is then refused, the file is kept, and Add media shows it as attached straight away. An uploaded file whose name says audio but which holds none (a renamed document, say) is refused at once, and the title's audio is left as it was.
+The Transcribe stage (Media on a comic or novel) has three sub-tabs (the last one you used is remembered per
+title): **Add media** (where the lines come from, upload (with a **Choose a file** button, like the Add box's)
+or URL, import a subtitle file, Keep original files; the media file box also takes a dropped file, and a
+dropped `.srt`, `.vtt`, `.ass` or `.lrc` lands in Import subtitle file), **Run** (the language and the
+Transcribe button come first, with the time estimate, any Still needed line and the last run; the model,
+Chinese script, transcript text and Detect speakers sit under **More options**, whose closed line names the
+current choices; Advanced options, Auto-tune and Speech coverage sit under **Tools**; both folds remember how
+you left them) and **Details** (titles, language, media type, series, status, episode, summary, link and tags,
+then the credits: author, studio, director, cast, genre, the cover and romanized names, Fill in details; an
+account that can't save title details sees only its From the audio mode, no Read with AI (paid) under Fill
+from link, and no Create + fill with AI on the New title sheet, so a page or research lookup never spends for
+a result that would be refused). Details holds one draft: switching tabs keeps what you typed, and a dot on
+the tab shows it holds unsaved edits. Novels and comics have only Add media and Details. A link can open one
+with `#/drama/<id>/source?tab=transcribe` (or `add`, `details`; the old `tools` link opens Run with Tools
+unfolded, and `credits` lands on Details). In every tab only the first card opens by itself; the others are
+folded and remember how you left them. When Transcribe uploads a picked audio file and the run is then
+refused, the file is kept, and Add media shows it as attached straight away. An uploaded file whose name says
+audio but which holds none (a renamed document, say) is refused at once, and the title's audio is left as it
+was.
 
-**Subtitles already inside a video.** In Details > Fill in details > From the audio, **Analyze media** lists the file's subtitle tracks. Each text track (SubRip, ASS, WebVTT, MP4 text) has an **Import ... track** button: it reads the track out of the video, says how many lines it holds and what importing would replace, and **Import now** writes them as the title's lines with the track's own times, without transcribing (an ASS track keeps its styling; the old lines are saved to history first and need the replace tick, as in Import subtitle file). A picture track (PGS, DVD) has a **Read ... track** button instead: Baihe draws the track over black and reads it with the same OCR as hard-sub captions in a background job (**Reading picture subtitles** on the Jobs page), then writes the lines the same way, so the old lines are saved to history; caption times are accurate to about half a second and OCR can misread a character, so check the result in Review. It needs the right to edit lines, and works from a phone.
+**Subtitles already inside a video.** In Details > Fill in details > From the audio, **Analyze media** lists
+the file's subtitle tracks. Each text track (SubRip, ASS, WebVTT, MP4 text) has an **Import ... track**
+button: it reads the track out of the video, says how many lines it holds and what importing would replace,
+and **Import now** writes them as the title's lines with the track's own times, without transcribing (an ASS
+track keeps its styling; the old lines are saved to history first and need the replace tick, as in Import
+subtitle file). A picture track (PGS, DVD) has a **Read ... track** button instead: Baihe draws the track over
+black and reads it with the same OCR as hard-sub captions in a background job (**Reading picture subtitles**
+on the Jobs page), then writes the lines the same way, so the old lines are saved to history; caption times
+are accurate to about half a second and OCR can misread a character, so check the result in Review. It needs
+the right to edit lines, and works from a phone.
 
-On the Run tab, the language, Chinese script, Detect speakers, speaker counts, extra names and replacement prompt are saved with the title when you press Transcribe or Save options, so another browser and the Queue use the same choices; until then they are kept only in this browser. A line at the end of More options lists the settings the run will use and says whether they are saved yet. Detect speakers starts on for a new title (it uses Nemotron-3, which needs no Hugging Face token); a title made before this keeps the choice it had, and you can turn it off per title.
+On the Run tab, the language, Chinese script, Detect speakers, speaker counts, extra names and replacement
+prompt are saved with the title when you press Transcribe or Save options, so another browser and the Queue
+use the same choices; until then they are kept only in this browser. A line at the end of More options lists
+the settings the run will use and says whether they are saved yet. Detect speakers starts on for a new title
+(it uses Nemotron-3, which needs no Hugging Face token); a title made before this keeps the choice it had, and
+you can turn it off per title.
 
-When Detect speakers with no count typed finds two or fewer speakers in a clip of three minutes or more, the finished job says "Found 2 speakers. If the audio has more, try raising the speaker count." (with the number it found); a crowded clip often has more speakers than the automatic count finds. Detect speakers runs on the CPU when the installed PyTorch has no kernels for your GPU (for example a V100 with the CUDA 12.8 build); install the CUDA 12.6 build under Diagnostics > GPU PyTorch to use the GPU. If the GPU crashes outright during a transcription, speaker detection, Re-transcribe (one line or the ticked lines) or Auto-tune run (on Windows, exit code 3221225477), the run starts again once on the CPU and the finished job says it ran on the CPU (the Auto-tune card says so too); a transcription that can resume (see above) continues on the CPU after the last two minutes the GPU finished instead of starting over; a transcription that uses Groq is not run again, so its Groq calls are not paid for twice. A detection run that finds no speech at all (silent or music-only audio) changes no speaker and ends with "Nothing was produced". With the Qwen3-ASR speech-detection backends, a failure in the forced aligner keeps the finished transcription with its estimated line times and the job reports that timing was not refined. A line the forced aligner could not time at all, or timed out of order, keeps its approximate window times and is flagged "Timing uncertain"; one fast character with no width no longer does that to the whole line.
+When Detect speakers with no count typed finds two or fewer speakers in a clip of three minutes or more, the
+finished job says "Found 2 speakers. If the audio has more, try raising the speaker count." (with the number
+it found); a crowded clip often has more speakers than the automatic count finds. Detect speakers runs on the
+CPU when the installed PyTorch has no kernels for your GPU (for example a V100 with the CUDA 12.8 build);
+install the CUDA 12.6 build under Diagnostics > GPU PyTorch to use the GPU. If the GPU crashes outright during
+a transcription, speaker detection, Re-transcribe (one line or the ticked lines) or Auto-tune run (on Windows,
+exit code 3221225477), the run starts again once on the CPU and the finished job says it ran on the CPU (the
+Auto-tune card says so too); a transcription that can resume (see above) continues on the CPU after the last
+two minutes the GPU finished instead of starting over; a transcription that uses Groq is not run again, so its
+Groq calls are not paid for twice. A detection run that finds no speech at all (silent or music-only audio)
+changes no speaker and ends with "Nothing was produced". With the Qwen3-ASR speech-detection backends, a
+failure in the forced aligner keeps the finished transcription with its estimated line times and the job
+reports that timing was not refined. A line the forced aligner could not time at all, or timed out of order,
+keeps its approximate window times and is flagged "Timing uncertain"; one fast character with no width no
+longer does that to the whole line.
 
-On a title that transcribes with Whisper, the Source language box has **Auto (any language)**: the run first listens to the opening with Whisper large-v3 (never turbo), uses the language it hears (Chinese, Japanese, Korean, Indonesian or Thai; anything else, or an unclear opening, stops the run with a message), runs on large-v3 with beam 5, and sets the title's language to it. It adds a minute or so to the start.
+On a title that transcribes with Whisper, the Source language box has **Auto (any language)**: the run first
+listens to the opening with Whisper large-v3 (never turbo), uses the language it hears (Chinese, Japanese,
+Korean, Indonesian or Thai; anything else, or an unclear opening, stops the run with a message), runs on
+large-v3 with beam 5, and sets the title's language to it. It adds a minute or so to the start.
 
-Other transcribe options (Workspace > Transcribe > Run > Advanced options, folded into Speakers, Timing, Models and backends, Guards (Developer Mode) and Switches, which lists every on/off option and names the ones that are on when folded. Switches opens on a title whose options were never saved, and Speakers opens once they are; each fold remembers how you left it. "Extra names to expect" sits with the replacement prompt in the "More: replace the automatic prompt" fold, whose header says what is set. Ranges read like "0.1-2.0 s, default 0.35 s"):
-- **Min silence** (ms; default 1000, range 100-3000; lower values split at shorter pauses and can cut mid-sentence; Whisper also never keeps one speech stretch longer than 20 s; a title that saved 300 moved to the new default once, any other saved value stays) and **Quiet-sound cutoff** (also called the VAD threshold: the Silero speech-detection threshold, 0.1-0.9): the first controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't changed from 0.5 to 0.35 (for the Qwen3 "detect speech first" recognizers, their own speech-detection threshold) and drops Whisper's repeat penalties; it leaves Min silence alone. It is also a series default. Try it first when quiet or short lines are missing. Whatever the settings, a line that spans a long stretch (6 s or more) with almost no text in it is heard again on its own and replaced when that finds more, because Whisper sometimes jumps over 20 seconds or more of fast or shouted speech. Whisper's line edges are then fitted to the speech the detector hears: a line that starts in silence starts 0.1 s before the voice (moved by at most 0.5 s; not with Difficult audio, whose speech the detector misses), and a line that ends inside speech runs on to where it stops (by at most 0.5 s, never past the next line), stopping sooner where the audio goes quiet, so in busy group talk it no longer runs on into the next voice.
-- **Difficult audio** (Switches, off by default; also a series default): for speakers who scream, whisper or talk over each other, or when Sensitivity is not enough, where lines go missing or are misheard. It turns Whisper's speech detector off so Whisper hears the whole file (the detector scores shouted or slurred speech as "not speech"; Min silence and Quiet-sound cutoff then don't apply to Whisper, and Whisper fast mode keeps the detector), transcribes a temporary levelled copy of the audio (needs ffmpeg; the stored file is never changed, and the job notes it if ffmpeg is missing) and makes Whisper less eager to drop low-confidence speech. It also sends Whisper a plain sentence instead of the series' names (Whisper otherwise echoes the name list as junk lines); names you type in the box or a prompt you set still apply. Re-hearing a gap or lines drops a result that is only a caption or credit such as "a few moments later" or "字幕by…". A line you re-transcribe (one, several, or Fix flagged) is heard the same way, without the detector. Slower, and it can add a few false lines; the usual repeat and hallucination filters still run (the repeat filter keeps only the first of four or more identical lines in a row (more for a one-character line), and only when each copy follows the last within 10 seconds, so the same short reply said minutes apart stays; when there are four or more such copies, those after the first are flagged "text_uncertain" to check they are real speech), and a run of six or more short comma-separated items packed into a short stretch (invented lists of names) is dropped, while a lone list or a CJK line faster than 15 characters a second, a run of three or more one-character CJK lines, letters squeezed into under half a second, or any line under a third of a second is flagged "text_uncertain" (a laugh or interjection such as 哈哈哈, 嗯 or あはは is not flagged for being short or fast); a credit line such as a channel name over the final outro is dropped for you to check; a credit or subscribe/like/share line that sits next to speech, and any line in Cyrillic or Greek, is kept but flagged "text_uncertain"; with Qwen3-ASR (the Whisper-boundary one), whether or not Difficult audio is on, these filters also run on Qwen's own text, not only on Whisper's first pass, except that a dense list there is flagged rather than dropped. Whisper and Qwen3-ASR (the Whisper-boundary one) use all three; the "detect speech first" Qwen3 recognizers hear the levelled audio in fixed 8-second windows with no speech detector, so quiet or shouted speech is no longer skipped, and the forced aligner places the lines (a few lines over silence can be invented, so check them; with Mixed languages on they keep their detector and only get the levelling); anime-whisper only gets the levelling; Groq and a supplied transcript ignore it. To test it on a clip first: `python -m tools.asr_bench TITLE_ID --config whisper:large-v3 --config whisper:large-v3,vad=sensitive --config whisper:large-v3,difficult=on`. With Developer Mode on, Settings > Timing and splitting also holds the two Whisper numbers it relaxes (the confidence floor is negative, for example -1.5).
-- **Timing and splitting** (Settings > Transcription and jobs). Shows the numbers that decide how long a line may run (default 8 s or 40 characters), how long a pause counts as a scene change when translating (3 s) and how fragments are joined into a sentence (1 s apart), each with its default, a plain tooltip and a Reset button. The speech-detection and tidy-up numbers behind them appear when Developer Mode is on, and read as their defaults when it is off. A change only affects runs you start afterwards; lines you already have are not touched.
-- **Separate vocals first** (removes background music before transcribing): vocal separation with `audio-separator` (a Mel-Band RoFormer model; it needs the GPU switched on). Adds an extra pass before transcribing (about 5 minutes for a two-hour stream on a V100 GPU, run in half precision, which is about as long as the transcription itself). Transcribing the same audio again reuses the vocals the last run separated (kept beside the audio until the audio is replaced or a storage cleanup removes them), so only the first run pays for it. A title that has never chosen this switch has it on when it transcribes with Breeze-ASR-25 (Chinese; on three hand-corrected Chinese titles Breeze scored 0.675 with it against 0.623 without), provided the GPU is on and the separation pack and its model are both installed (a model left behind without the pack keeps it off); with any other model it is off, because it hurt large-v3. Turning it on or off for a title saves your choice, and a title that saved one keeps it. On upgrade, every title that showed Off is reset once to "never chosen", so existing Breeze titles get it on too. It can drop short fillers such as 嗯.
-- **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper already produced. The new lines keep the text exactly as written, spaces included (Korean words, Latin words in Chinese or Japanese).
-- **Heard again.** When a stretch of a Whisper run comes out nearly empty, Whisper hears it a second time without the speech detector and keeps the new text if it is longer. Those lines are flagged "text_uncertain" ("May not be real speech") so you can check them against the audio; a Qwen3-ASR run replaces the text afterwards, so it carries no such flag.
-- **Blocked phrases** (Settings > Transcription and jobs > Blocked phrases; one phrase per line): a new transcription removes a line that contains one of these only when Whisper made it up: the voice detector, listening around that line, finds no speech within about a second of it. Where the detector hears a voice the line is kept, even when it is only the phrase, since streamers really say these (this holds for every kind of title). When the detector can't answer (it is missing, the audio can't be read, or the title has Difficult audio on, where the detector scores shouted speech as silence), a line goes only when it is the phrase alone (up to 3 more letters, such as "请") with silence of the stock-phrase gap on both sides. It starts with the stock lines Whisper writes over silence ("please like, share and subscribe", "subtitles by Amara.org", the Chinese "點贊和分享" and "訂閱我們的頻道" forms); add your own or clear the box to block nothing. Case, spaces and punctuation are ignored, and a phrase needs at least 4 letters. It applies to transcriptions that start afterwards and does not change lines already saved. The credit filter now also catches "本集的字幕由…提供".
-- **Mis-heard count (Chinese titles).** Media > Transcribe shows "N words may be mis-heard" under Speech coverage when the free check finds any, with a link to Review, where they are listed. It only counts; nothing is changed.
-- **Coverage checks.** Review's Look for problems group (it carries a count when there is something to look at) shows a "Coverage and pacing" section (long lines, large gaps, no source text, not translated) to look at before translating. Media > Transcribe has a separate "Speech coverage" panel that runs by itself after every transcription (press "Check again" to rerun it; it only lists, and never adds lines): each stretch of speech with no line says whether Whisper wrote text there that was lost afterwards, wrote text that a filter then removed (naming the repeat, credit-phrase or invented-list filter; titles transcribed before this was added just say nothing was produced), or wrote nothing. For a title with burned-in captions in a speaker colour each, "Read on-screen captions by speaker" in Media > Transcribe (PC only; needs a picture-capable engine, shows the most it can cost, then confirm) reads them and sets each line's speaker from them; speakers you set by hand are kept. Afterwards you can type who each colour is (the title's series remembers it for its other videos) and press "Put speakers on lines", or "Find differences" to see lines where the caption is close to the transcript but spelled differently (a misheard name) and tick the ones that should take the caption's text.
-- **May be mis-heard (Chinese titles).** Review's source-text chip ("Check source") also lists words that sound like a word the title already trusts (a glossary term or alias, a character name, the title text, or a word heard three or more times) but are spelled another way, for example 達羅赫 for 達洛赫, with how many lines hold each spelling. Each line shows the heard spelling underlined; **Listen** plays that line; **Use here** changes that line and **Use everywhere** every line holding it (leaving the spelling alone where it sits inside a longer ordinary word). For a series glossary name, **Use everywhere and remember this spelling** also saves the heard spelling as an alias of the term, so later transcriptions in the series fix it themselves. It changes the source text only (a translated line is flagged Source changed), is one History step, and is never done by itself; **Keep as heard** hides that suggestion for the title ("Show N kept words again" brings them back); it needs the pypinyin and jieba packages and says so when they are missing.
-- A translation that failed in the background shows as a banner in the Workspace until dismissed; press Translate again and already-translated lines are skipped.
-- **Raw transcripts.** Every transcription run's untouched output is kept in the title's folder (`raw_transcript.json` for the first run, a timestamped file for each later one); Review's "what did transcription originally say" reads the newest. None is ever deleted: the first run and the newest 5 stay as plain JSON, and the runs in between are compressed in place to `.json.gz` (checked by reading it back before the plain file goes). A title with "Keep original files" on keeps every later run as plain JSON (runs compressed before it was turned on stay compressed).
+Other transcribe options (Workspace > Transcribe > Run > Advanced options, folded into Speakers, Timing,
+Models and backends, Guards (Developer Mode) and Switches, which lists every on/off option and names the ones
+that are on when folded. Switches opens on a title whose options were never saved, and Speakers opens once
+they are; each fold remembers how you left it. "Extra names to expect" sits with the replacement prompt in the
+"More: replace the automatic prompt" fold, whose header says what is set. Ranges read like "0.1-2.0 s, default
+0.35 s"):
+- **Min silence** (ms; default 1000, range 100-3000; lower values split at shorter pauses and can cut
+  mid-sentence; Whisper also never keeps one speech stretch longer than 20 s; a title that saved 300 moved to
+  the new default once, any other saved value stays) and **Quiet-sound cutoff** (also called the VAD
+  threshold: the Silero speech-detection threshold, 0.1-0.9; Whisper also keeps speech that only the newer
+  Silero v6.2 detector, shipped with the app, hears on its own at least 1.5 s from other speech, which finds
+  soft lines the older detector skips; not in Live, fast mode or when re-hearing single lines): the first
+  controls how short a pause starts a new line, the second helps with quiet dialogue or noise producing
+  phantom lines. A "Sensitivity" preset (normal / sensitive): sensitive lowers a VAD threshold you haven't
+  changed from 0.5 to 0.35 (for the Qwen3 "detect speech first" recognizers, their own speech-detection
+  threshold) and drops Whisper's repeat penalties; it leaves Min silence alone. It is also a series default.
+  Try it first when quiet or short lines are missing. Whatever the settings, a line that spans a long stretch
+  (6 s or more) with almost no text in it is heard again on its own and replaced when that finds more, because
+  Whisper sometimes jumps over 20 seconds or more of fast or shouted speech. Whisper's line edges are then
+  fitted to the speech the detector hears: a line that starts in silence starts 0.1 s before the voice (moved
+  by at most 0.5 s; not with Difficult audio, whose speech the detector misses), and a line that ends inside
+  speech runs on to where it stops (by at most 0.5 s, never past the next line), stopping sooner where the
+  audio goes quiet, so in busy group talk it no longer runs on into the next voice.
+- **Difficult audio** (Switches, off by default; also a series default): for speakers who scream, whisper or
+  talk over each other, or when Sensitivity is not enough, where lines go missing or are misheard. It turns
+  Whisper's speech detector off so Whisper hears the whole file (the detector scores shouted or slurred speech
+  as "not speech"; Min silence and Quiet-sound cutoff then don't apply to Whisper, and Whisper fast mode keeps
+  the detector), transcribes a temporary levelled copy of the audio (needs ffmpeg; the stored file is never
+  changed, and the job notes it if ffmpeg is missing) and makes Whisper less eager to drop low-confidence
+  speech. It also sends Whisper a plain sentence instead of the series' names (Whisper otherwise echoes the
+  name list as junk lines); names you type in the box or a prompt you set still apply. Re-hearing a gap or
+  lines drops a result that is only a caption or credit such as "a few moments later" or "字幕by…". A line you
+  re-transcribe (one, several, or Fix flagged) is heard the same way, without the detector. Slower, and it can
+  add a few false lines; the usual repeat and hallucination filters still run (the repeat filter keeps only
+  the first of four or more identical lines in a row (more for a one-character line), and only when each copy
+  follows the last within 10 seconds, so the same short reply said minutes apart stays; when there are four or
+  more such copies, those after the first are flagged "text_uncertain" to check they are real speech), and a
+  run of six or more short comma-separated items packed into a short stretch (invented lists of names) is
+  dropped, while a lone list or a CJK line faster than 15 characters a second, a run of three or more
+  one-character CJK lines, letters squeezed into under half a second, or any line under a third of a second is
+  flagged "text_uncertain" (a laugh or interjection such as 哈哈哈, 嗯 or あはは is not flagged for being short or
+  fast); a credit line such as a channel name over the final outro is dropped for you to check; a credit or
+  subscribe/like/share line that sits next to speech, and any line in Cyrillic or Greek, is kept but flagged
+  "text_uncertain"; with Qwen3-ASR (the Whisper-boundary one), whether or not Difficult audio is on, these
+  filters also run on Qwen's own text, not only on Whisper's first pass, except that a dense list there is
+  flagged rather than dropped. Whisper and Qwen3-ASR (the Whisper-boundary one) use all three; the "detect
+  speech first" Qwen3 recognizers hear the levelled audio in fixed 8-second windows with no speech detector,
+  so quiet or shouted speech is no longer skipped, and the forced aligner places the lines (a few lines over
+  silence can be invented, so check them; with Mixed languages on they keep their detector and only get the
+  levelling); anime-whisper only gets the levelling; Groq and a supplied transcript ignore it. To test it on a
+  clip first:
+  `python -m tools.asr_bench TITLE_ID --config whisper:large-v3 --config whisper:large-v3,vad=sensitive --config whisper:large-v3,difficult=on`.
+  With Developer Mode on, Settings > Timing and splitting also holds the two Whisper numbers it relaxes (the
+  confidence floor is negative, for example -1.5).
+- **Timing and splitting** (Settings > Transcription and jobs). Shows the numbers that decide how long a line
+  may run (default 8 s or 40 characters), how long a pause counts as a scene change when translating (3 s) and
+  how fragments are joined into a sentence (1 s apart), each with its default, a plain tooltip and a Reset
+  button. The speech-detection and tidy-up numbers behind them appear when Developer Mode is on, and read as
+  their defaults when it is off. A change only affects runs you start afterwards; lines you already have are
+  not touched.
+- **Separate vocals first** (removes background music before transcribing): vocal separation with
+  `audio-separator` (a Mel-Band RoFormer model; it needs the GPU switched on). Adds an extra pass before
+  transcribing (about 5 minutes for a two-hour stream on a V100 GPU, run in half precision, which is about as
+  long as the transcription itself). Transcribing the same audio again reuses the vocals the last run
+  separated (kept beside the audio until the audio is replaced or a storage cleanup removes them), so only the
+  first run pays for it. A title that has never chosen this switch has it on when it transcribes with
+  Breeze-ASR-25 (Chinese; on three hand-corrected Chinese titles Breeze scored 0.675 with it against 0.623
+  without), provided the GPU is on and the separation pack and its model are both installed (a model left
+  behind without the pack keeps it off); with any other model it is off, because it hurt large-v3. Turning it
+  on or off for a title saves your choice, and a title that saved one keeps it. On upgrade, every title that
+  showed Off is reset once to "never chosen", so existing Breeze titles get it on too. It can drop short
+  fillers such as 嗯.
+- **Realign long segments** (experimental, off by default): re-aligns a line against its own audio with Meta's
+  MMS aligner (`pip install torchaudio uroman`, ~1.1GB model on first use). It only re-times text Whisper
+  already produced. The new lines keep the text exactly as written, spaces included (Korean words, Latin words
+  in Chinese or Japanese).
+- **Heard again.** When a stretch of a Whisper run comes out nearly empty, Whisper hears it a second time
+  without the speech detector and keeps the new text if it is longer. Those lines are flagged "text_uncertain"
+  ("May not be real speech") so you can check them against the audio; a Qwen3-ASR run replaces the text
+  afterwards, so it carries no such flag.
+- **Blocked phrases** (Settings > Transcription and jobs > Blocked phrases; one phrase per line): a new
+  transcription removes a line that contains one of these only when Whisper made it up: the voice detector,
+  listening around that line, finds no speech within about a second of it. Where the detector hears a voice
+  the line is kept, even when it is only the phrase, since streamers really say these (this holds for every
+  kind of title). When the detector can't answer (it is missing, the audio can't be read, or the title has
+  Difficult audio on, where the detector scores shouted speech as silence), a line goes only when it is the
+  phrase alone (up to 3 more letters, such as "请") with silence of the stock-phrase gap on both sides. It
+  starts with the stock lines Whisper writes over silence ("please like, share and subscribe", "subtitles by
+  Amara.org", the Chinese "點贊和分享" and "訂閱我們的頻道" forms); add your own or clear the box to block nothing. Case,
+  spaces and punctuation are ignored, and a phrase needs at least 4 letters. It applies to transcriptions that
+  start afterwards and does not change lines already saved. The credit filter now also catches "本集的字幕由…提供".
+- **Mis-heard count (Chinese titles).** Media > Transcribe shows "N words may be mis-heard" under Speech
+  coverage when the free check finds any, with a link to Review, where they are listed. It only counts;
+  nothing is changed.
+- **Coverage checks.** Review's Look for problems group (it carries a count when there is something to look
+  at) shows a "Coverage and pacing" section (long lines, large gaps, no source text, not translated) to look
+  at before translating. Media > Transcribe has a separate "Speech coverage" panel that runs by itself after
+  every transcription (press "Check again" to rerun it; it only lists, and never adds lines): each stretch of
+  speech with no line says whether Whisper wrote text there that was lost afterwards, wrote text that a filter
+  then removed (naming the repeat, credit-phrase or invented-list filter; titles transcribed before this was
+  added just say nothing was produced), or wrote nothing. For a title with burned-in captions in a speaker
+  colour each, "Read on-screen captions by speaker" in Media > Transcribe (PC only; needs a picture-capable
+  engine, shows the most it can cost, then confirm) reads them and sets each line's speaker from them;
+  speakers you set by hand are kept. Afterwards you can type who each colour is (the title's series remembers
+  it for its other videos) and press "Put speakers on lines", or "Find differences" to see lines where the
+  caption is close to the transcript but spelled differently (a misheard name) and tick the ones that should
+  take the caption's text.
+- **May be mis-heard (Chinese titles).** Review's source-text chip ("Check source") also lists words that
+  sound like a word the title already trusts (a glossary term or alias, a character name, the title text, or a
+  word heard three or more times) but are spelled another way, for example 達羅赫 for 達洛赫, with how many lines
+  hold each spelling. Each line shows the heard spelling underlined; **Listen** plays that line; **Use here**
+  changes that line and **Use everywhere** every line holding it (leaving the spelling alone where it sits
+  inside a longer ordinary word). For a series glossary name, **Use everywhere and remember this spelling**
+  also saves the heard spelling as an alias of the term, so later transcriptions in the series fix it
+  themselves. It changes the source text only (a translated line is flagged Source changed), is one History
+  step, and is never done by itself; **Keep as heard** hides that suggestion for the title ("Show N kept words
+  again" brings them back); it needs the pypinyin and jieba packages and says so when they are missing.
+- A translation that failed in the background shows as a banner in the Workspace until dismissed; press
+  Translate again and already-translated lines are skipped.
+- **Raw transcripts.** Every transcription run's untouched output is kept in the title's folder
+  (`raw_transcript.json` for the first run, a timestamped file for each later one); Review's "what did
+  transcription originally say" reads the newest. None is ever deleted: the first run and the newest 5 stay as
+  plain JSON, and the runs in between are compressed in place to `.json.gz` (checked by reading it back before
+  the plain file goes). A title with "Keep original files" on keeps every later run as plain JSON (runs
+  compressed before it was turned on stay compressed).
 
 ### OCR (image-based chapter scans)
 
-Upload page images in the novel-narration OCR section instead of pasting text. Always review OCR output before translating.
-- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's default; ja picks manga-ocr and zh/ko pick RapidOCR): `pip install pytesseract pillow` plus the Tesseract binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings > Advanced > Offline, paths and limits > Program locations > "Tesseract program" to `tesseract.exe`.
-- **RapidOCR** (install from Diagnostics): Chinese, Japanese and Korean, the Auto pick for Chinese and Korean pages and burned-in captions. Pages use its larger models, downloaded once on first use (about 135 MB, Korean about 13 MB); captions use the small built-in ones so a long video stays fast. With GPU PyTorch installed, pages are read on the GPU when Settings allows GPU use, the card has about 2.5 GB free and the GPU guard isn't holding jobs (one more download of about 140 MB on first use), otherwise on the CPU; Models in memory lists it while it holds GPU memory. Korean pages are read on the GPU only after you install "Korean text reader on the GPU" from Diagnostics (it swaps onnxruntime for onnxruntime-gpu, about 280 MB, and needs an NVIDIA GPU with GPU PyTorch and about 2.5 GB free; on one V100 the text matched the CPU reader on 47 pages and a page took about a fifth of the time; a failed install puts the CPU build back). Reading runs in its own background process at low priority, so a busy Quick read or Scanlate run no longer slows the rest of the app.
-- **PaddleOCR** (Diagnostics > Packages > Install, for paddleocr and paddlepaddle; it is installed without its own numpy, PyYAML and OpenCV pins so Baihe keeps its newer ones): heavier, better on stylized Chinese fonts.
+Upload page images in the novel-narration OCR section instead of pasting text. Always review OCR output before
+translating.
+- **Tesseract** (used for languages other than ja, zh and ko when the OCR default is `auto`, the setting's
+  default; ja picks manga-ocr and zh/ko pick RapidOCR): `pip install pytesseract pillow` plus the Tesseract
+  binary with language packs (macOS `brew install tesseract tesseract-lang`; Ubuntu
+  `sudo apt install tesseract-ocr tesseract-ocr-chi-sim tesseract-ocr-jpn tesseract-ocr-kor`; Windows
+  [installer](https://github.com/UB-Mannheim/tesseract/wiki)). If Windows can't find it, set Settings >
+  Advanced > Offline, paths and limits > Program locations > "Tesseract program" to `tesseract.exe`.
+- **RapidOCR** (install from Diagnostics): Chinese, Japanese and Korean, the Auto pick for Chinese and Korean
+  pages and burned-in captions. Pages use its larger models, downloaded once on first use (about 135 MB,
+  Korean about 13 MB); captions use the small built-in ones so a long video stays fast. With GPU PyTorch
+  installed, pages are read on the GPU when Settings allows GPU use, the card has about 2.5 GB free and the
+  GPU guard isn't holding jobs (one more download of about 140 MB on first use), otherwise on the CPU; Models
+  in memory lists it while it holds GPU memory. Korean pages are read on the GPU only after you install
+  "Korean text reader on the GPU" from Diagnostics (it swaps onnxruntime for onnxruntime-gpu, about 280 MB,
+  and needs an NVIDIA GPU with GPU PyTorch and about 2.5 GB free; on one V100 the text matched the CPU reader
+  on 47 pages and a page took about a fifth of the time; a failed install puts the CPU build back). Reading
+  runs in its own background process at low priority, so a busy Quick read or Scanlate run no longer slows the
+  rest of the app.
+- **PaddleOCR** (Diagnostics > Packages > Install, for paddleocr and paddlepaddle; it is installed without its
+  own numpy, PyYAML and OpenCV pins so Baihe keeps its newer ones): heavier, better on stylized Chinese fonts.
 - **manga-ocr** (`pip install manga-ocr`): Japanese speech bubbles; best on single-bubble crops.
 
 ### Hardsub OCR (captions burned into a video; experimental)
 
-Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the "Hardsub interval" to speed it up). For Chinese, Korean and Japanese titles the Hardsub OCR picker starts on Auto: RapidOCR, then PaddleOCR, then Tesseract only if neither is installed (Tesseract is a separate program you install yourself). The Hardsub OCR picker also offers Qwen3-VL (4B or 8B), a vision model that needs a CUDA GPU and a one-time Hugging Face download (about 9 GB for 4B, 17 GB for 8B); Auto never picks it, and if it can't load RapidOCR reads the rest of the run and the job says so. Cancel stops a Qwen3-VL run within the frame it is on (a slow frame is cut short), and captions read so far are not kept. Chinese captions read as Traditional are converted to Simplified when the title's script is Simplified (needs the optional OpenCC package).
+Choose "Read burned-in subtitles" as the transcript source (needs a video file). It samples frames, finds the
+caption row band, OCRs it with the same backends and collapses repeats into timed lines. Limits: one caption
+band only, a static logo can outscore a faint caption, and it is slower than audio transcription (raise the
+"Hardsub interval" to speed it up). For Chinese, Korean and Japanese titles the Hardsub OCR picker starts on
+Auto: RapidOCR, then PaddleOCR, then Tesseract only if neither is installed (Tesseract is a separate program
+you install yourself). The Hardsub OCR picker also offers Qwen3-VL (4B or 8B), a vision model that needs a
+CUDA GPU and a one-time Hugging Face download (about 9 GB for 4B, 17 GB for 8B); Auto never picks it, and if
+it can't load RapidOCR reads the rest of the run and the job says so. Cancel stops a Qwen3-VL run within the
+frame it is on (a slow frame is cut short), and captions read so far are not kept. Chinese captions read as
+Traditional are converted to Simplified when the title's script is Simplified (needs the optional OpenCC
+package).
 
 ### Simplified vs Traditional Chinese
 
-For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainland), Traditional (Taiwan, Hong Kong); the default is Simplified) affects only OCR (Tesseract `chi_sim` vs `chi_tra`; install the matching language pack) and Reader word segmentation (Traditional is converted with OpenCC to find word boundaries, then the original text is sliced), and Whisper: Simplified or Traditional starts Whisper's prompt with a short sentence in that script ("以下是普通话的句子。" or "以下是普通話的句子。"), which keeps it from switching script and leaving out punctuation; a line that is only that sentence is dropped. Translation is unaffected.
+For `zh` sources, the "Chinese script" select (Keep current, Simplified (Mainland), Traditional (Taiwan, Hong
+Kong); the default is Simplified) affects only OCR (Tesseract `chi_sim` vs `chi_tra`; install the matching
+language pack) and Reader word segmentation (Traditional is converted with OpenCC to find word boundaries,
+then the original text is sliced), and Whisper: Simplified or Traditional starts Whisper's prompt with a short
+sentence in that script ("以下是普通话的句子。" or "以下是普通話的句子。"), which keeps it from switching script and leaving out
+punctuation; a line that is only that sentence is dropped. Translation is unaffected.
 
-**VTuber names (optional, personal use).** In a title's Glossary > Packs tab, *VTuber names* can download a list of VTuber names from the public dd-center/vdb database to this PC (about 2.4 MB, only when you press Download). It is under the VTuber Public Database International License v1.0 (CC BY-NC-SA 4.0 plus GPL text): it is for your own non-commercial use, Baihe never exports, backs up for sharing or uploads it, and it is not part of the app or installer. If you share it or anything made from it, credit dd-center/vdb and use the same licence. Switch it on per title (off by default): names found in that title's text then appear under *Find possible names* as *Known VTuber names* (you decide which become glossary terms) and are sent to the translator as "keep as written", never overriding a glossary term. Live also uses it for a stream with no glossary picked. Delete removes the file.
+**VTuber names (optional, personal use).** In a title's Glossary > Packs tab, *VTuber names* can download a
+list of VTuber names from the public dd-center/vdb database to this PC (about 2.4 MB, only when you press
+Download). It is under the VTuber Public Database International License v1.0 (CC BY-NC-SA 4.0 plus GPL text):
+it is for your own non-commercial use, Baihe never exports, backs up for sharing or uploads it, and it is not
+part of the app or installer. If you share it or anything made from it, credit dd-center/vdb and use the same
+licence. Switch it on per title (off by default): names found in that title's text then appear under *Find
+possible names* as *Known VTuber names* (you decide which become glossary terms) and are sent to the
+translator as "keep as written", never overriding a glossary term. Live also uses it for a stream with no
+glossary picked. Delete removes the file.
 
 ### Speaker diarization
 
-Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. If Hugging Face refuses the token or the terms aren't accepted yet, the run says so in one sentence (the server log has Hugging Face's own reply). CPU works, GPU is faster.
+Needs `pip install pyannote.audio soundfile`, a free Hugging Face token, and accepting the model terms at
+https://huggingface.co/pyannote/speaker-diarization-community-1. First run downloads the model. If Hugging
+Face refuses the token or the terms aren't accepted yet, the run says so in one sentence (the server log has
+Hugging Face's own reply). CPU works, GPU is faster.
 
-**Speaker detection model** (Settings > Advanced > Offline, paths and limits > Other) picks Nemotron-3 (the default) or pyannote community-1. Nemotron-3 is NVIDIA's newer model and mixed up fewer lines on the four titles we scored (those four only; on a 3 h and a 5.5 h file it ran without errors and about 6-8 times faster, but without corrected labels to score it against; not tried on a V100). It needs `transformers` 5.18 or newer, `librosa` and `torch`, which the Speaker detection pack in Diagnostics > Packages installs, and downloads about 380 MB the first time you detect speakers. To go back, pick pyannote community-1 in the same place. Nemotron is used whenever it can run: pyannote takes over only when Nemotron isn't available on the PC (a missing or too old package, or a model that is missing, unreadable or can't be downloaded), and the finished job says why. Any other Nemotron failure ends the run with its reason instead of switching. Nemotron can't take a speaker count, so when Nemotron will run, Advanced options > Speakers hides Expected, Min and Max speakers and says "Nemotron finds the number of speakers itself."; a count typed from another device is ignored, and the finished job says so and how many speakers it found. After a Nemotron run the voice-match suggestions still work, because the voice prints are made from the downloaded pyannote model (if that model isn't on the PC, a Nemotron run has no suggestions). A Nemotron run doesn't need the Hugging Face token. When Nemotron's packages are missing and pyannote can't take over (no token, or pyannote isn't installed), the Detect speakers switch says what to install before you transcribe, the transcription skips speaker detection and says why, and Detect speakers on the Speakers step is refused with the same reason. The pyannote model still needs the token. Each line gets the speaker heard for the most time in it, added up over all of that speaker's turns (so someone with several short turns in a line beats a single longer turn by someone else). A line Nemotron is unsure about (its confidence below 0.8) gets no speaker rather than a guess, so expect a few more blank speakers to fill in by hand and fewer wrong ones; pyannote runs and solo series are unaffected, and lines whose speaker you set by hand are kept unless you choose to replace them. Titles detected before this change keep their labels until you run Detect speakers again.
+**Speaker detection model** (Settings > Advanced > Offline, paths and limits > Other) picks Nemotron-3 (the
+default) or pyannote community-1. Nemotron-3 is NVIDIA's newer model and mixed up fewer lines on the four
+titles we scored (those four only; on a 3 h and a 5.5 h file it ran without errors and about 6-8 times faster,
+but without corrected labels to score it against; not tried on a V100). It needs `transformers` 5.18 or newer,
+`librosa` and `torch`, which the Speaker detection pack in Diagnostics > Packages installs, and downloads
+about 380 MB the first time you detect speakers. To go back, pick pyannote community-1 in the same place.
+Nemotron is used whenever it can run: pyannote takes over only when Nemotron isn't available on the PC (a
+missing or too old package, or a model that is missing, unreadable or can't be downloaded), and the finished
+job says why. Any other Nemotron failure ends the run with its reason instead of switching. Nemotron can't
+take a speaker count, so when Nemotron will run, Advanced options > Speakers hides Expected, Min and Max
+speakers and says "Nemotron finds the number of speakers itself."; a count typed from another device is
+ignored, and the finished job says so and how many speakers it found. After a Nemotron run the voice-match
+suggestions still work, because the voice prints are made from the downloaded pyannote model (if that model
+isn't on the PC, a Nemotron run has no suggestions). A Nemotron run doesn't need the Hugging Face token. When
+Nemotron's packages are missing and pyannote can't take over (no token, or pyannote isn't installed), the
+Detect speakers switch says what to install before you transcribe, the transcription skips speaker detection
+and says why, and Detect speakers on the Speakers step is refused with the same reason. The pyannote model
+still needs the token. Each line gets the speaker heard for the most time in it, added up over all of that
+speaker's turns (so someone with several short turns in a line beats a single longer turn by someone else). A
+line Nemotron is unsure about (its confidence below 0.8) gets no speaker rather than a guess, so expect a few
+more blank speakers to fill in by hand and fewer wrong ones; pyannote runs and solo series are unaffected, and
+lines whose speaker you set by hand are kept unless you choose to replace them. Titles detected before this
+change keep their labels until you run Detect speakers again.
 
 ### Live (experimental)
 
-The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.
+The Live page pulls a running stream, cuts it into short chunks (your choice of length), transcribes and
+translates each in the background, and shows a growing feed. Needs `yt-dlp` and `ffmpeg`.
 
-With no engine key saved, the engine box says **Add a key in Settings** (a link). If Ollama is missing it is shown as a note until you press Start.
+With no engine key saved, the engine box says **Add a key in Settings** (a link). If Ollama is missing it is
+shown as a note until you press Start.
 
-The form's choices, limits and starting values come from the server, so Ollama starts on the default model set in Settings. Options you change are remembered in this browser; the rest follow the app's defaults.
+The form's choices, limits and starting values come from the server, so Ollama starts on the default model set
+in Settings. Options you change are remembered in this browser; the rest follow the app's defaults.
 
-- **Chunk length.** Latency is at least one chunk: a word at the start of a 10 s chunk waits the whole 10 s before Whisper hears it. Shorter chunks lower that but give Whisper less context. **Fast captions** (Advanced) sets a 4 s chunk, 1 s overlap, Whisper small and no thinking for sooner, rougher lines. **Balanced captions** sets an 8 s chunk, 3 s overlap, large-v3 and no thinking (needs a GPU). Both use the model downloaded for the language you picked instead of small or large-v3: Chinese breeze-asr-25, Japanese ja-1.5b, Korean and Indonesian large-v3 and Thai thonburian-large-v3, the same ones the form starts on. Other languages, or a model not yet downloaded, keep the preset's own. After a preset, changing the language changes the model with it, until you pick a model by hand. It replaces the current values of those four options, which the browser then remembers; to go back, set them by hand (the app's defaults are chunk 10 s, overlap 3 s, Whisper small, no thinking).
-- **Whisper model** (Advanced). small is the default and keeps up on most PCs. large-v3-turbo is slower but more accurate (on a 5-minute Chinese stream test, about 16 character errors per 100 against small's 23, in about 1.5 times the time on a CPU); it needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM without) and downloads about 1.6 GB the first time. medium was both slower and less accurate than turbo on that test. If the model is too slow for the chunk length, Live skips audio to catch up (below).
-- **Translation runs beside Whisper.** Each chunk's lines go to the engine in one request while Whisper carries on with the next chunk. If the engine falls behind the stream, the oldest waiting lines are shown untranslated ("skipped to keep up") and counted, so captions stay close to the speech.
-- **Video delay.** With **Automatic video delay** on (the default), the picture plays about one chunk plus the measured time to caption a chunk (the median of the last five) behind live, shown as "Video delay: auto (about N s)". Before the first chunk is measured it assumes 8 s of processing. Moving the slider sets the delay by hand and turns the automatic delay off. Where the stream's own player can't be held back, turn on **Delayed player** (off by default) before Start: Baihe records a delayed copy of the picture and sound on this PC and plays that instead (it downloads the video too); **Delayed player quality** picks 360p to 1080p (480p by default). On phone browsers that play the copy without reporting its length (some Android Chrome builds), the captions wait the chosen delay instead of showing at once.
-- **Full screen.** With **Captions over video** on, use **Full screen with captions** under the video: the player's own full-screen button is hidden then, because it would show the picture without the captions. On a phone held upright, full screen turns the picture sideways. When the picture can't be held back far enough, a chunk's lines reach the overlay after they were spoken; they are then shown one after another at the pace they were spoken, starting when they arrive.
-- **Caption lag.** "Captions about N s behind the stream" is how long after the first word of the newest captioned chunk was spoken its translation was ready: the chunk's own length plus its wait, Whisper and translation time. It is measured from when the audio reached Baihe, so the platform's own delay (often several seconds) comes on top.
-- Whisper loads before capture starts, and so does a model on this PC's Ollama, so the first chunk is not behind the stream and its lines are not skipped while the model loads ("Gemma 4 31B ready in N s"; a model that can't be loaded then is tried again by the first chunk). The status names each step and how fast the last chunk was (audio seconds, time taken, times real time).
-- If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up") instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per reason and stay listed under the status.
-- **Stop** captions what was already captured (the chunks still waiting and the last partial chunk), lets their translations finish, then ends; the button then reads **Stop now**, which ends at once, within a couple of seconds even in the middle of a Whisper call. An error ends the session without captioning what was waiting. When **Stop after** runs out or the stream ends, the notes under the status say which.
-- **Use glossary and packs from** (optional; None by default) picks a series or a title. The glossary always comes from a series: pick the series for its glossary and the language packs of its newest title that has a pack choice, or pick a title for its series' glossary and that title's own packs (a title with no series has no glossary). The names and terms that occur in a chunk are sent with that chunk's translation request. With None, the stream still gets the built-in VTuber names and stream terms for its language, and the VTuber names list when it is downloaded (see VTuber names above). Nothing is written to the library.
-- **Read chat** (Advanced; YouTube video and live links only) also reads the stream's live chat and shows it in a **Chat** panel under the lines, each message as written with its English translation beneath it, newest first, with a Super Chat's amount beside the name. It uses the same translator as the lines, so a paid engine bills the chat too and the monthly cap and the usage log cover it. To keep that small, messages with nothing to translate (emotes, numbers, links, one repeated character, a line another chatter just sent, text in the wrong script) show as written; when the chat runs ahead only the newest 40 of a poll are translated, in batches of 15; and a session translates at most 1,500 chat messages (a note says when it is reached). A chat that fails to translate does not end the session. It reads, never posts. A channel link such as `@name/live` has no video id, so use the watch link. Not tested against a real broadcast yet.
-- Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap, and Whisper gets no glossary priming. A line that starts in a chunk's last few seconds (the overlap) waits for the next chunk, which hears it whole, so it shows one chunk later instead of twice; a line never starts before the one above it. A line that is only a credit or outro phrase ("ご視聴ありがとうございました", "Thanks for watching") is dropped, since Whisper invents these on laughter and pauses, so a streamer who really says one loses that line; a request to subscribe is kept. A line the engine sends back empty shows as a failed translation with its transcript, not as a blank line.
+- **Chunk length.** Latency is at least one chunk: a word at the start of a 10 s chunk waits the whole 10 s
+  before Whisper hears it. Shorter chunks lower that but give Whisper less context. **Fast captions**
+  (Advanced) sets a 4 s chunk, 1 s overlap, Whisper small and no thinking for sooner, rougher lines.
+  **Balanced captions** sets an 8 s chunk, 3 s overlap, large-v3 and no thinking (needs a GPU). Both use the
+  model downloaded for the language you picked instead of small or large-v3: Chinese breeze-asr-25, Japanese
+  ja-1.5b, Korean and Indonesian large-v3 and Thai thonburian-large-v3, the same ones the form starts on.
+  Other languages, or a model not yet downloaded, keep the preset's own. After a preset, changing the language
+  changes the model with it, until you pick a model by hand. It replaces the current values of those four
+  options, which the browser then remembers; to go back, set them by hand (the app's defaults are chunk 10 s,
+  overlap 3 s, Whisper small, no thinking).
+- **Whisper model** (Advanced). small is the default and keeps up on most PCs. large-v3-turbo is slower but
+  more accurate (on a 5-minute Chinese stream test, about 16 character errors per 100 against small's 23, in
+  about 1.5 times the time on a CPU); it needs about 2.6 GB of graphics memory with Use GPU (about 2 GB of RAM
+  without) and downloads about 1.6 GB the first time. medium was both slower and less accurate than turbo on
+  that test. If the model is too slow for the chunk length, Live skips audio to catch up (below).
+- **Translation runs beside Whisper.** Each chunk's lines go to the engine in one request while Whisper
+  carries on with the next chunk. If the engine falls behind the stream, the oldest waiting lines are shown
+  untranslated ("skipped to keep up") and counted, so captions stay close to the speech.
+- **Video delay.** With **Automatic video delay** on (the default), the picture plays about one chunk plus the
+  measured time to caption a chunk (the median of the last five) behind live, shown as "Video delay: auto
+  (about N s)". Before the first chunk is measured it assumes 8 s of processing. Moving the slider sets the
+  delay by hand and turns the automatic delay off. Where the stream's own player can't be held back, turn on
+  **Delayed player** (off by default) before Start: Baihe records a delayed copy of the picture and sound on
+  this PC and plays that instead (it downloads the video too); **Delayed player quality** picks 360p to 1080p
+  (480p by default). On phone browsers that play the copy without reporting its length (some Android Chrome
+  builds), the captions wait the chosen delay instead of showing at once.
+- **Full screen.** With **Captions over video** on, use **Full screen with captions** under the video: the
+  player's own full-screen button is hidden then, because it would show the picture without the captions. On a
+  phone held upright, full screen turns the picture sideways. When the picture can't be held back far enough,
+  a chunk's lines reach the overlay after they were spoken; they are then shown one after another at the pace
+  they were spoken, starting when they arrive.
+- **Caption lag.** "Captions about N s behind the stream" is how long after the first word of the newest
+  captioned chunk was spoken its translation was ready: the chunk's own length plus its wait, Whisper and
+  translation time. It is measured from when the audio reached Baihe, so the platform's own delay (often
+  several seconds) comes on top.
+- Whisper loads before capture starts, and so does a model on this PC's Ollama, so the first chunk is not
+  behind the stream and its lines are not skipped while the model loads ("Gemma 4 31B ready in N s"; a model
+  that can't be loaded then is tried again by the first chunk). The status names each step and how fast the
+  last chunk was (audio seconds, time taken, times real time).
+- If Whisper is slower than the stream, the oldest waiting audio is skipped ("Skipped N s to catch up")
+  instead of falling further behind. A chunk Whisper cannot finish in max(30 s, 6 x chunk length) is skipped
+  ("Skipped chunk N") and the run goes on; while an abandoned Whisper call is still running, further chunks
+  are skipped ("Whisper is still busy") instead of starting a second one. Skips are counted in one line per
+  reason and stay listed under the status.
+- **Stop** captions what was already captured (the chunks still waiting and the last partial chunk), lets
+  their translations finish, then ends; the button then reads **Stop now**, which ends at once, within a
+  couple of seconds even in the middle of a Whisper call. An error ends the session without captioning what
+  was waiting. When **Stop after** runs out or the stream ends, the notes under the status say which.
+- **Use glossary and packs from** (optional; None by default) picks a series or a title. The glossary always
+  comes from a series: pick the series for its glossary and the language packs of its newest title that has a
+  pack choice, or pick a title for its series' glossary and that title's own packs (a title with no series has
+  no glossary). The names and terms that occur in a chunk are sent with that chunk's translation request. With
+  None, the stream still gets the built-in VTuber names and stream terms for its language, and the VTuber
+  names list when it is downloaded (see VTuber names above). Nothing is written to the library.
+- **Read chat** (Advanced; YouTube video and live links only) also reads the stream's live chat and shows it
+  in a **Chat** panel under the lines, each message as written with its English translation beneath it, newest
+  first, with a Super Chat's amount beside the name. It uses the same translator as the lines, so a paid
+  engine bills the chat too and the monthly cap and the usage log cover it. To keep that small, messages with
+  nothing to translate (emotes, numbers, links, one repeated character, a line another chatter just sent, text
+  in the wrong script) show as written; when the chat runs ahead only the newest 40 of a poll are translated,
+  in batches of 15; and a session translates at most 1,500 chat messages (a note says when it is reached). A
+  chat that fails to translate does not end the session. It reads, never posts. A channel link such as
+  `@name/live` has no video id, so use the watch link. Not tested against a real broadcast yet.
+- Accuracy is lower than the normal pipeline: each chunk is transcribed alone with a few seconds of overlap,
+  and Whisper gets no glossary priming. A line that starts in a chunk's last few seconds (the overlap) waits
+  for the next chunk, which hears it whole, so it shows one chunk later instead of twice; a line never starts
+  before the one above it. A line that is only a credit or outro phrase ("ご視聴ありがとうございました", "Thanks for
+  watching") is dropped, since Whisper invents these on laughter and pauses, so a streamer who really says one
+  loses that line; a request to subscribe is kept. A line the engine sends back empty shows as a failed
+  translation with its transcript, not as a blank line.
 - The feed is not saved to the Library; copy what you want before you stop.
-- **Reconnect.** Once a session has captioned its first chunk, a network drop, an expired stream link or a stalled capture no longer ends it: Live captions what was captured before the break, opens the page link again and carries on from the live edge, trying after 2, 5, 10, 20 and then every 30 s for up to 5 minutes. The status says it is reconnecting, a note says when it came back (one note however often it breaks), and the captions, translator and timeline carry on. The Delayed player starts again on the new link; if it can't, the page shows the stream's own player. A page that is no longer live ends the session as usual.
-- **Sentences over several lines.** Korean and Japanese put the verb last, so lines up to a sentence end (at most 3) are translated as one sentence: the English goes on the last line and the lines before it show "…". Speech with no punctuation is still translated line by line. A long line with no punctuation or spaces is cut by length.
-- A sentence Whisper wrote twice in a row (8 or more letters) is shown and translated once; a short line said twice stays.
-- Start says plainly when ffmpeg or yt-dlp is missing, and a stream link that won't open shows yt-dlp's own reason. After a reload this browser still shows the video of the session it started; a session started elsewhere (a followed channel, another device) shows its lines and, for YouTube and Twitch, the video. If Start is refused because a session is already running, that session and its Stop appear.
-- From another device, starting Live needs the **import from a link** permission (an admin account has it; a member gets it from an admin in People and access > People > Rights, or with `python -m api grant <email> media.import_url` at the PC), and a paid engine also needs **paid engines** (`engines.paid`); Live's gemma4:31b-cloud needs no extra right. The note saying so shows only to an account that lacks it. **Delayed player** is not offered there, since it records on the PC, and a refusal for another reason shows that reason.
-- Tested on real live news broadcasts (Korean and Japanese). Reconnecting after a real broadcast break has only been tested with simulated breaks.
+- **Reconnect.** Once a session has captioned its first chunk, a network drop, an expired stream link or a
+  stalled capture no longer ends it: Live captions what was captured before the break, opens the page link
+  again and carries on from the live edge, trying after 2, 5, 10, 20 and then every 30 s for up to 5 minutes.
+  The status says it is reconnecting, a note says when it came back (one note however often it breaks), and
+  the captions, translator and timeline carry on. The Delayed player starts again on the new link; if it
+  can't, the page shows the stream's own player. A page that is no longer live ends the session as usual.
+- **Sentences over several lines.** Korean and Japanese put the verb last, so lines up to a sentence end (at
+  most 3) are translated as one sentence: the English goes on the last line and the lines before it show "…".
+  Speech with no punctuation is still translated line by line. A long line with no punctuation or spaces is
+  cut by length.
+- A sentence Whisper wrote twice in a row (8 or more letters) is shown and translated once; a short line said
+  twice stays.
+- Start says plainly when ffmpeg or yt-dlp is missing, and a stream link that won't open shows yt-dlp's own
+  reason. After a reload this browser still shows the video of the session it started; a session started
+  elsewhere (a followed channel, another device) shows its lines and, for YouTube and Twitch, the video. If
+  Start is refused because a session is already running, that session and its Stop appear.
+- From another device, starting Live needs the **import from a link** permission (an admin account has it; a
+  member gets it from an admin in People and access > People > Rights, or with
+  `python -m api grant <email> media.import_url` at the PC), and a paid engine also needs **paid engines**
+  (`engines.paid`); Live's gemma4:31b-cloud needs no extra right. The note saying so shows only to an account
+  that lacks it. **Delayed player** is not offered there, since it records on the PC, and a refusal for
+  another reason shows that reason.
+- Tested on real live news broadcasts (Korean and Japanese). Reconnecting after a real broadcast break has
+  only been tested with simulated breaks.
 
-**Followed channels** (on the Live page). Paste a YouTube channel link (`https://www.youtube.com/@name`, `/channel/UC...`, `/c/name`), a Twitch channel link (`https://www.twitch.tv/name`) or an `@handle` (YouTube). A Twitch row's **Start Live** starts on the channel's page; Twitch has no scheduled streams to show, and ads in the stream are not filtered out. Checks are manual by default: **Check now** on a row, or **Check all my channels** (the PC owner: **Check all channels**), which checks them one after another. A row then reads "Live now: <title>" with a **Start Live** button (it starts Live with the channel's saved options, under the usual Live permissions; **Use Live options** saves the Live form's current ones), "Starts at HH:MM" in your own time for a scheduled stream, "Not live", or a short plain error. A channel can be checked once a minute, and only one check runs at a time on the PC; a manual check notifies no one. Household members can follow up to 5 channels each (20 in all on one PC); each person sees only their own, and the PC owner sees everyone's. A check only reads the channel's page (no video is downloaded). Saved yt-dlp cookies (Settings) are used only for the PC owner's own channels.
-- **Check every hour** (per channel, off by default) checks the channel about once an hour (never more often than every 30 minutes), plus once about a minute after a stream scheduled within the hour starts, and sends one alert per stream. A failed hourly check (YouTube asking for a sign-in check, a private or members-only stream, no connection) makes it check less often, doubling up to every 6 hours until a check works again. Discord/ntfy alerts go out only for the PC owner's own channels.
-- **Start Live automatically** is offered only to the PC owner, for their own channels, is off by default and needs **Check every hour** on (turning that off returns the channel to Notify me). It starts Live with that channel's saved options only when no other Live session and no GPU job is running and the monthly spending cap has room, stops at the saved Stop-after limit, and never starts the same stream twice. When it can't start, the channel's status says why ("not started: another Live session is running").
+**Followed channels** (on the Live page). Paste a YouTube channel link (`https://www.youtube.com/@name`,
+`/channel/UC...`, `/c/name`), a Twitch channel link (`https://www.twitch.tv/name`) or an `@handle` (YouTube).
+A Twitch row's **Start Live** starts on the channel's page; Twitch has no scheduled streams to show, and ads
+in the stream are not filtered out. Checks are manual by default: **Check now** on a row, or **Check all my
+channels** (the PC owner: **Check all channels**), which checks them one after another. A row then reads "Live
+now: <title>" with a **Start Live** button (it starts Live with the channel's saved options, under the usual
+Live permissions; **Use Live options** saves the Live form's current ones), "Starts at HH:MM" in your own time
+for a scheduled stream, "Not live", or a short plain error. A channel can be checked once a minute, and only
+one check runs at a time on the PC; a manual check notifies no one. Household members can follow up to 5
+channels each (20 in all on one PC); each person sees only their own, and the PC owner sees everyone's. A
+check only reads the channel's page (no video is downloaded). Saved yt-dlp cookies (Settings) are used only
+for the PC owner's own channels.
+- **Check every hour** (per channel, off by default) checks the channel about once an hour (never more often
+  than every 30 minutes), plus once about a minute after a stream scheduled within the hour starts, and sends
+  one alert per stream. A failed hourly check (YouTube asking for a sign-in check, a private or members-only
+  stream, no connection) makes it check less often, doubling up to every 6 hours until a check works again.
+  Discord/ntfy alerts go out only for the PC owner's own channels.
+- **Start Live automatically** is offered only to the PC owner, for their own channels, is off by default and
+  needs **Check every hour** on (turning that off returns the channel to Notify me). It starts Live with that
+  channel's saved options only when no other Live session and no GPU job is running and the monthly spending
+  cap has room, stops at the saved Stop-after limit, and never starts the same stream twice. When it can't
+  start, the channel's status says why ("not started: another Live session is running").
 
 ### Novel-narration line timing and EPUB
 
-With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`, `beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a chapter over 200 lines continues as "(2)", "(3)", and a novel without headings is split every 200 lines. Its Language can also be **Both: original, then English**, a study copy with each original paragraph followed by its English; for a Chinese or Japanese original a switch puts pinyin or furigana over the original text (needs the Reader's word packages, see Diagnostics). A title with no text in the chosen field (no translation yet) is refused instead of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
+With no source audio, line timings come from each generated TTS clip, so download the `.srt` after generating
+the track. Novel-narration mode can import chapters from an `.epub` you own (needs `ebooklib`,
+`beautifulsoup4`) and export the translation as an `.epub`. Imported chapters saved as GBK, Big5, Shift-JIS or
+UTF-16 are read in that encoding. The exported `.epub` starts a chapter at each of the novel's own chapter
+headings (第一章, 第5話, 제3화, Chapter 2, Prologue and the like), named by the heading; a chapter over 200 lines
+continues as "(2)", "(3)", and a novel without headings is split every 200 lines. Its Language can also be
+**Both: original, then English**, a study copy with each original paragraph followed by its English; for a
+Chinese or Japanese original a switch puts pinyin or furigana over the original text (needs the Reader's word
+packages, see Diagnostics). A title with no text in the chosen field (no translation yet) is refused instead
+of exported empty. Chapter OCR skips a page that isn't a readable image and counts it as skipped.
 
 ## Narration voices & voice cloning
 
-- **Voice engine**: OmniVoice is not bundled; install it from its own "Voice cloning: OmniVoice" card in Diagnostics (it installs into a folder of its own, like Qwen3-TTS and Chatterbox). It clones a voice from a 3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not verified end to end in development: test on one short line first.
-- **Qwen3-TTS** (Listen and Voices): clones a voice from a clip only (no designed voices), in Chinese, Japanese, Korean and English; give the clip's transcript for the best match. It lives in its own folder (`voice_engines/qwen3_tts` in the data folder) so its packages never change Baihe's own; until that folder is installed it shows "Qwen3-TTS is not installed. Install it in Diagnostics." The first narration downloads its model (a few GB). A narration speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is left as a gap with "The voice engine could not speak this line."
-- **Chatterbox** (Listen and Voices): clones a voice from a clip only, in Chinese, Japanese, Korean and English; it doesn't use the clip's transcript. Like Qwen3-TTS it lives in its own folder (`voice_engines/chatterbox`), shows "Chatterbox is not installed. Install it in Diagnostics." until that is installed, downloads its model on the first narration and speaks all of its lines in one go. Everything it speaks carries an inaudible watermark (Resemble AI's Perth). A character saved with the old Chatterbox engine uses this one.
-- **Removed engines**: Edge TTS, Piper, F5-TTS, TADA and GPT-SoVITS were removed. A title or character that still names one shows a plain "removed" message and will not generate until you pick another engine; saved settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
-- **Voices**: Review > Change many lines > Voices shows each speaker's reference clip, voice description, voice bank entry and actor (a title with no audio, such as a novel, has no Find clips button: upload a clip, use a voice bank entry or describe the voice); a speaker whose chosen engine was removed shows a warning there. When a speaker is linked to a series character and you apply a voice bank entry to it, the character remembers that voice: in a later title of the series, a speaker linked to that character (by hand, with Remember as a known character, by accepting "sounds like", or as the series' main voice) gets the voice at once unless it already has a clip of its own. The separate Dub stage, which fitted a dubbed track to the original timing and mixed in the background, was removed; narration is made with Listen in the Reader, and Export > Audiobook builds the M4B. A title dubbed before then can still use Export > Video with the dub audio, and its old dub track plays as the narration in the Reader.
-- **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its own cue.
-- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers from the novel's headings, Japanese (第5話, プロローグ) and Korean (제3화, 12화, 프롤로그) ones included (or one per paragraph).
+- **Voice engine**: OmniVoice is not bundled; install it from its own "Voice cloning: OmniVoice" card in
+  Diagnostics (it installs into a folder of its own, like Qwen3-TTS and Chatterbox). It clones a voice from a
+  3-10s clip or designs one from a description, and speaks Chinese, Japanese and Korean. A speaker with no
+  clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not
+  verified end to end in development: test on one short line first.
+- **Qwen3-TTS** (Listen and Voices): clones a voice from a clip only (no designed voices), in Chinese,
+  Japanese, Korean and English; give the clip's transcript for the best match. It lives in its own folder
+  (`voice_engines/qwen3_tts` in the data folder) so its packages never change Baihe's own; until that folder
+  is installed it shows "Qwen3-TTS is not installed. Install it in Diagnostics." The first narration downloads
+  its model (a few GB). A narration speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is
+  left as a gap with "The voice engine could not speak this line."
+- **Chatterbox** (Listen and Voices): clones a voice from a clip only, in Chinese, Japanese, Korean and
+  English; it doesn't use the clip's transcript. Like Qwen3-TTS it lives in its own folder
+  (`voice_engines/chatterbox`), shows "Chatterbox is not installed. Install it in Diagnostics." until that is
+  installed, downloads its model on the first narration and speaks all of its lines in one go. Everything it
+  speaks carries an inaudible watermark (Resemble AI's Perth). A character saved with the old Chatterbox
+  engine uses this one.
+- **Removed engines**: Edge TTS, Piper, F5-TTS, TADA and GPT-SoVITS were removed. A title or character that
+  still names one shows a plain "removed" message and will not generate until you pick another engine; saved
+  settings, clips and already generated dub tracks are kept. The old `library/piper_voices` folder is no
+  longer used and can be deleted by hand (Library tools > Data folder lists it as "Old voices").
+- **Voices**: Review > Change many lines > Voices shows each speaker's reference clip, voice description,
+  voice bank entry and actor (a title with no audio, such as a novel, has no Find clips button: upload a clip,
+  use a voice bank entry or describe the voice); a speaker whose chosen engine was removed shows a warning
+  there. When a speaker is linked to a series character and you apply a voice bank entry to it, the character
+  remembers that voice: in a later title of the series, a speaker linked to that character (by hand, with
+  Remember as a known character, by accepting "sounds like", or as the series' main voice) gets the voice at
+  once unless it already has a clip of its own. The separate Dub stage, which fitted a dubbed track to the
+  original timing and mixed in the background, was removed; narration is made with Listen in the Reader, and
+  Export > Audiobook builds the M4B. A title dubbed before then can still use Export > Video with the dub
+  audio, and its old dub track plays as the narration in the Reader.
+- **Narration**: consecutive lines from the same speaker in a paragraph are voiced in one call; each stays its
+  own cue.
+- **Audiobook export**: Export > Audiobook block > "Start audiobook export" builds an M4B with chapter markers
+  from the novel's headings, Japanese (第5話, プロローグ) and Korean (제3화, 12화, 프롤로그) ones included (or one per
+  paragraph).
 
-Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it through before sharing dubbed files.
+Cloning real people's voices, even for personal fan translation, is a legal and ethical gray area; think it
+through before sharing dubbed files.

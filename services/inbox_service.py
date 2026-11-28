@@ -223,7 +223,11 @@ def _import(root: str, cfg: dict, name: str, path: str, size: int) -> None:
         try:
             _move_to_done(root, name, path)
         except OSError as exc:
-            _log.warning("Inbox: could not move %s to Done: %s", name, engine_shared.redact_secrets(str(exc)))
+            # Not the name or str(exc), which holds the path: the file name is
+            # the title's name, and app.log goes into Send logs.
+            _log.warning("Inbox: could not move a %s file (%d bytes) to Done: %s",
+                         os.path.splitext(name)[1] or "no-extension", size,
+                         exc.strerror or type(exc).__name__)
 
 
 def _queue_transcribe(drama_id: int) -> None:

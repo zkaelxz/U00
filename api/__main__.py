@@ -32,14 +32,34 @@ import sys
 from dataclasses import replace
 
 
-def _refuse_to_start(message):
-    # One readable line instead of a traceback; also in the log.
-    try:
-        import applog
-        applog.get_logger().error(message)
-    except OSError:
-        pass   # the console line below has it
+# Set by the installed launcher: its server console closes when this process
+# exits, so the sentence is left in this file for the launcher's message box.
+START_REFUSAL_FILE_ENV = "BAIHE_START_REFUSAL_FILE"
+
+
+def _refuse_to_start(message, log=True):
+    # One readable line instead of a traceback; also in the log, unless the
+    # log's folder may not be created yet (an unfinished restore).
+    if log:
+        try:
+            import applog
+            applog.get_logger().error(message)
+        except OSError:
+            pass   # the console line below has it
+    _leave_for_launcher(message)
     raise SystemExit(f"ERROR: {message}")
+
+
+def _leave_for_launcher(message):
+    path = os.environ.get(START_REFUSAL_FILE_ENV, "").strip()
+    if not path:
+        return
+    try:
+        from engine_backends.shared import redact_secrets
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(redact_secrets(message))
+    except (OSError, ImportError):
+        pass   # the launcher falls back to its own message
 
 
 def _open_library(db):
@@ -56,6 +76,8 @@ def _open_library(db):
         if not sqlite_check.damaged(db.DB_PATH):
             raise
         _refuse_to_start(db.DAMAGED_LIBRARY_MESSAGE)
+    from services import local_model_cleanup_service
+    local_model_cleanup_service.run_once()
     db.pack_old_translation_versions()
     from db import compact
     compact.compact_if_worthwhile(notify=lambda m: print(f"NOTE: {m}", flush=True))
@@ -74,7 +96,7 @@ def _serve():
         for note in db.library_startup_notes(db.LIBRARY_DIR):
             print(f"NOTE: {note}", flush=True)
     except UnfinishedRestoreError as e:
-        raise SystemExit(f"ERROR: {e.message}")
+        _refuse_to_start(e.message, log=False)
     _open_library(db)
     # A warning, not a refusal: the library itself is fine and the rest of
     # the app works without sources.db.
@@ -89,14 +111,14 @@ def _serve():
         settings = load_settings()
         check_bind_safety(settings)
     except ValueError as e:
-        raise SystemExit(f"ERROR: {e}")
+        _refuse_to_start(str(e))
     # Refused, loudly, as before: a household port next to sign-in on the
     # admin listener or a non-loopback host would weaken the PC's own listener.
     if settings.household_port and (settings.auth_enabled or not is_loopback_host(settings.host)):
         try:
             check_household_bind_safety(settings)
         except ValueError as e:
-            raise SystemExit(f"ERROR: {e}")
+            _refuse_to_start(str(e))
     # Sign-in and other household problems only turn the household listener
     # off: the PC's own listener always starts, since a typo in .env must not
     # lock the owner out of the app.
@@ -111,6 +133,8 @@ def _serve():
             _warn(f"The household listener was not started: {e}")
             settings = replace(settings, household_port=0)
     _warn_single_port_sign_in(settings)
+    # Every refusal is behind us; ffmpeg, pip and the browser must not inherit it.
+    os.environ.pop(START_REFUSAL_FILE_ENV, None)
     if settings.is_development:
         uvicorn.run("api.server:app", host=settings.host, port=settings.port, reload=True,
                     access_log=not settings.auth_enabled)
@@ -121,7 +145,6 @@ def _serve():
     # happens (process_guard), and closing the console window runs the
     # clean stop first. The installed launcher's clean-stop route can make
     # the server exit (shutdown_service). No-ops off Windows.
-    import os
     import process_guard
     from api.background import stop_gpu_queue_poller
     from services import shutdown_service

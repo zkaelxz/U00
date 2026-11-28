@@ -453,9 +453,31 @@ def _echoed_label(reply: str, line_id, speaker) -> bool:
     return bool(speaker) and reply.lstrip().startswith(f"[{speaker}]")
 
 
+def _parse_unless_shifted(text, batch_ids: list, recover: bool, shown_ids=None) -> dict:
+    """parse_id_keyed_json for one request, or {} when the reply's numbering is off by one from
+    the ids that request's prompt showed (b, sorted; shown_ids, else the ids asked): it holds
+    b[0]-1 (numbered from 0, or a retry of some lines renumbered from 1), or b[-1]+1 without b[0]
+    (shifted up). Each of its keys may then sit on the neighbouring line, so every asked line
+    counts as missing and is asked again. An extra b[-1]+1 beside b[0] is a made-up number,
+    ignored as any unknown key is. Only the asked ids are returned."""
+    truncated = isinstance(text, TruncatedReply)
+    parsed = parse_id_keyed_json(text, batch_ids, recover=recover, truncated=truncated)
+    # A sentence-mode prompt numbers every part of the sentence, not only the asked ones, so an
+    # answer for a shown neighbour is in range, not a shift.
+    shown = list(shown_ids) if shown_ids else batch_ids
+    if not shown or not all(isinstance(i, int) for i in shown):
+        return parsed
+    first, last = min(shown), max(shown)
+    edges = parse_id_keyed_json(text, [first - 1, first, last + 1], recover=recover,
+                                truncated=truncated)
+    if str(first - 1) in edges or (str(last + 1) in edges and str(first) not in edges):
+        return {}
+    return parsed
+
+
 def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retries: int = 1,
                             engine_name: str | None = None, recover: bool = False, check_value=None,
-                            rejected: dict | None = None) -> dict:
+                            rejected: dict | None = None, shown_ids=None) -> dict:
     """The actual id-keyed request/parse/retry-missing loop shared by
     request_translations_with_retry below (every engine's own
     translate_batch) and reflect_translate_batch (three passes,
@@ -479,7 +501,8 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
     for, and check_value(id_str, text) returns why a value can't be written
     (None if it can). A rejected value counts as missing, so it is asked for
     again; rejected (a dict) ends up holding {id_str: reason} for those still
-    rejected at the end."""
+    rejected at the end. shown_ids(batch_ids) returns the ids build_batch_text numbers in
+    its prompt when that is more than the ids asked."""
     result_map = {}
     store = _answered_var.get()
     if store is not None and engine_name:
@@ -507,8 +530,8 @@ def _id_keyed_batch_request(ids: list, build_batch_text, call_model_fn, max_retr
                     else call_model_fn(batch_text))
             # By id, never position: a short, padded or reordered reply would
             # otherwise shift translations onto the wrong lines.
-            parsed = parse_id_keyed_json(text, batch_ids, recover=recover,
-                                        truncated=isinstance(text, TruncatedReply))
+            parsed = _parse_unless_shifted(text, batch_ids, recover,
+                                           shown_ids(batch_ids) if shown_ids else None)
             if check_value is not None:
                 for key in list(parsed):
                     reason = check_value(key, parsed[key])
@@ -562,7 +585,7 @@ _CUT_AT_QUOTE = re.compile(r"[A-Za-z0-9,]\x20+\Z")
 
 
 def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn, max_retries: int = 1,
-                                     line_ids=None, engine_name: str | None = None, line_languages=None,
+                                     engine_name: str | None = None, line_languages=None,
                                      sentence_groups=None, recover_replies: bool = False,
                                      check_replies: bool = False, allowed_runs=(),
                                      rejected: dict | None = None):
@@ -604,13 +627,11 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     dialogue); the whole-reply check above still applies. rejected (a dict)
     gets {position in zh_lines: reason} for lines left untranslated that way.
     """
+    # Keys are 1..n for this one call, not the lines' database ids: a model
+    # copying ninety near-identical six-digit ids slips a digit or skips one,
+    # and an unknown key is thrown away. The map is built once per call, so
+    # a retry inside it asks the same numbers for the same lines.
     ids = list(range(1, len(zh_lines) + 1))
-    # The lines' own permanent ids when every line has one and
-    # they're unique -- the same id a line keeps through merges and
-    # re-saves. Otherwise (unsaved lines, non-translation callers) 1..n.
-    if (line_ids is not None and len(line_ids) == len(zh_lines)
-            and all(isinstance(i, int) for i in line_ids) and len(set(line_ids)) == len(line_ids)):
-        ids = list(line_ids)
     pos = {i: p for p, i in enumerate(ids)}
 
     groups_by_id = {}
@@ -618,14 +639,17 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
         group_ids = [ids[p] for p in group]
         groups_by_id.update({i: group_ids for i in group_ids})
 
-    def build_grouped_batch_text(batch_ids):
+    def grouped_shown_ids(batch_ids):
         # A retry re-sends the whole sentence of any missing fragment, so the
         # model sees the sentence it is distributing; ids already answered
         # are ignored when the reply is parsed.
         wanted = set(batch_ids)
         for i in batch_ids:
             wanted.update(groups_by_id.get(i, ()))
-        shown = [i for i in ids if i in wanted]
+        return [i for i in ids if i in wanted]
+
+    def build_grouped_batch_text(batch_ids):
+        shown = grouped_shown_ids(batch_ids)
         line_text = {i: build_numbered_lines(
             [i], [zh_lines[pos[i]]], [speaker_names[pos[i]]] if speaker_names else None,
             [line_languages[pos[i]]] if line_languages and len(line_languages) == len(zh_lines)
@@ -653,7 +677,8 @@ def request_translations_with_retry(zh_lines: list, speaker_names, call_model_fn
     result_map = _id_keyed_batch_request(ids, build_batch_text, call_model_fn, max_retries,
                                          engine_name=engine_name, recover=recover_replies,
                                          check_value=check_value if check_replies else None,
-                                         rejected=still_rejected)
+                                         rejected=still_rejected,
+                                         shown_ids=grouped_shown_ids if groups_by_id else None)
     if rejected is not None:
         rejected.update({pos[int(k)]: reason for k, reason in still_rejected.items()})
     # Back to input order by id; a still-missing id is "" (untranslated),

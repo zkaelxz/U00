@@ -102,9 +102,9 @@ def bounded_llm_calls(job_id: str | None, cancel_check, on_wait=None,
     max_retries) is told about each retry.
 
     deadline=None picks one per engine (_deadline_for). no_thinking switches
-    DeepSeek's reasoning off for short JSON tasks; it is opt-in because a
-    title's Reflect translation passes also call call_llm_json and must keep
-    the title's own thinking choice."""
+    DeepSeek's reasoning off for short JSON tasks; it is opt-in because
+    Reflect's translation passes also call call_llm_json and keep the
+    provider's default."""
     tokens = (_scope_var.set(_BoundedScope(job_id, cancel_check, deadline, no_thinking, lenient_empty)),
               _cancel_check_var.set(cancel_check),
               _backoff_wait_var.set(on_wait))
@@ -654,7 +654,7 @@ def rewrite_for_pacing_llm(lines_to_fix, engine, batch_size: int = 15, usage_cb=
         rewritten = request_translations_with_retry([ln.en for ln in batch], None, call_model)
         for ln, new_text in zip(batch, rewritten):
             if new_text.strip():
-                ln.en = drop_em_dashes(new_text.strip())
+                ln.en = drop_em_dashes(new_text.strip(), ln.zh)
     return lines_to_fix
 
 

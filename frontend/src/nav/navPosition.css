@@ -8,7 +8,7 @@
 .nav-right > .app-rail { left: auto; right: 18px; }
 .nav-right > .app-rail.is-docked { left: auto; right: 0; border-width: 0 0 0 1px; }
 .app-shell.nav-right.has-rail { --page-inset-left: var(--space-4); --page-inset-right: 5.75rem; }
-.app-shell.nav-right.has-rail.is-docked { --page-inset-left: var(--space-4); --page-inset-right: calc(14.4rem + var(--space-4)); }
+.app-shell.nav-right.has-rail.is-docked { --page-inset-left: var(--space-4); --page-inset-right: calc(var(--rail-width) + var(--space-4)); }
 .app-shell.nav-right.has-rail.is-minimized { --page-inset-left: var(--space-4); --page-inset-right: calc(4rem + var(--space-4)); }
 .nav-right .rail-collapse svg { transform: rotate(180deg); }
 .nav-right .rail-dock svg { transform: scaleX(-1); }
