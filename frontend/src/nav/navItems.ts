@@ -13,8 +13,8 @@ import { holds } from '../pages/diagnostics/adminUsers'
 import type { Route } from '../router'
 import type { SessionState } from '../hooks/useSession'
 
-/** Viewport width from which the side dock replaces the header menu and drawer. */
-export const DOCK_MIN_WIDTH = 600
+/** Viewport width from which the side dock replaces the header menu and drawer. The phone CSS runs to 640px, so the dock starts where it stops. */
+export const DOCK_MIN_WIDTH = 641
 
 type RailGroup = 'library' | 'find' | 'tools' | 'system'
 

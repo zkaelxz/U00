@@ -71,7 +71,7 @@ test('each heading has a purpose line and a help that lists the steps', async ({
   await expect(page.getByRole('region', { name: 'Golden sets' })).toContainText('The reference translations that runs are scored against.')
   await checkHelp(page, 'Golden sets', /1\. Import a set/)
   await checkHelp(page, 'Run a benchmark', /3\. Press Estimate cost/)
-  await checkHelp(page, 'Model re-evaluation', /1\. Production is the model you use now/)
+  await checkHelp(page, 'Model re-evaluation', /1\. Production is the model later re-evaluations compare against/)
   await checkHelp(page, 'Recent runs', /2\. Results shows one run/)
   // The sweep is the second card of the Run a benchmark tab.
   await selectTab(page, 'Run a benchmark')
