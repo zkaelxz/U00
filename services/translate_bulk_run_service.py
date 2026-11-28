@@ -11,7 +11,7 @@ from bulk import bulk_poll
 from bulk import bulk_reflect
 import db
 from engine_backends import engine_registry
-from services import bulk_job_view, ownership_service, translate_service
+from services import bulk_job_view, ownership_service, translate_run_options, translate_service
 from lib.errors import ConflictError, DependencyUnavailableError, NotFoundError
 from services.translate_run_service import (ERRORS_LOCK)
 
@@ -33,6 +33,10 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
         return
     first_id = current = submit()
     provider = bulk_providers.make_provider(engine_name, engine)
+    # An off-peak DeepSeek run is unattended, so it can't wait for a top-up or
+    # sit out a slow spell: it moves to Gemma as a live run would. DeepSeek has
+    # no batch provider, so the provider above never sees the wrapper.
+    engine = translate_run_options.with_slow_switch(engine)
     while True:
         bulk_poll.run_bulk_poller(job_id, current, provider=provider, engine=engine,
                                        interval=bulk_poll.POLL_INTERVAL_SECONDS,
@@ -60,7 +64,10 @@ def run_bulk_translate_job(job_id, engine, engine_name, submit, monthly_cap_usd=
 
 def _bulk_engine_factory(engine_name, model):
     key = translate_service.resolve_api_key(engine_name)
-    return engine_registry.get_engine(engine_name, key, model or None) if key else None
+    if not key:
+        return None
+    # Wrapped as run_bulk_translate_job wraps it; DeepSeek has no batch provider to see it.
+    return translate_run_options.with_slow_switch(engine_registry.get_engine(engine_name, key, model or None))
 
 
 pending_bulk_engines = bulk_poll.resumable_engines

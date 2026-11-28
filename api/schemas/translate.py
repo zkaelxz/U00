@@ -237,6 +237,8 @@ class TranslateRunEstimate(BaseModel):
     effective_cap_usd: Optional[float] = None
     monthly_refusal: bool
     estimate_above_cap: bool
+    # DeepSeek's prepaid balance is below the estimate; the run still starts.
+    balance_too_low: bool = False
 
 
 class TranslateFallbackEngine(BaseModel):

@@ -34691,6 +34691,11 @@ export interface components {
         TranslateRunEstimate: {
             /** Alignment Check Usd */
             alignment_check_usd: number | null;
+            /**
+             * Balance Too Low
+             * @default false
+             */
+            balance_too_low: boolean;
             /** Cap Applies */
             cap_applies: boolean;
             /** Effective Cap Usd */

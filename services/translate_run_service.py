@@ -288,8 +288,12 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
                             bulk: bool = False, gemini_free_tier: bool | None = None,
                             job_cost_cap_usd: float | None = None, line_ids=None,
                             batch_size: int | None = None, chapter_from: int | None = None,
-                            chapter_to: int | None = None, style_preset: str | None = None) -> dict:
-    """line_ids (optional): estimate only these lines (of those the run
+                            chapter_to: int | None = None, style_preset: str | None = None,
+                            check_balance: bool = False) -> dict:
+    """check_balance: ask DeepSeek for the account's balance, only for a caller
+    who may spend it (a member could otherwise narrow the balance down by
+    estimating line sets of different sizes).
+    line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
     sets how many times the instructions are sent; omitted, the engine's default.
     style_preset (optional): the Style the form picked; omitted, the title's own."""
@@ -366,6 +370,7 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         "monthly_refusal": monthly_refusal,
         "estimate_above_cap": bool(estimated is not None and effective_cap is not None
                                    and estimated > effective_cap),
+        "balance_too_low": check_balance and translate_run_options.balance_too_low(engine_name, estimated),
     }
 
 
