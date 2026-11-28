@@ -1,3 +1,4 @@
+import { canReadSettings, getSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import { canOpenDiagnostics } from './errorMessages'
 
@@ -21,8 +22,9 @@ export function errorAction(err: unknown): ErrorAction | null {
   if (e?.code === 'internal_error' && canOpenDiagnostics() && !onDiagnostics) return { label: 'Open the log', href: routeHref({ name: 'diagnostics', card: 'log' }) }
   if (e?.code !== 'dependency_unavailable') return null
   const reason = e.details?.reason
-  if (reason === 'no_key' || reason === 'no_token') return { label: 'Open Settings', href: routeHref({ name: 'settings' }) }
-  if (reason === 'missing_package') {
+  // A link to a page the viewer can't open is a dead end; the message itself says to ask the PC owner.
+  if (reason === 'no_key' || reason === 'no_token') return canReadSettings(getSession()) ? { label: 'Open Settings', href: routeHref({ name: 'settings' }) } : null
+  if (reason === 'missing_package' && canOpenDiagnostics()) {
     const pkg = e.details?.package
     return {
       label: 'Open Diagnostics',

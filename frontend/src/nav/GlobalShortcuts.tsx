@@ -10,6 +10,7 @@ import { Sheet } from '../components/Sheet'
 import { REVIEW_EDITING_KEYS, REVIEW_KEYS } from '../pages/workspace/stages/review/reviewKeys'
 import type { Route } from '../router'
 import { globalShortcut } from './palette'
+import { SHORTCUT_HELP_EVENT } from './shortcutHelp'
 import './palette.css'
 
 const PAGE_KEYS: [string, string][] = [
@@ -36,27 +37,6 @@ const WATCH_KEYS: [string, string][] = [
   ['Esc', 'Cancel the fix'],
 ]
 
-// The header button and the "?" key share one sheet, so the button asks it to open by event.
-const OPEN_EVENT = 'baihe:open-keys'
-
-export function KeyboardHelpButton() {
-  return (
-    <button
-      type="button"
-      className="keys-btn hb-box"
-      aria-label="Keyboard shortcuts"
-      title="Keyboard shortcuts (?)"
-      aria-haspopup="dialog"
-      onClick={() => window.dispatchEvent(new Event(OPEN_EVENT))}
-    >
-      <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="18" height="18" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="6" width="20" height="12" rx="2" />
-        <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" />
-      </svg>
-    </button>
-  )
-}
-
 function focusPageSearch(): boolean {
   const boxes = document.querySelectorAll<HTMLInputElement>('#main-content input[type="search"]:not([disabled])')
   // A tab that is not shown has no layout box.
@@ -69,8 +49,8 @@ export function GlobalShortcuts({ route }: { route: Route }) {
   const [open, setOpen] = useState(false)
   useEffect(() => {
     const show = () => setOpen(true)
-    window.addEventListener(OPEN_EVENT, show)
-    return () => window.removeEventListener(OPEN_EVENT, show)
+    window.addEventListener(SHORTCUT_HELP_EVENT, show)
+    return () => window.removeEventListener(SHORTCUT_HELP_EVENT, show)
   }, [])
   useShortcut((combo, { inText }) => {
     // The same guard as the other lists: typing in a field, or a dialog (the palette, a sheet) on top.
