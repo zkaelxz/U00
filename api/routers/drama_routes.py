@@ -25,6 +25,7 @@ not in this router.
 """
 
 import os
+from typing import Literal
 
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import FileResponse
@@ -32,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
 from api.auth import holds_paid_engines, is_at_pc, local_only, require_engines_allowed, require_permission
+from api.conditional_get import or_not_modified
 from api.routers.library_routes import to_detail
 from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
@@ -218,16 +220,28 @@ async def post_cover_from_video(drama_id: int = Path(ge=1)):
     return await run_in_threadpool(cover_art_service.make_cover_from_video, drama_id)
 
 
+# Revalidated on every use (a new cover keeps the same address), answered with a 304
+# when unchanged, so a Library visit no longer downloads every cover again.
+_COVER_CACHE = "private, no-cache"
+
+
 @router.get("/{drama_id}/cover", dependencies=[require_permission("library.read")],
-            summary="The cover art image", responses=error_responses(404))
-def get_cover(drama_id: int = Path(ge=1)):
-    path, media_type = cover_art_service.cover_file(drama_id)
+            summary="The cover art image", responses={304: {"description": "Not modified"},
+                                                      **error_responses(404)})
+def get_cover(request: Request, drama_id: int = Path(ge=1),
+              size: Literal["full", "thumb"] = Query(
+                  "full", description="thumb: a small JPEG copy for lists")):
+    if size == "thumb":
+        path, media_type = cover_art_service.cover_thumb(drama_id)
+    else:
+        path, media_type = cover_art_service.cover_file(drama_id)
     require_readable(path)
-    return FileResponse(path, media_type=media_type, content_disposition_type="inline",
-                        filename=f"cover_{drama_id}{os.path.splitext(path)[1]}",
-                        headers={"Cache-Control": "private, no-cache",
+    resp = FileResponse(path, media_type=media_type, content_disposition_type="inline",
+                        filename=f"cover_{drama_id}{os.path.splitext(path)[1]}", stat_result=os.stat(path),
+                        headers={"Cache-Control": _COVER_CACHE,
                                  "X-Content-Type-Options": "nosniff",
                                  "Content-Security-Policy": "default-src 'none'; sandbox"})
+    return or_not_modified(request, resp, _COVER_CACHE)
 
 
 @router.delete("/{drama_id}", dependencies=[local_only()], response_model=DramaDeleteResult, response_model_exclude_none=True,

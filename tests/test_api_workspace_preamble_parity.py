@@ -171,6 +171,39 @@ class TestCover:
         assert g.headers["x-content-type-options"] == "nosniff"
         assert b"SecretCamera" not in g.content and b"Exif" not in g.content
 
+    def test_an_unchanged_cover_is_answered_with_a_304(self, client):
+        pytest.importorskip("PIL")
+        did = _drama()
+        client.post(f"/api/dramas/{did}/cover", files={"file": ("a.jpg", _image("JPEG"), "image/jpeg")})
+        for url in (f"/api/dramas/{did}/cover", f"/api/dramas/{did}/cover?size=thumb"):
+            first = client.get(url)
+            again = client.get(url, headers={"If-None-Match": first.headers["etag"]})
+            assert again.status_code == 304 and again.content == b""
+            assert client.get(url, headers={"If-None-Match": '"other"'}).status_code == 200
+
+    def test_lists_get_a_small_copy_that_follows_a_new_cover(self, client):
+        pytest.importorskip("PIL")
+        from PIL import Image
+        did = _drama()
+        client.post(f"/api/dramas/{did}/cover",
+                    files={"file": ("big.png", _image("PNG", size=(1600, 2400)), "image/png")})
+        thumb = client.get(f"/api/dramas/{did}/cover?size=thumb")
+        assert thumb.status_code == 200 and thumb.headers["content-type"] == "image/jpeg"
+        assert Image.open(io.BytesIO(thumb.content)).size == (480, 720)
+        assert len(thumb.content) < len(client.get(f"/api/dramas/{did}/cover").content)
+        client.post(f"/api/dramas/{did}/cover",
+                    files={"file": ("wide.png", _image("PNG", size=(2000, 1000)), "image/png")})
+        assert Image.open(io.BytesIO(client.get(f"/api/dramas/{did}/cover?size=thumb").content)).size == (480, 240)
+        copies = [n for n in os.listdir(os.path.join(db.drama_dir(did), "reader_cache")) if n.endswith(".thumb.jpg")]
+        assert len(copies) == 1
+
+    def test_a_cover_already_small_is_served_as_it_is(self, client):
+        pytest.importorskip("PIL")
+        did = _drama()
+        client.post(f"/api/dramas/{did}/cover", files={"file": ("s.jpg", _image("JPEG"), "image/jpeg")})
+        assert (client.get(f"/api/dramas/{did}/cover?size=thumb").content
+                == client.get(f"/api/dramas/{did}/cover").content)
+
     def test_exif_rotation_is_applied_before_the_tag_is_dropped(self, client):
         pytest.importorskip("PIL")
         from PIL import Image

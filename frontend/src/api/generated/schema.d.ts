@@ -45888,7 +45888,10 @@ export interface operations {
     };
     get_cover_api_dramas__drama_id__cover_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description thumb: a small JPEG copy for lists */
+                size?: "full" | "thumb";
+            };
             header?: never;
             path: {
                 drama_id: number;
@@ -45905,6 +45908,13 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not Found */
             404: {
