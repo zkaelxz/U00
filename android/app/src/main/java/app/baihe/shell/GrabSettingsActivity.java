@@ -51,7 +51,8 @@ public class GrabSettingsActivity extends Activity {
         LinearLayout card = card();
         EditText server = field("Server address", prefs().getString(GrabActivity.KEY_SERVER, ""), false);
         // The saved token is never shown again; an empty field keeps the one already saved.
-        EditText token = field("Key (starts with baihe_dt_)", "", true);
+        boolean keySaved = !prefs().getString(GrabActivity.KEY_TOKEN, "").isEmpty();
+        EditText token = field(keySaved ? "Key saved. Leave empty to keep it" : "Key (starts with baihe_dt_)", "", true);
         card.addView(server);
         card.addView(token);
         card.addView(text("Make a key in Baihe: Settings > My account and look > Remote access keys, then paste it here.", 13, false, palette.muted, 8));
@@ -65,6 +66,9 @@ public class GrabSettingsActivity extends Activity {
         reading.addView(toggle("Translate the next chapter before I reach it",
                 prefs().getBoolean(GrabActivity.KEY_READ_AHEAD, true),
                 on -> prefs().edit().putBoolean(GrabActivity.KEY_READ_AHEAD, on).apply()));
+        reading.addView(text("Starts once you are halfway through a chapter, or three pages from its end if that is sooner. "
+                + "It uses your engine and spending limit like a saved Grab: with a billed engine, the next chapter is paid for even if you stop reading.",
+                13, false, palette.muted, 8));
         list.addView(reading);
 
         list.addView(section("English lettering"));
@@ -111,7 +115,8 @@ public class GrabSettingsActivity extends Activity {
         String candidate = ServerAddress.tokenToCheck(token.getText().toString(),
                 prefs().getString(GrabActivity.KEY_TOKEN, ""), origin, prefs().getString(GrabActivity.KEY_SERVER, ""));
         if (candidate.isEmpty()) {
-            connectionStatus.setText("Enter the key.");
+            connectionStatus.setText(prefs().getString(GrabActivity.KEY_TOKEN, "").isEmpty()
+                    ? "Enter the key." : "Enter the key again: a saved key is not sent to a new address.");
             return;
         }
         connectionStatus.setText("Checking...");

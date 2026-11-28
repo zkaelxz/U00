@@ -342,7 +342,7 @@ test('Simple Transcribe leaves the Advanced options out and Full keeps them', as
 
   await page.goto('/#/drama/1')
   await page.getByRole('radio', { name: 'All tools', exact: true }).check()
-  await page.goto('/#/drama/1/source?tab=transcribe')
+  await page.goto('/#/drama/1/source?tab=tools')
   await expect(page.getByRole('heading', { name: 'Advanced options' })).toBeVisible()
 })
 
