@@ -456,11 +456,6 @@ def _is_cover_page(bubbles) -> bool:
         b.get("kind") in scanlate.BALLOON_KINDS and (b.get("source_text") or "").strip() for b in bubbles)
 
 
-# Lines of one page asked alone on the last retry; the cap keeps a page whose engine keeps
-# failing from costing one call per line.
-_SOLO_RETRIES = 6
-
-
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
                          image: bytes = b"", in_order: bool = True, language: str = "",
                          turn=page_turns.UNORDERED, cover: bool = False,
@@ -530,7 +525,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         for attempt in range(2):
             # Gemma leaves the same lines out of a group again, so the second ask sends each
             # line alone, as a Scanlate run does (scanlate_translate.retry_missing_regions).
-            groups = [missing] if attempt == 0 else [[b] for b in missing[:_SOLO_RETRIES]]
+            groups = [missing] if attempt == 0 else [[b] for b in missing[:scanlate_translate._MAX_SOLO_RETRIES]]
             for group in groups:
                 try:
                     scanlate_translate.translate_page_bubbles(
