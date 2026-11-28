@@ -207,6 +207,12 @@ jobs:
       - name: Check requirements, constraints and installer lock agree
         run: python scripts/check_constraints.py
 
+      # The installer ships CPython 3.13; a pin with no win_amd64 cp313 wheel
+      # fails on the PC with a misleading conflict. Asks PyPI's JSON API only.
+      # Exit 2 (PyPI unreachable) fails the step too: rerun the job.
+      - name: Every exact install pin has a win_amd64 cp313 wheel
+        run: python scripts/check_install_wheels.py
+
   # Fails when a tracked file or path, the PR's title or description (which the
   # squash commit carries), or a commit this PR or push adds (message, author or
   # committer) contains one of the owner's private terms: real names, family
