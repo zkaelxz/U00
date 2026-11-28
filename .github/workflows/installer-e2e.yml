@@ -34,6 +34,10 @@ on:
         required: false
         default: "baihe-subtitler"
   pull_request:
+    branches: [baihe-subtitler]
+    # Once the merge is approved, as windows-bootstrap.yml does: a 2x-billed Windows job on
+    # every draft push would hold the other PRs' jobs back under the 20-job limit.
+    types: [opened, synchronize, reopened, labeled, ready_for_review, auto_merge_enabled]
     paths:
       - "installer/**"
       - "services/update_service.py"
@@ -53,6 +57,10 @@ defaults:
 
 jobs:
   installer-e2e:
+    if: >-
+      github.event_name != 'pull_request' || (!github.event.pull_request.draft &&
+      (github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' ||
+      contains(github.event.pull_request.labels.*.name, 'full-ci')))
     runs-on: windows-latest
     timeout-minutes: 60
     env:
