@@ -293,6 +293,18 @@ def _conflict_causes(text: str) -> list:
     return list(dict.fromkeys(out))[:8]
 
 
+def _only_requests(text: str) -> list:
+    """Whether each cause line is a request or constraint (none names a package that depends
+    on it): pip prints just those when the only release in range has no wheel for this Python."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if "The conflict is caused by" in line:
+            inside = True
+        elif inside and (m := _CAUSE_RE.match(line)):
+            out.append(not m.group(1).endswith("depends on"))
+    return out
+
+
 def pip_failure(text: str):
     """(kind, reason) for a failed pip resolve. kind CONFLICT or UNAVAILABLE
     is certain to fail again, so the plan refuses it; None is a failure that a
@@ -306,6 +318,10 @@ def pip_failure(text: str):
                                                "the one installed (") + "): installing it would "
                               "replace your PyTorch. Set up a PyTorch it supports under GPU "
                               "PyTorch first, or leave it.")
+        if causes and all(_only_requests(text)):
+            python = f"{sys.version_info[0]}.{sys.version_info[1]}"
+            return CONFLICT, ("pip's reason: " + "; ".join(causes) + ". No release of that package "
+                              f"fits both and has a build for Python {python} on this system.")
         return CONFLICT, ("pip's reason: " + "; ".join(causes) + ".") if causes else None
     if any(marker in text for marker in _OFFLINE_MARKERS):
         return None, "pip couldn't reach the package index (are you online?)."

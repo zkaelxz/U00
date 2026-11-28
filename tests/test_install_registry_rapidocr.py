@@ -98,7 +98,7 @@ def test_onnxruntime_gpu_replaces_the_cpu_build_and_back():
     for name in ("onnxruntime", "onnxruntime-gpu"):
         assert pending_install._uninstall_steps_accepted([install_registry.uninstall_argv(name)])
     argv = install_registry.install_argv(["onnxruntime-gpu"])
-    assert "onnxruntime-gpu==1.19.2" in argv and pending_install._argv_accepted(argv)
+    assert install_registry.ORT_PINS["onnxruntime-gpu"] in argv and pending_install._argv_accepted(argv)
     try:
         install_registry.uninstall_argv("numpy")
     except ValueError:
@@ -120,7 +120,7 @@ def test_the_one_package_route_previews_removes_then_installs_for_onnxruntime_gp
     monkeypatch.setattr(svc.pending_install, "snapshot", lambda: {"onnxruntime": "1.32.0"})
     cmds = [c for c, _ in svc._install_commands("onnxruntime-gpu")]
     assert "--dry-run" in cmds[0] and cmds[1][-3:] == ["uninstall", "-y", "onnxruntime"]
-    assert "onnxruntime-gpu==1.19.2" in cmds[2]
+    assert install_registry.ORT_PINS["onnxruntime-gpu"] in cmds[2]
 
 
 def test_onnxruntime_gpu_is_found_by_its_distribution_not_an_import_name(monkeypatch):
@@ -130,3 +130,15 @@ def test_onnxruntime_gpu_is_found_by_its_distribution_not_an_import_name(monkeyp
     assert diagnostics.check_dependency(slot) is True
     monkeypatch.setattr(diagnostics, "get_installed_version", lambda name: None)
     assert diagnostics.check_dependency(slot) is False
+
+
+def test_the_gpu_text_reader_pin_has_a_wheel_for_the_python_and_fits_the_constraints():
+    from packaging.requirements import Requirement
+    cap = next(line.split("#")[0].strip() for line in open("constraints.txt")
+               if line.startswith("onnxruntime-gpu"))
+    limit = Requirement(cap).specifier
+    for v, first_wheel in (((3, 12), (1, 19, 2)), ((3, 13), (1, 20, 0))):
+        version = install_registry.ort_gpu_pin(v).split("==")[1]
+        assert version in limit
+        assert tuple(map(int, version.split("."))) >= first_wheel
+    assert install_registry.ort_gpu_pin((3, 14)) == install_registry.ort_gpu_pin((3, 13))

@@ -481,3 +481,14 @@ def test_a_dependency_pulling_the_cpu_onnxruntime_over_the_gpu_build_is_blocked(
     # The swap removes the other build first, so the plan sees it as gone.
     assert plan_mod.ort_clash({}, [{"name": "onnxruntime-gpu", "kind": "install"}]) is None
     assert plan_mod.ort_clash({"onnxruntime": "1.32.0"}, [{"name": "onnxruntime", "kind": "upgrade"}]) is None
+
+
+def test_a_pin_with_no_wheel_for_this_python_says_so(monkeypatch):
+    text = ("ERROR: Cannot install onnxruntime-gpu==1.19.2 and onnxruntime-gpu<1.20,>=1.19.2 because "
+            "these package versions have conflicting dependencies.\n\nThe conflict is caused by:\n"
+            "    The user requested onnxruntime-gpu==1.19.2\n"
+            "    The user requested (constraint) onnxruntime-gpu<1.20,>=1.19.2\n")
+    monkeypatch.setattr(plan_mod.sys, "version_info", (3, 13, 1, "final", 0))
+    kind, reason = plan_mod.pip_failure(text)
+    assert kind == plan_mod.CONFLICT
+    assert "Python 3.13" in reason and "onnxruntime-gpu==1.19.2" in reason
