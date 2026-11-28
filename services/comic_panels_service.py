@@ -52,7 +52,7 @@ def _find_panels(path: str):
     try:
         from PIL import Image
         from scanlate.scanlate_page_decode import decode_page
-        from scanlate.scanlate_panels import detect_panels
+        from scanlate.scanlate_reader_panels import find_panels
     except ImportError as exc:
         raise _Unavailable from exc
     bad_page = (ValueError, OSError, MemoryError, Image.DecompressionBombError) + _cv2_errors()
@@ -63,8 +63,8 @@ def _find_panels(path: str):
         if w * h > _MAX_PIXELS:
             return None
         image = decode_page(path)
-        boxes = detect_panels(path, image=image)
-    # cv2 is imported inside detect_panels.
+        boxes = find_panels(image)
+    # cv2 is imported inside find_panels.
     except ImportError as exc:
         raise _Unavailable from exc
     except bad_page:
@@ -114,10 +114,9 @@ def page_panels(drama_id: int, page_id: int, right_to_left=None) -> dict:
         return {"page_id": page_id, "panels": []}
     w, h, boxes = found
     from scanlate import scanlate_tuning
-    from scanlate.scanlate_regions import reading_sequence
+    from scanlate.scanlate_reader_panels import in_reading_order
     if right_to_left is None:
         right_to_left = scanlate_tuning.reads_right_to_left(drama.get("source_language") or "")
     return {"page_id": page_id,
-            "panels": [{"x": boxes[i]["x"] / w, "y": boxes[i]["y"] / h,
-                        "w": boxes[i]["w"] / w, "h": boxes[i]["h"] / h}
-                       for i in reading_sequence(boxes, right_to_left)]}
+            "panels": [{"x": b["x"] / w, "y": b["y"] / h, "w": b["w"] / w, "h": b["h"] / h}
+                       for b in in_reading_order(boxes, right_to_left)]}

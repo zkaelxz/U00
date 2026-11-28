@@ -1,6 +1,7 @@
 // Pure comic-viewer helpers: per-drama view prefs, key and tap mapping,
 // preloading, overlay maths and zoom maths. No React here so it is unit-tested.
 
+import { safeDetail } from '../../components/errorMessages'
 import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
 import { parseRoute } from '../../router'
@@ -319,6 +320,20 @@ export function isReadTranslated(storage: StorageLike | null, dramaId: number): 
   return readPref<boolean>(storage, readTranslatedKey(dramaId), false) === true
 }
 
-export function markReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+// The import job a "Read translated" title started, so the reader can say when it failed instead of waiting for ever.
+const readTranslatedJobKey = (dramaId: number) => `comic.readTranslatedJob.${dramaId}`
+
+export function readTranslatedJob(storage: StorageLike | null, dramaId: number): string | null {
+  return readPref(storage, readTranslatedJobKey(dramaId), '') || null
+}
+
+/** Why a "Read translated" import failed. The job's error is "ExceptionName: message" and the job API
+ *  drops the structured error from the result, so the name is cut off here. */
+export function importFailureText(job: { error: string | null }): string | null {
+  return safeDetail((job.error ?? '').replace(/^[A-Z][A-Za-z]*(?:Error|Exception|Failed): /, ''))
+}
+
+export function markReadTranslated(storage: StorageLike | null, dramaId: number, importJobId?: string): boolean {
+  if (importJobId) writePref(storage, readTranslatedJobKey(dramaId), importJobId)
   return writePref(storage, readTranslatedKey(dramaId), true)
 }

@@ -2,16 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import type { QueueItem, QueueSettingField, QueueState } from '../../types/queue'
 import {
-  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
+  ADD_STEP_LABELS, STEP_HELP, canRemove, canRetry, changedEdits, finishedCount, itemName, queueSummary, runStateText, savedSettingValue, scheduleText, settingsStage, queueStatusLabel, statusTone,
   translateCostNote,
 } from './queueModel'
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], held: false, tonight: false, page_run: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
-  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, night: { start: '01:00', end: '07:00', self_check: true }, notice: null, max_items: 200,
   can_control: true, monthly_cap_usd: 0, items: [], ...p,
 })
 
@@ -38,6 +38,14 @@ describe('queueModel', () => {
     expect(runStateText(queue())).toBeNull()
     expect(runStateText(queue({ items: [item({ status: 'done' })] }))).toBe('Nothing waiting.')
     expect(runStateText(queue({ items: [item()] }))).toBe('Not running.')
+  })
+
+  it('sums the folded queue up in one line', () => {
+    expect(queueSummary(queue())).toBe('Nothing waiting')
+    expect(queueSummary(queue({ state: 'running', items: [item({ status: 'running' }), item(), item()] }))).toBe('Running · 2 waiting')
+    expect(queueSummary(queue({ state: 'paused', items: [item()] }))).toBe('Paused · 1 waiting')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: false } }))).toBe('1 waiting · starts at 23:30')
+    expect(queueSummary(queue({ items: [item()], schedule: { time: '23:30', start_at: 1, missed: true } }))).toBe('1 waiting · start time missed')
   })
 
   it('shows a missed schedule as a question, never as a run', () => {

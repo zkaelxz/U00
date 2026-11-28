@@ -34,6 +34,8 @@ class LanguagePackEntry(BaseModel):
     category: str
     note: str
     context: str
+    # The entry's public source page (scheme, host and path only); never sent to a model.
+    link: str = ""
 
 
 class LanguagePack(LanguagePackSummary):

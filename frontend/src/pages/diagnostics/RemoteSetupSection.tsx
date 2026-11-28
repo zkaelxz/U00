@@ -85,7 +85,7 @@ function RemoteSetupBody() {
   }
 
   return (
-    <Section title="Set up remote access" storageKey="admin.remote-setup" summary={setup ? setupSummary(setup) : undefined}>
+    <Section title="Set up remote access" summary={setup ? setupSummary(setup) : undefined}>
       <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ pcOnly: true }} />
       {!setup ? (
         !error && <p className="muted">Loading…</p>

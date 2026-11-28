@@ -5,14 +5,14 @@ import { PACE_LABELS, paceHelp, paceOptionLabel } from './sourcesFormat'
 
 type Props = { s: SourceSummary; onChange: (pace: SourcePace) => void }
 
-/** A site's Rules: Gentle, Standard or (only where the site's rules were checked) Fast. */
+/** A site's pace: Gentle, Standard or (only where the site's rules were checked) Fast. */
 export function PaceSelect({ s, onChange }: Props) {
   const helpId = useId()
   const help = paceHelp(s)
   return (
     <div className="source-pace">
       <select
-        aria-label={`Rules: ${s.display_name}`}
+        aria-label={`Pace: ${s.display_name}`}
         aria-describedby={help ? helpId : undefined}
         value={s.pace}
         onChange={(e) => onChange(e.target.value as SourcePace)}

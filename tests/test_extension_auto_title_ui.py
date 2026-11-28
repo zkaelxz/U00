@@ -75,7 +75,10 @@ def test_the_popup_names_the_auto_choice_and_says_what_happened():
 def test_a_token_the_app_refuses_is_not_reported_as_the_app_being_down():
     out = _node("popup_health_failure")
     assert out["revoked"] == out["refused"] == "Baihe didn't accept this token."
-    assert out["down"] == "Can't reach Baihe on this PC."
+    assert out["down"] == "Can't reach Baihe."
+    assert "Settings > Browser extension" in out["downLine"]
+    # A copy on another computer never sees the PC-only Browser extension card, and that switch doesn't gate it.
+    assert "Browser extension" not in out["downRemoteLine"] and "address in the extension's options" in out["downRemoteLine"]
 
 
 def test_typeset_is_off_by_default_and_sent_when_on_whether_or_not_the_page_is_saved():
@@ -128,6 +131,8 @@ def test_a_run_over_several_chapters_follows_the_next_link_and_reports_each_outc
     assert "failed 1" in text["broken"] and "No chapter text found" in text["broken"]
     assert "led back to a chapter already done" in text["loop"]
     assert "captureChapter" in [c[0] for c in out["comic"]["calls"]] and "saved 2" in text["comic"]
+    assert "saved 0, skipped 2" in text["comicReused"] and "already in your library" in text["comicReused"]
+    assert "saved 0, skipped 2" in text["comicEmpty"] and "no pages found" in text["comicEmpty"]
 
 
 def test_a_second_chapter_run_is_refused_and_cancel_ends_the_first():

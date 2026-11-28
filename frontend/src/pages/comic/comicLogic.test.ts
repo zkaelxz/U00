@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import type { StorageLike } from '../../components/sectionStorage'
 import {
+  importFailureText,
+  isReadTranslated,
+  markReadTranslated,
+  readTranslatedJob,
   clampPage,
   clampZoom,
   comicHref,
@@ -267,5 +271,24 @@ describe('double page', () => {
     expect(d.spread).toBe('auto')
     expect(sanitizePrefs({ spread: 'double', coverAlone: false }, d)).toMatchObject({ spread: 'double', coverAlone: false })
     expect(sanitizePrefs({ spread: 'triple', coverAlone: 'no' }, d)).toMatchObject({ spread: 'auto', coverAlone: true })
+  })
+})
+
+describe('Read translated marks', () => {
+  it('keeps the import job id beside the mark, and none when no job was started', () => {
+    const s = memoryStorage()
+    expect(readTranslatedJob(s, 7)).toBeNull()
+    markReadTranslated(s, 7, 'sourceimport_7')
+    expect(isReadTranslated(s, 7)).toBe(true)
+    expect(readTranslatedJob(s, 7)).toBe('sourceimport_7')
+    markReadTranslated(s, 8)
+    expect(isReadTranslated(s, 8)).toBe(true)
+    expect(readTranslatedJob(s, 8)).toBeNull()
+  })
+
+  it('says why an import failed without the error class name', () => {
+    expect(importFailureText({ error: 'JobFailed: The chapter is locked.' })).toBe('The chapter is locked.')
+    expect(importFailureText({ error: 'Note: the chapter is locked.' })).toBe('Note: the chapter is locked.')
+    expect(importFailureText({ error: null })).toBeNull()
   })
 })

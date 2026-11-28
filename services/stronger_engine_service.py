@@ -29,6 +29,7 @@ is a fixed message with the redacted detail in the app log.
 import re
 
 import db
+from en_cleanup import drop_em_dashes
 from engine_backends import engine_registry, translate_pipeline, prompts, pricing, shared
 from engine_backends import line_text
 from engine_backends import llm_tasks as engine_llm_tasks
@@ -316,5 +317,5 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     if not isinstance(text, str) or not text.strip():
         raise ServiceError("The engine returned no translation for this line.")
     return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
-            "model": getattr(engine, "model", None), "text": text.strip(),
+            "model": getattr(engine, "model", None), "text": drop_em_dashes(text.strip()),
             "based_on_en": line.en or "", "cost_usd": round(cost, 6)}

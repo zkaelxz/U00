@@ -27,8 +27,10 @@ from services import page_server
 import page_turns
 from services import (auth_service, ownership_service, quick_read_cache, quick_read_fetch, quick_read_keep,
                       quick_read_runs, quick_read_stitch)
+from engine_backends.shared import redact_secrets
 from lib import device_use
-from lib.errors import ServiceError
+from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, InvalidInputError, NotFoundError,
+                        RateLimitedError, ServiceError, UnsupportedOperationError)
 
 
 def parse_json(body: bytes) -> dict:
@@ -1033,3 +1035,66 @@ def streamed_lines(payload, images, write, principal=None) -> None:
     page finishes, then {"done": the answer without its pages}, which the extension already has."""
     answer = run_images(payload, images, principal=principal, on_page=lambda page: write({"page": page}))
     write({"done": {key: value for key, value in answer.items() if key != "pages"}})
+
+
+# Plain refusals (no profile set, bad link, title limit, Live already running) are for the person to read.
+_START_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),
+                 (DependencyUnavailableError, 503), (UnsupportedOperationError, 400),
+                 (RateLimitedError, 429))
+
+
+def _start_refusal(error: ServiceError) -> page_server.EndpointError:
+    status = next((code for cls, code in _START_STATUS if isinstance(error, cls)), 500)
+    return page_server.EndpointError(status, redact_secrets(error.message))
+
+
+def _link(payload: dict) -> str:
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise page_server.EndpointError(400, "url is required")
+    return url.strip()
+
+
+def send_video(payload: dict, principal, holds_paid: bool) -> dict:
+    """/video: Quick video translate on a page's link, fetched without the saved logins as from any device."""
+    from services import quick_video_service
+    url = _link(payload)
+    try:
+        started = quick_video_service.start(principal, url, None, False, holds_paid=holds_paid, at_pc=False)
+    except ForbiddenError:
+        raise
+    except ServiceError as e:
+        raise _start_refusal(e) from None
+    return {"drama_id": started["drama_id"]}
+
+
+def live_choices(payload: dict) -> dict:
+    """/live's options from the PC's own defaults: the form's language default Whisper model and chunking."""
+    from services import live_service
+    url = _link(payload)
+    options = live_service.form_options()
+    language = payload.get("source_language") or options["defaults"]["source_language"]
+    if not isinstance(language, str):
+        raise page_server.EndpointError(422, "source_language must be a language code")
+    chunk = live_service.LANGUAGE_CHUNK_DEFAULTS.get(language, {})
+    return {"url": url, "source_language": language,
+            "whisper_size": options["language_whisper_defaults"].get(language) or options["defaults"]["whisper_size"],
+            "segment_seconds": chunk.get("segment_seconds", options["defaults"]["segment_seconds"]),
+            "overlap_seconds": chunk.get("overlap_seconds", options["defaults"]["overlap_seconds"])}
+
+
+def start_live(choices: dict, engine, model, principal) -> dict:
+    """Starts Live with live_choices on the engine the caller may use: no delayed player and no saved logins."""
+    from services import live_service, model_readiness_service
+    try:
+        model_readiness_service.require_ready(False, model_readiness_service.for_whisper_size, choices["whisper_size"])
+        started = live_service.start_session(
+            choices["url"], source_language=choices["source_language"], whisper_size=choices["whisper_size"],
+            segment_seconds=choices["segment_seconds"], overlap_seconds=choices["overlap_seconds"],
+            engine=engine, model=model, use_gpu=live_service.gpu_available(),
+            use_saved_cookies=False, principal=principal)
+    except ForbiddenError:
+        raise
+    except ServiceError as e:
+        raise _start_refusal(e) from None
+    return {"session_id": started["session_id"], "joined": bool(started.get("joined"))}

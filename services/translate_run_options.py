@@ -146,9 +146,10 @@ def select_lines(drama_id, line_ids, expected_en, force_retranslate):
     return lines, target_ids, eligible
 
 
-def instantiate_engines(built, chain, caps):
+def instantiate_engines(built, chain, caps, slow_switch=False):
     """(engines, the engine the run uses, its cost cap). With a fallback chain the
-    run uses a FallbackEngine over all of them."""
+    run uses a FallbackEngine over all of them; else, with slow_switch, a DeepSeek
+    run gets with_slow_switch."""
     engines = [engine_registry.get_engine(
         name, key, mdl, free_tier=free_tier,
         base_url=settings_service.ollama_url()
@@ -156,7 +157,26 @@ def instantiate_engines(built, chain, caps):
     if len(engines) > 1:
         engine = engine_fallback.FallbackEngine(engines, [c["engine"] for c in chain], caps)
         return engines, engine, None  # each engine's own cap is enforced by the FallbackEngine
-    return engines, engines[0], caps[0]
+    return engines, with_slow_switch(engines[0]) if slow_switch else engines[0], caps[0]
+
+
+# The owner's blind picks on a modern novel put Gemma second after DeepSeek, at about half
+# DeepSeek's price, so a slow DeepSeek run moves to it.
+SLOW_SWITCH_FALLBACK = ("ollama", "gemma4:31b-cloud")
+
+
+def with_slow_switch(engine):
+    """A DeepSeek run's engine wrapped so the run moves to SLOW_SWITCH_FALLBACK while
+    DeepSeek is slow (engine_fallback.SlowSwitchEngine); any other engine unchanged."""
+    if getattr(engine, "name", "") != "deepseek" or isinstance(engine, engine_fallback.FallbackEngine):
+        return engine
+    if local.member_cloud_key() == local.UNREADABLE_MEMBER_KEY:
+        return engine  # the member's hosted runs are refused until they paste the key again
+    from services import translate_service
+    name, model = SLOW_SWITCH_FALLBACK
+    fallback = engine_registry.get_engine(name, translate_service.resolve_api_key(name), model,
+                                          base_url=settings_service.ollama_url())
+    return engine_fallback.SlowSwitchEngine([engine, fallback], ["deepseek", name])
 
 
 def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
@@ -174,7 +194,7 @@ def require_no_pending_bulk_overlap(drama_id, eligible) -> None:
 
 
 def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_retranslate,
-                       gemini_free_tier, job_cost_cap_usd, estimate_cost):
+                       gemini_free_tier, job_cost_cap_usd, estimate_cost, style_preset=None):
     """The batch's estimated dollars, which it holds of the monthly cap until it
     is billed, or None when it holds none (DeepSeek off-peak, or no cap)."""
     # A batch or an off-peak run is paid for with nobody watching.
@@ -188,7 +208,7 @@ def require_bulk_ready(drama_id, engine_name, model, main_cap, reflect, force_re
     est = estimate_cost(
         drama_id, engine_name, model, reflect=reflect, bulk=True,
         force_retranslate=force_retranslate, gemini_free_tier=gemini_free_tier,
-        job_cost_cap_usd=job_cost_cap_usd)
+        job_cost_cap_usd=job_cost_cap_usd, style_preset=style_preset)
     if est["estimate_above_cap"]:
         raise UnsupportedOperationError(
             "Not submitted: a bulk batch can't be stopped part-way, and its estimate "

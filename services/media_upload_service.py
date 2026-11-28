@@ -420,6 +420,12 @@ def _downloaded_from(ddir, link) -> dict:
     return {n: m for n, m in files.items() if isinstance(n, str) and isinstance(m, list)}
 
 
+def downloaded_whole_from(drama_id, link) -> bool:
+    """Whether the title's media is the whole download of `link`: a part ("Only this part"), an
+    upload or a later replacement leaves no record for it, and its times would not match the page."""
+    return bool(link) and bool(_downloaded_from(db.drama_dir(drama_id), link))
+
+
 def _still_that_file(ddir, name, mark) -> bool:
     """False when the file under a recorded name is no longer the one that
     was downloaded (swapped by hand, or by a path that keeps no record)."""

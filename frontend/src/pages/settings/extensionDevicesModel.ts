@@ -23,7 +23,7 @@ export const ADMIN_TOKENS_PC_ONLY =
 // The household bridge (/api/ext-bridge/*) checks every request's token
 // against this list, so revoking one cuts that computer off at once.
 export const DEVICES_NOTE =
-  "For Baihe Grab on phones and the browser extension on other computers. Each token lets one device's app or extension send pages to Baihe through your household address. Revoking a token stops that computer at once; a token also stops working when it expires or when its owner loses the extension permission or the account."
+  "For Baihe Grab on phones and the browser extension on other computers. Each token lets one device's app or extension send pages to Baihe through your household address. Revoking a token stops that computer at once; a token also stops working when it expires or when its owner loses the 'Browser extension and Baihe Grab' right or the account."
 export const SETUP_STEPS = [
   'Download the extension and unzip it.',
   'In Chrome or Edge open the extensions page, turn on Developer mode and choose Load unpacked on the unzipped folder.',
@@ -35,7 +35,7 @@ export const SETUP_UPDATE_NOTE =
 export const ADMIN_DEVICE_NOTE =
   "An admin account can't add a computer from away, and you have no account at the main PC, so add it here. The computer acts as the admin account with ordinary member rights, never admin rights, and you can revoke it at any time."
 export const NO_SEND_PERMISSION =
-  'Adding a device needs permission to use the browser extension (extension.send). Ask whoever runs Baihe on the main PC.'
+  'Adding a device needs the \'Browser extension and Baihe Grab\' right (extension.send). Ask whoever runs Baihe on the main PC.'
 
 interface ExtensionDevicesView {
   // The signed-in person's own tokens.
