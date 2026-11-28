@@ -427,9 +427,9 @@ class TestConstraintsFile:
             assert not line.lower().startswith("yt-dlp"), line
             assert not line.lower().startswith("edge-tts"), line
 
-    def test_readme_install_command_uses_constraints_txt(self):
-        readme = open(os.path.join(PROJECT_ROOT, "README.md"), encoding="utf-8").read()
-        assert "-c constraints.txt" in readme
+    def test_setup_guide_install_command_uses_constraints_txt(self):
+        guide = open(os.path.join(PROJECT_ROOT, "docs", "user-guide-setup.md"), encoding="utf-8").read()
+        assert "-c constraints.txt" in guide
 
 
 def _requirements_package_names(filename):
