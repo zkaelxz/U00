@@ -32,6 +32,8 @@ button.sheet-close { min-width: 44px; min-height: 44px; padding: 0; font-size: v
 .sheet-menu button:focus-visible { border-color: var(--accent); }
 /* Disabled rows read as text with a reason, never as a filled or hovered button. */
 .sheet-menu button:disabled, .sheet-menu button:disabled:hover { background: none; border-color: transparent; border-style: solid; }
+/* A destructive row stays a row: red words, not a bordered button among plain ones. */
+.sheet-menu button.sheet-danger:not(:disabled) { color: var(--bad); }
 .sheet-menu .sheet-reason { display: block; font-size: var(--text-sm); color: var(--muted); }
 
 @media (max-width: 640px) {

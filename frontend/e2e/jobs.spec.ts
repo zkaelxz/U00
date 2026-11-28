@@ -237,7 +237,7 @@ test('Delete is two-step and permanent; only finished jobs offer it', async ({ p
 
   await page.getByRole('button', { name: 'Delete all finished jobs' }).click()
   await expect(page.getByTestId('jobs-clear')).toContainText('Permanent')
-  await page.getByRole('button', { name: /Confirm delete 2 finished/ }).click()
+  await page.getByRole('button', { name: 'Confirm delete all finished' }).click()
   await expect.poll(() => log.cleared).toBe(1)
   await expect(rows(page)).toHaveCount(2)
   await expect(page.getByTestId('jobs-clear')).toHaveCount(0)

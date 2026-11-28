@@ -111,6 +111,20 @@ def test_a_pick_can_be_changed_and_keep_rest_skips_picked_lines(title):
     assert (en[first], en[second]) == ("a1", "b2")
 
 
+def test_taking_a_pick_back_restores_the_last_run_and_counts_the_line_unpicked(title):
+    did, status = title
+    _three(did, ["a1", "b1", "c", "d"], ["a2", "b2", "c", "d"], ["a3", "b3", "c", "d"], status)
+    first, second = [it["line_id"] for it in svc.state(did)["items"]]
+    svc.pick_runs(did, [{"line_id": first, "run": 1}])
+    assert svc.pick_runs(did, [{"line_id": first, "run": None}])["applied"] == [first]
+    assert {ln.id: ln.en for ln in db.load_line_objects(did)}[first] == "a3"
+    assert [it["picked_run"] for it in svc.state(did)["items"]] == [None, None]
+    assert len(svc.state(did)["line_ids"]) == 4
+    svc.keep_run_for_rest(did, 2)
+    en = {ln.id: ln.en for ln in db.load_line_objects(did)}
+    assert (en[first], en[second]) == ("a2", "b2")
+
+
 def test_capture_refuses_a_run_that_failed_or_is_out_of_order(title):
     did, status = title
     svc.begin(did)

@@ -112,6 +112,7 @@ class TestTimingOptions:
                 return iter([]), type("Info", (), {"duration": 1})()
 
         monkeypatch.setattr(whisper_models, "load_whisper_model", lambda *a, **k: Model())
+        monkeypatch.setattr(whisper_transcribe, "_decode_whole", lambda path: None)
         whisper_transcribe.transcribe_for_timing("a.wav", speech_pad_ms=250)
         assert seen["vad_parameters"]["speech_pad_ms"] == 250
         whisper_transcribe.transcribe_for_timing("a.wav")

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { DEFAULT_OPEN, SECTIONS, benchTab, checkHelp, expectExpanded, openBench, selectTab, toggle } from './benchSectionsCases'
+import { SECTIONS, benchTab, checkHelp, openBench, selectTab } from './benchSectionsCases'
 import { enableDeveloperMode } from './sourceHelpers'
 
 // The Benchmark Lab page is behind Developer Mode.
@@ -8,19 +8,40 @@ test.beforeEach(async ({ page }) => {
   await enableDeveloperMode(page)
 })
 
-// Benchmark Lab page: the four sections are tabs (the Settings sweep sits under Run a benchmark), a section folds
-// under its heading, the choices survive a reload, and the intro and the (i) help explain the steps. Read-only against the seeded e2e library.
+// Benchmark Lab page: the sections are listed down the left and one shows at a time, each as a plain heading
+// with no fold; the choice survives a reload, and the page (i) and each heading's (i) explain the steps.
+// Read-only against the seeded e2e library.
 
-test('intro, header and defaults: every section is open in its own tab', async ({ page }) => {
+test('header and defaults: the side list, the page help with the intro, one muted line', async ({ page }) => {
   await openBench(page)
-  await expect(page.getByTestId('bench-intro')).toContainText('Your titles and lines are never touched')
-  await expect(page.getByRole('link', { name: '‹ Diagnostics' })).toHaveAttribute('href', '#/diagnostics')
-  await expect(page.getByText('Up to 4 engines per run')).toBeVisible()
-  await expect(page.getByRole('tab')).toHaveText(SECTIONS)
-  await expectExpanded(page, DEFAULT_OPEN)
-  // Only the selected tab's panel shows.
+  const pageHelp = page.getByRole('button', { name: 'Help: Benchmark Lab' })
+  await pageHelp.click()
+  await expect(page.getByRole('tooltip').filter({ hasText: 'Your titles and lines are never touched' })).toContainText('1. Build a set')
+  await pageHelp.press('Escape')
+  await expect(page.getByRole('link', { name: 'Back to Diagnostics' })).toHaveAttribute('href', '#/diagnostics')
+  await expect(page.getByTestId('bench-meta')).toContainText('Up to 4 engines per run')
+  await expect(page.getByRole('button', { name: 'Start blind comparison' })).toBeVisible()
+  await expect(page.getByTestId('bench-view-only')).toHaveCount(0)
+  const list = page.getByRole('tablist', { name: 'Benchmark Lab' })
+  await expect(list).toHaveAttribute('aria-orientation', 'vertical')
+  await expect(list.getByRole('tab')).toHaveText(SECTIONS)
+  // Only the selected section's pane shows.
   await expect(page.getByRole('tabpanel')).toHaveCount(1)
   await expect(page.getByRole('tab', { selected: true })).toHaveText('Golden sets')
+})
+
+test('sections are plain headings with no fold; only the rarely used parts stay folded', async ({ page }) => {
+  await openBench(page)
+  await expect(page.locator('.bench-section-toggle')).toHaveCount(0)
+  await expect(page.locator('.bench-page .card')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Golden sets', level: 2 })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Build a set from a reviewed title' })).toBeVisible()
+  await selectTab(page, 'Add cases')
+  const add = page.getByRole('tabpanel')
+  for (const name of ['Your own clips', "Add a title's corrections to a test set", 'Import golden set', 'Add one case']) {
+    await expect(add.getByRole('heading', { name })).toBeVisible()
+  }
+  await expect(add.locator('details.section > summary', { hasText: 'Hard-sub reading result' })).toBeVisible()
 })
 
 test('a tab shows one section; the others are hidden until their tab is picked', async ({ page }) => {
@@ -30,9 +51,11 @@ test('a tab shows one section; the others are hidden until their tab is picked',
   await selectTab(page, 'Recent runs')
   await expect(page.getByRole('region', { name: 'Recent runs' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Golden sets' })).toBeHidden()
-  // Arrow keys move between tabs.
-  await benchTab(page, 'Recent runs').press('ArrowLeft')
+  // Up and Down move along the list.
+  await benchTab(page, 'Recent runs').press('ArrowUp')
   await expect(benchTab(page, 'Model re-evaluation')).toHaveAttribute('aria-selected', 'true')
+  await benchTab(page, 'Model re-evaluation').press('ArrowDown')
+  await expect(benchTab(page, 'Recent runs')).toHaveAttribute('aria-selected', 'true')
 })
 
 test('the last tab is remembered and a deep link wins over it', async ({ page }) => {
@@ -49,21 +72,12 @@ test('the last tab is remembered and a deep link wins over it', async ({ page })
   await expect(page.getByRole('region', { name: 'Model re-evaluation' })).toBeHidden()
 })
 
-test('folding a section by keyboard, and the choice survives a reload', async ({ page }) => {
-  await openBench(page)
-  await selectTab(page, 'Recent runs')
-  const runs = toggle(page, 'Recent runs')
-  await runs.focus()
-  await page.keyboard.press('Enter')
-  await expect(runs).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('region', { name: 'Recent runs' }).locator('.bench-section-body')).toBeHidden()
-  await page.reload()
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
-  await expectExpanded(page, { ...DEFAULT_OPEN, 'Recent runs': false })
-  await toggle(page, 'Recent runs').focus()
-  await page.keyboard.press('Space')
-  await expect(toggle(page, 'Recent runs')).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByRole('region', { name: 'Recent runs' }).locator('.bench-section-body')).toBeVisible()
+test('deep links open the sweeps and Add cases in their own panes', async ({ page }) => {
+  for (const [tab, name] of [['sweep', 'Transcription sweep'], ['tsweep', 'Translation sweep'], ['add', 'Add cases']] as const) {
+    await page.goto(`/#/benchmark?tab=${tab}`)
+    await expect(benchTab(page, name)).toHaveAttribute('aria-selected', 'true')
+  }
+  await expect(page.getByRole('tabpanel').getByRole('heading', { name: 'Your own clips' })).toBeVisible()
 })
 
 test('each heading has a purpose line and a help that lists the steps', async ({ page }) => {
@@ -73,13 +87,15 @@ test('each heading has a purpose line and a help that lists the steps', async ({
   await checkHelp(page, 'Run a benchmark', /3\. Press Estimate cost/)
   await checkHelp(page, 'Model re-evaluation', /1\. Production is the model later re-evaluations compare against/)
   await checkHelp(page, 'Recent runs', /2\. Results shows one run/)
-  // The sweep is the second card of the Run a benchmark tab.
-  await selectTab(page, 'Run a benchmark')
-  const help = page.getByRole('button', { name: 'Help: Settings sweep' })
-  await help.click()
-  await expect(page.getByRole('tooltip').filter({ hasText: /4\. Stop any time/ })).toBeVisible()
-  // The translation sweep follows it.
-  await page.keyboard.press('Escape')
-  await page.getByRole('button', { name: 'Help: Translation sweep' }).click()
-  await expect(page.getByRole('tooltip').filter({ hasText: /5\. Stop any time/ })).toBeVisible()
+  await checkHelp(page, 'Transcription sweep', /4\. Stop any time/)
+  await checkHelp(page, 'Translation sweep', /5\. Stop any time/)
+})
+
+test('away from the main PC: a View only line, and no Add cases pane', async ({ page }) => {
+  await page.route('**/api/meta', (r) =>
+    r.fulfill({ json: { app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: false } }))
+  await page.goto('/#/benchmark?tab=add')
+  await expect(page.getByTestId('bench-view-only')).toHaveText('View only: runs start on the main PC')
+  await expect(benchTab(page, 'Golden sets')).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: 'Add cases' })).toHaveCount(0)
 })

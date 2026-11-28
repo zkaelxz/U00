@@ -330,7 +330,7 @@ export function GlossaryExtract({ source, blocker, ready, picker, reasons, hasTe
             <div className="actions">
               <button
                 type="button"
-                className="primary"
+                className={buttonClass('primary')}
                 disabled={chosen.length === 0 || missing.length > 0 || busy}
                 onClick={onAdd}
               >

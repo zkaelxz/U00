@@ -2,7 +2,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { ThemeMenu, ThemeMenuItems } from './ThemeMenu'
+import { ThemeChoices, ThemeMenu, ThemeMenuItems } from './ThemeMenu'
 
 describe('ThemeMenu', () => {
   it('renders a labelled, collapsed menu button that names the current theme', () => {
@@ -24,5 +24,15 @@ describe('ThemeMenu', () => {
     expect(html.match(/aria-checked="true"/g)).toHaveLength(1)
     expect(html.match(/tabindex="0"/g)).toHaveLength(1)
     expect(html).toMatch(/aria-checked="true"[^>]*>.*?<span>Sepia<\/span>/)
+  })
+})
+
+describe('ThemeChoices', () => {
+  it('lists the five themes as one radio group with the current one checked', () => {
+    const html = renderToStaticMarkup(createElement(ThemeChoices))
+    expect(html).toContain('<legend>Theme</legend>')
+    expect(html.match(/type="radio" name="theme"/g)).toHaveLength(5)
+    expect(html.match(/checked=""/g)).toHaveLength(1)
+    expect(html).toContain('checked="" value="system"')
   })
 })

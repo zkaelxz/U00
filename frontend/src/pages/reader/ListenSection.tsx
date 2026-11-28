@@ -15,6 +15,7 @@ import type { CharacterEntry } from '../../types/translateStage'
 import { jobFailed, jobSucceeded } from '../../types/jobs'
 import { holds } from '../diagnostics/adminUsers'
 import { dubJobIds } from '../workspace/stageJobIds'
+import { buttonClass } from '../../components/uiClasses'
 
 interface Props {
   dramaId: number
@@ -191,7 +192,7 @@ function ListenRun({ dramaId, cfg, onReady, remake }: Props & { cfg: ListenConfi
       <ListenPicker dramaId={dramaId} engines={cfg.tts_engines} engine={engine} voices={voices} disabled={busy} onChange={setPickedEngine}
         languages={cfg.narration_language_options} language={narrationLanguage} onLanguage={setPickedLanguage} chosen={chosen} />
       <div className="actions">
-        <button type="button" className="primary" disabled={busy || blocker !== null} onClick={start}>
+        <button type="button" className={buttonClass('primary')} disabled={busy || blocker !== null} onClick={start}>
           {remake ? 'Make again' : 'Listen'}
         </button>
         {(blocker || busy || failedText) && (

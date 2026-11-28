@@ -17,7 +17,7 @@ from engine_backends import paid_calls
 import translation_notes
 import emotion
 import whisper_models
-from services import fixflag_transcribe, fixflag_translate, paid_job_service, transcribe_options_service
+from services import fixflag_transcribe, fixflag_translate, paid_job_service, profile_service, transcribe_options_service
 from services.workspace_job_service import _raise_if_cancelled, build_run_style_context
 
 
@@ -181,9 +181,8 @@ def run_fix_flagged_lines_job(job_id, drama_id, lines, audio_path, whisper_size,
     flagged, timing_skipped = fixflag_translate.split_timing_flags(
         [ln for ln in lines if ln.flag])
     drama = db.get_drama(drama_id) or {}
-    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     glossary_terms, style_guidelines, character_names = build_run_style_context(
-        drama_id, drama, lines, style_preset, with_emotions=False,
+        drama_id, drama, lines, profile_service.style_preset(drama), with_emotions=False,
         include_genre_notes=include_genre_notes,
         default_female_pronouns=default_female_pronouns, principal=principal,
         engine_name=engine_choice, model=getattr(engine, "model", None))
