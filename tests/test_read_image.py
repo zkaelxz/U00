@@ -7,6 +7,7 @@ import pytest
 
 pytest.importorskip("fastapi")
 pytest.importorskip("httpx")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 PIL = pytest.importorskip("PIL")

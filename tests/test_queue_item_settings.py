@@ -9,6 +9,9 @@ from lib.errors import ForbiddenError, InvalidInputError
 from services import artifact_service, queue_service as q, translate_run_service
 
 
+pytestmark = pytest.mark.usefixtures("isolated_db")
+
+
 def _drama(lines=(("你好", ""),), **fields):
     fields.setdefault("transcript_mode", "whisper")
     fields.setdefault("translation_engine", "ollama")

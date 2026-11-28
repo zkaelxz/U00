@@ -10,7 +10,7 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError
 from services import drama_service, profile_service, quick_video_service as qv, queue_service as q, url_media_service
 from tests.test_queue_service import jobs  # noqa: F401  (fixture)
 
-pytestmark = pytest.mark.usefixtures("free_engine")
+pytestmark = pytest.mark.usefixtures("isolated_db", "free_engine")
 
 
 URL = "https://example.com/watch?v=abc"

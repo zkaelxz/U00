@@ -9,6 +9,9 @@ from lib.errors import InvalidInputError, NotFoundError
 from services import auth_service, queue_service as q, settings_service, translate_run_service
 
 
+pytestmark = pytest.mark.usefixtures("isolated_db")
+
+
 def _drama(engine="ollama", **fields):
     fields.setdefault("transcript_mode", "whisper")
     did = db.create_drama(title_en="Signal", title_zh="信号", translation_engine=engine, **fields)

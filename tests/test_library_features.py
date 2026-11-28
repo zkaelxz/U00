@@ -25,6 +25,9 @@ from engine_backends import engine_registry
 from core import Line
 
 
+pytestmark = pytest.mark.usefixtures("isolated_db")
+
+
 class TestTimeEstimates:
     def test_reading_time_counts_words(self):
         assert sc.reading_time(5)["word_count"] == 5
