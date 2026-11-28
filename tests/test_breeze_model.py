@@ -133,6 +133,20 @@ class TestRegistry:
         assert transcribe_options_service.effective_separate_vocals(drama) is False
         assert transcribe_service.get_transcribe_config(did)["separate_vocals_first"] is False
 
+    @pytest.mark.parametrize("touched, separates", [(True, False), (False, True)])
+    def test_the_run_follows_a_touched_off_while_picking_breeze(
+            self, isolated_db, monkeypatch, touched, separates):
+        from tests.test_transcribe_service import _capture_worker_start, _drama_with_audio
+        self._separation_setup(monkeypatch)
+        did, _ = _drama_with_audio(isolated_db, transcript_mode="whisper", source_language="zh",
+                                   whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=False, separate_vocals_touched=touched)
+        captured = _capture_worker_start(monkeypatch)
+        transcribe_service.start_transcribe_run(did)
+        assert captured["whisper_size"] == KEY
+        assert captured["separate_vocals_first"] is separates
+
     @pytest.mark.parametrize("start, change", [
         ({"use_groq": 1}, {"use_groq": False}),
         ({"asr_backend_choice": "qwen3_asr"}, {"asr_backend_choice": "whisper"}),
