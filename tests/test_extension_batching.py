@@ -186,7 +186,8 @@ def test_a_page_swapped_in_place_hides_the_old_english_until_it_comes_back():
     out = subprocess.run(["node", str(HARNESS), "content", "a_page_swapped_in_place_hides_the_old_english"],
                          capture_output=True, text=True, timeout=60)
     assert out.returncode == 0, out.stderr
-    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "shown": [False], "swapped": [True], "back": [False]}
+    assert json.loads(out.stdout.strip().splitlines()[-1]) == {"ok": True, "shown": [False], "swapped": [True], "back": [False],
+                                                                  "unloaded": [True]}
 
 
 def test_a_page_swapped_while_its_batch_is_out_does_not_get_the_old_english():

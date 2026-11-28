@@ -765,20 +765,20 @@
   function positionOverlay(el) {
     const entry = state.active.get(el);
     if (!entry) return;
+    const layer = entry.layer;
+    // A reader that pages in place swaps the element's picture, and one that unloads far pages blanks it
+    // (often to zero size) and puts it back later: the English shows only while its picture is there.
+    const swapped = entry.picture != null && pictureOf(el) !== entry.picture;
+    layer.classList.toggle("baihe-hidden", !state.overlaysVisible || swapped);
     const rect = el.getBoundingClientRect();
     const natural = elementSize(el);
     if (!natural.width || !natural.height) return;
     const scaleX = rect.width / natural.width;
     const scaleY = rect.height / natural.height;
-    const layer = entry.layer;
     layer.style.left = `${rect.left + window.scrollX}px`;
     layer.style.top = `${rect.top + window.scrollY}px`;
     layer.style.width = `${rect.width}px`;
     layer.style.height = `${rect.height}px`;
-    // A reader that pages in place swaps the element's picture, and one that unloads far pages blanks it
-    // and puts it back later: the English shows only while the picture it was read from is there.
-    const swapped = entry.picture != null && pictureOf(el) !== entry.picture;
-    layer.classList.toggle("baihe-hidden", !state.overlaysVisible || swapped);
     const boxes = layer.children;
     const visible = entry.regions.filter((r) => (r.translated_text || r.source_text) && !r.left_alone);
     for (let i = 0; i < boxes.length && i < visible.length; i += 1) {

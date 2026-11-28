@@ -301,7 +301,11 @@ async function content(scenario) {
       const swapped = hidden();
       page.src = IMG_URL;
       h.sandbox.__baihe.setOverlaysVisible(true);
-      return { ok: result.ok, shown, swapped, back: hidden() };
+      const back = hidden();
+      // Unloaded to a blank, zero-size picture, as long-strip readers do with far pages.
+      Object.assign(page, { src: "", naturalWidth: 0, naturalHeight: 0, width: 0, height: 0 });
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      return { ok: result.ok, shown, swapped, back, unloaded: hidden() };
     }
     case "a_page_swapped_while_its_batch_is_out_is_not_drawn": {
       const page = img();
