@@ -450,6 +450,14 @@ def filter_candidates(cands, words, taken, suffixes=None):
     return kept, held
 
 
+def _pack_text(pack) -> str:
+    """The pack file with one entry per line, so a weekly rebuild's diff shows each changed name."""
+    head = {k: v for k, v in pack.items() if k != "entries"}
+    lines = [json.dumps(e, ensure_ascii=False) for e in pack["entries"]]
+    return (json.dumps(head, ensure_ascii=False, indent=1)[:-2] + ',\n "entries": [\n  '
+            + ",\n  ".join(lines) + "\n ]\n}\n")
+
+
 def _excluded(entry, patterns) -> bool:
     text = " ".join((entry["source"], entry["en"], entry["note"], entry["link"]))
     return any(p.search(text) for p in patterns)
@@ -509,7 +517,7 @@ def build(cache_dir: Path, review: Path, exclude: Path = None):
         if entries != pack["entries"]:
             pack["entries"] = entries
             pack["version"] += 1
-        text = json.dumps(pack, ensure_ascii=False, indent=1) + "\n"
+        text = _pack_text(pack)
         # The app skips a pack that fails its checks, hand-written entries and all, with only a log
         # line, so a bad build must fail here instead.
         language_packs.validate_pack(json.loads(text), f"{language}-vtuber-names.json")
