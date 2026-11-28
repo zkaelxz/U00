@@ -729,6 +729,12 @@ def extend_time_limit(job_id: str, seconds: float, longest: float) -> float | No
         return box[0] - now
 
 
+def drop_time_limit(job_id: str) -> None:
+    """A session that is finishing can't be given more time: it stops anyway."""
+    with _deadlines_lock:
+        _deadlines.pop(job_id, None)
+
+
 def time_left(job_id: str) -> float | None:
     with _deadlines_lock:
         box = _deadlines.get(job_id)
@@ -1177,6 +1183,7 @@ class _LiveRun(ChunkCaptioner):
         replaced when the job ends, and the page then only says it finished."""
         background_jobs.update_progress(self.job_id, 0.0, why)
         self.note(why, "ended")
+        self.forget_deadline()
 
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to

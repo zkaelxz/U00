@@ -864,6 +864,7 @@ def stop_session(session_id, principal=None) -> dict:
             return {"session_id": session_id, "stopping": False, "finishing": False}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
+        live_translate.drop_time_limit(session_id)
         add_note(session_id, FINISHING_NOTE, key="finishing")
         return {"session_id": session_id, "stopping": True, "finishing": True}
     # A finished run has dropped its generation; bumping would only add it back.
@@ -1049,8 +1050,8 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "stream": entry.get("stream"),
             "name_fixes": name_fixes(session_id),
             "can_fix_names": _may_fix_names(principal, session_id, entry),
-            "time_left_seconds": _time_left(status, session_id),
-            "can_extend": status == "running" and _may_fix_names(principal, session_id, entry),
+            "time_left_seconds": (left := _time_left(status, session_id)),
+            "can_extend": left is not None and status == "running" and _may_fix_names(principal, session_id, entry),
             "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}

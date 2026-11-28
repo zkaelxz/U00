@@ -516,6 +516,15 @@ def test_more_time_never_puts_the_stop_past_the_longest_limit(live, monkeypatch)
     assert live_service.extend_session(sid)["time_left_seconds"] >= live_service.MAX_MINUTES_RANGE[1] * 60 - 2
 
 
+def test_more_time_is_refused_once_the_session_is_finishing(live):
+    sid = _start(max_minutes=60)
+    assert _wait(lambda: "out_dir" in live and live_service.get_session(sid)["time_left_seconds"] is not None)
+    assert live_service.stop_session(sid)["finishing"] is True
+    assert live_service.get_session(sid)["can_extend"] is False
+    with pytest.raises(ConflictError):
+        live_service.extend_session(sid)
+
+
 def test_more_time_is_refused_without_a_limit_or_for_a_viewer(live):
     sid = _start(max_minutes=None)
     assert _wait(lambda: background_jobs.is_running(sid))
