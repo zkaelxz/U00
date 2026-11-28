@@ -24637,6 +24637,7 @@ export interface components {
         MeResponse: {
             /** Auth Enabled */
             auth_enabled: boolean;
+            limits: components["schemas"]["MemberLimits"] | null;
             /**
              * Own Ollama Key
              * @default false
@@ -24957,6 +24958,24 @@ export interface components {
             last4: string | null;
             /** Unreadable */
             unreadable: boolean;
+        };
+        /**
+         * MemberLimits
+         * @description A member's own limits and how much of each is used; a limit is None when none is set.
+         */
+        MemberLimits: {
+            /** Daily Job Limit */
+            daily_job_limit: number | null;
+            /** Jobs Today */
+            jobs_today: number;
+            /** Month Paid Spend Usd */
+            month_paid_spend_usd: number;
+            /** Monthly Paid Cap Usd */
+            monthly_paid_cap_usd: number | null;
+            /** Title Limit */
+            title_limit: number;
+            /** Titles Owned */
+            titles_owned: number;
         };
         /**
          * MemberPaidLimitRequest
