@@ -204,6 +204,16 @@ class TestCover:
         assert (client.get(f"/api/dramas/{did}/cover?size=thumb").content
                 == client.get(f"/api/dramas/{did}/cover").content)
 
+    def test_a_cover_that_cannot_be_decoded_is_still_served_full_size(self, client):
+        pytest.importorskip("PIL")
+        did = _drama()
+        client.post(f"/api/dramas/{did}/cover",
+                    files={"file": ("big.png", _image("PNG", size=(1600, 2400)), "image/png")})
+        with open(os.path.join(db.drama_dir(did), "cover.png"), "wb") as fh:
+            fh.write(b"%!PS-Adobe-3.0 EPSF-3.0\n" + b"x" * 4096)
+        r = client.get(f"/api/dramas/{did}/cover?size=thumb")
+        assert r.status_code == 200 and r.content.startswith(b"%!PS")
+
     def test_exif_rotation_is_applied_before_the_tag_is_dropped(self, client):
         pytest.importorskip("PIL")
         from PIL import Image

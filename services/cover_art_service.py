@@ -20,6 +20,7 @@ import contextlib
 import io
 import os
 import tempfile
+import threading
 from typing import TypeGuard
 
 import db
@@ -151,6 +152,9 @@ def cover_file(drama_id: int):
 _THUMB_WIDTH = 480
 _THUMB_QUALITY = 82
 _THUMB_FOLDER = "reader_cache"
+# A first Library visit asks for every cover at once; each decode of a 25-megapixel
+# cover takes a few hundred MB.
+_THUMB_SLOTS = threading.BoundedSemaphore(2)
 
 
 def cover_thumb(drama_id: int):
@@ -164,9 +168,13 @@ def cover_thumb(drama_id: int):
     stamp = f"cover.{st.st_mtime_ns}.{st.st_size}"
     thumb = os.path.join(folder, f"{stamp}.thumb.jpg")
     try:
-        if os.path.isfile(thumb) or _write_thumb(path, folder, stamp, thumb):
-            if os.path.getsize(thumb) < st.st_size:
-                return thumb, "image/jpeg"
+        made = os.path.isfile(thumb)
+        if not made:
+            with _THUMB_SLOTS:
+                # Another request may have made it while this one waited.
+                made = os.path.isfile(thumb) or _write_thumb(path, folder, stamp, thumb)
+        if made and os.path.getsize(thumb) < st.st_size:
+            return thumb, "image/jpeg"
     except Exception:
         pass
     return path, media_type
@@ -175,7 +183,8 @@ def cover_thumb(drama_id: int):
 def _write_thumb(path: str, folder: str, stamp: str, thumb: str) -> bool:
     """False, writing nothing, for a cover already no wider than a thumb."""
     from PIL import Image
-    with Image.open(path) as img:
+    # A restored library puts cover files back unchecked, so only the parsers an upload may use.
+    with Image.open(path, formats=tuple(_FORMATS)) as img:
         if img.width <= _THUMB_WIDTH:
             return False
         os.makedirs(folder, exist_ok=True)

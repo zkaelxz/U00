@@ -231,10 +231,12 @@ _COVER_CACHE = "private, no-cache"
 def get_cover(request: Request, drama_id: int = Path(ge=1),
               size: Literal["full", "thumb"] = Query(
                   "full", description="thumb: a small JPEG copy for lists")):
+    path, media_type = cover_art_service.cover_file(drama_id)
     if size == "thumb":
-        path, media_type = cover_art_service.cover_thumb(drama_id)
-    else:
-        path, media_type = cover_art_service.cover_file(drama_id)
+        thumb, thumb_type = cover_art_service.cover_thumb(drama_id)
+        # A cover replaced meanwhile removes the older thumb; the full cover still answers.
+        if os.path.isfile(thumb):
+            path, media_type = thumb, thumb_type
     require_readable(path)
     resp = FileResponse(path, media_type=media_type, content_disposition_type="inline",
                         filename=f"cover_{drama_id}{os.path.splitext(path)[1]}", stat_result=os.stat(path),
