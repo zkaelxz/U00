@@ -474,3 +474,258 @@ def test_chapter_lanes_get_no_lines_from_before_the_chapter(novel):
     firsts = {zh[0]: ups for zh, _r, ups in engine.seen if zh[0].startswith("第")}
     assert len(firsts) == CHAPTERS
     assert not any(f"c{c - 1}l{PER_CHAPTER - 1}" in firsts[f"第{c}章"] for c in range(1, CHAPTERS))
+
+
+class _HeEngine(_Engine):
+    """Says "he" in chapter 0 until asked strictly; chapter 3 is slow."""
+
+    def __init__(self):
+        super().__init__()
+        self.order = []
+
+    def translate_batch(self, zh_lines, context):
+        strict = bool(context.get("pronoun_strict"))
+        if not strict and any(z.startswith(("第3", "c3")) for z in zh_lines):
+            time.sleep(0.3)
+        out = super().translate_batch(zh_lines, context)
+        with self.lock:
+            self.order.append(("strict" if strict else "plain", list(zh_lines)))
+        if strict:
+            return [f"she {z}" for z in zh_lines]
+        return [f"he {z}" if z.startswith(("第0", "c0")) else e for z, e in zip(zh_lines, out)]
+
+
+def _pronoun_run(engine, **kw):
+    from engine_backends.prompts import PRONOUN_DEFAULT_MARKER
+    return _run(engine, 2, style_guidelines=PRONOUN_DEFAULT_MARKER, **kw)
+
+
+def test_a_chapters_pronoun_recheck_runs_as_it_finishes_beside_the_others(novel):
+    engine = _HeEngine()
+    lines, errors, _u, _s = _pronoun_run(engine)
+    assert errors == []
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    rechecked = sorted(z for kind, zs in engine.order if kind == "strict" for z in zs)
+    assert rechecked == sorted(ln.zh for ln in lines[:PER_CHAPTER])  # each suspect asked once
+    assert all(ln.en.startswith("she ") and ln.flag != tp.PRONOUN_CHECK_FLAG for ln in lines[:PER_CHAPTER])
+
+
+def test_under_a_cap_each_recheck_request_takes_a_slot_like_a_batch(novel, monkeypatch):
+    engine = _HeEngine()
+    reserved = []
+    real = tp._TranslateRun._reserve_batch
+
+    def reserve(self, batch):
+        reserved.append([ln.zh for ln in batch])
+        return real(self, batch)
+    monkeypatch.setattr(tp._TranslateRun, "_reserve_batch", reserve)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    kinds = [kind for kind, _ in engine.order]
+    assert "strict" in kinds and kinds.index("strict") < len(kinds) - 1 - kinds[::-1].index("plain")
+    strict = [zs for kind, zs in engine.order if kind == "strict"]
+    assert all(any(set(zs) <= set(chunk) for chunk in reserved) for zs in strict)
+    assert sum(1 for chunk in reserved if all(z.startswith(("第0", "c0")) for z in chunk)) > (
+        sum(1 for kind, zs in engine.order if kind == "plain" and zs[0].startswith(("第0", "c0"))
+            and len(zs) > 1))  # chapter 0's batches plus its re-check requests
+    assert all(ln.en.startswith("she ") for ln in lines[:PER_CHAPTER])
+
+
+def test_a_cap_reached_stops_the_recheck_too(novel, monkeypatch):
+    engine = _HeEngine()
+
+    def chapter0_done(self):
+        return any(kind == "plain" and "c0l5" in zs for kind, zs in engine.order)
+    # Reached right after chapter 0's last batch, so its lane gets as far as the re-check.
+    monkeypatch.setattr(tp._TranslateRun, "_cap_reached", chapter0_done)
+    lines, _errors, _u, _s = _pronoun_run(engine, cost_cap_usd=100.0)
+    assert all(ln.en for ln in lines[:PER_CHAPTER])
+    assert not any(kind == "strict" for kind, _ in engine.order)
+
+
+def test_a_recheck_that_ends_the_run_stops_the_other_lanes_before_they_wake(novel, monkeypatch):
+    engine = _HeEngine()
+    original = engine.translate_batch
+
+    def quota_on_recheck(zh_lines, context):
+        if context.get("pronoun_strict"):
+            raise TranslateRunStopped("quota")
+        return original(zh_lines, context)
+    engine.translate_batch = quota_on_recheck
+    stopped_at_release = []
+    real = tp._TranslateRun._release_batch
+
+    def release(self, cost, batch, stop=False):
+        real(self, cost, batch, stop)
+        stopped_at_release.append((batch[0].zh, self.stopped))
+    monkeypatch.setattr(tp._TranslateRun, "_release_batch", release)
+    _pronoun_run(engine, cost_cap_usd=100.0)
+    # The failed re-check chunk (chapter 0's first suspects) wakes the others already stopped.
+    assert ("第0章", True) in stopped_at_release
+
+
+# --- A slow DeepSeek run moves to the fallback at a chapter start -------------------------
+
+from engine_backends import fallback as fb  # noqa: E402
+
+
+class _Timed(_Engine):
+    def __init__(self, name, model, delay=0.0, error=None):
+        super().__init__()
+        self.name, self.model, self.delay, self.error = name, model, delay, error
+
+    def translate_batch(self, zh_lines, context):
+        if self.error:
+            raise self.error
+        time.sleep(self.delay)
+        self.calls.append(list(zh_lines))
+        self.last_usage = {"input_tokens": 10, "output_tokens": 5}
+        return [f"{self.name} {z}" for z in zh_lines]
+
+
+@pytest.fixture
+def quick_slow_line(monkeypatch):
+    monkeypatch.setattr(fb, "SLOW_REQUEST_SECONDS", 0.05)
+    monkeypatch.setattr(fb, "SLOW_SECONDS_PER_LINE", 0.01)
+    monkeypatch.setattr(fb, "_slow_until", {})
+
+
+def _switching(primary_delay, fallback_error=None):
+    return fb.SlowSwitchEngine([_Timed("deepseek", "deepseek-flash", primary_delay),
+                                _Timed("ollama", "gemma4:31b-cloud", error=fallback_error)],
+                               ["deepseek", "ollama"])
+
+
+def _engine_per_chapter(lines):
+    chapters = {}
+    for ln in lines:
+        chapters.setdefault(ln.idx // PER_CHAPTER, set()).add(ln.en.split(" ")[0])
+    return chapters
+
+
+@pytest.mark.parametrize("parallel", [1, 3])
+def test_a_slow_engine_hands_later_chapters_to_the_fallback_never_mid_chapter(
+        novel, quick_slow_line, parallel):
+    engine = _switching(primary_delay=0.1)
+    lines, errors, _, _ = _run(engine, parallel)
+    assert errors == []
+    per_chapter = _engine_per_chapter(lines)
+    assert all(len(engines) == 1 for engines in per_chapter.values())
+    assert {"ollama"} in per_chapter.values()
+    assert [e["reason"] for e in engine.events] == ["slow"]
+    assert fb.recently_slow(engine.engines[0])
+
+
+def test_a_fast_engine_keeps_the_whole_run(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == [] and engine.events == []
+    assert all(ln.en.startswith("deepseek ") for ln in lines)
+
+
+def test_a_run_right_after_a_slow_one_starts_on_the_fallback(novel, quick_slow_line):
+    _run(_switching(primary_delay=0.1), 1)
+    engine = _switching(primary_delay=0.0)
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("ollama ") for ln in lines)
+    assert engine.engines[0].calls == []
+
+
+def test_a_fallback_that_cannot_serve_hands_the_run_back(novel, quick_slow_line):
+    engine = _switching(primary_delay=0.1, fallback_error=ConnectionError("refused"))
+    lines, errors, _, _ = _run(engine, 3)
+    assert errors == []
+    assert all(ln.en.startswith("deepseek ") for ln in lines)
+    assert [e["to"] for e in engine.events] == ["ollama", "deepseek"]
+
+
+def test_spend_is_priced_by_the_engine_that_ran_the_batch(novel, quick_slow_line, monkeypatch):
+    priced = []
+    monkeypatch.setattr(tp, "estimate_cost_for_engine",
+                        lambda engine, *a, **k: priced.append(engine.model) or 1.0)
+    engine = _switching(primary_delay=0.1)
+    _run(engine, 3)
+    calls = len(engine.engines[0].calls), len(engine.engines[1].calls)
+    assert (priced.count("deepseek-flash"), priced.count("gemma4:31b-cloud")) == calls
+
+
+def test_a_slow_switch_run_keeps_its_chapter_lanes():
+    engine = _switching(primary_delay=0.0)
+    assert tp.can_run_in_parallel(engine)
+
+
+def test_only_a_deepseek_run_gets_the_slow_switch(monkeypatch):
+    from services import translate_run_options
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine",
+                        lambda name, key, model, **k: _Timed(name, model))
+    deepseek = translate_run_options.with_slow_switch(_Timed("deepseek", "deepseek-flash"))
+    assert isinstance(deepseek, fb.SlowSwitchEngine)
+    assert deepseek.engines[1].model == "gemma4:31b-cloud"
+    claude = _Timed("claude", "claude-sonnet-5-5")
+    assert translate_run_options.with_slow_switch(claude) is claude
+
+
+class _RateLimited(Exception):
+    status_code = 429
+
+
+def test_a_busy_fallback_is_not_handed_back(novel, quick_slow_line, monkeypatch):
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=_RateLimited("busy"))
+    with pytest.raises(_RateLimited):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_a_timed_out_fallback_is_not_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0, fallback_error=OllamaUnavailableError("ollama_timeout", "slow"))
+    with pytest.raises(OllamaUnavailableError):
+        engine.translate_batch(["a"], {})
+    assert engine.active == 1 and not engine._state.fallback_failed
+
+
+def test_an_unreachable_ollama_is_handed_back(monkeypatch):
+    from engine_backends.local import OllamaUnavailableError
+    monkeypatch.setattr(fb, "_slow_until", {("deepseek", "deepseek-flash"): float("inf")})
+    engine = _switching(primary_delay=0.0,
+                        fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
+    assert engine.translate_batch(["a"], {}) == ["deepseek a"]
+    assert engine._state.fallback_failed
+
+
+def test_failed_attempts_of_a_slow_switch_run_are_billed_by_the_pipeline():
+    from services import workspace_job_service as wjs
+    engine = _switching(primary_delay=0.0)
+    wjs._bill_failed_attempts(1, engine)
+    assert not hasattr(engine, "failed_usage_cb")
+
+
+def test_a_run_on_the_primary_keeps_the_primarys_deadline():
+    from engine_backends import llm_tasks
+    engine = _switching(primary_delay=0.0)
+    assert llm_tasks.batch_deadline_for(engine) == llm_tasks.batch_deadline_for(engine.engines[0])
+    engine.active = 1
+    assert llm_tasks.batch_deadline_for(engine) > llm_tasks.batch_deadline_for(engine.engines[1])
+
+
+def test_reflect_and_bulk_runs_get_no_slow_switch(monkeypatch):
+    from services import translate_run_options
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine",
+                        lambda name, key, model, **k: _Timed(name, model))
+    built = [("deepseek", "k", "deepseek-flash", False)]
+    chain = [{"engine": "deepseek", "model": "deepseek-flash"}]
+    _, plain, _ = translate_run_options.instantiate_engines(built, chain, [None], False)
+    _, switching, _ = translate_run_options.instantiate_engines(built, chain, [None], True)
+    assert not isinstance(plain, fb.SlowSwitchEngine)
+    assert isinstance(switching, fb.SlowSwitchEngine)
+
+
+def test_a_member_whose_key_cannot_be_read_gets_no_slow_switch(monkeypatch):
+    from engine_backends import local
+    from services import translate_run_options
+    monkeypatch.setattr(local, "member_cloud_key", lambda: local.UNREADABLE_MEMBER_KEY)
+    deepseek = _Timed("deepseek", "deepseek-flash")
+    assert translate_run_options.with_slow_switch(deepseek) is deepseek

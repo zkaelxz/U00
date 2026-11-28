@@ -417,7 +417,8 @@ def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, eng
 
 
 def _bill_failed_attempts(drama_id, engine):
-    if isinstance(engine, fallback.FallbackEngine):
+    # A slow switch calls one engine per attempt, so the pipeline records its failed attempts.
+    if isinstance(engine, fallback.FallbackEngine) and not isinstance(engine, fallback.SlowSwitchEngine):
         # Tokens a provider reported for an attempt that then failed are
         # billed too: logged against the engine that spent them.
         engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \
