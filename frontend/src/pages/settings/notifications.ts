@@ -68,7 +68,7 @@ export const PC_NAME_HELP =
   'Shown on every Discord message so you can tell your PCs apart, for example V100 or 3080. Leave it empty to use the Windows computer name.'
 
 export const CATEGORIES_NOTE =
-  'These choose what goes to Discord and ntfy. The Alerts button at the top of the page always lists every event.'
+  'These choose what goes to Discord and ntfy. PC alerts, and your followed channels going live, are always sent; a job that finishes cleanly in under two minutes is not. The Alerts button at the top of the page always lists every event.'
 
 /** The request body for one switch: only the field that changed. */
 export function categoryChange(field: CategoryField, next: boolean): NotificationCategories {
@@ -79,6 +79,9 @@ export function categoryChange(field: CategoryField, next: boolean): Notificatio
 export function isConfigured(status: NotificationStatus, channel: NotificationChannel): boolean {
   return channel === 'discord' ? status.discord_configured : status.ntfy_configured
 }
+
+export const NO_DESKTOP_POPUPS =
+  'Baihe is running as the Windows boot service, which has no desktop, so pop-ups can’t show. Discord and ntfy still work.'
 
 // The folded card and the open card show this same line, so it counts the PC pop-up as well as the channels.
 export function notificationSummary(status: NotificationStatus | null, popupOn = false): string {

@@ -6,8 +6,8 @@ import { animationsSettled } from './mockHelpers'
 // stages and the readers are not on this list: they do not use the shell yet.
 export const SHELL_PAGES: { hash: string; width: 'narrow' | 'standard' | 'wide' }[] = [
   { hash: '#/settings', width: 'narrow' },
-  { hash: '#/make-subtitles', width: 'narrow' },
-  { hash: '#/admin', width: 'narrow' },
+  { hash: '#/make-subtitles', width: 'wide' },
+  { hash: '#/admin', width: 'standard' },
   { hash: '#/assistant', width: 'narrow' },
   { hash: '#/translate', width: 'standard' },
   { hash: '#/live', width: 'standard' },
@@ -71,7 +71,7 @@ const measure = (page: Page): Promise<Measure> =>
     const blockGaps: number[] = []
     const stacks = [
       shell.querySelector('[data-page-body]')!,
-      ...shell.querySelectorAll('[data-page-body] [role="tabpanel"]:not([hidden]), [data-page-body] .diag-folds'),
+      ...shell.querySelectorAll('[data-page-body] [role="tabpanel"]:not([hidden])'),
     ]
     for (const stack of stacks) {
       const kids = [...stack.children].filter(visible)

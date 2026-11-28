@@ -26,10 +26,9 @@ import re
 from html import unescape
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, https_only
-from ..http_transport import header
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceError)
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, https_only
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef,
+                      SearchResult, SeriesInfo)
 from ..registry import register
 
 BASE_URL = "https://nihonkuni.com"
@@ -88,7 +87,7 @@ def _chapter_url(series_id: str, label: str) -> str:
 
 
 @register
-class NihonKuniSource(SourceAdapter):
+class NihonKuniSource(PlainImageDownload, SourceAdapter):
     name = "nihonkuni"
     display_name = "NihonKuni"
     homepage = "https://nihonkuni.com"
@@ -99,6 +98,7 @@ class NihonKuniSource(SourceAdapter):
     # could not be read, and the sources pacing tests allow Fast only for vetted sites.
     host_min_interval = {HOST: 1.0}
     default_headers = {"Referer": REFERER}
+    images_only = True
 
     def search(self, query: str, page: int = 1):
         query = query.strip()
@@ -162,18 +162,6 @@ class NihonKuniSource(SourceAdapter):
             raise LayoutChanged("any page images in this chapter")
         return [PageRef(self.name, chapter.chapter_id, i, u, headers={"Referer": REFERER})
                 for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
-        if ctype and not ctype.startswith("image/"):
-            # An error or block page sent with a 200: never saved as a page.
-            raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
-                              FailureReason.HTTP_ERROR)
-        name = urlsplit(page.url).path.rsplit("/", 1)[-1]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

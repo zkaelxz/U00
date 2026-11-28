@@ -23,10 +23,18 @@ describe('subtitleQuery', () => {
   })
 })
 
+describe('reading line', () => {
+  it('is only sent when on', () => {
+    expect(subtitleQuery({ fmt: 'srt', field: 'zh', includeNotes: false, readingLine: true })).toBe('fmt=srt&field=zh&reading_line=true')
+    expect(subtitleQuery({ fmt: 'srt', field: 'zh', includeNotes: false, readingLine: false })).toBe('fmt=srt&field=zh')
+  })
+})
+
 describe('tidy timing', () => {
   it('is only sent when on', () => {
     expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: false })).toBe('fmt=srt&field=en')
     expect(subtitleQuery({ fmt: 'vtt', field: 'en', includeNotes: false, speakerNames: true })).toBe('fmt=vtt&field=en&speaker_names=true')
+    expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, soundCaptions: true })).toBe('fmt=srt&field=en&sound_captions=true')
     expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: true })).toBe(
       'fmt=srt&field=en&tidy_timing=true',
     )
@@ -95,7 +103,8 @@ describe('CSRF and 401 on text/binary fetches', () => {
     vi.stubGlobal('document', { cookie: 'baihe_csrf=tok' })
     const f = vi.fn().mockImplementation(async () => resp('x'))
     await getSubtitleText(1, { fmt: 'srt', field: 'en', includeNotes: false }, f)
-    await getEpub(1, 'en', f)
+    await getEpub(1, 'bilingual', true, f)
+    expect(f.mock.calls[1][0]).toContain('/epub?field=bilingual&readings=true')
     for (const call of f.mock.calls) {
       const h = (call[1]?.headers ?? {}) as Record<string, string>
       expect(h['X-CSRF-Token']).toBeUndefined()

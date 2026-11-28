@@ -107,7 +107,7 @@ def test_faint_halo_round_lettering_is_painted_out_in_a_plain_white_balloon():
     mask = scanlate_inpaint._lettering_mask(gray)
     inside = np.ones(gray.shape, bool)
     inpainted = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
-    flat = scanlate_inpaint._flatten_plain_paper(roi, inpainted, mask, inside)
+    flat = scanlate_inpaint._paint_paper(inpainted, scanlate_inpaint._plain_paper_fill(roi, mask, inside))
     core = np.zeros(gray.shape, bool)
     core[6:-6, 6:-6] = True
     assert cv2.cvtColor(flat, cv2.COLOR_BGR2GRAY)[core].min() >= 245
@@ -119,7 +119,7 @@ def test_a_toned_balloon_is_left_as_inpainted():
     roi = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     mask = np.zeros(gray.shape, np.uint8)
     inpainted = roi.copy()
-    out = scanlate_inpaint._flatten_plain_paper(roi, inpainted, mask, np.ones(gray.shape, bool))
+    out = scanlate_inpaint._paint_paper(inpainted, scanlate_inpaint._plain_paper_fill(roi, mask, np.ones(gray.shape, bool)))
     assert out is inpainted
 
 
@@ -138,7 +138,7 @@ def test_a_sky_that_fades_behind_the_lettering_is_not_whitened_into_a_box():
     roi = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
     mask = scanlate_inpaint._lettering_mask(gray)
     inpainted = cv2.inpaint(roi, mask, 5, cv2.INPAINT_TELEA)
-    out = scanlate_inpaint._flatten_plain_paper(roi, inpainted, mask, np.ones(gray.shape, bool))
+    out = scanlate_inpaint._paint_paper(inpainted, scanlate_inpaint._plain_paper_fill(roi, mask, np.ones(gray.shape, bool)))
     assert out is inpainted
     assert cv2.cvtColor(out, cv2.COLOR_BGR2GRAY)[10:40, 10:80].max() < 245
 
@@ -391,6 +391,20 @@ def test_art_in_the_notch_of_two_lobes_cut_off_by_the_page_edge_is_not_erased():
     assert mask[:22, 25:53][img[:22, 135:163] == 0].all()
 
 
+def test_lettering_the_interior_missed_is_erased_when_only_a_speck_of_paper_lies_outside(monkeypatch):
+    img = np.full((200, 300), 255, np.uint8)
+    strokes = np.zeros((200, 300), bool)
+    for x in (60, 120, 180):                        # glyphs cut by the page's bottom edge
+        strokes[150:200, x:x + 5] = strokes[150:200, x + 30:x + 35] = strokes[150:155, x:x + 35] = True
+    img[strokes] = 0
+    filled = (~strokes).astype(np.uint8)
+    outside = np.zeros_like(filled)
+    outside[0:3, 0:3] = 1                           # the speck
+    monkeypatch.setattr(scanlate_balloons, "_balloon_interior", lambda roi: (filled.copy(), outside.copy()))
+    mask = scanlate_balloons.bubble_erase_mask("x.png", {"x": 0, "y": 0, "w": 300, "h": 200}, image=img)
+    assert mask is not None and mask[strokes].all()
+
+
 def test_box_nearly_inside_a_balloon_keeps_the_dark_corners_it_cuts_across():
     img = _page([(150, 100, 120, 80)], size=(200, 300), ground=0)
     box = {"x": 60, "y": 40, "w": 180, "h": 120}
@@ -427,3 +441,53 @@ def test_coloured_rings_in_a_balloon_do_not_cut_its_text_to_a_strip(tmp_path):
     drawn[:, :] &= ~(cv2.imread(str(tmp_path / "p.png"), 0) < 100)
     ys = np.nonzero(drawn[110:390, 110:390].any(axis=1))[0] + 110
     assert ys.size and 220 < (ys.min() + ys.max()) / 2 < 280
+
+
+def _plain_balloon():
+    page = np.full((200, 260, 3), 90, np.uint8)
+    cv2.ellipse(page, (130, 100), (110, 80), 0, 0, 360, (0, 0, 0), -1)
+    cv2.ellipse(page, (130, 100), (106, 76), 0, 0, 360, (252, 252, 252), -1)
+    page[80:96, 80:180] = 0
+    page[104:120, 80:180] = 0
+    box = {"x": 20, "y": 20, "w": 220, "h": 160}
+    inside = np.zeros((box["h"], box["w"]), np.uint8)
+    cv2.ellipse(inside, (110, 80), (106, 76), 0, 0, 360, 1, -1)
+    return page, box, inside.astype(bool)
+
+
+def _noisy_lama(calls):
+    def fake(roi, mask, **_kwargs):
+        calls.append(mask.copy())
+        noise = np.random.default_rng(len(calls)).integers(0, 256, roi.shape, dtype=np.uint8)
+        return np.where((mask > 0)[..., None], noise, roi)
+    return fake
+
+
+@pytest.mark.parametrize("backend", ["ml", "cv"])
+def test_a_plain_balloon_is_painted_to_its_paper_without_running_the_inpainter(monkeypatch, backend):
+    page, box, inside = _plain_balloon()
+    calls, fills = [], []
+    real_fill = scanlate_inpaint._plain_paper_fill
+    monkeypatch.setattr(scanlate_inpaint, "_plain_paper_fill",
+                        lambda *a: fills.append(real_fill(*a)) or fills[-1])
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", _noisy_lama(calls))
+    monkeypatch.setattr(cv2, "inpaint", lambda *a, **k: pytest.fail("OpenCV inpaint ran"))
+    before = page.copy()
+    scanlate_inpaint.inpaint_region("", box, image=page, inside=inside, backend=backend)
+    assert calls == []
+    take, colour = fills[0]
+    x, y = box["x"] - 4, box["y"] - 4
+    crop, old = page[y:y + take.shape[0], x:x + take.shape[1]], before[y:y + take.shape[0], x:x + take.shape[1]]
+    assert (crop[take] == colour.astype(np.uint8)).all()
+    assert (crop[~take] == old[~take]).all()
+    assert (page[:y] == before[:y]).all()
+
+
+def test_an_erase_reaching_past_the_paper_fill_still_goes_to_the_inpainter(monkeypatch):
+    page, box, inside = _plain_balloon()
+    page[96:104, 27:40] = 0      # lettering close to the outline
+    calls = []
+    monkeypatch.setattr(scanlate_inpaint, "_run_ml_inpaint", _noisy_lama(calls))
+    # A stronger erase grows its mask into the ring by the outline that the fill leaves.
+    scanlate_inpaint.inpaint_region("", box, image=page, inside=inside, backend="ml", grow=1.5)
+    assert len(calls) == 1

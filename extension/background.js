@@ -69,7 +69,7 @@ function base(serverUrl) {
 // earlier and reported honestly: the app keeps working on it.
 const CALL_TIMEOUT_MS = 4.5 * 60 * 1000;
 const STILL_WORKING = "Baihe is still working; send the rest later.";
-const TIMED_OUT = "Baihe is still working on this. Check the drama in Baihe in a few minutes; pages already read are kept.";
+const TIMED_OUT = "Baihe is still working on this. Try again in a few minutes; pages already read are kept.";
 
 // Requests in flight, so a Cancel can end the wait for them at once instead of after the app answers.
 const inflight = new Set();
@@ -299,6 +299,12 @@ async function startLive({ url, sourceLanguage }) {
   return call("/live", { method: "POST", body: { url: link, source_language: sourceLanguage || "zh" } });
 }
 
+async function fetchSiteSubs({ url }) {
+  const link = videoLink(url);
+  if (!link) return { ok: false, error: "Open a video page on a public website first." };
+  return call("/subs", { method: "POST", body: { page_url: link } });
+}
+
 // Finds or creates the title a page belongs to (the app's extension_title_service); the
 // options decide how much it may do. Only a public page's address is sent, as for novels.
 async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks, author, summary, coverUrl }) {
@@ -453,7 +459,7 @@ function stopAfterTimeout(merged, later) {
       notSent += 1;
     }
   }
-  merged.stopped = { message: `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.` };
+  merged.stopped = `Baihe is still working on the last batch. ${notSent} later pages were not sent; send them later.`;
 }
 
 async function sendImagesRun({ images, dramaId, sourceUrl, sourceLanguage, pageTitles, store, filterPages }, runId, onPage = () => {}) {
@@ -780,8 +786,9 @@ async function chapterOutcome(tabId, kind, { dramaId, store }) {
   if (!r.ok) return { status: "failed", reason: r.error || "capture failed" };
   if (r.data.reason === "cancelled") return { status: "cancelled" };
   if (r.data.reason === "error") return { status: "failed", reason: r.data.message };
-  return (r.data.stored || r.data.translated) ? { status: "saved" }
-    : { status: "skipped", reason: "no pages found" };
+  // A page the library already has also counts as stored, so only newly translated pages mean "saved".
+  if (r.data.translated || r.data.cached) return { status: "saved" };
+  return { status: "skipped", reason: r.data.alreadyStored ? "already in your library" : "no pages found" };
 }
 
 async function runSeries({ tabId, kind, dramaId, store, limit }) {
@@ -862,6 +869,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "startLive":
           respond(await startLive(message));
+          break;
+        case "fetchSiteSubs":
+          respond(await fetchSiteSubs(message));
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));

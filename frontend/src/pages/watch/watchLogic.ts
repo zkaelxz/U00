@@ -357,3 +357,12 @@ export const followPaused = (scrolledAt: number | null, now: number): boolean =>
  *  its scrollend where the browser fires that event (which clears it), else for OWN_SCROLL_MS. */
 export const OWN_SCROLL_MS = 1000
 export const ownScrollUntil = (now: number, endIsFired: boolean): number => (endIsFired ? Infinity : now + OWN_SCROLL_MS)
+
+/** The index of the last word heard by `time` (seconds), or -1 before the first. Words without a start are skipped. */
+export function heardUpTo(words: { start?: number | null }[], time: number): number {
+  let at = -1
+  words.forEach((w, i) => {
+    if (w.start != null && w.start <= time) at = i
+  })
+  return at
+}

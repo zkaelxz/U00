@@ -26,6 +26,7 @@ STATE_KEYS = {
     "auto_backup.identity": "library identity, copied across a restore by library_restore_service",
     "jellyfin": "Jellyfin card document; its API key is in .env (BAIHE_JELLYFIN_API_KEY)",
     "job_queue": "the Jobs page queue document (services/queue_service.py), edited on that page",
+    "nightly_check": "the nightly self-check's last night and failed-night counts (services/queue_night.py)",
     "pc_profile_pin": "salted hash of the PC window profile PIN, set on the PC-profiles card (services/pc_profile_service.py), never shown",
     "pc_profile_pin.blocked_until": "wall-clock end of the PC window PIN pause, so a restart does not reset it (services/pc_profile_service.py)",
     "quick_video.profile_id": "the profile Quick video translate uses, chosen in Settings (services/quick_video_service.py)",

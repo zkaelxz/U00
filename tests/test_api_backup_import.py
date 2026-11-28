@@ -1589,10 +1589,14 @@ def test_settings_come_in_when_asked_without_system_update_or_kept_settings(loca
     from services import settings_service
     a, b, g = _world()
     settings_service.set_settings({"default_locale": "en-GB", "monthly_cap_usd": 25.0,
+                                   "gemini_free_tier": True, "scanlate_page_image": False,
+                                   "ollama_cloud_default": False,
                                    "notify_on_completion": True, "use_gpu": False})
     db.set_app_setting("update.auto_check", True)
     data = _manual_zip()
     settings_service.set_settings({"default_locale": "en-US", "monthly_cap_usd": 5.0,
+                                   "gemini_free_tier": False, "scanlate_page_image": True,
+                                   "ollama_cloud_default": True,
                                    "notify_on_completion": False, "use_gpu": True})
     db.set_app_setting("update.auto_check", False)
     assert _post_list(local_client, data).json()["settings_available"]
@@ -1601,11 +1605,14 @@ def test_settings_come_in_when_asked_without_system_update_or_kept_settings(loca
     assert settings_service.get("default_locale") == "en-US"
     r = _post_import(local_client, data, [g], settings="true")
     assert r.status_code == 200, r.text
-    assert r.json()["settings_imported"] >= 3
+    assert r.json()["settings_imported"] >= 1
     assert r.json()["notes"] == [bis.KEYS_NOT_IMPORTED]
     assert settings_service.get("default_locale") == "en-GB"
-    assert settings_service.get("monthly_cap_usd") == 25.0
-    assert settings_service.get("notify_on_completion") is True
+    assert settings_service.get("notify_on_completion") is False   # this PC's pop-up
+    assert settings_service.get("monthly_cap_usd") == 5.0          # this PC's spending limit
+    assert settings_service.get("gemini_free_tier") is False       # describes this PC's key
+    assert settings_service.get("scanlate_page_image") is True     # what this PC sends to Ollama
+    assert settings_service.get("ollama_cloud_default") is True
     assert settings_service.get("use_gpu") is True              # System page: this PC's
     assert db.get_app_setting("update.auto_check") is False   # how this PC updates
 
@@ -1618,7 +1625,9 @@ def test_importable_settings_are_never_secret_path_kept_or_system(isolated_db):
     for store_key, key in chosen.items():
         s = settings_schema.BY_KEY[key]
         assert s.store == "db" and not s.secret and s.type != "path" and not s.dev_only
-        assert s.tab in ("translation", "preferences") and s.section != "App updates"
+        assert s.tab in ("translation", "preferences")
+        assert s.section not in ("App updates", "Spending", "Keys", "Notifications", "Sharing")
+        assert key not in ("scanlate_page_image", "ollama_cloud_default")
         assert store_key not in lrs._RESTORE_KEPT_APP_SETTINGS
 
 
@@ -1627,13 +1636,13 @@ def test_a_setting_the_file_holds_badly_is_left_as_it_is(local_client):
     a, b, g = _world()
     data = _db_bytes(lambda c: c.executescript(
         "INSERT OR REPLACE INTO app_settings (key, value) VALUES "
-        "('pref.default_locale', '\"xx-XX\"'), ('pref.monthly_cap_usd', '12.5'), "
+        "('pref.default_locale', '\"xx-XX\"'), ('pref.default_style_note', '\"Formal.\"'), "
         "('notify_on_completion', 'not json')"))
     settings_service.set_settings({"default_locale": "en-AU"})
     r = _post_import(local_client, data, [g], settings="true")
     assert r.status_code == 200, r.text
     assert settings_service.get("default_locale") == "en-AU"
-    assert settings_service.get("monthly_cap_usd") == 12.5
+    assert settings_service.get("default_style_note") == "Formal."
 
 
 def _usage(c, did, created, cost, **extra):

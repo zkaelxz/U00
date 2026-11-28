@@ -1699,7 +1699,7 @@ class TestPreviousLibrary:
         from services import previous_library_service as pls
         self._kept(tree)
         got = pls.summary()
-        assert got == {"present": True, "label": "Previous library kept after restore",
+        assert got == {"present": True, "label": "Previous library kept after a restore or reset",
                        "size_bytes": 700, "file_count": 4, "folder_count": 3, "partial": False}
         res = dus.scan("")
         base = os.path.basename(db.LIBRARY_DIR)

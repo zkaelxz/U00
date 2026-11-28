@@ -354,7 +354,7 @@ What they skip or keep:
   restore result as `folders_left_behind`). Disk usage lists it, an unfinished
   `.restore_staging_*` folder and the copy kept before a Reset library
   (`<library>.pre_reset_<time>`, the last one only) as one entry, "Previous
-  library kept after restore", deleted after typing `DELETE`
+  library kept after a restore or reset", deleted after typing `DELETE`
   (`services/previous_library_service.py`). The delete is refused while the live
   `library.db` is missing, fails `quick_check`, or holds no titles while a
   `.pre_restore_*` copy does (a start during a restore can create a fresh, empty
@@ -389,8 +389,8 @@ What they skip or keep:
   Drama, series, user and file-column references are remapped or cleared; file
   names are kept only when they point inside the new drama's folder
   (`IMPORT_FILE_COLUMNS`, `_import_file_ref`).
-- **Auto-backup retention:** one copy per day for the last 7 days plus the first
-  copy of each of the last 4 ISO weeks (at most 11); only copies this library
+- **Auto-backup retention:** the newest copy from each of the 7 most recent days
+  with a copy, plus the first copy of each of 4 more ISO weeks (at most 11); only copies this library
   manages are rotated (`KEEP_DAILY`, `KEEP_WEEKLY`).
 
 ## 7. On disk beside the database

@@ -464,8 +464,7 @@ def require_cloud_model_allowed(request: Request, *engine_models):
         return
     raise ForbiddenError("Ollama cloud models send your text off this PC and use the "
                          "owner's Ollama quota, so they need paid-engine permission or your "
-                         "own Ollama key (Settings > Your Ollama key). "
-                         "Pick a local model instead.")
+                         "own Ollama key (Settings > Your Ollama key).")
 
 
 def require_paid_engines(request: Request):

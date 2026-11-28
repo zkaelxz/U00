@@ -736,6 +736,35 @@ class TestBurnPreview:
             "line_id": lid, "style": {"primary": "red"}})
         assert bad.status_code == 422
 
+    def test_reading_line_and_karaoke_reach_the_ass(self, client, fake_ffmpeg, monkeypatch):
+        import segment
+        from segment_splitting import encode_line_words
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            "nǐ hǎo" if text == "你好" else "")
+        did, lid = _video_drama()
+        words = [{"word": "你", "start": 1.0, "end": 1.5}, {"word": "好", "start": 1.5, "end": 3.0}]
+        db.save_lines(did, [Line(idx=0, start=1.0, end=3.0, zh="你好", en="Hello", id=lid,
+                                 word_timings=encode_line_words("你好", words))])
+        r = client.post(f"{BASE}/{did}/burn-preview", json={
+            "line_id": lid, "pad_seconds": 1, "field": "zh", "reading_line": True, "karaoke": True})
+        assert r.status_code == 200, r.text
+        wait_for_job(r.json()["job_id"])
+        dialogue = next(l for l in fake_ffmpeg[-1]["ass"].splitlines() if l.startswith("Dialogue:"))
+        assert dialogue.split(",", 9)[9] == \
+            r"{\fscx60\fscy60}nǐ hǎo{\r}\N{\2a&H90&}{\kf50}你{\kf150}好{\r}"
+
+    def test_reading_line_without_its_packages_names_what_to_install(self, client, fake_ffmpeg,
+                                                                      monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: ["pypinyin"])
+        did, lid = _video_drama()
+        r = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid, "field": "zh",
+                                                            "reading_line": True})
+        assert r.status_code == 503 and "pypinyin" in r.text
+        bad = client.post(f"{BASE}/{did}/burn-preview", json={"line_id": lid, "field": "ja"})
+        assert bad.status_code == 422
+
     def test_server_wide_cap_on_concurrent_renders(self, client, fake_ffmpeg, monkeypatch):
         import threading
         import video_export

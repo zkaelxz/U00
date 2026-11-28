@@ -67,19 +67,6 @@ def _entry_names(entry: dict) -> list:
     return [n for n in (entry.get("name"), entry.get("model")) if isinstance(n, str)]
 
 
-def _is_embedding_model(entry: dict) -> bool:
-    """Embedding models (nomic-embed-text, mxbai-embed-large, bge-m3) can't
-    chat, so they are not offered as translators. /api/tags has no capability
-    field; the BERT families and the "embed" in their names mark them."""
-    details = entry.get("details")
-    if not isinstance(details, dict):
-        details = {}
-    families = [details.get("family")] + list(details.get("families") or [])
-    if any(isinstance(f, str) and "bert" in f.lower() for f in families):
-        return True
-    return any("embed" in n.lower() for n in _entry_names(entry))
-
-
 def check_ollama_model_installed(base_url: str, model: str) -> None:
     """Raises OllamaUnavailableError (the same plain texts the chat call uses)
     when the server is down, so a live session fails at Start rather than on

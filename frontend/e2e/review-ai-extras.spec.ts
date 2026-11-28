@@ -183,7 +183,7 @@ test('learn my style when remote: the all-projects style is PC only to learn or 
   await openExtras(page)
   const extras = await openSub(page, 'Learn my style')
   await expect(page.getByTestId('style-preferences')).toContainText('Keep lines short')
-  await expect(extras.getByText('Learning or pausing the style for all projects is PC only.')).toHaveCount(0)
+  await expect(extras.getByText('Learning or pausing the style for all titles is PC only.')).toHaveCount(0)
   await expect(extras.getByRole('button', { name: 'Learn again' })).toBeDisabled()
   await expect(extras.getByRole('switch', { name: 'Use in future translations' })).toBeDisabled()
 })

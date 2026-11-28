@@ -14,12 +14,13 @@ from typing import Iterable, Optional
 # Order matters: CJK leakage runs first so its output (",", "...") is
 # normalised by the later rules, and capitalisation runs after spacing so it
 # sees the final sentence boundaries.
-RULES = ("cjk_punctuation", "ellipsis", "extra_space", "repeated_punctuation",
+RULES = ("cjk_punctuation", "em_dash", "ellipsis", "extra_space", "repeated_punctuation",
          "space_before_punctuation", "space_inside_brackets", "space_after_punctuation",
          "quotes", "doubled_word", "pronoun_i", "capitalize_sentence")
 
 RULE_LABELS = {
     "cjk_punctuation": "Full-width / CJK punctuation",
+    "em_dash": "Em dashes",
     "ellipsis": "Ellipsis style",
     "extra_space": "Double or stray spaces",
     "repeated_punctuation": "Repeated punctuation",
@@ -67,9 +68,6 @@ _DOUBLEABLE_FUNCTION_WORDS = frozenset(
 # Imported text can be far longer than the API's 2000-char cap; the regexes
 # below are only cheap on subtitle-sized input.
 MAX_LINE_CHARS = 4000
-
-_OPEN_QUOTES = '“‘'
-_CLOSE_QUOTES = '”’'
 
 
 def has_cjk_letters(text: str) -> bool:
@@ -148,6 +146,113 @@ def _cjk_punctuation(text: str, style):
     text = "".join(_FULLWIDTH_PUNCT.get(c, c) for c in text)
     # Full-width Latin letters, digits and symbols (Ａ, １, ％) -> ASCII.
     return _FULLWIDTH_ASCII_RE.sub(lambda m: chr(ord(m.group(0)) - 0xFEE0), text)
+
+
+# An em dash, a horizontal bar, a run of them (CJK ——), or an en dash that
+# isn't joining two words or numbers ("1–3" and "Paris–London" stay).
+# Private-use sentinels stand in for masked words, tags and labels in clean_text.
+_WORDISH = r"\w\uE000-\uF8FF"
+_DASH = rf"(?:[\u2014\u2015]|(?<![{_WORDISH}])\u2013|\u2013(?![{_WORDISH}]))"
+# A run ("——", "– –", "–—") is one dash.
+_DASH_RE = re.compile(rf"[ \t]*{_DASH}(?:[ \t]*[\u2013\u2014\u2015])*[ \t]*")
+# Words that open a new sentence far more often than they continue a name or title.
+_SENTENCE_STARTERS = frozenset(
+    "look wait stop run no yes come go get help hey listen please don't do what why how who "
+    "where when this that it we you they he she there here never forget".split())
+# Marks the letter after a new sentence break; the substitution can only replace the dash.
+_CAPITALIZE_NEXT = "\x00"
+# Words that open a clause of their own: after a dash they start a new sentence.
+_SUBJECTS = frozenset(
+    "i you he she we they it i'm you're he's she's we're they're it's "
+    "there's that's i'll you'll he'll she'll we'll they'll i've you've we've they've "
+    "i'd you'd he'd she'd we'd they'd".split())
+_JOINING_WORDS = frozenset("who which the a an and but or if because so to of".split())
+# Afterthoughts that keep the comma: "I thought—never mind." is not an explanation.
+_NOT_A_COLON_TAIL = frozenset("never maybe again now please probably right okay ok too either".split())
+# A line that starts with formatting ("<i>—Hi", "{\\an8}—Hi") still starts there.
+_TAG_END_RE = re.compile(r"(?:^|\n)[ \t]*(?:<[^<>\n]{1,80}>|\{\\[^{}\n]{0,80}\})+[ \t]*$")
+_OPENERS = "\"'“‘([{"
+_CLOSERS = "”’)]}"
+
+
+def _dash_replacement(text: str, m, line_prefixes) -> str:
+    before, after = text[:m.start()], text[m.end():]
+    prev, nxt = before[-1:], after[:1]
+    if _CJK_LETTER_RE.match(prev or " ") and _CJK_LETTER_RE.match(nxt or " "):
+        return m.group(0)  # quoted source text, not English punctuation
+    if not prev or prev == "\n" or prev in _OPENERS:
+        return ""
+    line_head = before.rsplit("\n", 1)[-1].strip(" \t")
+    if _TAG_END_RE.search(before) or (line_head and all(c in line_prefixes for c in line_head)):
+        return " " if m.group(0)[:1] in " \t" else ""
+    closes_quote = nxt in _CLOSERS or (nxt in "\"'" and not re.match(r".\w", after))
+    if not nxt or nxt == "\n" or closes_quote:
+        return "" if prev in ".!?…,;:" else ("…" if "…" in text else "...")
+    if nxt in ".!?…,;:":
+        return ""
+    if prev in ",;:.!?…":
+        return " "
+    if prev.isdigit() and nxt.isdigit():
+        return "-" if m.group(0).strip() == m.group(0) else " - "
+    # "I—I can't": a stutter repeats the word before the dash.
+    last = re.search(r"([A-Za-z']+)\W*$", before)
+    if last and re.match(re.escape(last.group(1)) + r"(?![\w'’])", after, re.I):
+        return "... "
+    # "I told him—Look out!": a capital that isn't "I" or a name starts a new
+    # sentence, so the dash was a break-off.
+    word = re.match(r"[A-Za-z']+", after)
+    if word and word.group(0)[0].isupper() and word.group(0) != "I" and not before.rstrip().endswith(
+            ("said", "says", "asked", "told")) and word.group(0).lower() in _SENTENCE_STARTERS:
+        return "... "
+    # "One thing he wants—revenge.": a short phrase closing the sentence after a
+    # single dash reads as an explanation, which a colon carries better than a comma.
+    tail = re.match(r"([^.!?…\u2013\u2014\u2015,;:\n]{1,25})\.$", after)
+    if (tail and len(tail.group(1).split()) <= 2 and len(before.split()) >= 4
+            and tail.group(1).split()[0].lower() not in _NOT_A_COLON_TAIL and not _DASH_RE.search(before)):
+        return ": "
+    # "I told him—he never listens.": a new subject and verb after a single dash is a
+    # second sentence; a comma there splices two sentences (the owner found too many).
+    clause = re.match(r"([A-Za-z']+)\s+\S+[^\n\u2013\u2014\u2015]*(?=\n|$)", after)
+    if (word and word.group(0).lower() in _SUBJECTS and clause and len(before.split()) >= 2
+            and not _DASH_RE.search(before.rsplit("\n", 1)[-1])
+            and not _DASH_RE.search(after.split("\n", 1)[0]) and prev not in "\"'“‘"):
+        # "The man who—he was tall": a sentence left hanging on a joining word broke off.
+        return "... " if last and last.group(1).lower() in _JOINING_WORDS else ". " + _CAPITALIZE_NEXT
+    return ", "
+
+
+SCENE_BREAK = "* * *"
+# A novel's scene divider ("————————", "-----", "＊＊＊"). Dots and tildes are left out:
+# "・・・" and "～～～" are pauses and humming, which get translated.
+_DIVIDER_RE = re.compile(r"[ \t\u3000]*[-\u2010-\u2015=*\uFF0A\uFF0D\uFF1D\u2500\u2501 \t\u3000]{3,}[ \t\u3000]*")
+
+
+def is_divider(text: str) -> bool:
+    return bool(text) and sum(not c.isspace() for c in text) >= 3 and bool(_DIVIDER_RE.fullmatch(text))
+
+
+# A dash in the source ("——", "―", "─", "－－", "--") is the author's own, so the English keeps its dashes.
+_SOURCE_DASH_RE = re.compile(r"[\u2014\u2015\u2500\u2501]|\uFF0D\uFF0D|--")
+
+
+def drop_em_dashes(text: str, source: str = "", line_prefixes=frozenset()) -> str:
+    """English with its dashes swapped for the punctuation the owner prefers:
+    a comma mid-sentence, an ellipsis for a cut-off line, nothing at a line's
+    start; unchanged when `source` (the line's original text) has a dash of
+    its own. Dashes between two CJK letters are left alone. `line_prefixes`:
+    clean_text's sentinels for masked tags and labels, which a line may start with."""
+    if (not text or not _DASH_RE.search(text) or _SOURCE_DASH_RE.search(source or "")
+            or _CAPITALIZE_NEXT in text):
+        return text
+    cleaned = _DASH_RE.sub(lambda m: _dash_replacement(text, m, line_prefixes), text)
+    cleaned = re.sub(_CAPITALIZE_NEXT + r"(\w)", lambda m: m.group(1).upper(), cleaned).replace(_CAPITALIZE_NEXT, "")
+    # A reply that was only a dash (a cut-off or silent line) must not turn blank,
+    # which reads as untranslated.
+    return cleaned if cleaned.strip() else "..."
+
+
+def _em_dash(text, style):
+    return drop_em_dashes(text, style.get("source", ""), style.get("line_prefixes", frozenset()))
 
 
 def _ellipsis(text, style):
@@ -268,7 +373,7 @@ def _capitalize_sentence(text, style):
 
 
 _RULE_FUNCS = {
-    "cjk_punctuation": _cjk_punctuation, "ellipsis": _ellipsis, "extra_space": _extra_space,
+    "cjk_punctuation": _cjk_punctuation, "em_dash": _em_dash, "ellipsis": _ellipsis, "extra_space": _extra_space,
     "repeated_punctuation": _repeated_punctuation,
     "space_before_punctuation": _space_before_punctuation,
     "space_inside_brackets": _space_inside_brackets,
@@ -280,10 +385,11 @@ _RULE_FUNCS = {
 
 def clean_text(text: str, style: Optional[dict] = None,
                protected_terms: "Iterable[str] | re.Pattern | None" = (),
-               speaker: Optional[str] = None, rules: Iterable[str] = RULES) -> tuple:
+               speaker: Optional[str] = None, rules: Iterable[str] = RULES, source: str = "") -> tuple:
     """(cleaned text, rules that changed it). Text with CJK letters, empty
     text, over-long text, or text holding private-use characters comes back
-    unchanged. `protected_terms` may be a `compile_terms` result."""
+    unchanged. `protected_terms` may be a `compile_terms` result; `source` is
+    the line's original text (its own dashes keep the English ones)."""
     if not text or too_long(text) or has_cjk_letters(text):
         return text, []
     style = style or {"quotes": "straight", "ellipsis": "dots"}
@@ -291,6 +397,10 @@ def clean_text(text: str, style: Optional[dict] = None,
     if protected is None:
         return text, []
     masked, spans = protected
+    # Masked glossary terms are words; masked tags and speaker labels can open a line.
+    style = dict(style, source=source, line_prefixes=frozenset(
+        chr(_SENTINEL_BASE + i) for i, span in enumerate(spans)
+        if _TAG_RE.fullmatch(span) or span.rstrip().endswith(":")))
     wanted = set(rules)
     applied = []
     for name in RULES:

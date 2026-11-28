@@ -2,9 +2,15 @@ import { expect, type Page } from '@playwright/test'
 
 import { pickTab } from './tabPicker'
 
-// The Benchmark Lab sections are tabs (a picker on a phone); specs that work inside a card open its tab first.
-// The section is the first (only) card of its tab, so it is open once the tab is.
-export async function openBenchTab(page: Page, title: 'Golden sets' | 'Run a benchmark' | 'Model re-evaluation' | 'Recent runs'): Promise<void> {
+export type BenchPane = 'Golden sets' | 'Add cases' | 'Run a benchmark' | 'Transcription sweep' | 'Translation sweep' | 'Model re-evaluation' | 'Recent runs'
+
+// The Benchmark Lab sections are listed down the left (one scrolling row on a phone); specs that work inside one open it first.
+export async function openBenchTab(page: Page, title: BenchPane): Promise<void> {
   await pickTab(page, title, 'Benchmark Lab')
-  await expect(page.getByRole('region', { name: title }).locator('.bench-section-body')).toBeVisible()
+  await expect(page.getByRole('tab', { name: title, exact: true })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tabpanel')).toBeVisible()
 }
+
+// A flat section inside a pane, found by its heading.
+export const flatSection = (page: Page, heading: string) =>
+  page.locator('.section-flat').filter({ has: page.getByRole('heading', { name: heading, exact: true }) })

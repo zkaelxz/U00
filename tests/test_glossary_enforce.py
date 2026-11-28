@@ -3,7 +3,8 @@ glossary name go back once to the same engine (matched by line id), and a
 line still wrong is flagged for Review. Mocked engine, no network."""
 from engine_backends import translate_pipeline, prompts
 from core import Line
-from engine_backends import glossary_check
+from engine_backends import glossary_check, llm_feature_prompts
+import pytest
 
 TERMS = [{"term_original": "白上吹雪", "term_translation": "Shirakami Fubuki", "aliases": "吹雪",
           "enforce_exact": 0, "notes": ""}]
@@ -208,3 +209,84 @@ class TestSourceAndEnglishMatching:
         assert glossary_check.missing_terms("李", "Lily came", self.NAMES) == [("李", "Li")]
         assert glossary_check.missing_terms("李", "Li's car", self.NAMES) == []
         assert glossary_check.missing_terms("李", "Then Li left", self.NAMES) == []
+
+
+class TestEitherChineseScript:
+    """A term typed in Traditional is found in Simplified lines and the other way round,
+    so it reaches the prompt and the check instead of silently dropping out."""
+    BOSS = [{"term_original": "霸總", "term_translation": "Domineering CEO", "category": "title_rank"}]
+
+    @pytest.fixture(autouse=True)
+    def _opencc(self):
+        pytest.importorskip("opencc")
+
+    def test_a_traditional_term_is_required_of_a_simplified_line_and_back(self):
+        assert glossary_check.required_terms("对啊霸总", self.BOSS) == [("霸總", "Domineering CEO")]
+        simplified = [{**self.BOSS[0], "term_original": "霸总"}]
+        assert glossary_check.required_terms("對啊霸總", simplified) == [("霸总", "Domineering CEO")]
+
+    def test_an_alias_in_the_other_script_matches_too(self):
+        terms = [{"term_original": "Anvil", "term_translation": "Anvil", "aliases": "達洛赫",
+                  "category": "person_name"}]
+        assert llm_feature_prompts.matching_glossary_terms("达洛赫来了", terms) == terms
+
+    def test_a_longer_name_in_the_other_script_still_covers_its_shorter_part(self):
+        terms = [{"term_original": "王", "term_translation": "King", "category": "title_rank",
+                  "enforce_exact": 1},
+                 {"term_original": "王陽明", "term_translation": "Wang Yangming", "category": "person_name"}]
+        assert glossary_check.required_terms("王阳明来了", terms) == [("王陽明", "Wang Yangming")]
+
+    def test_a_single_character_stays_exact(self):
+        terms = [{"term_original": "幹", "term_translation": "do", "enforce_exact": 1}]
+        assert glossary_check.required_terms("干杯", terms) == []
+
+    def test_a_term_in_the_lines_own_script_does_not_match_inside_another_word(self):
+        # 後 and 后 are one character in Simplified; a converted line would hold 天后.
+        terms = [{"term_original": "天后", "term_translation": "Diva", "category": "person_name"}]
+        assert glossary_check.required_terms("三天後見", terms) == []
+        assert glossary_check.required_terms("天后來了", terms) == [("天后", "Diva")]
+
+    def test_enforced_spelling_applies_when_the_source_has_the_term_in_the_other_script(self):
+        import glossary_substitution
+        terms = [{"term_original": "師姐", "term_translation": "Senior Sister", "notes": "Sister",
+                  "enforce_exact": True}]
+        substitute = glossary_substitution.build_hard_term_substituter(terms)
+        assert substitute("My sister is home.", "师姐在家。") == "My Senior Sister is home."
+
+    def test_the_run_keeps_a_series_term_written_in_the_other_script(self, isolated_db):
+        import db
+        from services import workspace_job_service
+        series = db.create_series("S")
+        drama_id = db.create_drama(title_en="T", series_id=series, source_language="zh")
+        db.upsert_glossary_term(series, "霸總", "Domineering CEO", category="title_rank")
+        db.upsert_glossary_term(series, "小明", "Xiaoming", category="person_name")
+        terms, _g, _n = workspace_job_service.build_run_style_context(
+            drama_id, db.get_drama(drama_id), [Line(idx=0, start=0, end=1, zh="对啊霸总", id=1)],
+            "audio_drama")
+        assert [t["term_original"] for t in terms] == ["霸總"]
+
+
+def test_without_opencc_matching_is_exact(monkeypatch):
+    import builtins
+    import segment
+    real_import = builtins.__import__
+    monkeypatch.setattr(segment, "_opencc_t2s", None)
+    monkeypatch.setattr(segment, "_opencc_s2t", None)
+
+    def no_opencc(name, *args, **kwargs):
+        if name == "opencc" or name.startswith("opencc."):
+            raise ImportError("no opencc")
+        return real_import(name, *args, **kwargs)
+    monkeypatch.setattr(builtins, "__import__", no_opencc)
+    llm_feature_prompts._script_spellings.cache_clear()
+    try:
+        assert glossary_check.required_terms("对啊霸总", TestEitherChineseScript.BOSS) == []
+    finally:
+        llm_feature_prompts._script_spellings.cache_clear()
+
+
+def test_the_glossary_re_ask_saves_no_em_dashes():
+    engine = ScriptedEngine({10: "Shirokami Buki came.", 11: "Nice weather.", 12: "Hi Fubuki."},
+                            {10: "Shirakami Fubuki—came.", 12: "Hello, Shirakami Fubuki."})
+    lines = _run(engine, _lines())[0]
+    assert lines[0].en == "Shirakami Fubuki, came."
