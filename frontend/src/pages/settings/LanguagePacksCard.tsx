@@ -9,6 +9,8 @@ import { getLanguagePack, getLanguagePackDefault, listLanguagePacks } from '../.
 import { Card } from '../../components/Card'
 import { ErrorBanner } from '../../components/ErrorBanner'
 import type { LanguagePack, LanguagePackDefaultResult, LanguagePackSummary } from '../../types/languagePacks'
+import { EntrySearch } from '../workspace/stages/LanguagePacks'
+import { SHOWN_ENTRIES, shownEntries } from '../workspace/stages/languagePacksModel'
 import { entryText, groupPacks, PACK_LANGUAGES } from './languagePacksModel'
 
 export function LanguagePacksCard() {
@@ -55,6 +57,7 @@ export function LanguagePacksCard() {
 function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault: boolean | null }) {
   const [full, setFull] = useState<LanguagePack | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const [query, setQuery] = useState('')
   const status = onByDefault === null ? '' : onByDefault ? ' · on by default' : ' · off by default'
   return (
     <li>
@@ -71,13 +74,16 @@ function PackRow({ pack, onByDefault }: { pack: LanguagePackSummary; onByDefault
         </summary>
         {pack.description && <p className="muted">{pack.description}</p>}
         <ErrorBanner error={error} onDismiss={() => setError(null)} />
+        {full && full.entries.length > SHOWN_ENTRIES && (
+          <EntrySearch query={query} onChange={setQuery} {...shownEntries(full.entries, query)} />
+        )}
         {full && (
           <table>
             <thead>
               <tr><th>Source</th><th>English</th><th>Note</th></tr>
             </thead>
             <tbody>
-              {full.entries.map((en, i) => (
+              {shownEntries(full.entries, query).shown.map((en, i) => (
                 <tr key={i}>
                   <td>{en.source}</td>
                   <td>{entryText(en.en, full.styles.default)}</td>
