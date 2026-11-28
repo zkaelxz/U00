@@ -214,14 +214,12 @@ def test_a_change_to_the_pipeline_code_changes_the_cache_key(monkeypatch):
     assert bridge._quick_read_key(image, job) != before
 
 
-def test_the_pipeline_version_follows_the_code_files(tmp_path, monkeypatch):
-    quick_read_cache.pipeline_version.cache_clear()
+def test_editing_pipeline_code_keeps_the_version_until_it_is_bumped(monkeypatch):
     first = quick_read_cache.pipeline_version()
-    assert first == quick_read_cache.pipeline_version() and len(first) == 16
-    monkeypatch.setattr(quick_read_cache, "_PIPELINE_FILES", ("ocr.py",))
-    quick_read_cache.pipeline_version.cache_clear()
+    monkeypatch.setattr(quick_read_cache, "_PIPELINE_FILES", ("ocr.py",), raising=False)
+    assert quick_read_cache.pipeline_version() == first
+    monkeypatch.setattr(quick_read_cache, "PIPELINE_VERSION", first + "-bumped")
     assert quick_read_cache.pipeline_version() != first
-    quick_read_cache.pipeline_version.cache_clear()
 
 
 def test_health_says_the_app_reads_picture_addresses(isolated_db):
@@ -319,11 +317,6 @@ def test_sending_the_page_picture_changes_the_cache_key(isolated_db):
     before = bridge._key_settings(_job(), _config())
     settings_service.set_settings({"scanlate_page_image": not settings_service.get("scanlate_page_image")})
     assert bridge._key_settings(_job(), _config()) != before
-
-
-def test_a_change_to_the_prompt_code_changes_the_pipeline_version():
-    assert "translation_guide.py" in quick_read_cache._PIPELINE_FILES
-    assert "engine_backends" in quick_read_cache._PIPELINE_DIRS
 
 
 def test_an_entry_that_keeps_being_read_still_expires(isolated_db, monkeypatch):
