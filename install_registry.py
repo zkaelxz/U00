@@ -29,9 +29,21 @@ CV2_CONTRIB = "opencv-contrib-python"
 # other removed first. pending_install.py repeats the names (it cannot import the app) and a test
 # keeps them equal.
 ORT_SWAP_PARTNER = {"onnxruntime-gpu": "onnxruntime", "onnxruntime": "onnxruntime-gpu"}
-# The last onnxruntime-gpu build that runs on a V100 (sm_70) with the CUDA 12 DLLs PyTorch
-# ships: 1.22 has no sm_70 kernels, and 1.29 and later are CUDA 13 builds.
-ORT_PINS = {"onnxruntime-gpu": "onnxruntime-gpu==1.19.2"}
+# The newest onnxruntime-gpu builds that run on a V100 (sm_70) with the CUDA 12 DLLs PyTorch
+# ships: 1.22 has no sm_70 kernels, and 1.29 and later are CUDA 13 builds. 1.19 has no
+# Python 3.13 wheel (the first is 1.20.0), and the installer ships 3.13.
+ORT_GPU_BY_PYTHON = {(3, 12): "onnxruntime-gpu==1.19.2", (3, 13): "onnxruntime-gpu==1.20.2"}
+
+
+def ort_gpu_pin(version_info=None) -> str:
+    v = version_info or sys.version_info
+    if isinstance(v, str):
+        v = tuple(int(part) for part in v.split(".")[:2])
+    v = tuple(v[:2])
+    return ORT_GPU_BY_PYTHON[(3, 13)] if v >= (3, 13) else ORT_GPU_BY_PYTHON[(3, 12)]
+
+
+ORT_PINS = {"onnxruntime-gpu": ort_gpu_pin()}
 SWAP_UNINSTALLABLE = CV2_SWAP_UNINSTALLABLE + ("onnxruntime", "onnxruntime-gpu")
 # Keys whose install pulls its own OpenCV build; none now: PaddleOCR is installed without its
 # dependencies (below), so the swap of a plain OpenCV for the contrib build never applies.

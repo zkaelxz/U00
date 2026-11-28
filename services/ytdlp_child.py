@@ -265,9 +265,13 @@ _DURATION_MAX = 10 * 24 * 60 * 60
 _EPISODE_MAX = 99999
 
 
+_THUMB_URL_MAX = 1000
+
+
 def link_fields(info) -> dict:
     """What "Fill from link" reads, shape-checked and capped: never the
-    description, a format, a thumbnail or any other URL."""
+    description, a format or any URL but the thumbnail's (an https address the parent
+    fetches only through its guarded, paced client)."""
     info = info if isinstance(info, dict) else {}
     fields = live_fields(info)
     fields.pop("id")
@@ -281,7 +285,11 @@ def link_fields(info) -> dict:
     episode = info.get("episode_number")
     if isinstance(episode, bool) or not isinstance(episode, int) or not 1 <= episode <= _EPISODE_MAX:
         episode = None
-    fields.update(upload_date=upload, duration=duration, episode_number=episode,
+    thumb = info.get("thumbnail")
+    if not (isinstance(thumb, str) and thumb.startswith("https://") and len(thumb) <= _THUMB_URL_MAX
+            and thumb.isprintable() and " " not in thumb):
+        thumb = ""
+    fields.update(thumbnail_url=thumb, upload_date=upload, duration=duration, episode_number=episode,
                   has_thumbnail=bool(info.get("thumbnail") or info.get("thumbnails")),
                   is_playlist=info.get("_type") in ("playlist", "multi_video"))
     return fields
@@ -424,7 +432,12 @@ def _valid_link(link) -> bool:
                                  and math.isfinite(value))
     episode = link.get("episode_number") if isinstance(link, dict) else None
     # episode_number may be missing: a child from before it was read has none.
-    return (isinstance(link, dict) and _LINK_KEYS <= set(link) <= _LINK_KEYS | {"episode_number"}
+    thumb = link.get("thumbnail_url", "") if isinstance(link, dict) else ""
+    # Optional like episode_number; the parent re-checks the shape the child already applied.
+    thumb_ok = isinstance(thumb, str) and (not thumb or (
+        thumb.startswith("https://") and len(thumb) <= _THUMB_URL_MAX and thumb.isprintable() and " " not in thumb))
+    return (thumb_ok and isinstance(link, dict)
+            and _LINK_KEYS <= set(link) <= _LINK_KEYS | {"episode_number", "thumbnail_url"}
             and all(isinstance(link[k], str) and len(link[k]) <= _TEXT_MAX
                     for k in _LINK_TEXT_KEYS)
             and (episode is None or (isinstance(episode, int) and not isinstance(episode, bool)
