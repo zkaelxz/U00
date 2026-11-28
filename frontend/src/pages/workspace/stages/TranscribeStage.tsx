@@ -584,8 +584,8 @@ export default function TranscribeStage({
     (language === 'zh' && ZH_WHISPER_LABELS[size]) || (language === 'th' && TH_WHISPER_LABELS[size]) || WHISPER_LABELS[size] || size
   const moreSummary = cf
     ? [
-        modelLabel(cf.whisper_size).split(/[:(]/)[0].trim(),
-        language === 'zh' && (script === 'simplified' ? 'Simplified' : script === 'traditional' ? 'Traditional' : 'Keep script'),
+        backendNotUsed ? replacementModel(cf.asr_backend_choice) : modelLabel(cf.whisper_size).split(',')[0].replace(/\s*\(.*?\)/g, '').trim(),
+        language === 'zh' && (script === 'simplified' ? 'Simplified' : script === 'traditional' ? 'Traditional' : 'Keep current script'),
         haveTranscript && (transcriptText.trim() ? 'Transcript pasted' : 'No transcript yet'),
         `Speakers ${runDiarize ? 'on' : 'off'}`,
       ].filter(Boolean).join(' · ')
@@ -777,8 +777,8 @@ export default function TranscribeStage({
           )}
         </Section>
       </MediaTabPanel>
-      <MediaTabPanel id="tools" shownOn="transcribe" active={tab}>
-        <Section title="Tools" storageKey="transcribe.tools" openSignal={toolsLinked} summary={simple && !fieldProblem ? 'Auto-tune, speech coverage' : 'Tuning, Auto-tune, speech coverage'}>
+      <MediaTabPanel id="tools" shownOn="transcribe" active={tab} className="source-panel media-tabpanel transcribe-tools">
+        <Section title="Tools" storageKey="transcribe.tools" openSignal={toolsLinked} summary={simple && !fieldProblem ? 'Auto-tune, speech coverage and more' : 'Tuning, Auto-tune, speech coverage and more'}>
           {/* Simple leaves the tuning out, but a highlighted field must stay reachable. */}
           {cf && !(simple && !fieldProblem) && (
             <TranscribeAdvanced
