@@ -124,10 +124,12 @@ def list_engines(env_path: Optional[str] = None, probe_ollama: bool = False) -> 
 
 
 def list_history(limit: int = 50, principal=None) -> list:
-    """Thin wrapper over db.list_translate_history -- most recent first.
-    A household user sees only their own rows."""
-    return db.list_translate_history(
+    """db.list_translate_history, most recent first, each row named by its
+    account. A household user sees only their own rows."""
+    rows = db.list_translate_history(
         limit=limit, visible_to=ownership_service.visible_to_filter(principal))
+    return [{**r, "account": ownership_service.owner_name({**r, "owner_user_id": r["user_id"]})}
+            for r in rows]
 
 
 def resolve_api_key(engine_name: str, env_path: Optional[str] = None) -> Optional[str]:
