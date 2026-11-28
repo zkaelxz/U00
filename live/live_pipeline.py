@@ -166,7 +166,7 @@ class Stage:
         # audio/took: seconds of audio Whisper was handed for the current / last chunk.
         self.audio, self._took, self._last_audio = 0.0, None, 0.0
         self._slow_noted = False
-        self.timeline = None
+        self.timeline: StartTimeline | None = None
 
     def _speed(self) -> str:
         return live_whisper.speed_text(self._took, self._last_audio)
