@@ -779,6 +779,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backups/same-drive-note/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop showing the note that the copies share the library's drive */
+        post: operations["post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backups/settings": {
         parameters: {
             query?: never;
@@ -8570,6 +8587,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/queue/retry-interrupted": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put every interrupted item the caller may change back to waiting and start the queue */
+        post: operations["retry_interrupted_api_queue_retry_interrupted_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/queue/schedule": {
         parameters: {
             query?: never;
@@ -15042,9 +15076,9 @@ export interface components {
             next_run_at: string | null;
             /**
              * Problem
-             * @description Why the owner should look: the last run failed, or no success for a long while. Never set while backups are off.
+             * @description Why the owner should look: the last run failed, no success for a long while, or (until dismissed, once the library has a few titles) the copies share the library's drive. Never set while backups are off.
              */
-            problem: ("failing" | "stale") | null;
+            problem: ("failing" | "stale" | "same_drive") | null;
             /** Running */
             running: boolean;
             /**
@@ -21698,11 +21732,6 @@ export interface components {
             skipped_hand_edited_count: number;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /** GlossaryAffectedTerm */
         GlossaryAffectedTerm: {
@@ -21828,11 +21857,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * GlossaryImportRequest
@@ -25744,7 +25768,7 @@ export interface components {
         /** NotificationEvent */
         NotificationEvent: {
             /** Action */
-            action: "start_live" | null;
+            action: ("start_live" | "retry_queue") | null;
             /** At */
             at: number;
             /** Follow Id */
@@ -25755,7 +25779,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting";
+            kind: "job_done" | "job_failed" | "chapters" | "remote" | "resource" | "live" | "waiting" | "device_token";
             /** Starts At */
             starts_at: number | null;
             target: components["schemas"]["NotificationTarget"] | null;
@@ -27015,6 +27039,17 @@ export interface components {
             overlap_online_translate?: boolean | null;
             /** Stop On Failure */
             stop_on_failure?: boolean | null;
+        };
+        /** QueueRetriedInterrupted */
+        QueueRetriedInterrupted: {
+            /** Retried */
+            retried: number;
+            /** Skipped Paid */
+            skipped_paid: number;
+            /** Skipped Stale */
+            skipped_stale: number;
+            /** Started */
+            started: boolean;
         };
         /** QueueSchedule */
         QueueSchedule: {
@@ -29042,11 +29077,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * ReviewJobStart
@@ -31898,11 +31928,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * SourceConfig
@@ -34677,11 +34702,6 @@ export interface components {
              * @default false
              */
             doubtful_redo_above_cap: boolean;
-            /**
-             * Doubtful Redo Estimate Is Lower Bound
-             * @default false
-             */
-            doubtful_redo_estimate_is_lower_bound: boolean;
             /** Doubtful Redo Estimate Usd */
             doubtful_redo_estimate_usd: number | null;
             /**
@@ -34741,16 +34761,6 @@ export interface components {
             series_instructions: string | null;
             /** Style Presets */
             style_presets: components["schemas"]["TranslateRunStylePreset"][];
-            /**
-             * Thinking Switch Engines
-             * @default []
-             */
-            thinking_switch_engines: string[];
-            /**
-             * Title Thinking
-             * @default false
-             */
-            title_thinking: boolean;
             /** Translate By Sentence */
             translate_by_sentence: boolean | null;
             /** Translate Start */
@@ -34788,11 +34798,6 @@ export interface components {
             engine: string;
             /** Estimate Above Cap */
             estimate_above_cap: boolean;
-            /**
-             * Estimate Is Lower Bound
-             * @default false
-             */
-            estimate_is_lower_bound: boolean;
             /** Estimated Usd */
             estimated_usd: number | null;
             /** Free */
@@ -34803,11 +34808,6 @@ export interface components {
             monthly_refusal: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /**
          * TranslateRunStart
@@ -34907,11 +34907,6 @@ export interface components {
             reflect: boolean;
             /** Target Line Count */
             target_line_count: number;
-            /**
-             * Thinking
-             * @default false
-             */
-            thinking: boolean;
         };
         /** TranslateRunStylePreset */
         TranslateRunStylePreset: {
@@ -37695,6 +37690,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_dismiss_same_drive_note_api_backups_same_drive_note_dismiss_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutoBackupSettings"];
                 };
             };
         };
@@ -45939,7 +45954,10 @@ export interface operations {
     };
     get_cover_api_dramas__drama_id__cover_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description thumb: a small JPEG copy for lists */
+                size?: "full" | "thumb";
+            };
             header?: never;
             path: {
                 drama_id: number;
@@ -45956,6 +45974,13 @@ export interface operations {
                 content: {
                     "application/json": unknown;
                 };
+            };
+            /** @description Not modified */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Not Found */
             404: {
@@ -60084,6 +60109,62 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueueState"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retry_interrupted_api_queue_retry_interrupted_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueueRetriedInterrupted"];
                 };
             };
             /** @description Forbidden */
@@ -76095,7 +76176,6 @@ export interface operations {
                 reflect?: boolean;
                 force_retranslate?: boolean;
                 bulk?: boolean;
-                thinking?: boolean | null;
                 gemini_free_tier?: boolean | null;
                 job_cost_cap_usd?: number | null;
                 batch_size?: number | null;

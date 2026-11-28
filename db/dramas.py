@@ -210,6 +210,12 @@ def count_dramas_owned_by(user_id: int) -> int:
         return conn.execute("SELECT COUNT(*) FROM dramas WHERE owner_user_id = ?", (user_id,)).fetchone()[0]
 
 
+def has_at_least_dramas(n: int) -> bool:
+    """Stops counting at n, so a large library costs no more than a small one."""
+    with contextlib.closing(db.get_conn()) as conn:
+        return conn.execute("SELECT COUNT(*) FROM (SELECT 1 FROM dramas LIMIT ?)", (n,)).fetchone()[0] >= n
+
+
 def earlier_episode_summaries(drama_id: int) -> list:
     """[(episode_number, summary)] of the episodes of this drama's series that come
     before it, oldest first, leaving out the one just before it (that one reaches

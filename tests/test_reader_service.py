@@ -306,7 +306,6 @@ class TestOwnership:
     @pytest.mark.parametrize("call", [
         lambda: reader_service.get_caption_tracks(999),
         lambda: reader_service.get_media_availability(999),
-        lambda: reader_service.media_file_path(999, "original"),
         lambda: reader_service.get_reading_overview(999),
         lambda: reader_service.save_reading_position(999, 1),
         lambda: reader_service.get_notes(999),
@@ -368,7 +367,7 @@ class TestMedia:
         assert info["original"] == "video" and info["narration"] is True and "dub" not in info
         assert info["captions_overlay"] is True
         assert os.sep not in repr(info)
-        kind, path = reader_service.media_file_path(did, "original")
+        kind, path = reader_service._media_paths(did, isolated_db.get_drama(did))["original"]
         assert kind == "video" and path.endswith("v.mp4")
 
     def test_old_dub_track_plays_as_narration_until_a_narration_track_exists(self, isolated_db):
@@ -377,9 +376,9 @@ class TestMedia:
         self._media(isolated_db, did, "a.wav")
         self._media(isolated_db, did, "dub_track.wav")
         assert reader_service.get_media_availability(did)["narration"] is True
-        assert reader_service.media_file_path(did, "narration")[1].endswith("dub_track.wav")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("dub_track.wav")
         self._media(isolated_db, did, "narration_track.wav")
-        assert reader_service.media_file_path(did, "narration")[1].endswith("narration_track.wav")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("narration_track.wav")
 
     def test_a_flac_narration_track_plays_and_wins_over_a_wav(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav")
@@ -388,18 +387,15 @@ class TestMedia:
         self._media(isolated_db, did, "narration_track.wav")
         self._media(isolated_db, did, "narration_track.flac")
         assert reader_service.get_media_availability(did)["narration"] is True
-        assert reader_service.media_file_path(did, "narration")[1].endswith("narration_track.flac")
+        assert reader_service._media_paths(did, isolated_db.get_drama(did))["narration"][1].endswith("narration_track.flac")
 
-    def test_audio_only_has_no_overlay_and_missing_file_is_404(self, isolated_db):
+    def test_audio_only_has_no_overlay_and_a_missing_file_is_not_offered(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.wav", source_video_filename="gone.mp4")
         isolated_db.save_lines(did, _lines(1))
         self._media(isolated_db, did, "a.wav")
         info = reader_service.get_media_availability(did)
         assert info["original"] == "audio" and info["captions_overlay"] is False
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did, "narration")
-        with pytest.raises(InvalidInputError):
-            reader_service.media_file_path(did, "../etc")
+        assert "narration" not in reader_service._media_paths(did, isolated_db.get_drama(did))
 
 
 class TestProgressNotes:
@@ -810,22 +806,18 @@ class TestReviewFixes:
         outside.write_bytes(b"\x00" * 16)
         os.symlink(str(outside), os.path.join(isolated_db.drama_dir(did), "dub_track.wav"))
         os.makedirs(os.path.join(isolated_db.drama_dir(did), "narration_track.wav"))
-        for kind in ("original", "narration"):
-            with pytest.raises(NotFoundError):
-                reader_service.media_file_path(did, kind)
+        assert reader_service._media_paths(did, isolated_db.get_drama(did)) == {}
         info = reader_service.get_media_availability(did)
         assert info["original"] is None and not info["narration"]
 
     def test_media_extension_whitelist_and_no_symlinked_original(self, isolated_db):
         did = _drama(isolated_db, audio_filename="a.txt")
         self._file(isolated_db, did, "a.txt")
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did, "original")
+        assert "original" not in reader_service._media_paths(did, isolated_db.get_drama(did))
         did2 = _drama(isolated_db, audio_filename="a.wav")
         real = self._file(isolated_db, did2, "real.wav")
         os.symlink(real, os.path.join(isolated_db.drama_dir(did2), "a.wav"))
-        with pytest.raises(NotFoundError):
-            reader_service.media_file_path(did2, "original")
+        assert "original" not in reader_service._media_paths(did2, isolated_db.get_drama(did2))
 
     def test_clear_wiki_requires_confirm(self, isolated_db):
         did = _drama(isolated_db)

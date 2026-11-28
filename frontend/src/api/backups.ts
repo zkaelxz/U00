@@ -26,6 +26,10 @@ export const getBackupSettings = (f?: Fetch) =>
 export const updateBackupSettings = (changes: AutoBackupSettingsUpdate, f?: Fetch) =>
   postJson<AutoBackupSettings>(`${BASE}/settings`, changes, pcOnlyFetch(f))
 
+/** The owner has read the same-drive note; the server never raises it again. */
+export const dismissSameDriveNote = (f?: Fetch) =>
+  postJson<AutoBackupSettings>(`${BASE}/same-drive-note/dismiss`, {}, pcOnlyFetch(f))
+
 /** Adds a new copy; the oldest copies then rotate out on the server. */
 export const backUpNow = (f?: Fetch) => postJson<BackupJobStarted>(`${BASE}/now`, {}, pcOnlyFetch(f))
 
