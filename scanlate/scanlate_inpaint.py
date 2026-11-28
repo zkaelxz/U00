@@ -136,17 +136,46 @@ def _with_halo(gray_roi, paper: float, core_mask):
 _ART_MIN_EDGE_MARK_SHARE = 0.08
 
 
-def _drop_marks_running_off_edge(mask) -> None:
+_RESCUE_MIN_CHROMA = 15
+_RESCUE_MAX_COLOUR_GAP = 12
+_RESCUE_MAX_DROPPED_SHARE = 0.35
+
+
+def _drop_marks_running_off_edge(mask, roi=None) -> None:
     """Clears, in place, the mask components that touch the crop's edge and
     cover a sizeable share of it. Small ones stay: a stroke can end at the
-    edge of a tight box."""
+    edge of a tight box. With `roi`, pixels of a cleared component that have
+    the colour of the lettering that stayed are put back: coloured lettering
+    that touches the art is one component with it, and dropping that left the
+    letters unerased."""
     import cv2
     count, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), connectivity=8)
     rh, rw = mask.shape[:2]
+    dropped = np.zeros(mask.shape[:2], bool)
+    rim = None
     for i in range(1, count):
         x, y, w, h, area = stats[i]
         if (x == 0 or y == 0 or x + w == rw or y + h == rh) and area >= _ART_MIN_EDGE_MARK_SHARE * rh * rw:
-            mask[labels == i] = 0
+            dropped |= labels == i
+    if roi is not None and dropped.any():
+        ab = cv2.cvtColor(roi, cv2.COLOR_BGR2LAB).astype(np.int32)[..., 1:] - 128
+        chroma = np.hypot(ab[..., 0], ab[..., 1])
+        coloured = (mask > 0) & (chroma >= _RESCUE_MIN_CHROMA)
+        if coloured.any():
+            # The most common chroma among the marks is the lettering's: art is
+            # varied, and a share cap stops a plain art blob being taken whole.
+            bins = (ab[coloured] // _RESCUE_MAX_COLOUR_GAP)
+            keys, counts = np.unique(bins, axis=0, return_counts=True)
+            colour = (keys[counts.argmax()] + 0.5) * _RESCUE_MAX_COLOUR_GAP
+            gap = np.hypot(ab[..., 0] - colour[0], ab[..., 1] - colour[1])
+            rescued = dropped & (chroma >= _RESCUE_MIN_CHROMA) & (gap <= _RESCUE_MAX_COLOUR_GAP)
+            if rescued.sum() <= _RESCUE_MAX_DROPPED_SHARE * dropped.sum():
+                dropped &= ~rescued
+                # The lettering's anti-aliased rim is paler than its core, so a bare core mask left it as ghost outlines.
+                rim = cv2.dilate(rescued.astype(np.uint8), np.ones((3, 3), np.uint8), iterations=2) > 0
+    mask[dropped] = 0
+    if rim is not None:
+        mask[rim] = 255
 
 
 _RIM_BAND_PX = 6
@@ -969,7 +998,7 @@ def _erase_mask(gray_roi, keep, spare_art: bool, on_art: bool, roi=None):
     if strokes is not None:
         return strokes, False
     if spare_art:
-        _drop_marks_running_off_edge(mask)
+        _drop_marks_running_off_edge(mask, roi)
     elif on_art:
         _drop_hollow_frames(mask, gray_roi)
     return mask, False

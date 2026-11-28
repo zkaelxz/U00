@@ -43,6 +43,18 @@ def test_large_dark_art_running_off_the_box_edge_is_not_erased():
     assert mask[:, :20].sum() == 0 and mask[18:22, 30:34].all()
 
 
+def test_coloured_lettering_joined_to_art_at_the_edge_is_still_erased():
+    roi = np.full((60, 60, 3), 255, np.uint8)
+    roi[:, 40:47] = (60, 140, 60)               # varied art running off the edge
+    roi[:, 47:54] = (200, 120, 40)
+    roi[:, 54:] = (60, 190, 200)
+    roi[20:26, 5:45] = (90, 90, 200)            # red lettering that touches the art
+    roi[34:40, 5:45] = (90, 90, 200)
+    mask = ((roi != 255).any(axis=2) * 255).astype(np.uint8)
+    scanlate_inpaint._drop_marks_running_off_edge(mask, roi)
+    assert mask[20:26, 5:38].all() and mask[34:40, 5:38].all() and mask[:, 50:].sum() == 0
+
+
 def test_storage_cleanup_forgets_the_typeset_files_it_deleted(isolated_db):
     did = db.create_drama(title_en="t")
     pid = db.create_page(did, 0, "pages/a.png", 10, 10)
