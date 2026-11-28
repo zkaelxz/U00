@@ -910,6 +910,30 @@ class TestRequestTranslationsWithRetry:
         result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["First.", "Second."]
 
+    def test_saved_lines_are_numbered_1_to_n_and_land_back_by_that_number(self):
+        """Long database ids are never shown: the model answers short keys,
+        each mapped back to its own line, a retry asking the same number."""
+        prompts = []
+
+        class Engine:
+            supports_reference = True
+
+            def translate_batch(self, zh_lines, context):
+                def call_model(numbered):
+                    prompts.append(numbered)
+                    if len(prompts) == 1:
+                        return '{"3": "Third.", "1": "First."}'
+                    return '{"2": "Second."}'
+                return engine_shared.request_translations_with_retry(zh_lines, None, call_model)
+
+        lines = [Line(idx=i, start=i, end=i + 1, zh=z, id=100530 + i) for i, z in enumerate("abc")]
+        translate_pipeline.translate_lines_with_engine(lines, Engine(), {}, context_window=0,
+                                                       context_window_ahead=0)
+        assert [ln.en for ln in lines] == ["First.", "Second.", "Third."]
+        assert prompts[0] == "1. a\n2. b\n3. c"
+        assert prompts[1] == "2. b"
+        assert not any("10053" in p for p in prompts)
+
     def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
         captured = {}
         def call_model(numbered):
@@ -1232,18 +1256,18 @@ class TestReflectTranslateBatch:
         assert "EXPRESSIVENESS" in engine.prompts[2]
         assert "critique" in engine.prompts[2]  # the rewrite pass sees the critique
 
-    def test_permanent_line_ids_are_kept_through_every_pass(self):
+    def test_every_pass_numbers_lines_from_1_not_by_database_id(self):
         engine = _ScriptedReflectEngine([
-            '{"101": "Draft one.", "205": "Draft two."}',
-            '{"101": "a critique"}',
-            '{"101": "Final one.", "205": "Final two."}',
+            '{"2": "Draft two.", "1": "Draft one."}',
+            '{"1": "a critique"}',
+            '{"2": "Final two.", "1": "Final one."}',
         ])
         translations, critiques = reflect_pass.reflect_translate_batch(
-            engine, ["你好", "再见"], {"line_ids": [101, 205]})
+            engine, ["你好", "再见"], {"line_ids": [100530, 100531]})
         assert translations == ["Final one.", "Final two."]
         assert critiques == ["a critique", ""]
         for prompt in engine.prompts:
-            assert "101." in prompt and "205." in prompt  # ids, not 1-based positions
+            assert "1." in prompt and "100530" not in prompt
 
     def test_a_missing_id_in_one_pass_only_affects_that_lines_result(self):
         # Line 2's faithfulness draft never comes back (even after the
@@ -1297,9 +1321,9 @@ class TestReflectModeInTranslateLinesWithEngine:
 
     def test_reflect_mode_writes_translations_and_notes(self):
         engine = _ScriptedReflectEngine([
-            '{"11": "Draft one.", "22": "Draft two."}',
-            '{"11": "a bit stiff"}',
-            '{"11": "Final one.", "22": "Final two."}',
+            '{"1": "Draft one.", "2": "Draft two."}',
+            '{"1": "a bit stiff"}',
+            '{"1": "Final one.", "2": "Final two."}',
         ])
         lines = [Line(idx=0, start=0, end=1, zh="你好", id=11),
                  Line(idx=1, start=1, end=2, zh="再见", id=22)]

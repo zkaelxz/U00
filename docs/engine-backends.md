@@ -65,13 +65,15 @@ KeyError. The only trace left is a DeepL key pattern in
 ### What `shared.py` provides
 
 - **Id-keyed requests.** `request_translations_with_retry(zh_lines,
-  speaker_names, call_model_fn, ..., line_ids=, engine_name=)` is the one loop
+  speaker_names, call_model_fn, ..., engine_name=)` is the one loop
   behind every engine's `translate_batch`. It numbers lines
   (`build_numbered_lines`), asks the model for a JSON object `{"<id>": "<text>"}`,
   and re-requests only the ids that came back missing (`max_retries`, default
-  1). Ids are the lines' permanent ids when every line has a unique int id,
-  else `1..n`. A line still missing after the retry stays blank; it never
-  borrows another line's text.
+  1). Ids are `1..n` for that one call, never the lines' database ids (a
+  model copying long near-identical ids slips a digit or skips one). Key k
+  is the k-th line passed in; the reply is still read by key, never by its
+  order. A line still missing after the retry stays blank; it never borrows
+  another line's text.
 - **`parse_id_keyed_json(text, expected_ids)`.** Returns `{id: text}` for ids
   that came back as strings. A bare JSON array is treated as malformed (`{}`)
   because positional matching is exactly the bug this exists to prevent.
@@ -532,8 +534,8 @@ fall back to `GOOGLE_API_KEY`). Ollama's URL comes from `ollama_url` /
 
 1. **Class** in the matching `engine_backends/` module (or a new one), with
    `name`, `supports_reference`, `last_usage`, and `translate_batch(zh_lines,
-   context)` built on `request_translations_with_retry(..., line_ids=
-   context.get("line_ids"), engine_name=...)`. Raise
+   context)` built on `request_translations_with_retry(...,
+   engine_name=...)`. Raise
    `ContentModerationBlocked` on the provider's structural refusal signal.
 2. **Registry:** add it to `ENGINES`, `ENGINE_CAPABILITIES`, `ENGINE_NOTES`,
    and, if free or keyless, `FREE_ENGINES` / `KEYLESS_ENGINES`; if it cannot

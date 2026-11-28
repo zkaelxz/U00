@@ -255,7 +255,7 @@ class GeminiEngine:
             return TruncatedReply(text) if finish_reason == "MAX_TOKENS" else text
 
         return request_translations_with_retry(zh_lines, context.get("speaker_labels"), call_model,
-                                                line_ids=context.get("line_ids"), engine_name="gemini",
+                                                engine_name="gemini",
                                                 line_languages=context.get("line_languages"),
                                                 sentence_groups=context.get("sentence_groups"))
 
