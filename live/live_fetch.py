@@ -35,6 +35,16 @@ READ_TIMEOUT = 20.0
 # capture; a live playlist that keeps failing to refresh, or one playlist,
 # key or segment request still unfinished after it, ends the same way.
 STALL_TIMEOUT = 60.0
+# Once the session has captioned audio a break is reconnected, not fatal, so a
+# settled pump gives up on a dead link sooner: a refused playlist is the usual
+# sign of an expired stream link, and waiting out the full stall does not fix it.
+# The stall is a few of the playlist's own segment lengths, so a slow stream
+# with long segments is not cut off, and never below the floor, so a short
+# pause in a healthy stream is waited out.
+SETTLED_STALL_MIN = 15.0
+SETTLED_STALL_TARGETS = 4
+SETTLED_REFUSALS = 3
+GONE_STATUSES = frozenset({403, 404, 410})
 CHUNK_BYTES = 65_536
 # The fetcher is at most this many chunks ahead of ffmpeg (backpressure
 # instead of buffering a stream that ffmpeg can't keep up with).
@@ -69,6 +79,7 @@ UNSUPPORTED = "The stream uses an HLS feature live capture doesn't support (byte
 NEEDS_CRYPTOGRAPHY = ("The stream is encrypted (AES-128); decrypting it needs the cryptography "
                       "package: pip install cryptography")
 FAILED = "Fetching the stream failed."
+LINK_REFUSED = "The stream server refused the playlist (the stream link may have expired)."
 # Failures a fresh connection would meet again: Live ends on these at once
 # rather than reconnecting.
 PERMANENT = frozenset({NOT_HTTP, TOO_LARGE, UNSUPPORTED, NEEDS_CRYPTOGRAPHY})
@@ -81,6 +92,10 @@ class StreamFetchError(Exception):
 class _FetchFailed(StreamFetchError):
     """One request failed; an HLS segment, key or refresh is retried or
     skipped, the way ffmpeg's HLS demuxer treats them."""
+
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 class _Stopped(Exception):
@@ -295,6 +310,7 @@ class StreamPump:
         self.error = None
         self._sink = sink
         self._stall_timeout = STALL_TIMEOUT if stall_timeout is None else stall_timeout
+        self._settled = threading.Event()
         self._queue = queue.Queue(maxsize=QUEUE_CHUNKS)
         self._stop = threading.Event()
         self._fetch_done = threading.Event()
@@ -319,6 +335,16 @@ class StreamPump:
             thread.start()
             self._threads.append(thread)
         return self
+
+    def settle(self):
+        """The session has captioned this stream's audio: from now on a
+        stall or a refused playlist ends the capture sooner (SETTLED_*)."""
+        self._settled.set()
+
+    def _hls_stall(self, target: float) -> float:
+        if not self._settled.is_set():
+            return self._stall_timeout
+        return min(self._stall_timeout, max(SETTLED_STALL_MIN, SETTLED_STALL_TARGETS * target))
 
     def halt(self):
         """Ask both threads to stop without waiting. A blocked fetch is
@@ -482,7 +508,7 @@ class StreamPump:
                 status = response.status_code
                 response.close()
                 raise _FetchFailed(REFUSED if status in (403, 407, 502)
-                                   else f"The stream server answered HTTP {status}.")
+                                   else f"The stream server answered HTTP {status}.", status)
             # Bytes are passed on undecoded, so a compressed body would
             # reach ffmpeg (or the playlist parser) as noise.
             if response.headers.get("Content-Encoding", "identity").lower() != "identity":
@@ -505,9 +531,9 @@ class StreamPump:
             self._check_stop()
             raise _FetchFailed(STALLED) from None
 
-    def _read(self, url: str, limit: int) -> tuple:
+    def _read(self, url: str, limit: int, timeout: float | None = None) -> tuple:
         """(body, final url) of one GET bounded in size and in time."""
-        with self._deadline(time.monotonic() + self._stall_timeout):
+        with self._deadline(time.monotonic() + (timeout or self._stall_timeout)):
             response = self._follow(url)
             try:
                 body = bytearray()
@@ -545,8 +571,8 @@ class StreamPump:
                 response.close()
         self._hls(bytes(body).decode("utf-8", "replace"), final_url)
 
-    def _playlist(self, url: str) -> tuple:
-        body, final_url = self._read(url, MAX_PLAYLIST_BYTES)
+    def _playlist(self, url: str, timeout: float | None = None) -> tuple:
+        body, final_url = self._read(url, MAX_PLAYLIST_BYTES, timeout)
         return parse_playlist(body.decode("utf-8", "replace"), final_url), final_url
 
     def _key(self, uri: str, keys: dict) -> bytes:
@@ -570,6 +596,7 @@ class StreamPump:
             return
         next_seq, init_uri, keys = None, None, {}
         last_new = time.monotonic()
+        refusals = 0
         while True:
             segments = playlist["segments"]
             if segments and next_seq is not None \
@@ -588,7 +615,8 @@ class StreamPump:
                 next_seq = segment["seq"] + 1
             if playlist["endlist"]:
                 return
-            if time.monotonic() - last_new > self._stall_timeout:
+            stall = self._hls_stall(playlist["target"])
+            if time.monotonic() - last_new > stall:
                 raise StreamFetchError(STALLED)
             # RFC 8216 6.3.4: reload after a target duration, or half of
             # one when the last reload brought nothing new.
@@ -596,9 +624,12 @@ class StreamPump:
             if self._stop.wait(max(wait, playlist["size"] / PLAYLIST_BYTES_PER_SECOND)):
                 raise _Stopped
             try:
-                playlist, url = self._playlist(url)
-            except _FetchFailed:
-                pass
+                playlist, url = self._playlist(url, stall)
+                refusals = 0
+            except _FetchFailed as exc:
+                refusals = refusals + 1 if exc.status in GONE_STATUSES else 0
+                if refusals >= SETTLED_REFUSALS and self._settled.is_set():
+                    raise StreamFetchError(LINK_REFUSED) from None
 
     def _segment(self, segment: dict, keys: dict, init_uri) -> bool:
         """Emits one segment (after its init section, when that changed);
