@@ -62,12 +62,13 @@ is added. It never carries the client id, secret, public URL or any token.
 import html
 import threading
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 from urllib.parse import quote, urlsplit
 
 from fastapi import APIRouter, Path, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from api.auth import (is_auth_enabled, authenticated, clear_session_cookie, client_ip,
                       is_local_request, listener_principal,
@@ -97,6 +98,11 @@ _APP_PAGE_CSP = ("default-src 'none'; style-src 'unsafe-inline'; "
 _APP_PAGE_STYLE = ("font-family:sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem")
 
 
+# me() deletes these keys rather than sending null, so the generated types must say
+# they may be absent (tools/export_openapi.py otherwise marks every served field required).
+OMITTED_WHEN_NONE = "x-omitted-when-none"
+
+
 class MeUser(BaseModel):
     id: Optional[int] = None
     email: Optional[str] = None
@@ -117,10 +123,12 @@ class MeResponse(BaseModel):
     # `engines.paid` is left out of `permissions` until it is raised or the month ends.
     paid_limit_reached: bool = False
     # What the account keeps for every device (theme); only for a signed-in account.
-    preferences: Optional[AccountPreferences] = None
+    preferences: Union[AccountPreferences, SkipJsonSchema[None]] = Field(
+        None, json_schema_extra={OMITTED_WHEN_NONE: True})
     # The signed-in member's own limits, so a refusal is not the first they hear of one;
     # absent for an admin and the PC owner, who have none.
-    limits: Optional[MemberLimits] = None
+    limits: Union[MemberLimits, SkipJsonSchema[None]] = Field(
+        None, json_schema_extra={OMITTED_WHEN_NONE: True})
 
 
 class LogoutResponse(BaseModel):
