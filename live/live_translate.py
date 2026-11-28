@@ -385,7 +385,8 @@ class TermHints:
     @property
     def names(self) -> str:
         # The newest few only: the previous chunk's tail comes after these and needs its room too.
-        fixed = [s for s, _ in self.fixes() if s not in self._names][-MAX_PROMPTED_FIXES:]
+        primed = set(re.split(r"[、。]", self._names))
+        fixed = [s for s, _ in self.fixes() if s not in primed][-MAX_PROMPTED_FIXES:]
         if not fixed:
             return self._names
         return self._names + "、".join(fixed) + "。"

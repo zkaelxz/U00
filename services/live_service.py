@@ -870,21 +870,23 @@ def add_name_fix(session_id, source, english, save_to_glossary=False, principal=
         raise ForbiddenError("Only the person who started this session can fix a name in it.")
     if hints is None or _status(job) not in ("queued", "running"):
         raise ConflictError("This session has ended.")
-    if not hints.has_room(source):
-        raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
-    if save_to_glossary:
-        if target is None:
-            raise InvalidInputError("This session doesn't use a glossary.")
-        _save_fix_to_glossary(principal, target, source, english)
-    try:
+    # One fix at a time: two at the cap must not both write the glossary and then one be refused.
+    with _fix_lock:
+        if not hints.has_room(source):
+            raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
+        if save_to_glossary:
+            if target is None:
+                raise InvalidInputError("This session doesn't use a glossary.")
+            _save_fix_to_glossary(principal, target, source, english)
+        with _lock:
+            # Like a picked glossary: someone starting the same stream later gets their own session,
+            # not captions shaped by this person's fixes.
+            (_sessions.get(session_id) or {})["private"] = True
         hints.add_fix(source, english)
-    except ValueError:
-        raise ConflictError(f"A session keeps at most {live_translate.MAX_NAME_FIXES} fixed names.")
-    with _lock:
-        # Like a picked glossary: someone starting the same stream later gets their own session,
-        # not captions shaped by this person's fixes.
-        (_sessions.get(session_id) or {})["private"] = True
     return {"session_id": session_id, "fixes": [{"source": s, "english": e} for s, e in hints.fixes()]}
+
+
+_fix_lock = threading.Lock()
 
 
 def _save_fix_to_glossary(principal, target, source, english) -> None:
