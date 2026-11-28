@@ -16,7 +16,7 @@ from fastapi import APIRouter, Path, Query, Request
 from api import after_import_plan
 from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
-from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueuePolicy,
+from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueueNightSet, QueuePolicy, QueueTonight,
                          FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
 from services import (glossary_extract_service, model_readiness_service, page_run_service, queue_service,
                       scanlate_pages_service)
@@ -53,14 +53,15 @@ def step_settings(request: Request, drama_id: int = Query(ge=1, lt=2**63),
 def add_item(body: QueueAddItem, request: Request):
     return queue_service.add_item(request.state.principal, body.drama_id, body.step,
                                   holds_paid_engines(request), at_pc=is_at_pc(request),
-                                  settings=body.settings, holds_edit=holds(request, "lines.edit"))
+                                  settings=body.settings, holds_edit=holds(request, "lines.edit"),
+                                  tonight=body.tonight)
 
 
 @router.post("/items/all-steps", dependencies=[require_permission("jobs.start")], response_model=QueueState,
              summary="Add Transcribe, Translate and Export for a title, in that order", responses=_ERRORS)
 def add_all_steps(body: QueueAddAllSteps, request: Request):
     return queue_service.add_all_steps(request.state.principal, body.drama_id,
-                                       holds_paid_engines(request), at_pc=is_at_pc(request))
+                                       holds_paid_engines(request), at_pc=is_at_pc(request), tonight=body.tonight)
 
 
 @router.post("/items/bulk", dependencies=[require_permission("jobs.start")], response_model=QueueBulkAdded,
@@ -68,7 +69,7 @@ def add_all_steps(body: QueueAddAllSteps, request: Request):
              responses=_ERRORS)
 def add_bulk(body: QueueAddBulk, request: Request):
     return queue_service.add_bulk(request.state.principal, body.drama_ids, body.step,
-                                  holds_paid_engines(request), at_pc=is_at_pc(request))
+                                  holds_paid_engines(request), at_pc=is_at_pc(request), tonight=body.tonight)
 
 
 @router.post("/items/{item_id}/move", dependencies=[require_permission("jobs.start")],
@@ -94,6 +95,13 @@ def hold_item(request: Request, item_id: int = _ITEM):
              response_model=QueueState, summary="Resume a paused item", responses=_ERRORS)
 def resume_item(request: Request, item_id: int = _ITEM):
     return queue_service.hold_item(request.state.principal, item_id, False)
+
+
+@router.post("/items/{item_id}/tonight", dependencies=[require_permission("jobs.start")],
+             response_model=QueueState, summary="Make a waiting item wait for the night window, or run it in turn (Run now)",
+             responses=_ERRORS)
+def set_item_tonight(body: QueueTonight, request: Request, item_id: int = _ITEM):
+    return queue_service.set_item_tonight(request.state.principal, item_id, body.tonight)
 
 
 @router.post("/items/{item_id}/cancel", dependencies=[require_permission("jobs.start")],
@@ -133,6 +141,13 @@ def pause(request: Request):
              responses=_ERRORS)
 def set_schedule(body: QueueScheduleSet, request: Request):
     return queue_service.set_schedule(request.state.principal, body.time)
+
+
+@router.post("/night", dependencies=[require_permission("jobs.start")], response_model=QueueState,
+             summary="The night window Tonight items wait for, and the nightly self-check switch",
+             responses=_ERRORS)
+def set_night(body: QueueNightSet, request: Request):
+    return queue_service.set_night(request.state.principal, body.start, body.end, body.self_check)
 
 
 @router.post("/policy", dependencies=[require_permission("jobs.start")], response_model=QueueState,
