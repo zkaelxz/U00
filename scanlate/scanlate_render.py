@@ -116,7 +116,7 @@ def _in_rooms(regions: list, rooms: list) -> list:
 def process_page(image_path: str, bubbles: list, out_path: str, font_path: str | None = None,
                   custom_fonts: dict | None = None, notes: list | None = None,
                   match_color: bool = False, rect_layout: bool = False,
-                  look: TypesetStyle = _PLAIN):
+                  look: TypesetStyle = _PLAIN, png_compress_level: int = 6):
     """
     Full render pass: inpaint every bubble that has real translated text,
     then draw that text into the cleaned box. `bubbles` is a list of dicts
@@ -206,7 +206,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         _letter_balloons(pil_img, image_path, _in_rooms(to_render, letter_rooms), gray,
                          font_path, custom_fonts, inks, rect_layout, look, angles, fades, lines)
         _draw_glosses(pil_img, page, bubbles, art_signs, font_path)
-        pil_img.save(result_path, "PNG")
+        pil_img.save(result_path, "PNG", compress_level=png_compress_level)
         replace_file(result_path, out_path)
     finally:
         if os.path.exists(result_path):

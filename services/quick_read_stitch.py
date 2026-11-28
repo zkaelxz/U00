@@ -36,7 +36,9 @@ def _join(parts: list) -> bytes:
             canvas.paste(rgba, (0, top), rgba)
         top += size[1]
     out = io.BytesIO()
-    canvas.save(out, "PNG")
+    # Only decoded again on this PC (the picture sent is packed on its own), so
+    # the fast level: level 6 cost 0.15-0.27 s a chunk for a 0-8% smaller file.
+    canvas.save(out, "PNG", compress_level=1)
     return out.getvalue()
 
 
