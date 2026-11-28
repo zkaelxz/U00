@@ -363,6 +363,18 @@ class TestARefusedStartChangesNothing:
 
 
 class TestClipTranscriptsWhisperWrote:
+    def test_whisper_is_used_only_when_on_this_pc_and_from_the_settings_folder(self, isolated_db, monkeypatch, tmp_path):
+        asked = []
+        monkeypatch.setattr(listen_service.model_readiness_service, "whisper_ready",
+                            lambda size, local=None: asked.append((size, local)) or local is not None)
+        monkeypatch.setattr(listen_service.settings_service, "get",
+                            lambda key: str(tmp_path) if key == "whisper_model_path" else None)
+        assert listen_service._clip_whisper() == {"local_model_path": str(tmp_path)}
+        monkeypatch.setattr(listen_service.settings_service, "get", lambda key: None)
+        # large-v3 not downloaded and no folder set: no transcript, not a silent download.
+        assert listen_service._clip_whisper() is None
+        assert asked == [("large-v3", str(tmp_path)), ("large-v3", None)]
+
     def _speakers(self, db, did):
         for label, clip, text in (("A", "voice_refs/a.wav", ""), ("B", "voice_refs/b.wav", ""),
                                   ("C", "voice_refs/c.wav", "Typed meanwhile.")):

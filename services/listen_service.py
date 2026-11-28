@@ -19,7 +19,7 @@ from voice import dub_narration
 import novel_text
 from voice import voice_venv
 from jobs import job_launch
-from services import characters_service, ownership_service, settings_service
+from services import characters_service, model_readiness_service, ownership_service, settings_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
@@ -244,6 +244,15 @@ def apply_narration_result(drama_id: int, result: dict, clips_at_start=None) -> 
     _remove_unused_clips(drama_id)
 
 
+def _clip_whisper():
+    """The Whisper a clip's transcript is written with ({"local_model_path"}), or None when it is
+    not on this PC: the Settings folder as transcription uses it, else the cached large-v3."""
+    local = settings_service.get("whisper_model_path") or None
+    if not model_readiness_service.whisper_ready(dub_narration.CLIP_TRANSCRIPT_WHISPER, local):
+        return None
+    return {"local_model_path": local}
+
+
 def _keep_clip_transcripts(drama_id: int, transcripts: dict, clips_at_start: dict) -> None:
     """Saves the transcript Whisper wrote for a speaker's clip, so later runs and Voices use it
     (and it can be corrected there). Only while the speaker still has the clip it was heard
@@ -323,7 +332,8 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
                                narrate_original=narrate_original, source_language=source_lang,
-                               pace=_narration_pace(), use_gpu=bool(settings_service.get("use_gpu")))
+                               pace=_narration_pace(), use_gpu=bool(settings_service.get("use_gpu")),
+                               clip_whisper=_clip_whisper())
     clips_at_start = {c["speaker_label"]: c.get("ref_audio_filename") for c in chars}
     started = job_launch.start_process_job(
         job_id, worker, args=(lines, ddir, clone_map),

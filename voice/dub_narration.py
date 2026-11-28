@@ -672,9 +672,10 @@ def _clips_missing_transcript(clone_map) -> dict:
     return missing
 
 
-def fill_clip_transcripts(clone_map, use_gpu: bool) -> dict:
+def fill_clip_transcripts(clone_map, use_gpu: bool, local_model_path=None) -> dict:
     """Writes what Whisper hears into each Qwen3-TTS clone entry whose clip has no transcript,
     in the clip's own language (detected), and frees Whisper before the voice engine loads.
+    local_model_path: the Whisper model folder set in Settings, used as transcription uses it.
     Returns {speaker label: transcript} for the entries filled. A clip it hears nothing in, or
     cannot hear (no model while offline, say), keeps the speaker-embedding-only mode."""
     missing = _clips_missing_transcript(clone_map)
@@ -690,7 +691,7 @@ def fill_clip_transcripts(clone_map, use_gpu: bool) -> dict:
             try:
                 segments = whisper_transcribe.transcribe_for_timing(
                     path, CLIP_TRANSCRIPT_WHISPER, language=None, use_gpu=use_gpu,
-                    beam_size=CLIP_TRANSCRIPT_BEAM)
+                    local_model_path=local_model_path, beam_size=CLIP_TRANSCRIPT_BEAM)
             except Exception as exc:
                 applog.get_logger().warning(f"a voice clip's transcript was not written: {type(exc).__name__}")
                 continue
@@ -705,7 +706,7 @@ def fill_clip_transcripts(clone_map, use_gpu: bool) -> dict:
 
 def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, result_queue,
                                       narrate_original=False, source_language="zh", pace=1.0,
-                                      use_gpu=True):
+                                      use_gpu=True, clip_whisper=None):
     """Process-job entry point for build_narration_track(), so Cancel can
     actually stop it. Safe to hard-stop: clips are reused from a prior
     partial run, and clips in flight are written under a temporary name
@@ -725,9 +726,12 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
             "Joining the clips into one track..." if frac >= 1.0 else f"Speaking clips ({scaled:.0%})...")
 
     try:
-        if _clips_missing_transcript(character_clone_map):
+        transcripts = {}
+        # clip_whisper: {"local_model_path"} when the model is on this PC, else None: a clip's
+        # transcript is not worth a silent download of several GB in the middle of a narration.
+        if clip_whisper is not None and _clips_missing_transcript(character_clone_map):
             process_worker.report_stage(result_queue, CLIP_TRANSCRIPT_STAGE)
-        transcripts = fill_clip_transcripts(character_clone_map, use_gpu)
+            transcripts = fill_clip_transcripts(character_clone_map, use_gpu, clip_whisper.get("local_model_path"))
         out_path, errors = build_narration_track(
             lines, drama_dir, character_clone_map, progress_cb=report, pace=pace,
             narrate_original=narrate_original, source_language=source_language)
