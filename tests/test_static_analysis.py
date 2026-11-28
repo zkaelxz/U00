@@ -392,7 +392,7 @@ class TestConstraintsFile:
     minimum versions (>=), so a fresh install could silently pull in a
     new major version -- exactly how pyannote 4 broke diarization.
     constraints.txt pins known-risky packages' major versions; this
-    checks it exists, caps what it's supposed to, and that the README's
+    checks it exists, caps what it's supposed to, and that the setup guide's
     install command actually uses it."""
 
     def _read_constraints(self):

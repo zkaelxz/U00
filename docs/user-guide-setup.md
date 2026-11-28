@@ -4,7 +4,7 @@ Part of the [user guide](user-guide.md).
 
 ## Install details
 
-The README has the short version. This section has every install and start option for a source checkout; the Windows installer needs none of it.
+The README links here. This section has every install and start option for a source checkout; the Windows installer needs none of it.
 
 If you upgrade an installed Baihe Studio from a build that bundled Python 3.12, reinstall torch and the other optional packages from Diagnostics afterwards.
 

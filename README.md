@@ -25,9 +25,9 @@ Installing from source, or on another system, is in the [setup guide](docs/user-
 
 ## First run
 
-1. Open **Settings** and add a key for your translation engine.
+1. Open **Settings**. Add a key for your translation engine (or sign in to Ollama for hosted Gemma), and set a monthly spending cap under **Spending**.
 2. Open **Diagnostics** and install transcription if you want to work with audio or video.
-3. In the **Library**, paste a link or drop a file into the Add box and press **Make English subtitles**.
+3. In the **Library**, drop a file or paste a link into the Add box and press **Make English subtitles**.
 
 If something doesn't work, **Diagnostics** checks your setup and says what is missing.
 
