@@ -111,7 +111,7 @@ def _generate_units(units, record, language: str, clips_dir: str) -> None:
     for engine, batch in in_venv.items():
         requests = [{"text": u["text"], "out": _partial_path(u), "language": language,
                      "ref_audio": u["clone"].get("ref_audio"), "ref_text": u["clone"].get("ref_text"),
-                     "instruct": u["clone"].get("instruct")}
+                     "instruct": u["clone"].get("instruct"), "cfg_weight": u["clone"].get("cfg_weight")}
                     for u in batch]
         with contextlib.closing(speak_in_venv(engine, requests, clips_dir)) as spoken:
             for i, error in spoken:
@@ -129,7 +129,8 @@ def speak_sample(text: str, clone: dict, out_path: str, language: str):
         return engine_refusal(engine) or VENV_LINE_FAILED
     partial = out_path[:-len(".wav")] + ".partial.wav"
     request = {"text": text, "out": partial, "language": language, "ref_audio": clone.get("ref_audio"),
-               "ref_text": clone.get("ref_text"), "instruct": clone.get("instruct")}
+               "ref_text": clone.get("ref_text"), "instruct": clone.get("instruct"),
+               "cfg_weight": clone.get("cfg_weight")}
     error = None
     with contextlib.closing(speak_in_venv(engine, [request], os.path.dirname(out_path))) as spoken:
         for _, error in spoken:

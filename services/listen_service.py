@@ -10,6 +10,7 @@ No FastAPI import: plain dicts out, no filesystem path.
 import functools
 import importlib.util
 import os
+import re
 import shutil
 
 import background_jobs
@@ -306,6 +307,7 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     speaker_labels = {ln.speaker or None for ln in lines}
     clone_map = dub.clone_map_from_characters(
         chars, ddir, default_engine=tts_engine, speaker_labels=speaker_labels)
+    _set_cross_language_cfg(clone_map, chars, source_lang if narrate_original else "en", source_lang)
     # Keyword-bound so background_jobs' trailing result_queue lands on the
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
@@ -332,6 +334,28 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
 
 
 _ALREADY_RUNNING = "A narration is already running for this title."
+
+_BANK_CLIP = re.compile(r"voicebank_(\d+)_")
+
+
+def _clip_language(char: dict, source_language: str) -> str:
+    """The language spoken in a character's clip: its voice bank entry's (db names an applied
+    entry's copy voicebank_<id>_...), else the title's, whose audio a picked clip is cut from."""
+    found = _BANK_CLIP.match(os.path.basename(char.get("ref_audio_filename") or ""))
+    entry = db.get_voice_bank_entry(int(found.group(1))) if found else None
+    return (entry or {}).get("language") or source_language
+
+
+def _set_cross_language_cfg(clone_map: dict, chars, spoken_language: str, source_language: str) -> None:
+    """Chatterbox's README (chatterbox-tts 0.1.7, "Original Chatterbox Tips"): with a clip in
+    another language than the language tag, "outputs may inherit the accent of the reference
+    clip's language. To mitigate this, set `cfg_weight` to `0`." Its default (0.5) is kept for a
+    clip in the spoken language. In the clone entry, so the clip signature changes with it."""
+    rows = {c["speaker_label"]: c for c in chars}
+    for label, clone in clone_map.items():
+        if clone.get("engine") == "chatterbox" and clone.get("ref_audio") and label in rows:
+            if _clip_language(rows[label], source_language) != spoken_language:
+                clone["cfg_weight"] = 0.0
 
 
 def _keep_default_voices(drama_id: int, chars, speaker_labels) -> bool:
@@ -372,6 +396,7 @@ def start_test_voice(drama_id: int, speaker_label: str, tts_engine: str, narrati
     # Every speaker with text is passed so a default voice is the one the full run gives this speaker.
     clone_map = dub.clone_map_from_characters(chars, db.drama_dir(drama_id), default_engine=tts_engine,
                                               speaker_labels={who for who, _ in spoken})
+    _set_cross_language_cfg(clone_map, chars, source_lang if narrate_original else "en", source_lang)
     voice = clone_map.get(speaker_label)
     if voice is None:
         names = {c["speaker_label"]: c.get("character_name") or c["speaker_label"] for c in chars}

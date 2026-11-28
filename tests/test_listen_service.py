@@ -362,6 +362,42 @@ class TestARefusedStartChangesNothing:
         assert [c["voice_design"] for c in isolated_db.list_characters(did)] == [dub.DEFAULT_VOICE_DESCRIPTIONS[0]]
 
 
+class TestChatterboxCrossLanguage:
+    """A clip in another language than the one spoken gets cfg_weight 0 (Chatterbox's README),
+    so the voice does not carry the clip's accent; the rest keep the engine's default."""
+
+    def _map(self, *labels):
+        return {label: {"engine": "chatterbox", "ref_audio": f"/x/{label}.wav", "ref_text": ""} for label in labels}
+
+    def test_a_clip_from_a_chinese_title_reading_english(self, isolated_db):
+        clones = self._map("A")
+        listen_service._set_cross_language_cfg(clones, [{"speaker_label": "A", "ref_audio_filename": "voice_refs/c.wav"}],
+                                               "en", "zh")
+        assert clones["A"]["cfg_weight"] == 0.0
+
+    def test_the_same_clip_reading_the_original_keeps_the_default(self, isolated_db):
+        clones = self._map("A")
+        listen_service._set_cross_language_cfg(clones, [{"speaker_label": "A", "ref_audio_filename": "voice_refs/c.wav"}],
+                                               "zh", "zh")
+        assert "cfg_weight" not in clones["A"]
+
+    def test_a_voice_bank_clip_counts_in_its_own_language(self, isolated_db, tmp_path):
+        clip = tmp_path / "v.wav"
+        clip.write_bytes(b"RIFF")
+        english = isolated_db.save_voice_bank_entry("Alex Example", str(clip), language="en")
+        clones = self._map("A", "B")
+        chars = [{"speaker_label": "A", "ref_audio_filename": f"voicebank_{english}_A.wav"},
+                 {"speaker_label": "B", "ref_audio_filename": "voicebank_999_B.wav"}]
+        listen_service._set_cross_language_cfg(clones, chars, "en", "zh")
+        # A missing entry falls back to the title's language.
+        assert "cfg_weight" not in clones["A"] and clones["B"]["cfg_weight"] == 0.0
+
+    def test_other_engines_are_left_alone(self, isolated_db):
+        clones = {"A": {"engine": "qwen3_tts", "ref_audio": "/x/a.wav", "ref_text": ""}}
+        listen_service._set_cross_language_cfg(clones, [{"speaker_label": "A", "ref_audio_filename": "a.wav"}], "en", "zh")
+        assert "cfg_weight" not in clones["A"]
+
+
 class TestUnusedClipsAfterARun:
     """Each voice or text change left the old clips behind (about 170 MB per narrated hour).
     After a run's lines are saved, only clips no line of the title names are deleted, and

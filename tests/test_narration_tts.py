@@ -445,6 +445,24 @@ class TestSequentialNarration:
     def test_every_engine_runs_on_the_gpu_slot(self, engine):
         assert dub.clone_map_uses_local_model({"A": {"engine": engine}})
 
+    def test_a_chatterbox_clip_in_another_language_is_spoken_with_its_cfg_weight(
+            self, monkeypatch, fake_pydub, tmp_path):
+        sent = []
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                sent.append(r["cfg_weight"])
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        clip = tmp_path / "a.wav"
+        clip.write_bytes(b"RIFF")
+        voice = {"engine": "chatterbox", "ref_audio": str(clip), "ref_text": ""}
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**voice, "cfg_weight": 0.0}, "B": voice})
+        assert sent == [0.0, None]
+
 
 # ------------------------------------------------------ paragraphs & M4B
 
