@@ -102,3 +102,17 @@ def test_a_library_that_sets_its_own_debug_level_stays_out_below_warning(isolate
     lines = "\n".join(applog.tail(50))
     assert "library warning line" in lines
     assert "library debug line" not in lines and "library info line" not in lines
+
+
+def test_a_module_loggers_traceback_is_redacted_in_the_app_log(isolated_db):
+    import logging
+    import applog
+    applog.get_logger()
+    key = "sk-examplemodulekey0123456789abcdef"
+    try:
+        raise RuntimeError(f"rejected {key}")
+    except RuntimeError:
+        logging.getLogger("x").warning("module call failed with %s", key, exc_info=True)
+    lines = "\n".join(applog.tail(50))
+    assert "module call failed with" in lines and "RuntimeError: rejected" in lines
+    assert key not in lines
