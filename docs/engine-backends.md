@@ -225,7 +225,8 @@ stop_before_batch: checked only between batches, never during a request:
 a batch already sent is finished and kept (cancel_check_cb is the one that
 abandons a request in flight).
 
-parallel_chapters: 2 or 3 translates that many novel chapters at once (setting
+parallel_chapters: 2 or 3 translates that many novel chapters, or parts of a
+whole-title subtitle run cut at pauses of SCENE_LANE_GAP_SECONDS or more, at once (setting
 `novel_parallel_chapters`, Settings > Translation style, default 3), read through
 `settings_service.parallel_chapters()`. Only Claude, GPT, DeepSeek, a paid Gemini key and an Ollama `-cloud` model qualify
 (`can_run_in_parallel`); each lane gets its own engine copy, batches inside a chapter stay in
