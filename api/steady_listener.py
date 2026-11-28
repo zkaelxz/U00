@@ -6,6 +6,8 @@ import sys
 
 import uvicorn
 
+from lib import listener_counts
+
 # Windows reports a client that went away between connecting and being
 # accepted with these codes (ERROR_NETNAME_DELETED, ERROR_SEM_TIMEOUT,
 # ERROR_CONNECTION_ABORTED, WSAECONNABORTED, WSAECONNRESET). CPython's
@@ -125,12 +127,22 @@ class SteadyServer(uvicorn.Server):
             await asyncio.sleep(CHECK_SECONDS)
             if self.should_exit:
                 return
+            self._flush_daily_counts()
             if any(_closed(srv) for srv in self.servers) or self._missing():
                 self._reopening = True
                 try:
                     await self._reopen()
                 finally:
                     self._reopening = False
+
+    @staticmethod
+    def _flush_daily_counts() -> None:
+        # Nothing else writes the daily line on a day without jobs, and a dead port is such a day.
+        try:
+            from jobs import job_stats
+            job_stats.flush_if_day_changed()
+        except Exception:
+            pass
 
     def _missing(self) -> bool:
         # A reopen that failed has already dropped the closed server from
@@ -162,9 +174,11 @@ class SteadyServer(uvicorn.Server):
                 kept.append(await loop.create_server(self._protocol, host=host, port=port,
                                                      ssl=self.config.ssl, backlog=self.config.backlog))
                 self._reopen_failures = 0
+                listener_counts.record("succeeded")
                 _log.error("The listener on %s:%s had closed; it is open again.", host, port)
             except OSError as exc:
                 self._reopen_failures += 1
+                listener_counts.record("failed")
                 # First failure, then about once a minute, so a stuck port shows in the log without filling it.
                 if self._reopen_failures % 12 == 1:
                     _log.error("The listener on %s:%s closed and can't open again yet (%s); failed %d times, retrying every %s s.",

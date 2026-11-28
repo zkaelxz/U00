@@ -7,6 +7,7 @@ import statistics
 import threading
 import time
 
+from lib import listener_counts
 from lib.error_kinds import error_kind
 
 # Stage names are fixed phrases in job code. One that carries a digit, path or other
@@ -90,9 +91,16 @@ def _summary_line(date, jobs) -> str:
 
 
 def _flush_day_locked() -> None:
-    if _day["jobs"]:
+    if _day["jobs"] or listener_counts.peek()["tried"]:
         import applog
-        applog.get_logger().info(_summary_line(_day["date"], _day["jobs"]))
+        logger = applog.get_logger()
+        reopens = listener_counts.take()
+        # A dead port shows up here even on a day with no jobs.
+        text = (_summary_line(_day["date"], _day["jobs"]) if _day["jobs"]
+                else f"Daily job summary {_day['date'] or 'since start'}: no jobs")
+        if reopens["tried"]:
+            text += "; " + listener_counts.text(reopens)
+        logger.info(text)
     _day["jobs"] = []
 
 
@@ -104,6 +112,18 @@ def _record(kind, job, token, outcome, today) -> None:
         _day["jobs"].append((kind, outcome,
                              max(0.0, (job.get("finished_at") or time.time()) - token),
                              float(job.get("queue_wait_s") or 0.0), _error_counts(job)))
+
+
+def flush_if_day_changed(today=None) -> None:
+    """Called by the listener's watch loop, so a day with no jobs still logs its reopen counts."""
+    today = today or datetime.date.today().isoformat()
+    with _day_lock:
+        if _day["date"] != today:
+            try:
+                _flush_day_locked()
+            except Exception:
+                pass
+            _day["date"] = today
 
 
 def flush_day() -> None:

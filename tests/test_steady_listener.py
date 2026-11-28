@@ -6,6 +6,7 @@ import pytest
 import uvicorn
 
 from api import steady_listener
+from lib import listener_counts
 
 
 def _winerror(code):
@@ -173,6 +174,7 @@ def test_a_failed_reopen_is_tried_again(monkeypatch):
         while not server.started:
             await asyncio.sleep(0.01)
         port = server.servers[0].sockets[0].getsockname()[1]
+        listener_counts.take()
         loop = asyncio.get_running_loop()
         real, failures = loop.create_server, []
 
@@ -195,6 +197,7 @@ def test_a_failed_reopen_is_tried_again(monkeypatch):
         else:
             pytest.fail("the port was not tried again after a failed reopen")
         assert len(failures) == 2
+        assert listener_counts.take() == {"tried": 3, "failed": 2, "succeeded": 1}
         server.should_exit = True
         await task
     asyncio.run(go())
