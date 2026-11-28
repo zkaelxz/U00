@@ -16,6 +16,7 @@ import { AdminJobLine } from './AdminJobLine'
 import { ORIGINALS_HELP, ORIGINALS_LABEL, anyJobActive, describeClean, describeScan, formatDecimalBytes } from './libraryAdmin'
 import { useAdminJob, type AdminJob } from './useAdminJob'
 import { useCancellableEffect } from '../../hooks/useCancellableEffect'
+import { buttonClass } from '../../components/uiClasses'
 
 const SERVER = { pcOnly: true, serverText: true } as const
 
@@ -169,7 +170,7 @@ export function RestoreBlock() {
               ` This library kept its own accounts, so ${titlesReassigned} title${titlesReassigned === 1 ? '' : 's'}` +
                 ` went to the account with the same email, or to the PC owner where there was none.`}
           </span>
-          <button type="button" className="primary" onClick={() => window.location.reload()}>
+          <button type="button" className={buttonClass('primary')} onClick={() => window.location.reload()}>
             Reload
           </button>
         </div>
@@ -279,7 +280,7 @@ export function CleanupBlock() {
       </div>
       <div className="actions">
         <button type="button" disabled={busy} onClick={runScan}>Scan</button>
-        <button type="button" className="danger" disabled={busy || !scan} onClick={() => setCleaning(true)}>
+        <button type="button" className={buttonClass('danger')} disabled={busy || !scan} onClick={() => setCleaning(true)}>
           Clean up…
         </button>
       </div>

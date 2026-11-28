@@ -83,9 +83,9 @@ export function sanitizePrefs(raw: unknown, defaults: ComicPrefs): ComicPrefs {
   }
 }
 
-/** Whether the paged reader shows two pages now. */
-export function doubleActive(prefs: Pick<ComicPrefs, 'mode' | 'spread'>, landscapeWide: boolean): boolean {
-  return prefs.mode === 'paged' && (prefs.spread === 'double' || (prefs.spread === 'auto' && landscapeWide))
+/** Whether the paged reader shows two pages now. Panel by panel (`panels`) turns Automatic off, not Always. */
+export function doubleActive(prefs: Pick<ComicPrefs, 'mode' | 'spread'>, landscapeWide: boolean, panels = false): boolean {
+  return prefs.mode === 'paged' && (prefs.spread === 'double' || (prefs.spread === 'auto' && landscapeWide && !panels))
 }
 
 /** A page already wider than tall is a printed spread: it is shown alone. */

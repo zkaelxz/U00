@@ -59,7 +59,7 @@ final class AlertFeed {
 
     /** The page an item opens: its target when it names one this build knows, else null. */
     static String route(String kind, JSONObject target) {
-        if (target == null) return "live".equals(kind) ? "#/live" : null;
+        if (target == null) return pageOfKind(kind);
         String page = target.optString("page", "");
         long drama = target.optLong("drama_id", 0);
         long series = target.optLong("series_id", 0);
@@ -73,6 +73,25 @@ final class AlertFeed {
         else if ("jobs".equals(page)) route = "#/jobs";
         else if ("live".equals(page)) route = follow > 0 ? "#/live?follow=" + follow : "#/live";
         return safeRoute(route) ? route : null;
+    }
+
+    /** Where an item with no target goes: the server sends targets only for a clean finish, a waiting run and Live. */
+    static String pageOfKind(String kind) {
+        if ("live".equals(kind)) return "#/live";
+        if ("chapters".equals(kind)) return "#/updates";
+        if ("job_failed".equals(kind) || "job_done".equals(kind) || "waiting".equals(kind)) return "#/jobs";
+        return null;
+    }
+
+    /** One route for a batch announced as a single line: theirs when they all agree, else null (Baihe's start page). */
+    static String sharedRoute(List<Item> items) {
+        String shared = null;
+        for (Item item : items) {
+            if (item.route == null) return null;
+            if (shared == null) shared = item.route;
+            else if (!shared.equals(item.route)) return null;
+        }
+        return shared;
     }
 
     static boolean safeRoute(String route) {

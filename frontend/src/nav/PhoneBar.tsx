@@ -1,5 +1,5 @@
 /*
- * Bottom tab bar for screens narrower than 600px, outside title workspaces and readers (those keep the header's
+ * Bottom tab bar for screens 640px and narrower, outside title workspaces and readers (those keep the header's
  * Menu button, since their bottom edge belongs to their own actions), except the Simple check page, which asks for it
  * and keeps its own bar just above it (nav/phoneBarRequest.ts). Three destinations that the registry
  * and the person's permissions allow, and More, which opens the drawer with everything else, Jobs included;

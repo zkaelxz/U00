@@ -88,6 +88,14 @@ export function targetLink(target: NotificationTarget | null | undefined): { hre
   return null
 }
 
+/** Where an entry with no target opens: the same pages as the phone app's alerts (AlertFeed.pageOfKind). */
+export function kindLink(kind: string): { href: string; title: string } | null {
+  if (kind === 'job_failed' || kind === 'job_done' || kind === 'waiting') return { href: routeHref({ name: 'jobs' }), title: 'Open the Jobs page' }
+  if (kind === 'chapters') return { href: routeHref({ name: 'updates' }), title: 'Open Updates' }
+  if (kind === 'live') return { href: routeHref({ name: 'live' }), title: 'Open Live' }
+  return null
+}
+
 /** "Starts at 14:05" in this browser's time, or null without a start time. */
 export function startsAtText(startsAt: number | null | undefined): string | null {
   if (typeof startsAt !== 'number' || !Number.isFinite(startsAt)) return null

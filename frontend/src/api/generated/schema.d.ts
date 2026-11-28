@@ -6294,6 +6294,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/recap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's month: titles read and finished, chapters read, moments saved */
+        get: operations["get_recap_api_library_recap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/recent": {
         parameters: {
             query?: never;
@@ -7057,6 +7074,23 @@ export interface paths {
         get: operations["get_chat_api_live_sessions__session_id__chat_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/live/sessions/{session_id}/names": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Fix a name for the rest of the session (its owner only); optionally save it to its glossary */
+        post: operations["post_name_fix_api_live_sessions__session_id__names_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -10135,6 +10169,23 @@ export interface paths {
         };
         /** One page image (original or typeset), content type from its magic bytes */
         get: operations["get_page_image_api_scanlate_dramas__drama_id__pages__page_id__image_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/scanlate/dramas/{drama_id}/pages/{page_id}/panels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A page's panels in reading order, as fractions of the page (empty: show the whole page) */
+        get: operations["get_page_panels_api_scanlate_dramas__drama_id__pages__page_id__panels_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -17896,6 +17947,13 @@ export interface components {
              */
             reading_mode_default: "paged" | "vertical";
         };
+        /** ComicPagePanels */
+        ComicPagePanels: {
+            /** Page Id */
+            page_id: number;
+            /** Panels */
+            panels: components["schemas"]["ComicPanel"][];
+        };
         /** ComicPageRegions */
         ComicPageRegions: {
             /** Height */
@@ -17906,6 +17964,20 @@ export interface components {
             regions: components["schemas"]["ComicRegion"][];
             /** Width */
             width: number;
+        };
+        /**
+         * ComicPanel
+         * @description A panel as fractions (0..1) of the page's width and height.
+         */
+        ComicPanel: {
+            /** H */
+            h: number;
+            /** W */
+            w: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
         };
         /** ComicProgress */
         ComicProgress: {
@@ -22922,6 +22994,36 @@ export interface components {
             /** Items */
             items: components["schemas"]["LibraryPreset"][];
         };
+        /**
+         * LibraryRecap
+         * @description One account's month (UTC). `spend_usd` is the PC's spend, null for a caller who can't open Spend history.
+         */
+        LibraryRecap: {
+            /** Active Days */
+            active_days: number;
+            /** Chapters Read */
+            chapters_read: number;
+            /** Moments Saved */
+            moments_saved: number;
+            /** Month */
+            month: string;
+            most_days: components["schemas"]["LibraryRecapTitle"] | null;
+            /** Spend Usd */
+            spend_usd: number | null;
+            /** Titles Finished */
+            titles_finished: number;
+            /** Titles Read */
+            titles_read: number;
+        };
+        /** LibraryRecapTitle */
+        LibraryRecapTitle: {
+            /** Days */
+            days: number;
+            /** Drama Id */
+            drama_id: number;
+            /** Title */
+            title: string;
+        };
         /** LibraryRecentResponse */
         LibraryRecentResponse: {
             /** Items */
@@ -24029,6 +24131,32 @@ export interface components {
             /** Label */
             label: string;
         };
+        /** LiveNameFix */
+        LiveNameFix: {
+            /** English */
+            english: string;
+            /** Source */
+            source: string;
+        };
+        /** LiveNameFixAdd */
+        LiveNameFixAdd: {
+            /** English */
+            english: string;
+            /**
+             * Save To Glossary
+             * @default false
+             */
+            save_to_glossary?: boolean;
+            /** Source */
+            source: string;
+        };
+        /** LiveNameFixes */
+        LiveNameFixes: {
+            /** Fixes */
+            fixes: components["schemas"]["LiveNameFix"][];
+            /** Session Id */
+            session_id: string;
+        };
         /** LiveOllamaCheck */
         LiveOllamaCheck: {
             /** Message */
@@ -24140,6 +24268,11 @@ export interface components {
         /** LiveSessionStatus */
         LiveSessionStatus: {
             /**
+             * Can Fix Names
+             * @default false
+             */
+            can_fix_names: boolean;
+            /**
              * Chat
              * @default false
              */
@@ -24159,6 +24292,11 @@ export interface components {
             /** Engine */
             engine: string | null;
             /**
+             * Has Glossary
+             * @default false
+             */
+            has_glossary: boolean;
+            /**
              * Lag Seconds
              * @default 0
              */
@@ -24167,6 +24305,11 @@ export interface components {
             message: string;
             /** Model */
             model: string | null;
+            /**
+             * Name Fixes
+             * @default []
+             */
+            name_fixes: components["schemas"]["LiveNameFix"][];
             /** Next Index */
             next_index: number;
             /**
@@ -46788,6 +46931,7 @@ export interface operations {
         parameters: {
             query?: {
                 field?: string;
+                readings?: boolean;
             };
             header?: never;
             path: {
@@ -52365,6 +52509,37 @@ export interface operations {
             };
         };
     };
+    get_recap_api_library_recap_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRecap"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     get_recent_api_library_recent_get: {
         parameters: {
             query?: {
@@ -54961,6 +55136,68 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    post_name_fix_api_live_sessions__session_id__names_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LiveNameFixAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LiveNameFixes"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -65020,6 +65257,50 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_page_panels_api_scanlate_dramas__drama_id__pages__page_id__panels_get: {
+        parameters: {
+            query?: {
+                /** @description Read rows from the right; left out, the title's language decides */
+                rtl?: boolean | null;
+            };
+            header?: never;
+            path: {
+                drama_id: number;
+                page_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComicPagePanels"];
+                };
             };
             /** @description Not Found */
             404: {

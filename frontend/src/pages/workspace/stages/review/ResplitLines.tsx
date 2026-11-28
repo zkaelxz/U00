@@ -27,6 +27,7 @@ import { speakerTimeFooter, speakerTimeLines, structureErrorText, undoDoneMessag
 import { JOB_RUNNING_MESSAGE, QUICK_SPLIT_DEFAULTS, RESPLIT_DRAFT_SHAPE, RESPLIT_DRAFT_STAGE, RESPLIT_DURATION_CAPS, RESPLIT_SENSITIVITIES, quickSplitHelp, quickSplitLimits, resplitCutRows, resplitNeedsConfirm, resplitPreviewSummary, resplitSummary, wordSplitterPackages, type ResplitCutRow } from './reviewResegment'
 import { UndoNotice } from './UndoNotice'
 import { retireUndoOffer, useUndoOffer } from './undoOffer'
+import { buttonClass } from '../../../../components/uiClasses'
 
 // Lines over the quick-split limits (Settings > Timing and splitting; 12 s and 40
 // characters unless changed), cut at sentence ends, then commas, then pauses, then evenly,
@@ -318,7 +319,7 @@ export function ResplitLines({ dramaId, jobRunning, onChanged }: Props) {
           </Field>
         </div>
         <div className="actions">
-          <button type="button" className="primary" disabled={blocked} onClick={() => run(false, false, true)}
+          <button type="button" className={buttonClass('primary')} disabled={blocked} onClick={() => run(false, false, true)}
             title={quickSplitHelp(quickLimits)}>
             Split long lines
           </button>

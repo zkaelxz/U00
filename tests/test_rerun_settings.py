@@ -184,6 +184,29 @@ def test_values_given_to_a_rerun_win_and_become_the_next_default(isolated_db, tr
     assert translate_job["args"][_LOCALE] == "en-AU"
 
 
+def test_a_redo_of_picked_lines_does_not_change_the_titles_starting_values(isolated_db, translate_job):
+    did = _seeded()
+    translate_run_service.start_translate_run(did, engine_name="fake", locale="en-GB", style_note="Formal.")
+    first = db.load_lines(did)[0]["id"]
+    translate_run_service.start_translate_run(
+        did, engine_name="fake", locale="en-AU", style_note="Casual.", batch_size=3,
+        line_ids=[first], own_lines_only=True, force_retranslate=True)
+    assert translate_job["args"][_LOCALE] == "en-AU"
+    start = profile_service.translate_start(db.get_drama(did))
+    assert (start["locale"], start["style_note"]) == ("en-GB", "Formal.")
+    assert "batch_size" not in start
+
+
+def test_a_chapter_range_run_still_becomes_the_next_default(isolated_db, translate_job):
+    did = db.create_drama(title_zh="D", translation_engine="fake")
+    db.save_lines(did, [Line(idx=i, start=i, end=i + 1, zh=zh, en="")
+                        for i, zh in enumerate(("第1章 开始", "你好。", "第2章 继续", "风很大。"))])
+    translate_run_service.start_translate_run(did, engine_name="fake", locale="en-AU",
+                                              chapter_from=2, chapter_to=2)
+    assert len(translate_job["kw"]["target_ids"]) == 2
+    assert profile_service.translate_start(db.get_drama(did))["locale"] == "en-AU"
+
+
 def test_a_title_that_never_ran_uses_the_defaults(isolated_db, translate_job):
     did = _seeded()
     translate_run_service.start_translate_run(did, engine_name="fake")

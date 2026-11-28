@@ -510,7 +510,7 @@ test.describe('phone 390px', () => {
     const box = page.getByTestId('lines-glossary')
     await expect(box.locator('ul.novel-glossary-cards > li')).toHaveCount(3)
     await expect(box.getByLabel('Translation for 云深不知处')).toBeVisible()
-    await expect(box.locator('button.primary')).toHaveCount(1)
+    await expect(box.locator('button.btn-primary')).toHaveCount(1)
     await noSideScroll(page)
     await shot(page, 'glossary-from-lines-phone', true)
   })

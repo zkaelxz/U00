@@ -285,8 +285,8 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, lowData.active ? 'low' : 'reader'),
     [id, prefs.typeset, original.originals, lowData.active],
   )
-  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
-  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads })
+  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current, true)
+  const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step, panels } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads, panelsFor: id })
 
   usePageJump({
     activeJump,
@@ -422,7 +422,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
   )
 
   const view = (
-    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={canTypeset} phone={phone} lowData={lowData.mode} onLowData={lowData.setMode}>
+    <ComicViewControl prefs={prefs} autoScroll={{ speed: scroller.speed, onChange: scroller.setSpeed }} onChange={setPrefs} canTypeset={canTypeset} phone={phone} lowData={lowData.mode} onLowData={lowData.setMode} panels={panels}>
       {phone && current !== null && count > 1 && <ComicGoTo count={visible.length || count} onGo={goListed} />}
     </ComicViewControl>
   )

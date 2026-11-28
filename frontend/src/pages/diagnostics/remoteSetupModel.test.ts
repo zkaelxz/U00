@@ -16,6 +16,14 @@ describe('remote setup model', () => {
   it('says all done when nothing is next', () => {
     expect(setupSummary({ ...base, steps: [step('a', 'done')], next: null })).toBe('All steps done')
   })
+  it('says the PC steps are done only when what is left is off this PC', () => {
+    expect(setupSummary({ ...base, steps: [step('a', 'done'), step('router', 'manual'), step('outside', 'manual')], next: 'router' }))
+      .toBe('PC steps done · check once from a phone')
+    expect(setupSummary({ ...base, steps: [step('firewall', 'manual'), step('router', 'manual')], next: 'firewall' }))
+      .toBe('0 of 2 done · next: Step firewall')
+    expect(setupSummary({ ...base, steps: [step('a', 'done'), step('router', 'manual'), step('outside', 'problem')], next: 'router' }))
+      .toBe('1 of 3 done · next: Step router')
+  })
   it('badges a problem as bad and a manual step as neutral', () => {
     expect(stepBadge({ state: 'problem' }).tone).toBe('bad')
     expect(stepBadge({ state: 'manual' }).tone).toBe('neutral')

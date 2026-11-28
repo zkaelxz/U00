@@ -256,6 +256,9 @@ describe('double page', () => {
     expect(doubleActive({ mode: 'paged', spread: 'single' }, true)).toBe(false)
     expect(doubleActive({ mode: 'paged', spread: 'double' }, false)).toBe(true)
     expect(doubleActive({ mode: 'vertical', spread: 'double' }, true)).toBe(false)
+    // Panel by panel overrides Automatic, not an explicit two pages.
+    expect(doubleActive({ mode: 'paged', spread: 'auto' }, true, true)).toBe(false)
+    expect(doubleActive({ mode: 'paged', spread: 'double' }, true, true)).toBe(true)
   })
 
   it('shows both numbers of a spread', () => {

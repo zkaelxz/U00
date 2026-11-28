@@ -38,7 +38,7 @@ export function QualitySection() {
   const v = data ? verdict(data) : null
   const step = data ? nextStep(data) : null
   return (
-    <Section title="Quality" storageKey="benchmark.quality" defaultOpen>
+    <Section title="Quality">
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
       {!data || !v ? (
         !error && <p className="muted">Loading…</p>

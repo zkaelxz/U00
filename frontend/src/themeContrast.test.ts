@@ -447,10 +447,9 @@ describe('disabled buttons (3:1)', () => {
   }
   const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled,\n.btn.btn-ok:disabled')
   const primary = mixOf('.btn.btn-primary:disabled')
-  const legacyPrimary = mixOf('button.primary:disabled')
 
   for (const [name, theme] of Object.entries(THEMES)) {
-    for (const [label, fill] of Object.entries({ generic, primary, legacyPrimary })) {
+    for (const [label, fill] of Object.entries({ generic, primary })) {
       it(`${name}: ${label} disabled text on its fill`, () => {
         const under = over(resolve(theme, fill.token), fill.pct, resolve(theme, fill.base))
         expect(contrast(resolve(theme, '--muted'), under)).toBeGreaterThanOrEqual(3)
@@ -460,6 +459,5 @@ describe('disabled buttons (3:1)', () => {
 
   it('no disabled button variant fades with opacity', () => {
     expect(css).not.toMatch(/\.btn:disabled \{[^}]*opacity/)
-    expect(css).not.toMatch(/button\.primary:disabled \{[^}]*opacity/)
   })
 })
