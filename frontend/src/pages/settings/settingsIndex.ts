@@ -38,6 +38,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     cards: [
       { id: 'performance' },
       { id: 'timing-splitting' },
+      { id: 'blocked-phrases' },
       { id: 'transcription-experiments' },
     ],
   },
@@ -65,6 +66,7 @@ export const SETTINGS_TABS: { id: SettingsTab; label: string; cards: SettingsCar
     label: 'My account and look',
     cards: [
       { id: 'sharing' },
+      { id: 'limits' },
       { id: 'display' },
       { id: 'phone-app' },
       { id: 'customize-menu' },
@@ -90,7 +92,7 @@ export const PC_ONLY_CARDS: ReadonlySet<string> = new Set([
   'server-addresses', 'defaults', 'quick-video', 'spending', 'spend-history', 'past-costs',
   'notifications', 'pc-alerts',
   'jellyfin', 'web-search', 'inbox', 'extension',
-  'performance', 'advanced', 'keys-file', 'timing-splitting', 'transcription-experiments', 'developer-mode',
+  'performance', 'advanced', 'keys-file', 'timing-splitting', 'blocked-phrases', 'transcription-experiments', 'developer-mode',
 ])
 
 const TAB_OF_CARD = new Map(SETTINGS_TABS.flatMap((t) => t.cards.map((c) => [c.id, t.id] as const)))
@@ -128,6 +130,7 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('devices', 'Signed-in devices', 'sessions sign out'),
   e('extension-devices', 'Remote access keys', 'browser extension devices token pair extension tokens grab phone'),
   e('ollama-key', 'Your Ollama key', 'ollama cloud api key account quota own'),
+  e('limits', 'Your limits', 'daily jobs spending monthly cap titles quota limit used left'),
 
   e('jellyfin', 'Jellyfin', 'media server missing subtitles'),
   e('web-search', 'Web search', 'search lookup'),
@@ -145,9 +148,11 @@ export const SETTINGS_INDEX: SettingsEntry[] = [
   e('advanced', 'Program locations', 'paths cookie file tesseract lncrawl command'),
   e('advanced', 'Upload size limit', 'uploads max mb'),
   e('keys-file', 'Keys file and environment', 'env dotenv keys file environment variables set not set port public address webhook'),
+  e('blocked-phrases', 'Blocked phrases', 'hallucination invented made up subscribe credits remove filter'),
   e('timing-splitting', 'Timing and splitting', 'voice detection vad silence line length split long lines sentence grouping scene break pause threshold seconds characters reset default'),
   e('transcription-experiments', 'Advanced transcription', 'transcription experiments asr whisper experimental qwen batch size mixed languages forced aligner'),
   e('developer-mode', 'Developer Mode', 'assistant benchmark lab maintenance ai developer'),
+  e('developer-mode', 'Keep Quick read pages for debugging', 'quick read debug copies pages reproduce'),
 ]
 
 type SettingsMatch = {

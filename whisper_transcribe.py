@@ -361,23 +361,16 @@ def _alnum_key(text: str) -> str:
     return "".join(ch for ch in (text or "").casefold() if ch.isalnum())
 
 
-def _add_prompt(model, kwargs: dict, initial_prompt: str, language: str, chinese_script,
-                every_window: bool = True) -> set:
+def _add_prompt(kwargs: dict, initial_prompt: str, language: str, chinese_script) -> set:
     """Puts the prompt (whisper_prompt) into the transcribe kwargs; returns the
     texts a segment is dropped for matching, since a primed model sometimes
     writes the script hint back over noise. Without a hint nothing is dropped:
-    a prompt of one name has the same letters as a line that only calls it.
-
-    every_window False (Live's carried context, whose newest words matter
-    most) keeps initial_prompt."""
+    a prompt of one name has the same letters as a line that only calls it."""
     prompt = whisper_prompt(initial_prompt, language, chinese_script)
     if prompt:
-        # With condition_on_previous_text off, initial_prompt only reaches the
-        # first 30-second window, and faster-whisper keeps its tail when it is
-        # too long; hotwords is shown to every window and keeps its head, where
-        # the names are.
-        hotwords = every_window and _accepts_transcribe_kwarg(model, "hotwords")
-        kwargs["hotwords" if hotwords else "initial_prompt"] = prompt
+        # Only the first window sees it: sending the names to every window as
+        # hotwords measured worse on names-heavy clips and slower.
+        kwargs["initial_prompt"] = prompt
     hint = script_hint(language, chinese_script)
     return {_alnum_key(hint), _alnum_key(prompt)} if hint else set()
 
@@ -498,6 +491,17 @@ def _decode_randomness_kwargs(choice: str) -> dict:
     return {"temperature": 0.0} if choice == DECODE_TEMPERATURE_0 else {}
 
 
+def _transcribe(model, audio, kwargs: dict, standalone_extra_speech: bool):
+    """standalone_extra_speech: the detector also keeps the stand-alone stretches only Silero v6.2
+    hears (vad_model.gated). Live and the one-line re-hears turn it off: it was measured on whole
+    titles, and on a short slice any v6.2 stretch is far from the rest."""
+    if not standalone_extra_speech:
+        return model.transcribe(audio, **kwargs)
+    import vad_model
+    with vad_model.gated():
+        return model.transcribe(audio, **kwargs)
+
+
 def transcribe_for_timing(audio_path: str, model_size: str = "medium", language: str = "zh",
                            use_gpu: bool = False, local_model_path: str | None = None,
                            hf_token: str | None = None, initial_prompt: str = "",
@@ -509,7 +513,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
                            stock_isolation_sec: float = STOCK_PHRASE_ISOLATION_SEC,
                            difficult_audio: bool = False, no_speech_threshold: float | None = None,
                            log_prob_threshold: float | None = None, speech_pad_ms: int | None = None,
-                           on_notice=None, chinese_script: str | None = None, prompt_every_window: bool = True,
+                           on_notice=None, chinese_script: str | None = None, standalone_extra_speech: bool = True,
                            resume_segments=None, on_unit=None, decode_randomness: str = DECODE_DEFAULT):
     """
     speech_pad_ms: padding faster-whisper keeps around each detected speech stretch; None
@@ -595,7 +599,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     numbers) so low-confidence screamed or whispered speech is kept. Off, the detector runs
     and neither threshold is passed, so faster-whisper's defaults apply. The hallucination
     filters below still run on what comes back. A long segment with almost no text is heard
-    again on its own (_rehear_sparse).
+    again on its own (_rehear_sparse). standalone_extra_speech: see _transcribe.
     """
     # Imported here: db.py's import check copies core.py alone into a temp folder.
     from sensitivity_preset import decode_kwargs
@@ -614,7 +618,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     }
     if speech_pad_ms is not None:
         kwargs["vad_parameters"]["speech_pad_ms"] = int(speech_pad_ms)
-    prompt_keys = _add_prompt(model, kwargs, initial_prompt, language, chinese_script, prompt_every_window)
+    prompt_keys = _add_prompt(kwargs, initial_prompt, language, chinese_script)
     if hallucination_silence_sec and not fast_mode and _accepts_transcribe_kwarg(
             model, "hallucination_silence_threshold"):
         kwargs["hallucination_silence_threshold"] = float(hallucination_silence_sec)
@@ -651,7 +655,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
             return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
-        return m.transcribe(tail or whole.decoded(), **kwargs)
+        return _transcribe(m, tail or whole.decoded(), kwargs, standalone_extra_speech)
 
     try:
         try:

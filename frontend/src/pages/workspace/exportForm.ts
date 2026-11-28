@@ -147,7 +147,8 @@ export function buildAssRequest(
     if (value) style[key] = value
   }
 
-  const colors = parseSpeakerColors(form.speakerColors)
+  // With Colour each speaker off the export uses one style, so typed colours would be dropped: neither check nor send them.
+  const colors = form.perSpeakerColors ? parseSpeakerColors(form.speakerColors) : {}
   if (colors.error) return { error: colors.error }
   const wrapEn = parseWrap(form.wrapEn)
   const wrapSource = parseWrap(form.wrapSource)

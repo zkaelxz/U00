@@ -175,7 +175,7 @@ def cleanup_plan(drama_id: int, lines) -> list:
     style = en_cleanup.detect_style(ln.en for ln in lines if not en_cleanup.too_long(ln.en))
     plan = []
     for ln in lines:
-        new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker)
+        new, rules = en_cleanup.clean_text(ln.en, style, terms, ln.speaker, source=ln.zh)
         if rules:
             plan.append((ln, new, rules))
     return plan
@@ -580,14 +580,14 @@ def start_burn_preview(drama_id: int, line_id: int, pad_seconds: float | None = 
         export_service.require_reading_packages(lines, drama)
     wrap_chars = export_service.build_wrap_chars(wrap_chars_en, wrap_chars_source)
     frame_aspect = export_service.video_frame_aspect(video)
+    names = {c["speaker_label"]: c["character_name"]
+             for c in db.list_characters_with_series_names(drama_id) if c.get("character_name")}
     if speaker_colors is not None:
-        colors = dict(speaker_colors)
+        colors = subtitle_ass.colors_by_label(speaker_colors, names)
     elif per_speaker_colors:
         colors = subtitle_ass.default_speaker_colors(ln.speaker for ln in lines)
     else:
         colors = None
-    names = {c["speaker_label"]: c["character_name"]
-             for c in db.list_characters_with_series_names(drama_id) if c.get("character_name")}
     start, end, ass = media_playback_service.burn_preview_ass(
         lines, line, {"style": merged_style, "speaker_colors": colors, "speaker_names": names,
                       "wrap_chars": wrap_chars, "frame_aspect": frame_aspect, "field": field,

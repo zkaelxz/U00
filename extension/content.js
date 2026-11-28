@@ -302,7 +302,8 @@
 
   // A picture of the tab, cropped to the page element. Hidden Baihe boxes and the capture chip keep
   // their own drawing out of the picture. It sees only what is on screen, so a page taller than the
-  // window is refused rather than cut. The browser allows about two tab pictures a second.
+  // window is stitched from several pictures and one wider than it is refused. The browser allows
+  // about two tab pictures a second.
   const SCREENSHOT_GAP_MS = 600;
   let screenshotAsked = { at: 0, on: false };
 
@@ -712,9 +713,13 @@
     return entry;
   }
 
+  // The src attribute, not currentSrc: a srcset can switch resolution on a resize, which is the same page.
+  const pictureOf = (el) => (el.tagName === "IMG" && typeof el.getAttribute === "function" ? el.getAttribute("src") || "" : null);
+
   function drawOverlay(el, regions) {
     const entry = layerFor(el);
     entry.naturalWidth = elementSize(el).width;
+    entry.picture = pictureOf(el);
     entry.layer.textContent = "";
     if (regions.typesetImage) {
       // Baihe's own cleaned and typeset page replaces the preview boxes: it erases the lettering,
@@ -763,17 +768,20 @@
   function positionOverlay(el) {
     const entry = state.active.get(el);
     if (!entry) return;
+    const layer = entry.layer;
+    // A reader that pages in place swaps the element's picture, and one that unloads far pages blanks it
+    // (often to zero size) and puts it back later: the English shows only while its picture is there.
+    const swapped = entry.picture != null && pictureOf(el) !== entry.picture;
+    layer.classList.toggle("baihe-hidden", !state.overlaysVisible || swapped);
     const rect = el.getBoundingClientRect();
     const natural = elementSize(el);
     if (!natural.width || !natural.height) return;
     const scaleX = rect.width / natural.width;
     const scaleY = rect.height / natural.height;
-    const layer = entry.layer;
     layer.style.left = `${rect.left + window.scrollX}px`;
     layer.style.top = `${rect.top + window.scrollY}px`;
     layer.style.width = `${rect.width}px`;
     layer.style.height = `${rect.height}px`;
-    layer.classList.toggle("baihe-hidden", !state.overlaysVisible);
     const boxes = layer.children;
     const visible = entry.regions.filter((r) => (r.translated_text || r.source_text) && !r.left_alone);
     for (let i = 0; i < boxes.length && i < visible.length; i += 1) {
@@ -818,8 +826,8 @@
 
   function repositionAll() {
     for (const el of state.active.keys()) {
+      const entry = state.active.get(el);
       if (!el.isConnected) {
-        const entry = state.active.get(el);
         if (entry) entry.layer.remove();
         state.active.delete(el);
         continue;
@@ -843,8 +851,8 @@
 
   // A viewer that paginates in place (mangaz's own does exactly this)
   // swaps the image without a navigation, so a load handler would never
-  // fire. Watch the DOM instead, and re-translate the new page -- from
-  // the cache when it is one we have already done.
+  // fire. Watch the DOM instead, so the old page's English is taken off
+  // the new picture (repositionAll); pressing Translate again draws it.
   function watchForPageChanges() {
     if (state.observer) return;
     state.observer = new MutationObserver(() => scheduleReposition());
@@ -1196,8 +1204,8 @@
     if (!captured.text) {
       return {
         ok: false,
-        error: "No selectable text found here. Try selecting a passage first, or scroll to " +
-              "the part of the page you want translated.",
+        // The block is picked by length from the whole page, so scrolling would change nothing.
+        error: "No story text found on this page. Select the passage you want and press Translate text again.",
       };
     }
     const response = await chrome.runtime.sendMessage({
@@ -1277,7 +1285,7 @@
         continue;
       }
       return { sentAny, limit: size, failure: { done, reason: response.error || "That didn't work.",
-                                                status: response.status } };
+                                                status: response.status, timedOut: !!response.timedOut } };
     }
     return { sentAny, failure: null, limit: size };
   }
@@ -1432,6 +1440,9 @@
     const unverified = new Set();
     const fromCache = [];
     const byAddress = await fetchByAddressWanted(store);
+    // A reader that pages in place can swap a picture while its batch is out; that answer is for the old page.
+    const readAs = new Map();
+    const stillShows = (el) => { const p = readAs.get(el); return p == null || pictureOf(el) === p; };
     for (const [position, el] of chosen.entries()) {
       try {
         const extracted = byAddress && addressOnly(el) ? await addressEntry(el) : await extractBytes(el);
@@ -1441,6 +1452,7 @@
           fromCache.push(el);
           continue;
         }
+        readAs.set(el, pictureOf(el));
         if (extracted.unverified) unverified.add(extracted.hash);
         const entry = pending.get(extracted.hash);
         if (entry) {
@@ -1483,7 +1495,7 @@
       if (!entry || run.cancelled) return;
       const regions = regionsOf(page);
       rememberAnswer(page.key, regions, store);
-      for (const el of entry.elements) drawOverlay(el, regions);
+      for (const el of entry.elements) if (stillShows(el)) drawOverlay(el, regions);
       drawnEarly.add(page.key);
     };
     const sendRange = async (batch, range) => {
@@ -1508,6 +1520,7 @@
         if (!regions) continue;
         rememberAnswer(extracted.hash, regions, store);
         for (const el of elements) {
+          if (!stillShows(el)) continue;
           if (!drawnEarly.has(extracted.hash)) drawOverlay(el, regions);
           drawn += 1;
         }
@@ -1559,10 +1572,10 @@
       }
       data.stopped = {
         done: f.done, total: images.length, at: f.done + 1, reason: f.reason,
-        // The reason can be a raw network error, so the message names the
-        // place only.
-        message: `Translated ${f.done} of ${images.length} pages; stopped at page ` +
-                 `${f.done + 1} because the app stopped answering`,
+        // Without a status the reason can be a raw network error, so only the place is named; with one, the
+        // app answered and its own reason (a limit, a removed right, a deleted title) is what to act on.
+        message: `Translated ${f.done} of ${images.length} pages; stopped at page ${f.done + 1}` +
+                 (f.status || f.timedOut ? `: ${f.reason}` : " because the app stopped answering"),
       };
     }
     if (serverStop) {
@@ -1571,7 +1584,7 @@
     if (outcome.cancelled) {
       data.stopped = { reason: "cancelled",
                        message: `Cancelled after ${pages.length + skipped.length + failedPages.length} ` +
-                                `of ${images.length} pages; the pages already saved are kept.` };
+                                `of ${images.length} pages; ${store ? "the pages already saved are kept" : "the pages already drawn stay"}.` };
     }
     return { ok: true, data };
   }
@@ -1865,7 +1878,8 @@
 
   // The closing line of a chapter capture: every page found is either
   // counted in it or named as unreadable, so a shortfall is never silent.
-  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "") {
+  function captureTally(found, counts, firstFailure, unreadablePages, firstSkip = "", englishProblem = "", store = true) {
+    const kept = store ? "saved " : "";
     const tally = [`${found} page${found === 1 ? "" : "s"} found`];
     if (counts.translated) tally.push(`${counts.translated} translated`);
     if (counts.cached) tally.push(`${counts.cached} already done`);
@@ -1873,9 +1887,9 @@
     if (counts.skipped) {
       tally.push(`${counts.skipped} skipped as not a page (${firstSkip || "no reason was given"})`);
     }
-    if (counts.noText) tally.push(`${counts.noText} saved with no text found on them (notice pages and art without lettering look like this)`);
+    if (counts.noText) tally.push(`${counts.noText} ${kept}with no text found on them (notice pages and art without lettering look like this)`);
     if (counts.noEnglish) {
-      tally.push(`${counts.noEnglish} saved with text read but no English back` +
+      tally.push(`${counts.noEnglish} ${kept}with text read but no English back` +
                  (englishProblem ? ` (${englishProblem})` : " (check the engine under Settings > Browser extension)"));
     }
     if (counts.failed) tally.push(`${counts.failed} failed (${firstFailure})`);
@@ -1899,11 +1913,12 @@
 
   // The line that accounts for every page found: saved, typeset, and each one that is neither, by
   // its place in the chapter and the reason, so a short count is never unexplained.
-  function completenessLine(found, entries, repeats, unreadable, counts, timing, expected = 0) {
+  // Quick translate stores nothing, so its pages are "translated" and live only in this tab's drawing.
+  function completenessLine(found, entries, repeats, unreadable, counts, timing, expected = 0, store = true) {
     const place = (list, why) => list.slice(0, 6).map((e) => `page ${e.position} (${why(e)})`).join(", ") +
                                  (list.length > 6 ? `, and ${list.length - 6} more` : "");
     const saved = entries.filter((e) => e.status === "saved" || e.status === "read").length;
-    const parts = [`Saved ${saved} of ${found} pages`];
+    const parts = [store ? `Saved ${saved} of ${found} pages` : `Translated ${saved} of ${found} pages, drawn on this page only`];
     if (expected && expected !== found) parts.push(`the reader shows ${expected} pages, found ${found}`);
     const drawn = entries.filter((e) => e.typeset !== undefined);
     if (drawn.length) parts.push(`typeset ${drawn.filter((e) => e.typeset === true).length} of ${drawn.length}`);
@@ -2244,9 +2259,9 @@
         ? unreadableResult(unreadable, needAccess)
         : { ok: false, error: "No page-sized images found here. If the page is still loading, try again." };
     }
-    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem);
+    const tally = captureTally(seen.size, counts, firstFailure, unreadablePages, firstSkip, firstEnglishProblem, store);
     const entries = [...ledger.values()];
-    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing, expected);
+    const complete = completenessLine(seen.size, entries, repeats, unreadablePages, counts, timing, expected, store);
     const missedItems = entries.filter((e) => e.status !== "saved" && e.status !== "read" && e.item)
                                .map((e) => e.item);
     state.missed = missedItems.length ? { items: missedItems, dramaId, store } : null;

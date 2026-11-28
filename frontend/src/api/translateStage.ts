@@ -63,12 +63,12 @@ export function buildEstimateQuery(p: EstimateParams): string {
   if (p.force_retranslate) q.set('force_retranslate', 'true')
   if (p.reflect) q.set('reflect', 'true')
   if (p.bulk) q.set('bulk', 'true')
-  if (p.thinking !== undefined) q.set('thinking', String(p.thinking))
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
   if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
   for (const id of p.line_ids ?? []) q.append('line_ids', String(id))
   if (p.chapter_from !== undefined) q.set('chapter_from', String(p.chapter_from))
   if (p.chapter_to !== undefined) q.set('chapter_to', String(p.chapter_to))
+  if (p.style_preset) q.set('style_preset', p.style_preset)
   return queryOf(q)
 }
 
@@ -85,6 +85,8 @@ export function buildGlossaryAffectedQuery(p: GlossaryAffectedParams): string {
   if (p.model) q.set('model', p.model)
   if (p.reflect) q.set('reflect', 'true')
   if (p.job_cost_cap_usd !== undefined) q.set('job_cost_cap_usd', String(p.job_cost_cap_usd))
+  if (p.style_preset) q.set('style_preset', p.style_preset)
+  if (p.batch_size !== undefined) q.set('batch_size', String(p.batch_size))
   return queryOf(q)
 }
 /** Read-only: no engine call, no change. */

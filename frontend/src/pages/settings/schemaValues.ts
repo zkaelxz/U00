@@ -12,6 +12,11 @@ export function toDraftValue(row: SettingsSchemaRow, saved: unknown): string | b
   return saved == null ? '' : String(saved)
 }
 
+export function blockedPhrasesSummary(text: string | null | undefined): string {
+  const n = (text ?? '').split('\n').filter((l) => l.trim()).length
+  return n === 0 ? 'Nothing blocked' : `${n} phrase${n === 1 ? '' : 's'}`
+}
+
 export function toSavedValue(row: SettingsSchemaRow, raw: string | boolean): Parsed<unknown> {
   if (row.type === 'bool') return { ok: true, value: raw === true }
   const text = String(raw).trim()

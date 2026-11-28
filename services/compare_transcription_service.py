@@ -21,6 +21,7 @@ from jobs import job_launch
 import whisper_hallucination
 import whisper_models
 import db
+from en_cleanup import drop_em_dashes
 import sensitivity_preset as presets
 import source_change
 from engine_backends import engine_registry, line_text, pricing, translate_pipeline
@@ -583,8 +584,8 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
         errors.append(f"line {ln.idx + 1} translation: the engine returned the wrong number of lines")
         return cost
     if current_needed:
-        proposal["current_en"] = (out[0] or "").strip()[:_MAX_TEXT_CHARS]
-    proposal["candidate_en"] = (out[-1] or "").strip()[:_MAX_TEXT_CHARS]
+        proposal["current_en"] = drop_em_dashes((out[0] or "").strip(), ln.zh)[:_MAX_TEXT_CHARS]
+    proposal["candidate_en"] = drop_em_dashes((out[-1] or "").strip(), proposal["candidate_zh"])[:_MAX_TEXT_CHARS]
     proposal["translated"] = True
     return cost
 

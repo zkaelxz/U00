@@ -120,6 +120,9 @@ class SegmentCapture:
     def ended_live(self):
         return self.pump.ended_live
 
+    def settle(self):
+        self.pump.settle()
+
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
                            sample_rate: int = 16000, proxy: str | None = None,
@@ -659,7 +662,8 @@ def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
     started = time.monotonic()
     segments = (guard or (lambda call: call(None)))(lambda progress_cb: whisper_transcribe.transcribe_for_timing(
         chunk_path, model_size=whisper_size, language=source_language, use_gpu=use_gpu,
-        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb, prompt_every_window=False))
+        initial_prompt=name_prompt + context_prompt, progress_cb=progress_cb,
+        standalone_extra_speech=False))
     if on_transcribed:
         on_transcribed(time.monotonic() - started)
     checkpoint()
@@ -903,6 +907,10 @@ class _LiveRun(ChunkCaptioner):
             if watched is not self.player:
                 self._set_player(watched)
             code = proc.poll()
+            if self.captured_any and hasattr(proc, "settle"):
+                # A break now reconnects rather than ending the session, so the
+                # fetcher may notice a dead link sooner (live_fetch.SETTLED_*).
+                proc.settle()
             if getattr(proc, "ended_live", False):
                 self._ended("Capture stopped: the stream is no longer live.")
                 return True

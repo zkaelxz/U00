@@ -174,6 +174,14 @@ class TestWholeChapterCapture:
         out = _run("content", "capture_tainted_canvas_no_url")
         assert out["ok"] is False and "Tainted canvases" in out["error"]
 
+    def test_capture_waits_at_the_end_for_a_page_still_loading_then_sweeps_again(self):
+        out = _run("content", "capture_waits_for_a_page_still_loading")
+        assert out["ok"] is True and out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg", "https://s1.bzcdn.net/p/2.jpg"]
+
+    def test_capture_stops_waiting_for_a_picture_that_never_loads(self):
+        out = _run("content", "capture_gives_up_on_a_page_that_never_loads")
+        assert out["ok"] is True and out["fetched"] == ["https://s1.bzcdn.net/p/1.jpg"]
+
 
 class TestWorkerDownload:
     def test_a_valid_image_is_fetched_without_cookies_or_redirects_and_with_a_timeout_signal(self):

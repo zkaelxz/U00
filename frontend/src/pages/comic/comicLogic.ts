@@ -1,6 +1,7 @@
 // Pure comic-viewer helpers: per-drama view prefs, key and tap mapping,
 // preloading, overlay maths and zoom maths. No React here so it is unit-tested.
 
+import { safeDetail } from '../../components/errorMessages'
 import type { StorageLike } from '../../components/sectionStorage'
 import { readPref, writePref } from '../../hooks/usePersistedState'
 import { parseRoute } from '../../router'
@@ -280,6 +281,18 @@ export function orderedLines(regions: ComicRegion[]): { idx: number; text: strin
     .filter((l) => l.text)
 }
 
+// A screen reader reads an alt in one go; a long strip's text past this is still in the page's text panel.
+export const PAGE_ALT_MAX = 4000
+
+/** The picture's description: its number, then its lines in reading order (null: the text is not loaded). */
+export function pageAlt(number: number, regions: { regions: ComicRegion[] } | null): string {
+  if (!regions) return `Page ${number}`
+  const text = orderedLines(regions.regions).map((l) => l.text).join(' ')
+  if (!text) return `Page ${number}, no text`
+  const alt = `Page ${number}: ${text}`
+  return alt.length > PAGE_ALT_MAX ? `${alt.slice(0, PAGE_ALT_MAX - 1).trimEnd()}…` : alt
+}
+
 // ---- Zoom: transform = translate(x, y) scale(scale), origin top left ----
 
 export interface Zoom {
@@ -319,6 +332,20 @@ export function isReadTranslated(storage: StorageLike | null, dramaId: number): 
   return readPref<boolean>(storage, readTranslatedKey(dramaId), false) === true
 }
 
-export function markReadTranslated(storage: StorageLike | null, dramaId: number): boolean {
+// The import job a "Read translated" title started, so the reader can say when it failed instead of waiting for ever.
+const readTranslatedJobKey = (dramaId: number) => `comic.readTranslatedJob.${dramaId}`
+
+export function readTranslatedJob(storage: StorageLike | null, dramaId: number): string | null {
+  return readPref(storage, readTranslatedJobKey(dramaId), '') || null
+}
+
+/** Why a "Read translated" import failed. The job's error is "ExceptionName: message" and the job API
+ *  drops the structured error from the result, so the name is cut off here. */
+export function importFailureText(job: { error: string | null }): string | null {
+  return safeDetail((job.error ?? '').replace(/^[A-Z][A-Za-z]*(?:Error|Exception|Failed): /, ''))
+}
+
+export function markReadTranslated(storage: StorageLike | null, dramaId: number, importJobId?: string): boolean {
+  if (importJobId) writePref(storage, readTranslatedJobKey(dramaId), importJobId)
   return writePref(storage, readTranslatedKey(dramaId), true)
 }

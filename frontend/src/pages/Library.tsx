@@ -3,7 +3,7 @@ import type { FormEvent } from 'react'
 
 import { createDrama, getContinueReading, getPresets, getRecent, getStats } from '../api/library'
 import { listLines } from '../api/review'
-import { coverUrl } from '../api/metadata'
+import { coverThumbUrl } from '../api/metadata'
 import { listAllSeries } from '../api/series'
 import type { DramaSummary } from '../api/types'
 import { Badge } from '../components/Badge'
@@ -176,7 +176,7 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
                 <a className="continue-open" href={workspaceHref(x.dramaId)}>
                   <span className={`continue-tile ${tileHue(x.dramaId)}`} aria-hidden="true">
                     {x.kind === 'read' && x.cover
-                      ? <img src={coverUrl(x.dramaId)} alt="" loading="lazy" />
+                      ? <img src={coverThumbUrl(x.dramaId)} alt="" loading="lazy" />
                       : tileText({ title_en: x.title, title_zh: x.titleZh })}
                   </span>
                   <div className="continue-text">

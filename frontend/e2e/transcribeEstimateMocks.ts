@@ -25,6 +25,8 @@ export async function mockTranscribeCard(
         whisper_model_cached: opts.cached ?? true,
         measured_speed: opts.measuredSpeed ?? null,
         separate_vocals_first: opts.separate ?? false,
+        // On large-v3 the switch is only on when the title chose it; an unchosen one follows the model's default (Off).
+        separate_vocals_chosen: opts.separate ?? false,
         use_groq: false,
         audio_available: true,
       },

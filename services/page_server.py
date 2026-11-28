@@ -627,6 +627,8 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
                 split["typeset_wait"] = round(time.monotonic() - wait_started, 2)
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
+                                         # Read back at once as a JPEG and deleted, so pack fast.
+                                         png_compress_level=1,
                                          **({"look": style} if style else {}))
         return page_capture_checks.jpeg_data_url(out_path, max_width)
     except Exception as e:

@@ -25,6 +25,8 @@ import {
   isTranslationOnly,
   lineRanges,
   loadPresetStart,
+  savedRunEstimateParams,
+  savedRunForm,
   MAX_FALLBACKS,
   monthSpendText,
   ollamaWarning,
@@ -149,7 +151,6 @@ describe('translate form', () => {
       context_window_ahead: 2,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
-      thinking: false,
       default_female_pronouns: false,
       include_genre_notes: true,
     })
@@ -183,6 +184,7 @@ describe('translate form', () => {
     expect(estimateKeyFor({ ...base, reflect: true })).not.toBe(key)
     expect(estimateKeyFor({ ...base, cost_cap: 'x' })).toBeNull()
     expect(estimateKeyFor({ ...base, batch_size: '8' })).not.toBe(key)
+    expect(estimateKeyFor({ ...base, style_preset: base.style_preset === 'novel' ? 'audio_drama' : 'novel' })).not.toBe(key)
     expect(buildEstimateParams({ ...base, batch_size: '8' })).toMatchObject({ batch_size: 8 })
     expect(buildEstimateParams({ ...base, batch_size: '99999' })?.batch_size).toBeUndefined()
   })
@@ -251,6 +253,22 @@ describe('preset start values', () => {
     expect(loadPresetStart(7)).toEqual({
       default_female_pronouns: true, include_genre_notes: false, engine_model: 'gemini-pro',
     })
+  })
+
+  it('builds the saved run form from the old preset, then the title start', () => {
+    const storage = memory()
+    vi.stubGlobal('localStorage', storage)
+    storage.setItem('baihe.translatePreset.3', JSON.stringify({ style_preset: 'wuxia' }))
+    expect(savedRunForm(config, 3).style_preset).toBe('wuxia')
+    expect(savedRunForm(config, 4).style_preset).toBe('natural')
+    const started = { ...config, translate_start: { style_preset: 'natural' } } as TranslateRunConfig
+    expect(savedRunForm(started, 3).style_preset).toBe('natural')
+    expect(savedRunEstimateParams(config, 3, 'claude', '', [4, 5])).toEqual({
+      engine: 'claude', force_retranslate: true, style_preset: 'wuxia', line_ids: [4, 5],
+    })
+    expect(savedRunEstimateParams(config, 4, '', 'm', [])).toEqual({ model: 'm', force_retranslate: true, style_preset: 'natural' })
+    const batched = { ...config, translate_start: { batch_size: 12 } } as TranslateRunConfig
+    expect(savedRunEstimateParams(batched, 4, '', '', [])).toMatchObject({ batch_size: 12 })
   })
 
   it('starts the toggles from the preset (defaults: she/her off, genre notes on) and sends them', () => {
@@ -366,7 +384,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     expect(buildPresetBody(f, 'fake_mt', ' Mine ')).toEqual({
       name: 'Mine', translation_engine: 'fake_mt', engine_model: null, style_preset: 'wuxia',
       locale: null, default_female_pronouns: true, include_genre_notes: false,
-      options: { reflect: false, bulk: false, thinking: false, context_window: 5, context_window_ahead: 2 },
+      options: { reflect: false, bulk: false, context_window: 5, context_window_ahead: 2 },
     })
     const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
     expect(buildPresetBody(g, 'fake_mt', 'Mine', true)).toMatchObject({
@@ -457,12 +475,6 @@ describe('Ollama reachability warning (X24)', () => {
   it('stays quiet for other engines, even with a stale false', () => {
     expect(ollamaWarning('claude', false)).toBe(false)
     expect(ollamaWarning('', false)).toBe(false)
-  })
-})
-
-describe('think harder (removed)', () => {
-  it('is always off, even when the title remembers it', () => {
-    expect(initialForm({ ...config, title_thinking: true }).thinking).toBe(false)
   })
 })
 
@@ -670,12 +682,12 @@ describe('Save as profile captures every form field', () => {
   it('saves run options, and leaves blank ones out', () => {
     const f = {
       ...initialForm(config), style_note: ' Be formal ', batch_size: '15', cost_cap: '2', reflect: true,
-      fallbacks: ['deepseek'], thinking: true,
+      fallbacks: ['deepseek'],
     }
     const body = buildPresetBody(f, 'claude', 'P')
     expect(body.locale).toBeNull()
     expect(body.options).toEqual({
-      reflect: true, bulk: false, thinking: true, style_note: 'Be formal', batch_size: 15,
+      reflect: true, bulk: false, style_note: 'Be formal', batch_size: 15,
       context_window: 5, context_window_ahead: 2, cost_cap: 2, fallback_engines: ['deepseek'],
     })
   })

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TranscribeConfig } from '../../../types/workspace'
-import { formFromConfig, promptSummary, switchesSummary, type ConfigForm } from './transcribeConfigForm'
+import { pickDraft } from '../../../hooks/useStageDraft'
+import type { TranscribeConfig, TranscribeConfigUpdate } from '../../../types/workspace'
+import {
+  advancedDraft, defaultSeparateVocals, withSeparateTouched, formFromConfig, promptSummary, switchesSummary, withoutUntouchedSeparateVocals, type ConfigForm,
+} from './transcribeConfigForm'
 
 const off = {
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, split_by_sentences: false,
@@ -62,5 +65,56 @@ describe('formFromConfig', () => {
 
   it('carries the saved choice', () => {
     expect(formFromConfig({ ...saved, difficult_audio: true }).difficult_audio).toBe(true)
+  })
+})
+
+describe('the separate-vocals switch for a title that never chose', () => {
+  const update = { whisper_size: 'large-v3', separate_vocals_first: true } as TranscribeConfigUpdate
+
+  it('is left out of the save while untouched, so the title keeps following the model', () => {
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: false }, false)).toEqual({ whisper_size: 'large-v3' })
+  })
+
+  it('is sent once touched, or when the title already chose', () => {
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: false }, true)).toEqual(update)
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: true }, false)).toEqual(update)
+  })
+
+  it('shows the default of the model in the form: On only for Breeze on local Whisper when it is ready', () => {
+    const breeze = { whisper_size: 'breeze-asr-25', asr_backend_choice: 'whisper', use_groq: false }
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, breeze)).toBe(true)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: false }, breeze)).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, whisper_size: 'large-v3' })).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, use_groq: true })).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, asr_backend_choice: 'qwen3_asr' })).toBe(false)
+  })
+})
+
+describe('the draft of a title that never chose the separate-vocals switch', () => {
+  // A zh title on large-v3 (default Off) whose separator is ready, so Breeze's default is On.
+  const config = {
+    whisper_size: 'large-v3', asr_backend_choice: 'whisper', use_groq: false, separate_vocals_first: false,
+    separate_vocals_chosen: false, separates_on_breeze_by_default: true,
+    beam_size: 5, min_silence_ms: 1000, min_pause_sec: 0.35, vad_threshold: 0.5, hallucination_silence_sec: 0, hardsub_interval_sec: 1,
+  } as TranscribeConfig
+  const saved = formFromConfig(config)
+  const onBreeze = { ...saved, whisper_size: 'breeze-asr-25' }
+
+  it('keeps a touched Off that equals the saved value, so a reload restores it as touched', () => {
+    const draft = advancedDraft({ ...onBreeze, separate_vocals_first: false }, config, true)
+    expect(draft).toEqual({ whisper_size: 'breeze-asr-25', separate_vocals_first: false })
+    // What the form reads back on a tab switch or reload: the key's presence marks the switch touched.
+    const kept = pickDraft(JSON.parse(JSON.stringify(draft)) as Record<string, unknown>, saved)
+    expect(kept).toEqual({ whisper_size: 'breeze-asr-25', separate_vocals_first: false })
+  })
+
+  it('tells the server a touched switch is a choice, and says nothing for an untouched one', () => {
+    const update = { whisper_size: 'breeze-asr-25', separate_vocals_first: false } as TranscribeConfigUpdate
+    expect(withSeparateTouched(update, true)).toEqual({ ...update, separate_vocals_touched: true })
+    expect(withSeparateTouched(update, false)).toEqual(update)
+  })
+
+  it('leaves out an untouched switch that follows the model', () => {
+    expect(advancedDraft({ ...onBreeze, separate_vocals_first: true }, config, false)).toEqual({ whisper_size: 'breeze-asr-25' })
   })
 })

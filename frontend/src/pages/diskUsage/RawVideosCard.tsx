@@ -50,7 +50,7 @@ export function RawVideosCard({ onChanged }: { onChanged: (message: string) => v
   return (
     <section aria-label="Old source videos" className="du-trash" data-testid="raw-videos">
       <p className="muted du-why">
-        Videos of finished titles you no longer need. The subtitles and the extracted audio stay, and a title you
+        Source videos of titles that already have English lines. The subtitles and the extracted audio stay, and a title you
         marked Keep original is never listed. Videos go to Trash first, and Restore there puts the video back on its title.
       </p>
       <label>

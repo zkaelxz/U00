@@ -24,7 +24,6 @@ from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_v
 from .prompts import (MALE_PRONOUN_WORD, build_stable_system_text, is_male_speaker_label,
                       known_male_names, pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
-from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
 from .translation_guard import (HEADER_NOTE, IMPERIAL_NOTE, NUMBER_NOTE, SCRIPT_LEAK_NOTE, added_chapter_header,
                                 allowed_source_runs, changed_number, converted_to_imperial, flag_unusable_replies,
@@ -42,27 +41,24 @@ from .shared import (
 )
 from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
+from en_cleanup import SCENE_BREAK, drop_em_dashes, is_divider
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int | None = None, thinking: bool | None = None,
+                              ollama_num_ctx_override: int | None = None,
                               temperature: float | None = None, reasoning: str | None = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
     (live_cue_translation.build_live_context).
 
-    thinking: let a model that can reason do so. None means the title's
-    remembered choice, else off, so a run is fast and cheap by default;
-    engines without a request switch ignore it.
+    Thinking is switched off for the engines with a request switch, so a run
+    is fast and cheap; the others ignore it.
     reasoning: "less" asks Claude (Sonnet 5.5) or OpenAI (Luna) to reason less (see
     thinking.REASONING_MODES); None keeps the provider's default."""
-    if thinking is None:
-        thinking = title_thinking(drama_meta)
     return {
-        "reply_without_thinking": not thinking,
-        "reply_with_thinking": bool(thinking),
+        "reply_without_thinking": True,
         "drama_meta": drama_meta,
         "style_note": style_note,
         "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
@@ -86,6 +82,9 @@ TRANSLATE_PROMPT_VERSION = "6"
 # A pause this long between two lines is treated as a scene break. Matches
 # core.diagnose_line_coverage's large-gap default so both agree on "large".
 SCENE_BREAK_GAP_SECONDS = 3.0
+# A pause this long is a cut between scenes, where a subtitle run may start another lane: the
+# line after it loses only the English of a scene that is over.
+SCENE_LANE_GAP_SECONDS = 20.0
 
 
 def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
@@ -213,13 +212,16 @@ def neighbour_context(lines, chunk, before: int, ahead: int):
 
 def _recheck_male_pronouns(engine, lines, translated, context, character_names, batch_size,
                            save_cb, record_usage, cap_reached, cancel_check_cb,
-                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER):
+                           context_window=NEIGHBOURS_BEFORE, context_window_ahead=NEIGHBOURS_AFTER,
+                           slot=None):
     """With the she/her default on, asks once more for the lines it was meant to
     prevent: an English line saying he/him/his for a speaker with no he/him
     character. Only those ids go back, with a stricter instruction; a line still
     male afterwards is flagged for Review (flag/flag_note, which the finishing
     step saves on its own) rather than rewritten blind. The retry is bounded by
-    the run's cost cap and cancel, and a failed retry just leaves the flag."""
+    the run's cost cap and cancel, and a failed retry just leaves the flag. `slot`, from a
+    chapter lane, is a context manager per request that is falsy when there is no room under
+    the cap beside the batches other lanes have in flight."""
     guidelines = context.get("style_guidelines") or ""
     if (not pronoun_default_active(guidelines) or context.get("source_language", "zh") != "zh"
             or not getattr(engine, "supports_reference", False)):
@@ -251,7 +253,10 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
         chunk_context["line_languages"] = tagged_line_languages(chunk, context["source_language"])
         sources = pronoun_neutral_texts(context, [ln.zh for ln in chunk])
         try:
-            redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
+            with (slot(chunk) if slot else contextlib.nullcontext(True)) as room:
+                if not room:
+                    break
+                redone = _translate_with_retries(engine, sources, chunk_context, record_usage)
         except Exception as e:
             if stops_translate_run(e):
                 if retried and save_cb:
@@ -264,7 +269,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             continue
         for ln, tr in zip(chunk, redone):
             if (tr or "").strip():
-                ln.en = tr
+                ln.en = drop_em_dashes(tr, ln.zh)
                 retried.append(ln)
     if retried and save_cb:
         save_cb(lines)
@@ -273,6 +278,19 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             ln.flag = PRONOUN_CHECK_FLAG
             ln.flag_note = ("Says he/him but no he/him character is set for this speaker; "
                             "check the pronoun")
+
+
+def _uses_char_budget(a) -> bool:
+    """A novel batch is also held to its model's character budget unless the user chose the
+    batch size. The run service always passes a size, so it says which one it passed."""
+    return not a.batch_size if a.novel_char_budget is None else a.novel_char_budget
+
+
+def _planning_engine(engine):
+    # A wrapper's own type names no model; the engine the run starts on sets the budget.
+    if isinstance(engine, FallbackEngine):
+        return engine.engines[engine.active]
+    return engine
 
 
 def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int | None = None,
@@ -284,14 +302,15 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  character_names: dict | None = None, ollama_num_ctx_override: int | None = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float | None = None,
                                  cap_cb=None, month_cap_spent_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False, thinking: bool | None = None,
+                                 scene_aware_batches: bool = False,
                                  translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
                                  replace_flags: frozenset = frozenset(), parallel_chapters: int = 1,
-                                 lane_thread_scope=None, month_cap_left_cb=None):
+                                 lane_thread_scope=None, month_cap_left_cb=None,
+                                 novel_char_budget: bool | None = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -311,6 +330,7 @@ class _TranslateRun:
         self.errors = []
         self.stop_run = False
         self.translated = []
+        self.rechecked = set()  # line idx whose pronoun re-check already ran inside a chapter lane
         self.streak = FailureStreak()
         self.hard_failures = []
         self.spent = 0.0
@@ -322,6 +342,8 @@ class _TranslateRun:
         self.bi = 0
         self.batch_label = ""
         self.groups = []
+        self.lane_label = "Chapter"
+        self.english = []
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
         self._one_by_one_left = 0
@@ -341,7 +363,7 @@ class _TranslateRun:
         self.context = build_translation_context(
             self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
             locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
-            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
+            ollama_num_ctx_override=a.ollama_num_ctx_override,
             temperature=a.temperature, reasoning=a.reasoning)
         self.context["check_replies"] = a.check_replies
         self.size = a.batch_size or default_batch_size(self.engine, reflect=a.reflect)
@@ -350,7 +372,7 @@ class _TranslateRun:
         batches = self._plan(target_lines)
         self.n_batches = len(batches)
         self._seed_first_batch_estimate(target_lines, batches)
-        chapters = self._chapter_groups(batches)
+        chapters = self._chapter_groups(batches) or self._scene_groups(batches)
         finished = self._run_chapter_lanes(chapters) if chapters else self._run_batches(batches)
         if finished:
             self._recheck_pronouns()
@@ -367,11 +389,16 @@ class _TranslateRun:
             target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in a.target_ids]
         # A line with no source text has nothing to translate; sent, it only invites invented English.
         target_lines = [ln for ln in target_lines if (ln.zh or "").strip()]
-        english = [ln for ln in target_lines if is_english_line(ln)]
+        # A novel's scene divider is copied as the English scene break: there is nothing to translate.
+        novel = medium_prompts.kind_for(a.drama_meta) == "novel"
+        dividers = {id(ln) for ln in target_lines if novel and is_divider(ln.zh.strip())}
+        english = [ln for ln in target_lines if is_english_line(ln) or id(ln) in dividers]
         for ln in english:
-            ln.en = ln.zh
+            ln.en = SCENE_BREAK if id(ln) in dividers else ln.zh
             source_change.clear_for_new_english(ln, a.replace_flags)
-        target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        copied = {id(ln) for ln in english}
+        target_lines = [ln for ln in target_lines if id(ln) not in copied]
+        self.english = english
         if not target_lines:
             if english and a.save_cb:
                 a.save_cb(self.lines)
@@ -390,12 +417,20 @@ class _TranslateRun:
         # A chapter start in a batch's first half does not cut it, so chapters shorter than
         # a batch share requests and the lanes find fewer chapters than the book has.
         side_by_side = a.parallel_chapters >= 2 and can_run_in_parallel(self.engine)
+        self.scene_starts = (self._scene_starts(target_lines)
+                             if side_by_side and not novel_ends and a.target_ids is None else set())
+
+        def subtitle_batches(part):
+            return (plan_batches(part, size, a.scene_break_gap) if a.scene_aware_batches
+                    else [part[i:i + size] for i in range(0, len(part), size)])
+        # Planned part by part, so every scene cut is where a batch starts.
+        cuts = [0, *(i for i, ln in enumerate(target_lines) if ln.idx in self.scene_starts), len(target_lines)]
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
-                                          max_chars=None if a.batch_size else novel_batch_chars(self.engine),
+                                          max_chars=novel_batch_chars(_planning_engine(self.engine))
+                                          if _uses_char_budget(a) else None,
                                           chapter_starts=chapter_starts,
                                           one_chapter_per_batch=side_by_side) if novel_ends
-                   else plan_batches(target_lines, size, a.scene_break_gap) if a.scene_aware_batches
-                   else [target_lines[i:i + size] for i in range(0, len(target_lines), size)])
+                   else [b for lo, hi in zip(cuts, cuts[1:]) for b in subtitle_batches(target_lines[lo:hi])])
         by_sentence = a.translate_by_sentence
         if by_sentence is None:
             by_sentence = bool((a.drama_meta or {}).get("translate_by_sentence"))
@@ -479,6 +514,37 @@ class _TranslateRun:
             groups[-1].append(batch)
         return groups if len(groups) > 1 else None
 
+    def _scene_starts(self, target_lines) -> set:
+        """Where a subtitle run's lines are cut into up to `parallel_chapters` parts to run side by
+        side like chapters: the pauses of SCENE_LANE_GAP_SECONDS or more nearest an even split.
+        Only between neighbouring lines of the title, since a jump over lines not being sent
+        is not a pause."""
+        a, n = self.args, len(target_lines)
+        # A part shorter than a batch costs a request and a lane start for almost no speed.
+        pauses = [i for i in range(self.size, n - self.size + 1)
+                  if target_lines[i].idx == target_lines[i - 1].idx + 1
+                  and target_lines[i].start - target_lines[i - 1].end >= SCENE_LANE_GAP_SECONDS]
+        chosen = set()
+        for k in range(1, a.parallel_chapters):
+            free = [i for i in pauses if all(abs(i - c) >= self.size for c in chosen)]
+            if free:
+                chosen.add(min(free, key=lambda i: abs(i - n * k / a.parallel_chapters)))
+        return {target_lines[i].idx for i in chosen}
+
+    def _scene_groups(self, batches):
+        """The batches grouped by the scene parts _plan cut, or None when it cut none."""
+        if not self.scene_starts:
+            return None
+        groups = []
+        for batch in batches:
+            if not groups or batch[0].idx in self.scene_starts:
+                groups.append([])
+            groups[-1].append(batch)
+        if len(groups) < 2:
+            return None
+        self.lane_label = "Part"
+        return groups
+
     def _run_chapter_lanes(self, groups) -> bool:
         """Runs each chapter's batches in order on up to `parallel_chapters` threads, each
         with its own copy of the engine (an engine keeps per-call usage state). False when
@@ -492,6 +558,9 @@ class _TranslateRun:
             callback = getattr(a, name)
             if callback:
                 setattr(a, name, self._locked(callback))
+        # A lane saves only its own batch, and lines carried over as English are in none.
+        if self.english and a.save_cb:
+            a.save_cb(self.english)
         self.stopped = False
         self.in_flight = 0
         self.max_batch_cost = 0.0
@@ -780,7 +849,8 @@ class _TranslateRun:
         empty, fresh = [], []
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
-                ln.en = keep_first_alternative(strip_echoed_label(self.character_names.get(ln.speaker), tr))
+                ln.en = drop_em_dashes(keep_first_alternative(
+                    strip_echoed_label(self.character_names.get(ln.speaker), tr)), ln.zh)
                 source_change.clear_for_new_english(ln, self.args.replace_flags)
                 self._flag_if_split(ln)
                 self.translated.append(ln)
@@ -869,7 +939,7 @@ class _TranslateRun:
             missed = []
             for ln, tr in zip(part, translations):
                 if (tr or "").strip():
-                    ln.en = tr
+                    ln.en = drop_em_dashes(tr, ln.zh)
                     source_change.clear_for_new_english(ln, self.args.replace_flags)
                     self._flag_if_split(ln)
                     self.translated.append(ln)
@@ -1019,20 +1089,29 @@ class _TranslateRun:
             return True
         return False
 
-    def _recheck_pronouns(self):
+    def _recheck_slot(self):
+        return None
+
+    def _recheck_pronouns(self, translated=None) -> bool:
+        """False when the re-check hit an error that ends the run."""
         a = self.args
         if self.stop_run or (a.cancel_check_cb and a.cancel_check_cb()):
-            return
+            return True
+        if translated is None:
+            translated = [ln for ln in self.translated if ln.idx not in self.rechecked]
         try:
             _recheck_male_pronouns(
-                self.engine, self.lines, self.translated, self.context, self.character_names,
+                self.engine, self.lines, translated, self.context, self.character_names,
                 self.size, a.save_cb, self._record_usage,
-                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead)
+                self._cap_reached, a.cancel_check_cb, a.context_window, a.context_window_ahead,
+                self._recheck_slot())
         except Exception as e:
             if not stops_translate_run(e):
                 raise
             self.errors.append({"batch_index": self.n_batches - 1, "lines": [],
                                 "error": redact_secrets(str(e))})
+            return False
+        return True
 
 
 # Engines whose requests are independent and billed per call. A model on this PC shares one GPU,
@@ -1070,6 +1149,7 @@ class _LaneRun(_TranslateRun):
         self.parent = parent
         self.engine = engine
         self.bi_offset = 0
+        self.number = 0
         self.chapter_label = ""
         self.batch_lines = []
         # A lane saves only its own batch: a whole-title save would read lines another lane
@@ -1101,10 +1181,20 @@ class _LaneRun(_TranslateRun):
         self.context = dict(parent.context)
         self.n_batches = len(batches)
         self.bi_offset = bi_offset
-        self.chapter_label = f"Chapter {number + 1} of {parent.chapters_total}, "
+        self.chapter_label = f"{parent.lane_label} {number + 1} of {parent.chapters_total}, "
+        self.number = number
         first_error = len(self.errors)
+        done_before = len(self.translated)
         try:
-            return self._run_batches(batches)
+            if not self._run_batches(batches):
+                return False
+            # The chapter's re-check runs here as it finishes, beside the chapters still going.
+            chapter = self.translated[done_before:]
+            self.batch_lines = chapter  # what this lane's save writes
+            finished = self._recheck_pronouns(chapter)
+            with parent.lock:
+                parent.rechecked.update(ln.idx for ln in chapter)
+            return finished
         finally:
             # Several places record errors with the chapter-local batch number.
             for error in self.errors[first_error:]:
@@ -1112,6 +1202,25 @@ class _LaneRun(_TranslateRun):
 
     def _would_pass_cap(self, batch) -> bool:
         return False  # the parent prices the batch when the lane asks it for a slot
+
+    def _recheck_slot(self):
+        """Each re-check request takes a slot like a batch, so under a cap it is priced beside
+        the batches other lanes have in flight."""
+        @contextlib.contextmanager
+        def slot(chunk):
+            if not self.parent._reserve_batch(chunk):
+                yield False
+                return
+            self.batch_cost = 0.0
+            stop = False
+            try:
+                yield True
+            except Exception as e:
+                stop = stops_translate_run(e)
+                raise
+            finally:
+                self.parent._release_batch(self.batch_cost, chunk, stop=stop)
+        return slot
 
     def _note_batch_cost(self, batch, cost):
         pass  # spend is the run's, so the parent notes each batch as its slot is released
@@ -1123,6 +1232,16 @@ class _LaneRun(_TranslateRun):
         if not self.reserved:
             self.stop_run = True
         super()._set_batch_context(batch)
+        # A later part starts before the part ahead of it has English: its last lines go along
+        # as source text, so who is speaking and what was just said carry over the cut.
+        if (self.parent.lane_label == "Part" and self.number > 0 and self.bi == 0
+                and self.args.context_window > 0):
+            first = next(i for i, ln in enumerate(self.lines) if ln is batch[0])
+            before = [ln.zh for ln in self.lines[max(0, first - self.args.context_window):first]
+                      if ln.zh.strip() and not ln.en.strip()]
+            if before:
+                self.context["upcoming_lines"] = before + list(self.context.get("upcoming_lines") or [])
+                self.context["context_around"] = True
 
     def _translate_batch(self, batch):
         if not self.reserved:

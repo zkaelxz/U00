@@ -103,7 +103,7 @@ test.describe('Switches card', () => {
   })
 
   test('names three in the card order', async ({ page }) => {
-    await echoConfig(page, { use_groq: true, separate_vocals_first: true, split_by_sentences: true, realign_long_segments: false, whisper_fast_mode: false, vocabulary_hint: false })
+    await echoConfig(page, { use_groq: true, separate_vocals_first: true, separate_vocals_chosen: true, split_by_sentences: true, realign_long_segments: false, whisper_fast_mode: false, vocabulary_hint: false })
     await folded(page)
     await expect(await summaryOf(page)).toHaveText('3 on: Separate vocals first, Split lines by sentences, Use Groq')
   })

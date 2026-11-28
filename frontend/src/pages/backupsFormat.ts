@@ -23,13 +23,14 @@ export const FREQUENCY_OPTIONS: readonly [BackupFrequency, string][] = [
 ]
 
 export const ROTATION_NOTE =
-  'Keeps one copy a day for the last 7 days, plus the first copy of each of the last 4 weeks. Older copies this library made are deleted after each backup.'
+  'Keeps up to 11 copies: the newest from each of the 7 most recent days with a backup, plus the first copy of each of 4 more weeks. Older copies this library made are deleted after each backup.'
 export const SAME_DRIVE_NOTE =
   'These copies are on the same drive as your library, so one failing drive loses both. Pick a backup folder on another drive.'
 
 export const BACKUP_PROBLEM_TEXT: Record<NonNullable<AutoBackupSettings['problem']>, string> = {
   failing: 'The last automatic backup failed, so the newest copy is older than it should be.',
   stale: 'No automatic backup has succeeded for a while.',
+  same_drive: 'Your automatic backups are on the same drive as your library, so if that drive fails you lose both. Choose a folder on another drive in Backups.',
 }
 export const DEFAULT_FOLDER_TEXT = 'Default: backups\\auto in your library'
 
