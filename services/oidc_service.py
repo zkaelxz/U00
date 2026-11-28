@@ -484,8 +484,8 @@ class SignIn:
     def redeem_app_code(self, code, verifier, *, presented_session=None,
                         user_agent: str = "", client_ip: str = "") -> dict:
         """Swaps a code and its verifier for a session ({session_token,
-        csrf_token}) that ends when the confirming browser session would, and
-        only while that session is still signed in. The code is spent on the
+        csrf_token}) of the full sign-in length, given only while the
+        confirming browser session is still signed in. The code is spent on the
         first try, right or wrong. Any session the app already presented is
         revoked, as at the callback."""
         ip = auth_service.ip_prefix(client_ip)
