@@ -95,10 +95,16 @@ export async function applySameFix(
   if (typeof r === 'string') return { text: r, changed: false, blocked: true }
   const n = r.applied
   const saved = always && n > 0 && canAlways(offer.fix)
-  if (saved) await saveReplacement(dramaId, { find_text: offer.fix.find, replace_text: offer.fix.replace })
+  let rule = ''
+  if (saved) {
+    // The lines are already fixed, so a refused rule must not hide that.
+    rule = await saveReplacement(dramaId, { find_text: offer.fix.find, replace_text: offer.fix.replace }).then(
+      () => ' New translations in this series get the same fix.',
+      () => ' The fix could not be saved for new translations in this series.')
+  }
   const stale = r.stale ? `; ${r.stale} changed meanwhile and ${r.stale === 1 ? 'was' : 'were'} left` : ''
   return {
-    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.` + (saved ? ' New translations in this series get the same fix.' : ''),
+    text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.${rule}`,
     changed: n > 0,
   }
 }

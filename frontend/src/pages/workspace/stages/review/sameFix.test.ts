@@ -98,6 +98,13 @@ describe('applySameFix', () => {
     expect(saveReplacement).not.toHaveBeenCalled()
   })
 
+  it('still reports the fixed lines when the series rule is refused', async () => {
+    const apply = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [] })
+    const saveReplacement = vi.fn().mockRejectedValue(new Error('A series can have at most 500 word replacements.'))
+    expect(await applySameFix(7, offer, true, { apply, saveReplacement })).toEqual({
+      text: 'Fixed 2 more lines. The fix could not be saved for new translations in this series.', changed: true })
+  })
+
   it('passes on why nothing was applied, keeping the offer and saving no rule', async () => {
     const apply = vi.fn().mockResolvedValue('Save or discard your edit to #4 first.')
     const saveReplacement = vi.fn()
