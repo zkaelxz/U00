@@ -174,7 +174,7 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
           <p className="muted">No channels followed yet. Paste a channel link or an @handle below.</p>
         )}
         {items.length > 0 && (
-          <ul className="live-follow-list" aria-label="Followed channels">
+          <ul className="live-follow-list" aria-label="Channels">
             {items.map((f) => (
               <FollowRow key={f.id} f={f} busy={busy} canAuto={!!list?.can_auto_start}
                 open={(f.id === picked) !== flipped.has(f.id)} picked={f.id === picked} rowRef={f.id === picked ? pickedRow : undefined}

@@ -191,7 +191,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
 
   return (
     <PageShell width="standard" title="Live" label="Live" className={active ? (focus ? 'live-page live-wide live-focus' : 'live-page live-wide') : 'live-page'}
-      actions={!active && <CheckAllChannels follows={follows} />}>
+      actions={!active && follows.list && <CheckAllChannels follows={follows} />}>
       <div className="panel">
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
         <div className={active ? undefined : 'live-columns'}>

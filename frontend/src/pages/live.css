@@ -184,7 +184,7 @@ html.shell-pip body { overflow: hidden; }
 .live-follow-nickname { display: grid; gap: var(--space-2); justify-items: start; }
 
 .live-check-all { display: grid; gap: var(--space-2); justify-items: end; }
-.live-check-all p { margin: 0; max-width: 24rem; text-align: right; }
+.live-check-all p { margin: 0; max-width: min(24rem, 80vw); text-align: right; }
 .live-check-all button { min-height: 44px; }
 
 /* Start on the left, followed channels on the right; one column on narrow screens. */
