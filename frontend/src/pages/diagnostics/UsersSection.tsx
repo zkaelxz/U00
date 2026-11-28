@@ -30,8 +30,8 @@ type Busy = { id: number; what: Action } | null
 
 /**
  * "People": the household's accounts, one quiet row each that opens on click. An admin can deactivate or
- * activate one, end its sessions, remove the Ollama key they saved (never see it), or (on the PC only; not
- * shown elsewhere) remove an admin's rights or delete a deactivated member account, each after a confirm step.
+ * activate one, end its sessions, remove the Ollama key they saved (never see it), delete a deactivated member
+ * account, or (on the PC only; not shown elsewhere) remove an admin's rights, each after a confirm step.
  * The name and limit fields save themselves (PeopleFields), and a member's rights are switches in one grid
  * below the list (RightsGrid). Admin accounts hold every right and can only be changed on the PC (off
  * elsewhere, with the reason). "Add person" is shown on the main PC only, where the server allows it. Loaded
