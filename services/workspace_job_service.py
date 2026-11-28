@@ -199,7 +199,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
                        context_window_ahead=3, batch_size=20, summary_engine=None,
                        summary_engine_choice=None, target_ids=None,
                        summary_monthly_cap_usd=None, own_lines_only=False, thinking=None,
-                       summary_skip_reason="", replace_flags=frozenset()):
+                       summary_skip_reason="", replace_flags=frozenset(), novel_char_budget=None):
     """
     The actual translation work, run inside a background thread. Touches
     only plain Python objects and the database, both of which are safe
@@ -259,7 +259,7 @@ def run_translate_job(job_id, drama_id, lines, engine, drama_meta, style_note,
         lines, engine, drama_meta=drama_meta, style_note=style_note, novel_reference=novel_reference, force_retranslate=force_retranslate,
         locale=locale, glossary_terms=glossary_terms, style_guidelines=style_guidelines,
         context_window=context_window, context_window_ahead=context_window_ahead,
-        batch_size=batch_size, character_names=character_names,
+        batch_size=batch_size, novel_char_budget=novel_char_budget, character_names=character_names,
         ollama_num_ctx_override=ollama_num_ctx_override,
         reflect=reflect, target_ids=target_ids, scene_aware_batches=scene_aware,
         **timing_settings_service.translate_limits(),
