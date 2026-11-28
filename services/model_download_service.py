@@ -242,6 +242,20 @@ def _fetch_lama(report, cancelled) -> None:
     report(0.99, "Downloaded LaMa-manga")
 
 
+def _separation_fv4_ready() -> bool:
+    return readiness.separation_ready("mel_roformer_fv4")
+
+
+def _fetch_separation_fv4(report, cancelled) -> None:
+    # A PC that only has the original model keeps using it (audio_preprocess.separation_model),
+    # so without this button FV4 would only arrive with a run that chose it by name.
+    import audio_preprocess
+    report(0.0, "Downloading the FV4 vocal separation model (about 0.9 GB)…")
+    audio_preprocess.download_separation_model(audio_preprocess.MEL_ROFORMER_FV4_MODEL,
+                                               cancel_check_cb=cancelled)
+    report(0.99, "Downloaded the FV4 vocal separation model")
+
+
 def _fetch_whisper(size: str):
     def fetch(report, cancelled) -> None:
         import whisper_models
@@ -311,6 +325,11 @@ CATALOG = {
         "label": "LaMa-manga (Scanlate text cleanup)",
         "ready": _lama_ready,
         "fetch": _fetch_lama,
+    },
+    "vocal_separation_fv4": {
+        "label": "Mel-Band RoFormer FV4 (vocal separation)",
+        "ready": _separation_fv4_ready,
+        "fetch": _fetch_separation_fv4,
     },
     **{
         model_id: {

@@ -70,7 +70,7 @@ class TestRegistry:
         from services import model_readiness_service, settings_service
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         monkeypatch.setattr(settings_service, "get", lambda key, *a: gpu if key == "use_gpu" else None)
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: sep_ready)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: sep_ready)
         pack = drama.pop("pack", True)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: pack)
         assert transcribe_options_service.effective_separate_vocals({"source_language": "zh", **drama}) is expected
@@ -80,7 +80,7 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         real_get = settings_service.get
         monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: True)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: True)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
         did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
         # The form shows Off on large-v3; the user picks Breeze and saves without touching the switch.
@@ -96,7 +96,7 @@ class TestRegistry:
         monkeypatch.setattr(wm, "is_whisper_model_cached", lambda size: True)
         real_get = settings_service.get
         monkeypatch.setattr(settings_service, "get", lambda key, *a: True if key == "use_gpu" else real_get(key, *a))
-        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda: ready)
+        monkeypatch.setattr(model_readiness_service, "separation_ready", lambda *a: ready)
         monkeypatch.setattr(transcribe_options_service, "separation_pack_installed", lambda: True)
 
     @pytest.mark.parametrize("ready", [True, False])

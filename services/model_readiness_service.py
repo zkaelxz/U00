@@ -156,13 +156,16 @@ def word_aligner_ready() -> bool:
     return _torch_checkpoint(_MMS_FA_CHECKPOINT)
 
 
-def separation_ready() -> bool:
-    """Whether the RoFormer vocal model is on disk. A run with the GPU off is
-    refused by audio-separator itself with a clear message, so that case is
-    not a missing download."""
+def separation_ready(backend: str | None = None) -> bool:
+    """Whether the RoFormer vocal model a run with this separation backend would load is on
+    disk (for the default, either model). A run with the GPU off is refused by audio-separator
+    itself with a clear message, so that case is not a missing download."""
     import audio_preprocess
-    return audio_preprocess._checkpoint_ok(
-        os.path.join(audio_preprocess.MODEL_DIR, audio_preprocess.MEL_ROFORMER_VOCAL_MODEL))
+    try:
+        model = audio_preprocess.separation_model(backend or "auto")
+    except KeyError:
+        return False
+    return audio_preprocess._checkpoint_ok(os.path.join(audio_preprocess.MODEL_DIR, model))
 
 
 def sensevoice_ready() -> bool:
@@ -322,7 +325,7 @@ def for_transcribe(drama_id: int, run_diarize: bool = False, source_language=Non
         vad_run = mode == "whisper" and backend in transcribe_pipeline.VAD_BACKENDS
         mixed_whisper_run = mixed and mode == "whisper" and backend == "whisper" and not use_groq
         if transcribe_options_service.effective_separate_vocals(drama):
-            needs.append(_need(separation_ready))
+            needs.append(_need(separation_ready, drama.get("separation_backend")))
         if vad_run:
             needs += _backend_needs(backend, asr_options_service.get_vad_refine_timing(), mixed)
         elif not use_groq:

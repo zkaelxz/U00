@@ -51,7 +51,7 @@ def test_lists_each_model_with_whether_it_is_on_disk(client, models):
     state["sensevoice"] = True
     body = client.get("/api/diagnostics/model-downloads").json()
     assert {m["id"]: m["downloaded"] for m in body["models"]} == {
-        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "bge_m3": False, "lama_manga": False, "nemotron_diarization": False, "pyannote_diarization": False,
+        "qwen3_asr": False, "sensevoice": True, "manga_ocr": False, "bge_m3": False, "lama_manga": False, "vocal_separation_fv4": False, "nemotron_diarization": False, "pyannote_diarization": False,
         "whisper_large_v3": False, "whisper_large_v3_turbo": False, "whisper_ja_1_5b": False,
         "whisper_kotoba_v2": False, "whisper_medium": False, "whisper_anime": False,
         "whisper_breeze_asr_25": False, "whisper_thonburian": False}
@@ -405,3 +405,12 @@ def test_pull_model_reports_the_reason_in_an_error_status(monkeypatch):
     _fake_session(monkeypatch, Refused([]))
     with pytest.raises(ValueError, match="file does not exist"):
         ollama_server.pull_model("http://o:1", "bge-m3")
+
+
+def test_the_fv4_download_fetches_that_model(monkeypatch):
+    import audio_preprocess
+    asked = []
+    monkeypatch.setattr(audio_preprocess, "download_separation_model",
+                        lambda model, cancel_check_cb=None: asked.append(model))
+    svc.CATALOG["vocal_separation_fv4"]["fetch"](lambda f, m: None, lambda: False)
+    assert asked == [audio_preprocess.MEL_ROFORMER_FV4_MODEL]

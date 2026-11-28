@@ -293,7 +293,7 @@ export function TranscribeAdvanced(p: Props) {
       ),
     }),
     beam_size: () => num('Beam size', 'beam_size', 1, `${rangeHint(RANGES.beam_size.min, RANGES.beam_size.max, { default: BEAM_SIZE_DEFAULT })} Higher is slower and a little more accurate.`, undefined, 'beam_size'),
-    separation_backend: () => select('Separation backend', 'separation_backend', ['auto', 'audio_separator'], 'Used when vocals are separated first.'),
+    separation_backend: () => select('Separation model', 'separation_backend', ['auto', 'mel_roformer_fv4', 'mel_roformer_original'], 'Used when vocals are separated first. Automatic uses FV4, or the original model when only that one is downloaded.'),
     hardsub_ocr_backend: () =>
       select('Hardsub OCR', 'hardsub_ocr_backend', ['tesseract', 'paddle', 'rapidocr', 'qwen3_vl_4b', 'qwen3_vl_8b', 'auto']),
     separate_vocals_first: () =>
