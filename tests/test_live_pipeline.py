@@ -450,8 +450,7 @@ class IdKeyedEngine:
         def call_model(numbered):
             self.requests.append(numbered)
             return self.reply(numbered)
-        return request_translations_with_retry(lines, None, call_model, max_retries=0,
-                                               line_ids=context.get("line_ids"))
+        return request_translations_with_retry(lines, None, call_model, max_retries=0)
 
 
 class TestChunkTranslator:
