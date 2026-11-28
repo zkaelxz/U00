@@ -22,13 +22,13 @@ class _Seg:
 
 class _Model:
     """Hears `lines` lines a second apart in whatever audio it is given, named by its length.
-    fail_on maps a length to the error that half raises once, after the first line."""
+    fail_on maps a length to the error that half raises once, after `fail_after` lines."""
 
-    def __init__(self, lanes=2, fail_on=None, lines=1, pause=0.0):
+    def __init__(self, lanes=2, fail_on=None, lines=1, pause=0.0, fail_after=1):
         self.heard, self.kwargs, self.threads, self.yielded = [], [], [], []
         self.barrier = threading.Barrier(lanes, timeout=5)
         self.fail_on = dict(fail_on or {})
-        self.lines, self.pause = lines, pause
+        self.lines, self.pause, self.fail_after = lines, pause, fail_after
 
     def transcribe(self, audio, **kwargs):
         seconds = len(audio) / SR
@@ -42,11 +42,12 @@ class _Model:
                 # Both lanes must be decoding at the same time to pass this point.
                 self.barrier.wait()
             for n in range(self.lines):
-                if n == 1 and first_call and seconds in self.fail_on:
+                if n == self.fail_after and first_call and seconds in self.fail_on:
                     raise self.fail_on[seconds]
                 time.sleep(self.pause)
                 self.yielded.append(seconds)
-                yield _Seg(1.0 + n, 1.5 + n, f"heard {seconds:g} s")
+                # Each line its own text: four equal ones in a row are dropped as a hallucination.
+                yield _Seg(1.0 + n, 1.5 + n, f"heard {seconds:g} s" + (f", line {n + 1}" if n else ""))
         return gen(), types.SimpleNamespace(duration=seconds)
 
 
@@ -149,14 +150,16 @@ def test_a_half_that_ran_out_of_memory_is_heard_again_alone(run):
 
 
 def test_a_first_half_that_ran_out_of_memory_is_heard_again_without_repeating_units(run, monkeypatch):
-    monkeypatch.setattr(whisper_transcribe, "CHECKPOINT_UNIT_SECONDS", 0.2)
+    # Units of 2 s: the first try fails with lines 1 and 2 waiting in an unreported unit, which
+    # the re-run must not repeat, and after progress passed where the re-run's first line ends.
+    monkeypatch.setattr(whisper_transcribe, "CHECKPOINT_UNIT_SECONDS", 2.0)
     model = _Model(lanes=2, fail_on={5.0: RuntimeError("CUDA failed with error out of memory")},
-                   lines=3)
+                   lines=4, fail_after=2)
     units, progress = [], []
     out = run(model, on_unit=units.append, progress_cb=progress.append)
     assert sorted(model.heard) == [5.0, 5.0, 7.0]
-    assert [s["start"] for s in out] == [1.0, 2.0, 3.0, 6.0, 7.0, 8.0]
-    assert [[s["start"] for s in u] for u in units] == [[1.0], [2.0], [3.0]]
+    assert [s["start"] for s in out] == [1.0, 2.0, 3.0, 4.0, 6.0, 7.0, 8.0, 9.0]
+    assert [[s["start"] for s in u] for u in units] == [[1.0, 2.0, 3.0]]
     assert progress == sorted(progress)   # the bar never moves back for the re-run
 
 
