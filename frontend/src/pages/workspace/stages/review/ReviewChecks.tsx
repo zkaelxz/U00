@@ -301,7 +301,7 @@ function TendenciesSection({ t }: { t: Tendencies }) {
       )}
       {t.profile && (
         <>
-          <h2 className="subhead">Learned style ({t.scope.startsWith('series:') ? 'this series' : 'all projects'})</h2>
+          <h2 className="subhead">Learned style ({t.scope.startsWith('series:') ? 'this series' : 'all titles'})</h2>
           {t.profile.summary && <p>{t.profile.summary}</p>}
           <ul>
             {t.profile.preferences.map((p) => (

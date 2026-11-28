@@ -4,6 +4,7 @@
  */
 import { useState } from 'react'
 
+import { ApiError } from '../../api/client'
 import { createDrama, deleteDrama } from '../../api/library'
 import { scanlateApi } from '../../api/scanlate'
 import { startComicUrlImport } from '../../api/sourcesExtraction'
@@ -30,6 +31,9 @@ const PICK: Record<Exclude<AddWay, 'link'>, { accept: string; multiple: boolean 
 
 // The one line shown when "Read translated" cannot start from the link.
 export const READ_TRANSLATED_ERROR = 'Couldn’t read that link. Check it and try again.'
+
+// A refusal or a limit is about the account, not the link, so it keeps the server's own words.
+const isLinkProblem = (e: unknown) => !(e instanceof ApiError && [401, 403, 409, 429].includes(e.status))
 
 /** `readTranslated` is the link-only "Read translated" form: the pages are translated as they are read. */
 export function AddComicDialog({ open, onClose, readTranslated = false }: { open: boolean; onClose: () => void; readTranslated?: boolean }) {
@@ -63,13 +67,18 @@ export function AddComicDialog({ open, onClose, readTranslated = false }: { open
         freshId = id
         setMade({ id, mediaType })
       }
+      let importJob: string | undefined
       id = await addComic({ ...input, files: pages }, request, id, {
         create: createDrama,
-        importLink: (url, dramaId) => startComicUrlImport(url, dramaId, {}),
+        importLink: async (url, dramaId) => {
+          const started = await startComicUrlImport(url, dramaId, {})
+          importJob = started.job_id
+          return started
+        },
         upload: (dramaId, f) => scanlateApi.upload(dramaId, f, true),
       })
       saveComicPrefs(browserStorage(), id, startPrefs(mediaType, mode))
-      if (readTranslated) markReadTranslated(browserStorage(), id)
+      if (readTranslated) markReadTranslated(browserStorage(), id, importJob)
       onClose()
       window.location.assign(routeHref({ name: 'comic', id, page: null }))
     } catch (e) {
@@ -131,7 +140,7 @@ export function AddComicDialog({ open, onClose, readTranslated = false }: { open
             </select>
           </Field>
         )}
-        {readTranslated ? (
+        {readTranslated && isLinkProblem(error) ? (
           error !== null && <p role="alert" className="error">{READ_TRANSLATED_ERROR}</p>
         ) : (
           <ErrorBanner error={error} onDismiss={() => setError(null)} describe={{ serverText: true }} />

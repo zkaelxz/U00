@@ -322,7 +322,7 @@ export function ReviewJobsPanel({ dramaId, reloads, onChanged, onGoTo, flaggedCo
             defaultEngine={defaultEngine}
             engine={fix.engine}
             model={fix.model}
-            help={`Which service re-translates. The default comes from Settings. ${NO_KEY_ENGINES_HELP}`}
+            help={`Which service re-translates. The default is this title’s translation engine. ${NO_KEY_ENGINES_HELP}`}
             onChange={(n) => setFix((f) => ({ ...f, ...n }))}
           />
           {/* Text, not type=number: a browser turns a value it cannot parse ("5$", "1,5", "-")
