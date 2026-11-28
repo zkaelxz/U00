@@ -476,7 +476,7 @@ SETTINGS = (
             unit="words", dev=True),
     _timing("quick_split_seconds", "float", 12.0, 2.0, 120.0, SPLIT,
             "One-click split: longest line",
-            "Duration cap used by the one-click 'Split long lines' button in Review. Lines longer than this are cut. Members, and other devices, use the default 12 s.",
+            "Duration cap used by the one-click 'Split long lines' button in Review. Lines longer than this are cut. Members use the default 12 s.",
             unit="s", digits=1),
     _timing("realign_min_seconds", "float", 12.0, 6.0, 30.0, SPLIT,
             "Realign: shortest line to re-cut",
