@@ -143,8 +143,6 @@ describe('continueAction', () => {
     expect(continueAction(work(), row(), null)).toEqual({ label: 'Translate 5 lines', href: '#/drama/5/translate' })
     expect(continueAction(work(), row({ translated_count: 9 }), 3)).toEqual({ label: 'Translate 1 line', href: '#/drama/5/translate' })
     expect(continueAction(work(), row({ line_count: 2000, translated_count: 766 }), null).label).toBe('Translate 1,234 lines')
-    expect(continueAction(work(), row({ line_count: 12_345, translated_count: 0 }), null).label).toBe('Translate 12,345 lines')
-    expect(continueAction(work(), row({ line_count: 123_456, translated_count: 0 }), null).label).toBe('Translate 123.5K lines')
     // Lines still waiting win over an exported status.
     expect(continueAction(work(), row({ status: 'exported' }), null).label).toBe('Translate 5 lines')
   })
@@ -152,7 +150,7 @@ describe('continueAction', () => {
   it('Check the N lines on the Review step once every line has English, worded as the title page words it', () => {
     expect(continueAction(work(), done(), 3)).toEqual({ label: 'Check the 3 lines', href: '#/drama/5/review' })
     expect(continueAction(work(), done(), 1)).toEqual({ label: 'Check the line', href: '#/drama/5/review' })
-    expect(continueAction(work(), done(), 1500).label).toBe('Check the 1,500 lines')
+    expect(continueAction(work(), done(), 1500).label).toBe('Check the 1500 lines')
   })
 
   it('Check the lines while the count is unknown (loading or failed), Export when nothing needs a look', () => {

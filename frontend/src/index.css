@@ -1059,9 +1059,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
    whatever their labels. */
 @container (max-width: 28rem) {
   .continue-row > .continue-open { flex-basis: 100%; }
-  /* No indent under the title: a long label such as "Translate 3,869 lines" needs the tile's full width, and wraps
-     inside the button rather than past the tile's edge. */
-  .continue-row > .continue-next { flex: 0 1 auto; max-width: 100%; white-space: normal; text-align: center; }
+  .continue-row > .continue-next { flex: 0 0 auto; margin-left: calc(36px + var(--space-3)); }
 }
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }

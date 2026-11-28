@@ -185,8 +185,6 @@ function workStep(row: ShelfRow | undefined, mediaType: string | null): 'open' |
 export const needsCheckCount = (x: ContinueItem, row: ShelfRow | undefined): boolean =>
   x.kind === 'work' && workStep(row, x.mediaType) === 'check'
 
-const COMPACT = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 })
-
 /** A Continue tile's button: what it does next and the place it opens. `riskCount` is the number of lines needing a
  *  look, null while unknown (not asked yet, still loading, or the request failed). */
 export function continueAction(x: ContinueItem, row: ShelfRow | undefined, riskCount: number | null): { label: string; href: string } {
@@ -202,9 +200,7 @@ export function continueAction(x: ContinueItem, row: ShelfRow | undefined, riskC
       return { label: 'Open', href: workspaceHref(id) }
     case 'translate': {
       const left = (row?.line_count ?? 0) - (row?.translated_count ?? 0)
-      // A six-digit count would push the label to a second line on a narrow tile; "123.5K" keeps it on one.
-      const count = left >= 100_000 ? `${COMPACT.format(left)} lines` : pluralLocale(left, 'line')
-      return { label: `Translate ${count}`, href: workspaceHref(id, 'translate') }
+      return { label: `Translate ${pluralLocale(left, 'line')}`, href: workspaceHref(id, 'translate') }
     }
     case 'check': {
       // The title page's own Check button, so both name the step the same way.
