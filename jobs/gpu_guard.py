@@ -367,7 +367,10 @@ def _any_job_running() -> bool:
 
 def _free_idle_models(state: dict, now: float) -> None:
     """Unloads what no running job needs. Only while nothing in Baihe runs: a
-    running job may be using any of them, and the caches can't say which."""
+    running job may be using any of them, and the caches can't say which. An
+    idle warm worker runs no job, so it goes whatever else runs."""
+    from jobs import warm_worker
+    warm_worker.retire_idle("the GPU is short of memory")
     if state["unloaded_at"] is not None and now - state["unloaded_at"] < UNLOAD_EVERY_SECONDS:
         return
     if _any_job_running():

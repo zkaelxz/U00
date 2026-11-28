@@ -13,7 +13,7 @@ import functools
 import db
 import gpu_probe
 import job_force_stop
-from jobs import crash_retry, gpu_guard, user_caps
+from jobs import crash_retry, gpu_guard, user_caps, warm_worker
 from jobs.gpu_queue import (_enqueue_locked, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
@@ -283,8 +283,8 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
     target = _with_member_key(target)
     if model_offline.active():
         target = model_offline.for_thread(target)
-    if gpu_touching and get_gpu_limit_enabled():
-        gpu_probe.prefetch()
+    if gpu_touching:
+        _before_gpu_admit()
     with _lock:
         status, counted_day = _admit_locked(job_id, gpu_touching, description, owner_user_id, priority)
         if status is None:
@@ -308,6 +308,36 @@ def start_job(job_id: str, target, *args, gpu_touching: bool = False,
         _fail_start(job_id, gpu_touching, exc, run=run)
         raise
     return True
+
+
+def _before_gpu_admit(warm_key=None):
+    """Outside _lock, before a GPU job's admission: an idle warm worker this
+    job cannot use is retired first, so the free-VRAM checks do not take its
+    memory for another program's; then the card is read ahead of the check."""
+    warm_worker.retire_idle("another GPU job is starting", keep_key=warm_key)
+    if get_gpu_limit_enabled():
+        gpu_probe.prefetch()
+
+
+def _register_run_locked(job_id, target, args, gpu_touching, description, owner_user_id, counted_day,
+                         **register_kwargs):
+    """Caller holds _lock. start_process_job's run that starts now: (process,
+    result queue, run). A failure gives back what admission took, and a warm
+    worker the run had claimed."""
+    try:
+        proc, result_queue = _register_process_job(job_id, target, args, gpu_touching, description,
+                                                   owner_user_id, daily_day=counted_day,
+                                                   **register_kwargs)
+    except Exception:
+        # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
+        _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day)
+        raise
+    try:
+        return proc, result_queue, _new_run_locked(job_id, mirror=False)
+    except BaseException:
+        if isinstance(proc, warm_worker.WarmJob):
+            proc.close()
+        raise
 
 
 def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id=None):
@@ -407,8 +437,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     line_fields = db.check_line_fields(line_fields)
     owner_user_id, origin_device = _acting_user_id(), _acting_device()
     target, on_done, cpu_retry = _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_user_id)
-    if gpu_touching and get_gpu_limit_enabled():
-        gpu_probe.prefetch()
+    if gpu_touching:
+        _before_gpu_admit(warm_key)
     with _lock:
         status, counted_day = _admit_locked(job_id, gpu_touching, description, owner_user_id)
         if status is None:
@@ -425,17 +455,10 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
                                 "cpu_retry": cpu_retry, "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
             return True
-        try:
-            proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
-                                                       description, owner_user_id,
-                                                       start_method=start_method, warm_key=warm_key,
-                                                       run_settings=run_settings, initial_result=initial_result,
-                                                       line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
-        except Exception:
-            # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
-            _undo_admit_locked(job_id, gpu_touching, owner_user_id, counted_day)
-            raise
-        run = _new_run_locked(job_id, mirror=False)
+        proc, result_queue, run = _register_run_locked(
+            job_id, target, args, gpu_touching, description, owner_user_id, counted_day,
+            start_method=start_method, warm_key=warm_key, run_settings=run_settings,
+            initial_result=initial_result, line_fields=line_fields, origin_device=origin_device)
     try:
         _start_worker(proc, gpu_touching)
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",

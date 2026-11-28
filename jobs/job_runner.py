@@ -453,6 +453,7 @@ def _promote_one_queued_gpu_job(dropped):
     `dropped`, which the caller runs once _lock is released."""
     proc = result_queue = build_error = None
     if _gpu_queue:
+        _retire_unless_next_uses_it(dropped)
         gpu_probe.prefetch()
     with _lock:
         if not _gpu_queue or _running_gpu_job_count_locked(None) >= get_gpu_max_parallel():
@@ -518,6 +519,19 @@ def _promote_one_queued_gpu_job(dropped):
                 dropped.append((job_id, on_finish))
         else:
             _fail_start(job_id, True, exc, run=run)
+
+
+def _retire_unless_next_uses_it(dropped):
+    """Before the queue's slot check, outside _lock: an idle warm worker the
+    next job in line cannot use is retired, so the free-VRAM checks do not take
+    its memory for another program's."""
+    if warm_worker.idle_key() is None:
+        return
+    with _lock:
+        _sort_fair_locked()
+        entry = _next_promotable_entry_locked(dropped)
+    if entry is not None:
+        warm_worker.retire_idle("another GPU job is next", keep_key=entry.get("warm_key"))
 
 
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
@@ -675,6 +689,13 @@ def _process_watcher(job_id, proc, result_queue, gpu_touching=False, poll_interv
                 return
             if outcome is None:
                 outcome = _drain_after_exit(job_id, result_queue, stage)
+            if outcome is None and isinstance(proc, warm_worker.WarmJob) and proc.ended_before_its_job():
+                rerun = _rerun_in_fresh_process(job_id, run, proc, result_queue, kill_whole_tree,
+                                                stage, logger)
+                if rerun is _STOPPED:
+                    return
+                proc, result_queue = rerun
+                continue
             if outcome is not None or cpu_retry is None or crash is not None:
                 break
             restarted = _restart_on_cpu(job_id, run, proc, result_queue, cpu_retry,
@@ -721,8 +742,27 @@ def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, sta
     exitcode = proc.exitcode
     if not crash_retry.is_native_crash(exitcode):
         return None
+    reason = crash_retry.crash_reason(exitcode)
+    started = _rerun(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger,
+                     f"{reason}; running it again on the CPU", CPU_RETRY_MESSAGE)
+    return started if started is _STOPPED else (*started, reason)
+
+
+def _rerun_in_fresh_process(job_id, run, proc, result_queue, kill_whole_tree, stage, logger):
+    """A warm worker ended without this job's result before taking it, or by a
+    clean exit (WarmJob.ended_before_its_job): the same job runs once in a
+    fresh process of its own. (process, queue), or _STOPPED."""
+    retry = {"target": proc.target, "args": tuple(proc.args), "start_method": "spawn"}
+    return _rerun(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger,
+                  "its warm worker ended before reporting; running it in a fresh process", None)
+
+
+def _rerun(job_id, run, proc, result_queue, retry, kill_whole_tree, stage, logger, note, message):
+    """Runs the job again in a new process (crash_retry.build_process) once the
+    old worker is gone: (process, queue), or _STOPPED when the job was
+    cancelled or cleared meanwhile."""
     _stop_stage_ticker(stage)
-    # The crashed worker's tree is gone before the CPU run starts: nothing it
+    # The old worker's tree is gone before the new run starts: nothing it
     # started still holds VRAM or writes into the job's scratch folder.
     reap_worker(proc, kill_whole_tree)
     from jobs import job_launch
@@ -731,7 +771,6 @@ def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, sta
     if should_stop or job_launch.is_stopping():
         _stop_for_cancel(job_id, proc, kill_whole_tree, run, was_cleared, logger)
         return _STOPPED
-    reason = crash_retry.crash_reason(exitcode)
     new_proc, new_queue = crash_retry.build_process(job_id, retry)
     with _lock:
         if not _still_running_locked(job_id, run):
@@ -744,14 +783,15 @@ def _restart_on_cpu(job_id, run, proc, result_queue, retry, kill_whole_tree, sta
         result_queue.discard()
     except Exception:
         pass
-    logger.warning(f"job {job_id}: {reason}; running it again on the CPU")
-    update_progress(job_id, 0.0, CPU_RETRY_MESSAGE)
+    logger.warning(f"job {job_id}: {note}")
+    if message:
+        update_progress(job_id, 0.0, message)
     try:
         new_proc.start()
     except Exception:
         new_queue.discard()
         raise
-    return new_proc, new_queue, reason
+    return new_proc, new_queue
 
 
 def _stop_stage_ticker(stage):
