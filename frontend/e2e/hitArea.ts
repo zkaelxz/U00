@@ -18,8 +18,10 @@ export async function installHitArea(page: Page): Promise<void> {
       const probed = ['btn-sm', 'toggle', 'field-help-btn'].some((c) => el.classList.contains(c))
       if (!probed) return el.getBoundingClientRect().height
       // Not rendered (a closed fold): there is nothing to hit-test; report the area the ::after would give.
-      // The 12 is the 6px the .btn-sm ::after adds above and below the box (index.css), so 32 + 12 = 44.
-      if (!el.checkVisibility()) return el.getBoundingClientRect().height + (el.classList.contains('btn-sm') ? 12 : 0)
+      // The 12 is the 6px the .btn-sm ::after adds above and below the box (index.css), so 32 + 12 = 44; a
+      // Toggle's ::after adds 11px above and below, so 24 + 22 = 46.
+      const reach = el.classList.contains('btn-sm') ? 12 : el.classList.contains('toggle') ? 22 : 0
+      if (!el.checkVisibility()) return el.getBoundingClientRect().height + reach
       // elementFromPoint only sees the viewport, so centre the button before probing.
       el.scrollIntoView({ block: 'center' })
       const r = el.getBoundingClientRect()

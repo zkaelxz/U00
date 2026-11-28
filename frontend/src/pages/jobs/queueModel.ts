@@ -1,4 +1,4 @@
-// Pure helpers for the Queue card on the Jobs page (JobQueue.tsx).
+// Pure helpers for the Queue row on the Jobs page (JobQueue.tsx).
 import { humanize, type BadgeTone } from '../../components/labels'
 import type {
   QueueItem, QueueItemStatus, QueueSchedule, QueueSettingEdits, QueueSettingField, QueueSettingRow, QueueState,
@@ -70,6 +70,14 @@ export function runStateText(q: QueueState): string | null {
   if (q.state === 'paused') return 'Paused: no new item starts. A running one finishes.'
   if (waitingCount(q.items)) return q.schedule && !q.schedule.missed ? 'Waiting for the start time.' : 'Not running.'
   return q.items.length ? 'Nothing waiting.' : null
+}
+
+/** The folded Queue row's one line: run state, how many wait, and a pending start time. */
+export function queueSummary(q: QueueState): string {
+  const waiting = waitingCount(q.items)
+  const state = q.state === 'running' ? 'Running' : q.state === 'paused' ? 'Paused' : null
+  const start = q.schedule && !q.schedule.missed ? `starts at ${q.schedule.time}` : q.schedule?.missed ? 'start time missed' : null
+  return [state, waiting ? `${waiting} waiting` : 'Nothing waiting', start].filter(Boolean).join(' · ')
 }
 
 export function scheduleText(s: QueueSchedule | null, now: Date = new Date()): string | null {

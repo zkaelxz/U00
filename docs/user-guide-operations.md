@@ -10,7 +10,7 @@ In the Add box, a pasted video link and **Make English subtitles** (One-click tr
 
 ## The job queue
 
-The Jobs page has a Queue card (below the job list, or above the empty state when nothing has run yet) for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted. Click the Queue heading to fold the card down to its status line; it remembers this in the browser and stays open while the queue is running. The job table's sort (Started or Duration, either way) is remembered in the browser like its filters. An error that has no next step of its own now links to where the detail is: **Open the log** for an internal error (admins), and members are told to ask the PC owner.
+The Jobs page has a Queue row under the job list (folded while nothing is queued; **+ Add to queue** at the top right opens it on its add form) for lining up work and letting it run hands-off, for example overnight. Pick a title and a step (Transcribe, Translate or Export subtitles) and add it; reorder with Move up and Move down, remove an item, or press Retry on one that failed, was skipped or was interrupted. Click the Queue heading to fold the card down to its status line; it remembers this in the browser and stays open while the queue is running. The job table's sort (Started or Duration, either way) is remembered in the browser like its filters. An error that has no next step of its own now links to where the detail is: **Open the log** for an internal error (admins), and members are told to ask the PC owner.
 
 Jobs that need the GPU wait in one line and start in turns between people: each person's first waiting job goes before anyone's second, and the owner's job goes first within a turn. Live streams still go ahead of everything.
 
@@ -43,7 +43,7 @@ When the drive that holds the library has under 10 GB free, a member can't start
 - SQLite runs in WAL mode; the review table is paginated; real token usage is logged per drama (estimates only, since prices change).
 - GPU acceleration (Whisper, diarization, local cloning) is on by default, including on a fresh data folder, and falls back to CPU if CUDA isn't available. Whisper picks the fastest number format the card supports, so older cards without float16 (GTX 10xx) still transcribe on the GPU.
 - The novel reference is sent as a prompt-cached block per drama. A very long novel (200k+ Chinese characters) may not fit; trim to the relevant arc or compress it into a glossary.
-- For 50-100+ dramas: filter the Library by status and line the work up in the Queue card on the Jobs page.
+- For 50-100+ dramas: filter the Library by status and line the work up in the Queue on the Jobs page.
 
 ## Troubleshooting
 
