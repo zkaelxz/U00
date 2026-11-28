@@ -6,6 +6,7 @@ import type { DramaSummary } from '../api/types'
 import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useDetailsMenu } from '../hooks/useDetailsMenu'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
 import { lineNumber } from '../lineNumber'
@@ -473,7 +474,7 @@ export function LibraryList({
                         <span className="muted">{(totals.get(g.key) ?? g.items.length) === 1 ? '1 title' : `${totals.get(g.key) ?? g.items.length} titles`}{g.mix && ` · ${g.mix}`}</span>
                       </button>
                       {g.seriesId !== undefined && (
-                        <a className="title-group-link" href={routeHref({ name: 'series', id: g.seriesId })} aria-label={`Open series ${g.label}`}>Open series</a>
+                        <SeriesGroupLinks id={g.seriesId} label={g.label} />
                       )}
                     </h3>
                     {!collapsed.has(g.key) && listView(g.items, g.label)}
@@ -486,6 +487,21 @@ export function LibraryList({
         </>
       )}
     </section>
+  )
+}
+
+// Delete is PC only on the server, so it isn't offered away from the PC.
+function SeriesGroupLinks({ id, label }: { id: number; label: string }) {
+  const pc = usePcOnly()
+  const settings = (tab: 'settings') => routeHref({ name: 'series', id, tab })
+  return (
+    <span className="title-group-links">
+      <a className="title-group-link" href={routeHref({ name: 'series', id })} aria-label={`Open series ${label}`}>Open series</a>
+      <a className="title-group-link" href={settings('settings')} aria-label={`Rename series ${label}`}>Rename</a>
+      {pc !== 'remote' && (
+        <a className="title-group-link" href={settings('settings')} aria-label={`Delete series ${label}`}>Delete</a>
+      )}
+    </span>
   )
 }
 

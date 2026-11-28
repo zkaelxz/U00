@@ -54,6 +54,8 @@ test('search applies inside groups and an empty group disappears', async ({ page
   await expect(groups).toHaveCount(1)
   await expect(groups.first().locator('.title-group-name')).toHaveText('Saga')
   await expect(page.getByRole('link', { name: 'Open series Saga' })).toHaveAttribute('href', '#/series/7')
+  await expect(page.getByRole('link', { name: 'Rename series Saga' })).toHaveAttribute('href', '#/series/7?tab=settings')
+  await expect(page.getByRole('link', { name: 'Delete series Saga' })).toHaveAttribute('href', '#/series/7?tab=settings')
 })
 
 test('groups by media type and by status', async ({ page }) => {
