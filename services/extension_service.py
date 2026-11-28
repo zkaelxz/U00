@@ -181,7 +181,8 @@ def reveal_token(confirm=False) -> dict:
 def _saved_engine() -> tuple:
     """(engine, model) from app settings. Never saved: Scanlate's default
     engine, so a first page is translated without a trip to Settings. Saved as
-    "no engine" (OCR only), unknown to this build, or unreadable: (None, None)."""
+    "no engine" (OCR only), unknown to this build, or unreadable: (None, None).
+    A local Ollama tag saved before those were removed reads as no model."""
     try:
         saved = db.get_app_setting(ENGINE_SETTING, None)
     except Exception:
@@ -197,7 +198,7 @@ def _saved_engine() -> tuple:
     engine = saved.get("engine")
     if engine not in engine_registry.ENGINES:
         return None, None
-    model = saved.get("model")
+    model = engine_registry.drop_saved_local_model(engine, saved.get("model"))
     return engine, (model if isinstance(model, str) and model else None)
 
 

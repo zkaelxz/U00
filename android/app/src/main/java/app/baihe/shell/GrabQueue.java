@@ -58,6 +58,33 @@ final class GrabQueue {
         return out;
     }
 
+    /** A token the server refused, or a spent limit, would refuse every later batch and chapter too. */
+    static boolean refusesTheRest(int status) {
+        return status == 401 || status == 403 || status == 429;
+    }
+
+    /** Where a chapter's send leaves a series or queue run. */
+    static final class AfterSend {
+        final boolean goOn;
+        final boolean queueRunning;
+        final String message;
+
+        AfterSend(boolean goOn, boolean queueRunning, String message) {
+            this.goOn = goOn;
+            this.queueRunning = queueRunning;
+            this.message = message;
+        }
+    }
+
+    /** A refusal ends the series and the queue run as well as the chapter; the queue keeps its chapters, so it can be
+     * started again once the server takes pages. `moreDue` is whether later chapters were waiting. */
+    static AfterSend afterSend(String message, boolean sent, boolean refused, boolean queueRunning, boolean moreDue) {
+        String said = refused && moreDue
+                ? message + (message.endsWith(".") ? " " : ". ") + "Later chapters would be refused too, so it stopped here."
+                : message;
+        return new AfterSend(sent && !refused, queueRunning && !refused, said);
+    }
+
     /** Any count above the pick-a-number cap means the run was asked to go to the last chapter. */
     static boolean untilEnd(int chapters) {
         return chapters > MAX_CHAPTERS;

@@ -12,6 +12,41 @@ import java.util.List;
 
 public class GrabQueueTest {
     @Test
+    public void aSpentCapOrARefusedTokenStopsTheRun() {
+        assertTrue(GrabQueue.refusesTheRest(401));
+        assertTrue(GrabQueue.refusesTheRest(403));
+        assertTrue(GrabQueue.refusesTheRest(429));
+        assertFalse(GrabQueue.refusesTheRest(0));
+        assertFalse(GrabQueue.refusesTheRest(409));
+        assertFalse(GrabQueue.refusesTheRest(422));
+        assertFalse(GrabQueue.refusesTheRest(503));
+    }
+
+    @Test
+    public void aRefusalEndsTheSeriesAndTheQueueButKeepsTheMessage() {
+        GrabQueue.AfterSend end = GrabQueue.afterSend("Sent 4 pages to Owl. Not sent: 8. The cap is used up.", true, true, true, true);
+        assertFalse(end.goOn);
+        assertFalse(end.queueRunning);
+        assertEquals("Sent 4 pages to Owl. Not sent: 8. The cap is used up. Later chapters would be refused too, so it stopped here.",
+                end.message);
+        assertEquals("Refused. Later chapters would be refused too, so it stopped here.",
+                GrabQueue.afterSend("Refused", false, true, false, true).message);
+        assertEquals("Refused", GrabQueue.afterSend("Refused", false, true, true, false).message);
+        assertFalse(GrabQueue.afterSend("Refused", false, true, true, false).queueRunning);
+    }
+
+    @Test
+    public void anUnrefusedSendLeavesTheRunAsItWas() {
+        GrabQueue.AfterSend sent = GrabQueue.afterSend("Sent 12 pages to Owl", true, false, true, true);
+        assertTrue(sent.goOn);
+        assertTrue(sent.queueRunning);
+        assertEquals("Sent 12 pages to Owl", sent.message);
+        GrabQueue.AfterSend empty = GrabQueue.afterSend("Sent 0 pages to Owl", false, false, true, true);
+        assertFalse(empty.goOn);
+        assertTrue(empty.queueRunning);
+    }
+
+    @Test
     public void nameFallsBackToTheHostAndStaysShort() {
         assertEquals("My Comic", GrabQueue.nameFor("  My Comic ", "https://a.example/x"));
         assertEquals("a.example", GrabQueue.nameFor("", "https://a.example/x"));
