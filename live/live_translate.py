@@ -903,7 +903,10 @@ class _LiveRun(ChunkCaptioner):
             live_pipeline.unregister(self.job_id, control)
             _cancel_check_var.reset(cancel_token)
             abort_check_var.reset(abort_token)
-            self.log.ended(self._end_reason(sys.exc_info()[1], control))
+            try:
+                self.log.ended(self._end_reason(sys.exc_info()[1], control))
+            except Exception:
+                pass   # a logging slip must never skip stopping ffmpeg below
             self._wind_down()
 
     def _capture_loop(self, control, worker):
