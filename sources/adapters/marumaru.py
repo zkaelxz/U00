@@ -39,7 +39,7 @@ from ..pacing import PaceLevel, PacingProfile
 from ..registry import register
 from .. import store
 
-BASE_URL = "https://marumaru108.com"
+BASE_URL = "https://marumaru113.com"
 LANDING_URL = "https://xn--2s2ba48db081g83a126ab6u.com/"
 READER_URL = "https://api.storagewebtoon.store/api/v1/reader/A2/episodes/"
 PAGE_SIZE = 100
@@ -73,7 +73,7 @@ def _json(resp, what: str):
 class MarumaruSource(PlainImageDownload, SourceAdapter):
     name = "marumaru"
     display_name = "Marumaru (마루마루)"
-    homepage = "https://marumaru108.com"
+    homepage = BASE_URL
     content_types = [ContentType.MANHWA.value]
     languages = ["ko"]
     url_patterns = [r"marumaru\d*\.[a-z]+/(?:webtoon|manhwa)/\d+"]
@@ -86,7 +86,7 @@ class MarumaruSource(PlainImageDownload, SourceAdapter):
                   "/recent, no Crawl-delay; no terms page found. Chosen by the owner 2026-11-03 for "
                   "free chapters only; the client still slows down on 429s and blocks."),
         fast_allowed=True)
-    host_min_interval = {"marumaru108.com": 2.5, "api.storagewebtoon.store": 2.5}
+    host_min_interval = {"marumaru113.com": 2.5, "api.storagewebtoon.store": 2.5}
     default_headers = {"Referer": BASE_URL + "/"}
     images_only = True
     default_page_ext = ".webp"

@@ -165,3 +165,11 @@ def test_fast_is_offered_and_never_slower_than_normal():
     fast = pacing.apply_level(base, marumaru.MarumaruSource.pacing_profile, "fast")
     assert (fast.min_delay, fast.max_delay, fast.max_concurrent) == (1.0, 2.5, 2)
     assert fast.session_break_min_requests == base.session_break_min_requests
+
+
+def test_default_domain_is_throttled_and_homepage():
+    from sources.domains import hostport
+
+    host = hostport(marumaru.BASE_URL)
+    assert host in marumaru.MarumaruSource.host_min_interval
+    assert marumaru.MarumaruSource.homepage == marumaru.BASE_URL
