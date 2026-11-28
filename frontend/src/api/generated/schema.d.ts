@@ -64662,7 +64662,8 @@ export interface operations {
             query: {
                 term: string;
                 limit?: number;
-                offset?: number;
+                /** @description Only lines after this line position (Load more). */
+                after?: number | null;
             };
             header?: never;
             path: {

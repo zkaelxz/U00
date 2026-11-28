@@ -123,14 +123,17 @@ export function ReplaceEverywhere({ dramaId, selected, onClose, onApplied, onAdd
   const [replacement, setReplacement] = useState('')
   const [matches, setMatches] = useState<ReviewMatch[] | null>(null)
   const [done, setDone] = useState<string | null>(null)
+  const [rest, setRest] = useState<ReviewMatch[]>([])
   const preview = useAction(async () => {
+    setRest([])
     setDone(null)
     setMatches(await previewFindReplace(dramaId, { find: selected, replace: replacement, case_sensitive: true, use_regex: false }))
   })
-  const apply = useAction(async () => {
-    if (!matches?.length) return
-    const r = await applyFindReplace(dramaId, matches)
+  const apply = useAction(async (sent: ReviewMatch[] | null) => {
+    if (!sent?.length) return
+    const r = await applyFindReplace(dramaId, sent)
     setMatches(null)
+    setRest(r.rest)
     setDone((r.stale > 0 ? `Replaced in ${r.applied} lines; ${r.stale} changed since and were skipped.` : `Replaced in ${r.applied} lines.`) + unsentNote(r))
     if (r.applied > 0) onApplied()
   })
@@ -157,13 +160,22 @@ export function ReplaceEverywhere({ dramaId, selected, onClose, onApplied, onAdd
         <p role="status">
           {matches.length === 0 ? 'No lines contain it.' : `${matches.length} lines will change.`}{' '}
           {matches.length > 0 && (
-            <button type="button" className={buttonClass()} disabled={busy} onClick={() => void apply.run()}>
+            <button type="button" className={buttonClass()} disabled={busy} onClick={() => void apply.run(matches)}>
               Replace in {matches.length} lines
             </button>
           )}
         </p>
       )}
-      {done && <p role="status">{done}</p>}
+      {done && (
+        <p role="status">
+          {done}{' '}
+          {rest.length > 0 && (
+            <button type="button" className={buttonClass()} disabled={busy} onClick={() => void apply.run(rest)}>
+              Apply the rest ({rest.length})
+            </button>
+          )}
+        </p>
+      )}
       <ActionError action={preview} />
       <ActionError action={apply} />
     </form>

@@ -120,7 +120,7 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
 
   const loadMoreFound = async () => {
     const asked = term
-    const r = await searchLines(dramaId, asked, undefined, found?.length ?? 0)
+    const r = await searchLines(dramaId, asked, undefined, found?.[found.length - 1]?.idx ?? -1)
     if (termRef.current !== asked) return
     setFound((cur) => {
       const have = new Set((cur ?? []).map((l) => l.id))

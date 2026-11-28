@@ -103,15 +103,20 @@ class TestSearch:
         assert len(svc.search_lines(did, "hello", limit=1)) == 1
         assert svc.search_lines(did, "  ") == []
 
-    def test_offset_loads_the_hits_after_the_first_ones(self, isolated_db):
+    def test_after_loads_the_hits_past_the_last_one_shown(self, isolated_db):
         did = _seed(isolated_db, [Line(idx=i, start=i, end=i + 1, zh="名", en=f"Name {i}")
                                   for i in range(5)])
-        assert [h["idx"] for h in svc.search_lines(did, "name", limit=2)] == [0, 1]
-        assert [h["idx"] for h in svc.search_lines(did, "name", limit=2, offset=2)] == [2, 3]
-        assert [h["idx"] for h in svc.search_lines(did, "name", limit=2, offset=4)] == [4]
-        assert svc.search_lines(did, "name", offset=9) == []
+        first = svc.search_lines(did, "name", limit=2)
+        assert [h["idx"] for h in first] == [0, 1]
+        # A hit shown on the first page is edited away: the next page still starts after it.
+        isolated_db.save_lines(did, [Line(idx=0, start=0, end=1, zh="x", en="Other", id=first[0]["id"])],
+                               fields=("zh", "en"))
+        assert [h["idx"] for h in svc.search_lines(did, "name", limit=2, after=first[-1]["idx"])] == [2, 3]
+        assert [h["idx"] for h in svc.search_lines(did, "name", limit=2, after=3)] == [4]
+        assert svc.search_lines(did, "name", after=9) == []
+        assert [h["idx"] for h in svc.search_lines(did, "name", after=-1)] == [1, 2, 3, 4]
         with pytest.raises(InvalidInputError):
-            svc.search_lines(did, "name", offset=-1)
+            svc.search_lines(did, "name", after=-2)
 
     def test_bad(self, isolated_db):
         did = _seed(isolated_db, [Line(idx=0, start=0, end=1, zh="a")])

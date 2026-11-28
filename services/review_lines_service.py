@@ -210,14 +210,14 @@ def list_review_lines(drama_id: int, page: int = 1, page_size: int = 40,
     }
 
 
-def search_lines(drama_id: int, term: str, limit: int = 50, offset: int = 0) -> list:
+def search_lines(drama_id: int, term: str, limit: int = 50, after: int | None = None) -> list:
     """Lines whose source or translated text contains `term`
-    (case-insensitive, stripped), in line order, at most `limit` after
-    skipping the first `offset` hits. A blank term returns []."""
+    (case-insensitive, stripped), in line order, at most `limit`; with
+    `after` (a line position), only lines after it. A blank term returns []."""
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= MAX_SEARCH_LIMIT:
         raise InvalidInputError(f"limit must be between 1 and {MAX_SEARCH_LIMIT}.")
-    if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
-        raise InvalidInputError("offset must be 0 or more.")
+    if after is not None and (not isinstance(after, int) or isinstance(after, bool) or after < -1):
+        raise InvalidInputError("after must be a line position.")
     term = (term or "")
     _check_len("Search term", term)
     _, lines = _load_drama_and_lines(drama_id)
@@ -225,8 +225,9 @@ def search_lines(drama_id: int, term: str, limit: int = 50, offset: int = 0) -> 
     if not term:
         return []
     hits = [ln for ln in lines
-            if term in (ln.zh or "").lower() or term in (ln.en or "").lower()]
-    return [line_dict(ln) for ln in hits[offset:offset + limit]]
+            if (after is None or ln.idx > after)
+            and (term in (ln.zh or "").lower() or term in (ln.en or "").lower())]
+    return [line_dict(ln) for ln in hits[:limit]]
 
 
 def _is_slow_pattern(pattern: str) -> bool:

@@ -13,6 +13,8 @@ export interface SameFix {
 export interface SameFixOffer {
   fix: SameFix
   matches: ReviewMatch[]
+  // What is left of an Apply that stopped partway: `matches` are then only the lines not sent.
+  rest?: boolean
 }
 
 // Longer than this is a rewrite of the line, not a fix another line would share.
@@ -90,11 +92,12 @@ export async function findSameFix(
 export async function applySameFix(
   dramaId: number, offer: SameFixOffer, always: boolean,
   { apply = applyAfterEdit, saveReplacement = saveWordReplacement } = {},
-): Promise<{ text: string; changed: boolean; blocked?: boolean }> {
+): Promise<{ text: string; changed: boolean; blocked?: boolean; rest?: SameFixOffer }> {
   const r = await apply(dramaId, offer.matches)
   if (typeof r === 'string') return { text: r, changed: false, blocked: true }
   const n = r.applied
-  const saved = always && n > 0 && canAlways(offer.fix)
+  // The word replacement was saved with the first part; the rest never saves it again.
+  const saved = always && !offer.rest && n > 0 && canAlways(offer.fix)
   let rule = ''
   if (saved) {
     // The lines are already fixed, so a refused rule must not hide that.
@@ -106,5 +109,6 @@ export async function applySameFix(
   return {
     text: `Fixed ${n} more line${n === 1 ? '' : 's'}${stale}.${rule}${unsentNote(r)}`,
     changed: n > 0,
+    ...(r.rest.length ? { rest: { fix: offer.fix, matches: r.rest, rest: true } } : {}),
   }
 }

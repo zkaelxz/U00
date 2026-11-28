@@ -73,12 +73,14 @@ export async function listRiskLineIds(id: number): Promise<Set<number>> {
   return ids
 }
 
-// The most hits one search request returns; a full answer means there may be more after `offset`.
+// The most hits one search request returns; a full answer means there may be more after its last line.
 export const SEARCH_LIMIT = 200
 
-export const searchLines = (id: number, term: string, f?: Fetch, offset = 0) =>
+/** `after`: only hits in lines after this one (a line position), for Load more. A position, not a
+ *  count, so a hit edited away since it was shown does not make the next answer skip one. */
+export const searchLines = (id: number, term: string, f?: Fetch, after?: number) =>
   getJson<ReviewLine[]>(
-    `${review(id)}/search?term=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}${offset ? `&offset=${offset}` : ''}`,
+    `${review(id)}/search?term=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}${after === undefined ? '' : `&after=${after}`}`,
     f,
   )
 
@@ -88,12 +90,20 @@ export const previewFindReplace = (id: number, req: FindReplaceRequest, f?: Fetc
 // The server's cap on matches in one Apply request (LinesFindReplaceApplyRequest).
 export const MAX_APPLY_MATCHES = 1000
 
+/** An Apply as the client ran it: the server's counts, plus the matches never sent (`rest`) and
+ *  why (`error`) when a request after the first failed. Empty `rest`: every match was sent. */
+export interface ApplyOutcome extends ApplyResult {
+  rest: ReviewMatch[]
+  error: unknown
+}
+
 /** Applies the matches in requests of MAX_APPLY_MATCHES, so a rename across a whole novel goes through.
  *  A failed first request throws (nothing was changed). A later one cannot undo the requests already
- *  saved, so the result says how many were not sent (`unsent`) and why (`error`) instead of throwing;
- *  applying the same matches again is safe, since lines already changed come back as stale. */
-export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: Fetch): Promise<ApplyResult> {
-  const total: ApplyResult = { applied: 0, stale: 0, applied_ids: [], stale_ids: [] }
+ *  saved, so the outcome keeps the matches it did not send. Those, and only those, are what "Apply
+ *  the rest" sends: a fresh Preview would match the replaced text again ("Lin" in "Lin Zhou"). Sending
+ *  them twice is safe, since each carries the text it replaces and a changed line comes back stale. */
+export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: Fetch): Promise<ApplyOutcome> {
+  const total: ApplyOutcome = { applied: 0, stale: 0, applied_ids: [], stale_ids: [], rest: [], error: null }
   for (let start = 0; start < matches.length; start += MAX_APPLY_MATCHES) {
     let r: ApplyResult
     try {
@@ -108,7 +118,7 @@ export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: F
       )
     } catch (e) {
       if (start === 0) throw e
-      return { ...total, unsent: matches.length - start, error: e }
+      return { ...total, rest: matches.slice(start), error: e }
     }
     total.applied += r.applied
     total.stale += r.stale
@@ -119,10 +129,10 @@ export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: F
 }
 
 /** The sentence for an Apply that stopped partway, or '' when every match was sent. */
-export const unsentNote = (r: ApplyResult): string =>
-  r.unsent
-    ? ` Stopped partway: ${r.unsent} line${r.unsent === 1 ? ' was' : 's were'} not changed. Preview again and apply to finish ${r.unsent === 1 ? 'it' : 'them'}.`
-    : ''
+export const unsentNote = (r: ApplyOutcome): string => {
+  const n = r.rest.length
+  return n ? ` Stopped partway: ${n} line${n === 1 ? ' was' : 's were'} not changed. Apply the rest sends only ${n === 1 ? 'that one' : 'those'}.` : ''
+}
 
 export const patchLine = (id: number, lineId: number, patch: LinePatch, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}`, patch, f)
