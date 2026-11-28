@@ -73,18 +73,43 @@ export async function listRiskLineIds(id: number): Promise<Set<number>> {
   return ids
 }
 
-export const searchLines = (id: number, term: string, f?: Fetch) =>
-  getJson<ReviewLine[]>(`${review(id)}/search?term=${encodeURIComponent(term)}&limit=200`, f)
+// The most hits one search request returns; a full answer means there may be more after `offset`.
+export const SEARCH_LIMIT = 200
+
+export const searchLines = (id: number, term: string, f?: Fetch, offset = 0) =>
+  getJson<ReviewLine[]>(
+    `${review(id)}/search?term=${encodeURIComponent(term)}&limit=${SEARCH_LIMIT}${offset ? `&offset=${offset}` : ''}`,
+    f,
+  )
 
 export const previewFindReplace = (id: number, req: FindReplaceRequest, f?: Fetch) =>
   postJson<ReviewMatch[]>(`${review(id)}/find-replace/preview`, req, f)
 
-export const applyFindReplace = (id: number, matches: ReviewMatch[], f?: Fetch) =>
-  postJson<ApplyResult>(
-    `${lines(id)}/find-replace/apply`,
-    { matches: matches.map(({ id: lineId, old_text, new_text }) => ({ id: lineId, old_text, new_text })) },
-    f,
-  )
+// The server's cap on matches in one Apply request (LinesFindReplaceApplyRequest).
+export const MAX_APPLY_MATCHES = 1000
+
+/** Applies the matches in requests of MAX_APPLY_MATCHES, so a rename across a whole novel goes through.
+ *  If a later request fails the earlier ones are already saved; applying the same matches again is
+ *  safe, since lines already changed come back as stale. */
+export async function applyFindReplace(id: number, matches: ReviewMatch[], f?: Fetch): Promise<ApplyResult> {
+  const total: ApplyResult = { applied: 0, stale: 0, applied_ids: [], stale_ids: [] }
+  for (let start = 0; start < matches.length; start += MAX_APPLY_MATCHES) {
+    const r = await postJson<ApplyResult>(
+      `${lines(id)}/find-replace/apply`,
+      {
+        matches: matches
+          .slice(start, start + MAX_APPLY_MATCHES)
+          .map(({ id: lineId, old_text, new_text }) => ({ id: lineId, old_text, new_text })),
+      },
+      f,
+    )
+    total.applied += r.applied
+    total.stale += r.stale
+    total.applied_ids.push(...r.applied_ids)
+    total.stale_ids.push(...r.stale_ids)
+  }
+  return total
+}
 
 export const patchLine = (id: number, lineId: number, patch: LinePatch, f?: Fetch) =>
   postJson<ReviewLine>(`${lines(id)}/lines/${lineId}`, patch, f)

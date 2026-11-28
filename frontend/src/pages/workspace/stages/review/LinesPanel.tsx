@@ -168,7 +168,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
   })
   const showOnPageRef = useRef<(id: number) => Promise<void>>(async () => {})
 
-  const { data, setData, found, setFound, allTotal, error, setError, retry, dataFilter, settled, ownPickRef } = useLinesLoad({
+  const { data, setData, found, setFound, foundMore, loadMoreFound, allTotal, error, setError, retry, dataFilter, settled, ownPickRef } = useLinesLoad({
     dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage,
   })
 
@@ -404,6 +404,8 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
           searchRef={searchRef}
           onSearch={(v) => void changeSearch(v)}
           resultCount={searching && found ? found.length : null}
+          resultMore={searching && foundMore}
+          onLoadMore={() => void loadMoreFound().catch(setError)}
           page={page}
           pages={pages}
           showPager={showPager && !pagerInPlayer}
@@ -441,7 +443,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
         {looseMedia && waveform}
         {data && (
           <p className="sr-only" data-testid="line-counts">
-            {searching && found ? `${found.length} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
+            {searching && found ? `${found.length}${foundMore ? '+' : ''} matching` : `${data.total} in this view`} · {data.flagged_count} flagged · {data.untranslated_count} untranslated · {data.unreviewed_count ?? 0} unreviewed
           </p>
         )}
         {suspectOpen && suspects.count > 0 && (

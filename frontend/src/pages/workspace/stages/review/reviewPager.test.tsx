@@ -1,7 +1,20 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { Pager } from './ReviewToolbar'
+import { Pager, SearchCount } from './ReviewToolbar'
+
+describe('Review search count', () => {
+  it('says the search stopped at its limit and offers the next hits', () => {
+    const html = renderToStaticMarkup(<SearchCount count={400} more onLoadMore={() => {}} />)
+    expect(html).toContain('First 400 matches shown; there may be more.')
+    expect(html).toContain('>Load more matches</button>')
+  })
+  it('gives the plain count once every hit is shown', () => {
+    const html = renderToStaticMarkup(<SearchCount count={1} more={false} onLoadMore={() => {}} />)
+    expect(html).toContain('>1 match</span>')
+    expect(html).not.toContain('Load more')
+  })
+})
 
 describe('Review Pager', () => {
   const html = renderToStaticMarkup(<Pager page={2} pages={5} onPage={() => {}} labelled />)

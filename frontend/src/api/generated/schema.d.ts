@@ -64662,6 +64662,7 @@ export interface operations {
             query: {
                 term: string;
                 limit?: number;
+                offset?: number;
             };
             header?: never;
             path: {

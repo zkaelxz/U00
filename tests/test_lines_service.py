@@ -390,6 +390,36 @@ class TestFindReplace:
         assert _row(did, ids[0])["en"] == "Hello there"
         assert _row(did, ids[2])["en"] == "Cheers"
 
+    def test_a_rename_over_more_lines_than_one_request_takes_lands_in_chunks(self, isolated_db, monkeypatch):
+        from services import review_lines_service
+        sid = db.get_or_create_series("S")
+        did = db.create_drama(title_en="D", series_id=sid)
+        _real_save(did, [Line(idx=i, start=float(i), end=i + 1.0, zh="林舟", en=f"Lin Zhou said {i}.")
+                         for i in range(2500)])
+        db.record_translation_memory(sid, "林舟", "Lin Zhou said 0.")
+        matches = review_lines_service.preview_find_replace(did, "Lin Zhou", "Lin Chou")
+        assert len(matches) == 2500
+        # Edited after Preview: skipped as stale, the rest still lands.
+        edited = matches[1700]["id"]
+        db.save_lines(did, [Line(idx=1700, start=1700.0, end=1701.0, zh="林舟", en="Hand edit",
+                                 id=edited)], fields=("en",))
+        tm_calls = []
+        real_tm = db.update_translation_memory_after_replace
+        monkeypatch.setattr(db, "update_translation_memory_after_replace",
+                            lambda *a: tm_calls.append(a) or real_tm(*a))
+        out = {"applied": 0, "stale_ids": []}
+        for start in range(0, len(matches), svc.MAX_MATCHES):
+            r = svc.apply_find_replace(did, [{k: m[k] for k in ("id", "old_text", "new_text")}
+                                             for m in matches[start:start + svc.MAX_MATCHES]])
+            out["applied"] += r["applied"]
+            out["stale_ids"] += r["stale_ids"]
+        assert out == {"applied": 2499, "stale_ids": [edited]}
+        assert len(tm_calls) == 2499
+        rows = db.load_lines(did)
+        assert sum(r["en"].startswith("Lin Chou said") for r in rows) == 2499
+        assert next(r for r in rows if r["id"] == edited)["en"] == "Hand edit"
+        assert db.list_translation_memory(sid)[0]["translation"] == "Lin Chou said 0."
+
     def test_all_stale_writes_nothing(self, save_spy):
         did, ids = _seed()
         out = svc.apply_find_replace(did, [{"id": ids[0], "old_text": "nope", "new_text": "x"}])
