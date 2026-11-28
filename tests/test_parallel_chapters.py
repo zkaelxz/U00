@@ -802,15 +802,15 @@ def test_out_of_credit_with_no_fallback_says_deepseek_is_out_of_credit(quick_slo
 
 
 def test_the_finished_job_says_deepseek_is_out_of_credit():
-    from services import jobs_service
-    result = jobs_service.project_result({
+    from jobs import job_results
+    result = job_results.project_result({
         "errors": [], "translated_count": 3,
         "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": fb.OUT_OF_CREDIT,
                        "detail": "Error code: 402 - Insufficient Balance"}]})
     assert "Insufficient" not in str(result)
-    _, message = jobs_service.derive_outcome("done", None, result)
+    _, message = job_results.derive_outcome("done", None, result)
     assert fb.OUT_OF_CREDIT_NOTICE in message
-    _, slow = jobs_service.derive_outcome("done", None, jobs_service.project_result({
+    _, slow = job_results.derive_outcome("done", None, job_results.project_result({
         "errors": [], "translated_count": 3,
         "fallbacks": [{"from": "deepseek", "to": "ollama", "reason": "slow", "detail": "x"}]}))
     assert fb.OUT_OF_CREDIT_NOTICE not in slow
@@ -819,16 +819,16 @@ def test_the_finished_job_says_deepseek_is_out_of_credit():
 def test_a_partial_job_handed_back_from_the_fallback_does_not_say_gemma_is_translating(
         quick_slow_line):
     from engine_backends.local import OllamaUnavailableError
-    from services import jobs_service
+    from jobs import job_results
     engine = _switching(primary_delay=0.0,
                         fallback_error=OllamaUnavailableError("ollama_unreachable", "down"))
     engine.engines[0].error = _NoCredit("Insufficient Balance")
     with pytest.raises(_NoCredit):
         engine.translate_batch(["a"], {})
-    result = jobs_service.project_result({
+    result = job_results.project_result({
         "errors": ["DeepSeek: Insufficient Balance"], "translated_count": 5,
         "fallbacks": list(engine.events)})
-    outcome, message = jobs_service.derive_outcome("done", None, result)
+    outcome, message = job_results.derive_outcome("done", None, result)
     assert outcome == "partial"
     assert "DeepSeek is out of credit. Top up at platform.deepseek.com." in message
     assert "translating for now" not in message

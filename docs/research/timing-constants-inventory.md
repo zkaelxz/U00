@@ -188,7 +188,7 @@ Legend used in the tables
     - (b) They don't travel with a per-title backup or export. **Uncertain**: I did not trace the backup code.
 - Option 2: a sidecar `timing_overrides.json` in `db.drama_dir(id)`, the pattern of `services/timing_check_service.py:39,54`. It is deleted with the title folder. Whether backups include it is **uncertain**. It needs its own lock and validation like `timing_check_service._read_state`.
 - Either way: the drama ownership check (`ownership_service`), a new route with `require_permission(...)`, and a regenerated `docs/route-permissions.md` row (`python tools/route_table.py --write`).
-- For job workers (transcription runs in a spawned process): resolve the effective values in the parent (`start_transcribe_run`) and pass them as picklable args. Add the keys to `run_settings_service.ALLOWED_KEYS` so the Jobs page shows what a run used.
+- For job workers (transcription runs in a spawned process): resolve the effective values in the parent (`start_transcribe_run`) and pass them as picklable args. Add the keys to `jobs/run_settings.ALLOWED_KEYS` so the Jobs page shows what a run used.
 
 **Which items suit a per-title override better than a global:**
 - Already per title: min silence, VAD threshold, sensitivity preset, split pause, hallucination guard, hard-sub interval, reading-speed mode, translate-by-sentence toggle.
@@ -218,7 +218,7 @@ Legend used in the tables
 - `translate_pipeline.plan_batches(min_gap=…)` and `sentence_groups.group_fragments(...)` limits. Callers: `workspace_job_service.py:146-173`, `translate_run_service.py:602`, `cli_translate.py:295-333`, `bulk_translate.py:1283`. Enforce sentence gap < scene gap in validation.
 - `subtitle_formats.dense_lines` (cps tables) via `export_service.py:323,412-420,472`.
 - Frontend `ResplitLines.tsx:26` reads the quick-split cap from the settings overview.
-- Add keys to `run_settings_service.ALLOWED_KEYS` and `raw_transcript.build_run_settings` so runs record what they used.
+- Add keys to `jobs/run_settings.ALLOWED_KEYS` and `raw_transcript.build_run_settings` so runs record what they used.
 - Tests: per area (`tests/test_segment.py`, `test_sentence_groups.py`, `test_core.py`, the timing-check tests, `test_translate_run_service.py`, `test_export*`). Assert that a changed setting changes the output, and that defaults reproduce today's output byte for byte.
 - Static guards before pushing.
 

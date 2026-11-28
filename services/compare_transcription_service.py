@@ -26,13 +26,13 @@ import sensitivity_preset as presets
 import source_change
 from engine_backends import engine_registry, line_text, pricing, translate_pipeline
 from engine_backends import gemini as engine_gemini
+from jobs import job_results
 from services import (
     asr_options_service,
     compare_hear_worker,
     difficult_audio_service,
     edit_log_service,
     gpu_process_job,
-    jobs_service,
     ownership_service,
     profile_service,
     qwen3_requirements_service,
@@ -428,7 +428,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
     if windows:
         heard_by_id, heard, cancelled, timed_out = _hear(job_id, audio_path, windows, cfg, errors)
         failed_reason = heard.get("failed_reason")
-        detail = jobs_service.scrub_text(heard.get("detail") or "") or None
+        detail = job_results.scrub_text(heard.get("detail") or "") or None
         if heard.get("gpu_fallback"):
             gpu_fallback.append(heard["gpu_fallback"])
     try:
@@ -448,7 +448,7 @@ def run_compare_job(job_id, drama_id, line_ids, audio_path, cfg, translation):
             if entry is None:
                 break
             if entry.get("error"):
-                errors.append(jobs_service.scrub_text(entry["error"]))
+                errors.append(job_results.scrub_text(entry["error"]))
                 continue
             heard = entry["text"]
             if not heard:
@@ -569,7 +569,7 @@ def _translate_into(proposal, ln, engine, context, character_names, translation,
             **context, "speaker_labels": [character_names.get(ln.speaker)] * len(texts),
             "line_languages": line_text.tagged_line_languages([ln] * len(texts), language)})
     except Exception as exc:
-        errors.append(jobs_service.scrub_text(f"line {ln.idx + 1} translation: {exc}"))
+        errors.append(job_results.scrub_text(f"line {ln.idx + 1} translation: {exc}"))
         return 0.0
     cost = 0.0
     if hasattr(engine, "last_usage"):
@@ -623,7 +623,7 @@ def get_compare_result(drama_id: int) -> dict:
             "asr_backend": result.get("asr_backend"), "whisper_size": result.get("whisper_size"),
             "translated": bool(result.get("translated")), "partial": bool(result.get("partial")),
             "cap_reached": result.get("cap_reached") is not None,
-            "errors": [jobs_service.scrub_text(str(e)) for e in result.get("errors") or []]}
+            "errors": [job_results.scrub_text(str(e)) for e in result.get("errors") or []]}
 
 
 # Serialises applies so two at once can't both decide a fresh snapshot is needed.

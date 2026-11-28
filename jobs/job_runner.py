@@ -59,14 +59,14 @@ def _log_activity(job_id, token, gpu_touching):
     outcome = status
     kind = "other"
     try:
-        from services import jobs_service
-        kind = jobs_service.job_kind(job_id)
+        from jobs import job_results
+        kind = job_results.job_kind(job_id)
     except Exception:
         pass
     try:
         # The Jobs list says Failed for a "done" run whose result reports a failure; the log agrees.
-        from services import jobs_service
-        derived, _ = jobs_service.derive_outcome(status, job.get("error"), job.get("result"), job_id=job_id)
+        from jobs import job_results
+        derived, _ = job_results.derive_outcome(status, job.get("error"), job.get("result"), job_id=job_id)
         outcome = "error" if derived == "failed" else "cancelled" if derived in ("cancelled", "interrupted") else status
     except Exception:
         pass
@@ -90,7 +90,7 @@ def _timing_finish(job_id, token, thread_job=True, gpu_touching=False):
 
 def _failed_outcome_error(result, job_id=""):
     """The error text for a worker that returned instead of raising but
-    reports a failure (jobs_service.FAILED_REASON_MESSAGES), else None. The
+    reports a failure (job_results.FAILED_REASON_MESSAGES), else None. The
     job then ends as `error`, so the bell and the Jobs list say Failed, not
     Finished. Other failure reasons stay `done`: their stage panels read
     the done job's result for their own wording."""
@@ -99,20 +99,20 @@ def _failed_outcome_error(result, job_id=""):
     reason = result.get("failed_reason")
     if reason == "dependency_missing":
         return str(result.get("detail") or "A required component is not installed.")
-    from services import jobs_service
+    from jobs import job_results
     if reason == "headroom" and result.get("detail"):
         # memory_headroom.HeadroomError's own sentence names the setting to change.
-        return jobs_service.scrub_text(str(result["detail"]))
+        return job_results.scrub_text(str(result["detail"]))
     if reason == "model_download":
-        text = jobs_service.model_download_message(job_id)
-    elif reason in jobs_service.FAILED_REASON_MESSAGES:
-        text = jobs_service.FAILED_REASON_MESSAGES[reason]
+        text = job_results.model_download_message(job_id)
+    elif reason in job_results.FAILED_REASON_MESSAGES:
+        text = job_results.FAILED_REASON_MESSAGES[reason]
     else:
         return None
     detail = result.get("detail")
     # The same plain text the outcome line shows; scrubbed because the
     # detail comes from a download, model or provider error.
-    return jobs_service.scrub_text(f"{text} {detail}" if detail else text)
+    return job_results.scrub_text(f"{text} {detail}" if detail else text)
 
 
 def _soft_failure_text(result):
@@ -120,15 +120,15 @@ def _soft_failure_text(result):
     failed (a reason not in FAILED_REASON_MESSAGES keeps the status for
     the stage panels), else None. Only the notifications read it: the bell
     and the desktop toast must say Failed where the Jobs list does."""
-    from services import jobs_service
-    outcome, message = jobs_service.derive_outcome("done", None, result)
-    return jobs_service.scrub_text(message) if outcome == "failed" else None
+    from jobs import job_results
+    outcome, message = job_results.derive_outcome("done", None, result)
+    return job_results.scrub_text(message) if outcome == "failed" else None
 
 
 def _done_note(result):
     """Short plain note a finished job adds to its bell text, or None."""
-    from services import jobs_service
-    return jobs_service.speaker_skip_text(result)
+    from jobs import job_results
+    return job_results.speaker_skip_text(result)
 
 
 def _refused_need_mb(result):
@@ -154,7 +154,7 @@ def _waits_for_room_locked(job_id, need_mb, error) -> bool:
 
 def _judge_result(result, job_id):
     """(failure error, soft-failure reason, done note, waiting note) for a
-    returned result; the waiting note (jobs_service.waiting_note) only for
+    returned result; the waiting note (job_results.waiting_note) only for
     a job that did not fail. Never raises: it runs after the work is done,
     and a result shape it cannot read must not leave the job "running" in
     job_records forever. Such a result counts as plain success."""
@@ -165,8 +165,8 @@ def _judge_result(result, job_id):
         soft = _soft_failure_text(result)
         if soft:
             return None, soft, None, None
-        from services import jobs_service
-        return None, None, _done_note(result), jobs_service.waiting_note(result)
+        from jobs import job_results
+        return None, None, _done_note(result), job_results.waiting_note(result)
     except Exception as exc:
         _warn(f"job {job_id}: could not read its result", exc)
         return None, None, None, None
