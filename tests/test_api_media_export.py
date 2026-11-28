@@ -779,7 +779,7 @@ def test_title_dubbed_before_the_stage_was_removed_still_exports_and_plays(
     _touch(isolated_db, drama, "dub_track.wav")   # all an old title has: no narration_track.wav
     assert not os.path.exists(os.path.join(isolated_db.drama_dir(drama), "narration_track.wav"))
     assert reader_service.get_media_availability(drama)["narration"] is True
-    assert reader_service.media_file_path(drama, "narration")[1].endswith("dub_track.wav")
+    assert reader_service._media_paths(drama, isolated_db.get_drama(drama))["narration"][1].endswith("dub_track.wav")
     assert local_client.post(f"/api/export/dramas/{drama}/dubbed-video").status_code == 200
     assert wait_for_job(f"dubbed_video_{drama}", timeout=6.0)["status"] == "done"
 

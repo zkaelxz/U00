@@ -133,45 +133,28 @@ export function pageParams(
   return p
 }
 
-export function pageCount(totalLines: number, chapterSize: number): number {
-  return Math.max(1, Math.ceil(totalLines / chapterSize))
-}
-
 export const clampPage = (page: number, count: number) => Math.min(Math.max(1, Math.floor(page)), count)
 
 /**
- * Where to resume: the page holding the last line read (so a changed
- * "Lines per page" still lands right), else the saved page. The server
- * reports a missing line as 0, so 0 falls back to the saved page.
+ * Where to resume: the last line read, whose page the server finds (pages follow a
+ * novel's chapters and "Lines per page", so a saved page number from another layout
+ * would land wrong), else the saved page. The server reports a missing line as 0, so
+ * 0 falls back to the saved page.
  */
-export function resumePage(ov: Pick<ReaderOverview, 'line_count' | 'last_page' | 'last_line_idx'>, chapterSize: number): number {
-  const count = pageCount(ov.line_count, chapterSize)
-  const page = ov.last_line_idx !== null && ov.last_line_idx > 0
-    ? Math.floor(ov.last_line_idx / chapterSize) + 1
-    : ov.last_page
-  return clampPage(page || 1, count)
-}
-
-/** After "Lines per page" changes, the page that still shows the first line in view. */
-export function keepPlace(page: number, oldSize: number, newSize: number): number {
-  return Math.floor(((page - 1) * oldSize) / newSize) + 1
+export function resumeTarget(ov: Pick<ReaderOverview, 'line_count' | 'last_page' | 'last_line_idx'>): { line: number } | { page: number } {
+  if (ov.last_line_idx !== null && ov.last_line_idx > 0) return { line: Math.min(ov.last_line_idx, Math.max(0, ov.line_count - 1)) }
+  return { page: Math.max(1, Math.floor(ov.last_page || 1)) }
 }
 
 /**
  * Spoiler-free boundary: the last line of the current page. The saved
- * progress reports it exactly; until then it is estimated from the page.
+ * progress reports it exactly; until then the page's own last line is used.
  * undefined = no limit (Spoiler-free off).
  */
-export function spoilerBoundary(
-  spoilerFree: boolean,
-  knownLastIdx: number | null,
-  page: number,
-  chapterSize: number,
-  totalLines: number,
-): number | undefined {
+export function spoilerBoundary(spoilerFree: boolean, knownLastIdx: number | null, pageLastIdx: number): number | undefined {
   if (!spoilerFree) return undefined
   if (knownLastIdx !== null && knownLastIdx >= 0) return knownLastIdx
-  return Math.max(0, Math.min(page * chapterSize, totalLines) - 1)
+  return Math.max(0, pageLastIdx)
 }
 
 /** "38% · about 2h 10m · 480 lines" */

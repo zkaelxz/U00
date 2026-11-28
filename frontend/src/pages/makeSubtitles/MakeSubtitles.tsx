@@ -15,7 +15,7 @@ import { engineLabel, languageLabel } from '../../labels'
 import { cancelNeedsConfirm } from '../../types/jobs'
 import { PreflightCard } from '../preflight/PreflightCard'
 import { STAGE_LABELS, type StageId } from '../workspace/stages'
-import { foundForFile, planForFile, type FileRunRequest } from './addBoxModel'
+import { foundForFile, planForFile } from './addBoxModel'
 import { STEPS, STEP_LABEL, STEP_STAGE, optionsSummary, percentText, titleFor, type FlowStep } from './makeSubtitlesFlow'
 import { LANGUAGES, type FileRun } from './useFileRun'
 import './makeSubtitles.css'
@@ -80,13 +80,6 @@ export function FileRunStatus({ run }: { run: FileRun }) {
         ) : (
           <p><strong>Subtitles are ready.</strong></p>
         )}
-        {/* Inside the status, so a screen reader meets it with the run without focus moving to it. */}
-        {run.waiting && (
-          <p className="muted">
-            “{run.waiting.file.name}” has not been started, because this run was already under way.{' '}
-            {busy ? 'It will be here to start when this one is finished.' : 'Make another puts it in the box to start.'}
-          </p>
-        )}
       </div>
       <ErrorBanner error={run.cancelError ?? run.downloadError} />
       {busy ? (
@@ -117,21 +110,19 @@ export function FileRunStatus({ run }: { run: FileRun }) {
 
 /**
  * A chosen file in the Add box: what was found, what the main button will do, the run's choices under
- * Change options, and Only add it. `onMake` (the Library) hands the run on instead of running it.
+ * Change options, and Only add it.
  */
-export function FilePlan({ run, onChooseFile, onOnlyAdd, onClear, onMake }: {
+export function FilePlan({ run, onChooseFile, onOnlyAdd, onClear }: {
   run: FileRun
   onChooseFile: () => void
   onOnlyAdd: () => void
   onClear: () => void
-  onMake?: (r: FileRunRequest) => void
 }) {
   const pc = usePcOnly()
   const { file, engine, list, engines, language, title, variant, defaultLocale, blocker } = run
   const submit = () => {
     if (blocker || !file) return
-    if (!onMake) { void run.start(run.choices(file)); return }
-    if (!run.refused(file)) onMake(run.choices(file))
+    void run.start(run.choices(file))
   }
   return (
     <form className="stack make-subtitles" onSubmit={(e) => { e.preventDefault(); submit() }}>

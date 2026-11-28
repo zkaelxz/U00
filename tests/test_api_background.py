@@ -90,6 +90,14 @@ def test_failure_does_not_stop_startup(fakes, monkeypatch):
     assert background._started == {"chapter_scheduler": False, "page_server": False}
 
 
+def test_startup_runs_the_update_start_steps(fakes, monkeypatch):
+    from services import update_service
+    ran = []
+    monkeypatch.setattr(update_service, "at_start", lambda: ran.append(1))
+    background.start_background_services()
+    assert ran == [1]
+
+
 def test_startup_recovers_a_bulk_job_left_mid_apply_with_auto_resume_off(fakes, isolated_db):
     from services import settings_service
     settings_service.set_settings({"bulk_auto_resume": False})

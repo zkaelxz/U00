@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 import type { ReviewMatch } from '../../../../types/review'
 import { applySameFix, findSameFix, literalReplacement, sameFixOf, wholeWordPattern } from './sameFix'
 
-vi.mock('../../../../api/review', () => ({ previewFindReplace: vi.fn(), applyFindReplace: vi.fn() }))
+vi.mock('../../../../api/review', async (real) => ({
+  ...(await real<typeof import('../../../../api/review')>()), previewFindReplace: vi.fn(), applyFindReplace: vi.fn(),
+}))
 vi.mock('../../../../api/translateStage', () => ({ saveWordReplacement: vi.fn() }))
 
 describe('sameFixOf', () => {
@@ -70,7 +72,7 @@ describe('applySameFix', () => {
   const offer = { fix: { find: 'Lin', replace: 'Rin' }, matches: [match(3), match(9)] }
 
   it('applies the previewed lines and says how many changed', async () => {
-    const apply = vi.fn().mockResolvedValue({ applied: 1, stale: 1, applied_ids: [3], stale_ids: [9] })
+    const apply = vi.fn().mockResolvedValue({ applied: 1, stale: 1, applied_ids: [3], stale_ids: [9], rest: [], error: null })
     const saveReplacement = vi.fn()
     const done = await applySameFix(7, offer, false, { apply, saveReplacement })
     expect(apply).toHaveBeenCalledWith(7, offer.matches)
@@ -78,8 +80,22 @@ describe('applySameFix', () => {
     expect(done).toEqual({ text: 'Fixed 1 more line; 1 changed meanwhile and was left.', changed: true })
   })
 
+  it('says when the apply stopped partway and how many lines are left', async () => {
+    const apply = vi.fn().mockResolvedValue({ applied: 1, stale: 0, applied_ids: [3], stale_ids: [], rest: [match(9)], error: new Error('x') })
+    const saveReplacement = vi.fn().mockResolvedValue({})
+    const done = await applySameFix(7, offer, true, { apply, saveReplacement })
+    expect(done.text).toBe('Fixed 1 more line. New translations in this series get the same fix. Stopped partway: 1 line was not changed. Apply the rest sends only that one.')
+    // What is left is an offer of exactly the unsent lines, and applying it does not save the rule again.
+    expect(done.rest).toEqual({ fix: offer.fix, matches: [match(9)], rest: true })
+    const again = vi.fn().mockResolvedValue({ applied: 1, stale: 0, applied_ids: [9], stale_ids: [], rest: [], error: null })
+    const second = await applySameFix(7, done.rest!, true, { apply: again, saveReplacement })
+    expect(again).toHaveBeenCalledWith(7, [match(9)])
+    expect(saveReplacement).toHaveBeenCalledTimes(1)
+    expect(second.rest).toBeUndefined()
+  })
+
   it('"always" also saves the fix as a series word replacement', async () => {
-    const apply = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [] })
+    const apply = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [], rest: [], error: null })
     const saveReplacement = vi.fn().mockResolvedValue({})
     const done = await applySameFix(7, offer, true, { apply, saveReplacement })
     expect(saveReplacement).toHaveBeenCalledWith(7, { find_text: 'Lin', replace_text: 'Rin' })
@@ -89,17 +105,17 @@ describe('applySameFix', () => {
 
   it('"always" saves nothing when no line took the fix, or it changes capitals only', async () => {
     const saveReplacement = vi.fn()
-    const none = vi.fn().mockResolvedValue({ applied: 0, stale: 2, applied_ids: [], stale_ids: [3, 9] })
+    const none = vi.fn().mockResolvedValue({ applied: 0, stale: 2, applied_ids: [], stale_ids: [3, 9], rest: [], error: null })
     expect((await applySameFix(7, offer, true, { apply: none, saveReplacement })).text)
       .toBe('Fixed 0 more lines; 2 changed meanwhile and were left.')
     const capitals = { ...offer, fix: { find: 'lin', replace: 'Lin' } }
-    const both = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [] })
+    const both = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [], rest: [], error: null })
     expect((await applySameFix(7, capitals, true, { apply: both, saveReplacement })).text).toBe('Fixed 2 more lines.')
     expect(saveReplacement).not.toHaveBeenCalled()
   })
 
   it('still reports the fixed lines when the series rule is refused', async () => {
-    const apply = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [] })
+    const apply = vi.fn().mockResolvedValue({ applied: 2, stale: 0, applied_ids: [3, 9], stale_ids: [], rest: [], error: null })
     const saveReplacement = vi.fn().mockRejectedValue(new Error('A series can have at most 500 word replacements.'))
     expect(await applySameFix(7, offer, true, { apply, saveReplacement })).toEqual({
       text: 'Fixed 2 more lines. The fix could not be saved for new translations in this series.', changed: true })

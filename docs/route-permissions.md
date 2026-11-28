@@ -58,6 +58,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/backups/import` | local_only() |
 | `POST /api/backups/import/list` | local_only() |
 | `POST /api/backups/now` | local_only() |
+| `POST /api/backups/same-drive-note/dismiss` | local_only() |
 | `GET /api/backups/settings` | local_only() |
 | `POST /api/backups/settings` | local_only() |
 | `GET /api/backups/snapshot` | local_only() |
@@ -180,7 +181,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/diagnostics/dependency-install` | admin.diagnostics |
 | `GET /api/diagnostics/ffmpeg` | admin.diagnostics |
 | `POST /api/diagnostics/ffmpeg/install` | local_only() |
-| `GET /api/diagnostics/gpu` | local_only() |
 | `GET /api/diagnostics/gpu-torch` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/check` | admin.diagnostics |
 | `POST /api/diagnostics/gpu-torch/setup` | local_only() |
@@ -214,6 +214,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/diagnostics/reset-library` | local_only() |
 | `GET /api/diagnostics/resources` | admin.diagnostics.read |
 | `GET /api/diagnostics/setup-checks` | admin.diagnostics |
+| `GET /api/diagnostics/support-bundle` | admin.diagnostics |
 | `GET /api/diagnostics/support-report` | admin.diagnostics |
 | `GET /api/diagnostics/upgrade-check` | admin.diagnostics |
 | `GET /api/diagnostics/voice-engines` | admin.diagnostics |
@@ -340,8 +341,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/glossary/dramas/{drama_id}/instructions/series` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/name-clusters` | lines.read |
 | `GET /api/glossary/dramas/{drama_id}/name-consistency` | lines.read |
-| `GET /api/glossary/dramas/{drama_id}/name-fixes` | lines.read |
-| `POST /api/glossary/dramas/{drama_id}/name-fixes` | lines.edit |
 | `GET /api/glossary/dramas/{drama_id}/spelling-suggestions` | lines.read |
 | `POST /api/glossary/dramas/{drama_id}/spelling-suggestions` | jobs.start |
 | `POST /api/glossary/dramas/{drama_id}/spelling-suggestions/cancel` | jobs.cancel |
@@ -558,6 +557,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/pause` | jobs.start |
 | `POST /api/queue/policy` | jobs.start |
+| `POST /api/queue/retry-interrupted` | jobs.start |
 | `POST /api/queue/schedule` | jobs.start |
 | `GET /api/queue/settings` | jobs.start |
 | `POST /api/queue/start` | jobs.start |
@@ -740,7 +740,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/shared-glossaries` | library.read |
 | `POST /api/shared-glossaries` | lines.edit |
 | `POST /api/shared-glossaries/{group_id}/delete` | lines.edit |
-| `GET /api/shared-glossaries/{group_id}/terms` | library.read |
 | `POST /api/shared-glossaries/{group_id}/terms` | lines.edit |
 | `POST /api/shared-glossaries/{group_id}/terms/{term_id}/delete` | lines.edit |
 | `POST /api/sharing/dramas/{drama_id}/owner` | lines.edit |
@@ -911,7 +910,6 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/voices/{series_id}/{character_id}/retrain` | local_only() |
 | `POST /api/watch-party/rooms` | lines.read |
 | `DELETE /api/watch-party/rooms/{code}` | lines.read |
-| `GET /api/watch-party/rooms/{code}` | lines.read |
 | `POST /api/watch-party/rooms/{code}/state` | lines.read |
 | `GET /api/watch-party/rooms/{code}/stream` | lines.read |
 | `GET /api/web-search/config` | local_only() |

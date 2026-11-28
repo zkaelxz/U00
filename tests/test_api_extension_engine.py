@@ -174,6 +174,19 @@ def test_stale_saved_engine_reads_as_none(env):
     assert extension_service.resolved_translation_config()["engine"] is None
 
 
+def test_a_saved_local_ollama_model_reads_as_the_hosted_default(env):
+    db.set_app_setting(extension_service.ENGINE_SETTING, {"engine": "ollama", "model": "qwen3:8b"})
+    assert extension_service.get_translation_settings()["model"] is None
+    config = extension_service.resolved_translation_config()
+    assert config["engine"] == "ollama" and config["model"] is None
+    assert page_server._build_engine(config).model == "gemma4:31b-cloud"
+
+
+def test_a_saved_hosted_ollama_model_is_kept(env):
+    db.set_app_setting(extension_service.ENGINE_SETTING, {"engine": "ollama", "model": "gpt-oss:120b-cloud"})
+    assert extension_service.resolved_translation_config()["model"] == "gpt-oss:120b-cloud"
+
+
 def test_text_block_translates_or_says_why_not(env):
     extension_service.set_translation_settings("claude")
     out = page_server.translate_text_block("你好", "zh", "en", store=False)

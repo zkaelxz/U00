@@ -1,5 +1,7 @@
 import { expect, test } from './fixtures'
 
+import { openNewTitle } from './addBoxMocks'
+import { openLibraryFilters } from './mockHelpers'
 import {
   gate, holdShelfOf, keepBaiheUnreachable, mockShelf, placeholderAndShelf, rememberShelfCount, settle,
 } from './continueShelfMocks'
@@ -20,7 +22,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   await expect(page.getByTestId('stats')).toContainText('3 titles')
   const shelf = page.getByRole('region', { name: 'Continue' })
   // One entry per seeded drama (reading or workspace activity).
-  await expect(shelf.getByRole('listitem')).toHaveCount(2)
+  await expect(shelf.getByRole('listitem')).toHaveCount(3)
   const open = shelf.getByRole('link', { name: 'Open: Signal', exact: true })
   // A title with no lines yet opens on its current stage: no stage in the link (the workspace picks it).
   await expect(open).toHaveAttribute('href', /#\/drama\/\d+$/)
@@ -34,7 +36,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
   // Back to Titles: the same text now filters titles (no match), and
   // Clear filters brings the whole library back.
   await page.getByRole('radio', { name: 'Titles' }).check()
-  await expect(page.getByLabel('Search title or summary')).toHaveValue('zzz-no-such-line')
+  await expect(page.getByLabel('Search titles, people, tags and series')).toHaveValue('zzz-no-such-line')
   await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
@@ -42,7 +44,7 @@ test('stats line, Continue shelf and global line search', async ({ page }) => {
 
 test('create form validates client-side', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toBeFocused()
   await sheet.getByRole('button', { name: 'Create title' }).click()
@@ -54,7 +56,7 @@ test('create form validates client-side', async ({ page }) => {
 
 test('create form puts focus on the invalid field and hides credits that do not fit the type', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('Source language').focus()
   await sheet.getByRole('button', { name: 'Create title' }).click()
@@ -70,24 +72,24 @@ test('create form puts focus on the invalid field and hides credits that do not 
 
 test('New title keeps what was typed when the sheet closes; Cancel discards it', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   let sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('Draft title')
   await sheet.getByLabel('Media type').selectOption('novel')
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
 
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
   await expect(sheet.getByLabel('Media type')).toHaveValue('novel')
   await sheet.getByRole('button', { name: 'Close', exact: true }).click()
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   await expect(sheet.getByLabel('English title')).toHaveValue('Draft title')
 
   await sheet.getByRole('button', { name: 'Clear and close' }).click()
   await expect(sheet).toBeHidden()
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   await expect(sheet.getByLabel('English title')).toHaveValue('')
   await expect(sheet.getByLabel('Media type')).toHaveValue('audio_drama')
   // Nothing was created.
@@ -97,7 +99,7 @@ test('New title keeps what was typed when the sheet closes; Cancel discards it',
 test('create (Enter submits) then delete with typed confirmation', async ({ page }) => {
   try {
     await page.goto('/')
-    await page.getByRole('button', { name: 'Add a title by hand' }).click()
+    await openNewTitle(page)
     await page.getByLabel('English title').fill('E2E Temp Title')
     await page.getByLabel('English title').press('Enter')
     // Creating goes straight to the new drama's workspace; its details sheet is one click away in the Library.
@@ -221,7 +223,7 @@ test('line search without permission to read lines: a plain note, no error banne
 
 test('a link in the Add box, Only add it, opens New title with it filled in; titles wrap instead of being cut', async ({ page }) => {
   await page.route('**/api/media-link/probe', (r) => r.fulfill({ status: 503, json: { error: { code: 'dependency_unavailable', message: 'No yt-dlp.' } } }))
-  await page.goto('/')
+  await page.goto('/#/make-subtitles')
   const box = page.getByRole('region', { name: 'Add' })
   await box.getByRole('textbox', { name: 'Paste a link' }).fill('https://example.com/watch?v=abc')
   await expect(box.getByTestId('add-found')).toHaveText('Found: a link to example.com. Baihe could not read it.')
@@ -246,11 +248,11 @@ const statsFailOnce = (page: import('@playwright/test').Page) => {
     : r.fallback()))
 }
 
-test('Continue shows two tiles that name the next step and open it; only the tile waiting on a check asks for its count', async ({ page }) => {
+test('Continue shows its tiles that name the next step and open it; only the tile waiting on a check asks for its count', async ({ page }) => {
   const mock = await mockShelf(page, (id) => (id === 3 ? 3 : 0))
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
-  await expect(shelf.getByRole('listitem')).toHaveCount(2)
+  await expect(shelf.getByRole('listitem')).toHaveCount(4)
   await expect(shelf.getByRole('button', { name: /^More/ })).toHaveCount(0)
   const tiles: [string, string, string][] = [
     ['Read from page 12', "Heaven Official's Blessing", '#/read/2'],
@@ -334,7 +336,7 @@ test('after a reload a title the filter hides says Open, with no count asked, un
   await page.goto('/')
   const shelf = page.getByRole('region', { name: 'Continue' })
   await expect(shelf.getByRole('link', { name: 'Check the 3 lines: Signal', exact: true })).toBeVisible()
-  await page.getByLabel('Status', { exact: true }).selectOption('translated')
+  await (await openLibraryFilters(page)).getByLabel('Status', { exact: true }).selectOption('translated')
   const titles = page.getByRole('region', { name: 'Titles' })
   await expect(titles.getByRole('link', { name: 'Grandmaster of Demonic Cultivation', exact: true })).toHaveCount(0)
   await expect(titles.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
@@ -350,7 +352,7 @@ test('after a reload a title the filter hides says Open, with no count asked, un
   await settle(page)
   expect(mock.asked.slice(before)).not.toContain(3)
 
-  await page.getByLabel('Status', { exact: true }).selectOption('')
+  await (await openLibraryFilters(page)).getByLabel('Status', { exact: true }).selectOption('')
   await expect(shelf.getByRole('link', { name: 'Watch: Signal', exact: true })).toHaveAttribute('href', '#/watch/3')
 })
 
@@ -425,7 +427,7 @@ test('the shelf waits for the Library list instead of showing Open, and a search
   await expect(signal).toHaveAttribute('href', '#/drama/3/review')
   await expect(page.locator('.continue-placeholder')).toHaveCount(0)
 
-  await page.getByLabel('Search title or summary').fill('Signal')
+  await page.getByLabel('Search titles, people, tags and series').fill('Signal')
   const titles = page.getByRole('region', { name: 'Titles' })
   await expect(titles.getByRole('link', { name: "Heaven Official's Blessing", exact: true })).toHaveCount(0)
   await expect(titles.getByRole('link', { name: 'Signal', exact: true })).toBeVisible()
@@ -458,7 +460,7 @@ test('a first-time visitor sees no placeholder while the shelf loads', async ({ 
   await expect(page.locator('.continue-placeholder')).toHaveCount(0)
   await expect(page.getByRole('region', { name: 'Continue' })).toHaveCount(0)
   list.open()
-  await expect(page.getByRole('region', { name: 'Continue' }).getByRole('listitem')).toHaveCount(2)
+  await expect(page.getByRole('region', { name: 'Continue' }).getByRole('listitem')).toHaveCount(4)
 })
 
 test('cards say Watch for video and Listen for audio, opening the Watch page; Read stays for the rest', async ({ page }) => {
@@ -489,6 +491,8 @@ for (const [width, count, compact] of [[1280, 5, false], [1440, 1, false], [1280
     if (compact) await expect(page.locator('html')).toHaveAttribute('data-density', 'compact')
     const h = await placeholderAndShelf(page, release)
     expect(Math.abs(h.shelf - h.placeholder), JSON.stringify(h)).toBeLessThanOrEqual(2)
+    // A computer shows at most four.
+    await expect(page.getByRole('region', { name: 'Continue' }).getByRole('listitem')).toHaveCount(Math.min(count, 4))
   })
 }
 

@@ -74,6 +74,9 @@ def fakes(isolated_db, monkeypatch):
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name: HF_TOKEN if name == "hf_token" else None)
     monkeypatch.setattr(diagnostics, "check_dependency", lambda name: True)
+    monkeypatch.setattr(settings_service, "get_settings_overview", lambda env_path=None: {
+        "endpoints": {"ollama_url": "http://192.0.2.5:11434"}, "preferences": {"folder": ABS_PATH},
+        "choices": {}})
     monkeypatch.setattr(diagnostics_report, "check_pyannote_gated_access", lambda token, api=None: [
         {"model": "pyannote/speaker-diarization-3.1", "accessible": True, "error": DIRTY}])
     monkeypatch.setattr(svc, "_hf_hub_importable", lambda: True)  # the check runs even without the hub installed
@@ -156,6 +159,37 @@ def test_reads(client):
     assert len(_clean(client.get("/api/diagnostics/log"))["lines"]) == svc.LOG_TAIL_DEFAULT
     rep = _clean(client.get("/api/diagnostics/support-report"))
     assert rep["report"].startswith("Report")
+
+
+def test_support_bundle_is_a_scrubbed_zip(client, monkeypatch):
+    import io
+    import os
+    import zipfile
+    import diagnostics_torch
+    monkeypatch.setattr(diagnostics_torch, "with_driver_vram_used", lambda gpu: {**gpu, "vram_used_gb": None})
+    log_dir = os.path.join(db.LIBRARY_DIR, "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    with open(os.path.join(log_dir, "app.log"), "w", encoding="utf-8") as f:
+        f.write(f"ERROR {DIRTY} for alex.example@example.com\n")
+    url = "/api/diagnostics/support-bundle"
+    assert client.get(url, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.get(url, headers={"Sec-Fetch-Site": "same-site"}).status_code == 403
+    assert svc._BUNDLE_LOCK.acquire(blocking=False)
+    try:
+        busy = client.get(url)
+    finally:
+        svc._BUNDLE_LOCK.release()
+    assert busy.status_code == 409 and "already being made" in busy.text
+    r = client.get(url, headers={"Sec-Fetch-Site": "same-origin"})
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    assert r.headers["content-disposition"].startswith('attachment; filename="baihe-logs-')
+    assert r.headers["cache-control"] == "no-store"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        text = "\n".join(zf.read(n).decode("utf-8") for n in zf.namelist())
+    assert "[EMAIL]" in text and '"ollama_url": true' in text
+    for bad in (SECRET, HF_TOKEN, ABS_PATH, "/home/someone", db.LIBRARY_DIR, "alex.example",
+                "192.0.2.5"):
+        assert bad not in text, bad
 
 
 def test_install_presets(client):
@@ -309,6 +343,7 @@ def _admin_session():
 READS = ("/api/diagnostics/setup-checks", "/api/diagnostics/model-cache",
          "/api/diagnostics/pyannote",
          "/api/diagnostics/log", "/api/diagnostics/support-report",
+         "/api/diagnostics/support-bundle",
          "/api/diagnostics/install-presets", "/api/diagnostics/gpu-torch",
          "/api/diagnostics/dependency-install")
 WRITES = (("/api/diagnostics/dependencies/pydub/install", {"confirm": True}),

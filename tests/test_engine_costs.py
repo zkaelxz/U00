@@ -119,8 +119,8 @@ class _FakeClaudeUsage:
 
 
 class _FakeClaudeMessages:
-    """Records every messages.create call and answers with each requested
-    line id translated, so no batch ever needs a retry."""
+    """Records every messages.create call and answers every requested id
+    with "EN" plus that line's source, so no batch ever needs a retry."""
     def __init__(self, usage=None):
         self.calls = []
         self.usage = usage or _FakeClaudeUsage()
@@ -131,8 +131,8 @@ class _FakeClaudeMessages:
         self.calls.append(kwargs)
         user = kwargs["messages"][0]["content"]
         numbered = user.split("Translate these lines:\n\n", 1)[1]
-        ids = _re.findall(r"^(\d+)\. ", numbered, flags=_re.M)
-        text = _json.dumps({i: f"EN{i}" for i in ids})
+        asked = _re.findall(r"^(\d+)\. (.*)$", numbered, flags=_re.M)
+        text = _json.dumps({i: f"EN{zh}" for i, zh in asked})
 
         class _Block:
             type = "text"
@@ -174,7 +174,7 @@ class TestStablePromptPrefix:
         assert len(calls) == 3
         systems = [repr(c["system"]) for c in calls]
         assert systems[0] == systems[1] == systems[2]
-        assert [ln.en for ln in lines] == [f"EN{100 + i}" for i in range(6)]
+        assert [ln.en for ln in lines] == [f"EN第{i}句" for i in range(6)]
 
     def test_per_batch_context_lives_in_the_user_message_only(self):
         calls, _ = self._run_claude()
@@ -182,7 +182,7 @@ class TestStablePromptPrefix:
         # source (look-ahead) -- both must be in the user message, and
         # neither may leak into the cached system prompt.
         second_user = calls[1]["messages"][0]["content"]
-        assert "第0句 -> EN100" in second_user
+        assert "第0句 -> EN第0句" in second_user
         assert "第4句" in second_user.split("Translate these lines:")[0]
         system_text = "".join(b["text"] for b in calls[1]["system"])
         assert "第0句" not in system_text and "第4句" not in system_text

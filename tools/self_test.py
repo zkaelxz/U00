@@ -181,16 +181,27 @@ def check_ocr():
     return PASS, "available: " + ", ".join(found)
 
 
+def _ollama_json(url: str) -> dict:
+    """GET a JSON answer from the Ollama address the owner configured (loopback)."""
+    import json
+    from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
+    from lib import http
+    # guard=None: base_url is the Ollama address the user configured (loopback here).
+    resp = http.get(url, timeout=3, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
+                    trust_env=False)  # loopback only: an HTTP_PROXY must not carry it
+    if resp.status >= 400:
+        raise ValueError(f"HTTP {resp.status}")
+    return json.loads(resp.body)
+
+
 def check_ollama():
-    import memory_headroom
     from services import settings_service
     if not settings_service.ollama_endpoint_is_loopback():
         return SKIPPED, "the configured Ollama address is not on this PC, so it was not contacted"
     base = settings_service.ollama_url()
     from lib.http import FetchError, ResponseTooLarge
     try:
-        # memory_headroom's reader already sets timeout= and a byte cap.
-        data = memory_headroom._ollama_json(f"{base}/api/tags")
+        data = _ollama_json(f"{base}/api/tags")
     except ResponseTooLarge:
         return FAIL, "Ollama's reply was larger than expected"
     except FetchError:

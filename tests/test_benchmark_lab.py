@@ -263,12 +263,6 @@ class TestRunPersistence:
         _run(configs=[{"engine": "claude"}])
         assert db.get_month_spend() > before
 
-    def test_legacy_run_history_untouched(self, isolated_db):
-        svc.create_case("c", "你好", "Hello")
-        _run()
-        case_id = svc.list_cases()["cases"][0]["id"]
-        assert db.list_benchmark_runs(case_id) == []
-
     def test_engine_error_is_recorded_redacted(self, isolated_db, monkeypatch):
         class Boom(EchoEngine):
             def translate_batch(self, zh_lines, context):
