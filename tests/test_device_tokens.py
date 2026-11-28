@@ -733,8 +733,10 @@ class TestExpiryWarning:
     def _clean_bell(self):
         from services import notification_service
         notification_service.reset_for_tests()
+        svc._warned_this_run.clear()
         yield
         notification_service.reset_for_tests()
+        svc._warned_this_run.clear()
 
     def _bell(self, principal):
         from services import notification_service
@@ -775,11 +777,15 @@ class TestExpiryWarning:
         assert svc.warn_expiring(now) == 0
         assert self._bell(_principal(u["id"])) == []
 
-    def test_the_warned_list_survives_a_restart(self, isolated_db):
+    def test_a_restart_before_the_bell_was_read_warns_again(self, isolated_db):
         from services import notification_service
         now = time.time()
         u, _ = _member()
         self._token(u["id"], "Phone", 2, used_days_ago=1, now=now)
         assert svc.warn_expiring(now) == 1
-        notification_service.reset_for_tests()   # the bell is memory only
         assert svc.warn_expiring(now + 60) == 0
+        # A restart: the bell and this run's warned set are memory only.
+        notification_service.reset_for_tests()
+        svc._warned_this_run.clear()
+        assert svc.warn_expiring(now + 120) == 1
+        assert len(self._bell(_principal(u["id"]))) == 1

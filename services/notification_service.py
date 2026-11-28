@@ -892,7 +892,7 @@ def list_recent(principal=None, limit=RECENT_MAX) -> list:
     admin_ids = None
     for e in reversed(events):
         if e["kind"] == "device_token":
-            # Its account alone, and the PC owner (auth off, or at the PC), who manages every key there.
+            # With sign-in on, the key's own account alone; with it off, the one person at the PC.
             if principal is not None and not principal.get("is_local_owner") \
                     and ownership_service.user_id(principal) != e["owner_user_id"]:
                 continue

@@ -34,6 +34,7 @@ import hmac
 import math
 import re
 import secrets
+import threading
 import time
 import unicodedata
 
@@ -55,13 +56,17 @@ DEFAULT_EXPIRY_DAYS = 90
 _TOUCH_INTERVAL_SECONDS = 60
 _KEEP_ENDED_SECONDS = 30 * 24 * 3600
 _GENERIC_401 = "Authentication required."
-# The bell warns this long before a token ends, once per token, and only for
-# one still in use: a forgotten token running out needs no one's attention.
+# The bell warns this long before a token ends, and only for one still in
+# use: a forgotten token running out needs no one's attention.
 EXPIRY_WARN_SECONDS = 7 * 86400
 EXPIRY_WARN_USED_WITHIN_SECONDS = 30 * 86400
-EXPIRY_WARNED_KEY = "device_tokens.expiry_warned"
 EXPIRY_CHECK_SECONDS = 3600.0
 _last_expiry_check = None
+# Once per token per server start, not once for good: the bell lives in
+# memory, so an entry a restart dropped before its owner opened the bell is
+# added again by the next start's first check.
+_warned_this_run = set()
+_warned_lock = threading.Lock()
 _NOT_FOUND = "That device token isn't active."
 ADMIN_TOKENS_AT_PC_ONLY = ("An admin account's extension devices can only be added at "
                            "the PC. You can revoke one from anywhere.")
@@ -243,29 +248,24 @@ def _expiry_text(label: str, seconds_left: float) -> str:
 
 def warn_expiring(now: float | None = None) -> int:
     """One bell entry for its owner per live token that ends within
-    EXPIRY_WARN_SECONDS and was used within EXPIRY_WARN_USED_WITHIN_SECONDS.
-    The ids already warned about are kept (only those still listed), so a
-    restart doesn't warn twice. The entry names the token's label, never the
+    EXPIRY_WARN_SECONDS and was used within EXPIRY_WARN_USED_WITHIN_SECONDS,
+    once per server start. The entry names the token's label, never the
     token. Returns how many entries were added."""
     from services import notification_service
     now = time.time() if now is None else now
-    rows = device_tokens.list_all()
-    raw = db.get_app_setting(EXPIRY_WARNED_KEY, [])
-    warned = {i for i in raw if type(i) is int} if isinstance(raw, list) else set()
     added = 0
-    for row in rows:
+    for row in device_tokens.list_all():
         left = (row["expires_at"] - now) if row["expires_at"] is not None else None
         if (row["revoked_at"] is not None or left is None or left <= 0
-                or left > EXPIRY_WARN_SECONDS or row["id"] in warned
-                or row["last_used_at"] is None
+                or left > EXPIRY_WARN_SECONDS or row["last_used_at"] is None
                 or now - row["last_used_at"] > EXPIRY_WARN_USED_WITHIN_SECONDS):
             continue
+        with _warned_lock:
+            if row["id"] in _warned_this_run:
+                continue
+            _warned_this_run.add(row["id"])
         notification_service.notify_device_token_expiring(row["user_id"], _expiry_text(row["label"], left))
-        warned.add(row["id"])
         added += 1
-    keep = sorted(warned & {r["id"] for r in rows})
-    if keep != sorted(raw if isinstance(raw, list) else []):
-        db.set_app_setting(EXPIRY_WARNED_KEY, keep)
     return added
 
 
