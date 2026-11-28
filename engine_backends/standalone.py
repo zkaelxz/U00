@@ -39,7 +39,7 @@ def standalone_direction_support(engine_name: str, source_language: str, target_
         target_name = LANGUAGE_NAMES.get(target_language, target_language)
         return True, (
             f"Ollama's quality translating English -> {target_name} depends entirely on "
-            "which local model you have loaded -- some handle it well, some not at all. "
+            "which hosted model you pick -- some handle it well, some not at all. "
             "Check the output carefully.")
     return True, None
 

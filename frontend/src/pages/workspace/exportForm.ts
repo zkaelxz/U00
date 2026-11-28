@@ -31,6 +31,8 @@ export interface AssForm {
   tidyTiming: boolean
   speakerNames: boolean
   notesAsSeparateLine: boolean
+  readingLine: boolean
+  karaoke: boolean
   wrapEn: string
   wrapSource: string
   baseName: string
@@ -39,7 +41,8 @@ export interface AssForm {
 export const emptyAssForm = (preset: string): AssForm => ({
   field: 'en', preset, font: '', size: '', outlineWidth: '', shadow: '', primary: '', outline: '',
   bold: '', italic: '', alignment: '', sfxAlignment: '', notesAlignment: '', speakerColors: '',
-  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, notesAsSeparateLine: false, wrapEn: '', wrapSource: '', baseName: '',
+  perSpeakerColors: true, includeNotes: false, tidyTiming: false, speakerNames: false, notesAsSeparateLine: false,
+  readingLine: false, karaoke: false, wrapEn: '', wrapSource: '', baseName: '',
 })
 
 const HEX = /^#[0-9A-Fa-f]{6}$/
@@ -159,7 +162,18 @@ export function buildAssRequest(
   if (colors.colors) request.speaker_colors = colors.colors
   if (wrapEn.value !== undefined) request.wrap_chars_en = wrapEn.value
   if (wrapSource.value !== undefined) request.wrap_chars_source = wrapSource.value
+  if (form.field !== 'en') {
+    if (form.readingLine) request.reading_line = true
+    if (form.karaoke) request.karaoke = true
+  }
   return { request }
+}
+
+/** The language a reading line is written for (pinyin or kana), or null: Korean is written in Hangul, which already
+ * spells the sound. A title saved without a language is Chinese, as the server treats it. */
+export function readingLanguage(sourceLanguage: string | null | undefined): 'zh' | 'ja' | null {
+  const lang = sourceLanguage || 'zh'
+  return lang === 'zh' || lang === 'ja' ? lang : null
 }
 
 export const MAX_BASE_NAME = 100

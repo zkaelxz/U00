@@ -20,8 +20,8 @@ import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
 function appliedText(t: WorkflowTierApplied): string {
   const model = t.engine_model ? ` (${t.engine_model})` : ''
   const name = t.tier.charAt(0).toUpperCase() + t.tier.slice(1)
-  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it from the Export stage.` : ''
-  return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}, Reflect ${t.reflect ? 'on' : 'off'}.${qc} Nothing has started.`
+  const qc = t.auto_qc ? ` ${name} recommends Auto QC; run it in Review > Flag lines for review.` : ''
+  return `Applied ${t.label}: ${humanize('engine', t.translation_engine)}${model}.${qc} Nothing has started.`
 }
 
 // The Style select doubles as the way to start from a tier or a saved preset:
@@ -67,7 +67,7 @@ export function StyleField({ config, style, onStyleChange, onTierApplied, onPres
   }
   return (
     <>
-      <Field label="Style" help={`What the translator should sound like. Each choice fills in engine, model and other settings together, and you can still edit them. Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus with Reflect and Auto QC. My presets are saved in the Library. ${NOTHING_STARTS_HELP}`}>
+      <Field label="Style" help={`What the translator should sound like. Each choice fills in engine, model and other settings together, and you can still edit them. Draft is DeepSeek; Standard is Claude Sonnet; Release is Claude Opus, with Auto QC to run after. My presets are your Profiles in Library tools. ${NOTHING_STARTS_HELP}`}>
         <GroupedPicker
           title="Style"
           value={style}
