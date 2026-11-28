@@ -66,15 +66,20 @@ export function useTranslateRunForm({ config, onForm, onResetStage }: Options) {
       () => setToggleSaved(false),
     )
   }
-  // Per title only (not part of a preset or a run): saved as soon as it changes.
+  // Per title only (not part of a preset or a run): saved as soon as it changes. A run reads it only
+  // from the title, so a refused save puts the switch back rather than show a choice no run will use.
   const [bySentence, setBySentence] = useState<boolean>(config.translate_by_sentence ?? false)
   const [bySentenceSaved, setBySentenceSaved] = useState<boolean | null>(null)
   const saveBySentence = (v: boolean) => {
+    const before = bySentence
     setBySentence(v)
     setBySentenceSaved(null)
     updateDramaMetadata(dramaId, { translate_by_sentence: v }).then(
       () => setBySentenceSaved(true),
-      () => setBySentenceSaved(false),
+      () => {
+        setBySentence(before)
+        setBySentenceSaved(false)
+      },
     )
   }
   const savedNote =

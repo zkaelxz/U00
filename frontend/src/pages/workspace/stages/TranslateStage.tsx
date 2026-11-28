@@ -694,7 +694,7 @@ function RunPanel({
             </Field>
             {bySentenceSaved !== null && (
               <span className="muted" aria-live="polite" data-testid="by-sentence-saved">
-                {bySentenceSaved ? 'Saved for this title; every later run uses it.' : 'Could not save this choice for the title; it will not apply to later runs.'}
+                {bySentenceSaved ? 'Saved for this title; every later run uses it.' : 'Could not save this choice for the title, so it is back as it was.'}
               </span>
             )}
             {savedNote && <span className="muted" aria-live="polite" data-testid="toggle-saved">{savedNote.trim()}</span>}
