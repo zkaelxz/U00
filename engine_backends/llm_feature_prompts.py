@@ -7,6 +7,7 @@ because tests patch `engine_backends.llm_tasks.call_llm_json`. This module impor
 nothing from llm_tasks, so it can be imported on its own.
 """
 
+import functools
 import re
 
 from .flag_reasons import FLAG_REASONS, SYSTEM_FLAG_REASONS
@@ -135,13 +136,43 @@ def glossary_term_forms(term: dict) -> list:
     return [term.get("term_original", "")] + aliases
 
 
-def matching_glossary_terms(zh: str, glossary_terms) -> list:
+@functools.lru_cache(maxsize=4096)
+def _script_spellings(form: str) -> tuple:
+    """form as written, in Simplified and in Traditional characters. The term is converted,
+    never the line: folding a line merges characters (後 and 后 both become 后), so a term
+    such as 天后 would match inside an ordinary 三天後. One character stays exact: alone,
+    it is too ambiguous to convert. Without OpenCC, form only."""
+    if len(form) < 2:
+        return (form,)
+    try:
+        import segment
+        converted = (segment.opencc_t2s().convert(form), segment.opencc_s2t().convert(form))
+    except ImportError:
+        return (form,)
+    return tuple(dict.fromkeys((form, *converted)))
+
+
+def source_spellings(term: dict, cross_script: bool = True) -> list:
+    """The texts a glossary entry is looked for as in a source line: its forms
+    (glossary_term_forms), each also in the other Chinese script unless cross_script is off."""
+    forms = [f for f in glossary_term_forms(term) if f]
+    if not cross_script:
+        return forms
+    return list(dict.fromkeys(s for f in forms for s in _script_spellings(f)))
+
+
+def term_in_text(text: str, term: dict, cross_script: bool = True) -> bool:
+    """Whether text holds the term or one of its aliases, in either Chinese script."""
+    return any(s in text for s in source_spellings(term, cross_script))
+
+
+def matching_glossary_terms(zh: str, glossary_terms, cross_script: bool = True) -> list:
     """Glossary entries whose source term (or a recorded alias)
-    literally appears in zh -- the same "in play for this line" heuristic
+    appears in zh -- the same "in play for this line" heuristic
     line_tools.explain_translation already used, factored out so the
     "what happened here?" view can show the same real, non-fabricated
     match set instead of re-deriving it differently."""
-    return [t for t in (glossary_terms or []) if any(f and f in zh for f in glossary_term_forms(t))]
+    return [t for t in (glossary_terms or []) if term_in_text(zh, t, cross_script)]
 
 
 def build_flag_prompt(batch: list, id_fn=lambda ln: ln.idx, source_language=None) -> str:
