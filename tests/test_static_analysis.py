@@ -958,6 +958,7 @@ _CAPTURE_ALLOWED = {
     "lib/proc_kill.py::kill_tree": "taskkill, 10 s",
     # sc / netsh / icacls calls, timeout= COMMAND_TIMEOUT (120 s); no grandchildren.
     "installer/service_control.py::__call__": "probe: sc/netsh, timeout=120",
+    "installer/port_watchdog.py::_sc": "probe: sc query/stop/start, timeout=30",
     # pending: ffmpeg runs bounded by timeout= only.
     "audio_extract.py::_run_ffmpeg": "pending: ffmpeg",
     "voice/dub_narration.py::export_narration_m4b": "pending: ffmpeg",
