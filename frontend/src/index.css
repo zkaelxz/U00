@@ -536,7 +536,7 @@ dd { margin: 0; }
    tooltip; a touch screen can't hover, so there it wraps instead. */
 .warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
 .warn-bar-bad { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
-.warn-bar-shell { margin: var(--space-3) var(--space-4) 0; }
+.warn-bar-shell { margin: var(--space-3) 0; }
 .warn-bar-text { flex: 1 1 auto; min-width: 0; }
 .warn-bar-action { flex: none; white-space: nowrap; }
 .warn-bar-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-lg); cursor: pointer; }
