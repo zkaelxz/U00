@@ -420,7 +420,12 @@ jobs:
           Healthy
           if ($r.outcome -ne 'ok' -or $r.install_status -ne 'ok' -or $r.packages -lt 1 -or $r.downtime_seconds -lt 1) { $r | Format-List; Write-Error "unexpected result"; exit 1 }
           if (-not (& $py -s -m pip show budoux 2>$null)) { Write-Error "budoux was not installed"; exit 1 }
-          $status = Invoke-RestMethod -Uri http://127.0.0.1:8600/api/diagnostics/pending-install -TimeoutSec 20
+          # The app settles the queue on its next poll, not at once.
+          for ($i = 0; $i -lt 60; $i++) {
+            $status = Invoke-RestMethod -Uri http://127.0.0.1:8600/api/diagnostics/pending-install -TimeoutSec 20
+            if ($status.packages.Count -eq 0) { break }
+            Start-Sleep -Seconds 5
+          }
           if ($status.last_restart.outcome -ne 'ok' -or $status.packages.Count -ne 0) { $status | ConvertTo-Json -Depth 5; Write-Error "the app didn't settle the queue"; exit 1 }
           Write-Host "Installed $($r.packages) package(s); the app was away $($r.downtime_seconds) s."
           $before = (& $py -s -m pip show budoux | Select-String '^Version:').ToString()
