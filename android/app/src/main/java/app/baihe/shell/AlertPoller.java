@@ -46,6 +46,11 @@ final class AlertPoller {
         for (AlertFeed.Item item : fresh) show(context, (int) (item.id % 100000) + 100, item.text, item.route);
     }
 
+    /** The next check only learns where the list stands, as on the first one. */
+    static void forget(SharedPreferences prefs) {
+        prefs.edit().remove(MARK_ID).remove(MARK_AT).apply();
+    }
+
     private static void remember(SharedPreferences prefs, List<AlertFeed.Item> items) {
         if (items.isEmpty() && prefs.contains(MARK_ID)) return;
         prefs.edit().putLong(MARK_ID, AlertFeed.newestId(items))

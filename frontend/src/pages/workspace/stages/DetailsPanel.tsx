@@ -38,7 +38,9 @@ import { TitleRestructurePanel } from './TitleRestructurePanel'
 import { ContentModeField } from './SourceModes'
 import { SERIES_HELP } from '../../../helpText'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useHolds } from '../../../hooks/useHolds'
 import { changedKeys, useStageDraft } from '../../../hooks/useStageDraft'
+import { buttonClass } from '../../../components/uiClasses'
 
 interface Props {
   tab: MediaTab
@@ -49,8 +51,13 @@ interface Props {
 }
 
 // One draft for the Details and Credits sub-tabs: a Save on either saves the whole form, and switching tabs keeps it.
+const DETAILS_ADMIN_ONLY = 'Only an admin at the main PC can change these details. You can change the series and the source language.'
+
 export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
+  // The details route needs admin.library (an admin at the PC); the series and the source language have
+  // their own routes that a title's owner may use, so only those stay editable without it.
+  const ro = !useHolds('admin.library')
   const [initial, setInitial] = useState<DetailsForm>(() => formFromDrama(drama))
   // Edits not yet saved survive a stage switch or reload, like the Translate form's.
   const { draft, save: saveDraft, clear: clearDraft } = useStageDraft(dramaId, 'details', initial)
@@ -163,13 +170,13 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
 
   const text = (k: keyof DetailsForm, help?: string, type = 'text') => (
     <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
-      <input type={type} name={k} value={form[k]} onChange={set(k)} />
+      <input type={type} name={k} value={form[k]} onChange={set(k)} disabled={ro} />
     </Field>
   )
   const count = (k: 'chapter_count' | 'episode_number', help: string) => (
     <Field label={FIELD_LABELS[k]} help={help} error={errors[k]}>
       {/* Text, not type=number: a malformed entry must reach the whole-number check, not read as "" (clear). */}
-      <input type="text" inputMode="numeric" value={form[k]} onChange={set(k)} />
+      <input type="text" inputMode="numeric" value={form[k]} onChange={set(k)} disabled={ro} />
     </Field>
   )
 
@@ -183,11 +190,12 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
   const saveBar = (label: string, feedback: boolean) => (
     <>
       <div className="actions">
-        <button type="submit" className="primary" disabled={!dirty || busy}>
+        <button type="submit" className={buttonClass('primary')} disabled={!dirty || busy}>
           {label}
         </button>
         {reason && <span className="muted">{reason}</span>}
       </div>
+      {ro && <p className="muted">{DETAILS_ADMIN_ONLY}</p>}
       {feedback && (
         <>
           <p role="status" hidden={!notice}>{notice}</p>
@@ -222,7 +230,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   </select>
                 </Field>
                 <Field label="Media type" error={errors.media_type}>
-                  <select value={form.media_type} onChange={set('media_type')}>
+                  <select value={form.media_type} onChange={set('media_type')} disabled={ro}>
                     {mediaTypeOptions(initial.media_type).map((m) => (
                       <option key={m} value={m}>{modeLabel(m)}</option>
                     ))}
@@ -252,24 +260,24 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   </Field>
                 )}
                 <Field label={FIELD_LABELS.publication_status} help="Whether the original is still coming out." error={errors.publication_status}>
-                  <select value={form.publication_status} onChange={set('publication_status')}>
+                  <select value={form.publication_status} onChange={set('publication_status')} disabled={ro}>
                     {initial.publication_status === '' && <option value="">Not set</option>}
                     {PUBLICATION_STATUSES.map((p) => <option key={p} value={p}>{humanizeValue(p)}</option>)}
                   </select>
                 </Field>
                 {kind !== 'audio' && count('chapter_count', 'How many chapters the original has. Leave empty if unknown.')}
                 <Field label={FIELD_LABELS.release_date} help="When the stream aired or the title came out. Lets the Library list titles in the order to watch them. Leave empty if unknown." error={errors.release_date}>
-                  <input type="date" name="release_date" value={form.release_date} onChange={set('release_date')} />
+                  <input type="date" name="release_date" value={form.release_date} onChange={set('release_date')} disabled={ro} />
                 </Field>
                 {count('episode_number', 'Orders this title within its series, so the next episode gets this one\'s running summary. Leave empty to use the date added.')}
               </div>
               <Field label="Summary" error={errors.summary}>
-                <textarea rows={2} value={form.summary} onChange={set('summary')} />
+                <textarea rows={2} value={form.summary} onChange={set('summary')} disabled={ro} />
               </Field>
               <div id={SOURCE_URL_FIELD_ID}>
                 {text('source_url', 'The page this title came from. The full link is kept for the PC owner; everyone else sees it without any ?query part, which can hold a download token.', 'url')}
               </div>
-              <FillFromLink
+              {!ro && <FillFromLink
                 dramaId={dramaId}
                 link={form.source_url}
                 savedLink={initial.source_url}
@@ -278,7 +286,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   setNotice(null)
                   setForm((f) => ({ ...f, ...values }))
                 }}
-              />
+              />}
               <Section
                 storageKey="source.details.more"
                 openSignal={moreSignal}
@@ -291,12 +299,12 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   help="Key events, open threads and character state. Given to the next episode's translation as context. Filled in after a translation run; edit it freely."
                   error={errors.episode_summary}
                 >
-                  <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} />
+                  <textarea rows={3} value={form.episode_summary} onChange={set('episode_summary')} disabled={ro} />
                 </Field>
-                <EpisodeSummaryGenerate
+                {!ro && <EpisodeSummaryGenerate
                   dramaId={dramaId}
                   onGenerated={(text) => set('episode_summary')({ target: { value: text } })}
-                />
+                />}
                 <strong>Topic chapters</strong>
                 <p className="muted">Timed chapters for a long stream, made with the summary engine. Shown on the Watch page; the timestamp list and the subtitled-video export use them too.</p>
                 <TopicChaptersPanel dramaId={dramaId} />
@@ -305,7 +313,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
                   help="Written by one extra request that reads the whole episode before translating (Settings > Translation style: Read the whole episode before translating) and given to every batch. Edit it freely; it is used as written. Empty means the next run writes a new one. A wrong brief colours every line."
                   error={errors.episode_brief}
                 >
-                  <textarea rows={4} value={form.episode_brief} onChange={set('episode_brief')} />
+                  <textarea rows={4} value={form.episode_brief} onChange={set('episode_brief')} disabled={ro} />
                 </Field>
               </Section>
             </form>
@@ -317,7 +325,7 @@ export function DetailsPanel({ tab, onUnsaved, fillIn }: Props) {
         <section className="panel" aria-label="Credits">
           <Section storageKey="source.credits" defaultOpen openSignal={creditsSignal} title="Credits" summary={creditsSummary}>
             <form {...formProps}>
-              {saveBar('Save credits', false)}
+              {ro ? <p className="muted">Only an admin at the main PC can change the credits.</p> : saveBar('Save credits', false)}
               <div className="source-grid">
                 {text('author')}
                 {kind !== 'novel' && text('studio')}

@@ -39,7 +39,7 @@ const personas: Record<string, NavContext> = {
 
 const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-const BEFORE_ADMIN = ['Library', 'Library tools', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs']
+const BEFORE_ADMIN = ['Library', 'Library tools', 'Find & Add', 'Text', 'Live', 'Jobs']
 const ALL = [...BEFORE_ADMIN, 'Settings']
 
 
@@ -72,7 +72,7 @@ describe('nav registry per persona', () => {
 
   it('Simple leaves the admin and system pages out of the menu, Advanced lists them', () => {
     const owner = personas['owner at the PC']
-    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Find & Add', 'Text', 'Updates', 'Live', 'Jobs', 'Settings'])
+    expect(labels({ ...owner, simple: true })).toEqual(['Library', 'Find & Add', 'Text', 'Live', 'Jobs', 'Settings'])
     expect(labels({ ...owner, simple: false })).toEqual(labels(owner))
     const dev: NavContext = { ...owner, developerMode: true }
     expect(labels({ ...dev, simple: true })).not.toEqual(expect.arrayContaining(['Benchmark Lab']))
@@ -137,7 +137,7 @@ describe('left rail', () => {
   it('owner sees every page, grouped, with Benchmark Lab under Diagnostics once Developer Mode is on', () => {
     expect(visibleRailGroups({ ...owner, developerMode: true }).map((g) => [g.heading, g.items.map((r) => r.item.label)])).toEqual([
       [null, ['Library', 'Library tools']],
-      ['Find and add', ['Find & Add', 'Updates']],
+      ['Find and add', ['Find & Add']],
       ['Tools', ['Text', 'Live']],
       ['System', ['Jobs', 'People and access', 'Diagnostics', 'Benchmark Lab', 'Assistant', 'Settings']],
     ])
@@ -149,7 +149,7 @@ describe('left rail', () => {
 
   it('household member: no People and access, Diagnostics or Benchmark Lab', () => {
     const labelsOf = railLabels(personas['household member'])
-    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find & Add', 'Updates', 'Text', 'Live', 'Jobs', 'Settings'])
+    expect(labelsOf).toEqual(['Library', 'Library tools', 'Find & Add', 'Text', 'Live', 'Jobs', 'Settings'])
   })
 
   it('member holding admin.diagnostics sees Diagnostics and Benchmark Lab (Developer Mode on) but not People and access', () => {
@@ -195,6 +195,7 @@ describe('left rail', () => {
     ['benchmark', { name: 'benchmark' }, ['Benchmark Lab']],
     ['translate', { name: 'translate' }, ['Text']],
     ['make subtitles', { name: 'make-subtitles' }, ['Find & Add']],
+    ['updates', { name: 'updates' }, ['Find & Add']],
   ])('%s marks exactly one rail item current', (_name, route, expected) => {
     expect(railCurrent({ ...owner, developerMode: true }, route)).toEqual(expected)
   })
@@ -203,10 +204,10 @@ describe('left rail', () => {
 describe('Find & Add menu item', () => {
   const labels = (ctx: NavContext) => visibleNavItemsFor(ctx).map((i) => i.label)
 
-  it('sits first in the Find and add group and can be hidden like the others', () => {
+  it('is the only item in the Find and add group (Updates is its tab) and can be hidden like the others', () => {
     const owner = personas['owner at the PC']
     const find = visibleRailGroups(owner).find((g) => g.id === 'find')
-    expect(find?.items.map((r) => r.item.label)).toEqual(['Find & Add', 'Updates'])
+    expect(find?.items.map((r) => r.item.label)).toEqual(['Find & Add'])
     expect(labels({ ...owner, hidden: ['make-subtitles'] })).not.toContain('Find & Add')
     expect(isNavLocked(NAV_ITEMS.find((i) => i.label === 'Find & Add')!)).toBe(false)
   })
@@ -215,9 +216,9 @@ describe('Find & Add menu item', () => {
     expect(labels(personas['household member'])).toContain('Find & Add')
   })
 
-  it('lights for the page, Discover and both Sources routes', () => {
+  it('lights for the page and its Discover, Sources and Updates tabs', () => {
     const find = visibleRailGroups(personas['owner at the PC']).flatMap((g) => g.items).find((r) => r.item.label === 'Find & Add')
-    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage'])
+    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage', 'updates'])
   })
 })
 
@@ -237,8 +238,8 @@ describe('feature switches', () => {
     expect(visibleRailGroups(off).flatMap((g) => g.items.map((r) => r.item.label))).toContain('Find & Add')
   })
 
-  it('lights Find & Add for the Discover page and both Sources routes', () => {
+  it('lights Find & Add for its Discover, Sources and Updates tabs', () => {
     const find = visibleRailGroups(owner).flatMap((g) => g.items).find((r) => r.item.label === 'Find & Add')
-    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage'])
+    expect(find?.active).toEqual(['make-subtitles', 'discover', 'sources', 'sources-manage', 'updates'])
   })
 })

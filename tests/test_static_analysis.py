@@ -392,7 +392,7 @@ class TestConstraintsFile:
     minimum versions (>=), so a fresh install could silently pull in a
     new major version -- exactly how pyannote 4 broke diarization.
     constraints.txt pins known-risky packages' major versions; this
-    checks it exists, caps what it's supposed to, and that the README's
+    checks it exists, caps what it's supposed to, and that the setup guide's
     install command actually uses it."""
 
     def _read_constraints(self):
@@ -427,9 +427,9 @@ class TestConstraintsFile:
             assert not line.lower().startswith("yt-dlp"), line
             assert not line.lower().startswith("edge-tts"), line
 
-    def test_readme_install_command_uses_constraints_txt(self):
-        readme = open(os.path.join(PROJECT_ROOT, "README.md"), encoding="utf-8").read()
-        assert "-c constraints.txt" in readme
+    def test_setup_guide_install_command_uses_constraints_txt(self):
+        guide = open(os.path.join(PROJECT_ROOT, "docs", "user-guide-setup.md"), encoding="utf-8").read()
+        assert "-c constraints.txt" in guide
 
 
 def _requirements_package_names(filename):

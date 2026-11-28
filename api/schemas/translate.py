@@ -79,6 +79,8 @@ class TranslateHistoryEntry(BaseModel):
     source_text: str
     translated_text: str
     created_at: Optional[str] = None
+    # Display name, "PC owner" or "Removed user"; never an email.
+    account: Optional[str] = None
 
 
 class TranslateHistoryResponse(BaseModel):
