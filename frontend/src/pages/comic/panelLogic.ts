@@ -75,9 +75,11 @@ export function panelZoom(panel: ComicPanel, image: Rect, view: Rect, box: { w: 
 /**
  * How far to scroll the window to bring a panel into view when no zoom can (a panel taller than the visible part,
  * as in Fit width): `top` and `h` are the panel's screen position and height, `inset` the bars covering the window
- * top. A panel that fits is centred below the bars; a taller one starts just below them.
+ * top. A panel already in full view stays put; one that fits is centred below the bars; a taller one starts just
+ * below them.
  */
 export function panelScroll(top: number, h: number, winH: number, inset: number): number {
+  if (top >= inset && top + h <= winH) return 0
   const room = winH - inset
   return Math.round(h <= room ? top - inset - (room - h) / 2 : top - inset)
 }

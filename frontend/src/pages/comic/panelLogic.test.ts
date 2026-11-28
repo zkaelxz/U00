@@ -93,7 +93,9 @@ describe('panelScroll', () => {
     expect(panelScroll(1500, 900, 800, 100)).toBe(1400)
     expect(panelScroll(-400, 900, 800, 100)).toBe(-500)
   })
-  it('leaves a panel already centred where it is', () => {
+  it('leaves a panel already in full view below the bars where it is', () => {
     expect(panelScroll(300, 300, 800, 100)).toBe(0)
+    expect(panelScroll(110, 300, 800, 100)).toBe(0)
+    expect(panelScroll(90, 300, 800, 100)).not.toBe(0)
   })
 })
