@@ -13,7 +13,6 @@ A group the caller may not change answers 404 from the service. A series joins
 or leaves a group through /api/series/{series_id}/shared-glossary.
 """
 
-from typing import List
 
 from fastapi import APIRouter, Path, Request
 
@@ -47,12 +46,6 @@ def create_group(body: SharedGlossaryCreateRequest, request: Request):
              summary="Delete a group and its terms; series that joined it keep their own terms")
 def delete_group(request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
     return svc.delete_group(request.state.principal, group_id)
-
-
-@router.get("/{group_id}/terms", dependencies=[require_permission("library.read")],
-            response_model=List[SharedGlossaryTerm], responses=_ERRS, summary="A group's terms")
-def list_terms(request: Request, group_id: int = Path(ge=1, le=_MAX_ID)):
-    return svc.list_terms(request.state.principal, group_id)
 
 
 @router.post("/{group_id}/terms", dependencies=[require_permission("lines.edit")],
