@@ -266,8 +266,12 @@ def start_keep_awake(settings) -> bool:
     global _keep_awake
     if not settings.background_services:
         return False
+    import applog
     import background_jobs
     from lib.keep_awake import KeepAwake
+    # lib/ can't import applog; opening the app log here gives the "baihe"
+    # logger its handler before the first keep-awake line is written.
+    applog.get_logger()
     with _gpu_lock:
         if _keep_awake is not None:
             return False
