@@ -59,8 +59,9 @@ def _reason(exc) -> str:
 
 # A script only one of the languages writes. A title in Han characters alone says
 # nothing: Chinese and Japanese both write them. Chinese titles borrow the odd の,
-# so kana must be a fair share of the title.
-_KANA_RE = re.compile(r"[\u3040-\u30ff]")
+# so kana must be a fair share of the title. The middle dot and long-vowel mark
+# sit in the katakana block but Chinese titles use the dot as a separator.
+_KANA_RE = re.compile(r"[\u3041-\u3096\u30a1-\u30fa]")
 _HANGUL_RE = re.compile(r"[\uac00-\ud7af\u1100-\u11ff]")
 _HAN_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 _THAI_RE = re.compile(r"[\u0e00-\u0e7f]")
