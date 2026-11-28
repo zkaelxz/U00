@@ -158,7 +158,7 @@ def _model_choices(engine: str, models: list) -> list:
     without the owner having picked that model."""
     out = []
     for m in models:
-        reason = ("Runs on Ollama's servers and is billed per token; the sweep skips it."
+        reason = ("Runs on Ollama's servers; the sweep tries only the Ollama model you picked."
                   if engine == "ollama" else None)
         out.append({"engine": engine, "model": m, "label": m, "included": reason is None, "reason": reason})
     return out
