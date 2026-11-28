@@ -1,5 +1,5 @@
 /*
- * Floating dock (or, when docked, a full-height rail) for screens 600px and wider: the shared nav groups as icons that
+ * Floating dock (or, when docked, a full-height rail) for screens 641px and wider: the shared nav groups as icons that
  * open into labelled rows when pointed at or focused (nav/sideNav.css).
  */
 import { useEffect, useRef, useState } from 'react'
