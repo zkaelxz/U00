@@ -147,7 +147,7 @@ def find_tested_at_head(repo, head_sha, tree, base_tree, token, get=_get, skip_r
         if skip_run_id is not None and str(run.get("id")) == str(skip_run_id):
             continue
         record = _record(repo, run, token, get)
-        if record is None and strict and run.get("status") == "completed" and run.get("conclusion") == "failure":
+        if record is None and strict and run.get("status") == "completed" and run.get("conclusion") not in ("success", "cancelled", "skipped"):
             # Its record failed to upload, so it may be a failed run of this very tree.
             return None
         if record is None or record.get("tree") != tree or record.get("base_tree") != base_tree:
