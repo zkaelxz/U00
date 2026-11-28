@@ -147,7 +147,7 @@ test('Read translated: a failed import says so and links to the job, instead of 
   })
   await mockScanlate(page, { mediaType: 'manhwa', pageCount: 0 })
   await page.route(/\/api\/jobs\/sourceimport_7$/, (route) =>
-    json(route, { job_id: 'sourceimport_7', status: 'error', outcome: 'failed', error: 'JobFailed: The site asked for a sign-in.', result: { kind: 'chapter', error: { code: 'login', message: 'The site asked for a sign-in.' } }, message: '', drama_id: 7 }))
+    json(route, { job_id: 'sourceimport_7', status: 'error', outcome: 'failed', error: 'JobFailed: The site asked for a sign-in.', message: '', drama_id: 7 }))
   await page.goto('/#/comic/7?page=1')
   const alert = page.getByRole('alert').filter({ hasText: 'Couldn’t import this chapter' })
   await expect(alert).toContainText('The site asked for a sign-in.')

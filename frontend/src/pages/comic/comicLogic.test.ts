@@ -284,8 +284,8 @@ describe('Read translated marks', () => {
   })
 
   it('says why an import failed without the error class name', () => {
-    expect(importFailureText({ error: 'JobFailed: x', result: { error: { message: 'The site asked for a sign-in.' } } })).toBe('The site asked for a sign-in.')
-    expect(importFailureText({ error: 'JobFailed: The chapter is locked.', result: null })).toBe('The chapter is locked.')
-    expect(importFailureText({ error: null, result: null })).toBeNull()
+    expect(importFailureText({ error: 'JobFailed: The chapter is locked.' })).toBe('The chapter is locked.')
+    expect(importFailureText({ error: 'Note: the chapter is locked.' })).toBe('Note: the chapter is locked.')
+    expect(importFailureText({ error: null })).toBeNull()
   })
 })

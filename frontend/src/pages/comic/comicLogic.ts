@@ -327,11 +327,10 @@ export function readTranslatedJob(storage: StorageLike | null, dramaId: number):
   return readPref(storage, readTranslatedJobKey(dramaId), '') || null
 }
 
-/** Why a "Read translated" import failed, in the words the import itself stored (no exception name). */
-export function importFailureText(job: { error: string | null; result: Record<string, unknown> | null }): string | null {
-  const stored = (job.result?.error as { message?: unknown } | undefined)?.message
-  const text = typeof stored === 'string' ? stored : (job.error ?? '').replace(/^[A-Z]\w*: /, '')
-  return safeDetail(text)
+/** Why a "Read translated" import failed. The job's error is "ExceptionName: message" and the job API
+ *  drops the structured error from the result, so the name is cut off here. */
+export function importFailureText(job: { error: string | null }): string | null {
+  return safeDetail((job.error ?? '').replace(/^[A-Z][A-Za-z]*(?:Error|Exception|Failed): /, ''))
 }
 
 export function markReadTranslated(storage: StorageLike | null, dramaId: number, importJobId?: string): boolean {
