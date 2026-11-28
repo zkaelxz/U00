@@ -99,8 +99,10 @@ public class GrabLogicTest {
                 + "{\"untranslated_lines\":2,\"notes\":[[\"info\",\"cover page\"],"
                 + "[\"warning\",\"translation failed (the key was refused); the source text below was still read\"]]},"
                 + "{\"regions\":[],\"notes\":[[\"warning\",\"no text found\"]]},"
-                + "{\"untranslated_lines\":1}]}");
-        assertEquals(2, BaiheClient.pagesWithoutEnglish(answer));
+                + "{\"untranslated_lines\":1},"
+                + "{\"already_stored\":true,\"regions\":[{\"untranslated\":true}]},"
+                + "{\"already_stored\":true,\"regions\":[{\"untranslated\":true,\"left_alone\":true},{}]}]}");
+        assertEquals(3, BaiheClient.pagesWithoutEnglish(answer));
         assertEquals("translation failed (the key was refused); the source text below was still read",
                 BaiheClient.englishProblem(answer));
         org.json.JSONObject fine = new org.json.JSONObject("{\"pages\":[{\"regions\":[{}]}],\"stored\":1}");
