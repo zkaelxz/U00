@@ -1,5 +1,5 @@
 /*
- * Sources page (#/sources).
+ * Find & Add's Sources tab (#/sources).
  *
  * One "Search or paste a link" card with a two-way switch
  * (FindModeSwitch): search the enabled sources by title (a paced
@@ -27,7 +27,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { listNotifications, listSources, listTracked, SEARCH_JOB_ID, seriesJobId, startSeries, untrackSeries } from '../api/sources'
-import { PageShell } from '../components/PageShell'
 import { routeHref } from '../router'
 import { Card } from '../components/Card'
 import { RetryBanner } from '../components/RetryBanner'
@@ -46,6 +45,7 @@ import type {
   SourceSummary,
   TrackedSeries,
 } from '../types/sources'
+import { FindAddShell } from './FindAddShell'
 import SourcesManagePanel from './SourcesManage'
 import { SourcesReadList } from './sources/SourcesReadList'
 import { FindModeSwitch, type FindMode } from './sources/FindModeSwitch'
@@ -269,20 +269,14 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
   )
 
   return (
-    <PageShell
-      width="wide"
-      title="Find"
-      className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}
-      tabs={(
-        <Tabs
-          label="Sources"
-          idPrefix={PREFIX}
-          tabs={tabs.map((t) => (t.id === 'new' && notifications.length > 0 ? { ...t, count: notifications.length } : t))}
-          active={shownTab}
-          onSelect={selectTab}
-        />
-      )}
-    >
+    <FindAddShell current="sources" className={`sources-page${wide ? ' wide' : ''}${seriesShown ? ' has-series' : ''}`}>
+      <Tabs
+        label="Sources"
+        idPrefix={PREFIX}
+        tabs={tabs.map((t) => (t.id === 'new' && notifications.length > 0 ? { ...t, count: notifications.length } : t))}
+        active={shownTab}
+        onSelect={selectTab}
+      />
       <RetryBanner error={loadError} what="the sources" onRetry={loadSources} />
 
       {panel('find', (
@@ -388,6 +382,6 @@ export default function SourcesPage({ tab: urlTab = 'find', area, sharedUrl, ope
 
       {!remote && manageVisited && panel('manage', <SourcesManagePanel area={area} />, 'sources-manage-panel')}
       {remote && panel('manage', sources ? <SourcesReadList sources={sources} onSearchOnly={searchOnly} /> : loadError ? null : <p className="muted" role="status">Loading…</p>, 'sources-list-panel')}
-    </PageShell>
+    </FindAddShell>
   )
 }
