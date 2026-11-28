@@ -653,8 +653,59 @@ def export_narration_m4b(lines, drama_dir: str, title: str = None, out_path: str
     return out_path
 
 
+# Qwen3-TTS (qwen-tts 0.1.1 README): "If you set x_vector_only_mode=True, only the speaker
+# embedding is used so ref_text is not required, but cloning quality may be reduced"; with the
+# transcript it clones in-context, from the clip's words and sound together. A clip saved with
+# none is heard with the app's own Whisper settings for a full transcription instead.
+CLIP_TRANSCRIPT_WHISPER = "large-v3"
+CLIP_TRANSCRIPT_BEAM = 5
+CLIP_TRANSCRIPT_STAGE = "Writing down what a voice clip says..."
+
+
+def _clips_missing_transcript(clone_map) -> dict:
+    """{clip path: [speaker labels]} for the Qwen3-TTS voices whose clip has no transcript."""
+    missing = {}
+    for label, clone in clone_map.items():
+        if (clone.get("engine") == "qwen3_tts" and clone.get("ref_audio")
+                and not (clone.get("ref_text") or "").strip()):
+            missing.setdefault(clone["ref_audio"], []).append(label)
+    return missing
+
+
+def fill_clip_transcripts(clone_map, use_gpu: bool) -> dict:
+    """Writes what Whisper hears into each Qwen3-TTS clone entry whose clip has no transcript,
+    in the clip's own language (detected), and frees Whisper before the voice engine loads.
+    Returns {speaker label: transcript} for the entries filled. A clip it hears nothing in, or
+    cannot hear (no model while offline, say), keeps the speaker-embedding-only mode."""
+    missing = _clips_missing_transcript(clone_map)
+    if not missing:
+        return {}
+    import applog
+    import whisper_models
+    import whisper_transcribe
+    from line_alignment import join_segment_texts
+    filled = {}
+    try:
+        for path, labels in missing.items():
+            try:
+                segments = whisper_transcribe.transcribe_for_timing(
+                    path, CLIP_TRANSCRIPT_WHISPER, language=None, use_gpu=use_gpu,
+                    beam_size=CLIP_TRANSCRIPT_BEAM)
+            except Exception as exc:
+                applog.get_logger().warning(f"a voice clip's transcript was not written: {type(exc).__name__}")
+                continue
+            text = join_segment_texts(seg.get("text") or "" for seg in segments)
+            for label in labels if text else ():
+                clone_map[label]["ref_text"] = text
+                filled[label] = text
+    finally:
+        whisper_models.release_whisper_models()
+    return filled
+
+
 def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, result_queue,
-                                      narrate_original=False, source_language="zh", pace=1.0):
+                                      narrate_original=False, source_language="zh", pace=1.0,
+                                      use_gpu=True):
     """Process-job entry point for build_narration_track(), so Cancel can
     actually stop it. Safe to hard-stop: clips are reused from a prior
     partial run, and clips in flight are written under a temporary name
@@ -674,11 +725,14 @@ def build_narration_subprocess_worker(lines, drama_dir, character_clone_map, res
             "Joining the clips into one track..." if frac >= 1.0 else f"Speaking clips ({scaled:.0%})...")
 
     try:
+        if _clips_missing_transcript(character_clone_map):
+            process_worker.report_stage(result_queue, CLIP_TRANSCRIPT_STAGE)
+        transcripts = fill_clip_transcripts(character_clone_map, use_gpu)
         out_path, errors = build_narration_track(
             lines, drama_dir, character_clone_map, progress_cb=report, pace=pace,
             narrate_original=narrate_original, source_language=source_language)
         # failed_count: the job result lists only the first errors.
         result_queue.put(("ok", {"lines": lines, "out_path": out_path, "errors": errors,
-                                 "failed_count": len(errors)}))
+                                 "failed_count": len(errors), "clip_transcripts": transcripts}))
     except Exception as exc:
         result_queue.put(process_worker.error_item(exc))

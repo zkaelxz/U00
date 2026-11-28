@@ -362,6 +362,25 @@ class TestARefusedStartChangesNothing:
         assert [c["voice_design"] for c in isolated_db.list_characters(did)] == [dub.DEFAULT_VOICE_DESCRIPTIONS[0]]
 
 
+class TestClipTranscriptsWhisperWrote:
+    def _speakers(self, db, did):
+        for label, clip, text in (("A", "voice_refs/a.wav", ""), ("B", "voice_refs/b.wav", ""),
+                                  ("C", "voice_refs/c.wav", "Typed meanwhile.")):
+            db.upsert_character(did, label, ref_audio_filename=clip, ref_text=text)
+        # B's clip was replaced while the run went.
+        db.upsert_character(did, "B", ref_audio_filename="voice_refs/b2.wav")
+
+    def test_saved_only_where_the_clip_is_the_same_and_no_transcript_was_typed(self, isolated_db):
+        did = _drama(isolated_db, [_line(0, "A")])
+        self._speakers(isolated_db, did)
+        at_start = {"A": "voice_refs/a.wav", "B": "voice_refs/b.wav", "C": "voice_refs/c.wav"}
+        listen_service.apply_narration_result(
+            did, {"lines": [], "errors": [], "clip_transcripts": {"A": "你好。", "B": "别的。", "C": "听到的。"}},
+            at_start)
+        texts = {c["speaker_label"]: c["ref_text"] for c in isolated_db.list_characters(did)}
+        assert texts == {"A": "你好。", "B": "", "C": "Typed meanwhile."}
+
+
 class TestUnusedClipsAfterARun:
     """Each voice or text change left the old clips behind (about 170 MB per narrated hour).
     After a run's lines are saved, only clips no line of the title names are deleted, and
