@@ -20,6 +20,7 @@ becomes "missed", which only the owner can turn into a run, and a restored
 library brings back no start time.
 """
 
+import contextlib
 import datetime
 import logging
 import re
@@ -217,14 +218,24 @@ def _settle(doc: dict, now: float) -> None:
     for item in doc["items"]:
         if item["status"] == RUNNING:
             _finish(item, INTERRUPTED, _INTERRUPTED, now)
+            _log_settled(item, f"was running (job {item['job_id'] or 'not recorded'})")
         elif item["status"] == WAITING and item["now"]:
             # It would otherwise start on its own in the new process, which the queue never does.
             _finish(item, INTERRUPTED, _NOT_STARTED, now)
+            _log_settled(item, "was due to start, not started")
     doc["state"] = IDLE
     if doc["schedule"] and now >= doc["schedule"]["start_at"]:
         doc["schedule"]["missed"] = True
     doc["instance"] = _INSTANCE
     doc["settled"] = True
+
+
+def _log_settled(item: dict, where: str) -> None:
+    with contextlib.suppress(Exception):
+        import applog
+        applog.get_logger().warning(
+            f"Interrupted queue item {item['id']} ({item['step']}, title #{item['drama_id']}): "
+            f"{where} when Baihe stopped; marked interrupted, left for the person to press Retry.")
 
 
 def _save(doc: dict) -> None:
