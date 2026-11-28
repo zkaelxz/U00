@@ -17,6 +17,7 @@ type Bridge = {
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
+  notificationsBlocked?: () => boolean
 }
 
 const bridge = (): Bridge | null => {
@@ -71,6 +72,15 @@ export function checkForUpdates(): void {
     bridge()?.checkForUpdates?.()
   } catch {
     // The shell went away with the page.
+  }
+}
+
+/** True when Android blocks the app's notifications; false in a browser or an older app build, which can't tell. */
+export function shellNotificationsBlocked(): boolean {
+  try {
+    return bridge()?.notificationsBlocked?.() ?? false
+  } catch {
+    return false
   }
 }
 

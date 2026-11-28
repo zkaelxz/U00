@@ -483,7 +483,7 @@ its auto-mapping and `prepare_forced_aligner_inputs` / `decode_forced_alignment`
 
 ## Speaker detection on the GPU (manual check)
 
-1. Settings: turn on "Use the GPU for transcription".
+1. Settings: turn on "Use the GPU".
 2. Open a title with audio > Transcribe > Speakers > **Detect speakers only**. While it
    runs, `nvidia-smi -l 1` should show a `python` process with GPU memory in use.
 3. Afterwards the Speakers section reads "Last Detect speakers run (pyannote) used the

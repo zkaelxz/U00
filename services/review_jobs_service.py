@@ -38,7 +38,8 @@ import db
 from lib.safe_paths import plain_file_in
 from engine_backends import engine_registry, pricing
 from engine_backends import gemini as engine_gemini
-from services import (fixflag_translate, translate_run_options, ownership_service, paid_job_service, settings_service,
+from services import (fixflag_translate, translate_run_options, ownership_service, paid_job_service,
+                      profile_service, settings_service,
                       translate_run_service, translate_service, workspace_review_job_service,
                       transcribe_options_service)
 from lib.errors import (
@@ -291,10 +292,12 @@ def start_fix_flagged(drama_id: int, engine_name: str | None = None, model: str 
         audio_path = plain_file_in(db.drama_dir(drama["id"]), audio)
         args = (lines, audio_path, transcribe_options_service.stored_whisper_size(drama),
                 settings_service.get("use_gpu"), drama.get("source_language") or "zh", eng, name)
-        # Settings' defaults, as the translate run resolves them.
+        locale, style_note = profile_service.locale_and_note(
+            drama, str(settings_service.get("default_locale")),
+            str(settings_service.get("default_style_note") or ""))
         return args, {"cost_cap_usd": cap,
-                      "locale": settings_service.get("default_locale"),
-                      "style_note": settings_service.get("default_style_note") or "",
+                      "locale": locale,
+                      "style_note": style_note,
                       "include_genre_notes": include_genre_notes,
                       "default_female_pronouns": default_female_pronouns,
                       "principal": acting.acting_principal(),

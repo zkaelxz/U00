@@ -33,6 +33,7 @@ from services import (
     gpu_process_job,
     jobs_service,
     ownership_service,
+    profile_service,
     qwen3_requirements_service,
     retranscribe_line_service,
     retranscribe_worker,
@@ -350,10 +351,12 @@ def start_compare(drama_id: int, selection: dict, whisper_size: str | None = Non
     if translate:
         engine, name, cap = _translation_setup(drama, engine_name, model, gemini_free_tier,
                                                job_cost_cap_usd)
+        locale, style_note = profile_service.locale_and_note(
+            drama, str(settings_service.get("default_locale")),
+            str(settings_service.get("default_style_note") or ""))
         translation = {"engine": engine, "engine_choice": name, "cost_cap_usd": cap,
                        "retranslate_current": bool(retranslate_current),
-                       "locale": settings_service.get("default_locale"),
-                       "style_note": settings_service.get("default_style_note") or "",
+                       "locale": locale, "style_note": style_note,
                        "principal": acting.acting_principal()}
     tuning = transcribe_options_service._DEFAULT_TUNING
     started = job_launch.start_job(

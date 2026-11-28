@@ -52,6 +52,10 @@ export interface ComicRegionsResponse {
   regions: ComicRegion[]
 }
 
+// GET /pages/{page_id}/panels: fractions of the page, in reading order; empty means show the whole page.
+export type ComicPanel = Schemas['ComicPanel']
+export type ComicPagePanels = Schemas['ComicPagePanels']
+
 // C4 / C5: GET and POST /progress (last_page is 1-based)
 export type ComicProgress = Schemas['ComicProgress']
 

@@ -8,7 +8,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-__all__ = ["ComicPage", "ComicChapter", "ComicPageList", "ComicRegion", "ComicPageRegions", "ComicViewPrefs",
+__all__ = ["ComicPage", "ComicChapter", "ComicPageList", "ComicRegion", "ComicPageRegions", "ComicPanel", "ComicPagePanels", "ComicViewPrefs",
            "ComicProgress", "ComicViewPrefsView", "ComicProgressRequest", "ComicVisibilityRequest",
            "ComicVisibilityResult", "ComicStartChapterRequest", "ComicStartChapterResult", "ComicSourceChapter",
            "ComicSourceChapters", "ComicChapterMarksRequest", "ComicChapterMark", "ComicChapterMarks"]
@@ -66,6 +66,19 @@ class ComicPageRegions(BaseModel):
     width: int
     height: int
     regions: List[ComicRegion]
+
+
+class ComicPanel(BaseModel):
+    """A panel as fractions (0..1) of the page's width and height."""
+    x: float
+    y: float
+    w: float
+    h: float
+
+
+class ComicPagePanels(BaseModel):
+    page_id: int
+    panels: List[ComicPanel]
 
 
 class ComicViewPrefs(BaseModel):

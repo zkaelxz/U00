@@ -32,8 +32,8 @@ describe('NotificationRow', () => {
     }
   })
 
-  it('shows no link for a waiting entry with no target, or one the page does not know', () => {
-    expect(row({ target: null })).not.toContain('<a')
+  it('links a waiting entry with no target to Jobs, and shows no link for a target the page does not know', () => {
+    expect(row({ target: null })).toContain('href="#/jobs"')
     expect(row({ target: { page: 'glossary', drama_id: null, series_id: null, follow_id: null } })).not.toContain('<a')
     expect(row({ target: { page: 'nowhere', drama_id: 1 } as unknown as NotificationItem['target'] })).not.toContain('<a')
   })
@@ -43,7 +43,11 @@ describe('NotificationRow', () => {
     expect(row({ kind: 'job_done', text: 'Finished: Translation', target: { page: 'title', drama_id: 7, series_id: null, follow_id: null } })).toContain('href="#/drama/7"')
   })
 
-  it('does not link a failed entry', () => {
-    expect(row({ kind: 'job_failed', text: 'Failed: Translation', target: { page: 'watch', drama_id: 7, series_id: null, follow_id: null } })).not.toContain('<a')
+  it('links a failed entry to Jobs and new chapters to Updates', () => {
+    expect(row({ kind: 'job_failed', text: 'Failed: Translation', target: { page: 'watch', drama_id: 7, series_id: null, follow_id: null } })).toContain('href="#/jobs"')
+    expect(row({ kind: 'job_failed', text: 'Failed: Translation' })).toContain('href="#/jobs"')
+    expect(row({ kind: 'job_done', text: 'Finished with errors: Translation' })).toContain('href="#/jobs"')
+    expect(row({ kind: 'chapters', text: '3 new chapters' })).toContain('href="#/updates"')
+    expect(row({ kind: 'resource', text: 'GPU hot' })).not.toContain('<a')
   })
 })
