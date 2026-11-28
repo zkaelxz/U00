@@ -417,7 +417,8 @@ class TestEnglishOnlyAnswers:
 class TestMarksOnlyRegions:
     @pytest.mark.parametrize("source, english", [
         ("……", "..."), ("？！", "?!"), ("!?", "!?"), ("・・・", "..."), ("〜", "~"), ("♡", "♡"),
-        ("——", "..."), ("あ…", None), ("100", None), ("ㅋㅋ", None), ("ーー", None)])
+        ("——", "..."), ("あ…", None), ("100", None), ("ㅋㅋ", None), ("ーー", None),
+        ("\u200b", None), ("\u200b……\u200b", "...")])
     def test_only_punctuation_and_symbols_are_answered_on_the_pc(self, source, english):
         assert scanlate_translate.marks_only_english(source) == english
 
