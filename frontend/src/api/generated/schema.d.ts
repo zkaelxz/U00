@@ -6294,6 +6294,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/recap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** This account's month: titles read and finished, chapters read, moments saved */
+        get: operations["get_recap_api_library_recap_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/recent": {
         parameters: {
             query?: never;
@@ -22921,6 +22938,36 @@ export interface components {
         LibraryPresetsResponse: {
             /** Items */
             items: components["schemas"]["LibraryPreset"][];
+        };
+        /**
+         * LibraryRecap
+         * @description One account's month (UTC). `spend_usd` is the PC's spend, null for a caller who can't open Spend history.
+         */
+        LibraryRecap: {
+            /** Active Days */
+            active_days: number;
+            /** Chapters Read */
+            chapters_read: number;
+            /** Moments Saved */
+            moments_saved: number;
+            /** Month */
+            month: string;
+            most_days: components["schemas"]["LibraryRecapTitle"] | null;
+            /** Spend Usd */
+            spend_usd: number | null;
+            /** Titles Finished */
+            titles_finished: number;
+            /** Titles Read */
+            titles_read: number;
+        };
+        /** LibraryRecapTitle */
+        LibraryRecapTitle: {
+            /** Days */
+            days: number;
+            /** Drama Id */
+            drama_id: number;
+            /** Title */
+            title: string;
         };
         /** LibraryRecentResponse */
         LibraryRecentResponse: {
@@ -46788,6 +46835,7 @@ export interface operations {
         parameters: {
             query?: {
                 field?: string;
+                readings?: boolean;
             };
             header?: never;
             path: {
@@ -52352,6 +52400,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    get_recap_api_library_recap_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRecap"];
                 };
             };
             /** @description Unprocessable Content */

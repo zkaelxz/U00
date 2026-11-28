@@ -66,6 +66,18 @@ def _valid_month(month: str) -> bool:
     return bool(_MONTH_RE.match(month)) and _MIN_YEAR <= int(month[:4]) <= _MAX_YEAR
 
 
+def month_window(month: str) -> tuple[str, str]:
+    """The [start, end) `created_at` bounds of a "YYYY-MM" UTC month; InvalidInputError for a bad one."""
+    if not _valid_month(month):
+        raise InvalidInputError(f"A month looks like 2026-10, from {_MIN_YEAR} to {_MAX_YEAR}.")
+    start = datetime.datetime(int(month[:4]), int(month[5:]), 1)
+    return start.isoformat(), _add_months(start, 1).isoformat()
+
+
+def previous_month(now: datetime.datetime) -> str:
+    return _add_months(_month_start(now), -1).strftime("%Y-%m")
+
+
 def _prettify(raw: str) -> str:
     words = re.sub(r"[_\-\s]+", " ", raw or "").strip()
     return (words[:1].upper() + words[1:]) if words else "Unknown"
@@ -163,8 +175,8 @@ def _months(conn, now, scope, reset_at):
 def get_spend_history(month: str | None = None, principal=None, now: datetime.datetime | None = None) -> dict:
     """Month table (newest first, at most MAX_MONTHS) plus the three
     breakdowns for `month` ("YYYY-MM"; default the newest month with spend)."""
-    if month is not None and not _valid_month(month):
-        raise InvalidInputError(f"A month looks like 2026-10, from {_MIN_YEAR} to {_MAX_YEAR}.")
+    if month is not None:
+        month_window(month)
     now = now or clock.utcnow()
     scope = _scope(ownership_service.visible_to_filter(principal))
     reset_at = db.get_month_spend_reset_at(now)
@@ -173,13 +185,24 @@ def get_spend_history(month: str | None = None, principal=None, now: datetime.da
         selected = month or (months[0]["month"] if months else None)
         breakdowns = {"by_operation": [], "by_engine_model": [], "by_title": []}
         if selected:
-            start = datetime.datetime(int(selected[:4]), int(selected[5:]), 1)
-            lo, hi = start.isoformat(), _add_months(start, 1).isoformat()
+            lo, hi = month_window(selected)
             breakdowns = {"by_operation": _breakdown(conn, "operation", lo, hi, scope),
                           "by_engine_model": _breakdown(conn, "engine_model", lo, hi, scope),
                           "by_title": _breakdown(conn, "title", lo, hi, scope)}
     return {"months": months, "selected_month": selected, "cap_reset_at": reset_at,
             "max_months": MAX_MONTHS, **breakdowns}
+
+
+def month_cost_usd(month: str, principal=None) -> float:
+    """One month's estimated spend, counted like the month table (any month, not only the last MAX_MONTHS)."""
+    lo, hi = month_window(month)
+    where, params = _scope(ownership_service.visible_to_filter(principal))
+    with contextlib.closing(db.get_conn()) as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(u.estimated_cost_usd), 0) AS cost FROM usage_log u "
+            f"LEFT JOIN dramas d ON d.id = u.drama_id WHERE u.created_at >= ? AND u.created_at < ?{where}",
+            [lo, hi, *params]).fetchone()
+    return _money(row["cost"])
 
 
 def export_months_csv(principal=None, now: datetime.datetime | None = None) -> str:

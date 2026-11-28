@@ -99,8 +99,10 @@ export const getAssText = (id: number, req: AssExportRequest, f?: Fetch) =>
     readSubtitleFile,
     f,
   )
-export const getEpub = (id: number, field: 'en' | 'zh', f?: Fetch) =>
-  fetchBody(`${dramaPath(id)}/epub?field=${field}`, {}, (r) => r.blob(), f)
+export type EpubField = 'en' | 'zh' | 'bilingual'
+
+export const getEpub = (id: number, field: EpubField, readings = false, f?: Fetch) =>
+  fetchBody(`${dramaPath(id)}/epub?field=${field}${readings ? '&readings=true' : ''}`, {}, (r) => r.blob(), f)
 export const flagOverlaps = (id: number, f?: Fetch) =>
   postJson<FlagActionResult>(`${dramaPath(id)}/flag-overlaps`, undefined, f)
 export const flagDenseLines = (id: number, f?: Fetch) =>

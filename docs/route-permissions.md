@@ -413,6 +413,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/presets` | library.read |
 | `POST /api/library/presets/{preset_id}/delete` | local_only() |
 | `POST /api/library/presets/{preset_id}/rename` | admin.library |
+| `GET /api/library/recap` | library.read |
 | `GET /api/library/recent` | library.read |
 | `GET /api/library/search` | library.read + lines.read |
 | `GET /api/library/series` | library.read |
