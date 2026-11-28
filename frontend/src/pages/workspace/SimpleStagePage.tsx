@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
+import { nameLang } from '../../hanScript'
 import { OpenFolderButton } from '../../components/OpenFolderButton'
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
@@ -146,7 +147,7 @@ export function SimpleStagePage({ id, title, error, refetch, drama, simple, stag
               <span aria-hidden="true">‹</span>
               <span className="ws-back-text">Title page</span>
             </ButtonLink>
-            <h1 data-testid="drama-title" title={title}>{title}</h1>
+            <h1 data-testid="drama-title" title={title} lang={nameLang(title, drama)}>{title}</h1>
             <JobPill dramaId={id} onFinished={refetch} />
             <TitleViewSwitch view="simple" onChange={onView} />
             <OpenFolderButton open={() => openDramaFolder(id)} size="sm" className="ws-folder" title="Show this title's files on the PC" />

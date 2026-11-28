@@ -19,7 +19,7 @@
 .cover-link { display: block; text-decoration: none; }
 .cover-cell .drama-tile { flex: none; width: 100%; height: auto; aspect-ratio: 3 / 4; margin: 0; border-radius: var(--radius-lg); font-size: var(--text-2xl); box-shadow: var(--shadow-1); }
 .cover-cell.selected .drama-tile { outline: 2px solid var(--accent); outline-offset: 2px; }
-.cover-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: var(--space-1); color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; }
+.cover-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; margin-top: var(--space-1); color: var(--text); font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); line-height: 1.3; text-decoration: none; overflow-wrap: anywhere; }
 a.cover-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .cover-sub { color: var(--muted); font-size: var(--text-sm); }
 .cover-bar { display: block; height: 4px; border-radius: 2px; background: var(--surface-2); overflow: hidden; }
