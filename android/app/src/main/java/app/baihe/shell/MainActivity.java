@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private View failureView;
     private TextView failureMessage;
     private Button failureRetry;
+    private Button failureChange;
     private boolean loadFailed;
     private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -225,7 +226,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void popOut() {
-                runOnUiThread(() -> enterPip());
+                // Pressed on purpose, so the "when I leave the app" switch does not apply.
+                runOnUiThread(() -> enterPip(true));
             }
 
             @Override
@@ -310,6 +312,11 @@ public class MainActivity extends Activity {
             autoRetries = 0;
             retryLoad();
         });
+        // A typo or a moved PC would otherwise leave clearing the app's storage as the only way out.
+        Button change = new Button(this);
+        failureChange = change;
+        change.setText("Change address");
+        change.setOnClickListener(v -> askAddress(new Intent(), savedAddress(), null));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(android.view.Gravity.CENTER);
@@ -317,6 +324,7 @@ public class MainActivity extends Activity {
         box.setBackgroundColor(palette.surface);
         box.addView(message);
         box.addView(retry);
+        box.addView(change);
         // Opaque and tappable so the WebView's own error page behind it can't be seen or touched.
         box.setClickable(true);
         box.setVisibility(View.GONE);
@@ -329,10 +337,13 @@ public class MainActivity extends Activity {
         failureView.setVisibility(View.VISIBLE);
         long delay = LoadFailure.retryDelayMs(autoRetries);
         // While quiet retries remain it reads as a wait, not a failure: the PC may just be busy.
+        String host = Uri.parse(String.valueOf(savedAddress())).getHost();
         failureMessage.setText(delay < 0
-                ? "Can't reach Baihe right now.\nYour PC may be busy or restarting."
+                ? "Can't reach Baihe" + (host == null ? "" : " at " + host)
+                        + " right now.\nYour PC may be busy or restarting, or its address may have changed."
                 : "Connecting to Baihe…\nThe PC is taking longer than usual.");
         failureRetry.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
+        failureChange.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
         if (delay < 0) return;
         autoRetries++;
         web.postDelayed(() -> {
@@ -410,8 +421,9 @@ public class MainActivity extends Activity {
         return builder.build();
     }
 
-    private void enterPip() {
-        if (!pipAllowed() || isInPictureInPictureMode()) return;
+    private void enterPip(boolean asked) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode()) return;
+        if (!asked && !pipAllowed()) return;
         try {
             enterPictureInPictureMode(pipParams(false));
         } catch (RuntimeException ignored) {
@@ -422,7 +434,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip();
+        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip(false);
     }
 
     /** The page hides everything but the picture and its captions while the window is this small. */
@@ -541,23 +553,44 @@ public class MainActivity extends Activity {
     }
 
     private void askAddress(Intent intent) {
+        askAddress(intent, null, null);
+    }
+
+    /** First run has no address to keep, so only a change (current != null) can be cancelled. */
+    private void askAddress(Intent intent, String current, String typed) {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         input.setHint("https://");
-        new AlertDialog.Builder(this)
+        input.setSingleLine(true);
+        String shown = typed != null ? typed : current;
+        if (shown != null) input.setText(shown);
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
                 .setTitle("Baihe address")
                 .setView(input)
-                .setCancelable(false)
+                .setCancelable(current != null)
                 .setPositiveButton("OK", (d, w) -> {
-                    String a = ServerAddress.shellAddress(input.getText().toString());
+                    String text = input.getText().toString();
+                    String a = ServerAddress.shellAddress(text);
                     if (a == null) {
-                        askAddress(intent);
+                        askAddress(intent, current, text);
                         return;
                     }
-                    prefs().edit().putString(ADDRESS, a).apply();
+                    if (!a.equals(current)) {
+                        prefs().edit().putString(ADDRESS, a).apply();
+                        // Another PC's alert list starts from other numbers, so old marks would misread it.
+                        AlertPoller.forget(prefs());
+                    }
+                    autoRetries = 0;
+                    loadFailed = false;
+                    if (failureView != null) failureView.setVisibility(View.GONE);
                     open(intent);
-                })
-                .show();
+                });
+        if (typed != null) {
+            dialog.setMessage("That isn't a Baihe address. Use https://, for example https://studio.example.com "
+                    + "(http:// only for an address on your home network).");
+        }
+        if (current != null) dialog.setNegativeButton("Cancel", null);
+        dialog.show();
     }
 
     /**

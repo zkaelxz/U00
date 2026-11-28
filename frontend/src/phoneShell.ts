@@ -17,6 +17,7 @@ type Bridge = {
   diagnostics?: () => string
   checkForUpdates?: () => void
   setBarsHidden?: (hidden: boolean) => void
+  saveFile?: (name: string, mime: string, base64: string) => boolean
 }
 
 const bridge = (): Bridge | null => {
@@ -72,6 +73,33 @@ export function checkForUpdates(): void {
   } catch {
     // The shell went away with the page.
   }
+}
+
+// The app's MAX_FILE_BYTES (SaveDownload.java); a bigger file is left to the browser path, where the app says why.
+const SHELL_SAVE_MAX_BYTES = 50 * 1024 * 1024
+
+/**
+ * Hands a file the page built to the app, which saves it in Downloads: the app's WebView cannot follow a
+ * blob: link. True when the app took it (it then says itself whether the save worked).
+ */
+export function saveInShell(blob: Blob, filename: string): boolean {
+  const b = bridge()
+  if (typeof b?.saveFile !== 'function' || blob.size > SHELL_SAVE_MAX_BYTES) return false
+  void blob.arrayBuffer().then((buffer) => {
+    try {
+      b.saveFile?.(filename, blob.type, toBase64(new Uint8Array(buffer)))
+    } catch {
+      // The shell went away with the page.
+    }
+  })
+  return true
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let text = ''
+  // In slices: String.fromCharCode with one argument per byte overflows the call stack on a large file.
+  for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(text)
 }
 
 /** Hides or shows the app's own Studio | Grab strip for a full-screen reader. Quiet where the app cannot. */

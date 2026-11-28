@@ -92,6 +92,12 @@ final class ShellSettings {
             }
         }
 
+        /** Saves a file the page built itself into Downloads; false when it could not (the phone said why). */
+        @JavascriptInterface
+        public boolean saveFile(String name, String mimeType, String base64) {
+            return SaveDownload.saveBytes(context, name, mimeType, base64);
+        }
+
         @JavascriptInterface
         public void checkForUpdates() {
             host.checkForUpdates();

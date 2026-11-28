@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { canPopOut, inPhoneShell, popOut, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
+import { canPopOut, inPhoneShell, popOut, saveInShell, setLiveWatching, setShellSwitch, shellSwitch } from './phoneShell'
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -34,6 +34,32 @@ describe('phone shell switches', () => {
     popOut()
     expect(setWatching).toHaveBeenCalledWith(true)
     expect(pop).toHaveBeenCalled()
+  })
+})
+
+describe('saving a file through the app', () => {
+  it('leaves the file to the browser where the app cannot save it', () => {
+    vi.stubGlobal('window', {})
+    expect(saveInShell(new Blob(['a']), 'a.txt')).toBe(false)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn() } })
+    expect(saveInShell(new Blob(['a']), 'a.txt')).toBe(false)
+  })
+
+  it('hands the app the name, type and bytes as base64', async () => {
+    const saveFile = vi.fn(() => true)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), saveFile } })
+    expect(saveInShell(new Blob(['1\nhéllo'], { type: 'application/x-subrip' }), 'ep1.srt')).toBe(true)
+    await vi.waitFor(() => expect(saveFile).toHaveBeenCalled())
+    const [name, mime, base64] = saveFile.mock.calls[0] as unknown as [string, string, string]
+    expect([name, mime]).toEqual(['ep1.srt', 'application/x-subrip'])
+    expect(Buffer.from(base64, 'base64').toString('utf8')).toBe('1\nhéllo')
+  })
+
+  it('keeps a file over the app\'s limit away from the app', () => {
+    const saveFile = vi.fn(() => true)
+    vi.stubGlobal('window', { BaiheShell: { get: () => true, set: vi.fn(), saveFile } })
+    expect(saveInShell({ size: 51 * 1024 * 1024, type: '' } as Blob, 'big.epub')).toBe(false)
+    expect(saveFile).not.toHaveBeenCalled()
   })
 })
 
