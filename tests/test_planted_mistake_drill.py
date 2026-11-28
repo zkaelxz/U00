@@ -77,3 +77,11 @@ def test_a_gold_file_that_does_not_match_line_for_line_is_refused(tmp_path, caps
     gold.write_text("1\n00:00:01,000 --> 00:00:02,000\nRain\n\n2\n00:00:03,000 --> 00:00:04,000\nMore\n", encoding="utf-8")
     assert drill.main([str(src), str(gold), "--language", "zh", "--no-embed"]) == 2
     assert "must match line for line" in capsys.readouterr().out
+
+
+def test_an_embedder_that_cannot_answer_is_reported_as_not_run():
+    en, planted = drill.plant(ZH, GOLD, TERMS, rate=0.1, seed=3)
+    for embed in (lambda texts: None, lambda texts: [[1.0, 0.0]], lambda texts: [None] * len(texts)):
+        result = drill.score(planted, drill.run_checks(ZH, en, TERMS, embed), len(ZH))
+        assert result["checks"]["source_match"] is None
+        assert "not run" in drill.format_report(result, 3)

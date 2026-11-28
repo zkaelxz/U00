@@ -103,13 +103,24 @@ def plant(zh: list, gold: list, terms, rate: float = DEFAULT_RATE, seed: int = D
 
 
 def run_checks(zh: list, en: list, terms, embed_texts) -> dict:
-    """{check: set of flagged line indexes}; source_match is None when the embedder is unusable."""
+    """{check: set of flagged line indexes}; source_match is None when it was not run or the embedder
+    could score none of the lines."""
     lines = [Line(idx=i, start=float(i), end=i + 0.5, zh=z, en=e, id=i + 1) for i, (z, e) in enumerate(zip(zh, en))]
     source_match = None
     if embed_texts is not None:
         unchecked: list = []
-        alignment_check.flag_mismatches(lines, embed_texts, unchecked=unchecked)
-        if not (unchecked and len(unchecked) == len(lines)):
+        answered: list = []
+
+        def recording(texts):
+            got = embed_texts(texts)
+            answered.append(got is not None and len(got) == len(texts) and any(v is not None for v in got))
+            return got
+
+        alignment_check.flag_mismatches(lines, recording, unchecked=unchecked)
+        checkable = sum(1 for z, e in zip(zh, en)
+                        if (e or "").strip() and len((z or "").strip()) >= alignment_check.MIN_SOURCE_CHARS)
+        # An unusable embedder leaves every line unflagged, which must read as "not run", not "caught none".
+        if answered and all(answered) and len(unchecked) < checkable:
             source_match = {ln.idx for ln in lines if ln.flag == alignment_check.ALIGNMENT_FLAG}
     names = auto_qc.build_name_list(terms)
     return {
@@ -148,7 +159,7 @@ def format_report(result: dict, seed: int) -> str:
     for check in (*CHECKS, "any"):
         r = result["checks"][check]
         if r is None:
-            rows.append(f"| {check} | " + " | ".join("-" for _ in KINDS) + " | not run (embedder unusable) |")
+            rows.append(f"| {check} | " + " | ".join("-" for _ in KINDS) + " | not run (no embedder, or it scored no line) |")
             continue
         cells = [f"{r['caught'][k]}/{planted[k]}" for k in KINDS]
         share = r["false_flags"] / result["controls"] if result["controls"] else 0.0
