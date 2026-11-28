@@ -34215,6 +34215,8 @@ export interface components {
         };
         /** TranslateHistoryEntry */
         TranslateHistoryEntry: {
+            /** Account */
+            account: string | null;
             /** Created At */
             created_at: string | null;
             /** Engine */

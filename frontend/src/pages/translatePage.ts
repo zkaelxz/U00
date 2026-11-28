@@ -86,6 +86,11 @@ export function historyCount(count: number, limit: number): string {
 }
 
 /** The rows to render: the first HISTORY_PREVIEW unless "Show all" is on. */
+/** At the PC the list holds every account's rows, so each row is named once more than one account is in it. */
+export function severalAccounts(items: Pick<TranslateHistoryEntry, 'account'>[]): boolean {
+  return new Set(items.map((h) => h.account ?? '')).size > 1
+}
+
 export function visibleHistory<T>(items: T[], showAll: boolean): T[] {
   return showAll ? items : items.slice(0, HISTORY_PREVIEW)
 }
