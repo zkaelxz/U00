@@ -106,7 +106,7 @@ export function SweepCard({ sets, pc, job, running, onStarted, onStop, onCompare
         default. About 30% of the titles are held back to confirm a winner. Nothing changes until you approve it.
       </p>
       {names.length === 0 ? (
-        <p className="muted">No golden set has audio clips yet. Upload clips under Golden sets, or add a title&apos;s lines there.</p>
+        <p className="muted">No golden set has audio clips yet. Upload clips or add a title&apos;s corrections under Add cases.</p>
       ) : (
         <div className="sweep-block" role="group" aria-label="Sweep a set">
           <div className="field-row">

@@ -120,7 +120,7 @@ export function TranslateSweepCard({ options, sets, pc, job, running, onStarted,
         until you approve it.
       </p>
       {names.length === 0 || !engine ? (
-        <p className="muted">No golden set has translation cases with a reference yet. Upload clips with a translation under Golden sets.</p>
+        <p className="muted">No golden set has translation cases with a reference yet. Upload clips with a translation under Add cases.</p>
       ) : (
         <div className="sweep-block" role="group" aria-label="Sweep a translation engine">
           <div className="field-row">
