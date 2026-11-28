@@ -1,6 +1,7 @@
 /*
- * Header theme button: a menu of radio items (Match this device, Light, Dark,
- * Sepia, OLED black): the only place the theme is changed. The choice is kept by
+ * The theme as a menu of radio items (Match this device, Light, Dark, Sepia,
+ * OLED black) behind a button in the phone drawer, and as plain choices
+ * (ThemeChoices) in the header's You menu: the only places the theme is changed. The choice is kept by
  * src/theme.ts, which the Reader's "Match app" theme also reads.
  *
  * Keyboard: Enter/Space/ArrowDown on the button opens it on the current
@@ -141,5 +142,21 @@ export function ThemeMenu() {
         />
       )}
     </div>
+  )
+}
+
+export function ThemeChoices() {
+  const theme = useThemePref()
+  return (
+    <fieldset className="theme-choices">
+      <legend>Theme</legend>
+      {THEME_OPTIONS.map((o) => (
+        <label key={o.value} className="theme-choice">
+          <input type="radio" name="theme" value={o.value} checked={o.value === theme} onChange={() => setThemePref(o.value)} />
+          {ICONS[o.value]}
+          <span>{o.label}</span>
+        </label>
+      ))}
+    </fieldset>
   )
 }

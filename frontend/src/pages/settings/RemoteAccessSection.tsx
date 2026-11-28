@@ -23,12 +23,12 @@ import { IP_CHECK_PLACEHOLDER, draftProblem, ipCheckErrorMessage, testBadge } fr
 
 const TITLE = 'Public address check'
 
-export function RemoteAccessSection({ openSignal }: { openSignal?: number }) {
+export function RemoteAccessSection() {
   if (usePcOnly() === 'remote') return null
-  return <IpCheckControls openSignal={openSignal} />
+  return <IpCheckControls />
 }
 
-function IpCheckControls({ openSignal }: { openSignal?: number }) {
+function IpCheckControls() {
   const [configured, setConfigured] = useState<boolean | null>(null)
   const [loadError, setLoadError] = useState<unknown>(null)
   const [draft, setDraft] = useState('')
@@ -104,8 +104,6 @@ function IpCheckControls({ openSignal }: { openSignal?: number }) {
   return (
     <Section
       title={TITLE}
-      storageKey="admin.address"
-      openSignal={openSignal}
       summary={configured == null ? undefined : configured ? 'Address check set' : 'Address check not set'}
     >
       <ErrorBanner error={loadError} onDismiss={() => setLoadError(null)} describe={{ pcOnly: true }} />

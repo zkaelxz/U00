@@ -1264,6 +1264,26 @@ class TestRecapturingKeepsSavedWork:
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
         assert second["pages"][0]["notes"][0][0] == "warning"
 
+    def test_a_partial_answer_on_a_recapture_keeps_the_lines_it_did_translate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        from scanlate import scanlate_translate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        bubbles = db.load_bubbles(page["id"])
+        second_gap = {k: v for k, v in bubbles[1].items() if k != "id"}
+        second_gap.update(source_text="又")
+        db.save_bubbles(page["id"], bubbles + [second_gap])
+
+        def answers_one(bubbles, engine, drama_meta, **kwargs):
+            bubbles[0]["translated_text"] = "the translation"
+            raise RuntimeError("1 of 2 regions weren't translated")
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", answers_one)
+        again = _post(token, body).payload["pages"][0]
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "the translation", ""]
+        assert again["untranslated_lines"] == 1
+        assert "translation failed" in again["notes"][0][1]
+
     def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
             self, token, fake_pipeline, isolated_db, monkeypatch):
         import db
@@ -1420,6 +1440,7 @@ class TestConcurrentCapturesOfOneTitle:
         again = second_out["handler"].payload
         assert again["failed"] == [] and again["already_stored"] == 1
         assert again["pages"][0]["regions"][0]["translated_text"] == "the translation"
+        assert again["pages"][0]["untranslated_lines"] == 0
         assert first_out["handler"].payload["failed"] == []
         assert len(db.list_pages(drama_id)) == 1
 
@@ -1438,6 +1459,7 @@ class TestConcurrentCapturesOfOneTitle:
         assert len(state["calls"]) == 1
         assert again["failed"] == [] and again["already_stored"] == 1
         assert "still being translated" in again["pages"][0]["notes"][0][1]
+        assert again["pages"][0]["untranslated_lines"] == 1
 
     def test_two_pages_of_one_title_keep_the_context_chain_in_order(
             self, token, fake_pipeline, isolated_db, monkeypatch):
@@ -1728,3 +1750,51 @@ def test_quick_read_pages_of_a_title_share_their_names_and_saved_sends_do_not(mo
     page_turns.translate_in_chain(None, url, [], object(), None, None, None)
     assert seen == [{}, {"阿洛": "RLuo"}, None]
     assert page_turns._chapter_names[page_turns._chain_key(None, url)] == {"阿洛": "RLuo"}
+
+
+class TestVideoAndLiveOnLoopback:
+    """The PC's own extension sends Subtitle this video and Start Live captions here, as a member's
+    does to the device-token routes."""
+
+    def test_video_starts_quick_video_as_the_pc_owner(self, token, monkeypatch):
+        from services import quick_video_service
+        seen = {}
+
+        def fake_start(principal, url, profile_id, watch_once, **kw):
+            seen.update(principal=principal, url=url, **kw)
+            return {"drama_id": 12, "watch_once": False}
+        monkeypatch.setattr(quick_video_service, "start", fake_start)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 200 and r.payload == {"drama_id": 12}
+        assert seen["url"] == "https://video.example.com/watch?v=abc"
+        assert seen["principal"]["is_local_owner"] is True and seen["at_pc"] is False
+
+    def test_live_starts_with_no_saved_logins(self, token, monkeypatch):
+        import functools
+        from services import live_service, model_readiness_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(url=url, **kw)
+            return {"session_id": "live_" + "a" * 32}
+        monkeypatch.setattr(live_service, "start_session", functools.wraps(live_service.start_session)(fake_start))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        r = _post(token, {"url": "https://www.twitch.tv/somebody", "source_language": "ja"}, path="/live")
+        assert r.status == 200 and r.payload == {"session_id": "live_" + "a" * 32, "joined": False}
+        assert seen["source_language"] == "ja" and seen["use_saved_cookies"] is False
+        assert seen["engine"] == live_service.default_engine()
+
+    def test_a_refusal_is_the_plain_message(self, token, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import quick_video_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("Pick a translation profile first.")
+        monkeypatch.setattr(quick_video_service, "start", refuse)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 422 and r.payload == {"error": "Pick a translation profile first."}
+
+    @pytest.mark.parametrize("path", ["/video", "/live"])
+    def test_a_missing_link_is_a_400(self, token, path):
+        assert _post(token, {}, path=path).status == 400

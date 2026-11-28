@@ -10,10 +10,12 @@ arguments and starts its own process group first (Windows starts it in a
 fresh interpreter that imports only this module).
 """
 import contextlib
+import contextvars
 import glob
 import os
 import shutil
 import tempfile
+import threading
 import time
 import types
 from typing import Optional
@@ -299,7 +301,8 @@ class _PipelineRun:
     def _transcribe_audio(self):
         o, rep = self.o, self.rep
         if o.separate_vocals_first:
-            failed = self._separate_vocals()
+            failed = (self._separate_beside_whisper_load() if self._can_load_beside_separation()
+                      else self._separate_vocals())
             if failed:
                 return failed
         if rep.cancelled():
@@ -352,6 +355,76 @@ class _PipelineRun:
         elif event == "device":
             self.sep_device = _separation_device_label(value)
             self.rep.progress(0.0, self._sep_message(0.0))
+
+    def _can_load_beside_separation(self) -> bool:
+        """Whisper can load while the vocals are separated, which takes seconds to minutes
+        that the load would otherwise add after it: only a model already on disk (a download
+        reports its own progress, in order) and only when memory holds both models."""
+        o = self.o
+        # Only in a worker process: a force stop kills it, while a side thread in a thread job
+        # would skip the job thread's stop and re-run guards and keep writing to the record.
+        if self.vad_run or o.use_groq or not isinstance(self.rep, _ProcessReporter):
+            return False
+        vocals_path = os.path.join(os.path.dirname(self.audio_path), "vocals.wav")
+        if _reusable_vocals(vocals_path, self.audio_path):
+            return False
+        if not (o.local_model_path or whisper_models.is_whisper_model_cached(o.whisper_size)):
+            return False
+        if not memory_headroom.fits_beside_separation("whisper", o.local_model_path or o.whisper_size,
+                                                      bool(o.use_gpu)):
+            return False
+        if o.use_gpu:
+            # The separator brings torch and its own CUDA libraries; loaded first, as before this
+            # overlap, so Whisper's CUDA runtime never takes their place (Windows reuses a DLL
+            # already loaded under the same name).
+            try:
+                import torch  # noqa: F401
+            except Exception:
+                return False
+        return True
+
+    def _separate_beside_whisper_load(self):
+        """Separates on a side thread while Whisper loads on this one. Not the other way round:
+        a CTranslate2 model's CUDA state belongs to the thread that built it, and once that
+        thread ends, using or freeing the model crashes the process (an access violation)."""
+        o = self.o
+        outcome = {}
+
+        def separate():
+            try:
+                outcome["failed"] = self._separate_vocals()
+            except BaseException as exc:
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=contextvars.copy_context().run, args=(separate,),
+                                  name="vocal-separation", daemon=True)
+        thread.start()
+        try:
+            whisper_models.load_whisper_model(o.whisper_size, use_gpu=o.use_gpu,
+                                              local_model_path=o.local_model_path)
+        except Exception:
+            pass  # the load after the separation tries again and reports the error
+        finally:
+            thread.join()
+        error = outcome.get("error")
+        if error is not None and not isinstance(error, memory_headroom.HeadroomError):
+            whisper_models.release_gpu_models()
+            raise error
+        info = whisper_models.get_whisper_device_info(o.whisper_size, use_gpu=o.use_gpu,
+                                                      local_model_path=o.local_model_path)
+        # A GPU load that fell back to the CPU beside the separation must not stand for the
+        # run: alone on the card it would have fit.
+        if o.use_gpu and info.get("gpu_error"):
+            whisper_models.forget_whisper_model(o.whisper_size, use_gpu=o.use_gpu,
+                                                local_model_path=o.local_model_path)
+        failed = outcome.get("failed")
+        if failed or error is not None:
+            whisper_models.release_gpu_models()   # free the early model
+        # The memory check rests on estimates: a separation that failed or was refused memory
+        # beside the early model gets one more try alone, as it would have run before.
+        if error is not None or (failed and failed.get("failed_reason") == "vocal_separation"):
+            failed = self._separate_vocals()
+        return failed
 
     def _separate_vocals(self):
         o, rep = self.o, self.rep

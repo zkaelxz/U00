@@ -279,7 +279,7 @@ test('a 429 part-way through a wiki update resumes where it stopped', async ({ p
 
   // "Uses <engine> · Change" opens Story tools and focuses its picker.
   const ask = page.locator('details', { has: page.locator('summary', { hasText: 'Ask about the story' }) })
-  await expect(ask.getByText('Uses Ollama (local)')).toBeVisible()
+  await expect(ask.getByText('Uses Ollama')).toBeVisible()
   await ask.getByRole('button', { name: 'Change' }).click()
   await expect(page.getByRole('combobox', { name: 'AI engine' })).toBeFocused()
 })

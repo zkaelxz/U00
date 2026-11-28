@@ -96,7 +96,7 @@ test('household member: no People and access, Diagnostics or Benchmark Lab; Jobs
   await expect(rail(page).getByRole('link', { name: 'Settings', exact: true })).toBeVisible()
 })
 
-test('the dock shows icons at rest, opens to labelled rows on hover from 900px, stays icons only to 600px, and swaps for the drawer below', async ({ page }) => {
+test('the dock shows icons at rest, opens to labelled rows on hover from 900px, stays icons only to 641px, and swaps for the drawer where the phone layout starts', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 900 })
   await page.goto('/#/library')
   const dock = page.locator('.app-rail')
@@ -115,7 +115,11 @@ test('the dock shows icons at rest, opens to labelled rows on hover from 900px, 
   await animationsSettled(page)
   expect((await dock.boundingBox())!.width).toBeLessThan(90)
 
-  await page.setViewportSize({ width: 560, height: 900 })
+  await page.setViewportSize({ width: 641, height: 900 })
+  await expect(page.locator('.app-rail')).toBeVisible()
+
+  // 640px and below is the phone layout, so the dock must not show beside it.
+  await page.setViewportSize({ width: 620, height: 900 })
   await expect(page.locator('.app-rail')).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^(Menu|More)$/ })).toBeVisible()
 })

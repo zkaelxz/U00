@@ -16,16 +16,19 @@ import logging
 import os
 import re
 import threading
+import unicodedata
 from typing import Optional
 
 PACK_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "language_pack_data")
 # Packs are read from the app's own folder, but a stray huge file must not be
-# loaded whole into memory or into a prompt.
-MAX_PACK_BYTES = 128 * 1024
-MAX_ENTRIES = 300
+# loaded whole into memory or into a prompt. The VTuber name packs hold a few
+# thousand generated entries (tools/vtuber_name_packs.py).
+MAX_PACK_BYTES = 4 * 1024 * 1024
+MAX_ENTRIES = 10000
 MAX_SOURCE_LEN = 40
 MAX_TEXT_LEN = 200
 MAX_NOTE_LEN = 300
+MAX_LINK_LEN = 200
 # Short kana/hangul suffixes match inside many words; the cap keeps a run's
 # prompt bounded even then.
 MAX_PROMPT_ENTRIES = 60
@@ -53,6 +56,9 @@ def _text(value, where: str, field: str, max_len: int, *, required: bool = False
     value = value.strip()
     if len(value) > max_len:
         raise PackError(f"{where}: '{field}' is longer than {max_len} characters.")
+    # A zero-width or control character makes a source never match a transcript and is invisible in review.
+    if any(unicodedata.category(ch) in ("Cc", "Cf") for ch in value):
+        raise PackError(f"{where}: '{field}' has an invisible or control character.")
     return value
 
 
@@ -81,6 +87,14 @@ def _not_in(raw, where: str, source: str) -> list:
     return words
 
 
+def _link(raw, where: str) -> str:
+    """A source page for the entry, shown to people and never sent to a model."""
+    link = _text(raw, where, "link", MAX_LINK_LEN)
+    if link and not re.fullmatch(r"https://[A-Za-z0-9.-]+/[^\s?#]*", link):
+        raise PackError(f"{where}: 'link' must be an https address without a query.")
+    return link
+
+
 def _entry(raw, n: int, where: str, styles: dict) -> dict:
     where = f"{where}, entry {n}"
     if not isinstance(raw, dict):
@@ -106,6 +120,7 @@ def _entry(raw, n: int, where: str, styles: dict) -> dict:
         "note": _text(raw.get("note"), where, "note", MAX_NOTE_LEN),
         "context": _text(raw.get("context"), where, "context", MAX_NOTE_LEN),
         "not_in": _not_in(raw.get("not_in"), where, source),
+        "link": _link(raw.get("link"), where),
     }
 
 

@@ -78,7 +78,7 @@ export function CorrectionsSection({ sets, pc, onDone }: { sets: BenchmarkSet[];
   }
 
   return (
-    <Section title="Add a title's corrections to a test set" summary="Your edited lines, with their audio" storageKey="benchmark.corrections" defaultOpen>
+    <Section title="Add a title's corrections to a test set" summary="Your edited lines, with their audio">
       <p className="muted">{CORRECTIONS_HELP}</p>
       <div className="field-row">
         <Field label="Title">

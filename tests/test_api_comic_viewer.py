@@ -448,6 +448,7 @@ def test_permissions_with_auth_on(isolated_db, comic):
               ("get", _img(d, p1), "media.stream", None),
               ("head", _img(d, p1), "media.stream", None),
               ("get", f"/api/scanlate/dramas/{d}/pages/{p1}/regions", "lines.read", None),
+              ("get", f"/api/scanlate/dramas/{d}/pages/{p1}/panels", "media.stream", None),
               ("get", f"/api/scanlate/dramas/{d}/progress", "library.read", None),
               ("post", f"/api/scanlate/dramas/{d}/progress", "lines.edit", {"page": 1}),
               ("get", f"/api/scanlate/dramas/{d}/view-prefs", "library.read", None),

@@ -19,7 +19,7 @@ test('three runs, then pick only the differing lines by key', async ({ page }) =
   const seen = { begin: 0, runs: 0, captures: [] as number[], picks: [] as unknown[], keepRest: [] as unknown[] }
   let state: Record<string, unknown> = { active: false, runs_done: 0, history_id: null, line_count: 0, items: [] }
   const items = [
-    { line_id: 1, idx: 0, zh: '句1', versions: ['A1', 'A2', 'A3'], picked_run: null, current_en: 'A3' },
+    { line_id: 1, idx: 0, zh: '句1', versions: ['A1', 'A2', 'A3'], picked_run: null as number | null, current_en: 'A3' },
     { line_id: 2, idx: 1, zh: '句2', versions: ['B1', 'B2', 'B3'], picked_run: null, current_en: 'B3' },
   ]
   await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
@@ -75,7 +75,64 @@ test('three runs, then pick only the differing lines by key', async ({ page }) =
   await expect.poll(() => seen.picks.length).toBe(1)
   expect(seen.picks[0]).toEqual({ picks: [{ line_id: 1, run: 2 }] })
   await expect(page.getByTestId('three-run-left')).toContainText('1 of 2 differing lines left')
+  await page.keyboard.press('z') // taking the pick back counts the line as unpicked again
+  await expect.poll(() => seen.picks.length).toBe(2)
+  expect(seen.picks[1]).toEqual({ picks: [{ line_id: 1, run: null }] })
+  await expect(page.getByTestId('three-run-left')).toContainText('2 of 2 differing lines left')
+  await page.keyboard.press('2')
+  await expect(page.getByTestId('three-run-left')).toContainText('1 of 2 differing lines left')
 
   await page.getByTestId('three-run-keep-1').click()
   await expect.poll(() => seen.keepRest).toEqual([{ run: 1 }])
+})
+
+test('a review left after one run picks up with Run the remaining', async ({ page }) => {
+  const captures: number[] = []
+  let state: Record<string, unknown> = { active: true, runs_done: 1, history_id: 9, line_count: 3, line_ids: [1, 2, 3], items: [] }
+  const runBodies: unknown[] = []
+  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await page.route('**/api/review/dramas/3/lines?*', (route) =>
+    route.fulfill({ json: { lines: [1, 2, 3].map(line), page: 1, page_size: 40, total: 3, flagged_count: 0, untranslated_count: 0 } }))
+  await page.route('**/api/three-run/dramas/3', (route) => route.fulfill({ json: state }))
+  await page.route('**/api/translate-run/dramas/3/run', (route) => {
+    runBodies.push(route.request().postDataJSON())
+    return route.fulfill({
+      json: { job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: 3, fallback_engines: [], reflect: false, bulk: false, thinking: false, line_ids: [1, 2, 3] },
+    })
+  })
+  await page.route('**/api/jobs/translate_3', (route) =>
+    route.fulfill({
+      json: { job_id: 'translate_3', status: 'done', progress: 1, message: 'Done', error: null, description: null, gpu_touching: false, started_at: 1, finished_at: 2, updated_at: 2 },
+    }))
+  await page.route('**/api/three-run/dramas/3/capture', (route) => {
+    const run = (route.request().postDataJSON() as { run: number }).run
+    captures.push(run)
+    state = { ...state, runs_done: run, items: run === 3 ? [{ line_id: 1, idx: 0, zh: '句1', versions: ['A1', 'A2', 'A3'], picked_run: null, current_en: 'A3' }] : [] }
+    return route.fulfill({ json: state })
+  })
+
+  await page.goto('/#/drama/3/review')
+  await openFoldFor(page, 'Run 3 times, review differences')
+  const panel = page.getByTestId('three-run')
+  await expect(panel).toContainText('1 of 3 runs recorded')
+  await panel.getByRole('button', { name: 'Run the remaining 2' }).click()
+  await expect(page.getByTestId('three-run-left')).toContainText('1 of 1 differing lines left')
+  expect(captures).toEqual([2, 3])
+  expect(runBodies.map((b) => (b as { line_ids: number[] }).line_ids)).toEqual([[1, 2, 3], [1, 2, 3]])
+})
+
+test('on Ollama it says the three runs will match', async ({ page }) => {
+  await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))
+  await page.route('**/api/review/dramas/3/lines?*', (route) =>
+    route.fulfill({ json: { lines: [1, 2].map(line), page: 1, page_size: 40, total: 2, flagged_count: 0, untranslated_count: 0 } }))
+  await page.route('**/api/three-run/dramas/3', (route) =>
+    route.fulfill({ json: { active: false, runs_done: 0, history_id: null, line_count: 0, items: [] } }))
+  await page.route('**/api/translate-run/dramas/3/config', async (route) => {
+    const real = await route.fetch()
+    return route.fulfill({ response: real, json: { ...(await real.json()), translation_engine: 'ollama' } })
+  })
+
+  await page.goto('/#/drama/3/review')
+  await openFoldFor(page, 'Run 3 times, review differences')
+  await expect(page.getByTestId('three-run-same')).toContainText('the three runs will almost always agree')
 })

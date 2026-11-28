@@ -41,7 +41,7 @@ describe('backup file import model', () => {
       .toBe('Imported 0 titles. 2 voices added to the voice bank. 1 setting taken from the file. No files were imported. API keys are never in a backup.')
     const notes = importNotes(list(), [A], '2026-09-30', { voiceBank: true, settings: true }).join(' ')
     expect(notes).toContain("voice bank entries are added")
-    expect(notes).toContain('API keys, folders, app updates and the System page stay as they are here')
+    expect(notes).toContain('API keys, the monthly cap, the Gemini free-tier switch, the comic page picture switch, the hosted Ollama default, the job pop-up, the sharing default, folders, app updates and hardware settings stay as they are here')
   })
 
   it('the series note follows the join choice', () => {

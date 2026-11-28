@@ -563,7 +563,9 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
                                       **_page_extras(drama, config, engine, image, missing, language,
                                                      glossary))
     except Exception as e:
-        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
+        # A partial answer is already in the dicts; keep those lines, as a first read does.
+        return ([["warning", f"translation failed ({failure_detail(e, member)})"]]
+                + page_capture_checks.save_filled_translations(page_id, missing, originals))
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
@@ -745,7 +747,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if mine is None:
                 return page_capture_checks.reused_page_response(
                     data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                    drama_pk, page["id"])
+                    drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
@@ -753,7 +755,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
                                                  config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
-                data, reuse_saved, reuse_notes, drama_pk, page["id"])
+                data, reuse_saved, reuse_notes, drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
@@ -863,6 +865,24 @@ def _usage_cb(drama, config, engine):
     from engine_backends import paid_calls
     name = config.get("engine") or "unknown"
     return paid_calls.usage_logger((drama or {}).get("id"), name, engine, "extension_translate")
+
+
+def _start_from_link(route: str, payload: dict) -> dict:
+    """/video and /live for the PC's own extension: what the device-token routes do, as the PC owner.
+    Only the link is sent, so the run uses no saved logins, as from any other device."""
+    from lib.errors import ForbiddenError
+    from services import auth_service, extension_bridge_service, live_service
+    from services.extension_novel_service import _BRIDGE_PRINCIPAL
+    # The queue checks each step's permissions (an edited step needs lines.edit), so the owner
+    # needs them all, as api.auth's local owner has.
+    owner = {**_BRIDGE_PRINCIPAL, "is_admin": True, "permissions": list(auth_service.PERMISSIONS)}
+    try:
+        if route == "/video":
+            return extension_bridge_service.send_video(payload, owner, holds_paid=True)
+        return extension_bridge_service.start_live(extension_bridge_service.live_choices(payload),
+                                                   live_service.default_engine(), None, owner)
+    except ForbiddenError as e:
+        raise EndpointError(403, e.message) from None
 
 
 # -- HTTP --------------------------------------------------------------
@@ -984,9 +1004,17 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary", "/subs",
+                             "/video", "/live"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route in ("/video", "/live"):
+                self._send_json(200, _start_from_link(route, payload))
+                return
+            if route == "/subs":
+                from services import extension_subs_service
+                self._send_json(200, extension_subs_service.subs_for_page(payload))
+                return
             if route == "/capture-summary":
                 self._send_json(200, extension_bridge_service.record_capture_summary(payload))
                 return

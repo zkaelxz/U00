@@ -79,6 +79,8 @@ ROUTES = [
     ("PATCH", "/bookmarks/{bookmark_id}", {"note": "x"}),
     ("DELETE", "/bookmarks/{bookmark_id}", None),
     ("GET", "/captions/Source", None),
+    ("GET", "/ear-marks", None),
+    ("POST", "/ear-marks", {}),
     ("POST", "/lookup", {"page": 1}),
     ("GET", "/lines/1/study", None),
     ("GET", "/vocab", None),

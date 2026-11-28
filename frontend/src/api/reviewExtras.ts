@@ -79,6 +79,10 @@ export const startBurnPreview = (id: number, body: BurnPreviewStart, f?: Fetch) 
   if (body.per_speaker_colors !== undefined) payload.per_speaker_colors = body.per_speaker_colors
   if (body.wrap_chars_en !== undefined) payload.wrap_chars_en = body.wrap_chars_en
   if (body.wrap_chars_source !== undefined) payload.wrap_chars_source = body.wrap_chars_source
+  if (body.ear_placement) payload.ear_placement = true
+  if (body.field) payload.field = body.field
+  if (body.reading_line) payload.reading_line = true
+  if (body.karaoke) payload.karaoke = true
   return postJson<BurnPreviewStarted>(`${base(id)}/burn-preview`, payload, f)
 }
 

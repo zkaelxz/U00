@@ -11,6 +11,9 @@ final class GrabStore {
     private static final Object LOCK = new Object();
     private static final String KEY_QUEUE = "queue";
     private static final String KEY_HISTORY = "history";
+    /** Kept apart from the history, so Clear history and its 50-row cap don't make a series run grab chapters again. */
+    private static final String KEY_DONE = "done_chapters";
+    private static final String KEY_DONE_FORGOTTEN = "done_forgotten_at";
 
     private GrabStore() {}
 
@@ -56,6 +59,31 @@ final class GrabStore {
     static void record(android.content.SharedPreferences prefs, GrabQueue.Done done) {
         synchronized (LOCK) {
             prefs.edit().putString(KEY_HISTORY, GrabQueue.historyJson(GrabQueue.withDone(GrabQueue.parseHistory(prefs.getString(KEY_HISTORY, "")), done))).apply();
+        }
+    }
+
+    static java.util.Set<String> doneChapters(android.content.SharedPreferences prefs) {
+        synchronized (LOCK) {
+            return SeriesRun.doneKeys(prefs.getString(KEY_DONE, ""));
+        }
+    }
+
+    static void markDone(android.content.SharedPreferences prefs, String url) {
+        synchronized (LOCK) {
+            prefs.edit().putString(KEY_DONE, SeriesRun.withDone(prefs.getString(KEY_DONE, ""), url)).apply();
+        }
+    }
+
+    /** The history rows a series run may still count as finished: those after the last "Forget finished chapters". */
+    static List<GrabQueue.Done> doneHistory(android.content.SharedPreferences prefs) {
+        synchronized (LOCK) {
+            return SeriesRun.since(GrabQueue.parseHistory(prefs.getString(KEY_HISTORY, "")), prefs.getLong(KEY_DONE_FORGOTTEN, 0));
+        }
+    }
+
+    static void forgetDone(android.content.SharedPreferences prefs) {
+        synchronized (LOCK) {
+            prefs.edit().remove(KEY_DONE).putLong(KEY_DONE_FORGOTTEN, System.currentTimeMillis()).apply();
         }
     }
 

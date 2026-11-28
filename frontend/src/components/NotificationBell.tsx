@@ -38,6 +38,7 @@ import {
   seenAfter,
   shortAgo,
   startsAtText,
+  kindLink,
   targetLink,
   unreadCount,
   writeSeen,
@@ -91,7 +92,9 @@ function StartLiveAction({ followId }: { followId: number }) {
 // typed target: the server never sends a link.
 export function NotificationRow({ item, isNew, onOpen }: { item: NotificationItem; isNew: boolean; onOpen?: () => void }) {
   const b = kindBadge(item.kind)
-  const open = item.kind === 'waiting' || item.kind === 'job_done' || item.kind === 'live' ? targetLink(item.target) : null
+  const open = item.target && (item.kind === 'waiting' || item.kind === 'job_done' || item.kind === 'live')
+    ? targetLink(item.target)
+    : kindLink(item.kind)
   return (
     <li className={isNew ? 'notify-item is-new' : 'notify-item'}>
       <div className="notify-item-meta">

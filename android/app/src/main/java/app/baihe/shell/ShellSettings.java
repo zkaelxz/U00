@@ -41,8 +41,14 @@ final class ShellSettings {
         /** Looks for a newer app build now and says what it found. */
         void checkForUpdates();
 
+        /** Opens the Baihe address dialog, filled in with the current one. */
+        void changeAddress();
+
         /** Hides (true) or shows the Studio | Grab strip, for a reader that wants the whole screen. */
         void setBarsHidden(boolean hidden);
+
+        /** The Watch page's player changed (MediaState's JSON), for the lock-screen controls. */
+        void mediaState(String json);
     }
 
     /** What Baihe's own pages can call as `BaiheShell`; only Baihe's address ever loads in the WebView. */
@@ -92,14 +98,65 @@ final class ShellSettings {
             }
         }
 
+        private volatile String saveKey = "";
+
+        /**
+         * A new key for saveFile, handed only to Baihe's own top page: the bridge object also reaches every
+         * iframe (Live's players and their ads), which must not be able to write files into Downloads.
+         */
+        String newSaveKey() {
+            byte[] random = new byte[24];
+            new java.security.SecureRandom().nextBytes(random);
+            saveKey = android.util.Base64.encodeToString(random, android.util.Base64.NO_WRAP | android.util.Base64.URL_SAFE);
+            return saveKey;
+        }
+
+        /** Saves a file the page built itself into Downloads; false when it could not (the phone said why). */
+        @JavascriptInterface
+        public boolean saveFile(String key, String name, String mimeType, String base64) {
+            if (!keyMatches(key)) {
+                SaveDownload.refused(context);
+                return false;
+            }
+            return SaveDownload.saveBytes(context, name, mimeType, base64);
+        }
+
+        private boolean keyMatches(String key) {
+            String expected = saveKey;
+            return !expected.isEmpty() && key != null && java.security.MessageDigest.isEqual(
+                    expected.getBytes(java.nio.charset.StandardCharsets.UTF_8), key.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+
+        /** True when Android itself blocks the alerts, whatever the switch says, so Settings can say so. */
+        @JavascriptInterface
+        public boolean notificationsBlocked() {
+            android.app.NotificationManager manager = context.getSystemService(android.app.NotificationManager.class);
+            if (manager == null) return false;
+            if (!manager.areNotificationsEnabled()) return true;
+            android.app.NotificationChannel channel = manager.getNotificationChannel(AlertPoller.CHANNEL);
+            return channel != null && channel.getImportance() == android.app.NotificationManager.IMPORTANCE_NONE;
+        }
+
         @JavascriptInterface
         public void checkForUpdates() {
             host.checkForUpdates();
         }
 
+        /** Needs the page key too, so a frame cannot keep opening the dialog. */
+        @JavascriptInterface
+        public void changeAddress(String key) {
+            if (keyMatches(key)) host.changeAddress();
+        }
+
         @JavascriptInterface
         public void setBarsHidden(boolean hidden) {
             host.setBarsHidden(hidden);
+        }
+
+        /** Needs the page key too, so a Live player's frame cannot put its own controls on the lock screen. */
+        @JavascriptInterface
+        public void mediaState(String key, String json) {
+            if (keyMatches(key)) host.mediaState(json);
         }
 
         @JavascriptInterface

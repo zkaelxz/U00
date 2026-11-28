@@ -294,3 +294,12 @@ def test_a_member_stops_at_the_title_limit_and_an_admin_does_not(jobs, started_d
         db.create_drama(title_en=f"A{n}", owner_user_id=admin["id"])
     assert qv.start({**member, "user_id": admin["id"], "is_admin": True}, URL, pid, False,
                     holds_paid=False, at_pc=False)["drama_id"]
+
+
+def test_the_pcs_own_extension_can_send_a_video(jobs, started_downloads, monkeypatch):
+    from services import model_readiness_service, page_server
+    monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+    qv.set_profile(_profile())
+    out = page_server._start_from_link("/video", {"url": URL})
+    assert [i["step"] for i in q.get_queue(None)["items"]] == ["download", "transcribe", "translate", "export"]
+    assert db.get_drama(out["drama_id"]) is not None

@@ -111,9 +111,27 @@ public class GrabHistoryActivity extends Activity {
         if (done.isEmpty() && waiting.isEmpty()) {
             list.addView(text("Add a chapter from Grab's More menu, or run a grab: it shows up here.", 14, false, palette.muted));
         } else {
-            list.addView(text("Read again asks the PC for a Quick read of that page. The PC remembers pages it "
-                    + "translated for 14 days, so it costs nothing while it does. Nothing is kept on this phone.",
+            list.addView(text("Read again asks the PC for a Quick read of that page. A Quick read page is remembered "
+                    + "on the PC for 14 days, so reading it again costs nothing while it is. A page saved to a title "
+                    + "is translated again and costs like any page. Nothing is kept on this phone.",
                     13, false, palette.muted));
+        }
+        int finished = SeriesRun.finished(GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs())).size();
+        if (finished > 0) {
+            list.addView(section("Finished chapters"));
+            list.addView(text("Grab whole series and Keep going skip the " + finished
+                    + (finished == 1 ? " chapter" : " chapters") + " this phone already sent in full.", 13, false, palette.muted));
+            LinearLayout actions = row();
+            actions.addView(button("Forget finished chapters", palette.bad, v -> new android.app.AlertDialog.Builder(this)
+                    .setTitle("Forget finished chapters?")
+                    .setMessage("Grab whole series and Keep going will offer these chapters again. Nothing in your library changes.")
+                    .setPositiveButton("Forget", (d, w) -> {
+                        GrabStore.forgetDone(prefs());
+                        refresh();
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show()));
+            list.addView(actions);
         }
     }
 

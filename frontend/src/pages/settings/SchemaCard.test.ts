@@ -63,11 +63,19 @@ describe('reply guard choice', () => {
 })
 
 describe('toDraftValue', () => {
-  it('shows an unset or zero number as blank', () => {
-    expect(toDraftValue(row({ type: 'int' }), 0)).toBe('')
+  it('shows an unset number as blank, and a zero as blank only when the default is 0', () => {
+    expect(toDraftValue(row({ type: 'int', default: 0 }), 0)).toBe('')
     expect(toDraftValue(row({ type: 'float' }), null)).toBe('')
     expect(toDraftValue(row({ type: 'int' }), 20480)).toBe('20480')
     expect(toDraftValue(row({ type: 'choice' }), null)).toBe('')
+  })
+
+  it('keeps a saved 0 through a save when blank would mean something else', () => {
+    const stop = row({ key: 'gpu_guard_stop_minutes', type: 'int', default: 2, min: 0, max: 60 })
+    expect(toSavedValue(stop, toDraftValue(stop, 0))).toEqual({ ok: true, value: 0 })
+    const cap = row({ key: 'monthly_cap_usd', type: 'float', default: null, min: 0 })
+    expect(toSavedValue(cap, toDraftValue(cap, 0))).toEqual({ ok: true, value: 0 })
+    expect(toSavedValue(cap, toDraftValue(cap, null))).toEqual({ ok: true, value: null })
   })
 })
 
