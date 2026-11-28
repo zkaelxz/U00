@@ -301,4 +301,6 @@ def test_extension_sites_row_lists_blacktoon_and_only_hosts_the_import_stop_cove
     shown = reg.get_settings()["extension_sites"]
     assert {"name": "Blacktoon", "host": "blacktoon511.com"} in shown
     assert all(ext._is_built_in_extension_only_host(x["host"]) for x in shown)
-    assert not {x["host"] for x in shown} & {s["homepage"] for s in reg.list_sources()}
+    from urllib.parse import urlsplit
+    adapter_hosts = {urlsplit(s["homepage"]).hostname for s in reg.list_sources()}
+    assert not {x["host"] for x in shown} & adapter_hosts
