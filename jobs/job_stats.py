@@ -118,7 +118,7 @@ atexit.register(flush_day)
 
 
 def log_job_end(job_id, kind, job, token, outcome, gpu_touching) -> None:
-    """`kind` is the job's kind word (services.jobs_service.job_kind, passed in because jobs/
+    """`kind` is the job's kind word (job_results.job_kind, passed in because jobs/
     may not import services). Never raises: a logging slip must not turn a finished job into a failed one."""
     try:
         import applog

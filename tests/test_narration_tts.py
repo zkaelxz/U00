@@ -630,7 +630,7 @@ class TestListenWhileItIsMade:
 
     def test_a_held_final_track_is_logged_and_the_job_says_what_to_do(
             self, monkeypatch, fake_pydub, tmp_path, logged):
-        from services import jobs_service
+        from jobs import job_results
         (tmp_path / "narration_track.flac").write_bytes(b"playing")
         os.utime(tmp_path / "narration_track.flac", (1, 1))
         self._hold(monkeypatch, "narration_track.flac")
@@ -639,7 +639,7 @@ class TestListenWhileItIsMade:
         assert logged == [("warning", "narration: the finished track could not replace the old one, which is "
                            "in use (the Reader may be playing it); it waits as narration_track.next.flac until "
                            "the old file is free (PermissionError: The process cannot access the file)")]
-        outcome, message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+        outcome, message = job_results.derive_outcome("done", None, job_results.project_result(result))
         assert outcome == "ok" and dub_narration.TRACK_IN_USE_NOTICE in message
         logged.clear()
         assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"

@@ -19,6 +19,7 @@ import word_align
 from core import Line
 from engine_backends import translate_pipeline
 from lib import settings_schema as schema
+from jobs import run_settings as job_run_settings
 from services import (resplit_service, restructure_service, retime_service, run_settings_service,
                       settings_service, speech_coverage_service, timing_settings_service,
                       transcribe_gap_service)
@@ -749,7 +750,7 @@ class TestRunSettings:
         assert out["split_max_seconds"] == 6.0 and out["qwen_vad_pad_ms"] == 40
 
     def test_every_row_is_allowed_in_the_record(self):
-        assert set(BY_KEY) <= set(run_settings_service.ALLOWED_KEYS)
+        assert set(BY_KEY) <= set(job_run_settings.ALLOWED_KEYS)
 
 
 def test_value_matches_values_for_every_key(isolated_db):

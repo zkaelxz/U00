@@ -13,7 +13,10 @@ time, and "downloaded" is the same cache check a run's readiness test uses
 """
 
 import functools
+import importlib.util
 import os
+import shutil
+import time
 
 import background_jobs
 import model_pins
@@ -412,3 +415,73 @@ def _download_job(model_id: str) -> None:
         background_jobs.set_result(jid, {"status": "failed", "detail": detail})
         raise
     background_jobs.set_result(jid, {"status": "ok"})
+
+
+# Models the installed version prefers over what an older copy used, fetched by themselves after an
+# update because a run only uses one that is already on disk (audio_preprocess.separation_model).
+PREFERRED_DEFAULTS = ("vocal_separation_fv4",)
+_PREFERRED_VERSION_KEY = "models.preferred_fetched_version"
+_PREFERRED_TRIED_KEY = "models.preferred_tried_on"
+_PREFERRED_MIN_FREE_BYTES = 3 * 1024 ** 3  # the FV4 download is about 0.9 GB; leave room for its unpacking
+
+
+def _free_bytes(folder: str) -> int:
+    while folder and not os.path.isdir(folder):
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            break
+        folder = parent
+    return shutil.disk_usage(folder or ".").free
+
+
+def _preferred_model_dir() -> str:
+    import audio_preprocess
+    return audio_preprocess.MODEL_DIR
+
+
+def preferred_models_tick(now=None) -> None:
+    """After an app update, in the quiet hours, download a preferred default model the PC lacks.
+
+    One try per night, and only when nothing else needs the PC: no job running, no update waiting
+    to be applied (the restart would cut the download), and enough free disk. Never raises, so the
+    rest of the poller's tick still runs. The
+    version is recorded once every model is on disk, so a failed night is tried again the next."""
+    try:
+        _preferred_models_step(now)
+    except Exception as exc:
+        _log().warning("default model fetch not started: %s", type(exc).__name__)
+
+
+def _preferred_models_step(now) -> None:
+    import db
+    from services import app_update_service as aus
+    from services import update_service
+    version = update_service.current_version()
+    if version is None or db.get_app_setting(_PREFERRED_VERSION_KEY) == version:
+        return
+    if not aus.in_quiet_hours(now):
+        return
+    missing = [m for m in PREFERRED_DEFAULTS if not CATALOG[m]["ready"]()]
+    if not missing:
+        db.set_app_setting(_PREFERRED_VERSION_KEY, version)
+        return
+    if importlib.util.find_spec("audio_separator") is None:
+        return  # a PC that never separates vocals has no use for it
+    today = time.strftime("%Y-%m-%d", time.localtime(time.time() if now is None else now))
+    if db.get_app_setting(_PREFERRED_TRIED_KEY) == today:
+        return
+    if background_jobs.active_job_ids() or aus.update_pending():
+        return
+    db.set_app_setting(_PREFERRED_TRIED_KEY, today)
+    free = _free_bytes(_preferred_model_dir())
+    if free < _PREFERRED_MIN_FREE_BYTES:
+        _log().info("default model fetch skipped: %d MB free, need %d MB",
+                    free // 1024 ** 2, _PREFERRED_MIN_FREE_BYTES // 1024 ** 2)
+        return
+    start_download(missing[0])
+    _log().info("default model fetch started: %d model(s) missing", len(missing))
+
+
+def _log():
+    from applog import get_logger
+    return get_logger()

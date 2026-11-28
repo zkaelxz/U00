@@ -24,7 +24,7 @@ import storage
 from services import auth_service
 from services.library_admin_service import (USER_BACKUP_JOB_ID, _artifact_dir, _refuse_duplicate,
                                             refuse_during_maintenance)
-from services.library_backup_service import _sanitized_snapshot, _write_artifact
+from services.library_backup_service import _sanitized_snapshot, _write_artifact, backup_compress_type
 from lib.errors import ConflictError, NotFoundError
 
 log = logging.getLogger(__name__)
@@ -303,7 +303,7 @@ def write_user_backup_zip(dest: str, owner_id=None, cancelled=None):
             for did in kept:
                 for full, arcname in _drama_media_files(did):
                     check()
-                    zf.write(full, arcname)
+                    zf.write(full, arcname, compress_type=backup_compress_type(arcname))
             zf.write(snap, "library.db")
     check()
 

@@ -1,0 +1,594 @@
+"""What a job's result may show and how it reads: the stored projection, the outcome sentence and the job's kind."""
+
+import json
+import re
+from typing import Optional, overload
+
+import background_jobs
+import diagnostics_report
+from engine_backends import fallback as engine_fallback
+from jobs import run_settings as job_run_settings
+
+
+# Result projection: only these keys of a job's set_result dict are ever
+# stored in job_records.result_json or returned over HTTP. Scalars and lists
+# of scalars only; strings go through redact_for_support (secrets stripped,
+# absolute paths collapsed to ".../name") and URLs are replaced.
+RESULT_ALLOWED_KEYS = (
+    "failed_reason", "detail", "errors", "lines_replaced", "cap_reached", "translated_count",
+    "fixed_count", "total_flagged", "timing_skipped_count", "existing_line_count", "line_count",
+    "gpu_fallback", "device_notice", "device", "word_align_error", "forced_align_error",
+    "coverage_warning", "speaker_count_hint", "backend_fallback", "stage_summary", "diarize_skipped_reason",
+    "asr_backend", "alignment_method", "diarize_started", "flagged_count",
+    "tagged", "note_count", "partial", "char_count", "image_count",
+    "status", "stage", "last_error", "line_id", "candidate_count",
+    # Review timing check: counts and the no-speech notice.
+    "checked", "flagged", "cleared", "skipped_flagged", "notice",
+    # Sources chapter import (S-4): int counts only, never text.
+    "imported_count", "skipped_count", "failed_count",
+    # lightnovel-crawler import: the EPUB's reading-order count.
+    "epub_chapters",
+    # Own-lines re-translate: line ids whose review flag wasn't saved because
+    # the line's text, timing or flag changed while the job ran.
+    "flags_needing_recheck",
+    # Fix flagged: line ids it left alone because the user edited them meanwhile.
+    "kept_your_edit",
+    # Re-split long lines: counts, the timing mode and a one-line note.
+    "split_lines", "lines_before", "aligned_lines", "cleared_translations",
+    "speakers_reassigned", "timing", "note",
+    # A paid job a money rule ended early: the plain reason ("Stopped: ...").
+    "stopped",
+    # Translate: the Source match engine check a cost cap stopped (a fixed sentence).
+    "judge_skipped",
+    # Translate: why the Source match check did not run (Ollama or bge-m3 missing; a fixed sentence).
+    "source_match_skipped",
+    # Narration: the finished track waits because the old one was in use (a fixed sentence).
+    "track_waiting",
+)
+MAX_STR = 500
+_MAX_LIST = 20
+_MAX_JSON = 8000
+URL_PATTERN = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
+
+
+def scrub_text(text: str | None) -> str:
+    # URLs first: a fetched URL can carry a token or a private host that the
+    # path and key redaction wouldn't recognise.
+    return redact_text(URL_PATTERN.sub("[URL]", text or ""))
+
+
+@overload
+def _safe_scalar(value: str) -> str: ...
+@overload
+def _safe_scalar(value: object) -> Optional[bool | int | float | str]: ...
+def _safe_scalar(value):
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return value if value == value and abs(value) != float("inf") else None
+    if isinstance(value, str):
+        return scrub_text(value)[:MAX_STR]
+    return None
+
+
+def redact_text(text: str) -> str:
+    """redact_for_support, but never raising: getpass.getuser() inside it
+    can fail in some containers, so fall back to secret + path redaction."""
+    try:
+        return diagnostics_report.redact_for_support(text)
+    except Exception:
+        from engine_backends import shared as engine_shared
+        text = engine_shared.redact_secrets(text or "")
+        return diagnostics_report.PATH_PATTERN.sub(lambda m: ".../" + m.group(1), text)
+
+
+def _error_item_text(item) -> str:
+    """A translate batch error ({"batch_index", "lines": [idx...], "error"}) or a narration
+    one ({"line_idx", "error"}) as "lines 3-4: <message>" (1-based), instead of str(dict)."""
+    if not isinstance(item, dict):
+        return str(item)
+    message = item.get("error") or item.get("message") or "failed"
+    lines = [i for i in (item.get("lines") or [item.get("line_idx")]) if isinstance(i, int) and not isinstance(i, bool)]
+    if not lines:
+        return str(message)
+    lo, hi = min(lines) + 1, max(lines) + 1
+    where = f"line {lo}" if lo == hi else f"lines {lo}-{hi}"
+    return f"{where}: {message}"
+
+
+_BULK_SKIP_KEYS = ("running", "no_key", "no_lines", "cap", "engine_changed")
+_MAX_BULK_ERROR = 120
+
+
+def _int_id(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _project_fallbacks(events):
+    """A FallbackEngine's switch events ({"from", "to", "reason", "detail"})
+    as [{"from", "to", "count"}]: engine names and how often each switch
+    happened, never error text. Also accepts its own output (re-projection).
+    A switch for lack of credit keeps its fixed reason code and the model it moved to, so
+    the outcome can say so."""
+    counts, no_credit = {}, {}
+    for ev in events if isinstance(events, (list, tuple)) else []:
+        if not isinstance(ev, dict):
+            continue
+        pair = ((_safe_scalar(str(ev.get("from") or "")) or "")[:40],
+                (_safe_scalar(str(ev.get("to") or "")) or "")[:40])
+        n = _int_id(ev.get("count")) or 1
+        counts[pair] = counts.get(pair, 0) + max(1, n)
+        if ev.get("reason") == engine_fallback.OUT_OF_CREDIT:
+            model = ev.get("to_model")
+            no_credit[pair] = (_safe_scalar(str(model)) or "")[:60] if model else None
+    return [{"from": a, "to": b, "count": n,
+             **({"reason": engine_fallback.OUT_OF_CREDIT, "to_model": no_credit[(a, b)]}
+                if (a, b) in no_credit else {})}
+            for (a, b), n in list(counts.items())[:_MAX_LIST]]
+
+
+def _cap_bytes(text: str, limit: int) -> str:
+    """text cut to at most `limit` UTF-8 bytes, never mid-character."""
+    return text.encode("utf-8")[:limit].decode("utf-8", "ignore")
+
+
+def _json_len(value) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+
+
+def _trim_bulk(bulk) -> bool:
+    """Halve bulk's longest id/error list; False when nothing is left to trim
+    (counts and the cancelled flag always stay, so the outcome never changes)."""
+    lists = [(bulk, k) for k in ("failed", "partial", "translated_ids") if len(bulk.get(k) or []) > 1]
+    lists += [(v, "drama_ids") for v in (bulk.get("skipped") or {}).values()
+              if len(v.get("drama_ids") or []) > 1]
+    if not lists:
+        for k in ("failed", "partial", "translated_ids"):
+            if bulk.get(k):
+                bulk[k] = []
+                return True
+        return False
+    owner, key = max(lists, key=lambda ok: _json_len(ok[0][ok[1]]))
+    owner[key] = owner[key][: len(owner[key]) // 2]
+    return True
+
+
+def _project_bulk(result):
+    """Library bulk translate's per-drama outcome (translated / skipped_* /
+    errors {drama_id: message}) as counts plus bounded id lists and short,
+    redacted error text."""
+    translated = [i for i in (_int_id(v) for v in result.get("translated") or []) if i is not None]
+    skipped = {}
+    for key in _BULK_SKIP_KEYS:
+        ids = [i for i in (_int_id(v) for v in result.get(f"skipped_{key}") or []) if i is not None]
+        if ids:
+            skipped[key] = {"count": len(ids), "drama_ids": ids[:_MAX_LIST]}
+    raw_errors = result.get("errors") if isinstance(result.get("errors"), dict) else {}
+    failed = []
+    for did, message in raw_errors.items():
+        did = _int_id(did)
+        if did is None:
+            continue
+        text = _safe_scalar(str(message or "failed")) or "failed"
+        failed.append({"drama_id": did, "error": _cap_bytes(text, _MAX_BULK_ERROR)})
+    raw_partial = result.get("partial") if isinstance(result.get("partial"), dict) else {}
+    partial = []
+    for did, reason in raw_partial.items():
+        did = _int_id(did)
+        if did is not None:
+            partial.append({"drama_id": did,
+                            "reason": _cap_bytes(_safe_scalar(str(reason or "")) or "", 40)})
+    out = {"cancelled": bool(result.get("cancelled")),
+           "partial_count": len(partial), "partial": partial[:_MAX_LIST],
+           "translated_count": len(translated), "translated_ids": translated[:_MAX_LIST],
+           "skipped": skipped, "skipped_count": sum(v["count"] for v in skipped.values()),
+           "failed_count": len(failed), "failed": failed[:_MAX_LIST]}
+    # Why the run gave up before its last title (FailureStreak), so the
+    # titles it never tried are not passed over in silence.
+    stopped = _safe_scalar(str(result.get("stopped") or ""))
+    if stopped:
+        out["stopped"] = _cap_bytes(stopped, _MAX_BULK_ERROR)
+    return out
+
+
+def _reproject_bulk(bulk):
+    """A stored bulk projection, re-sanitised through _project_bulk (the
+    counts may exceed the capped id lists, so they are carried over)."""
+    raw = {"translated": bulk.get("translated_ids") or [],
+           "cancelled": bulk.get("cancelled"), "stopped": bulk.get("stopped"),
+           "partial": {f.get("drama_id"): f.get("reason") for f in bulk.get("partial") or []
+                       if isinstance(f, dict)},
+           "errors": {f.get("drama_id"): f.get("error") for f in bulk.get("failed") or []
+                      if isinstance(f, dict)}}
+    stored_skipped = bulk.get("skipped") if isinstance(bulk.get("skipped"), dict) else {}
+    for key in _BULK_SKIP_KEYS:
+        entry = stored_skipped.get(key)
+        if isinstance(entry, dict):
+            raw[f"skipped_{key}"] = entry.get("drama_ids") or []
+    out = _project_bulk(raw)
+    for key in ("translated_count", "failed_count", "partial_count"):
+        n = _int_id(bulk.get(key))
+        if n is not None and n > out[key]:
+            out[key] = n
+    for key, entry in out["skipped"].items():
+        n = _int_id(stored_skipped[key].get("count"))
+        if n is not None and n > entry["count"]:
+            entry["count"] = n
+    out["skipped_count"] = sum(v["count"] for v in out["skipped"].values())
+    return out
+
+
+# The stages a transcription run records (transcribe_pipeline); anything else is dropped.
+_TRANSCRIBE_STAGE_KEYS = ("separate", "load", "decode_vad", "transcribe", "align")
+
+
+def _project_stage_seconds(raw) -> dict:
+    """The recorded seconds of a transcription run's known stages, nothing else."""
+    if not isinstance(raw, dict):
+        return {}
+    return {k: round(float(raw[k]), 2) for k in _TRANSCRIBE_STAGE_KEYS
+            if isinstance(raw.get(k), (int, float)) and not isinstance(raw.get(k), bool)
+            and raw[k] >= 0 and raw[k] == raw[k]}
+
+
+def _is_bulk_result(result) -> bool:
+    return isinstance(result, dict) and "translated" in result and "skipped_running" in result
+
+
+def project_result(result):
+    """A JSON-safe, redacted, size-capped view of a job's result dict, or
+    None when there is nothing to show (no result, or a non-dict result
+    such as live-translate's cue list)."""
+    if not isinstance(result, dict):
+        return None
+    out = {}
+    if _is_bulk_result(result):
+        out["bulk"] = _project_bulk(result)
+    elif isinstance(result.get("bulk"), dict):
+        out["bulk"] = _reproject_bulk(result["bulk"])  # stored row, on read
+    if result.get("fallbacks"):
+        out["fallbacks"] = _project_fallbacks(result["fallbacks"])
+    run_settings = job_run_settings.sanitise(result.get("run_settings"))
+    if run_settings:
+        out["run_settings"] = run_settings
+    stage_seconds = _project_stage_seconds(result.get("stage_seconds"))
+    if stage_seconds:
+        out["stage_seconds"] = stage_seconds
+    for key in RESULT_ALLOWED_KEYS:
+        if key not in result or (key == "errors" and "bulk" in out):
+            continue
+        value = result[key]
+        if isinstance(value, (list, tuple)):
+            items = (_safe_scalar(v if isinstance(v, (str, int, float, bool)) else _error_item_text(v))
+                     for v in list(value)[:_MAX_LIST])
+            out[key] = [v for v in items if v is not None]
+        else:
+            safe = _safe_scalar(value)
+            if safe is not None or value is None:
+                out[key] = safe
+    while out and _json_len(out) > _MAX_JSON:
+        # bulk is trimmed, never dropped: without it the outcome reads "ok".
+        if "bulk" in out and _json_len(out["bulk"]) * 2 > _MAX_JSON and _trim_bulk(out["bulk"]):
+            continue
+        others = [k for k in out if k != "bulk"]
+        if not others:
+            if not _trim_bulk(out["bulk"]):
+                break
+            continue
+        biggest = max(others, key=lambda k: _json_len(out[k]))
+        if isinstance(out[biggest], list) and len(out[biggest]) > 1:
+            out[biggest] = out[biggest][: len(out[biggest]) // 2]
+        else:
+            del out[biggest]
+    return out
+
+
+def project_result_json(result, run_settings=None):
+    """project_result, JSON-encoded for db.job_records.result_json. The
+    job's run settings ride along even when the result isn't a dict
+    (live-translate's cue list)."""
+    settings = job_run_settings.sanitise(run_settings)
+    if settings:
+        result = {**(result if isinstance(result, dict) else {}), "run_settings": settings}
+    projected = project_result(result)
+    return json.dumps(projected) if projected is not None else None
+
+
+FAILED_REASON_MESSAGES = {
+    "model_download": "The speech model could not be downloaded.",
+    "empty": "Nothing was produced: no speech or text was found.",
+    "dependency_missing": "A required component is not installed.",
+    "qwen3_asr": "Qwen3-ASR failed on this audio.",
+    "anime_whisper": "Anime-whisper failed on this audio.",
+    "groq": "The Groq transcription request failed.",
+    "vocal_separation": "Separating the vocals failed.",
+    "media_unreadable": (
+        "Windows refused Baihe permission to read the audio file. If Baihe runs as a background "
+        "service, run Setup again to re-apply its folder permissions, or download the audio again."),
+}
+
+
+# Reasons a job reports in its result while its status stays `done` (the stage panels read the
+# result for their own wording). Only the Jobs list and the bell read these, so a reason with no
+# sentence of its own does not fall back to "The job did not finish." with nothing after it.
+RESULT_ONLY_REASON_MESSAGES = {
+    "timeout": "The job took too long and was stopped.",
+    "unreadable": "The audio's length couldn't be read.",
+    "decode": "The audio check failed.",
+    "audio_slice": "Re-hearing the line failed.",
+    "not_applied": "Nothing was changed.",
+}
+
+
+_MODEL_DOWNLOAD_BY_KIND = (
+    (("transcribe_",), "The speech model could not be downloaded."),
+    (("retime_", "resegment_", "resplit_", "resegpreview_"), "The aligner model could not be downloaded."),
+)
+
+
+def model_download_message(job_id: str = "") -> str:
+    """The failed-download sentence for a job kind; the detail that follows names the model."""
+    for prefixes, text in _MODEL_DOWNLOAD_BY_KIND:
+        if (job_id or "").startswith(prefixes):
+            return text
+    return "A model could not be downloaded."
+
+
+NO_LINES_MESSAGE = (
+    "Finished but found no lines. Possible reasons: voice detection removed everything "
+    "(try Sensitivity: More sensitive); the model returned nothing (try Whisper large-v3-turbo); "
+    "or the audio is silent.")
+
+
+NO_TEXT_MESSAGE = (
+    "Finished but found no on-screen text. Possible reasons: wrong OCR language or interval, "
+    "no burned-in subtitles in this video.")
+
+
+def speaker_skip_text(result):
+    """"Speaker detection did not run: <reason>." when the switch was on and nothing started."""
+    why = result.get("diarize_skipped_reason") if isinstance(result, dict) else None
+    return f"Speaker detection did not run: {why}." if why else None
+
+
+# Repeated: paid_calls.stop_reason_for prefixes an error that may already start with it.
+_STOPPED_PREFIX = re.compile(r"^(?:Stopped:\s*)+")
+_LEADING_COUNT = re.compile(r"^Stopped: (\d+) ")
+
+
+def waiting_note(result):
+    """What a job that ended `done` leaves the person to do, for the bell and
+    the push (notification_service.notify_job_finished), or None. A result may
+    carry its own {"text", "target"} under "waiting" (names to review); a stop
+    at a spending cap or by another run limit is read here, because the Jobs
+    page names it (_summary_outcome) while a plain "Finished" would hide it.
+    Only the sentence forms of "stopped" ("Stopped...", from
+    engine_backends.paid_calls, bulk_poll and the bulk runner) count: other
+    jobs use the key for their own words ("cancelled"). `own_reason` is True
+    only for Baihe's own fixed sentences (a failure streak, the rate limit):
+    the push quotes no other reason, since one may carry a provider's error
+    text."""
+    if not isinstance(result, dict):
+        return None
+    own = result.get("waiting")
+    if isinstance(own, dict) and isinstance(own.get("text"), str) and own["text"].strip():
+        return {"text": own["text"], "target": own.get("target")}
+    jobs_page = {"page": "jobs"}
+    cap = result.get("cap_reached")
+    stopped = result.get("stopped")
+    from engine_backends import paid_calls, run_limits
+    if (isinstance(cap, (int, float)) and not isinstance(cap, bool)) \
+            or stopped == paid_calls.CAP_STOP_REASON:
+        return {"cap": True, "target": jobs_page}
+    if isinstance(stopped, str) and stopped.startswith("Stopped"):
+        reason = scrub_text(_STOPPED_PREFIX.sub("", stopped)).strip()
+        count = _LEADING_COUNT.match(stopped)
+        fixed = stopped == run_limits.RATE_LIMIT_STOP_REASON or (
+            count is not None and stopped == paid_calls.failure_stop_reason(int(count.group(1))))
+        return {"reason": reason[:1].upper() + reason[1:], "own_reason": fixed,
+                "target": jobs_page}
+    return None
+
+
+def derive_outcome(status, error, result, detail_state=None, job_id=None):
+    """(outcome, outcome_message) for a finished job, normalised from its
+    status and projected result so a client never has to know each job's
+    own result shape; (None, None) while queued/running. outcome is one of
+    ok, failed, cancelled, interrupted, partial, kept_existing. Transcribe
+    warnings (gpu_fallback, word_align_error, forced_align_error) map to
+    partial. detail_state: the job_records column; "interrupted" marks a
+    row closed because its server stopped (jobs/job_store._close), which
+    is stored as cancelled but nobody cancelled it. job_id: tells a bulk
+    translation from the bulk review passes that share its result shape."""
+    if status == "error":
+        return "failed", (error or "The job failed.")
+    if status == "cancelled" and detail_state == "interrupted":
+        return "interrupted", (error or background_jobs.INTERRUPTED_MESSAGE)
+    if status == "cancelled":
+        return "cancelled", (error or "The job was cancelled.")
+    if status != "done":
+        return None, None
+    result = result if isinstance(result, dict) else {}
+    if result.get("failed_reason"):
+        return _failed_reason_outcome(result)
+    if result.get("status") in ("failed", "auth_error"):
+        return "failed", (result.get("last_error") or "The job failed.")
+    if result.get("status") == "cancelled":
+        # bulk_flag_/bulk_consistency_ run the same batch job and result.
+        return "cancelled", ("The bulk translation was cancelled."
+                             if str(job_id or "").startswith("bulk_translate_") or job_id is None
+                             else "The job was cancelled.")
+    if isinstance(result.get("bulk"), dict):
+        return _bulk_outcome(result["bulk"])
+    return _summary_outcome(result)
+
+
+def _failed_reason_outcome(result: dict) -> tuple:
+    reason = result["failed_reason"]
+    if reason == "cancelled":
+        return "cancelled", "The job was cancelled before it finished."
+    if reason == "empty_kept_existing":
+        count = result.get("existing_line_count")
+        return "kept_existing", (f"Nothing new was produced, so the existing {count} line(s) were kept."
+                                 if count is not None else
+                                 "Nothing new was produced, so the existing lines were kept.")
+    if reason == "no_text":
+        return "partial", NO_TEXT_MESSAGE
+    if reason == "no_lines":
+        skipped = speaker_skip_text(result)
+        return "partial", f"{NO_LINES_MESSAGE} {skipped}" if skipped else NO_LINES_MESSAGE
+    detail = result.get("detail")
+    msg = FAILED_REASON_MESSAGES.get(reason) or RESULT_ONLY_REASON_MESSAGES.get(reason, "The job did not finish.")
+    msg = f"{msg} {detail}" if detail else msg
+    if result.get("gpu_fallback"):
+        # A CPU rerun after a GPU crash that then failed: the crash is the first cause.
+        msg = f"{msg} Ran on CPU because the GPU wasn't available ({result['gpu_fallback']})."
+    return "failed", msg
+
+
+def _bulk_outcome(bulk: dict) -> tuple:
+    done = bulk.get("translated_count") or 0
+    failed = bulk.get("failed_count") or 0
+    skipped = bulk.get("skipped_count") or 0
+    unfinished = bulk.get("partial_count") or 0
+    parts = [f"Translated {done} title(s)."]
+    if unfinished:
+        parts.append(f"{unfinished} only partly translated.")
+    if failed:
+        parts.append(f"{failed} failed.")
+    if skipped:
+        parts.append(f"{skipped} skipped.")
+    if bulk.get("stopped"):
+        parts.append(f"{str(bulk['stopped']).rstrip('.')}.")
+    if bulk.get("cancelled"):
+        parts.insert(0, "The bulk translation was cancelled.")
+        return ("partial" if done or unfinished else "cancelled"), " ".join(parts)
+    if not failed and not skipped and not unfinished:
+        return "ok", " ".join(parts)
+    if unfinished and not done:
+        return "partial", " ".join(parts)
+    return ("partial" if done else "failed"), " ".join(parts)
+
+
+def _summary_outcome(result: dict) -> tuple:
+    errors = result.get("errors") or []
+    cap = result.get("cap_reached")
+    parts = []
+    if "fixed_count" in result:
+        parts.append(f"Fixed {result.get('fixed_count') or 0} of "
+                     f"{result.get('total_flagged') or 0} flagged line(s).")
+    if result.get("timing_skipped_count"):
+        n = result['timing_skipped_count']
+        parts.append(f"{n} timing {'flag' if n == 1 else 'flags'} skipped "
+                     "(fix them in the timing tools).")
+    kept = result.get("kept_your_edit")
+    if kept:
+        # A count from the re-segment and off-peak batch jobs, a list of line ids from the others.
+        count = len(kept) if isinstance(kept, list) else kept
+        parts.append(f"{count} line(s) edited while it ran kept your edit.")
+    if errors and result.get("translated_count") == 0:
+        # A run that stopped on its engine's errors before writing any English must not read as done.
+        return "failed", f"Nothing was translated. First problem: {errors[0]}"
+    if isinstance(cap, (int, float)) and not isinstance(cap, bool):
+        parts.append(f"Stopped at the spending cap after about ${cap:.2f}; finished work was kept.")
+    if errors:
+        parts.append(f"{len(errors)} problem(s), first: {errors[0]}")
+    stopped = result.get("stopped")
+    if stopped:
+        parts.append(f"{str(stopped).rstrip('.')}. Finished work was kept.")
+    if result.get("partial"):
+        parts.append("Only part of the work finished.")
+    warnings = _warning_parts(result)
+    parts.extend(warnings)
+    if result.get("judge_skipped"):
+        # The English is all there; only the optional engine check was cut short.
+        parts.append(str(result["judge_skipped"]))
+    if result.get("source_match_skipped"):
+        parts.append(str(result["source_match_skipped"]))
+    if result.get("track_waiting"):
+        parts.append(str(result["track_waiting"]))
+    if result.get("speaker_count_hint"):
+        # A suggestion, not a failure, so it doesn't make the outcome partial.
+        parts.append(str(result["speaker_count_hint"]))
+    if result.get("backend_fallback"):
+        # The run still produced speakers, so it stays "ok"; the sentence says why pyannote ran.
+        parts.append(str(result["backend_fallback"]))
+    fallbacks = [f for f in result.get("fallbacks") or [] if isinstance(f, dict)]
+    if fallbacks:
+        parts.append("Switched engine: " + ", ".join(
+            f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
+        parts.extend(dict.fromkeys(
+            engine_fallback.out_of_credit_notice(
+                str(f.get("from")), str(f.get("to")), f.get("to_model"),
+                handed_back=any(later.get("from") == f.get("to") and later.get("to") == f.get("from")
+                                for later in fallbacks[n + 1:]))
+            for n, f in enumerate(fallbacks) if f.get("reason") == engine_fallback.OUT_OF_CREDIT))
+    if cap is not None or errors or stopped or result.get("partial") or warnings:
+        return "partial", " ".join(parts)
+    return "ok", (" ".join(parts) or "Finished.")
+
+
+def _warning_parts(result: dict) -> list:
+    """Transcribe warnings: the job worked, but not the way the user asked,
+    so any of these makes the outcome partial, not ok."""
+    parts = []
+    if result.get("device_notice"):
+        parts.append(str(result["device_notice"]))
+    elif result.get("gpu_fallback"):
+        parts.append(f"Ran on CPU because the GPU wasn't available ({result['gpu_fallback']}).")
+    if result.get("word_align_error"):
+        parts.append("Splitting long lines by word timing failed; the original timings were kept "
+                     f"({result['word_align_error']}).")
+    if result.get("forced_align_error"):
+        parts.append("Qwen3 forced alignment failed; timings use the fallback alignment "
+                     f"({result['forced_align_error']}).")
+    if result.get("coverage_warning"):
+        parts.append(str(result["coverage_warning"]))
+    skipped_speakers = speaker_skip_text(result)
+    if skipped_speakers:
+        parts.append(skipped_speakers)
+    if result.get("flags_needing_recheck"):
+        parts.append("Some lines changed while the job ran, so their review flags "
+                     "weren't saved; recheck them.")
+    return parts
+
+
+# One entry per background_jobs.DRAMA_JOB_PREFIXES prefix (a test fails when
+# the two drift apart). Ids with no entry, or not scoped to a drama, are "other".
+JOB_KIND_BY_PREFIX = {
+    "translate_": "translate", "bulk_translate_": "translate",
+    "novel_glossary_": "translate", "lines_glossary_": "translate", "chapters_glossary_": "translate",
+    "spelling_suggest_": "translate",
+    "flag_": "review", "fixflag_": "review", "timingchk_": "review", "consistency_": "review",
+    "emotion_": "review", "notes_": "review", "bulk_consistency_": "review",
+    "bulk_emotion_": "review", "bulk_notes_": "review", "bulk_flag_": "review",
+    "transcribe_": "transcribe", "retranscribe_": "transcribe", "picsub_": "transcribe",
+    "autotune_": "transcribe", "sensevoice_": "transcribe", "comparetx_": "transcribe",
+    "speechcov_": "transcribe",
+    "diarize_": "transcribe", "ocrchapter_": "transcribe",
+    "resegment_": "align", "resplit_": "align", "retime_": "align", "resegpreview_": "align",
+    "dub_": "dub", "narration_": "dub", "audiobook_": "dub", "voiceref_": "dub",
+    "burned_video_": "export", "softsub_video_": "export",
+    "dubbed_video_": "export", "burnpreview_": "export",
+    "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
+    "extract_audio_": "import",
+    "scanlate_": "other", "restructure_": "other", "hardsub_reference_": "other",
+    "earmarks_": "other",
+}
+
+
+def job_kind(job_id) -> str:
+    """The kind of a job id, from the same exact-prefix-plus-digits rule
+    background_jobs.drama_id_of_job uses; "other" when it has no drama."""
+    job_id = str(job_id or "")
+    for prefix, kind in JOB_KIND_BY_PREFIX.items():
+        if job_id.startswith(prefix) and background_jobs.drama_id_of_job(job_id) is not None:
+            return kind
+    return "other"

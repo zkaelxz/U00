@@ -826,8 +826,8 @@ def _waiting_text(text) -> str:
     """The prefix, then the text with every link that starts with a scheme
     ("https://...") taken out and secrets redacted, cut to length last: a
     key cut in half by the limit would no longer match the redaction."""
-    from services import jobs_service
-    text = redact_secrets(jobs_service.URL_PATTERN.sub("[link removed]", str(text)))
+    from jobs import job_results
+    text = redact_secrets(job_results.URL_PATTERN.sub("[link removed]", str(text)))
     return WAITING_PREFIX + _tidy(text, _WAITING_MAX)
 
 
@@ -930,8 +930,8 @@ def _one_sentence(text):
     """The first sentence of `text`, scrubbed of keys, paths and addresses."""
     if not text:
         return None
-    from services import jobs_service
-    clean = redact_secrets(jobs_service.scrub_text(str(text)))
+    from jobs import job_results
+    clean = redact_secrets(job_results.scrub_text(str(text)))
     first = re.split(r"(?<=[.!?])\s", _tidy(clean, 400), maxsplit=1)[0]
     return _tidy(first, 160) or None
 
@@ -1120,7 +1120,7 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
                         with_errors=False, reason=None, waiting=None):
     """Record a job-ended event in the in-app list and queue a push for the
     configured channels. `waiting`: the waiting note a done job's result
-    left (jobs_service.waiting_note); the job then says "Waiting for you"
+    left (job_results.waiting_note); the job then says "Waiting for you"
     instead of "Finished". Never raises, never blocks on the network."""
     try:
         if status not in ("done", "error") or quiet_when_done(job_id, status):

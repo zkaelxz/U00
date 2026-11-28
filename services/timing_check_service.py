@@ -304,10 +304,10 @@ def get_timing_check(drama_id: int) -> dict:
         status = job.get("status")
         message = job.get("error") if status == "error" else job.get("message")
         # An error's text can carry a local path (a PermissionError names the sidecar's temp file).
-        from services import jobs_service
+        from jobs import job_results
         out.update(job_id=job_id_for(drama_id), status=status, progress=job.get("progress"),
-                   message=jobs_service.scrub_text(str(message)) if message else "",
-                   result=jobs_service.project_result(job.get("result")) if status == "done" else None)
+                   message=job_results.scrub_text(str(message)) if message else "",
+                   result=job_results.project_result(job.get("result")) if status == "done" else None)
     return out
 
 

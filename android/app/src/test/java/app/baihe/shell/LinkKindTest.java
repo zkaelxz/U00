@@ -19,6 +19,16 @@ public class LinkKindTest {
     }
 
     @Test
+    public void sitesThatChangeTheirNumberAreComicWhateverTheNumber() {
+        assertEquals(LinkKind.Kind.COMIC, LinkKind.of("https://marumaru113.com/webtoon/1284"));
+        assertEquals(LinkKind.Kind.COMIC, LinkKind.of("https://marumaru108.com/webtoon/1284"));
+        assertEquals(LinkKind.Kind.COMIC, LinkKind.of("https://newxtoon5.com/webtoon/1"));
+        assertEquals(LinkKind.Kind.COMIC, LinkKind.of("https://wfwf999.com/view?toon=1"));
+        assertEquals(LinkKind.Kind.NONE, LinkKind.of("https://notmarumaru113.com/"));
+        assertEquals(LinkKind.Kind.NONE, LinkKind.of("https://marumaru113.com.evil.example/"));
+    }
+
+    @Test
     public void anythingElseAndLookalikesAreNotOffered() {
         assertEquals(LinkKind.Kind.NONE, LinkKind.of("https://example.com/watch"));
         assertEquals(LinkKind.Kind.NONE, LinkKind.of("https://notyoutube.com/watch"));

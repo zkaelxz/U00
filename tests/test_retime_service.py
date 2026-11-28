@@ -16,7 +16,8 @@ import forced_align
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (jobs_service, ownership_service, restructure_service, retime_service as svc,
+from jobs import job_results
+from services import (restructure_service, retime_service as svc,
                       qwen3_requirements_service, transcribe_pipeline)
 from lib.errors import (ConflictError, DependencyUnavailableError,
                                      InvalidInputError, NotFoundError,
@@ -142,7 +143,7 @@ class TestJob:
         assert res["device"] == "GPU"
         assert [(l.start, l.zh, l.en, l.flag) for l in db.load_line_objects(did)][1] == (
             6.0, "原1", "en1", "check")
-        assert set(job["result"]) <= set(jobs_service.RESULT_ALLOWED_KEYS) | {"proposals"}
+        assert set(job["result"]) <= set(job_results.RESULT_ALLOWED_KEYS) | {"proposals"}
 
     def test_groups_split_on_gaps_and_language(self, _env):
         did, ids = _drama(5)
@@ -215,7 +216,7 @@ class TestJob:
                             lambda *a, **k: (_ for _ in ()).throw(boom))
         _, job = _run(did, ids)
         res = svc.get_retime_result(did)
-        projected = str(jobs_service.project_result(job["result"]))
+        projected = str(job_results.project_result(job["result"]))
         for text in (str(res), str(job["result"]), projected):
             assert "Users" not in text and "a.wav" not in text
         assert res["errors"] == ["lines 1-2: couldn't cut this part of the audio"]
@@ -437,7 +438,7 @@ class TestApi:
         assert applied.json() == {"applied": [ids[0]], "skipped": [], "overlapping": []}
         job = client.get(f"/api/jobs/{started.json()['job_id']}").json()
         assert "proposals" not in (job.get("result") or {})
-        assert ownership_service.drama_id_of_job(started.json()["job_id"]) == did
+        assert background_jobs.drama_id_of_job(started.json()["job_id"]) == did
 
     def test_apply_refuses_a_row_that_would_overlap_a_neighbour_as_it_stands(self, monkeypatch, _env):
         did, ids = _drama(2)
