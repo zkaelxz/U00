@@ -1,14 +1,23 @@
 import { useState } from 'react'
 
-import { coverUrl, makeCoverFromVideo, romanizeCredits, uploadCover } from '../../../api/metadata'
+import { coverUrl, makeCoverFromVideo, refreshCoverFromSite, romanizeCredits, uploadCover } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
 import { buttonClass } from '../../../components/uiClasses'
 import { useCanUpload, useHolds } from '../../../hooks/useHolds'
+import { isComicType } from '../../comic/comicLogic'
+import { CoverCropper } from './CoverCropper'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
+
+const SITE_COVER_NOTICE: Record<string, string> = {
+  fetched: 'Cover taken from the site.',
+  kept: 'The site gave no cover-shaped picture, so the cover stays.',
+  unreachable: "Couldn't reach the site.",
+  no_link: 'This title has no saved link to ask.',
+}
 
 /**
  * Romanize and cover upload inside Edit details (inventory P13, P14). Romanize asks the drama's
@@ -26,6 +35,8 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const [fileKey, setFileKey] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [cropping, setCropping] = useState(false)
   const [coverVersion, setCoverVersion] = useState(0)
   const [coverBroken, setCoverBroken] = useState(false)
   const [error, setError] = useState<unknown>(null)
@@ -90,6 +101,27 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
       },
       (e: unknown) => {
         setGrabbing(false)
+        setError(e)
+      },
+    )
+  }
+
+  const refreshFromSite = () => {
+    setRefreshing(true)
+    setError(null)
+    setNotice(null)
+    refreshCoverFromSite(dramaId).then(
+      (r) => {
+        setRefreshing(false)
+        if (r.outcome === 'fetched') {
+          setCoverBroken(false)
+          setCoverVersion(Date.now())
+          refetchDrama()
+        }
+        setNotice(SITE_COVER_NOTICE[r.outcome] ?? 'Done.')
+      },
+      (e: unknown) => {
+        setRefreshing(false)
         setError(e)
       },
     )
@@ -163,9 +195,37 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                     {grabbing ? 'Making cover…' : 'Make cover from video'}
                   </button>
                 </div>
+                {isComicType(drama.media_type) && (
+                  <div>
+                    <button type="button" className={buttonClass('ghost', 'sm')} disabled={refreshing} onClick={refreshFromSite}>
+                      {refreshing ? 'Asking the site…' : 'Refresh cover from site'}
+                    </button>
+                  </div>
+                )}
+                {drama.media_type !== 'novel' && (
+                  <div>
+                    <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCropping((c) => !c)}>
+                      {isComicType(drama.media_type) ? 'Pick a page and crop' : 'Pick a frame and crop'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
+          {cropping && canUpload && (
+            <CoverCropper
+              dramaId={dramaId}
+              source={isComicType(drama.media_type) ? 'comic' : 'video'}
+              onClose={() => setCropping(false)}
+              onSaved={(w, h) => {
+                setCropping(false)
+                setCoverBroken(false)
+                setCoverVersion(Date.now())
+                setNotice(`Cover saved (${w}×${h}).`)
+                refetchDrama()
+              }}
+            />
+          )}
           {notice && <p role="status">{notice}</p>}
           <ErrorBanner error={error} describe={{ pcOnly: true, reasonAsTitle: true }} onDismiss={() => setError(null)} />
         </div>

@@ -37,7 +37,7 @@ const SETTINGS: SourcesSettings = {
   session_break_min_delay: 30, session_break_max_delay: 90,
   cache_mode: 'keep_originals', cache_max_mb: 0, check_interval_hours: 24,
   auto_queue_new_chapters: false, demo_source_enabled: false, extraction_diagnostics: false,
-  proxy_configured: false, cache_modes: ['none', 'temporary', 'keep_originals'],
+  proxy_configured: false, cache_modes: ['none', 'temporary', 'keep_originals'], extension_sites: [],
   cache: { entries: 0, bytes: 0 },
 }
 

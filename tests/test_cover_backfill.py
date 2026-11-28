@@ -128,3 +128,132 @@ def test_a_failing_source_never_fails_the_import(isolated_db):
     did = db.create_drama(title_en="S", media_type="manhua")
     sources_import_service._fill_cover(Broken(), "s1", did)
     assert db.get_drama(did)["cover_art_filename"] is None
+
+
+def test_cover_url_comes_from_the_meta_tags_only():
+    html = ('<script>"og:image"</script><meta property="og:title" content="T">'
+            '<meta content="/c/s.jpg?a=1&amp;b=2" property="og:image">')
+    assert cover_art_service.cover_url_from_html(html, "https://site.example/series/1") == \
+        "https://site.example/c/s.jpg?a=1&b=2"
+    assert cover_art_service.cover_url_from_html('<meta name="twitter:image" content="javascript:x">', "https://s.example/") == ""
+    assert cover_art_service.cover_url_from_html("<p>none</p>", "https://s.example/") == ""
+
+
+def test_a_url_import_cover_prefers_the_page_picture(isolated_db, monkeypatch):
+    did = _comic()
+    from services import quick_read_fetch
+    seen = []
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, h, cap: (seen.append(url), (_png("green", (30, 30)), ""))[1])
+    url = cover_art_service.cover_url_from_html('<meta property="og:image" content="https://cdn.example/c.png">', "https://s.example/")
+    assert cover_art_service.fill_missing_cover(did, url, "https://s.example/") is True
+    assert seen == ["https://cdn.example/c.png"]
+
+
+class _Resp:
+    def __init__(self, content=b"", text=""):
+        self.content, self.text = content, text
+
+
+class _FakeClient:
+    """Stands in for the source's paced client: a page with an og:image, then the picture."""
+    source = "generic"
+
+    def __init__(self, picture=None, page="", fail=False):
+        self.picture, self.page, self.fail, self.requests = picture, page, fail, []
+
+    def get(self, url, **kw):
+        self.requests.append(url)
+        if self.fail:
+            raise RuntimeError("down")
+        return _Resp(content=self.picture or b"", text=self.page)
+
+
+_PAGE = '<meta property="og:image" content="https://cdn.example/c.png">'
+
+
+def _linked_comic(title, cover="auto"):
+    did = _comic(title=title)
+    if cover == "auto":
+        cover_art_service.make_cover_from_first_page(did)
+    elif cover == "own":
+        cover_art_service.save_cover(did, io.BytesIO(_png("white", (40, 60))))
+    db.update_drama(did, source_url="https://site.example/s")
+    return did
+
+
+def test_refresh_replaces_the_cover_through_the_paced_client(isolated_db):
+    did = _linked_comic("A")
+    client = _FakeClient(_png("yellow", (30, 45)), _PAGE)
+    assert cover_art_service.refresh_site_cover(did, client) == "fetched"
+    from PIL import Image
+    assert Image.open(cover_art_service.cover_file(did)[0]).size == (30, 45)
+    assert client.requests == ["https://site.example/s", "https://cdn.example/c.png"]
+
+
+def test_refresh_reports_what_happened_and_keeps_the_cover(isolated_db):
+    did = _linked_comic("A")
+    before = cover_art_service.cover_stamp(did)
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(page="<p>no picture</p>")) == "kept"
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(fail=True)) == "unreachable"
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(None, _PAGE)) == "unreachable"
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(_png("yellow", (90, 30)), _PAGE)) == "kept"
+    assert cover_art_service.cover_stamp(did) == before
+    bare = _comic(title="B")
+    assert cover_art_service.refresh_site_cover(bare, _FakeClient()) == "no_link"
+
+
+def test_the_bulk_pass_skips_a_chosen_cover_and_is_capped(isolated_db, monkeypatch):
+    auto = _linked_comic("Auto")
+    own = _linked_comic("Own", cover="own")
+    kept = cover_art_service.cover_stamp(own)
+    clients = []
+
+    def make(link):
+        clients.append(_FakeClient(_png("yellow", (30, 45)), _PAGE))
+        return clients[-1]
+    monkeypatch.setattr(cover_art_service, "paced_client", make)
+    cover_backfill_service.start_site_refresh()
+    status = wait_for_job(cover_backfill_service.SITE_JOB_ID)
+    assert status["result"] == {"checked": 1, "fetched": 1, "left": 0}
+    assert cover_art_service.cover_stamp(own) == kept
+    from PIL import Image
+    assert Image.open(cover_art_service.cover_file(auto)[0]).size == (30, 45)
+
+
+def test_a_title_whose_page_names_nothing_is_not_asked_again(isolated_db, monkeypatch):
+    did = _linked_comic("A")
+    monkeypatch.setattr(cover_art_service, "paced_client", lambda link: _FakeClient(page="<p>x</p>"))
+    cover_backfill_service.start_site_refresh()
+    wait_for_job(cover_backfill_service.SITE_JOB_ID)
+    assert did not in cover_backfill_service._site_candidates()
+
+
+def test_the_startup_pass_never_calls_a_site(isolated_db, monkeypatch):
+    _linked_comic("A")
+    monkeypatch.setattr(cover_art_service, "paced_client", lambda link: pytest.fail("a site was asked"))
+    cover_backfill_service.start_backfill()
+    wait_for_job(cover_backfill_service.JOB_ID)
+
+
+def test_a_landscape_site_picture_does_not_replace_page_one(isolated_db, monkeypatch):
+    from services import quick_read_fetch
+    did = _comic()
+    cover_art_service.make_cover_from_first_page(did)
+    before = cover_art_service.cover_stamp(did)
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, h, cap: (_png("yellow", (90, 30)), ""))
+    assert cover_art_service.fetch_site_cover(did, "https://cdn.example/logo.png", "", replace=True) is False
+    assert cover_art_service.cover_stamp(did) == before
+
+
+def test_the_refresh_route_answers_with_the_outcome(isolated_db, monkeypatch):
+    from api.api_config import ApiSettings
+    from api.server import create_app
+    from fastapi.testclient import TestClient
+    did = _linked_comic("A")
+    monkeypatch.setattr(cover_art_service, "paced_client",
+                        lambda link: _FakeClient(_png("yellow", (30, 45)), _PAGE))
+    api = TestClient(create_app(ApiSettings()), raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
+    r = api.post(f"/api/dramas/{did}/cover/from-site")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"drama_id": did, "outcome": "fetched"}
+    assert api.post("/api/dramas/9999/cover/from-site").status_code == 404
