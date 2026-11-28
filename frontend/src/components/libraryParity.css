@@ -43,3 +43,12 @@ a.cover-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .quick-group { display: flex; gap: var(--space-2); }
 .covers-switch { display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
 .covers-switch label { cursor: pointer; }
+/* View picker, Show covers and Select need about 425px; beside the docked menu at 660px they wrap rather than push
+   the page sideways. */
+.library-toolbar .toolbar-end { flex-wrap: wrap; justify-content: flex-end; max-width: 100%; row-gap: var(--space-2); }
+/* On a PC the grouping buttons wrap to a second line instead of hiding off the end of the row; a phone keeps the
+   sideways swipe. */
+@media (min-width: 641px) {
+  .quick-chips { flex-wrap: wrap; overflow-x: visible; }
+  .quick-group { flex-wrap: wrap; }
+}

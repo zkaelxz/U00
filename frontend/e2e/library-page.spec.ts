@@ -412,6 +412,9 @@ test('the shelf waits for the Library list instead of showing Open, and a search
   const mock = await mockShelf(page, () => 0)
   const list = gate()
   mock.holdList = list.shut
+  // The count stays unanswered, so Signal's button reads "Check the lines" for as long as the test looks at it,
+  // rather than turning into Export as soon as a zero count lands.
+  mock.holdCount = gate().shut
   const continued = page.waitForResponse('**/api/library/continue')
   const recent = page.waitForResponse('**/api/library/recent')
   await page.goto('/')
