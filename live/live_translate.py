@@ -120,6 +120,9 @@ class SegmentCapture:
     def ended_live(self):
         return self.pump.ended_live
 
+    def settle(self):
+        self.pump.settle()
+
 
 def start_segment_capture(source_url: str, out_dir: str, segment_seconds: int = 20,
                            sample_rate: int = 16000, proxy: str | None = None,
@@ -903,6 +906,10 @@ class _LiveRun(ChunkCaptioner):
             if watched is not self.player:
                 self._set_player(watched)
             code = proc.poll()
+            if self.captured_any and hasattr(proc, "settle"):
+                # A break now reconnects rather than ending the session, so the
+                # fetcher may notice a dead link sooner (live_fetch.SETTLED_*).
+                proc.settle()
             if getattr(proc, "ended_live", False):
                 self._ended("Capture stopped: the stream is no longer live.")
                 return True
