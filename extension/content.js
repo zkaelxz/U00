@@ -302,7 +302,8 @@
 
   // A picture of the tab, cropped to the page element. Hidden Baihe boxes and the capture chip keep
   // their own drawing out of the picture. It sees only what is on screen, so a page taller than the
-  // window is refused rather than cut. The browser allows about two tab pictures a second.
+  // window is stitched from several pictures and one wider than it is refused. The browser allows
+  // about two tab pictures a second.
   const SCREENSHOT_GAP_MS = 600;
   let screenshotAsked = { at: 0, on: false };
 
