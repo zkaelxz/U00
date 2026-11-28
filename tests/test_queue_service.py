@@ -273,6 +273,28 @@ def test_restart_marks_the_running_item_interrupted_and_runs_nothing(jobs):
     assert _items()[0]["status"] == "waiting"
 
 
+def test_restart_logs_each_interrupted_item_once(jobs, monkeypatch):
+    from tests.test_jobs_store import app_log_lines
+    logged = app_log_lines(monkeypatch, "Interrupted queue item")
+    a, b, c = _drama("A"), _drama("B"), _drama("C")
+    q.add_item(None, a, "transcribe", True, at_pc=True)
+    q.add_item(None, c, "transcribe", True, at_pc=True)
+    q.start(None)
+    q.tick()
+    q._append_items(None, b, [("transcribe", {})], True, now=True)
+    first, _, second = (i["id"] for i in _items())
+    db.save_job_record(f"transcribe_{a}", "cancelled", error=background_jobs.INTERRUPTED_MESSAGE)
+    q.restore_at_startup()
+    q.restore_at_startup()
+    assert logged == [
+        f"Interrupted queue item {first} (transcribe, title #{a}): was running (job transcribe_{a}) "
+        "when Baihe stopped; marked interrupted, left for the person to press Retry.",
+        f"Interrupted queue item {second} (transcribe, title #{b}): was due to start, not started "
+        "when Baihe stopped; marked interrupted, left for the person to press Retry.",
+    ]
+    assert [i["status"] for i in _items()] == ["interrupted", "waiting", "interrupted"]
+
+
 def test_restart_marks_a_passed_schedule_missed_and_never_runs_it(jobs):
     did = _drama()
     now = 1_900_000_000.0

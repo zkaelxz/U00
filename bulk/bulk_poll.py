@@ -27,7 +27,7 @@ POLL_INTERVAL_SECONDS = 60
 
 
 def poll_job_id(bulk_job_id: int) -> str:
-    return f"bulkpoll_{bulk_job_id}"
+    return f"{background_jobs.BULK_POLL_JOB_PREFIX}{bulk_job_id}"
 
 
 def _polled_by_outer_job(job: dict) -> bool:

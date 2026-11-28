@@ -327,9 +327,14 @@ def stop_side_jobs(drama_id, wait_seconds: float = SIDE_JOB_STOP_SECONDS) -> boo
 CANCELLING_MESSAGE = "Cancelling... (finishes the current step first)"
 # A queued/running job_records row whose owner process is gone (closed by
 # services/jobs_service.py's sweep, at startup and on every job list).
-INTERRUPTED_MESSAGE = "Interrupted: Baihe restarted while this was running."
+# Nothing restarts such a job (a bulk batch's poll, which auto-resume may
+# start again, takes over the row under the same id), so the message says so.
+_NOT_RESTARTED = " It was not started again: run it again from its page."
+INTERRUPTED_MESSAGE = "Interrupted: Baihe restarted while this was running." + _NOT_RESTARTED
 # A job the clean stop itself cancelled (Stop Baihe, closing its window).
-STOPPED_MESSAGE = "Interrupted: Baihe was stopped while this was running."
+STOPPED_MESSAGE = "Interrupted: Baihe was stopped while this was running." + _NOT_RESTARTED
+# bulk/bulk_poll.poll_job_id: the one job a startup can start again on its own.
+BULK_POLL_JOB_PREFIX = "bulkpoll_"
 
 
 def owner_process_alive(pid) -> bool:
