@@ -132,7 +132,7 @@ body:has(> #root > .app-shell.has-rail) { max-width: none; padding: 0; }
   transition: none;
 }
 .app-shell.has-rail.is-docked { --page-inset-left: calc(14.4rem + var(--space-4)); }
-/* The docked open menu, left or right (SideNav.tsx sets .is-listed): labelled rows, each with a small muted icon like the approved mock. The current page is one
+/* The docked open menu, left or right (SideNav.tsx sets .is-listed): labelled rows, each with a small muted icon so a row can be found by its picture as well as its word. The current page is one
    highlighted row and the open title is a row of its own under Library. Floating, minimized, top and bottom show icons only until opened. */
 .app-rail.is-listed { padding: 18px 12px; gap: 2px; }
 .app-rail.is-listed nav { gap: 0; }
