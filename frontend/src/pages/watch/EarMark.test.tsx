@@ -16,9 +16,9 @@ const line: ReviewLine = {
 
 describe('EarMark', () => {
   it('names the ear for a screen reader and shows the arrow', () => {
-    expect(renderToStaticMarkup(<EarMark side="left" />)).toContain('aria-label="left ear"')
+    expect(renderToStaticMarkup(<EarMark side="left" />)).toContain('aria-label="Left ear"')
     expect(renderToStaticMarkup(<EarMark side="left" />)).toContain('◀')
-    expect(renderToStaticMarkup(<EarMark side="right" />)).toContain('aria-label="right ear"')
+    expect(renderToStaticMarkup(<EarMark side="right" />)).toContain('aria-label="Right ear"')
     expect(renderToStaticMarkup(<EarMark side={null} />)).toBe('')
   })
 
@@ -27,7 +27,7 @@ describe('EarMark', () => {
       <NowCard line={line} ear="right" sourceLanguage="ja" canEdit={false} fix={null} busy={false} status=""
         onOpen={vi.fn()} onDraft={vi.fn()} onSave={vi.fn()} onCancel={vi.fn()} onAgain={vi.fn()} />,
     )
-    expect(html).toContain('aria-label="right ear"')
+    expect(html).toContain('aria-label="Right ear"')
   })
 
   it('maps marks by line id, only once they are current', () => {
