@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { NO_ZOOM } from './comicLogic'
-import { panelIndexFor, panelStep, panelZoom, PANEL_START, untransformed, visiblePart } from './panelLogic'
+import { arriveAt, panelIndexFor, panelStep, panelZoom, PANEL_START, visiblePart } from './panelLogic'
 
 describe('panel stepping', () => {
   it('starts a page on its first panel', () => {
@@ -21,18 +21,29 @@ describe('panel stepping', () => {
     // Still on the page while it turns: no panel is forced back on.
     expect(panelIndexFor(at, 3, 3)).toBeNull()
     // The next page opens on its first panel.
-    expect(panelIndexFor(at, 4, 5)).toBe(0)
+    expect(panelIndexFor(arriveAt(at, 4), 4, 5)).toBe(0)
   })
 
   it('going back from the first panel opens the earlier page on its last panel', () => {
     const at = panelStep(4, 0, 3, -1)
     expect(at.leaving).toBe(-1)
-    expect(panelIndexFor(at, 3, 5)).toBe(4)
+    expect(panelIndexFor(arriveAt(at, 3), 3, 5)).toBe(4)
   })
 
-  it('a jump forward after going back still opens on the first panel', () => {
-    const at = panelStep(4, 0, 3, -1)
-    expect(panelIndexFor(at, 9, 5)).toBe(0)
+  it('a backward jump after a back step opens on the first panel', () => {
+    // Back off page 5's first panel lands on page 4's last; Home from there opens page 1 on its first.
+    const landed = arriveAt(panelStep(5, 0, 3, -1), 4)
+    expect(panelIndexFor(landed, 4, 3)).toBe(2)
+    expect(panelIndexFor(arriveAt(landed, 1), 1, 3)).toBe(0)
+  })
+
+  it('a jump forward after going back opens on the first panel', () => {
+    expect(panelIndexFor(arriveAt(panelStep(4, 0, 3, -1), 9), 9, 5)).toBe(0)
+  })
+
+  it('coming back to a page that was being left shows its first panel, not the whole page', () => {
+    const onNext = arriveAt(panelStep(3, 2, 3, 1), 4)
+    expect(panelIndexFor(arriveAt(onNext, 3), 3, 3)).toBe(0)
   })
 
   it('keeps an index that the page no longer has inside its panels', () => {
@@ -66,15 +77,6 @@ describe('panel zoom', () => {
   it('ignores an empty panel or view', () => {
     expect(panelZoom({ x: 0, y: 0, w: 0, h: 0.5 }, image, view, box)).toEqual(NO_ZOOM)
     expect(panelZoom({ x: 0, y: 0, w: 0.5, h: 0.5 }, image, { ...view, h: 0 }, box)).toEqual(NO_ZOOM)
-  })
-
-  it('measures through the zoom already on the stage', () => {
-    expect(untransformed({ x: 110, y: 220, w: 300, h: 400 }, { x: 10, y: 20 }, { scale: 2, x: -100, y: -200 })).toEqual({
-      x: 100,
-      y: 200,
-      w: 150,
-      h: 200,
-    })
   })
 
   it('keeps only the part of the stage that is in the window', () => {

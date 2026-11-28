@@ -279,7 +279,7 @@ export default function ComicPage({ id, page: routePage }: { id: number; page: n
     (p: ComicPageInfo) => comicImageUrl(id, p.id, prefs.typeset && p.has_rendered && !original.originals.has(p.id) ? 'rendered' : 'original', p.image_version, lowData.active ? 'low' : 'reader'),
     [id, prefs.typeset, original.originals, lowData.active],
   )
-  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current)
+  const { spreads, spread, label: spreadCounter, pagerLabel } = useSpreads(prefs, visible, pages, current, true)
   const { paged, rtl, chrome, forbidden, figureRef, figures, onProblem, zoom, act, step, panels } = usePagedReader({ stageRef, pages, prefs, current, count, go, srcFor, spreads, panelsFor: id })
 
   usePageJump({

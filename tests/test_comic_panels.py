@@ -103,6 +103,69 @@ def test_the_answer_is_kept_until_the_file_changes(client, page, monkeypatch):
     client.get(_url(d, p))
     client.get(_url(d, p, "?rtl=true"))
     assert len(calls) == 1
+    import db
+    path = os.path.join(db.drama_dir(d), "pages", "page_0000.png")
+    _page_png(path)
+    later = os.stat(path).st_mtime + 5
+    os.utime(path, (later, later))
+    assert len(client.get(_url(d, p)).json()["panels"]) == 4
+    assert len(calls) == 2
+
+
+def test_a_page_whose_file_is_too_large_is_never_decoded(client, page, monkeypatch):
+    import db
+    from scanlate import scanlate_page_decode
+    from services import comic_panels_service
+    d, p = page("zh")
+    # The stored size says small; the file's header says otherwise.
+    db.update_page(p, width=10, height=10)
+    monkeypatch.setattr(comic_panels_service, "_MAX_PIXELS", W * H - 1)
+    monkeypatch.setattr(scanlate_page_decode, "decode_page", lambda path: pytest.fail("decoded a page over the cap"))
+    r = client.get(_url(d, p))
+    assert r.status_code == 200 and r.json()["panels"] == []
+
+
+def test_the_cache_keeps_only_the_newest_pages(tmp_path, monkeypatch):
+    from services import comic_panels_service as svc
+    monkeypatch.setattr(svc, "_CACHE_SIZE", 2)
+    monkeypatch.setattr(svc, "_cache", type(svc._cache)())
+    monkeypatch.setattr(svc, "_find_panels", lambda path: (10, 10, []))
+    files = []
+    for n in range(3):
+        f = tmp_path / f"p{n}.png"
+        f.write_bytes(b"x")
+        files.append((str(f), os.stat(f)))
+        svc._cached_panels(*files[-1])
+    assert [k[0] for k in svc._cache] == [files[1][0], files[2][0]]
+
+
+def test_a_missing_install_is_asked_again(tmp_path, monkeypatch):
+    from services import comic_panels_service as svc
+    monkeypatch.setattr(svc, "_cache", type(svc._cache)())
+    answers = [svc._Unavailable(), (10, 10, [])]
+
+    def find(path):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+    monkeypatch.setattr(svc, "_find_panels", find)
+    f = tmp_path / "p.png"
+    f.write_bytes(b"x")
+    assert svc._cached_panels(str(f), os.stat(f)) is None
+    assert svc._cached_panels(str(f), os.stat(f)) == (10, 10, [])
+
+
+def test_a_page_opencv_cannot_handle_is_empty_not_an_error(client, page, monkeypatch):
+    cv2 = pytest.importorskip("cv2")
+    from scanlate import scanlate_panels
+
+    def broken(*a, **k):
+        raise cv2.error("bad page")
+    monkeypatch.setattr(scanlate_panels, "detect_panels", broken)
+    d, p = page("zh")
+    r = client.get(_url(d, p))
+    assert r.status_code == 200 and r.json()["panels"] == []
 
 
 def test_another_titles_page_is_404(client, page):
@@ -110,3 +173,32 @@ def test_another_titles_page_is_404(client, page):
     other, _ = page("ja")
     assert client.get(_url(other, p)).status_code == 404
     assert client.get(_url(9999, p)).status_code == 404
+
+
+def test_no_more_than_two_pages_are_decoded_at_once(tmp_path, monkeypatch):
+    import threading
+    import time
+    from services import comic_panels_service as svc
+    running, most, lock = [0], [0], threading.Lock()
+
+    def slow(path):
+        with lock:
+            running[0] += 1
+            most[0] = max(most[0], running[0])
+        time.sleep(0.1)
+        with lock:
+            running[0] -= 1
+        return (10, 10, [])
+    monkeypatch.setattr(svc, "_find_panels", slow)
+    monkeypatch.setattr(svc, "_cache", type(svc._cache)())
+    files = []
+    for n in range(6):
+        f = tmp_path / f"p{n}.png"
+        f.write_bytes(b"x")
+        files.append((str(f), os.stat(f)))
+    threads = [threading.Thread(target=svc._cached_panels, args=pf) for pf in files]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert most[0] == 2

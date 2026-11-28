@@ -70,7 +70,14 @@ function ViewForm({ prefs, onChange, canTypeset, phone, autoScroll, lowData, onL
       )}
       <div className="toggle-list">
         {prefs.mode === 'paged' && panels && (
-          <Field label="Panel by panel" help="Each tap zooms to the next panel, then turns the page. Pages without clear panel borders, and two pages side by side, show whole.">
+          <Field
+            label="Panel by panel"
+            help={
+              panels.on && prefs.spread === 'double'
+                ? 'Double page is set to always two pages, so pages show whole in pairs. Set it to Automatic to read panel by panel.'
+                : 'Each tap zooms to the next panel, then turns the page. One page shows at a time; a page without clear panel borders shows whole.'
+            }
+          >
             <Toggle checked={panels.on} onChange={panels.onChange} />
           </Field>
         )}

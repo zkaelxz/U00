@@ -15,6 +15,9 @@ _CACHE_SIZE = 256
 
 _cache: "OrderedDict[tuple, tuple | None]" = OrderedDict()
 _cache_lock = threading.Lock()
+# A full decode holds a few hundred MB at the pixel cap; a chapter opened by several readers
+# (or a burst of requests) must not run that many at once on the PC.
+_DECODE_SLOTS = threading.BoundedSemaphore(2)
 
 
 def _stored_file(drama_id: int, page: dict):
@@ -30,36 +33,71 @@ def _skipped(page: dict) -> bool:
     return w > 0 and h > 0 and (h >= w * _STRIP_RATIO or w * h > _MAX_PIXELS)
 
 
+class _Unavailable(Exception):
+    """Pillow or OpenCV is missing. Not cached, so an install made while the app runs is
+    used on the next request."""
+
+
+def _cv2_errors() -> tuple:
+    try:
+        import cv2
+    except ImportError:
+        return ()
+    return (cv2.error,)
+
+
 def _find_panels(path: str):
-    """(page width, page height, panel boxes in pixels), or None when the page can't be read."""
+    """(page width, page height, panel boxes in pixels), or None when the page can't be read or
+    is too large. Raises _Unavailable."""
     try:
         from PIL import Image
         from scanlate.scanlate_page_decode import decode_page
         from scanlate.scanlate_panels import detect_panels
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise _Unavailable from exc
+    bad_page = (ValueError, OSError, MemoryError, Image.DecompressionBombError) + _cv2_errors()
     try:
-        image = decode_page(path)
-        if image.shape[0] * image.shape[1] > _MAX_PIXELS:
+        # The stored size can be wrong; the file's own header is read before any decode.
+        with Image.open(path) as opened:
+            w, h = opened.size
+        if w * h > _MAX_PIXELS:
             return None
+        image = decode_page(path)
         boxes = detect_panels(path, image=image)
-    # cv2 is imported inside detect_panels, so a missing install is an ImportError here too.
-    except (ImportError, ValueError, OSError, Image.DecompressionBombError):
+    # cv2 is imported inside detect_panels.
+    except ImportError as exc:
+        raise _Unavailable from exc
+    except bad_page:
         return None
     return image.shape[1], image.shape[0], boxes
 
 
-def _cached_panels(path: str, st):
-    key = (path, st.st_mtime_ns, st.st_size)
+def _cache_get(key):
     with _cache_lock:
         if key in _cache:
             _cache.move_to_end(key)
-            return _cache[key]
-    found = _find_panels(path)
-    with _cache_lock:
-        _cache[key] = found
-        while len(_cache) > _CACHE_SIZE:
-            _cache.popitem(last=False)
+            return True, _cache[key]
+    return False, None
+
+
+def _cached_panels(path: str, st):
+    key = (path, st.st_mtime_ns, st.st_size)
+    hit, found = _cache_get(key)
+    if hit:
+        return found
+    with _DECODE_SLOTS:
+        # Another request may have found this page while this one waited.
+        hit, found = _cache_get(key)
+        if hit:
+            return found
+        try:
+            found = _find_panels(path)
+        except _Unavailable:
+            return None
+        with _cache_lock:
+            _cache[key] = found
+            while len(_cache) > _CACHE_SIZE:
+                _cache.popitem(last=False)
     return found
 
 

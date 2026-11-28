@@ -91,16 +91,17 @@ export function usePagedReader({ stageRef, pages, prefs, current, count, go, src
     [rtl, paged, advance],
   )
   const zoom = useZoom(stageRef, onTap, `${prefs.mode}:${paged ? current : ''}:${prefs.fit}`)
+  const shownPage = current !== null ? (pages[current - 1] ?? null) : null
   const panels = usePanels({
     dramaId: panelsFor,
     single: paged && !spreads,
     rtl,
-    page: current !== null ? (pages[current - 1] ?? null) : null,
+    page: shownPage,
     current,
     stageRef,
     figures,
-    zoom: zoom.zoom,
     zoomTo: zoom.zoomTo,
+    layoutKey: `${prefs.fit}:${shownPage ? srcFor(shownPage) : ''}`,
   })
   useEffect(() => {
     panelTurn.current = panels.step
