@@ -58,6 +58,30 @@ export const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
+/** What an untouched separate-vocals switch shows for a title that never chose: the default of the
+ * model now in the form, so a model change does not leave the previous model's default on screen
+ * (the rule is effective_separate_vocals in services/transcribe_options_service.py). */
+export const defaultSeparateVocals = (
+  c: Pick<TranscribeConfig, 'separates_on_breeze_by_default'>,
+  f: Pick<ConfigForm, 'whisper_size' | 'asr_backend_choice' | 'use_groq'>,
+): boolean =>
+  !!c.separates_on_breeze_by_default && f.whisper_size === 'breeze-asr-25' && f.asr_backend_choice === 'whisper' && !f.use_groq
+
+/** Whether the separate-vocals switch goes in a save: sending an untouched one for a title that never
+ * chose would make the default shown a choice the title keeps after a later model change. */
+export const sendsSeparateVocals = (c: Pick<TranscribeConfig, 'separate_vocals_chosen'>, touched: boolean): boolean =>
+  !!c.separate_vocals_chosen || touched
+
+export function withoutUntouchedSeparateVocals(
+  update: TranscribeConfigUpdate,
+  c: Pick<TranscribeConfig, 'separate_vocals_chosen'>,
+  touched: boolean,
+): TranscribeConfigUpdate {
+  if (sendsSeparateVocals(c, touched)) return update
+  const { separate_vocals_first: _untouched, ...rest } = update
+  return rest
+}
+
 // Display names for the Advanced backend choices (the option value stays raw).
 const OPTION_LABELS: Record<string, string> = {
   whisper_diff: 'Whisper (diff)',

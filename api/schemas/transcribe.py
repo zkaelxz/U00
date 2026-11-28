@@ -217,6 +217,10 @@ class TranscribeConfig(BaseModel):
     # Shortest silence between words at which a long line may be cut.
     min_pause_sec: float
     separate_vocals_first: bool
+    # False while the title follows the model's default, which the form then follows too.
+    separate_vocals_chosen: bool = False
+    # That default on Breeze-ASR-25 with local Whisper (GPU, separation pack and model ready); every other model's is Off.
+    separates_on_breeze_by_default: bool = False
     separation_backend: str
     realign_long_segments: bool
     whisper_fast_mode: bool

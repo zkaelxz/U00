@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TranscribeConfig } from '../../../types/workspace'
-import { formFromConfig, promptSummary, switchesSummary, type ConfigForm } from './transcribeConfigForm'
+import type { TranscribeConfig, TranscribeConfigUpdate } from '../../../types/workspace'
+import {
+  defaultSeparateVocals, formFromConfig, promptSummary, switchesSummary, withoutUntouchedSeparateVocals, type ConfigForm,
+} from './transcribeConfigForm'
 
 const off = {
   separate_vocals_first: false, realign_long_segments: false, whisper_fast_mode: false, split_by_sentences: false,
@@ -62,5 +64,27 @@ describe('formFromConfig', () => {
 
   it('carries the saved choice', () => {
     expect(formFromConfig({ ...saved, difficult_audio: true }).difficult_audio).toBe(true)
+  })
+})
+
+describe('the separate-vocals switch for a title that never chose', () => {
+  const update = { whisper_size: 'large-v3', separate_vocals_first: true } as TranscribeConfigUpdate
+
+  it('is left out of the save while untouched, so the title keeps following the model', () => {
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: false }, false)).toEqual({ whisper_size: 'large-v3' })
+  })
+
+  it('is sent once touched, or when the title already chose', () => {
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: false }, true)).toEqual(update)
+    expect(withoutUntouchedSeparateVocals(update, { separate_vocals_chosen: true }, false)).toEqual(update)
+  })
+
+  it('shows the default of the model in the form: On only for Breeze on local Whisper when it is ready', () => {
+    const breeze = { whisper_size: 'breeze-asr-25', asr_backend_choice: 'whisper', use_groq: false }
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, breeze)).toBe(true)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: false }, breeze)).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, whisper_size: 'large-v3' })).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, use_groq: true })).toBe(false)
+    expect(defaultSeparateVocals({ separates_on_breeze_by_default: true }, { ...breeze, asr_backend_choice: 'qwen3_asr' })).toBe(false)
   })
 })

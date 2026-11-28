@@ -57,7 +57,7 @@ import { AutoTune } from './AutoTune'
 import { MediaTabPanel } from './MediaTabPanel'
 import { TranscribeAdvanced } from './TranscribeAdvanced'
 import { useTranscribeForm } from './useTranscribeForm'
-import { formFromConfig, toUpdate, type ConfigForm } from './transcribeConfigForm'
+import { formFromConfig, toUpdate, withoutUntouchedSeparateVocals, type ConfigForm } from './transcribeConfigForm'
 import { NovelFilePanel } from './NovelFilePanel'
 import { startAsNovel } from './novelSetup'
 import { useNovelFilesVersion } from './novelFileEvents'
@@ -174,7 +174,7 @@ export default function TranscribeStage({
     },
   })
   const {
-    config, setConfig, cf, setCf, language, setLanguage, script, setScript, transcriptText, setTranscriptText,
+    config, setConfig, cf, setCf, setSeparateTouched, language, setLanguage, script, setScript, transcriptText, setTranscriptText,
     runDiarize, setRunDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, diar,
     overwriteManual, setOverwriteManual, overwriteAck, setOverwriteAck, resetUndo, resetToDefaults,
   } = form
@@ -267,6 +267,7 @@ export default function TranscribeStage({
     setSaved(false)
     setFieldProblem(null)
     if (k === 'whisper_size') setSwitchedNotice(null)
+    if (k === 'separate_vocals_first') setSeparateTouched(true)
     setCf((s) => (s ? { ...s, [k]: v } : s))
   }
 
@@ -315,10 +316,12 @@ export default function TranscribeStage({
   // A staged file that Replace is not ticked for is not part of this run: the stored media is transcribed.
   const uploadFile = file && !replaceUnconfirmed ? file : null
 
+  const formUpdate = (f: ConfigForm, c: TranscribeConfig) =>
+    withoutUntouchedSeparateVocals(withoutUntouchedBackend(toUpdate(f), c.asr_backend_choice), c, form.separateTouched)
   // Validates the options; null means "ok" (problem is set otherwise).
   const checkConfig = (): TranscribeConfigUpdate | null => {
     if (!cf) return null
-    const update = config ? withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice) : toUpdate(cf)
+    const update = config ? formUpdate(cf, config) : toUpdate(cf)
     const bad = validateConfig(update)
     setProblem(bad)
     return bad ? null : update
@@ -331,6 +334,8 @@ export default function TranscribeStage({
     setSaved(true)
     setSavedBefore(true)
     setConfig(c)
+    // What the server kept is now the switch's state: a value it did not save follows the default again.
+    setSeparateTouched(false)
     // The title's own language may have changed with this save.
     refetchDrama()
   }
@@ -338,7 +343,7 @@ export default function TranscribeStage({
   const runSettingsUnsaved = !!config && !!cf && (
     runChoicesUnsaved(runChoices(), script, config, defaultLanguage)
     || (() => {
-      const update = withoutUntouchedBackend(toUpdate(cf), config.asr_backend_choice)
+      const update = formUpdate(cf, config)
       const savedOptions = toUpdate(formFromConfig(config))
       return (Object.keys(update) as (keyof TranscribeConfigUpdate)[]).some((k) => update[k] !== savedOptions[k])
     })()

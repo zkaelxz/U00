@@ -34054,8 +34054,18 @@ export interface components {
              * @default normal
              */
             sensitivity_preset: string;
+            /**
+             * Separate Vocals Chosen
+             * @default false
+             */
+            separate_vocals_chosen: boolean;
             /** Separate Vocals First */
             separate_vocals_first: boolean;
+            /**
+             * Separates On Breeze By Default
+             * @default false
+             */
+            separates_on_breeze_by_default: boolean;
             /** Separation Backend */
             separation_backend: string;
             /**
