@@ -304,7 +304,9 @@ class TestThePopupSaysWherePagesWent:
     def test_the_options_page_says_it_talks_only_to_the_server_set_there(self):
         options = _read("options.html")
         assert "The extension talks only to the Baihe server set below." in options
-        assert "this computer" not in options
+        # Only the address hint may speak of "this computer": the extension can talk to another one.
+        assert "this computer" not in options.split("<label")[0]
+        assert "Leave empty for Baihe on this computer" in options
 
     def test_opening_the_link_needs_no_new_permission(self, manifest):
         assert "tabs" not in manifest["permissions"]

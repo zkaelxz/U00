@@ -283,3 +283,10 @@ def test_without_opencc_matching_is_exact(monkeypatch):
         assert glossary_check.required_terms("对啊霸总", TestEitherChineseScript.BOSS) == []
     finally:
         llm_feature_prompts._script_spellings.cache_clear()
+
+
+def test_the_glossary_re_ask_saves_no_em_dashes():
+    engine = ScriptedEngine({10: "Shirokami Buki came.", 11: "Nice weather.", 12: "Hi Fubuki."},
+                            {10: "Shirakami Fubuki—came.", 12: "Hello, Shirakami Fubuki."})
+    lines = _run(engine, _lines())[0]
+    assert lines[0].en == "Shirakami Fubuki, came."

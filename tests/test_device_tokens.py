@@ -563,6 +563,8 @@ class TestRequireDeviceToken:
         db.auth_revoke_permission(u["id"], "extension.send")   # bypasses the revoke hook
         r = _bridge().get("/api/bridge/ping", headers=_bearer(tok))
         assert r.status_code == 403 and r.json()["error"]["code"] == "forbidden"
+        # Grab shows this text as it is, so it names the right to ask for.
+        assert "'Browser extension and Baihe Grab'" in r.json()["error"]["message"]
 
     def test_post_needs_no_csrf_but_the_token(self, isolated_db):
         u, _ = _member()

@@ -7,6 +7,7 @@ import re
 from collections import deque
 
 import background_jobs
+from en_cleanup import drop_em_dashes
 from engine_backends.translation_guard import LEFTOVER_SOURCE, source_script_share, unusable_reply
 
 # Enough to resolve a pronoun or a running topic; more only slows a local model.
@@ -103,6 +104,7 @@ class CueTranslator:
             raise
         except Exception as exc:
             return f"[translation failed: {redact_secrets(str(exc))}]"
+        translated = drop_em_dashes(translated)
         self._remember(text, translated)
         return translated
 
@@ -151,8 +153,8 @@ class CueTranslator:
         for pos, (text, translated) in enumerate(zip(texts, replies)):
             if isinstance(translated, str) and translated.strip() \
                     and not _shifted(pos, texts, replies):
-                found[pos] = translated
-                self._remember(text, translated)
+                found[pos] = drop_em_dashes(translated)
+                self._remember(text, found[pos])
         return found
 
     def _before(self) -> None:

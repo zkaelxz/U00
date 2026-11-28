@@ -131,8 +131,17 @@ test('on Ollama it says the three runs will match', async ({ page }) => {
     const real = await route.fetch()
     return route.fulfill({ response: real, json: { ...(await real.json()), translation_engine: 'ollama' } })
   })
+  const estimateUrls: string[] = []
+  await page.route('**/api/translate-run/dramas/3/estimate?*', async (route) => {
+    estimateUrls.push(route.request().url())
+    const real = await route.fetch()
+    return route.fulfill({ response: real, json: { ...(await real.json()), estimated_usd: 0.1, alignment_check_usd: 0.02 } })
+  })
 
   await page.goto('/#/drama/3/review')
   await openFoldFor(page, 'Run 3 times, review differences')
   await expect(page.getByTestId('three-run-same')).toContainText('the three runs will almost always agree')
+  // Priced like the runs: their Style, and the source match check after each of the three.
+  await expect(page.getByTestId('three-run-estimate')).toContainText('3 runs, estimate $0.36')
+  expect(new URL(estimateUrls.at(-1)!).searchParams.get('style_preset')).toBeTruthy()
 })
