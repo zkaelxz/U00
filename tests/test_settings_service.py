@@ -220,3 +220,19 @@ def test_choosing_auto_off_does_not_bring_a_lapsed_switch_back(isolated_db, choi
     settings_service.set_settings({"remote_uploads_auto_off": choice})
     assert settings_service.remote_uploads_on() is False
     assert settings_service.remote_uploads_on(time.time() + 365 * 86400) is False
+
+
+def test_a_legacy_switch_reports_the_seven_day_limit_it_still_has(isolated_db):
+    import db
+    db.set_app_setting("remote_uploads", True)
+    db.set_app_setting("remote_uploads.since", time.time())
+    assert settings_service.get_settings_overview()["remote_uploads_auto_off"] is True
+
+
+def test_an_unreadable_auto_off_row_keeps_the_seven_day_lapse(isolated_db):
+    import db
+    on_at = time.time() - 8 * 86400
+    db.set_app_setting("remote_uploads", True)
+    db.set_app_setting("remote_uploads.since", on_at)
+    db.set_app_setting("remote_uploads_auto_off", "garbage")
+    assert settings_service.remote_uploads_on() is False

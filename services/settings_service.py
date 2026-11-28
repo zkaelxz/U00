@@ -173,7 +173,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "offer_provider_models": get("offer_provider_models"),
         "remote_uploads": remote_uploads_on(),
         "remote_uploads_since": _remote_uploads_since() if remote_uploads_on() else None,
-        "remote_uploads_auto_off": remote_uploads_auto_off(),
+        "remote_uploads_auto_off": remote_uploads_auto_off() or _auto_off_never_chosen(),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
@@ -204,6 +204,11 @@ def remote_uploads_auto_off() -> bool:
     return bool(get("remote_uploads_auto_off"))
 
 
+def _auto_off_never_chosen() -> bool:
+    import db
+    return not isinstance(db.get_app_setting("remote_uploads_auto_off"), bool)
+
+
 def remote_uploads_on(now: float | None = None) -> bool:
     """Whether a signed-in admin away from the PC may upload (media.upload). Needs the switch
     and a valid turned-on stamp (a stamp from before the stamp was kept apart must not count);
@@ -215,11 +220,10 @@ def remote_uploads_on(now: float | None = None) -> bool:
     on_at = _remote_uploads_since()
     if on_at is None or not on_at <= now:
         return False
-    import db
     # Never chosen: a switch from before this setting existed keeps its old 7 day lapse, so
     # one that had already lapsed does not come back on with the update. Turning the switch
-    # on again records the choice (_set_remote_uploads).
-    if db.get_app_setting("remote_uploads_auto_off") is None:
+    # on again records the choice (_set_remote_uploads). An unreadable row counts as never chosen.
+    if _auto_off_never_chosen():
         return now < on_at + REMOTE_UPLOADS_DAYS * 86400
     if not remote_uploads_auto_off():
         return True
@@ -243,7 +247,7 @@ def _set_remote_uploads(enabled: bool) -> None:
     # Time first: a crash between the two writes leaves the switch off.
     if enabled:
         db.set_app_setting("remote_uploads.since", time.time())
-        if db.get_app_setting("remote_uploads_auto_off") is None:
+        if _auto_off_never_chosen():
             db.set_app_setting("remote_uploads_auto_off", False)
     db.set_app_setting("remote_uploads", enabled)
     _remote_uploads_audit("remote_uploads.on" if enabled else "remote_uploads.off",

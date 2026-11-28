@@ -625,6 +625,8 @@ def _remote_uploads(on=True, on_at=None, auto_off=False):
         db.set_app_setting("remote_uploads", on)
     if on_at is not None:
         db.set_app_setting("remote_uploads.since", on_at)
+        if auto_off and on_at:
+            db.set_app_setting("remote_uploads.auto_off_from", on_at)
 
 
 class TestRemoteUploads:
@@ -692,14 +694,18 @@ class TestRemoteUploads:
         assert "remote_uploads.on" in actions
         assert "raw-novel/text" in next(r["detail_redacted"] for r in rows if r["action"] == "upload.away")
 
-    def test_an_accepted_away_upload_logs_counts_only(self, isolated_db, caplog):
-        import logging
+    def test_an_accepted_away_upload_logs_counts_only(self, isolated_db):
+        import applog
         _remote_uploads()
         s = _admin_session()
         remote_uploads.away_counts.admin = remote_uploads.away_counts.member = 0
-        with caplog.at_level(logging.INFO, logger=remote_uploads.log.name):
-            assert self._paste(s).status_code == 200
-        line = next(r.getMessage() for r in caplog.records if "upload from away accepted" in r.getMessage())
+        assert self._paste(s).status_code == 200
+        for handler in applog.get_logger().handlers:
+            handler.flush()
+        import os
+        with open(os.path.join(str(db.LIBRARY_DIR), "logs", "app.log"), encoding="utf-8") as f:
+            text = f.read()
+        line = next(ln for ln in text.splitlines() if "upload from away accepted" in ln)
         assert "1 by admins and 0 by members" in line
         assert "raw-novel" not in line
 

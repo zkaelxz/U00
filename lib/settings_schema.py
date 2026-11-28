@@ -542,7 +542,7 @@ SETTINGS = (
     # Access, not a developer knob: its card is on People and access.
     _own("remote_uploads", "bool", False, label="Allow uploads from away", custom=True,
          tab="system", section="Uploads from away"),
-    # When the switch above was last turned on; it lapses REMOTE_UPLOADS_DAYS later. Not the
+    # When the switch above was last turned on; with the auto-off below it lapses REMOTE_UPLOADS_DAYS later. Not the
     # older "remote_uploads.on_at": a stamp from when the switch also needed Developer Mode must
     # not count, or a PC with that mode off would start allowing uploads on its own.
     _own("remote_uploads.since", "float", 0.0, min=0),

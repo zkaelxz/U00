@@ -16,6 +16,7 @@ import threading
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 
+import applog
 from services import auth_service
 
 log = logging.getLogger(__name__)
@@ -202,7 +203,7 @@ class RemoteUploadGate:
             await self._audit(principal, scope)
             from services import media_upload_service
             admin, member = away_counts.record(media_upload_service.is_member_caller(principal))
-            log.info("upload from away accepted: %d by admins and %d by members since the app started",
+            applog.get_logger().info("upload from away accepted: %d by admins and %d by members since the app started",
                      admin, member)
             return await self.app(scope, counted, send)
         finally:
