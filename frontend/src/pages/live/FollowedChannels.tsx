@@ -148,7 +148,7 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
       parts.push(`Following ${followed === 1 ? 'it' : `${followed} channels`} with the Live form’s settings. Press Check now to see whether ${followed === 1 ? 'it is' : 'they are'} live.`)
     }
     if (withoutSettings) {
-      parts.push(`${withoutSettings === 1 ? 'One was' : `${withoutSettings} were`} saved with Ollama on this PC instead of the form’s translator, which your account can’t use.`)
+      parts.push(`${withoutSettings === 1 ? 'One was' : `${withoutSettings} were`} saved with the Live default translator (hosted Gemma 4 on Ollama) instead of the form’s translator, which your account can’t use.`)
     }
     if (parts.length) setNote(parts.join(' '))
     if (problems.length) setError(`Not followed (still in the box): ${problems.join(' · ')}`)

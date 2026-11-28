@@ -460,7 +460,7 @@ def test_ollama_http_error_never_leaks_the_url(ollama):
     ollama["chat_error"] = requests.HTTPError(
         "500 Server Error: Internal Server Error for url: http://private-host:11434/api/chat")
     r = _run("translate")
-    assert r["status"] == svc.FAIL and "ran out of memory" in r["reason"]
+    assert r["status"] == svc.FAIL and "refused the request" in r["reason"]
     _no_url(r["reason"])
 
 

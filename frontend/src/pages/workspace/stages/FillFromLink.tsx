@@ -4,6 +4,7 @@ import { probeLink, probeTitleLink, type LinkDetailFields, type MediaLinkProbe }
 import { suggestMetadata } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { buttonClass } from '../../../components/uiClasses'
+import { useHolds } from '../../../hooks/useHolds'
 import { usePcOnly } from '../../../hooks/usePcOnly'
 import { defaultTicks, linkRows, linkValues, tickedValues, type LinkField, type LinkRow } from '../../linkFill'
 
@@ -20,6 +21,8 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
   onUse: (values: Partial<LinkDetailFields>) => void
 }) {
   const pc = usePcOnly()
+  // The AI read can spend, and only admin.library can save what it finds.
+  const canSave = useHolds('admin.library')
   const [probe, setProbe] = useState<MediaLinkProbe | null>(null)
   const [aiValues, setAiValues] = useState<Partial<LinkDetailFields> | null>(null)
   const [ticked, setTicked] = useState<Set<LinkField>>(new Set())
@@ -100,9 +103,11 @@ export function FillFromLink({ dramaId, link, savedLink, current, onUse }: {
       {probe?.kind === 'page' && !aiValues && (
         <p className="muted">
           {probe.note}{' '}
-          <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={readWithAi}>
-            Read with AI (paid)
-          </button>
+          {canSave && (
+            <button type="button" className={buttonClass('ghost', 'sm')} disabled={busy} onClick={readWithAi}>
+              Read with AI (paid)
+            </button>
+          )}
         </p>
       )}
       {values && probe?.kind !== 'page' && probe?.note && <p className="muted">{probe.note}</p>}
