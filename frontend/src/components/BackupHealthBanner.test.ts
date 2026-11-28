@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { backupBannerWanted } from './BackupHealthBanner'
+import { backupBannerWanted } from './backupBannerGate'
 import { isMember, resetSessionForTests, getSession } from '../hooks/useSession'
 import type { AuthMe } from '../api/auth'
 

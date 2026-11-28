@@ -9,20 +9,16 @@ import { useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
 import { dismissSameDriveNote, getBackupSettings } from '../api/backups'
-import { usePcOnly, type PcMode } from '../hooks/usePcOnly'
+import { usePcOnly } from '../hooks/usePcOnly'
 import { isMember, useSession } from '../hooks/useSession'
 import { routeHref } from '../router'
 import { BACKUP_PROBLEM_TEXT } from '../pages/backupsFormat'
 import type { AutoBackupSettings } from '../types/backups'
+import { backupBannerWanted } from './backupBannerGate'
 import { WarnBar } from './WarnBar'
 
 export const POLL_MS = 10 * 60_000
 const HIDE_ON = [401, 403, 404]
-
-/** The route is PC-only, not role-gated, so a member signed in at the PC would otherwise get the owner's warning. */
-export function backupBannerWanted(pc: PcMode, member: boolean): boolean {
-  return pc === 'local' && !member
-}
 
 export function BackupHealthBanner() {
   const pc = usePcOnly()
