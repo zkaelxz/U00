@@ -52,13 +52,14 @@ jobs:
             # only in the language packs: a line still fails if any term is left once they are taken out.
             allow="$RUNNER_TEMP/allow"
             printf '%s\n' "${PRIVATE_ALLOW:-}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$allow"
-            hits="$(printf '%s\n' "$hits" | python3 - "$terms" "$allow" <<'PY'
+            printf '%s\n' "$hits" > "$RUNNER_TEMP/hits"
+            hits="$(python3 - "$terms" "$allow" "$RUNNER_TEMP/hits" <<'PY'
           import re, sys
           def phrases(path):
               return [t for t in open(path, encoding="utf-8").read().splitlines() if t]
           terms = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", re.I) for t in phrases(sys.argv[1])]
-          allowed = [re.compile(re.escape(a), re.I) for a in phrases(sys.argv[2])]
-          for hit in sys.stdin.read().splitlines():
+          allowed = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(a) + r"(?![A-Za-z0-9_])", re.I) for a in phrases(sys.argv[2])]
+          for hit in phrases(sys.argv[3]):
               path, number, text = hit.split(":", 2)
               if allowed and path.startswith("language_pack_data/"):
                   for a in allowed:
@@ -68,7 +69,7 @@ jobs:
               print(f"{path}:{number}")
           PY
             )"
-            rm -f "$allow"
+            rm -f "$allow" "$RUNNER_TEMP/hits"
             if [ -n "$hits" ]; then
               printf '%s\n' "$hits" | sed 's/^/::error::Private term in /'
               found=1
