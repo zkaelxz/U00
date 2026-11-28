@@ -21,9 +21,10 @@ function gapText(s: Pick<SourcesSettings, 'pace_min_delay' | 'pace_max_delay'>):
 
 export function settingsSummary(s: SourcesSettings | null, sources: SourceSummary[]): string {
   const on = `${sources.filter((x) => x.enabled).length} of ${sources.length} sources on`
-  if (!s) return on
-  return `${on} · ${gapText(s)} · cache: ${cacheLabel(s.cache_mode)}`
+  return s ? `${on} · ${timingSummary(s)}` : on
 }
+
+export const timingSummary = (s: SourcesSettings) => `${gapText(s)} · cache: ${cacheLabel(s.cache_mode)}`
 
 export function pacingSummary(s: SourcesSettings): string {
   const breaks =

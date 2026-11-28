@@ -151,7 +151,7 @@ test('a member gets the link, language and glossary only; Start sends the defaul
   await page.addInitScript(() => localStorage.setItem('baihe.pref.live.options', JSON.stringify({ engine: 'deepseek', segment_seconds: 3, source_language: 'ja' })))
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url'] })
   const live = await openLive(page)
-  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and the rest of the caption settings are chosen for you.')
+  await expect(live.getByTestId('live-chosen-note')).toHaveText('The engine and the rest of the caption settings are chosen for you. Each session stops after 60 minutes.')
   await expect(live.getByText('Advanced')).toHaveCount(0)
   await expect(live.getByRole('radio', { name: 'Japanese' })).toBeChecked()
   await expect(live.getByTestId('live-glossary-title')).toBeVisible()
@@ -166,11 +166,11 @@ test('a member gets the link, language and glossary only; Start sends the defaul
 test('a refusal with its own reason shows that reason, not the permission text', async ({ page }) => {
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url', 'engines.paid'] })
   m.state.startStatus = 403
-  m.state.startMessage = 'Ollama cloud models send your text off this PC and use the owner\'s Ollama quota, so they need paid-engine permission or your own Ollama key (Settings > Your Ollama key). Pick a local model instead.'
+  m.state.startMessage = 'Ollama cloud models send your text off this PC and use the owner\'s Ollama quota, so they need paid-engine permission or your own Ollama key (Settings > Your Ollama key).'
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
-  await expect(live.getByRole('alert')).toContainText('Pick a local model instead.')
+  await expect(live.getByRole('alert')).toContainText('need paid-engine permission or your own Ollama key')
   await expect(live.getByRole('alert')).not.toContainText('import from a link')
   expect(m.unmocked).toEqual([])
 })
@@ -692,4 +692,15 @@ test('a stopped session with many lines keeps them in a scroll box instead of st
   const { client, scroll } = await box.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight }))
   expect(scroll).toBeGreaterThan(client)
   expect(client).toBeLessThanOrEqual(520)
+})
+
+test("Show everyone's sessions is a switch that lists every account's sessions", async ({ page }) => {
+  await mockLive(page)
+  const live = await openLive(page)
+  const everyone = live.getByRole('switch', { name: "Show everyone's sessions" })
+  await expect(everyone).toHaveAttribute('aria-checked', 'false')
+  const asked = page.waitForRequest((r) => r.url().endsWith('/api/live/sessions?everyone=true'))
+  await everyone.click()
+  await asked
+  await expect(everyone).toHaveAttribute('aria-checked', 'true')
 })

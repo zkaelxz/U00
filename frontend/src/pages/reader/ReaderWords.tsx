@@ -10,6 +10,7 @@ import { useReadiness } from '../../hooks/useReadiness'
 import { useStoredState } from '../../hooks/useStoredRun'
 import { downloadBlob } from '../../components/downloadBlob'
 import { Section } from '../../components/Section'
+import { buttonClass } from '../../components/uiClasses'
 import type { ReaderVocabList } from '../../types/reader'
 import type { GlossaryTerm } from '../../types/translateStage'
 import type { TranslateEngine } from '../../types/translate'
@@ -61,7 +62,7 @@ export function WordsSection({ dramaId, page, chapterSize, language, engines, en
       </label>
       {useLlm && <EnginePicker engines={engines} off={enginesOff} engine={engine} chosen={chosen} onChange={onEngine} />}
       <div className="actions">
-        <button type="button" className="primary" onClick={() => void lookup.run()} disabled={lookup.busy || !!splitterNeed || (useLlm && engine === '')}>
+        <button type="button" className={buttonClass('primary')} onClick={() => void lookup.run()} disabled={lookup.busy || !!splitterNeed || (useLlm && engine === '')}>
           {lookup.busy ? 'Looking up…' : 'Look up words on this page'}
         </button>
         {result && <span className="muted" role="status">{result}</span>}

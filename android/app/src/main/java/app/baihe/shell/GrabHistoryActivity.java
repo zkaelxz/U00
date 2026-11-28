@@ -111,8 +111,9 @@ public class GrabHistoryActivity extends Activity {
         if (done.isEmpty() && waiting.isEmpty()) {
             list.addView(text("Add a chapter from Grab's More menu, or run a grab: it shows up here.", 14, false, palette.muted));
         } else {
-            list.addView(text("Read again asks the PC for a Quick read of that page. The PC remembers pages it "
-                    + "translated for 14 days, so it costs nothing while it does. Nothing is kept on this phone.",
+            list.addView(text("Read again asks the PC for a Quick read of that page. A Quick read page is remembered "
+                    + "on the PC for 14 days, so reading it again costs nothing while it is. A page saved to a title "
+                    + "is translated again and costs like any page. Nothing is kept on this phone.",
                     13, false, palette.muted));
         }
     }

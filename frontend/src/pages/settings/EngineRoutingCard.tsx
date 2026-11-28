@@ -240,7 +240,7 @@ export function EngineRoutingCard({ refreshToken, settings, onKey, geminiFreeTie
       className="routing-card"
     >
       <div className="setting-list">
-        <Field label="Gemini free tier" help="Slows Gemini requests to stay inside the free tier's rate limits.">
+        <Field label="My Gemini key is free-tier" help="Turn on only for a free-tier Gemini key. Baihe then slows Gemini requests to stay inside its rate limits, counts Gemini as $0, leaves it out of the monthly cap, and turns off Bulk and online research on Gemini. With a paid key leave this off: Google would bill you while Baihe shows $0.">
           <Toggle checked={geminiFreeTier} onChange={onGeminiFreeTier} />
         </Field>
       </div>

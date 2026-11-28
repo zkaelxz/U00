@@ -27,8 +27,8 @@ import line_tools
 from engine_backends import pricing, engine_registry
 from engine_backends import gemini as engine_gemini
 from engine_backends import medium_prompts, paid_calls
-from services import (engine_failure_service, engine_routing_service, ownership_service, settings_service,
-                      translate_run_service, translate_service, workspace_job_service)
+from services import (engine_failure_service, engine_routing_service, ownership_service, profile_service,
+                      settings_service, translate_run_service, translate_service, workspace_job_service)
 from lib.errors import (
     InvalidInputError,
     MissingKeyError,
@@ -142,7 +142,7 @@ def improve_line(drama_id: int, line_id: int, engine_name: str | None = None, mo
         raise InvalidInputError(f"issue is too long (max {MAX_ISSUE_CHARS} characters).")
     drama, line, engine, name = _prepare(drama_id, line_id, engine_name, model,
                                          gemini_free_tier)
-    preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
+    preset = profile_service.style_preset(drama)
     # Same builder as a translate run, so the line's emotion guidance
     # is included too.
     _glossary, guidelines, _names = workspace_job_service.build_run_style_context(

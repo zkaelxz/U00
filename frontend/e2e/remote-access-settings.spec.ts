@@ -105,7 +105,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
-  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC, with saving keys allowed/)).toBeVisible()
   await expect(input).toHaveValue('')
   await expect(section.getByTestId('ip-check-state')).toHaveText('Address check not set')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')

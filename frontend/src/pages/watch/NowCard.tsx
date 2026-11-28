@@ -1,11 +1,14 @@
 // The Watch page's "now" card: the line being spoken, large, and the in-place fix of its English.
-import type { MouseEvent, ReactNode, Ref } from 'react'
+import type { MouseEvent, ReactNode, Ref, RefObject } from 'react'
 
 import { ErrorBanner } from '../../components/ErrorBanner'
+import { chineseLang } from '../../hanScript'
 import { buttonClass } from '../../components/uiClasses'
+import type { EarSide } from '../../types/reader'
 import type { ReviewLine } from '../../types/review'
+import { EarMark } from './EarMark'
 import { LineMarkBadge } from '../workspace/stages/review/LineMarkButtons'
-import { StudyLine } from './StudyLine'
+import { OriginalLine, StudyLine } from './StudyLine'
 import { CONFLICT_TEXT, CONFLICT_UNREAD_TEXT, fieldKey, lineHeading, type LineFix, type Verdict } from './watchLogic'
 
 const NOW_HINT = 'Press play to see lines here.'
@@ -14,6 +17,8 @@ const NO_ENGLISH = 'No English yet'
 export interface NowCardProps {
   /** The open fix's line while one is open, else the line being spoken (null before the first). */
   line: ReviewLine | null
+  /** The ear the line is heard in, on a stereo title where it is mostly one-sided. */
+  ear?: EarSide | null
   /** The title, for the study breakdown; absent where there is none to ask. */
   dramaId?: number
   /** The title's language, for a line that does not carry its own. */
@@ -40,6 +45,8 @@ export interface NowCardProps {
   fieldRef?: Ref<HTMLTextAreaElement>
   /** The card itself takes focus after Save and play, so Space goes to the player rather than to a button. */
   cardRef?: Ref<HTMLElement>
+  /** The player, so the original's words can light up as they are spoken. */
+  mediaRef?: RefObject<HTMLMediaElement | null>
 }
 
 // A press with the pointer leaves focus on the button, where the next Space would press it again instead of playing or
@@ -50,7 +57,7 @@ const press = (e: MouseEvent<HTMLButtonElement>, act: () => void) => {
 }
 
 // No hooks here, so a test can call it and press what it returns without a browser.
-export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef }: NowCardProps) {
+export function NowCard({ line, ear = null, dramaId, sourceLanguage, canEdit, fix, busy, status, onOpen, onDraft, onSave, onCancel, onAgain, onMark, onJump, markBusy = false, check = null, feedback, fixButtonRef, fieldRef, cardRef, mediaRef }: NowCardProps) {
   const again = (
     <button type="button" className={buttonClass()} onClick={onAgain} disabled={busy} title="Hear this line again">Listen</button>
   )
@@ -61,13 +68,19 @@ export function NowCard({ line, dramaId, sourceLanguage, canEdit, fix, busy, sta
         <>
           <p className="watch-now-meta" data-testid="watch-now-meta">
             {lineHeading(line)}
+            <EarMark side={ear} />
             <LineMarkBadge line={line} />
             {line.reviewed && <span className="watch-now-checked" data-testid="watch-now-checked">✓ Looks right</span>}
             {line.flag && <span className="watch-now-flag">⚑ Flagged</span>}
           </p>
-          {line.zh && <p className="watch-now-zh" lang={line.lang || sourceLanguage}>{line.zh}</p>}
-          {/* Keyed by line so the next line starts closed rather than showing the last breakdown. */}
-          {dramaId !== undefined && line.zh && !fix && <StudyLine key={line.id} dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
+          {line.zh && (dramaId !== undefined
+            ? (
+              // Keyed by line so the next line starts closed rather than showing the last breakdown.
+              <OriginalLine key={line.id} dramaId={dramaId} lineId={line.id} text={line.zh} language={line.lang || sourceLanguage} mediaRef={mediaRef}>
+                {!fix && <StudyLine dramaId={dramaId} lineId={line.id} language={line.lang || sourceLanguage} />}
+              </OriginalLine>
+            )
+            : <p className="watch-now-zh" lang={chineseLang(line.lang || sourceLanguage, line.zh, sourceLanguage)}>{line.zh}</p>)}
           {fix ? (
             <form
               className="watch-now-form"

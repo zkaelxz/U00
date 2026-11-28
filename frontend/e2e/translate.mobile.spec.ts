@@ -30,7 +30,7 @@ for (const width of [390, 360]) {
       page.getByRole('button', { name: 'Translate', exact: true }),
       page.getByRole('button', { name: 'Clear', exact: true }),
       page.getByRole('button', { name: 'Swap languages' }),
-      page.getByText('Open a file…'),
+      page.getByText('+ File or screenshot'),
       page.getByRole('button', { name: 'Copy' }),
       page.getByRole('button', { name: /Download result/ }),
       page.getByRole('button', { name: 'Clear history' }),
@@ -38,6 +38,10 @@ for (const width of [390, 360]) {
       page.getByLabel('Source language'),
     ]
     for (const t of targets) {
+      expect(await hitHeight(t)).toBeGreaterThanOrEqual(44)
+    }
+    await page.getByText('+ File or screenshot').click()
+    for (const t of [page.getByText('Open a file…'), page.getByRole('button', { name: 'Read from a screenshot…' })]) {
       expect(await hitHeight(t)).toBeGreaterThanOrEqual(44)
     }
   })

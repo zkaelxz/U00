@@ -7,6 +7,7 @@ import { ErrorBanner } from '../../components/ErrorBanner'
 import { Sheet } from '../../components/Sheet'
 import { buttonClass } from '../../components/uiClasses'
 import { useCanUpload } from '../../hooks/useHolds'
+import { saveInShell } from '../../phoneShell'
 import { COVER_TYPES, pageFileName } from './pageActionsLogic'
 
 export interface PagePick {
@@ -90,6 +91,7 @@ export function PageActions({ dramaId, title, pick, onClose }: Props) {
 
   const save = () =>
     run('save', async (file) => {
+      if (saveInShell(file, file.name)) return null
       const url = URL.createObjectURL(file)
       const a = document.createElement('a')
       a.href = url

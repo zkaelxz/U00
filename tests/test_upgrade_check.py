@@ -275,26 +275,32 @@ class TestKnownHuggingFaceHubLimitation:
             return requirements
         monkeypatch.setattr(diagnostics.importlib.metadata, "requires", fake)
 
-    def test_blocks_2x_while_transformers_caps_it(self, monkeypatch, tmp_path):
+    @staticmethod
+    def _classify(releases):
+        # No constraints and no installed requirers, so only the known limitation can hold it back.
+        return dependency_updates.classify_update("huggingface_hub", "1.39.0", releases, {}, {})
+
+    def test_blocks_2x_while_transformers_caps_it(self, monkeypatch):
         self._requires(monkeypatch, ["filelock", "huggingface-hub<2.0,>=1.5.0"])
-        reason = dependency_updates.upgrade_blocked_reason(
-            "huggingface_hub", "2.0.0", project_root=str(tmp_path))
-        assert reason and "transformers" in reason and "2.0.0" in reason
+        out = self._classify(["1.39.0", "1.40.0", "2.0.0"])
+        assert out["status"] == "update" and out["target"] == "1.40.0"
+        assert "transformers" in out["reason"]
+        assert self._classify(["1.39.0", "2.0.0"])["status"] == "held_back"
 
-    def test_a_1x_release_is_not_blocked(self, monkeypatch, tmp_path):
+    def test_a_1x_release_is_not_blocked(self, monkeypatch):
         self._requires(monkeypatch, ["huggingface-hub<2.0,>=1.5.0"])
-        assert dependency_updates.upgrade_blocked_reason(
-            "huggingface_hub", "1.40.0", project_root=str(tmp_path)) is None
+        out = self._classify(["1.39.0", "1.40.0"])
+        assert out["status"] == "update" and out["target"] == "1.40.0" and out["reason"] is None
 
-    def test_lifts_itself_once_transformers_accepts_2x(self, monkeypatch, tmp_path):
+    def test_lifts_itself_once_transformers_accepts_2x(self, monkeypatch):
         self._requires(monkeypatch, ["huggingface_hub>=1.5.0,<3"])
-        assert dependency_updates.upgrade_blocked_reason(
-            "huggingface_hub", "2.0.0", project_root=str(tmp_path)) is None
+        out = self._classify(["1.39.0", "2.0.0"])
+        assert out["status"] == "update" and out["target"] == "2.0.0" and out["reason"] is None
 
-    def test_not_blocked_without_transformers_installed(self, monkeypatch, tmp_path):
+    def test_not_blocked_without_transformers_installed(self, monkeypatch):
         self._requires(monkeypatch, None)
-        assert dependency_updates.upgrade_blocked_reason(
-            "huggingface_hub", "2.0.0", project_root=str(tmp_path)) is None
+        out = self._classify(["1.39.0", "2.0.0"])
+        assert out["status"] == "update" and out["target"] == "2.0.0" and out["reason"] is None
 
     def test_does_not_affect_the_install_time_reason(self):
         assert dependency_updates.known_install_limitation_reason("huggingface_hub") is None

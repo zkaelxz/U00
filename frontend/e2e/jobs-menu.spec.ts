@@ -86,3 +86,19 @@ test('a job name in the panel links to its stage, its page, or the Jobs page whe
   await expect(page).toHaveURL(/#\/drama\/3\/translate$/)
   await expect(panel).toBeHidden()
 })
+
+test("the GPU line sits in the panel, not under the Library's title", async ({ page }) => {
+  await mockJobs(page)
+  const metric = (name: string, value: number) => ({ name, label: name, unit: '', low: false, enabled: true, limit: null, minutes: 5, value, alerting: false, past_seconds: null })
+  await page.route(/\/api\/diagnostics\/resources$/, (route) => route.fulfill({
+    contentType: 'application/json',
+    body: JSON.stringify({ sampled_seconds_ago: 4, sample_seconds: 30, metrics: [metric('gpu_memory', 62.4), metric('gpu_temp', 71.2)] }),
+  }))
+  await page.goto('/#/library')
+  await expect(page.getByTestId('stats')).toBeVisible()
+  await expect(page.getByTestId('gpu-line')).toHaveCount(0)
+  await page.getByRole('button', { name: /^Jobs/ }).click()
+  const panel = page.getByRole('region', { name: 'Jobs' })
+  await expect(panel.getByTestId('gpu-line')).toContainText('GPU memory 62% · 71 °C')
+  await expect(panel.getByRole('button', { name: 'Refresh GPU reading' })).toBeVisible()
+})

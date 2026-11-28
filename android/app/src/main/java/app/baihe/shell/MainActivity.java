@@ -41,10 +41,13 @@ public class MainActivity extends Activity {
     private static final int ALERT_PERMISSION_REQUEST = 41;
 
     private WebView web;
+    private ShellSettings.Bridge bridge;
     /** Covers the WebView when the page could not load, so Android's raw error page is never shown. */
     private View failureView;
     private TextView failureMessage;
     private Button failureRetry;
+    private Button failureChange;
+    private AlertDialog addressDialog;
     private boolean loadFailed;
     private int autoRetries;
     /** When the server was last asked for a newer build; 0 before the first ask. */
@@ -82,7 +85,8 @@ public class MainActivity extends Activity {
      */
     private void showCrash(String trace) {
         TextView text = new TextView(this);
-        text.setText("Baihe hit a problem. Copy this and send it so it can be fixed:\n\n" + trace);
+        text.setText("Baihe hit a problem. Copy this and paste it into Report a problem "
+                + "(Grab > More), or send it to whoever runs your Baihe, so it can be fixed:\n\n" + trace);
         text.setTextIsSelectable(true);
         text.setPadding(32, 32, 32, 32);
         ScrollView scroll = new ScrollView(this);
@@ -140,7 +144,11 @@ public class MainActivity extends Activity {
                 // A fresh load has not re-announced a Live picture yet, and the old page's cleanup never ran.
                 setLiveWatching(false);
                 String address = savedAddress();
-                if (address != null && ServerAddress.sameOrigin(address, url)) checkForUpdate(address);
+                if (address != null && ServerAddress.sameOrigin(address, url)) {
+                    // evaluateJavascript runs in the top page only, so no iframe ever sees the key.
+                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey()), null);
+                    checkForUpdate(address);
+                }
             }
 
             @Override
@@ -211,8 +219,8 @@ public class MainActivity extends Activity {
             }
         });
         // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
-        // address loads in this WebView, so no other site can reach it.
-        web.addJavascriptInterface(new ShellSettings.Bridge(this, new ShellSettings.Host() {
+        // address loads as the page, but the bridge also reaches its iframes, so saveFile needs a key.
+        bridge = new ShellSettings.Bridge(this, new ShellSettings.Host() {
             @Override
             public void alertsSwitchedOn() {
                 askForAlertPermission();
@@ -225,7 +233,8 @@ public class MainActivity extends Activity {
 
             @Override
             public void popOut() {
-                runOnUiThread(() -> enterPip());
+                // Pressed on purpose, so the "when I leave the app" switch does not apply.
+                runOnUiThread(() -> enterPip(true));
             }
 
             @Override
@@ -243,13 +252,19 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void changeAddress() {
+                runOnUiThread(() -> askAddress(new Intent(), savedAddress(), null));
+            }
+
+            @Override
             public void setBarsHidden(boolean hidden) {
                 runOnUiThread(() -> {
                     barsHidden = hidden;
                     showStrip();
                 });
             }
-        }), "BaiheShell");
+        });
+        web.addJavascriptInterface(bridge, "BaiheShell");
         setContentView(page());
         open(getIntent());
         try {
@@ -280,6 +295,11 @@ public class MainActivity extends Activity {
         root.setFitsSystemWindows(true);
         root.setBackgroundColor(palette.surface);
         strip = ShellTabs.strip(this, palette, false);
+        // An address that answers with some other site never reaches the failure screen's button.
+        ((ViewGroup) strip).getChildAt(0).setOnLongClickListener(v -> {
+            askAddress(new Intent(), savedAddress(), null);
+            return true;
+        });
         root.addView(strip, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         showStrip();
@@ -310,6 +330,11 @@ public class MainActivity extends Activity {
             autoRetries = 0;
             retryLoad();
         });
+        // A typo or a moved PC would otherwise leave clearing the app's storage as the only way out.
+        Button change = new Button(this);
+        failureChange = change;
+        change.setText("Change address");
+        change.setOnClickListener(v -> askAddress(new Intent(), savedAddress(), null));
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(android.view.Gravity.CENTER);
@@ -317,6 +342,7 @@ public class MainActivity extends Activity {
         box.setBackgroundColor(palette.surface);
         box.addView(message);
         box.addView(retry);
+        box.addView(change);
         // Opaque and tappable so the WebView's own error page behind it can't be seen or touched.
         box.setClickable(true);
         box.setVisibility(View.GONE);
@@ -329,10 +355,14 @@ public class MainActivity extends Activity {
         failureView.setVisibility(View.VISIBLE);
         long delay = LoadFailure.retryDelayMs(autoRetries);
         // While quiet retries remain it reads as a wait, not a failure: the PC may just be busy.
+        String host = Uri.parse(String.valueOf(savedAddress())).getHost();
         failureMessage.setText(delay < 0
-                ? "Can't reach Baihe right now.\nYour PC may be busy or restarting."
+                ? "Can't reach Baihe" + (host == null ? "" : " at " + host)
+                        + " right now.\nYour PC may be busy or restarting, or its address may have changed."
                 : "Connecting to Baihe…\nThe PC is taking longer than usual.");
         failureRetry.setVisibility(delay < 0 ? View.VISIBLE : View.GONE);
+        // Shown during the quiet retries too: a mistyped address would otherwise wait them all out first.
+        failureChange.setVisibility(View.VISIBLE);
         if (delay < 0) return;
         autoRetries++;
         web.postDelayed(() -> {
@@ -410,8 +440,9 @@ public class MainActivity extends Activity {
         return builder.build();
     }
 
-    private void enterPip() {
-        if (!pipAllowed() || isInPictureInPictureMode()) return;
+    private void enterPip(boolean asked) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || isInPictureInPictureMode()) return;
+        if (!asked && !pipAllowed()) return;
         try {
             enterPictureInPictureMode(pipParams(false));
         } catch (RuntimeException ignored) {
@@ -422,7 +453,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip();
+        if (liveWatching && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) enterPip(false);
     }
 
     /** The page hides everything but the picture and its captions while the window is this small. */
@@ -541,23 +572,46 @@ public class MainActivity extends Activity {
     }
 
     private void askAddress(Intent intent) {
+        askAddress(intent, null, null);
+    }
+
+    /** First run has no address to keep, so only a change (current != null) can be cancelled. */
+    private void askAddress(Intent intent, String current, String typed) {
         EditText input = new EditText(this);
         input.setInputType(InputType.TYPE_TEXT_VARIATION_URI);
         input.setHint("https://");
-        new AlertDialog.Builder(this)
+        input.setSingleLine(true);
+        String shown = typed != null ? typed : current;
+        if (shown != null) input.setText(shown);
+        AlertDialog.Builder dialog = new AlertDialog.Builder(this)
                 .setTitle("Baihe address")
                 .setView(input)
-                .setCancelable(false)
+                .setCancelable(current != null)
                 .setPositiveButton("OK", (d, w) -> {
-                    String a = ServerAddress.shellAddress(input.getText().toString());
+                    String text = input.getText().toString();
+                    String a = ServerAddress.shellAddress(text);
                     if (a == null) {
-                        askAddress(intent);
+                        askAddress(intent, current, text);
                         return;
                     }
-                    prefs().edit().putString(ADDRESS, a).apply();
+                    if (!a.equals(current)) {
+                        prefs().edit().putString(ADDRESS, a).apply();
+                        // Another PC's alert list starts from other numbers, so old marks would misread it.
+                        AlertPoller.forget(prefs());
+                    }
+                    autoRetries = 0;
+                    loadFailed = false;
+                    if (failureView != null) failureView.setVisibility(View.GONE);
                     open(intent);
-                })
-                .show();
+                });
+        if (typed != null) {
+            dialog.setMessage("That isn't a Baihe address. Use https://, for example https://studio.example.com "
+                    + "(http:// only for an address on your home network).");
+        }
+        if (current != null) dialog.setNegativeButton("Cancel", null);
+        // A second tap or long-press would otherwise stack another dialog on top.
+        if (addressDialog != null && addressDialog.isShowing()) addressDialog.dismiss();
+        addressDialog = dialog.show();
     }
 
     /**
@@ -671,6 +725,7 @@ public class MainActivity extends Activity {
         updateOffered = true;
         new AlertDialog.Builder(this)
                 .setTitle("Update Available")
+                .setMessage("A newer Baihe app is on your PC. It downloads from there, then Android asks you to install it.")
                 .setPositiveButton("Install update", (d, w) -> new Thread(() -> {
                     File apk = updateFile();
                     if (AppUpdate.download(address, cookie, apk)) AppUpdate.install(getApplicationContext(), apk);

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+import { nameLang } from '../../hanScript'
 import { openDramaFolder } from '../../api/library'
 import { getWorkflowProgress } from '../../api/workspace'
 import { Badge } from '../../components/Badge'
@@ -176,7 +177,7 @@ function Workspace({ id, stage }: { id: number; stage: string | null }) {
           <span aria-hidden="true">‹</span>
           <span className="ws-back-text" aria-hidden="true">Library</span>
         </ButtonLink>
-        <h1 data-testid="drama-title" title={title}>
+        <h1 data-testid="drama-title" title={title} lang={drama ? nameLang(title, drama) : undefined}>
           {title}
         </h1>
         <div className="ws-badges">

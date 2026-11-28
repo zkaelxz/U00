@@ -26,7 +26,7 @@ export function renderBootFallback(root: HTMLElement, error: unknown) {
   pre.textContent = errorText(error)
   const btn = doc.createElement('button')
   btn.type = 'button'
-  btn.className = 'primary'
+  btn.className = 'btn btn-primary'
   btn.textContent = 'Reload'
   btn.addEventListener('click', () => doc.defaultView?.location.reload())
   box.append(h, p, pre, btn)

@@ -23,7 +23,7 @@ test('the left menu opens the page; a file shows Before you run, Change options 
   // The floating menu stays open while the pointer is over it, covering the start of the box.
   await page.mouse.move(1000, 400)
   await expect(page.locator('.app-rail')).not.toHaveClass(/is-open/)
-  const c = page.getByRole('region', { name: 'Add' })
+  const c = page.getByRole('region', { name: 'Add', exact: true })
   await expect(c.getByRole('textbox', { name: 'Paste a link' })).toBeVisible()
   await expect(c.getByRole('button', { name: 'Choose a file' })).toHaveAttribute('title', 'Or drop an audio or video file on this box')
   await expect(c.getByRole('link', { name: 'Open Text' })).toHaveAttribute('href', '#/translate')
@@ -42,7 +42,7 @@ test('the left menu opens the page; a file shows Before you run, Change options 
 test('a file dropped on the box is taken like a chosen one', async ({ page }) => {
   await mockMakeSubtitles(page)
   await page.goto('/#/make-subtitles')
-  const c = page.getByRole('region', { name: 'Add' })
+  const c = page.getByRole('region', { name: 'Add', exact: true })
   await expect(c).toBeVisible()
   const data = await page.evaluateHandle(() => {
     const dt = new DataTransfer()
@@ -62,7 +62,7 @@ for (const scheme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: scheme })
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.goto('/#/make-subtitles')
-    await expect(page.getByRole('region', { name: 'Add' })).toBeVisible()
+    await expect(page.getByRole('region', { name: 'Add', exact: true })).toBeVisible()
     await noSideways(page)
   })
 }
@@ -77,7 +77,7 @@ test('Menu items can hide it; the address still loads', async ({ page }) => {
   await expect(sw).toHaveAttribute('aria-checked', 'false')
   await expect(navLink(page, 'Find & Add')).toHaveCount(0)
   await page.goto('/#/make-subtitles')
-  await expect(page.getByRole('region', { name: 'Add' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Add', exact: true })).toBeVisible()
   await page.goto('/#/settings')
   await openSettingsGroups(page, 'My account and look')
   await page.getByRole('region', { name: 'Menu items' }).getByRole('switch', { name: 'Find & Add' }).click()

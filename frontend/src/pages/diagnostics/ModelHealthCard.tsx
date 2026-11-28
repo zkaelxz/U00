@@ -207,7 +207,7 @@ export function ModelHealthCard({ pc, onProblems, openSignal }: {
             </ul>
           )}
           {status.checked_at && checks.length === 0 && (
-            <p className="muted">No provider was checked: only Claude, Gemini and DeepSeek can be asked, and each needs a key in <a href={routeHref({ name: 'settings' })}>Settings</a>.</p>
+            <p className="muted">No provider was checked: only Claude, Gemini, DeepSeek and OpenAI can be asked, and each needs a key in <a href={routeHref({ name: 'settings' })}>Settings</a>.</p>
           )}
 
           {attention.length > 0 ? (

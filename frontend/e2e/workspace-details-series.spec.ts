@@ -139,3 +139,23 @@ test('the header shows Source when a link exists, else a muted "Add a source lin
   await expect(page.locator('.ws-source')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Add a source link' })).toHaveAttribute('href', '#/drama/2/source?focus=sourceLink&tab=details')
 })
+
+test('without admin.library the details are read-only, but the series still saves', async ({ page }) => {
+  const bodies = await stubDrama(page, { series_id: null, author: 'Alex Example' })
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'lan',
+    permissions: ['library.read', 'library.create', 'lines.edit'],
+    user: { id: 2, email: 'member@example.com', display_name: 'Member', is_admin: false, is_local_owner: false },
+  } }))
+  await page.goto('/#/drama/2/source')
+  await openDetailsTab(page)
+  await expect(page.getByText('Only an admin at the main PC can change these details.')).toBeVisible()
+  await expect(page.getByLabel('Publication status', { exact: true })).toBeDisabled()
+  await page.getByLabel('Series', { exact: true }).selectOption('7')
+  await page.getByRole('button', { name: 'Save details' }).click()
+  await expect.poll(() => bodies).toEqual([{ series_id: 7 }])
+  await openCreditsTab(page)
+  await expect(page.getByLabel('Genre', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Save credits' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Romanize credits' })).toHaveCount(0)
+})

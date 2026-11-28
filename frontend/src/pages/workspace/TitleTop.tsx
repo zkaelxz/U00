@@ -2,6 +2,7 @@
 // On a phone the steps fold behind one "Step N of 5" button and the other controls behind More, so the page's own content starts high.
 import { useId, useRef, useState, type ReactNode } from 'react'
 
+import { nameLang } from '../../hanScript'
 import { openDramaFolder } from '../../api/library'
 import type { DramaDetail } from '../../api/types'
 import { ButtonLink } from '../../components/Button'
@@ -174,7 +175,7 @@ export function TitleTop({ id, drama, title, back, badge = false, home = false, 
           <span className="ws-back-text">{back.text}</span>
         </ButtonLink>
         <div className="title-top-name">
-          <h1 data-testid="drama-title" title={title}>{title}</h1>
+          <h1 data-testid="drama-title" title={title} lang={nameLang(title, drama)}>{title}</h1>
           {/* A phone's header leaves the kind out: its row is the back arrow, the name and the steps button. */}
           {badge && !phone && <span className="title-top-kind" data-testid="title-kind">{kindBadgeText(drama.media_type, drama.source_language)}</span>}
         </div>

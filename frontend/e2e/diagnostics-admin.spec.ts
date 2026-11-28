@@ -336,7 +336,7 @@ test('log filter waits for typing to settle; an empty result says so', async ({ 
   await openSection(page, /^Log/)
   await expect(page.getByLabel('Log lines')).toContainText('12:01 ERROR boom')
   await page.getByRole('searchbox', { name: 'Filter' }).pressSequentially('ERROR')
-  await expect(page.getByTestId('log-empty')).toHaveText('No lines match.')
+  await expect(page.getByTestId('log-empty')).toHaveText('No match in the last 5,000 lines.')
   const filtered = urls.filter((u) => u.includes('keyword'))
   expect(filtered).toHaveLength(1) // debounced: one request, not one per letter
   expect(filtered[0]).toMatch(/\/api\/diagnostics\/log\?n=50&keyword=ERROR$/)
@@ -357,10 +357,10 @@ test('check access asks online only when pressed and links to the terms', async 
   })
   await page.goto('/#/diagnostics')
   await openSection(page, /^Speaker detection/)
-  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('Ready')
-  await expect(page.getByTestId('pyannote-summary')).toHaveText('Ready')
+  await expect(diagSectionHead(page, /^Speaker detection/)).toContainText('pyannote: ready')
+  await expect(page.getByTestId('pyannote-summary')).toHaveText('Nemotron (default) needs no token · pyannote: ready')
   await page.getByRole('button', { name: 'Check access online' }).click()
-  await expect(page.getByText('pyannote/speaker-diarization-3.1: terms not accepted')).toBeVisible()
+  await expect(page.getByText('pyannote/speaker-diarization-3.1: can’t open it')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Accept terms ↗' })).toHaveAttribute(
     'href', 'https://huggingface.co/pyannote/speaker-diarization-3.1')
   expect(urls.filter((u) => u.includes('check_access=true'))).toHaveLength(1)

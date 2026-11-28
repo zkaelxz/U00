@@ -68,3 +68,30 @@ def test_a_balloon_with_no_text_has_nothing_to_measure():
     original, interior = _balloon()
     assert checks.text_offset(original, BOX, interior) is None
     assert checks.median_letter_height(original, BOX, interior) is None
+
+
+def test_text_extent_is_the_english_the_render_added():
+    erased = np.full((300, 200), 255, np.uint8)
+    erased[10:20, 10:20] = 0
+    rendered = erased.copy()
+    rendered[100:130, 50:150] = 0
+    assert checks.text_extent(rendered, erased, BOX) == (50, 100, 150, 130)
+    assert checks.text_extent(erased, erased, BOX) is None
+
+
+def test_two_balloons_whose_english_runs_into_each_other_are_both_flagged():
+    far = (0, 0, 50, 20)
+    assert checks.colliding_texts([far, (100, 100, 150, 120), None]) == set()
+    assert checks.colliding_texts([far, (25, 5, 80, 25), (300, 300, 320, 310)]) == {0, 1}
+    assert checks.colliding_texts([far, (49, 19, 90, 40)]) == set()
+
+
+def test_a_neighbours_text_inside_an_overlapping_box_is_not_this_balloons():
+    erased = np.full((300, 200), 255, np.uint8)
+    rendered = erased.copy()
+    rendered[20:40, 20:60] = 0      # this balloon's English
+    rendered[200:220, 20:60] = 0    # a neighbour's, inside this box but outside this interior
+    interior = np.zeros(erased.shape, np.uint8)
+    interior[10:60, 10:80] = 1
+    assert checks.text_extent(rendered, erased, BOX, interior) == (20, 20, 60, 40)
+    assert checks.text_extent(rendered, erased, BOX) == (20, 20, 60, 220)

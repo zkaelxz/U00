@@ -155,15 +155,17 @@ def _spoken_end(seg: dict) -> float:
     return words[-1]["end"] if words else seg["end"]
 
 
-def _fit_to_speech(result: list, audio_path: str, trim_starts: bool = True) -> list:
+def _fit_to_speech(result: list, audio_path: str, trim_starts: bool = True, audio=None) -> list:
     """Whisper's word times put line starts in the silence before the voice and line ends
     before it stops; move both to the speech the detector hears. trim_starts False only
     extends ends: lengthening is harmless when the detector misses speech, a trim is not.
-    Without the audio or the detector the lines keep their times."""
+    Without the audio or the detector the lines keep their times. `audio`: the file already
+    decoded at 16 kHz, so it is not decoded again."""
     try:
-        from faster_whisper import decode_audio
         import vad_segments
-        audio = decode_audio(audio_path, sampling_rate=16000)
+        if audio is None:
+            from faster_whisper import decode_audio
+            audio = decode_audio(audio_path, sampling_rate=16000)
         spans = [(s.start_s, s.end_s) for s in vad_segments.speech_spans(
             audio, 16000, threshold=0.4, min_silence_ms=150, pad_ms=0)]
         levels = vad_segments.levels_db(audio, 16000)
@@ -173,6 +175,39 @@ def _fit_to_speech(result: list, audio_path: str, trim_starts: bool = True) -> l
     if trim_starts:
         trim_starts_to_speech(result, spans)
     return extend_ends_to_speech(result, spans, levels=levels, levels_hop_s=vad_segments.LEVEL_HOP_S)
+
+
+class _WholeAudio:
+    """The file Whisper hears, decoded once for the decode, the fit to speech and the
+    re-hearing: each decoded it again, which on a long stream costs tens of seconds an hour."""
+
+    def __init__(self, path: str):
+        self.path = path
+        self.samples = None
+        self._decoded = False
+
+    def decoded(self):
+        """The samples, decoding them on first use; the path without faster-whisper."""
+        if not self._decoded:
+            self._decoded = True
+            import vad_segments
+            # Whisper's own detector scores the samples first, so its scores are the ones reused.
+            vad_segments.remember_speech_scores()
+            self.samples = _decode_whole(self.path)
+        return self.as_heard()
+
+    def as_heard(self):
+        return self.path if self.samples is None else self.samples
+
+
+def _decode_whole(audio_path: str):
+    """The file at 16 kHz, as faster-whisper decodes it for transcribe(), or None when
+    faster-whisper is not installed (only a stand-in model runs then)."""
+    try:
+        from faster_whisper import decode_audio
+    except ImportError:
+        return None
+    return decode_audio(audio_path, sampling_rate=16000)
 
 
 def _progress_reporter(progress_cb, resume: "_Resume", duration: float):
@@ -267,7 +302,7 @@ def _cut_tail(audio_path: str, resume):
 REHEARD_NOTE = "Heard again without the speech detector, which replaced the first hearing; check against the audio"
 
 
-def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys: set) -> list:
+def _rehear_sparse(model, audio, kwargs: dict, segments: list, prompt_keys: set) -> list:
     """`segments` with each sparse one (_is_sparse) replaced by what Whisper hears in that
     stretch alone, when that holds more text. The stretch is decoded without the speech
     detector: it is the detector's cutting, which stitches the kept speech together, that
@@ -278,7 +313,7 @@ def _rehear_sparse(model, audio_path, kwargs: dict, segments: list, prompt_keys:
         return segments
     retry = {k: v for k, v in kwargs.items() if k != "vad_parameters"}
     retry.update(vad_filter=False, clip_timestamps=[t for s in sparse for t in _span(s)])
-    heard, _info = model.transcribe(audio_path, **retry)
+    heard, _info = model.transcribe(audio, **retry)
     # Re-decoding without the detector is where Whisper most often writes a credit over
     # speech, so a stock phrase it returns here is never taken as the stretch's text.
     heard = [h for h in _segment_dicts(heard, prompt_keys) if not is_stock_phrase(h["text"])]
@@ -586,7 +621,7 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     if difficult_audio and not fast_mode:
         kwargs.update(_relaxed_kwargs(model, no_speech_threshold, log_prob_threshold))
 
-    resume = _Resume(None if fast_mode else resume_segments, on_unit)
+    resume, whole = _Resume(None if fast_mode else resume_segments, on_unit), _WholeAudio(audio_path)
 
     def _collect(m, segments, info):
         duration = (getattr(info, "duration", None) or 0) + resume.at
@@ -596,9 +631,9 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
         result = resume.merged(result)
         settle_overlaps(result)
         # Difficult audio is the shouted or whispered speech Silero scores as silence.
-        _fit_to_speech(result, audio_path, trim_starts=not _skips_detector(language, difficult_audio))
+        _fit_to_speech(result, audio_path, trim_starts=not _skips_detector(language, difficult_audio), audio=whole.samples)
         if not fast_mode:
-            result = _rehear_sparse(m, audio_path, kwargs, result, prompt_keys)
+            result = _rehear_sparse(m, whole.as_heard(), kwargs, result, prompt_keys)
         for seg in result:
             seg.pop(_SPAN_KEY, None)
         if filter_hallucination_repeats:
@@ -615,8 +650,8 @@ def transcribe_for_timing(audio_path: str, model_size: str = "medium", language:
     def _run(m):
         if fast_mode:
             from faster_whisper import BatchedInferencePipeline
-            return BatchedInferencePipeline(model=m).transcribe(audio_path, **kwargs)
-        return m.transcribe(tail or audio_path, **kwargs)
+            return BatchedInferencePipeline(model=m).transcribe(whole.decoded(), **kwargs)
+        return m.transcribe(tail or whole.decoded(), **kwargs)
 
     try:
         try:

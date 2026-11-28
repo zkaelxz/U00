@@ -565,12 +565,13 @@ def _join_leftover_job_threads(timeout=5.0):
     running, one finishes during the next test's setup in the same worker
     and writes its job record while that test initialises its database
     ("database is locked" in CI, 2026-09-30). Only job runner/watcher
-    threads are joined; the long-lived heartbeat thread is not."""
+    threads (and the line-rescoring pass a restore starts) are joined; the
+    long-lived heartbeat thread is not."""
     deadline = time.monotonic() + timeout
     for t in threading.enumerate():
         if t is threading.current_thread():
             continue
-        if t.name.startswith(("job:", "job-watcher:")):
+        if t.name.startswith(("job:", "job-watcher:", "confidence-backfill")):
             t.join(max(0.0, deadline - time.monotonic()))
 
 

@@ -19,7 +19,7 @@ test('the toolbar stays at the top of a long page and its buttons stay clickable
   const header = page.locator('.app-header')
   await expect(header).toBeInViewport({ ratio: 1 })
   expect((await header.boundingBox())!.y).toBeLessThanOrEqual(1)
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeInViewport({ ratio: 1 })
+  await expect(page.locator('details.you-menu > summary')).toBeInViewport({ ratio: 1 })
   const barH = await page.evaluate(() => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-header-h')))
   expect(barH).toBeCloseTo((await header.boundingBox())!.height, 0)
 })

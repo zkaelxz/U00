@@ -63,10 +63,12 @@ def get_subtitle_text(
         wrap_chars_en: int = Query(None, ge=1, le=200),
         wrap_chars_source: int = Query(None, ge=1, le=200),
         tidy_timing: bool = Query(False),
-        speaker_names: bool = Query(False)):
+        speaker_names: bool = Query(False),
+        reading_line: bool = Query(False)):
     result = export_service.generate_subtitle_export(
         drama_id, fmt, field, include_notes=include_notes, speaker_names=speaker_names,
-        wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing)
+        wrap_chars_en=wrap_chars_en, wrap_chars_source=wrap_chars_source, tidy_timing=tidy_timing,
+        reading_line=reading_line)
     _mark_exported_if_allowed(request, drama_id, field)
     extra = {"X-Cue-Fps": f"{result['fps']:.3f}".rstrip("0").rstrip(".")} if result["fps"] else {}
     return Response(
@@ -133,8 +135,9 @@ def post_flag_auto_qc(drama_id: int = Path(ge=1)):
 @router.get("/dramas/{drama_id}/epub", dependencies=[require_permission("lines.read")],
             summary="Generate an EPUB for one novel-narration drama (binary download)",
             responses=error_responses(400, 404, 409, 422, 503))
-def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh)$")):
-    data = export_service.generate_epub(drama_id, field=field)
+def get_epub(drama_id: int = Path(ge=1), field: str = Query("en", pattern="^(en|zh|bilingual)$"),
+             readings: bool = Query(False)):
+    data = export_service.generate_epub(drama_id, field=field, readings=readings)
     return Response(
         content=data, media_type="application/epub+zip",
         headers={"Content-Disposition": export_service.subtitle_disposition(drama_id, field, "epub", "ebook")})
@@ -149,7 +152,9 @@ def post_ass_text(request: Request, req: AssExportRequest, drama_id: int = Path(
         drama_id, field=req.field, style=style, preset=req.preset,
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
-        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
+        reading_line=req.reading_line, karaoke=req.karaoke,
+        ear_placement=req.ear_placement)
     _mark_exported_if_allowed(request, drama_id, req.field)
     return Response(
         content=text, media_type="text/x-ssa; charset=utf-8",
@@ -180,7 +185,9 @@ def post_burned_video(drama_id: int = Path(ge=1), req: Optional[AssExportRequest
         drama_id, field=req.field, style=style, preset=req.preset,
         speaker_colors=req.speaker_colors, per_speaker_colors=req.per_speaker_colors,
         include_notes=req.include_notes, notes_as_separate_line=req.notes_as_separate_line,
-        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source)
+        wrap_chars_en=req.wrap_chars_en, wrap_chars_source=req.wrap_chars_source,
+        reading_line=req.reading_line, karaoke=req.karaoke,
+        ear_placement=req.ear_placement)
 
 
 @router.post("/dramas/{drama_id}/softsub-video", dependencies=[require_permission("jobs.start")], response_model=MediaExportStarted,
