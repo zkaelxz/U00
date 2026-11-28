@@ -45,9 +45,19 @@ async function mockPage(page: Page, permissions: string[], local = true) {
   await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
 }
 
-const openSection = async (page: Page, title: RegExp) => {
-  const summary = page.locator('summary', { hasText: title }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+const openPane = async (page: Page, name: string) => {
+  // The People tab's name ends with its count.
+  const tab = page.getByRole('tab', { name: new RegExp(`^${name}`) })
+  if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click()
+}
+
+/** A person is one row that opens on click; its details and buttons are inside. */
+const openRows = async (page: Page) => {
+  const list = page.getByRole('list', { name: 'People' })
+  await expect(list.locator(':scope > li').first()).toBeVisible()
+  const closed = list.locator(':scope > li > details:not([open]) > summary')
+  while (await closed.count()) await closed.first().click()
+  return list
 }
 
 test('People: lists accounts, explains the guards, and deactivates after a confirm', async ({ page }) => {
@@ -63,12 +73,12 @@ test('People: lists accounts, explains the guards, and deactivates after a confi
     return r.fulfill({ json: updated })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
-  const list = page.getByRole('list', { name: 'People' })
+  await openPane(page, 'People')
+  const list = await openRows(page)
   await expect(list.locator('li')).toHaveCount(3)
 
   const self = list.locator('li').nth(0)
-  await expect(self).toContainText('Owner (owner@example.com)')
+  await expect(self).toContainText('Owner · owner@example.com')
   await expect(self).toContainText('You')
   await expect(self).toContainText("You can't deactivate your own account.")
   await expect(self.getByRole('button', { name: 'Deactivate owner@example.com' })).toBeDisabled()
@@ -100,7 +110,8 @@ test('Users: a refused action shows the server reason in plain words', async ({ 
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so it can't be deactivated." } },
   }))
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
+  await openPane(page, 'People')
+  await openRows(page)
   const section = page.getByTestId('admin-users')
 
   await section.getByRole('button', { name: 'Deactivate second@example.com' }).click()
@@ -123,8 +134,8 @@ test('Users: away from the PC, admin accounts are off with the reason; others st
   const otherOff = user({ id: 5, email: 'third@example.com', is_admin: true, is_active: false, active_sessions: 0 })
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, other, otherOff, KID] } }))
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
-  const list = page.getByRole('list', { name: 'People' })
+  await openPane(page, 'People')
+  const list = await openRows(page)
   const second = list.locator('li').nth(1)
   await expect(second).toContainText('Admin accounts can only be changed on the main PC.')
   await expect(second.getByRole('button', { name: 'Deactivate second@example.com' })).toBeDisabled()
@@ -151,8 +162,8 @@ test('Users: on the PC, removes admin rights after a confirm and refreshes the l
     return r.fulfill({ json: updated })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
-  const list = page.getByRole('list', { name: 'People' })
+  await openPane(page, 'People')
+  const list = await openRows(page)
   const self = list.locator('li').nth(0)
   await expect(self).toContainText("You can't remove your own admin rights.")
   await expect(self.getByRole('button', { name: 'Remove admin owner@example.com' })).toBeDisabled()
@@ -180,7 +191,8 @@ test('Users: a last-admin refusal from the server is shown in the banner', async
     json: { error: { code: 'conflict', message: "This is the last active admin. Baihe needs at least one, so their admin rights can't be removed." } },
   }))
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
+  await openPane(page, 'People')
+  await openRows(page)
   const section = page.getByTestId('admin-users')
   await section.getByRole('button', { name: 'Remove admin second@example.com' }).click()
   await section.getByRole('button', { name: 'Confirm remove admin rights from second@example.com' }).click()
@@ -193,7 +205,8 @@ test('Users: an admin on the household address sees the list without any buttons
   await mockPage(page, ['library.read', 'admin.users.read'], false)
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
+  await openPane(page, 'People')
+  await openRows(page)
   const section = page.getByTestId('admin-users')
   await expect(section.getByRole('list', { name: 'People' }).locator('li')).toHaveCount(3)
   await expect(section).toContainText('Account changes are made on the main PC.')
@@ -218,7 +231,7 @@ test('Activity log: newest first, filters by action and user, pages back', async
     return r.fulfill({ json: { events: [event(9), event(8)], next_before_id: 8, actions: ['login.denied', 'login.success', 'user.deactivate'] } })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^Activity log/)
+  await openPane(page, 'Activity')
   const rows = page.getByRole('table', { name: 'Activity log' }).locator('tbody tr')
   await expect(rows).toHaveCount(2)
   await expect(rows.first()).toContainText('2026-09-30 12:09 UTC')
@@ -255,60 +268,81 @@ test('hidden from a signed-in user without admin.users.read', async ({ page }) =
   await page.goto('/#/admin')
   await expect(page.getByText('Only an admin can see this page.')).toBeVisible()
   await expect(navLink(page, 'People and access')).toHaveCount(0)
-  await expect(page.locator('summary', { hasText: /^People/ })).toHaveCount(0)
-  await expect(page.locator('summary', { hasText: /^Activity log/ })).toHaveCount(0)
+  await expect(page.getByRole('tab')).toHaveCount(0)
   expect(admin).toEqual([])
   expect(unmocked).toEqual([])
 })
 
-test('People and access: first card open the first time, the rest closed and remembered; renamed cards', async ({ page }) => {
+const REMOTE_SETUP = { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false }
+
+test('People and access: a list down the left, People first, the pane remembered; links land on their part', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
   await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [] } }))
   await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: false } }))
-  await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: { steps: [], next: null, fields: { public_url: false, google_client_id: false, google_client_secret: false }, restart_needed: false } }))
+  await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: REMOTE_SETUP }))
   await page.goto('/#/admin')
   await expect(page.getByRole('heading', { name: 'People and access', level: 1 })).toBeVisible()
   await expect(navLink(page, 'People and access')).toBeVisible()
-  const cards = page.locator('details.section')
-  await expect(cards.locator('summary .section-title')).toHaveText(['People', 'Activity log', 'Set up remote access', 'Public address check', 'Uploads from away'])
-  await expect(cards.nth(0)).toHaveAttribute('open', '')
-  await expect(cards.nth(1)).not.toHaveAttribute('open', '')
-  await expect(cards.nth(2)).not.toHaveAttribute('open', '')
-  await expect(cards.nth(3)).not.toHaveAttribute('open', '')
-  // Same page layout as the other pages: no page-specific width.
-  await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'narrow')
+  const list = page.getByRole('tablist', { name: 'People and access' })
+  // PC profiles is only for the PC window with sign-in off, which this mocked sign-in is not.
+  await expect(list.getByRole('tab')).toHaveText(['People0', 'Activity', 'Remote access'])
+  await expect(list.getByRole('tab', { name: /^People/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('section[aria-label="People and access"]')).toHaveAttribute('data-page-shell', 'standard')
   // Empty text names no command.
-  await expect(page.getByText('No one added yet. Add a person above by their Google email; then they can sign in with that Google account.')).toBeVisible()
-  // The household rights a new person starts with include playing media (a default since the owner decision of 2026-11-17).
-  await expect(page.getByRole('form', { name: 'Add a person' })).toContainText('use Review, play audio and video)')
+  await expect(page.getByText('No one added yet. Use Add person to add someone by their Google email; then they can sign in with that Google account.')).toBeVisible()
+  // The form opens from + Add person; its help says what a new person starts with (playing media is a default since 2026-11-17).
+  await expect(page.getByRole('form', { name: 'Add a person' })).toHaveCount(0)
+  await page.getByRole('button', { name: '+ Add person' }).click()
+  const form = page.getByRole('form', { name: 'Add a person' })
+  await form.getByRole('button', { name: 'Help: Add a person' }).focus()
+  await expect(form.getByRole('tooltip')).toContainText('use Review, play audio and video)')
   await expect(page.locator('section[aria-label="People and access"]')).not.toContainText('grant-admin')
 
-  await cards.nth(1).locator('summary').click()
-  await cards.nth(0).locator('summary').click()
-  // The toggle event that saves the choice fires after the click, so wait for both before reloading.
-  await page.waitForFunction(() =>
-    window.localStorage.getItem('baihe.section.admin.people') === '0' && window.localStorage.getItem('baihe.section.admin.activity') === '1')
+  await openPane(page, 'Remote access')
+  for (const title of ['Set up remote access', 'Public address check', 'Uploads from away']) {
+    await expect(page.getByRole('heading', { name: title, level: 2 })).toBeVisible()
+  }
   await page.reload()
-  await expect(cards.nth(0)).not.toHaveAttribute('open', '')
-  await expect(cards.nth(1)).toHaveAttribute('open', '')
+  await expect(list.getByRole('tab', { name: 'Remote access' })).toHaveAttribute('aria-selected', 'true')
+
+  // ?card=remote is new; the older card links still land on their part of a pane, once: switching back later leaves focus alone.
+  for (const [card, tab, heading] of [['people', /^People/, 'People'], ['remote', 'Remote access', 'Set up remote access'], ['address', 'Remote access', 'Public address check'], ['activity', 'Activity', 'Activity log']] as const) {
+    await page.goto(`/#/admin?card=${card}`)
+    await expect(list.getByRole('tab', { name: tab })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.getByRole('heading', { name: heading, level: 2 })).toBeFocused()
+  }
+  await openPane(page, 'People')
+  await openPane(page, 'Activity')
+  await expect(list.getByRole('tab', { name: 'Activity' })).toBeFocused()
   expect(unmocked).toEqual([])
 })
 
 for (const scheme of ['light', 'dark'] as const) {
-  test(`${scheme}: People and access has no sideways scroll at 1280x800 with every card open`, async ({ page }) => {
+  test(`${scheme}: People and access has no sideways scroll at 1280x800 with every row open`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 })
     await page.emulateMedia({ colorScheme: scheme })
     const unmocked = await guard(page)
     await mockPage(page, ['library.read', 'admin.diagnostics', 'admin.users.read', 'admin.users'])
-    await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST] } }))
+    const many = Array.from({ length: 9 }, (_, n) => user({ id: 10 + n, email: `member-${n}-with-a-long-address@example.com` }))
+    await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, GUEST, ...many], member_permissions: RIGHTS } }))
     await page.route('**/api/admin/audit**', (r) => r.fulfill({ json: { events: [event(1)], next_before_id: null, actions: ['login.success'] } }))
     await page.route('**/api/diagnostics/remote-health/ip-check', (r) => r.fulfill({ json: { configured: true } }))
+    await page.route('**/api/diagnostics/remote-setup', (r) => r.fulfill({ json: REMOTE_SETUP }))
     await page.goto('/#/admin')
-    for (const title of [/^People/, /^Activity log/, /^Public address check/]) await openSection(page, title)
-    await expect(page.getByRole('table', { name: 'Activity log' })).toBeVisible()
-    const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
-    expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    await openRows(page)
+    // Ten members are wider than the pane: the grid scrolls sideways inside itself, never the page.
+    await expect(page.getByTestId('admin-rights')).toBeVisible()
+    const noSideScroll = async () => {
+      const { scroll, client } = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }))
+      expect(scroll, 'page scrolls sideways').toBeLessThanOrEqual(client)
+    }
+    await noSideScroll()
+    for (const pane of ['Activity', 'Remote access']) {
+      await openPane(page, pane)
+      await noSideScroll()
+    }
+    await expect(page.getByRole('table', { name: 'Activity log' })).toBeHidden()
     expect(unmocked).toEqual([])
   })
 }
@@ -316,13 +350,14 @@ for (const scheme of ['light', 'dark'] as const) {
 const RIGHTS = ['library.read', 'lines.read', 'lines.edit', 'jobs.start', 'jobs.cancel', 'review.use',
   'media.import_url', 'sources.import', 'engines.paid', 'extension.send', 'media.stream']
 
-test('People: rights toggles on active member rows give and take one right', async ({ page }) => {
+test('People: the rights grid has a column per active member and gives and takes one right', async ({ page }) => {
   const unmocked = await guard(page)
   await mockPage(page, ['admin.users.read', 'admin.users'], false)
   const other = user({ id: 4, email: 'second@example.com', is_admin: true })
+  const sam = user({ id: 6, email: 'sam@example.com', display_name: 'Sam Sample', permissions: ['library.read', 'engines.paid'] })
   let kid = KID
   await page.route('**/api/admin/users', (r) => r.fulfill({
-    json: { users: [ME_ADMIN, other, kid, GUEST], member_permissions: RIGHTS } }))
+    json: { users: [ME_ADMIN, other, kid, GUEST, sam], member_permissions: RIGHTS } }))
   const sent: string[] = []
   await page.route('**/api/admin/users/2/permissions/*', (r) => {
     const method = r.request().method()
@@ -332,31 +367,106 @@ test('People: rights toggles on active member rows give and take one right', asy
     return r.fulfill({ json: kid })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
-  const list = page.getByRole('list', { name: 'People' })
+  const grid = page.getByRole('table', { name: 'Rights' })
   // Admins (the caller included) hold every right; a deactivated account holds none.
-  for (const n of [0, 1, 3]) await expect(list.locator('li').nth(n).getByRole('group', { name: 'Rights' })).toHaveCount(0)
-  const rights = list.locator('li').nth(2).getByRole('group', { name: 'Rights' })
-  await expect(rights.getByRole('checkbox')).toHaveCount(RIGHTS.length)
-  const lib = rights.getByRole('checkbox', { name: 'See the library library.read' })
-  const paid = rights.getByRole('checkbox', { name: 'Paid engines engines.paid' })
-  await expect(lib).toBeChecked()
-  await expect(paid).not.toBeChecked()
+  await expect(grid.getByRole('columnheader')).toHaveText(['Right', 'Kid', 'Sam Sample'])
+  await expect(grid.getByRole('switch')).toHaveCount(RIGHTS.length * 2)
+  // Each switch names the right and the person, so a tap in the wrong column is announced.
+  const lib = grid.getByRole('switch', { name: 'See the library for Kid (kid@example.com)' })
+  const paid = grid.getByRole('switch', { name: 'Paid engines for Kid (kid@example.com)' })
+  await expect(lib).toHaveAttribute('aria-checked', 'true')
+  await expect(paid).toHaveAttribute('aria-checked', 'false')
+  await expect(grid.getByRole('switch', { name: 'Paid engines for Sam Sample (sam@example.com)' })).toHaveAttribute('aria-checked', 'true')
 
   // Each right's "i" says what it allows.
-  const help = rights.getByRole('button', { name: 'Help: Paid engines' })
+  const help = grid.getByRole('button', { name: 'Help: Paid engines' })
   await help.focus()
-  await expect(rights.getByRole('tooltip')).toContainText('Use engines that cost money')
+  await expect(grid.getByRole('tooltip')).toContainText('Use engines that cost money')
   await help.blur()
 
   await paid.click()
   await expect(page.getByTestId('admin-users')).toContainText('kid@example.com: Paid engines given.')
-  await expect(paid).toBeChecked()
+  await expect(paid).toHaveAttribute('aria-checked', 'true')
   await lib.click()
   await expect(page.getByTestId('admin-users')).toContainText('kid@example.com: See the library taken away.')
-  await expect(lib).not.toBeChecked()
+  await expect(lib).toHaveAttribute('aria-checked', 'false')
   expect(sent).toEqual(['POST /api/admin/users/2/permissions/engines.paid',
     'DELETE /api/admin/users/2/permissions/library.read'])
+  expect(unmocked).toEqual([])
+})
+
+test('People: name and limits save on Enter or leaving the field, show Saved only once the PC answers, and keep the text on a refusal', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  let kid = { ...KID, monthly_paid_cap_usd: null as number | null, daily_job_limit: null as number | null }
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, kid], member_permissions: RIGHTS } }))
+  const bodies: [string, unknown][] = []
+  let release: () => void = () => undefined
+  await page.route('**/api/admin/users/2/*', async (r) => {
+    const what = new URL(r.request().url()).pathname.split('/').pop()!
+    const body = r.request().postDataJSON() as Record<string, unknown>
+    bodies.push([what, body])
+    if (what === 'job-limit') {
+      return r.fulfill({ status: 422, json: { error: { code: 'validation_error', message: 'The daily job limit is too high.' } } })
+    }
+    if (what === 'display-name') await new Promise<void>((done) => { release = done })
+    kid = { ...kid, ...(what === 'display-name' ? { display_name: String(body.display_name) } : { monthly_paid_cap_usd: body.monthly_cap_usd as number | null }) }
+    return r.fulfill({ json: kid })
+  })
+  await page.goto('/#/admin')
+  const list = await openRows(page)
+  const row = list.locator(':scope > li').nth(1)
+  await expect(row.getByRole('button', { name: /^Save/ })).toHaveCount(0)
+
+  const name = row.getByRole('textbox', { name: 'Name' })
+  await name.fill('Kid Example')
+  await name.press('Enter')
+  await expect(row.getByText('Saving…')).toBeVisible()
+  // Enter then leaving the field while it saves sends it once.
+  await name.blur()
+  // Nothing claims to be saved until the PC has answered.
+  await expect(row.getByText('✓ Saved')).toHaveCount(0)
+  release()
+  await expect(row.getByText('✓ Saved')).toBeVisible()
+  await expect(row.locator('summary')).toContainText('Kid Example')
+
+  const paid = row.getByRole('textbox', { name: 'Paid limit a month (USD)' })
+  await paid.fill('0')
+  await paid.blur()
+  await expect(row.getByText('Enter an amount above $0')).toBeVisible()
+  await expect(paid).toHaveAttribute('aria-invalid', 'true')
+  await paid.fill('12.50')
+  await paid.blur()
+  await expect(row.locator('summary')).toContainText('$12.50 a month')
+  // Emptied and left, a limit stays: only Enter removes it.
+  await paid.fill('')
+  await paid.blur()
+  await expect(row.getByText('Press Enter to remove the limit')).toBeVisible()
+  await expect(row.locator('summary')).toContainText('$12.50 a month')
+  await paid.press('Enter')
+  await expect(row.locator('summary')).not.toContainText('a month')
+
+  const jobs = row.getByRole('textbox', { name: 'Jobs a day' })
+  await jobs.fill('9000')
+  await jobs.press('Enter')
+  await expect(row.getByText('The daily job limit is too high.')).toBeVisible()
+  await expect(jobs).toHaveValue('9000')
+  await expect(jobs).toHaveAttribute('aria-invalid', 'true')
+  // Leaving the field doesn't send the refused value again; Enter does, as a retry.
+  await jobs.blur()
+  await jobs.press('Enter')
+  await expect.poll(() => bodies.filter(([what]) => what === 'job-limit').length).toBe(2)
+  // Esc puts the saved value back.
+  await jobs.press('Escape')
+  await expect(jobs).toHaveValue('')
+
+  expect(bodies).toEqual([
+    ['display-name', { display_name: 'Kid Example' }],
+    ['paid-limit', { monthly_cap_usd: 12.5 }],
+    ['paid-limit', { monthly_cap_usd: null }],
+    ['job-limit', { jobs_per_day: 9000 }],
+    ['job-limit', { jobs_per_day: 9000 }],
+  ])
   expect(unmocked).toEqual([])
 })
 
@@ -376,25 +486,40 @@ test('People: on the PC, adds a person; away from the PC there is no form', asyn
     return r.fulfill({ json: { users, member_permissions: RIGHTS } })
   })
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
+  await page.getByRole('button', { name: '+ Add person' }).click()
   const form = page.getByRole('form', { name: 'Add a person' })
   const submit = form.getByRole('button', { name: 'Add person' })
   await expect(submit).toBeDisabled()
   await form.getByLabel('Email').fill('PC2@example.com')
   await form.getByLabel('Name (optional)').fill('Second PC')
-  await form.getByRole('checkbox', { name: 'Also allow the browser extension' }).check()
+  await form.getByRole('switch', { name: 'Also allow the browser extension' }).click()
   await submit.click()
   await expect(page.getByTestId('admin-users')).toContainText('pc2@example.com was added.')
   await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
-  await expect(form.getByLabel('Email')).toHaveValue('')
+  await expect(form).toHaveCount(0)
   expect(bodies).toEqual([{ email: 'PC2@example.com', display_name: 'Second PC', extension_send: true }])
   expect(unmocked).toEqual([])
 
   await mockPage(page, ['admin.users.read', 'admin.users'], false)
   await page.reload()
-  await openSection(page, /^People/)
   await expect(page.getByRole('list', { name: 'People' }).locator(':scope > li')).toHaveCount(3)
-  await expect(page.getByRole('form', { name: 'Add a person' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '+ Add person' })).toHaveCount(0)
+  // Away from the PC: People and Activity only.
+  await expect(page.getByRole('tablist', { name: 'People and access' }).getByRole('tab')).toHaveText(['People3', 'Activity'])
+})
+
+test('People: with 8 or more people a search narrows the list and the grid', async ({ page }) => {
+  const unmocked = await guard(page)
+  await mockPage(page, ['admin.users.read', 'admin.users'])
+  const many = Array.from({ length: 6 }, (_, n) => user({ id: 10 + n, email: `member${n}@example.com` }))
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN, KID, ...many], member_permissions: RIGHTS } }))
+  await page.goto('/#/admin')
+  const people = page.getByRole('list', { name: 'People' }).locator(':scope > li')
+  await expect(people).toHaveCount(8)
+  await page.getByRole('searchbox', { name: 'Find a person' }).fill('kid')
+  await expect(people).toHaveCount(1)
+  await expect(page.getByRole('table', { name: 'Rights' }).getByRole('columnheader')).toHaveText(['Right', 'Kid'])
+  expect(unmocked).toEqual([])
 })
 
 test('People: without admin.users the rights are shown but cannot be changed', async ({ page }) => {
@@ -403,11 +528,35 @@ test('People: without admin.users the rights are shown but cannot be changed', a
   await page.route('**/api/admin/users', (r) => r.fulfill({
     json: { users: [ME_ADMIN, KID], member_permissions: RIGHTS } }))
   await page.goto('/#/admin')
-  await openSection(page, /^People/)
-  const rights = page.getByRole('list', { name: 'People' }).locator('li').nth(1).getByRole('group', { name: 'Rights' })
-  await expect(rights.getByRole('checkbox', { name: 'See the library library.read' })).toBeChecked()
-  await expect(rights.getByRole('checkbox', { name: 'See the library library.read' })).toBeDisabled()
-  await expect(rights.getByRole('checkbox', { name: 'Paid engines engines.paid' })).toBeDisabled()
-  await expect(rights.getByRole('button', { name: 'Help: Paid engines' })).toBeEnabled()
+  const grid = page.getByRole('table', { name: 'Rights' })
+  await expect(grid.getByRole('switch', { name: 'See the library for Kid (kid@example.com)' })).toHaveAttribute('aria-checked', 'true')
+  await expect(grid.getByRole('switch', { name: 'See the library for Kid (kid@example.com)' })).toBeDisabled()
+  await expect(grid.getByRole('switch', { name: 'Paid engines for Kid (kid@example.com)' })).toBeDisabled()
+  await expect(grid.getByRole('button', { name: 'Help: Paid engines' })).toBeEnabled()
+  expect(unmocked).toEqual([])
+})
+
+test('PC profiles: shown at the PC window with sign-in off; the hide-all switch is sent with the PIN, not on its own', async ({ page }) => {
+  const unmocked = await guard(page)
+  await page.route('**/api/meta', (r) => r.fulfill({ json: {
+    app: 'Baihe Studio', api_version: '0.1', environment: 'production', local: true, pc_profile: { pin_set: false, guest: false } } }))
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...me(['admin.users.read', 'admin.users']), auth_enabled: false } }))
+  await page.route('**/api/jobs', (r) => r.fulfill({ json: { items: [], count: 0 } }))
+  await page.route('**/api/admin/users', (r) => r.fulfill({ json: { users: [ME_ADMIN] } }))
+  const bodies: unknown[] = []
+  await page.route('**/api/pc-profile/pin', (r) => {
+    bodies.push(r.request().postDataJSON())
+    return r.fulfill({ json: { pin_set: true, guest: false, hidden: 3 } })
+  })
+  await page.goto('/#/admin?card=pc-profiles')
+  await expect(page.getByRole('tab', { name: 'PC profiles' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByRole('tab', { name: /^People/ })).toBeVisible()
+  const hideAll = page.getByRole('switch', { name: 'When profiles turn on, also mark all my current titles private' })
+  await hideAll.click()
+  await expect(hideAll).toHaveAttribute('aria-checked', 'true')
+  expect(bodies).toEqual([])
+  await page.getByLabel('PIN', { exact: true }).fill('123456')
+  await page.getByRole('button', { name: 'Turn on profiles' }).click()
+  await expect.poll(() => bodies).toEqual([{ new_pin: '123456', current_pin: null, hide_existing: true }])
   expect(unmocked).toEqual([])
 })

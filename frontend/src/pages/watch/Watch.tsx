@@ -9,6 +9,7 @@ import {
 } from 'react'
 
 import { api } from '../../api/client'
+import { coverUrl } from '../../api/metadata'
 import { readerApi } from '../../api/reader'
 import { listAllLines, listRiskLineIds, patchLine } from '../../api/review'
 import { browserSession } from '../../api/sessionStore'
@@ -52,6 +53,7 @@ import { WatchParty } from './WatchParty'
 import { Bookmarks } from './Bookmarks'
 import { TopicChapterList } from './TopicChapterList'
 import { useEarMarks } from './useEarMarks'
+import { useLockScreen } from './useLockScreen'
 import { useWatchMarks } from './useWatchMarks'
 import {
   attentionIndex, checkStep, currentLine, fixIsDirty, focusAfterFix, followPaused, followScroll, isReadOnlyKind, lineToFix, linesToCheck, loopLineAt, openFix,
@@ -148,7 +150,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
   const playable = kind !== null && !readOnly ? original : null
   const player = useRef<PlayerHandle | null>(null)
   const list = useRef<HTMLOListElement | null>(null)
-  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player)
+  const { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo } = useWatchClock(id, playable, ordered, player, drama)
   const { resume: backToSound, scrollHandlers } = useFollow(list, currentId)
   // Every move of the playhead by the person also ends "Back where you stopped", which would name a place left behind.
   const resume = useCallback(() => {
@@ -472,7 +474,7 @@ export default function WatchPage({ id, party }: { id: number; party?: string })
  * changes with the voice rather than at the next timeupdate (about four a second); state changes only when the line
  * does, so the page does not redraw every frame. The position is kept per title in this browser.
  */
-function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: ReviewLine[], player: RefObject<PlayerHandle | null>) {
+function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: ReviewLine[], player: RefObject<PlayerHandle | null>, drama: DramaDetail | null) {
   const playerBoxRef = useRef<HTMLDivElement | null>(null)
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const [currentId, setCurrentId] = useState<number | null>(null)
@@ -604,6 +606,7 @@ function useWatchClock(id: number, playable: 'video' | 'audio' | null, ordered: 
   const clearResumed = useCallback(() => setResumedAt(null), [])
   // The line Loop line repeats, by the card's own rule, so the line repeated is the line the card shows.
   const lineAt = useCallback((time: number) => loopLineAt(orderedRef.current, time), [])
+  useLockScreen(mediaRef, id, playable, { title: drama ? titleOf(drama) : '', artist: drama?.studio || drama?.author || '', artwork: drama?.has_cover_art ? coverUrl(id) : undefined })
   return { playerBoxRef, mediaRef, currentId, showCurrent, lineAt, resumedAt, clearResumed, skipTo }
 }
 

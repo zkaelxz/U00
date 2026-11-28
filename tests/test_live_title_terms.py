@@ -131,12 +131,76 @@ def test_start_session_passes_hints_and_refuses_before_building_an_engine(isolat
         live_service.start_session("https://example.com/s", glossary_drama_id=424242, principal=OWNER)
     assert built == []
     plain = live_service.start_session("https://example.com/s", principal=OWNER)["session_id"]
-    # No glossary: nothing is looked up or primed until a name is fixed, and the session stays shareable.
-    assert seen["term_hints"](["月岡さん"]) == [] and seen["term_hints"].names == ""
+    # With nothing picked, the built-in VTuber names and stream terms still hint, and the session stays shareable.
+    assert ("彩虹社", "NIJISANJI") in [row[:2] for row in seen["term_hints"](["今天彩虹社的人来了"])]
+    assert seen["term_hints"].names == ""
     assert live_service._sessions[plain]["private"] is False
     did, _ = _title()
     live_service.start_session("https://example.com/s", glossary_drama_id=did, principal=OWNER)
     assert callable(seen["term_hints"])
+    live_service._sessions.clear()
+
+
+def test_built_in_packs_alone_keep_a_session_joinable(isolated_db, monkeypatch):
+    monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: True)
+    plain = live_service.start_session("https://example.com/a", principal=OWNER)["session_id"]
+    did, _ = _title()
+    picked = live_service.start_session("https://example.com/b", glossary_drama_id=did,
+                                        principal=OWNER)["session_id"]
+    assert live_service._sessions[plain]["private"] is False
+    assert live_service._sessions[picked]["private"] is True
+    live_service._sessions.clear()
+
+
+def test_a_followed_channels_word_list_alone_still_keeps_a_session_private(isolated_db, monkeypatch):
+    monkeypatch.setattr(live_service, "_require_public", lambda *a, **k: None)
+    monkeypatch.setattr(live_service, "_build_engine", lambda e, m: ("ollama", Engine()))
+    monkeypatch.setattr(job_launch, "start_job", lambda *a, **kw: True)
+    sid = live_service.start_session("https://example.com/c", own_terms=[{"original": "云朵", "translation": "Yunduo"}],
+                                     principal=OWNER)["session_id"]
+    assert live_service._sessions[sid]["private"] is True
+    live_service._sessions.clear()
+
+
+def test_default_packs_are_the_streams_language_vtuber_packs():
+    assert live_service._default_packs("ja") == {"ja-vtuber-names": None, "ja-vtuber-core": None}
+    # A language without VTuber packs gets none rather than an unknown pack id.
+    assert live_service._default_packs("ko") == {}
+
+
+def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: [n for n in ("嘉然", "某某") if n in text])
+    plain = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
+    rows = plain(["嘉然和某某"])
+    # 嘉然 already has the names pack's English, so the list adds only the name the pack lacks.
+    assert [r for r in rows if r[2] == live_service.KNOWN_NAME_HINT] == [
+        ("某某", live_service.KNOWN_NAME_EN, live_service.KNOWN_NAME_HINT)]
+    assert ("嘉然", "Diana") in [r[:2] for r in rows]
+    did, _ = _title("zh")
+    assert all(r[2] != live_service.KNOWN_NAME_HINT for r in _hints(did, lang="zh")(["嘉然和某某"]))
+    korean = live_service._hint_function(None, None, "ko", default_packs=live_service._default_packs("ko"))
+    assert korean(["嘉然和某某"]) == []
+
+
+def test_default_hints_keep_glossary_terms_first_under_the_prompt_cap(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: ["某某"] if "某某" in text else [])
+    own = [{"original": f"测试词{i:02d}", "translation": f"Term {i}"} for i in range(59)]
+    hints = live_service._hint_function(None, None, "zh", own_terms=own, default_packs=live_service._default_packs("zh"))
+    rows = hints([" ".join(t["original"] for t in own) + " 彩虹社 某某"])
+    assert len(rows) == 60 and rows[0][0] == "测试词00"
+    # The pack entry still fits; the downloaded list's name is the one the cap cuts.
+    assert "彩虹社" in [r[0] for r in rows] and "某某" not in [r[0] for r in rows]
+
+
+def test_a_fixed_name_beats_the_built_in_names_pack(isolated_db, monkeypatch):
+    sid, seen = _started(monkeypatch)
+    assert ("彩虹社", "NIJISANJI") in [r[:2] for r in seen["term_hints"](["彩虹社"])]
+    live_service.add_name_fix(sid, "彩虹社", "Rainbow Agency", principal=OWNER)
+    assert [r[:2] for r in seen["term_hints"](["彩虹社"]) if r[0] == "彩虹社"] == [("彩虹社", "Rainbow Agency")]
     live_service._sessions.clear()
 
 

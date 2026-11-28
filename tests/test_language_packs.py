@@ -64,7 +64,26 @@ class TestBuiltInFiles:
     @pytest.mark.parametrize("pack_id, count", [("ja-vtuber-core", 164), ("ja-vtuber-names", 42),
                                                 ("zh-vtuber-core", 139), ("zh-vtuber-names", 35)])
     def test_vtuber_pack_sizes(self, pack_id, count):
-        assert len(lp.all_packs()[pack_id]["entries"]) == count
+        # Name packs also hold generated entries (tools/vtuber_name_packs.py), each with a link.
+        assert len([e for e in lp.all_packs()[pack_id]["entries"] if not e["link"]]) == count
+
+    @pytest.mark.parametrize("pack_id", ["ja-vtuber-names", "zh-vtuber-names"])
+    def test_generated_name_entries_carry_a_source_page(self, pack_id):
+        generated = [e for e in lp.all_packs()[pack_id]["entries"] if e["link"]]
+        assert len(generated) > 1000
+        assert all(e["link"].startswith(("https://hololist.net/", "https://www.wikidata.org/wiki/",
+                                         "https://hololive.hololivepro.com/", "https://www.nijisanji.jp/"))
+                   for e in generated)
+
+    @pytest.mark.parametrize("pack_id, text, term", [("zh-comic", "本少爷今天不高兴", "少爷"),
+                                                    ("zh-comic", "公主殿下来了", "殿下"),
+                                                    ("ja-address", "旦那様が来た", "様")])
+    def test_name_packs_switched_off_do_not_hide_another_packs_term(self, pack_id, text, term):
+        # Every pack's entries claim their text even when the pack is off.
+        assert term in [e["source"] for e in lp.matching_entries({pack_id: None}, text)]
+
+    def test_everyday_japanese_does_not_match_a_name(self):
+        assert lp.matching_entries({"ja-vtuber-names": None}, "今日はお休みです。それはおかしい。かしこまりました") == []
 
     def test_vtuber_style_defaults(self):
         packs = lp.all_packs()
@@ -118,10 +137,21 @@ class TestValidation:
         ({"entries": [{"source": "a", "en": {"x": "b"}}]}, "one rendering for each style"),
         ({"styles": {"default": "z", "options": {"x": "X"}}}, "not one of its options"),
         ({"entries": [{"source": "a", "en": "b" * 500}]}, "longer than"),
+        ({"entries": [{"source": "a", "en": "b", "link": "http://example.com/a/"}]}, "'link'"),
+        ({"entries": [{"source": "a", "en": "b", "link": "https://example.com/a/?q=1"}]}, "'link'"),
+        ({"entries": [{"source": "\u200ba", "en": "b"}]}, "invisible"),
     ])
     def test_errors_name_the_problem(self, change, message):
         with pytest.raises(lp.PackError, match=message):
             lp.validate_pack(_pack(**change), "f.json")
+
+    def test_a_link_is_kept_for_people_and_left_out_of_the_prompt(self, monkeypatch):
+        pack = lp.validate_pack(_pack(entries=[{"source": "先輩", "en": "senpai",
+                                                "link": "https://example.com/senpai/"}]), "f.json")
+        assert pack["entries"][0]["link"] == "https://example.com/senpai/"
+        monkeypatch.setattr(lp, "_cache", {"t-pack": pack})
+        found = lp.matching_entries({"t-pack": None}, "先輩")
+        assert "link" not in found[0] and "example.com" not in lp.build_pack_block(found)
 
     def test_non_object_is_refused(self):
         with pytest.raises(lp.PackError, match="one JSON object"):
