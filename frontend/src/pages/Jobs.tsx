@@ -157,7 +157,7 @@ export default function JobsPage() {
     onDelete: (id: string) => void run(() => deleteJob(id)),
   }
 
-  const tabs = <Tabs label="Jobs" idPrefix="jobs" tabs={JOB_TABS} active={tab} onSelect={setTab} />
+  const tabs = <Tabs label="Jobs" idPrefix="jobs" tabs={JOB_TABS} active={tab} onSelect={(t) => { setTab(t); setAddSignal(0) }} />
   if (tab === 'quick') {
     return (
       <PageShell width="wide" title="Jobs" label="Jobs" className="jobs-page" tabs={tabs}>
