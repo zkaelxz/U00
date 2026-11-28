@@ -209,7 +209,7 @@ jobs:
 
       # The installer ships CPython 3.13; a pin with no win_amd64 cp313 wheel
       # fails on the PC with a misleading conflict. Asks PyPI's JSON API only.
-      # Exit 2 (PyPI unreachable) is a runner problem, not a finding.
+      # Exit 2 (PyPI unreachable) fails the step too: rerun the job.
       - name: Every exact install pin has a win_amd64 cp313 wheel
         run: python scripts/check_install_wheels.py
 

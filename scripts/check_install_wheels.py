@@ -1,14 +1,13 @@
 """scripts/check_install_wheels.py -- does every exact optional-install pin have a wheel the shipped Python can use?
 
-The installer ships 64-bit Windows CPython 3.13, and an app install runs with --only-binary-style
-resolution, so a pin whose newest-at-pin-time wheels skip cp313 fails on the owner's PC with a
-misleading "conflict". This asks PyPI's JSON API (no downloads) for each `==` pin the app installs
+The installer ships 64-bit Windows CPython 3.13 and pip needs a binary wheel for it, so a pin
+with no such wheel fails on the owner's PC with a misleading "conflict". This asks PyPI's JSON API (no downloads) for each `==` pin the app installs
 by name (install_registry) and fails when none of the files fits win_amd64 + cp313.
 
     python scripts/check_install_wheels.py [--python 3.13]
 
 Exit 0 when every pin has a fitting wheel, 1 with the list of pins that don't, 2 when PyPI
-could not be reached (a CI retry, not a finding).
+could not be reached (rerun the job; it is not a finding).
 """
 
 import argparse
@@ -33,7 +32,8 @@ def exact_pins(python_version: str) -> list:
     pins = list(install_registry._PINS.values())
     ort_gpu_pin = getattr(install_registry, "ort_gpu_pin", None)
     if ort_gpu_pin:
-        # A per-Python pin replaces the static one.
+        # Once the pin depends on the Python (a 3.13 wheel exists only from a later build), the
+        # per-Python one is what installs.
         pins = [p for p in pins if not p.startswith("onnxruntime-gpu")] + [ort_gpu_pin(python_version)]
     for names in install_registry.PADDLE_REQUIREMENTS.values():
         pins += [n for n in names if "==" in n]
@@ -67,8 +67,13 @@ def files_for(pin: str) -> list:
     req = Requirement(pin)
     version = next(iter(req.specifier)).version
     url = f"https://pypi.org/pypi/{req.name}/{version}/json"
-    with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (fixed https host)
-        data = json.load(response)
+    try:
+        with urllib.request.urlopen(url, timeout=30) as response:  # noqa: S310 (fixed https host)
+            data = json.load(response)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return []  # a version PyPI doesn't have has no wheel: report it as a finding
+        raise
     return [f["filename"] for f in data.get("urls", []) if not f.get("yanked")]
 
 
@@ -84,7 +89,7 @@ def main(argv=None) -> int:
     pins = exact_pins(args.python)
     try:
         bad = check(pins, args.python)
-    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         print(f"could not reach PyPI: {type(exc).__name__}")
         return 2
     for pin in bad:

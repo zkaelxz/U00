@@ -35,3 +35,13 @@ def test_the_app_pins_are_collected():
     pins = ciw.exact_pins("3.13")
     assert any(p.startswith("paddlepaddle==") for p in pins)
     assert any(p.startswith("onnxruntime-gpu==") for p in pins)
+
+
+def test_a_version_pypi_does_not_have_is_a_finding(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    def gone(url, timeout):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+    monkeypatch.setattr(urllib.request, "urlopen", gone)
+    assert ciw.check(["paddlepaddle==9.9.9"], "3.13") == ["paddlepaddle==9.9.9"]
