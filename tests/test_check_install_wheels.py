@@ -45,3 +45,12 @@ def test_a_version_pypi_does_not_have_is_a_finding(monkeypatch):
         raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
     monkeypatch.setattr(urllib.request, "urlopen", gone)
     assert ciw.check(["paddlepaddle==9.9.9"], "3.13") == ["paddlepaddle==9.9.9"]
+
+
+def test_a_per_python_ort_pin_is_asked_with_a_version_tuple(monkeypatch):
+    import install_registry
+    seen = []
+    monkeypatch.setattr(install_registry, "ort_gpu_pin", lambda v=None: seen.append(v) or "onnxruntime-gpu==1.20.2",
+                        raising=False)
+    assert "onnxruntime-gpu==1.20.2" in ciw.exact_pins("3.13")
+    assert seen == [(3, 13)]

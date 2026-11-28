@@ -34,7 +34,7 @@ def exact_pins(python_version: str) -> list:
     if ort_gpu_pin:
         # Once the pin depends on the Python (a 3.13 wheel exists only from a later build), the
         # per-Python one is what installs.
-        pins = [p for p in pins if not p.startswith("onnxruntime-gpu")] + [ort_gpu_pin(python_version)]
+        pins = [p for p in pins if not p.startswith("onnxruntime-gpu")] + [ort_gpu_pin(tuple(int(x) for x in python_version.split(".")))]
     for names in install_registry.PADDLE_REQUIREMENTS.values():
         pins += [n for n in names if "==" in n]
     return sorted(set(pins))
