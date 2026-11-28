@@ -29,6 +29,7 @@ import { useHolds } from '../hooks/useHolds'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { nameLang } from '../hanScript'
 import { languageLabel, mediaTypeLabel } from '../labels'
 import { routeHref } from '../router'
 import { ADMIN_JOB_IDS } from '../types/libraryAdmin'
@@ -41,8 +42,8 @@ import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
-import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MonthRecap } from './libraryParity/MonthRecap'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -123,7 +124,6 @@ function ShelfPlaceholder({ count, limit, phone }: { count: number; limit: numbe
             </li>
           ))}
         </ul>
-        {count > limit && <div className="actions"><span className={buttonClass('ghost', 'sm')}>{'\u00a0'}</span></div>}
       </div>
     </section>
   )
@@ -145,7 +145,6 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   phone: boolean
   reloadKey: number
 }) {
-  const [all, setAll] = useState(false)
   const items = continueItems(continuing.data?.items ?? [], recent.data?.items ?? [])
   // The shelf is the tallest thing above the list; it holds its place until its own two requests and the title list
   // have answered, so the list does not jump down when they land.
@@ -159,8 +158,8 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
   useEffect(() => {
     if (answered) setStoredCount(items.length)
   }, [answered, items.length, setStoredCount])
-  const limit = phone ? 1 : 4
-  const shown = loading ? [] : all ? items : items.slice(0, limit)
+  const limit = 2
+  const shown = loading ? [] : items.slice(0, limit)
   const row = (id: number) => rows?.get(id)
   const checking = rowsCurrent ? shown.filter((x) => needsCheckCount(x, row(x.dramaId))).map((x) => x.dramaId) : []
   const risk = useCheckCounts(checking, reloadKey)
@@ -181,7 +180,7 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
                       : tileText({ title_en: x.title, title_zh: x.titleZh })}
                   </span>
                   <div className="continue-text">
-                    <span className="continue-title">{x.title}</span>
+                    <span className="continue-title" lang={nameLang(x.title, row(x.dramaId) ?? { title_zh: x.titleZh })}>{x.title}</span>
                     <span className="continue-meta">
                       {x.kind === 'read'
                         ? <>Reading{x.page ? ` · page ${x.page}` : ''}{x.percent != null && ` · ${Math.round(x.percent)}%`}</>
@@ -197,13 +196,6 @@ function ContinueShelf({ continuing, recent, rows, rowsCurrent, phone, reloadKey
           )
         })}
       </ul>
-      {items.length > limit && (
-        <div className="actions">
-          <button type="button" className={buttonClass('ghost', 'sm')} aria-expanded={all} onClick={() => setAll((v) => !v)}>
-            {all ? 'Less' : `More (${items.length - limit})`}
-          </button>
-        </div>
-      )}
     </Card>
   )
 }
@@ -251,6 +243,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
   const [invalid, setInvalid] = useState<{ message: string; field: 'source_language' | 'title_en' | null } | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const [busy, setBusy] = useState(false)
+  const canFillIn = useHolds('admin.library')
   const profile = chosenProfile(extras.preset, presets.data?.items)
   const set = (k: keyof DramaCreateRequest) => (e: { target: { value: string } }) =>
     setForm({ ...form, [k]: e.target.value })
@@ -372,7 +365,7 @@ function CreateForm({ draft, onDraft, onCreated, onCancel, series, presets, file
       <ErrorBanner error={error} />
       <div className="actions sheet-actions">
         <button type="submit" className={buttonClass('primary')} disabled={busy}>Create title</button>
-        <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>
+        {canFillIn && <button type="submit" name="autofill" className={buttonClass('secondary')} disabled={busy}>Create + fill with AI</button>}
         <button type="button" className={buttonClass('ghost')} disabled={busy} onClick={onCancel}>Clear and close</button>
       </div>
       <p className="muted">Closing the sheet keeps what you typed; Clear and close erases it.</p>
@@ -396,8 +389,6 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
-  const canSeeGpu = useHolds('admin.diagnostics.read')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
@@ -525,7 +516,6 @@ export default function LibraryPage() {
               <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
             </details>
           )}
-          {canSeeGpu && <GpuLine />}
         </>
       )}
       actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
@@ -545,6 +535,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
+      <MonthRecap />
       {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
@@ -556,7 +547,7 @@ export default function LibraryPage() {
       {/* Not on a phone: the box would push the first title card off the first screen; the phone bar's Find & Add opens it there. */}
       {(canCreate || canLinkRun) && !phone && <AddBox place="library" onNewTitle={startNewTitle} />}
 
-      <HomeShelves reloadKey={reloadKey} total={stats.data?.total_dramas ?? null} />
+      <HomeShelves reloadKey={reloadKey} />
 
       <ContinueShelf
         continuing={continuing} recent={recent} rows={shelfRows} rowsCurrent={seenRows?.reload === reloadKey || listFailure?.reload === reloadKey}

@@ -23,7 +23,7 @@ CONSTRAINTS = ["-c", os.path.join(svc.default_project_root(), "constraints.txt")
 # against pypi.org. Static on purpose: a new package must be added here
 # after checking its real distribution name.
 KNOWN_PYPI_DISTS = {
-    "onnxruntime", "faster-whisper", "ctranslate2", "nvidia-cublas-cu12", "nvidia-cudnn-cu12", "opencv-python", "anthropic", "openai", "requests",
+    "onnxruntime", "onnxruntime-gpu", "faster-whisper", "ctranslate2", "nvidia-cublas-cu12", "nvidia-cudnn-cu12", "opencv-python", "anthropic", "openai", "requests",
     "beautifulsoup4", "pyannote-audio", "librosa", "soundfile", "pydub",
     "omnivoice", "pytesseract", "pillow", "paddleocr",
     "paddlepaddle",

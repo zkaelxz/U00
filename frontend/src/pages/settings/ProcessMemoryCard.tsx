@@ -1,5 +1,5 @@
 /*
- * Diagnostics > Models > Memory by process: which Python, Ollama and llama.cpp
+ * Diagnostics > Loaded now > Memory by process: which Python, Ollama and llama.cpp
  * processes hold RAM and graphics memory, and whether this server started them.
  * Read-only, on demand (Refresh; no polling), PC only. It answers "Models in
  * memory says nothing, so what holds the memory?"

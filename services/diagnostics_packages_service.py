@@ -60,7 +60,7 @@ def _install_commands(name: str) -> list:
     install = _pip("install", *install_registry.dependency_flags([name]),
                    *install_registry.install_dists([name]),
                    *dependency_updates.constraints_pip_args(default_project_root()))
-    swap = install_registry.cv2_swap_names([name], pending_install.snapshot())
+    swap = install_registry.swap_names([name], pending_install.snapshot())
     if not swap:
         return [(install, PIP_TIMEOUT_SECONDS)]
     # The preview comes first: the uninstall always works, but putting the

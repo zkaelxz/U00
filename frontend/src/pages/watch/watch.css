@@ -54,6 +54,9 @@
 .watch-now > p, .watch-now-form { margin: 0; }
 .watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
 .watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }
+.watch-now-zh rt { font-size: 0.55em; color: var(--muted); }
+.watch-now-original .watch-word { transition: color 0.12s; }
+.watch-now-original:has(.watch-word-heard) .watch-word:not(.watch-word-heard) { opacity: 0.55; }
 .watch-now-label { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
 .watch-now-form { display: grid; gap: var(--space-2); }
 /* The English is what a listener reads, so it is the largest text on the page after the title. */
@@ -124,6 +127,7 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 .watch-mark { min-width: 44px; justify-content: center; font-size: var(--text-lg); }
 .watch-now-checked { color: var(--ok); font-family: var(--font-sans, inherit); }
 .watch-now-flag, .watch-row-flag { color: var(--warn); }
+.watch-ear { color: var(--muted); }
 .watch-row-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); }
 .watch-mark[aria-pressed='true'].watch-mark-good { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, var(--surface)); }
 .watch-mark[aria-pressed='true'].watch-mark-wrong { color: var(--bad); border-color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, var(--surface)); }
@@ -141,6 +145,9 @@ button.watch-row:hover:not(:disabled) { background: var(--surface-2); border: 0;
 .watch-chapters button[aria-current='true'] { font-weight: 600; background: var(--surface-2); }
 
 .watch-study { margin-top: var(--space-2, 0.5rem); }
+.watch-now-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--space-2) var(--space-4); }
+.watch-now-tools > .watch-study { margin-top: 0; }
+.watch-now-tools .field-item { display: flex; flex-direction: row-reverse; align-items: center; gap: var(--space-2); }
 .watch-study-words { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; margin: 0.5rem 0 0; padding: 0; list-style: none; }
 .watch-study-word { display: flex; flex-direction: column; min-width: 3rem; }
 .watch-study-reading { font-size: var(--text-sm); color: var(--text-muted, inherit); }

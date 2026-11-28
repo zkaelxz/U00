@@ -496,6 +496,21 @@ class TestTranslatingAPage:
         assert seconds == 0.0 and fake_pipeline["translate"] == []
         assert bubbles[0]["skip"] is True and page_server._lines_without_english(bubbles) == []
 
+    def test_a_page_reports_where_its_time_went_inside_each_step(self, token, fake_pipeline, monkeypatch):
+        monkeypatch.setattr(page_server, "_build_engine", lambda config: object())
+        handler = _post(token, {"images": [{"data": _b64(_png_bytes()),
+                                            "content_type": "image/png"}], "store": False})
+        seconds = handler.payload["pages"][0]["seconds"]
+        for key in ("read", "translate", "read_wait", "translate_wait", "extras", "reread"):
+            assert isinstance(seconds[key], float), key
+        assert seconds["reread_changed"] == 0
+
+    def test_the_page_time_log_line_names_the_split(self):
+        from services import extension_bridge_service
+        text = extension_bridge_service._split_text({"read": 1.0, "read_wait": 0.5, "typeset_wait": 0.2})
+        assert text == "; split: read_wait 0.5, typeset_wait 0.2"
+        assert extension_bridge_service._split_text({"read": 1.0}) == ""
+
     def test_an_unstored_page_leaves_no_temp_file_behind(self, token, fake_pipeline,
                                                         isolated_db):
         seen = {}
@@ -613,6 +628,9 @@ class TestSeveralImagesAtOnce:
         handler = _post(token, {"images": icons, "store": False,
                                 "source_url": "https://site.invalid/x"}, path="/pages")
         assert handler.status == 422
+        # The phone keeps PC download on for a filtered batch only when it can tell it apart.
+        assert handler.payload == {"error": "none of those images look like comic pages",
+                                   "code": "no_comic_pages"}
 
 
 class TestTranslatingCapturedText:
@@ -1019,6 +1037,35 @@ class TestAWholeChapterIsAccountedFor:
         assert handler.payload["failed"][0]["key"] == "blank"
         assert db.list_pages(drama_id) == []
 
+    def _flat_send(self, token, flat, store):
+        import db
+        drama_id = db.create_drama(title_en="Chapter", media_type="comic")
+        pages = [{"data": _b64(_png_bytes(800, 1200 + i, colour, blank=True)),
+                  "content_type": "image/png", "key": f"f{i}"} for i, colour in enumerate(flat)]
+        return _post(token, {"images": [_distinct_page(0), *pages, _distinct_page(2)],
+                             "drama_id": drama_id, "store": store, "filter_pages": False},
+                     path="/pages").payload
+
+    def test_one_plain_black_page_among_drawn_ones_is_kept_in_a_quick_read(self, token, fake_pipeline,
+                                                                            isolated_db):
+        body = self._flat_send(token, [(0, 0, 0)], False)
+        assert body["failed"] == []
+        assert [p["key"] for p in body["pages"]] == ["p0", "f0", "p2"]
+
+    def test_a_saved_send_still_refuses_a_plain_black_page(self, token, fake_pipeline, isolated_db):
+        body = self._flat_send(token, [(0, 0, 0)], True)
+        assert [f["key"] for f in body["failed"]] == ["f0"]
+        assert body["stored"] == 2
+
+    def test_a_dark_mode_canvas_is_still_undrawn(self, token, fake_pipeline, isolated_db):
+        body = self._flat_send(token, [(0x11, 0x11, 0x11)], False)
+        assert [f["key"] for f in body["failed"]] == ["f0"]
+
+    def test_several_white_pages_in_one_batch_are_still_undrawn(self, token, fake_pipeline, isolated_db):
+        body = self._flat_send(token, [(255, 255, 255)] * 2, False)
+        assert sorted(f["key"] for f in body["failed"]) == ["f0", "f1"]
+        assert [p["key"] for p in body["pages"]] == ["p0", "p2"]
+
     def test_stored_is_zero_when_not_saving(self, token, fake_pipeline, isolated_db):
         handler = _post(token, {"images": [_distinct_page(0)], "store": False})
         assert handler.payload["stored"] == 0
@@ -1118,8 +1165,26 @@ class TestAPageFailureNeverLeaksOrLeavesDebris:
         img = Image.new("1", (side, side))
         buf = io.BytesIO()
         img.save(buf, format="PNG")
-        assert page_capture_checks.looks_blank(buf.getvalue()) is False
-        assert page_capture_checks.looks_blank(_png_bytes(blank=True)) is True
+        assert page_capture_checks.flat_colour(buf.getvalue()) is None
+        assert page_capture_checks.flat_colour(_png_bytes(blank=True)) == (240, 240, 240)
+
+    def test_which_flat_pages_count_as_undrawn(self):
+        def page(key, colour, blank=True):
+            return {"key": key, "content": _png_bytes(200, 300, colour, blank=blank)}
+
+        def undrawn(images, keep_plain=True):
+            flat = page_capture_checks.FlatPages(images, keep_plain=keep_plain)
+            return {image["key"] for image in images if flat.undrawn(image)}
+        drawn = page("d", (240, 240, 240), blank=False)
+        black, white = page("b", (0, 0, 0)), page("w", (255, 255, 255))
+        # One of each plain tone beside a drawn page: both are printed pages.
+        assert undrawn([drawn, black, white]) == set()
+        assert undrawn([drawn, black, white], keep_plain=False) == {"b", "w"}
+        # A flat page in some other colour, dark-mode grey included, is a reader's empty canvas.
+        assert undrawn([drawn, page("c", (245, 240, 225)), page("g", (17, 17, 17))]) == {"c", "g"}
+        # Alone, nothing tells an intermission page from an unpainted one.
+        assert undrawn([black]) == {"b"}
+        assert undrawn([drawn, black, page("b2", (2, 2, 2))]) == {"b", "b2"}
 
 
 class TestRecapturingKeepsSavedWork:
@@ -1198,6 +1263,26 @@ class TestRecapturingKeepsSavedWork:
         second = _post(token, body).payload
         assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == ["my correction", ""]
         assert second["pages"][0]["notes"][0][0] == "warning"
+
+    def test_a_partial_answer_on_a_recapture_keeps_the_lines_it_did_translate(
+            self, token, fake_pipeline, isolated_db, monkeypatch):
+        import db
+        from scanlate import scanlate_translate
+        page, body = self._page_with_one_gap(token, isolated_db, monkeypatch)
+        bubbles = db.load_bubbles(page["id"])
+        second_gap = {k: v for k, v in bubbles[1].items() if k != "id"}
+        second_gap.update(source_text="又")
+        db.save_bubbles(page["id"], bubbles + [second_gap])
+
+        def answers_one(bubbles, engine, drama_meta, **kwargs):
+            bubbles[0]["translated_text"] = "the translation"
+            raise RuntimeError("1 of 2 regions weren't translated")
+        monkeypatch.setattr(scanlate_translate, "translate_page_bubbles", answers_one)
+        again = _post(token, body).payload["pages"][0]
+        assert [b["translated_text"] for b in db.load_bubbles(page["id"])] == [
+            "my correction", "the translation", ""]
+        assert again["untranslated_lines"] == 1
+        assert "translation failed" in again["notes"][0][1]
 
     def test_a_translation_typed_during_the_llm_call_is_not_overwritten(
             self, token, fake_pipeline, isolated_db, monkeypatch):
@@ -1355,6 +1440,7 @@ class TestConcurrentCapturesOfOneTitle:
         again = second_out["handler"].payload
         assert again["failed"] == [] and again["already_stored"] == 1
         assert again["pages"][0]["regions"][0]["translated_text"] == "the translation"
+        assert again["pages"][0]["untranslated_lines"] == 0
         assert first_out["handler"].payload["failed"] == []
         assert len(db.list_pages(drama_id)) == 1
 
@@ -1373,6 +1459,7 @@ class TestConcurrentCapturesOfOneTitle:
         assert len(state["calls"]) == 1
         assert again["failed"] == [] and again["already_stored"] == 1
         assert "still being translated" in again["pages"][0]["notes"][0][1]
+        assert again["pages"][0]["untranslated_lines"] == 1
 
     def test_two_pages_of_one_title_keep_the_context_chain_in_order(
             self, token, fake_pipeline, isolated_db, monkeypatch):
@@ -1663,3 +1750,51 @@ def test_quick_read_pages_of_a_title_share_their_names_and_saved_sends_do_not(mo
     page_turns.translate_in_chain(None, url, [], object(), None, None, None)
     assert seen == [{}, {"阿洛": "RLuo"}, None]
     assert page_turns._chapter_names[page_turns._chain_key(None, url)] == {"阿洛": "RLuo"}
+
+
+class TestVideoAndLiveOnLoopback:
+    """The PC's own extension sends Subtitle this video and Start Live captions here, as a member's
+    does to the device-token routes."""
+
+    def test_video_starts_quick_video_as_the_pc_owner(self, token, monkeypatch):
+        from services import quick_video_service
+        seen = {}
+
+        def fake_start(principal, url, profile_id, watch_once, **kw):
+            seen.update(principal=principal, url=url, **kw)
+            return {"drama_id": 12, "watch_once": False}
+        monkeypatch.setattr(quick_video_service, "start", fake_start)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 200 and r.payload == {"drama_id": 12}
+        assert seen["url"] == "https://video.example.com/watch?v=abc"
+        assert seen["principal"]["is_local_owner"] is True and seen["at_pc"] is False
+
+    def test_live_starts_with_no_saved_logins(self, token, monkeypatch):
+        import functools
+        from services import live_service, model_readiness_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(url=url, **kw)
+            return {"session_id": "live_" + "a" * 32}
+        monkeypatch.setattr(live_service, "start_session", functools.wraps(live_service.start_session)(fake_start))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        r = _post(token, {"url": "https://www.twitch.tv/somebody", "source_language": "ja"}, path="/live")
+        assert r.status == 200 and r.payload == {"session_id": "live_" + "a" * 32, "joined": False}
+        assert seen["source_language"] == "ja" and seen["use_saved_cookies"] is False
+        assert seen["engine"] == live_service.default_engine()
+
+    def test_a_refusal_is_the_plain_message(self, token, monkeypatch):
+        from lib.errors import InvalidInputError
+        from services import quick_video_service
+
+        def refuse(*a, **k):
+            raise InvalidInputError("Pick a translation profile first.")
+        monkeypatch.setattr(quick_video_service, "start", refuse)
+        r = _post(token, {"url": "https://video.example.com/watch?v=abc"}, path="/video")
+        assert r.status == 422 and r.payload == {"error": "Pick a translation profile first."}
+
+    @pytest.mark.parametrize("path", ["/video", "/live"])
+    def test_a_missing_link_is_a_400(self, token, path):
+        assert _post(token, {}, path=path).status == 400

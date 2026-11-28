@@ -143,7 +143,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill('https://ntfy.sh/secret-topic-name')
   await section.getByRole('button', { name: 'Save ntfy address' }).click()
   await section.getByRole('button', { name: 'Confirm save ntfy address' }).click()
-  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC, with saving keys allowed/)).toBeVisible()
   await expect(input).toHaveValue('')
   expect(await page.content()).not.toContain('secret-topic-name')
   expect(unmocked).toEqual([])
@@ -330,7 +330,7 @@ test('header bell: empty list, and hidden when the list is refused', async ({ pa
     route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: { code: 'forbidden', message: 'Not allowed.' } }) }),
   )
   await page.reload()
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
+  await expect(page.locator('details.you-menu > summary')).toBeVisible()
   await expect(page.getByRole('button', { name: /^Alerts/ })).toHaveCount(0)
   expect(unmocked).toEqual([])
 })
@@ -353,4 +353,17 @@ test('header bell: fits the one-row header at 1280px, and its panel stays on scr
     await page.keyboard.press('Escape')
   }
   expect(unmocked).toEqual([])
+})
+
+test('on the boot service the pop-up switch says it can\'t show, and the summary leaves it out', async ({ page }) => {
+  await guard(page)
+  await mockNotifications(page, OFF)
+  await page.route(/\/api\/settings$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const res = await route.fetch()
+    return route.fulfill({ response: res, json: { ...(await res.json()), desktop_popups: false } })
+  })
+  const section = await open(page)
+  await expect(section.getByText('Baihe is running as the Windows boot service')).toBeVisible()
+  await expect(section.locator('.card-meta')).toHaveText('Off')
 })

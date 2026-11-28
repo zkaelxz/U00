@@ -1,5 +1,5 @@
 /*
- * Diagnostics > Models > Models in memory: what Ollama, this app and the GPU hold in memory.
+ * Diagnostics > Loaded now > Models in memory: what Ollama, this app and the GPU hold in memory.
  * Read-only and on demand (Refresh; no polling). "Free app models" drops the
  * app's own cached models behind a confirm, PC only, and is disabled while a
  * GPU job runs. Ollama's own unload is not here.

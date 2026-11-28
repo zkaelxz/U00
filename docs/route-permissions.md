@@ -294,6 +294,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/ext-bridge/quick-reads/drop` | device_token (extension.send) |
 | `POST /api/ext-bridge/report` | device_token (extension.send) |
 | `GET /api/ext-bridge/sites` | device_token (extension.send) |
+| `POST /api/ext-bridge/subs` | device_token (extension.send) |
 | `POST /api/ext-bridge/text` | device_token (extension.send) |
 | `POST /api/ext-bridge/title` | device_token (extension.send) |
 | `POST /api/ext-bridge/title-progress` | device_token (extension.send) |
@@ -413,6 +414,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/library/presets` | library.read |
 | `POST /api/library/presets/{preset_id}/delete` | local_only() |
 | `POST /api/library/presets/{preset_id}/rename` | admin.library |
+| `GET /api/library/recap` | library.read |
 | `GET /api/library/recent` | library.read |
 | `GET /api/library/search` | library.read + lines.read |
 | `GET /api/library/series` | library.read |
@@ -463,6 +465,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/live/sessions` | media.import_url |
 | `GET /api/live/sessions/{session_id}` | library.read |
 | `GET /api/live/sessions/{session_id}/chat` | library.read |
+| `POST /api/live/sessions/{session_id}/names` | media.import_url |
 | `POST /api/live/sessions/{session_id}/stop` | jobs.cancel |
 | `POST /api/media-link/probe` | media.import_url |
 | `GET /api/media/dramas/{drama_id}/audio` | media.stream |
@@ -549,6 +552,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `POST /api/queue/items/{item_id}/remove` | jobs.start |
 | `POST /api/queue/items/{item_id}/resume` | jobs.start |
 | `POST /api/queue/items/{item_id}/retry` | jobs.start |
+| `POST /api/queue/items/{item_id}/tonight` | jobs.start |
+| `POST /api/queue/night` | jobs.start |
 | `GET /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/novel-flow/{drama_id}` | jobs.start |
 | `POST /api/queue/pause` | jobs.start |
@@ -569,6 +574,8 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `DELETE /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `PATCH /api/reader/dramas/{drama_id}/bookmarks/{bookmark_id}` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/captions/{track}` | lines.read |
+| `GET /api/reader/dramas/{drama_id}/ear-marks` | lines.read |
+| `POST /api/reader/dramas/{drama_id}/ear-marks` | jobs.start |
 | `GET /api/reader/dramas/{drama_id}/lines/{line_id}/study` | lines.read |
 | `POST /api/reader/dramas/{drama_id}/lookup` | lines.edit |
 | `GET /api/reader/dramas/{drama_id}/media` | library.read |
@@ -660,6 +667,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}` | lines.read |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
 | `HEAD /api/scanlate/dramas/{drama_id}/pages/{page_id}/image` | media.stream |
+| `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/panels` | media.stream |
 | `GET /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.read |
 | `POST /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions` | lines.edit |
 | `DELETE /api/scanlate/dramas/{drama_id}/pages/{page_id}/regions/{region_id}` | lines.edit |
@@ -912,6 +920,7 @@ One row per route (`METHOD /path`), sorted by path and then method, and no count
 | `GET /api/web-search/status` | library.read |
 | `POST /api/web-search/test` | local_only() |
 | `GET /api/workflow/dramas/{drama_id}/progress` | library.read |
+| `GET /private/{name}` | pages.private |
 | `GET /{path:path}` | public() |
 
 Non-routes: `/api/docs`, `/api/openapi.json` and `/docs/oauth2-redirect` exist only with auth off (loopback-only); with auth on they are not registered, and a request for them is a 401 like any other non-public `/api` path. There are no mounts or WebSocket routes; a future one shows up in the static test as undeclared.

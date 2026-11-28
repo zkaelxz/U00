@@ -35,7 +35,7 @@ export async function openSettingsGroups(page: Page, tab: SettingsTabName) {
 export const navLink = (page: Page, name: string): Locator =>
   page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name, exact: true })
 
-// Opens the drawer when there is a Menu button (the header's) or a More button (the phone bar), below 600px; a no-op beside the always-visible dock.
+// Opens the drawer when there is a Menu button (the header's) or a More button (the phone bar), at 640px and below; a no-op beside the always-visible dock.
 export async function openMenu(page: Page) {
   // The header (and with it the Menu button) only renders once the session has answered.
   await page.locator('.app-header').waitFor()

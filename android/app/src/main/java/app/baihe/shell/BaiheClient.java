@@ -75,17 +75,27 @@ final class BaiheClient {
         final int status;
         /** The connection broke or stalled; asking again may work, unlike a refusal. */
         final boolean dropped;
+        /** The PC's word for what it refused, where the status alone is ambiguous; empty from an older Baihe. */
+        final String code;
 
         BridgeException(int status, String message) {
             this(status, message, false);
         }
 
         BridgeException(int status, String message, boolean dropped) {
+            this(status, message, dropped, "");
+        }
+
+        BridgeException(int status, String message, boolean dropped, String code) {
             super(message);
             this.status = status;
             this.dropped = dropped;
+            this.code = code;
         }
     }
+
+    /** The PC's code on a 422 for a batch its page filter rejected whole (services/extension_bridge_service.py). */
+    static final String NO_PAGES_CODE = "no_comic_pages";
 
     private static final int STREAM_RETRIES = 2;
     private static final long RETRY_WAIT_MS = 3_000;
@@ -182,10 +192,13 @@ final class BaiheClient {
         }
     }
 
-    /** Queues the PC's translating of a novel title this token saved chapters to (409 when it already has lines). */
-    JSONObject titleTranslate(long dramaId) throws BridgeException {
+    /** Queues the PC's translating of a novel title this token saved `newChapters` chapters to. A run already
+     * waiting or running answers 200 with its progress; 409 means another step of the title is active, the queue
+     * or the account's share of it is full, or there is nothing new to translate. */
+    JSONObject titleTranslate(long dramaId, int newChapters) throws BridgeException {
         try {
-            return call("POST", "/title-translate", new JSONObject().put("drama_id", dramaId));
+            return call("POST", "/title-translate",
+                    new JSONObject().put("drama_id", dramaId).put("new_chapters", newChapters));
         } catch (JSONException e) {
             throw new BridgeException(0, "Could not build the request.");
         }
@@ -407,7 +420,8 @@ final class BaiheClient {
             if (record != null) record.add(bytes.length, sent - sendStart, System.currentTimeMillis() - sent);
             if (status >= 300) {
                 InputStream err = conn.getErrorStream();
-                throw new BridgeException(status, refusalText(status, err == null ? "" : readCapped(err)));
+                String refusal = err == null ? "" : readCapped(err);
+                throw new BridgeException(status, refusalText(status, refusal), false, refusalCode(refusal));
             }
             JSONObject done = null;
             try (InputStream in = conn.getInputStream()) {
@@ -418,7 +432,9 @@ final class BaiheClient {
                     JSONObject item = new JSONObject(line);
                     if (item.has("page")) onPage.onPage(item.getJSONObject("page"));
                     else if (item.has("done")) done = item.getJSONObject("done");
-                    else if (item.has("error")) throw new BridgeException(item.optInt("status", 0), item.optString("error"));
+                    else if (item.has("error")) {
+                        throw new BridgeException(item.optInt("status", 0), item.optString("error"), false, item.optString("code", ""));
+                    }
                 }
             }
             if (done == null) throw new BridgeException(status, "Baihe stopped before it finished the pages.", true);
@@ -558,8 +574,54 @@ final class BaiheClient {
     }
 
     /** Shown for a refused token, because the server's own text ("Authentication required.") says nothing to do. */
-    static final String TOKEN_HELP = "Baihe did not accept the token. Make a phone token at the PC in Baihe: "
-            + "Settings > Extension tokens per computer, then paste it in Grab > Settings.";
+    static final String TOKEN_HELP = "Baihe didn't accept this key. Make a new one in Baihe "
+            + "(Settings > Remote access keys) and paste it in Grab > Settings.";
+
+    private static final java.util.regex.Pattern ENGINE_NOTE =
+            java.util.regex.Pattern.compile("translat|engine|key", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** Pages of a saved send that were stored with their text read but no English back. */
+    static int pagesWithoutEnglish(JSONObject answer) {
+        JSONArray pages = answer.optJSONArray("pages");
+        int count = 0;
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page != null && lacksEnglish(page)) count++;
+        }
+        return count;
+    }
+
+    /** The PC's first note on why a page has no English (no engine, a refused key, a failed call); "" when none says. */
+    static String englishProblem(JSONObject answer) {
+        JSONArray pages = answer.optJSONArray("pages");
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page == null || !lacksEnglish(page)) continue;
+            JSONArray notes = page.optJSONArray("notes");
+            for (int n = 0; notes != null && n < notes.length(); n++) {
+                JSONArray note = notes.optJSONArray(n);
+                String text = note == null ? "" : note.optString(note.length() - 1, "");
+                if (ENGINE_NOTE.matcher(text).find()) return text;
+            }
+        }
+        return "";
+    }
+
+    /**
+     * Sound effects and regions skipped on purpose have no English by design. An older PC answers a page it
+     * already held without `untranslated_lines`, so its regions are read instead.
+     */
+    private static boolean lacksEnglish(JSONObject page) {
+        if (page.has("untranslated_lines")) return page.optInt("untranslated_lines", 0) > 0;
+        JSONArray regions = page.optJSONArray("regions");
+        for (int i = 0; regions != null && i < regions.length(); i++) {
+            JSONObject region = regions.optJSONObject(i);
+            if (region != null && region.optBoolean("untranslated", false) && !region.optBoolean("left_alone", false)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * What to show for a refused call: a fixed line for a refused token, else the server's own text.
@@ -577,5 +639,14 @@ final class BaiheClient {
             // Fall through to the fixed text.
         }
         return "Baihe refused the request (" + status + ").";
+    }
+
+    /** The bridge's {"code"} beside its {"error"} text, or "" from an older Baihe or another answer. */
+    static String refusalCode(String body) {
+        try {
+            return new JSONObject(body).optString("code", "");
+        } catch (JSONException e) {
+            return "";
+        }
     }
 }

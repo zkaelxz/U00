@@ -12,7 +12,7 @@ import { useCancelsAnyJob } from '../../../../hooks/useSession'
 import { cancelHint, isTerminalStatus, offersCancel, type JobRecord } from '../../../../types/jobs'
 import type { ThreeRunState } from '../../../../types/threeRun'
 import type { TranslateRunConfig, TranslateRunEstimate } from '../../../../types/translateStage'
-import { applyStartToForm, buildRunBody, initialForm, loadPresetStart, validateRun } from '../../translateForm'
+import { buildRunBody, savedRunEstimateParams, savedRunForm, validateRun } from '../../translateForm'
 import { LineAiPicker } from './LineAiPicker'
 import { useLineAiPick } from './lineAiPick'
 import { useLineSelectionContext } from './useLineSelectionContext'
@@ -60,20 +60,19 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
 
   useEffect(() => {
     setEstimate(null)
+    if (!config) return
     const ctl = new AbortController()
-    getTranslateEstimate(dramaId, {
-      engine: engine || undefined, model: model || undefined, force_retranslate: true,
-      ...(selectedIds.length ? { line_ids: selectedIds } : {}),
-    }, withSignal(ctl.signal)).then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
+    getTranslateEstimate(dramaId, savedRunEstimateParams(config, dramaId, engine, model, selectedIds), withSignal(ctl.signal))
+      .then((e) => !ctl.signal.aborted && setEstimate(e), () => undefined)
     return () => ctl.abort()
     // selectedIds is rebuilt each render; `key` stands for its content.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dramaId, key, engine, model])
+  }, [dramaId, key, engine, model, config])
 
   const startRun = useCallback((n: number, lineIds: number[]) => {
     if (!config) return
     const form = {
-      ...applyStartToForm(initialForm(config, loadPresetStart(dramaId)), config.translate_start, config),
+      ...savedRunForm(config, dramaId),
       engine, model, reflect: false, bulk: false, fallbacks: [] as string[], force: true, forceConfirmed: true,
     }
     const problem = validateRun(form, config.translation_engine, config.bulk_supported_engines)
@@ -117,7 +116,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
     beginThreeRun(dramaId, selectedIds.length ? selectedIds : null)
       .then((b) => {
         targets.current = b.line_ids
-        setReview({ active: true, runs_done: 0, history_id: b.history_id, line_count: b.line_ids.length, items: [] })
+        setReview({ active: true, runs_done: 0, history_id: b.history_id, line_count: b.line_ids.length, line_ids: b.line_ids, items: [] })
         startRun(1, b.line_ids)
       }, setError)
       .finally(() => setStarting(false))
@@ -142,8 +141,8 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
   const undoLast = () => {
     const last = undoStack[undoStack.length - 1]
     if (!last) return
-    // Unpicked lines hold the last run's English, so undoing the first pick restores run 3.
-    pickThreeRun(dramaId, [{ line_id: last.lineId, run: last.prev ?? RUNS }]).then(() => {
+    pickThreeRun(dramaId, [{ line_id: last.lineId, run: last.prev }]).then((r) => {
+      if (!r.applied.length) setError(new Error('That line was edited since the pick, so it was left as it is.'))
       setUndoStack((s) => s.slice(0, -1))
       const at = items.findIndex((i) => i.line_id === last.lineId)
       if (at >= 0) setCurrent(at)
@@ -152,7 +151,11 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
     }, setError)
   }
   const keepRest = (run: number) => {
-    keepRestThreeRun(dramaId, run).then(() => { reload(); onChanged() }, setError)
+    keepRestThreeRun(dramaId, run).then((r) => {
+      reload()
+      onChanged()
+      if (r.skipped.length) setError(new Error(`${r.skipped.length} line${r.skipped.length === 1 ? ' was' : 's were'} edited since the runs, so ${r.skipped.length === 1 ? 'it was' : 'they were'} left as ${r.skipped.length === 1 ? 'it is' : 'they are'}.`))
+    }, setError)
   }
   // English only, for this review's lines: timing, speakers and lines added since stay as they are.
   const restoreAll = () => {
@@ -163,6 +166,13 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
         onChanged()
         if (r.skipped.length) setError(new Error(`${r.skipped.length} line${r.skipped.length === 1 ? ' was' : 's were'} edited since, so ${r.skipped.length === 1 ? 'it was' : 'they were'} left as they are. Records → Line history has the earlier text.`))
       }, setError)
+  }
+  // The runs are chained by this page, so a reload or a failed run leaves the rest to start from here.
+  const runRemaining = () => {
+    if (!review) return
+    setError(null)
+    targets.current = review.line_ids
+    startRun(review.runs_done + 1, review.line_ids)
   }
   const close = () => {
     endThreeRun(dramaId).then(() => { setReview(null); setUndoStack([]) }, setError)
@@ -180,7 +190,7 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
   }
 
   const count = selectedIds.length || (review?.line_count ?? 0)
-  const per = estimate?.estimated_usd
+  const per = estimate?.estimated_usd != null ? estimate.estimated_usd + (estimate.alignment_check_usd ?? 0) : null
   return (
     <Section storageKey="review.threeRun" title="Run 3 times, review differences" summary="Translate three times, then pick between the lines the runs disagree on">
       <div className="compare-panel" data-testid="three-run">
@@ -189,9 +199,15 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
             <p className="muted">
               Translates the ticked lines (every line when none is ticked) three times with this title’s settings, then shows only the
               lines where the runs differ so you can pick one. Lines all three agree on keep the last run’s English. It replaces their
-              English, hand edits included; a snapshot is taken first.
+              English, hand edits included; a snapshot is taken first. Keep this page open while the runs go; if they stop, Run the remaining picks up from there.
             </p>
             <LineAiPicker picker={picker} disabled={busy} />
+            {(engine || config?.translation_engine) === 'ollama' && (
+              <p className="muted" data-testid="three-run-same">
+                Ollama gives the same answer each time, so the three runs will almost always agree and you pay for all three.
+                Pick another engine to compare.
+              </p>
+            )}
             <p data-testid="three-run-estimate">
               {selectedIds.length ? `${selectedIds.length} line${selectedIds.length === 1 ? '' : 's'} ticked` : 'All lines'}
               {per != null && ` · 3 runs, estimate ${formatUsd(per * RUNS)}`}
@@ -221,7 +237,13 @@ export function ThreeRunReview({ dramaId, jobRunning, onChanged }: { dramaId: nu
         )}
         {review && runNo === 0 && !reviewing && (
           <div className="review-actions">
-            <p className="muted">Only {review.runs_done} of {RUNS} runs were recorded, so there is nothing to compare.</p>
+            <p className="muted">
+              {review.runs_done} of {RUNS} runs recorded.{' '}
+              {jobRunning ? 'A translation is running on this title; run the rest once it finishes.' : 'Run the rest to compare them.'}
+            </p>
+            <button type="button" onClick={runRemaining} disabled={jobRunning || !config || review.line_ids.length === 0}>
+              Run the remaining {RUNS - review.runs_done}
+            </button>
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={restoreAll}>Restore earlier English</button>
             <button type="button" className={buttonClass('secondary', 'sm')} onClick={close}>Close</button>
           </div>

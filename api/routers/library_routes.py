@@ -19,10 +19,10 @@ from engine_backends import shared
 from api.auth import local_only, require_permission
 from api.schemas import (
     CaptureNoteList, DramaDetail, DramaListResponse, DramaSummary, LibraryCostResponse,
-    LibraryContinueResponse, LibraryDashboard, LibraryHome, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
+    LibraryContinueResponse, LibraryDashboard, LibraryHome, LibraryRecap, LibraryFilterOptions, LibraryHistoryResponse, LibraryPreset, LibraryPresetsResponse,
     LibraryRecentResponse, LibraryRename, LibraryVoiceDetails, LibraryVoicePrivate, LibrarySearchResponse, LibrarySeriesResponse,
     LibraryVoice, LibraryVoiceBankResponse, error_responses)
-from services import library_home_service, library_service, novel_files_service, voice_clone_service
+from services import library_home_service, library_service, novel_files_service, recap_service, voice_clone_service
 
 router = APIRouter(prefix="/api/library", tags=["library"])
 
@@ -153,9 +153,15 @@ def get_continue(request: Request, limit: int = Query(8, ge=1, le=50)):
 
 
 @router.get("/home", dependencies=[require_permission("library.read")], response_model=LibraryHome, responses=_ERR,
-            summary="The Library's shelves: what needs you, what is running, what is ready")
+            summary="The Library's Running line: titles with a step running or waiting")
 def get_home(request: Request):
     return library_home_service.get_home(principal=request.state.principal)
+
+
+@router.get("/recap", dependencies=[require_permission("library.read")], response_model=LibraryRecap, responses=_ERR,
+            summary="This account's month: titles read and finished, chapters read, moments saved")
+def get_recap(request: Request, month: Optional[str] = Query(None, max_length=7)):
+    return recap_service.get_recap(month, principal=request.state.principal)
 
 
 @router.get("/filter-options", dependencies=[require_permission("library.read")], response_model=LibraryFilterOptions,

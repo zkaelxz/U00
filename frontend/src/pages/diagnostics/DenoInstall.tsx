@@ -10,7 +10,7 @@ import { jobProgressLine } from './jobPoll'
 import { useServerJobStatus } from './useServerJobStatus'
 
 /**
- * Packages and installs card: "Install Deno…" when no JS runtime is found
+ * Setup card: "Install Deno…" when no JS runtime is found
  * (PC only, two-step). The server runs it as a job; this polls its status
  * and shows progress, then the result. Other admin buttons wait for it
  * (it is a running job), and it waits for them.

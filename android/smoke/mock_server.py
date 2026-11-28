@@ -62,6 +62,11 @@ class MockServer:
     def stop(self):
         self._httpd.shutdown()
 
+    def forget(self):
+        """Clears the request log, so a walk started again waits for its own requests."""
+        with self._lock:
+            self.requests.clear()
+
     def seen(self, needle, agent=None, exact=False):
         """True once a request whose path contains `needle` (is `needle`, when exact) and whose user agent contains `agent` has arrived."""
         with self._lock:

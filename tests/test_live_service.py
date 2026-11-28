@@ -898,6 +898,9 @@ def test_the_session_glossary_primes_whisper_with_its_names_in_front_of_the_chun
     hints = live_service._hint_function(None, None, "zh", glossary_title={"id": 1})
     assert hints.names == "阿洛、阿羅。"
     assert hints(["阿洛来了"]) == [("阿洛", "RLuo", "")]
+    assert hints(["阿羅来了"]) == [("阿洛", "RLuo", "")]
+    # Live keeps exact matching: the other script's spelling is not looked for.
+    assert hints(["阿罗来了"]) == []
 
 
 def test_admin_viewer_stop_only_leaves_and_glossary_session_is_not_shared(live):

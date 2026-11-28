@@ -320,6 +320,16 @@ class _PageTurn:
         self._order = order
         self._index = index
 
+    def step_aside(self) -> None:
+        """Lets the next page read while this one waits for an answer another request is working
+        out. The page is not yet known: `keep` with that answer's lines, or `finish`, says so, and
+        the next page waits for its lines only as long as it ever does (PREVIOUS_LINES_WAIT_SECONDS)."""
+        self._order._read[self._index].set()
+        self._order._translated[self._index].set()
+
+    def stopping(self) -> bool:
+        return self._order._should_stop()
+
     def keep(self, bubbles) -> None:
         """Makes this page's bubbles, read but maybe not yet translated, visible to the next
         page. The list is shared, so the English that arrives later shows too."""

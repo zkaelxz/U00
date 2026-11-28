@@ -1,5 +1,5 @@
 /*
- * Floating dock (or, when docked, a full-height rail) for screens 600px and wider: the shared nav groups as icons that
+ * Floating dock (or, when docked, a full-height rail) for screens 641px and wider: the shared nav groups as icons that
  * open into labelled rows when pointed at or focused (nav/sideNav.css).
  */
 import { useEffect, useRef, useState } from 'react'
@@ -61,7 +61,6 @@ export function SideNav({ route, context }: { route: Route; context: NavContext 
           <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             {minimized ? <path d="M9 6l6 6-6 6" /> : <path d="M15 6l-6 6 6 6" />}
           </svg>
-          {listed && <span className="rail-chevron" aria-hidden="true">‹</span>}
           <span className="rail-label">{minimized ? 'Expand navigation' : 'Minimize navigation'}</span>
         </button>
       )}

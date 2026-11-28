@@ -51,8 +51,6 @@ export function ReviewRolesSection({ settings, implementEngine, onSettings }: Pr
     <Section
       title="Independent review"
       summary={on ? `On · ${reviewEngine ? humanize('engine', reviewEngine) : 'no engine'}` : 'Off'}
-      storageKey="assistant.review"
-      defaultOpen
     >
       <Field
         label="Review each proposed fix"

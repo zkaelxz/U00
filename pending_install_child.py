@@ -22,7 +22,7 @@ def derive(arg: str, pins_arg: str = "") -> dict:
               else install_registry.diagnostics.pip_install_name(k) for k in keys] if pins else None)
     pins_path = install_registry.write_torch_pins(keys)
     import pending_install
-    swap = install_registry.cv2_swap_names(keys, pending_install.snapshot())
+    swap = install_registry.swap_names(keys, pending_install.snapshot())
     return {"ok": True, "argv": install_registry.install_argv(keys, torch_pins_path=pins_path, specs=specs),
             "uninstall": [] if specs else [install_registry.uninstall_argv(n) for n in swap],
             "temp_files": [pins_path] if pins_path else []}

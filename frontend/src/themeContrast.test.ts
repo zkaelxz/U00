@@ -25,6 +25,12 @@ const THEMES: Record<string, Record<string, string>> = {
   sepia: { ...LIGHT, ...block(':root[data-theme="sepia"]') },
 }
 
+const softCss = readFileSync(new URL('./soft.css', import.meta.url), 'utf8')
+// The Soft style has its own light palette: the fifth look. Only its light block is read, as the other themes' tokens come from index.css.
+const SOFT_LIGHT = Object.fromEntries(
+  [...softCss.slice(softCss.indexOf("html[data-style='soft'] {"), softCss.indexOf('}', softCss.indexOf("html[data-style='soft'] {"))).matchAll(/(--[\w-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+)
+
 function resolve(theme: Record<string, string>, name: string): string {
   let v = theme[name]
   const ref = /^var\((--[\w-]+)\)$/
@@ -127,6 +133,18 @@ describe('field edge and focus ring (3:1)', () => {
     expect(css).toMatch(/\.drama-card:has\(a\.drama-card-title:focus-visible\) \{[^}]*outline: 2px solid var\(--accent\);/)
     expect(css).toMatch(/@media \(forced-colors: active\) \{\s*:focus-visible \{ outline: 2px solid CanvasText !important; \}/)
   })
+})
+
+// The selected-row and tinted-box fill is the accent at 10% over the page; the accent text sits on it.
+describe('accent text on the selected fill (--tint-accent)', () => {
+  const pct = css.match(/--tint-accent: color-mix\(in srgb, var\(--accent\) (\d+)%, var\(--bg\)\)/)
+  it('is the accent mixed into the page colour', () => expect(pct).toBeTruthy())
+  for (const [name, theme] of Object.entries({ ...THEMES, soft: { ...LIGHT, ...SOFT_LIGHT } })) {
+    it(`${name}: --accent-text on --tint-accent`, () => {
+      const fill = over(resolve(theme, '--accent'), +pct![1], resolve(theme, '--bg'))
+      expect(contrast(resolve(theme, '--accent-text'), fill)).toBeGreaterThanOrEqual(4.5)
+    })
+  }
 })
 
 // A pill is the status colour on a 14-16% tint of itself over the page, which is darker than the flat page the pair list above checks.
@@ -429,10 +447,9 @@ describe('disabled buttons (3:1)', () => {
   }
   const generic = mixOf('.btn.btn-primary:disabled,\n.btn.btn-secondary:disabled,\n.btn.btn-ghost:disabled,\n.btn.btn-danger:disabled,\n.btn.btn-ok:disabled')
   const primary = mixOf('.btn.btn-primary:disabled')
-  const legacyPrimary = mixOf('button.primary:disabled')
 
   for (const [name, theme] of Object.entries(THEMES)) {
-    for (const [label, fill] of Object.entries({ generic, primary, legacyPrimary })) {
+    for (const [label, fill] of Object.entries({ generic, primary })) {
       it(`${name}: ${label} disabled text on its fill`, () => {
         const under = over(resolve(theme, fill.token), fill.pct, resolve(theme, fill.base))
         expect(contrast(resolve(theme, '--muted'), under)).toBeGreaterThanOrEqual(3)
@@ -442,6 +459,5 @@ describe('disabled buttons (3:1)', () => {
 
   it('no disabled button variant fades with opacity', () => {
     expect(css).not.toMatch(/\.btn:disabled \{[^}]*opacity/)
-    expect(css).not.toMatch(/button\.primary:disabled \{[^}]*opacity/)
   })
 })

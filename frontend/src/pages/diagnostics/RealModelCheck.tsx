@@ -57,8 +57,9 @@ function RealModelCheckBody({ local, jobsActive, openSignal }: { local: boolean;
     <Section title="Test my models" storageKey="diagnostics.realModel" openSignal={openSignal}>
       <div className="diag-stack" data-testid="real-model-check">
         <p className="muted">
-          Runs a short transcription, an OCR read and one Ollama translation with the models you have installed.
-          Nothing is downloaded: a missing package, model or Ollama is skipped. A pass means the model loaded
+          Runs a short transcription and an OCR read with the models you have installed, and one short translation
+          on hosted Gemma 4 through Ollama, billed by Ollama for a few tokens. Nothing is downloaded: a missing
+          package, model or Ollama is skipped. A pass means the model loaded
           and ran, not that words were recognised. Qwen3-ASR is skipped ("Tone only") when the sample
           has no speech, because it then never loads. It uses the GPU, so close other GPU apps first.
           While it runs, Hugging Face offline mode is on for the whole app, so a transcription started

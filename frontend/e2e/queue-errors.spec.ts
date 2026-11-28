@@ -59,6 +59,7 @@ test('a refused add shows the server\'s reason and adds nothing', async ({ page 
     ? route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'The queue is full (200 steps).' } } })
     : route.fallback())
   await page.goto('/#/jobs')
+  await page.getByRole('button', { name: '+ Add to queue' }).click()
   const card = page.getByRole('region', { name: 'Queue' })
   await expect(card.getByTestId('queue-empty')).toBeVisible()
   await card.getByLabel('Title').selectOption({ label: 'Signal' })

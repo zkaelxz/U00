@@ -69,6 +69,9 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private volatile boolean partsContinuing;
     private volatile boolean uploading;
     private volatile long progressWatch;
+    /** Chapters this phone added to one novel since it last asked the PC to translate it, so the PC adds just those. */
+    private volatile long novelAddedTo;
+    private volatile int novelAdded;
     // Optional "Translate this page" for reading a raw site; a grab always switches it off first.
     private boolean translateOn;
     private boolean translateRestoring;
@@ -466,7 +469,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set the server and token in Settings, then share again.");
+            say("Set the server and key in Settings, then share again.");
             showSettings();
             return;
         }
@@ -631,7 +634,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -731,7 +734,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             return;
         }
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -740,7 +743,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             try {
                 String title = new BaiheClient(server, token).follow(link);
                 say("Following " + (title.isEmpty() ? "this series" : title)
-                        + ". Your phone will tell you when a new chapter comes out.", GrabUi.Kind.OK);
+                        + ". With alerts on and the Studio tab signed in, your phone tells you when a new chapter comes out.", GrabUi.Kind.OK);
             } catch (BaiheClient.BridgeException e) {
                 say(e.getMessage(), GrabUi.Kind.BAD);
             }
@@ -760,7 +763,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -785,7 +788,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -810,7 +813,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private void setTranslate(boolean on) {
         translateOn = on;
         web.evaluateJavascript(on ? PageTranslate.ON : PageTranslate.OFF, null);
-        if (on) say("Translating this page to English. Save and Read now use the original page.");
+        if (on) say("Translating this page to English with Google Translate. Save and Read now still use the original page.");
     }
 
     /** While a grab runs the main button is its Cancel; Quick read comes back when it ends. */
@@ -927,7 +930,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 say("Open the series page, the one that lists its chapters, first.");
                 return;
             }
-            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.history(prefs()), GrabStore.queue(prefs()));
+            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()), GrabStore.queue(prefs()));
             int room = GrabQueue.MAX_QUEUED - GrabStore.queue(prefs()).size();
             if (plan.fresh.isEmpty() || room <= 0) {
                 say(plan.fresh.isEmpty() ? "Every chapter listed here is already done or waiting." : "The queue is full.");
@@ -1122,7 +1125,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
         String server = prefs().getString(KEY_SERVER, "");
         String token = prefs().getString(KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            say("Set up Grab first: enter your server address and a phone token.");
+            say("Set up Grab first: enter your server address and a key.");
             showSettings();
             return;
         }
@@ -1276,7 +1279,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
                 if (next == null) {
                     message = message + (toEnd ? ". That was the last chapter." : ". No next chapter link was found.");
-                } else if (toEnd && SeriesRun.alreadyDone(next, GrabStore.history(prefs()))) {
+                } else if (toEnd && SeriesRun.stopsBefore(next, pageUrl, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()))) {
                     // An earlier run already sent everything from here on; going further would only repeat it.
                     next = null;
                     message = message + ". The next chapter was grabbed before, so it stopped here.";
@@ -1562,6 +1565,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     /** Grab on a text chapter: its raw text is saved into a novel title, where the PC's novel tools translate it. */
     private void saveNovel(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks, String text) {
         long translate = 0;
+        int translateCount = 0;
         String translateName = "";
         try {
             say("Saving the chapter");
@@ -1571,11 +1575,20 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             JSONObject answer = client.saveNovelChapter(title.getLong("drama_id"), url, heading, text);
             String where = title.optString("title", "Baihe");
             boolean added = answer.optBoolean("saved", false);
+            long dramaId = title.getLong("drama_id");
+            if (dramaId != novelAddedTo) {
+                novelAddedTo = dramaId;
+                novelAdded = 0;
+            }
+            if (added) novelAdded++;
+            if (!cancelRequested) GrabStore.markDone(prefs(), url);
             finishGrab((added ? "Saved the chapter to " : "Already saved in ") + where, true);
-            // The lines are made once per title, so translating waits for the last chapter of this run.
-            if (!cancelRequested && chaptersLeft == 0 && !loadingNext) {
-                translate = title.getLong("drama_id");
+            // Translating waits for the last chapter of this run, and a run that saved nothing new asks for nothing.
+            if (!cancelRequested && chaptersLeft == 0 && !loadingNext && novelAdded > 0) {
+                translate = dramaId;
+                translateCount = novelAdded;
                 translateName = where;
+                novelAdded = 0;
             }
         } catch (BaiheClient.BridgeException e) {
             finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
@@ -1583,13 +1596,15 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             finishGrab("Could not save the chapter.");
         }
         // Outside the try: a failure here must not run finishGrab a second time.
-        if (translate > 0) translateOnPc(client, translate, translateName);
+        if (translate > 0) translateOnPc(client, translate, translateCount, translateName);
     }
 
-    /** Asks the PC to translate the novel just saved to, then follows it. A refusal (no limit set, lines already made) is shown, not retried. */
-    private void translateOnPc(BaiheClient client, long dramaId, String name) {
+    /** Asks the PC to translate the novel just saved to (or the chapters this phone added to it), then follows it.
+     * A refusal (no spending limit set, an app too old) is shown and not retried; a 409 (another step already
+     * waiting, a full queue, or nothing new) is left unsaid. */
+    private void translateOnPc(BaiheClient client, long dramaId, int newChapters, String name) {
         try {
-            client.titleTranslate(dramaId);
+            client.titleTranslate(dramaId, newChapters);
         } catch (BaiheClient.BridgeException e) {
             if (e.status != 409) say(e.getMessage(), GrabUi.Kind.INFO);
             return;
@@ -1685,10 +1700,16 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             long[] firstPageAt = {0};
             boolean[] opened = {continuing};
             String[] firstError = {""};
+            // Every page the PC failed, by its number in this read, so the summary names each one.
+            java.util.SortedMap<Integer, String> failedPages = new java.util.TreeMap<>();
+            boolean[] errorIsFailedPage = {false};
+            java.util.Map<String, Integer> pageNumber = new java.util.HashMap<>();
+            for (int i = 0; i < pages.size(); i++) pageNumber.put(pages.get(i).key, i + 1);
             boolean[] refused = {false};
             // Cleared when the PC turns out not to download pictures (an older Baihe): bytes go up instead.
             // Older Baihe versions omit the flag, so they never get addresses to fetch.
             boolean[] pcFetch = {health.optBoolean("picture_addresses", false)};
+            java.util.concurrent.atomic.AtomicInteger refusedByAddress = new java.util.concurrent.atomic.AtomicInteger();
 
             // Pages that finished but wait for an earlier batch count as ready, so the counter moves
             // with the PC and not only with the order the reader shows them in.
@@ -1781,7 +1802,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         while (true) {
                             boolean fetchedBefore = pcFetch[0];
                             try {
-                                done = sendBatch(client, url, todo, counted, pcFetch);
+                                done = sendBatch(client, url, todo, counted, pcFetch, refusedByAddress);
                                 // Pages the PC never streams back (failed, repeats) make a retry look like an
                                 // older Baihe; that guess is only trusted on the first ask.
                                 if (attempt > 0) pcFetch[0] = fetchedBefore;
@@ -1813,8 +1834,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                             if (firstError[0].isEmpty() && !cancelRequested && done.optString("stopped").startsWith("Stopped on the PC")) {
                                 firstError[0] = done.optString("stopped");
                             }
+                            for (int f = 0; failed != null && f < failed.length(); f++) {
+                                JSONObject entry = failed.optJSONObject(f);
+                                Integer number = entry == null ? null : pageNumber.get(entry.optString("key", ""));
+                                if (number != null) failedPages.put(number, entry.optString("error", ""));
+                            }
                             if (firstError[0].isEmpty() && failed != null && failed.length() > 0) {
                                 firstError[0] = failed.optJSONObject(0) == null ? "" : failed.optJSONObject(0).optString("error", "");
+                                errorIsFailedPage[0] = !failedPages.isEmpty();
                             }
                             JSONArray skipped = done.optJSONArray("skipped");
                             if (firstError[0].isEmpty() && skipped != null && skipped.length() > 0) {
@@ -1866,7 +1893,8 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             if (!link.isEmpty()) timing = timing.isEmpty() ? " (" + link + ")" : timing.substring(0, timing.length() - 1) + "; " + link + ")";
             String message = cancelRequested && thisPart == 0 ? "Cancelled."
                     : (cancelRequested ? "Cancelled. " : "")
-                    + QuickRead.summary(thisPart, pages.size() + unreadable, firstError[0])
+                    + QuickRead.summary(thisPart, pages.size() + unreadable,
+                            QuickRead.withFailedPages(errorIsFailedPage[0] ? "" : firstError[0], failedPages))
                     + (truncated ? ". Some pages were left out." : "") + timing;
             boolean awayFromReader = QuickReadSession.isDetached() || !BaiheApp.inFront();
             if (!carryOn) QuickReadSession.finish(message);
@@ -1918,22 +1946,27 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
     private int aheadLoads;
     /** Waits before asking again for a batch the PC could not be reached for. */
     private static final long[] BATCH_RETRY_WAITS_MS = {5_000, 20_000, 45_000};
+    /** Batches in a row the PC fetched by address and refused as no pages before it stops fetching. */
+    private static final int PLACEHOLDER_REFUSALS = 2;
 
     /**
      * One request of a Quick read. The PC is asked to download the pictures first; any it could
      * not get (and a whole batch, when the PC is too old to know the field) go up as bytes.
      */
     private JSONObject sendBatch(BaiheClient client, String pageUrl, List<PageImage> batch,
-                                 BaiheClient.PageListener onPage, boolean[] pcFetch) throws BaiheClient.BridgeException {
+                                 BaiheClient.PageListener onPage, boolean[] pcFetch,
+                                 java.util.concurrent.atomic.AtomicInteger refusedByAddress) throws BaiheClient.BridgeException {
         if (pcFetch[0]) {
             List<PageImage> asked = PcFetch.mark(batch);
             if (asked != null) {
+                boolean byAddress = true;
                 try {
                     int[] delivered = {0};
                     JSONObject done = client.streamPages(pageUrl, asked, page -> {
                         delivered[0]++;
                         onPage.onPage(page);
                     });
+                    refusedByAddress.set(0);
                     // An older Baihe ignores fetch_url and finds an empty picture: nothing comes back and no
                     // "unfetched" list either. That is told apart from a stop by the user.
                     boolean stopped = cancelRequested || QuickReadSession.isAbandoned();
@@ -1944,10 +1977,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     List<PageImage> again = PcFetch.unfetched(batch, done.optJSONArray("unfetched"));
                     if (again.isEmpty()) return done;
                     List<PageImage> bytes = withBytes(again, pageUrl);
-                    return bytes.isEmpty() ? done : client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
+                    if (bytes.isEmpty()) return done;
+                    byAddress = false;
+                    return client.streamPages(pageUrl, ImageShrink.forUpload(bytes), onPage);
                 } catch (BaiheClient.BridgeException e) {
                     if (e.status != 400 && e.status != 422) throw e;
-                    pcFetch[0] = false;
+                    if (!BaiheClient.NO_PAGES_CODE.equals(e.code)) {
+                        pcFetch[0] = false;   // an older Baihe that cannot fetch by address
+                    } else if (byAddress && refusedByAddress.incrementAndGet() >= PLACEHOLDER_REFUSALS) {
+                        // One batch of banners is normal; batch after batch of "no pages" from the PC's
+                        // own downloads means the site hands it stand-ins, so later batches go up as bytes.
+                        pcFetch[0] = false;
+                    }
                 }
             }
         }
@@ -2003,15 +2044,18 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 } catch (InterruptedException e) {
                     return;
                 }
-                if (mine != progressWatch || grabbing || loadingNext || queueRunning || isDestroyed()) return;
+                if (!ownsStatusLine(mine)) return;
                 try {
                     JSONObject now = new BaiheClient(server, token).titleProgress(dramaId);
                     String state = now.optString("state", "idle");
-                    String line = TitleProgress.line(state, now.optString("step", ""), name);
+                    String line = TitleProgress.line(state, now.optString("step", ""), name,
+                            now.isNull("reason") ? "" : now.optString("reason", ""));
                     // The run was queued a moment ago; a few idle answers in a row mean it is gone.
                     if (line == null) {
-                        if (++quiet >= 3) return;
-                        continue;
+                        if (++quiet < 3) continue;
+                        // A run cleared from the PC's queue leaves nothing to report, so its busy line goes.
+                        if (lastLine != null && ownsStatusLine(mine)) say("", GrabUi.Kind.INFO);
+                        return;
                     }
                     quiet = 0;
                     if (!line.equals(lastLine)) {
@@ -2021,10 +2065,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     if (TitleProgress.settled(state)) return;
                 } catch (BaiheClient.BridgeException | RuntimeException e) {
                     // The status is only a convenience; a refused or unreachable server ends it quietly.
-                    return;
+                    break;
                 }
             }
+            // Any line still showing is a waiting or running one, whose spinner would otherwise turn for good.
+            if (lastLine != null && ownsStatusLine(mine)) say(TitleProgress.leftToPc(name), GrabUi.Kind.INFO);
         }, "grab-progress").start();
+    }
+
+    /** False once a grab, the queue or a newer watch has the status line, so this watch must not write to it. */
+    private boolean ownsStatusLine(long watch) {
+        return watch == progressWatch && !grabbing && !loadingNext && !queueRunning && !isDestroyed();
     }
 
     private void upload(BaiheClient client, String url, List<String> titles, JSONArray chapterLinks,
@@ -2036,13 +2087,17 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<List<PageImage>> batches = Batches.plan(images, max);
             int stored = 0;
             int failed = 0;
+            int noEnglish = 0;
             String firstError = "";
+            String englishProblem = "";
             for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
                     JSONObject answer = client.sendPages(dramaId, url, batches.get(i));
                     stored += answer.optInt("stored", 0) + answer.optInt("already_stored", 0);
                     failed += answer.optJSONArray("failed") == null ? 0 : answer.optJSONArray("failed").length();
+                    noEnglish += BaiheClient.pagesWithoutEnglish(answer);
+                    if (englishProblem.isEmpty()) englishProblem = BaiheClient.englishProblem(answer);
                 } catch (BaiheClient.BridgeException e) {
                     failed += batches.get(i).size();
                     if (firstError.isEmpty()) firstError = e.getMessage();
@@ -2053,7 +2108,14 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             failed += unreadable;
             StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
+            if (noEnglish > 0) {
+                out.append(". ").append(noEnglish).append(noEnglish == 1 ? " page" : " pages").append(" saved without English");
+                if (!englishProblem.isEmpty()) out.append(" (").append(englishProblem).append(")");
+            }
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
+            if (stored > 0 && failed == 0 && noEnglish == 0 && !truncated && !cancelRequested) {
+                GrabStore.markDone(prefs(), url);
+            }
             // A chapter where every page was refused must not send the chain on to the next.
             finishGrab(out.toString(), stored > 0);
         } catch (BaiheClient.BridgeException e) {

@@ -151,6 +151,21 @@ class TestSending:
         r = _client().post(f"{BASE}/page", headers=_auth(token), json={"images": [img, img]})
         assert r.status_code == 400
 
+    @pytest.mark.parametrize("stream", [False, True])
+    def test_a_batch_the_page_filter_rejects_carries_its_code(self, isolated_db, stream):
+        Image = pytest.importorskip("PIL.Image")
+        _, token = _member("a@example.com")
+        icons = []
+        for i in range(3):
+            buf = io.BytesIO()
+            Image.new("RGB", (40, 40 + i), (10 * i, 20, 30)).save(buf, format="PNG")
+            icons.append({"key": f"i{i}", "content_type": "image/png",
+                          "data": base64.b64encode(buf.getvalue()).decode("ascii")})
+        r = _client().post(f"{BASE}/pages", headers=_auth(token),
+                           json={"images": icons, "store": False, "stream": stream})
+        assert r.status_code == 422
+        assert r.json()["code"] == extension_bridge_service.NO_PAGES_CODE
+
     def test_an_oversized_body_is_refused_by_its_length(self, isolated_db):
         _, token = _member("a@example.com")
         r = _client().post(f"{BASE}/pages", headers={
@@ -599,8 +614,8 @@ class TestSendVideo:
 class TestStartLive:
     """POST /live starts Live on a stream link with the PC's defaults, under the token's rights."""
 
-    def _live_member(self, email, perms=("media.import_url",)):
-        u, _ = _member(email)
+    def _live_member(self, email, perms=("media.import_url",), paid=False):
+        u, _ = _member(email, paid=paid)
         for p in perms:
             auth_service.grant_permission(u["id"], p)
         token = svc.create_token(dict(user_id=u["id"], is_admin=False,
@@ -608,8 +623,9 @@ class TestStartLive:
         return u, token
 
     def test_starts_with_safe_defaults(self, isolated_db, monkeypatch):
-        from services import live_service, model_readiness_service
+        from services import live_service, model_readiness_service, translate_service
         seen = {}
+        monkeypatch.setattr(translate_service, "default_hosted_engine", lambda: "ollama")
 
         def fake_start(url, **kw):
             seen.update(url=url, **kw)
@@ -630,6 +646,31 @@ class TestStartLive:
         assert not seen.get("delayed_player")
         assert ready == [False]
         assert seen["engine"] == "ollama" and seen["use_gpu"] is False
+
+    def test_follows_the_pc_default_engine_when_ollama_is_down(self, isolated_db, monkeypatch):
+        # The Live page runs on the PC's default (OpenAI when Ollama does not answer and a key
+        # is saved); the extension's Start Live must not insist on Ollama and get a 503.
+        from services import live_service, model_readiness_service, translate_service
+        seen = {}
+
+        def fake_start(url, **kw):
+            seen.update(kw)
+            return {"session_id": "live_" + "a" * 32}
+
+        monkeypatch.setattr(live_service, "start_session",
+                            functools.wraps(live_service.start_session)(fake_start))
+        monkeypatch.setattr(model_readiness_service, "require_ready", lambda *a, **k: None)
+        monkeypatch.setattr(live_service, "gpu_available", lambda: False)
+        monkeypatch.setattr(translate_service, "default_hosted_engine", lambda: "openai")
+        _, token = self._live_member("paid@example.com", paid=True)
+        r = _client().post(f"{BASE}/live", headers=_auth(token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 200, r.text
+        assert seen["engine"] == "openai"
+
+        _, member_token = self._live_member("free@example.com")
+        r = _client().post(f"{BASE}/live", headers=_auth(member_token), json={"url": "https://www.twitch.tv/x"})
+        assert r.status_code == 200, r.text
+        assert seen["engine"] == "ollama"
 
     def test_import_right_is_required(self, isolated_db, monkeypatch):
         from services import live_service
@@ -794,6 +835,55 @@ class TestStreamedAnswersHeartbeat:
         assert lines and set(lines) == {b'{"waiting": true}\n'}
 
 
+class TestStreamedAnswerLost:
+    """The run hears whether its answer reached the end or the caller went away first."""
+
+    @staticmethod
+    def _serve(monkeypatch, work, caller_leaves):
+        import asyncio
+        from api.routers import extension_bridge_routes as routes
+        heard = []
+        monkeypatch.setattr(extension_bridge_service, "stream_opened",
+                            lambda run_id: heard.append(("open", run_id)) or 7)
+        monkeypatch.setattr(extension_bridge_service, "stream_closed",
+                            lambda run_id, stream, lost: heard.append(("closed", run_id, stream, lost)))
+
+        async def go():
+            first_line = asyncio.Event()
+
+            async def receive():
+                if caller_leaves:
+                    await first_line.wait()
+                    return {"type": "http.disconnect"}
+                await asyncio.Event().wait()
+
+            async def send(message):
+                if message.get("body"):
+                    first_line.set()
+
+            response = await routes._streamed(work, run_id="run-aaaaaaaa")
+            await response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send)
+        asyncio.run(go())
+        return heard
+
+    def test_a_caller_that_goes_away_mid_answer_is_a_lost_stream(self, monkeypatch):
+        import time
+
+        def work(write):
+            write({"page": {"key": "p0"}})
+            time.sleep(0.3)
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, True) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, True)]
+
+    def test_an_answer_that_reaches_its_last_line_is_not_lost(self, monkeypatch):
+        def work(write):
+            write({"page": {"key": "p0"}})
+            write({"done": {}})
+
+        assert self._serve(monkeypatch, work, False) == [("open", "run-aaaaaaaa"), ("closed", "run-aaaaaaaa", 7, False)]
+
+
 class TestQuickReadRunRoutes:
     """The phone lists and drops its Quick read runs through the bridge."""
 
@@ -889,7 +979,7 @@ class TestTitleProgress:
         r = _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": own})
         assert r.status_code == 200
         assert r.json()["state"] in ("waiting", "running") and r.json()["kind"] == "comic"
-        assert set(r.json()) == {"state", "step", "kind"}
+        assert set(r.json()) == {"state", "step", "kind", "reason"} and r.json()["reason"] is None
         assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": theirs}).status_code == 404
 
     def test_a_title_with_no_run_or_no_translate_run_is_idle(self, isolated_db):
@@ -986,3 +1076,51 @@ class TestTitleTranslate:
             t.join()
         chains = {i["chain"] for i in page_run_service._title_items(principal, did)}
         assert len(chains) == 1, outcomes
+
+    def test_new_chapters_of_a_novel_with_lines_queue_the_append_chain_once_and_nothing_new_is_a_409(
+            self, isolated_db, monkeypatch):
+        import threading
+        from services import page_run_service, paid_job_service
+        from sources import pipeline
+        from tests.test_page_run_service import _novel_with_lines
+        monkeypatch.setattr(paid_job_service, "require_cap_for_unattended", lambda *a, **k: None)
+        u, token = self._phone("a@example.com")
+        principal = {"user_id": u["id"], "is_admin": False, "permissions": []}
+        did = _novel_with_lines(owner_user_id=u["id"])
+        lines_before = db.load_line_ids(did)
+        r = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert r.status_code == 409 and page_run_service._title_items(principal, did) == []
+        pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+        answers = []
+
+        missing = _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did})
+        assert missing.status_code == 422 and "Update the Baihe app" in missing.text
+        for bad in (0, 501, True, "1"):
+            assert _client().post(f"{BASE}/title-translate", headers=_auth(token),
+                                  json={"drama_id": did, "new_chapters": bad}).status_code == 400
+
+        def start():
+            answers.append(_client().post(f"{BASE}/title-translate", headers=_auth(token),
+                                          json={"drama_id": did, "new_chapters": 1}).status_code)
+        threads = [threading.Thread(target=start) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        items = page_run_service._title_items(principal, did)
+        assert len({i["chain"] for i in items}) == 1, answers
+        assert [i["step"] for i in items] == ["append", "lines", "run_translate"]
+        assert items[0]["settings"] == {"from_chapter": 2}
+        assert items[1]["settings"]["append"] is True and items[2]["settings"]["new_lines_only"] is True
+        # Queuing changes nothing yet: the steps run on the PC's queue.
+        assert db.load_line_ids(did) == lines_before
+
+    def test_someone_elses_novel_with_new_chapters_is_a_404(self, isolated_db):
+        from sources import pipeline
+        from tests.test_page_run_service import _novel_with_lines
+        _, token = self._phone("a@example.com")
+        other, _ = _member("b@example.com")
+        did = _novel_with_lines(owner_user_id=other["id"])
+        pipeline.append_novel_chapter_once(did, "丙走了。", "第二章 继续", source="x")
+        assert _client().post(f"{BASE}/title-translate", headers=_auth(token), json={"drama_id": did}).status_code == 404
+        assert _client().post(f"{BASE}/title-progress", headers=_auth(token), json={"drama_id": did}).status_code == 404

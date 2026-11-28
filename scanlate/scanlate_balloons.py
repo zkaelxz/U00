@@ -78,6 +78,9 @@ def classify_text_regions(image_path: str, boxes, image=None):
             # share can't tell it from a sign; its outline can.
             kind = "bubble"
             conf = 0.6
+        elif is_flat_dark_balloon(roi):
+            kind = "bubble"
+            conf = 0.6
         elif mean_val < 140 and fill_uniformity < 0.4:
             # Dark and busy -- lettering laid over artwork.
             kind = "sfx"
@@ -95,6 +98,19 @@ def classify_text_regions(image_path: str, boxes, image=None):
 
         out.append(dict(b, kind=kind, kind_confidence=conf))
     return out
+
+
+def is_flat_dark_balloon(roi) -> bool:
+    """True for a flat dark body with a minority of light lettering. Its light share is below
+    CLASSIFY_MIN_LIGHT_SHARE, so it was taken for lettering on art (a sound effect or sign)."""
+    t = scanlate_tuning
+    dark = roi[roi < t.CLASSIFY_DARK_GRAY]
+    if dark.size < t.CLASSIFY_DARK_BALLOON_MIN_SHARE * roi.size:
+        return False
+    low, high = t.CLASSIFY_DARK_BALLOON_LIGHT_SHARE
+    light = float((roi > t.CLASSIFY_LIGHT_LEVEL).mean())
+    return (low <= light <= high and float(dark.std()) < t.CLASSIFY_DARK_BALLOON_MAX_SPREAD
+            and float(np.median(dark)) >= t.CLASSIFY_DARK_BALLOON_MIN_TONE)
 
 
 def _holds_balloon_interior(roi) -> bool:
@@ -398,7 +414,11 @@ def bubble_erase_mask(image_path: str, box: dict, image=None):
     if filled.sum() < 0.3 * box["w"] * box["h"]:
         return None
     filled, outside = _with_page_cut_lettering(filled, outside, area, gray.shape)
-    if outside.any():
+    # A speck of outside paper in a box the balloon fills makes the outline's thickness read
+    # as the distance to that speck, so no lettering is deep enough to count as joined to it.
+    speck = (filled.mean() >= scanlate_tuning.BALLOON_FILLS_BOX
+             and outside.mean() < scanlate_tuning.BALLOON_OUTSIDE_MIN_SHARE)
+    if outside.any() and not speck:
         depth = cv2.distanceTransform((1 - outside).astype(np.uint8), cv2.DIST_L2, 3)
         edge = filled - cv2.erode(filled, np.ones((3, 3), np.uint8))
         thickness = float(np.median(depth[edge > 0])) if edge.any() else 0.0

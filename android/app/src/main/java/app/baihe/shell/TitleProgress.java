@@ -14,8 +14,9 @@ final class TitleProgress {
         return !("waiting".equals(state) || "running".equals(state));
     }
 
-    /** The line to show, or null when the title has no translate run to report. */
-    static String line(String state, String step, String title) {
+    /** The line to show, or null when the title has no translate run to report. `reason` is the server's
+     * already shortened why for a stopped run, empty when it gave none. */
+    static String line(String state, String step, String title, String reason) {
         switch (state == null ? "" : state) {
             case "waiting":
                 return "Waiting to translate " + title;
@@ -25,9 +26,15 @@ final class TitleProgress {
             case "done":
                 return "Translated " + title;
             case "stopped":
-                return "Translating " + title + " stopped. See the Jobs page.";
+                if (reason == null || reason.trim().isEmpty()) return "Translating " + title + " stopped. See the Jobs page.";
+                return "Translating " + title + " stopped: " + reason.trim();
             default:
                 return null;
         }
+    }
+
+    /** The last line when the phone stops following a run that has not finished, so no spinner is left turning. */
+    static String leftToPc(String title) {
+        return "Translating " + title + " is still going on the PC. See the Jobs page.";
     }
 }

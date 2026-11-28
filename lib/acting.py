@@ -1,5 +1,6 @@
 """Who the current API request (or queue start) acts for: the per-request principal holder."""
 
+import contextlib
 import contextvars
 
 # Set by api.server's ActingPrincipalMiddleware and filled by api.auth's
@@ -18,6 +19,17 @@ def bind_request():
 
 def unbind_request(token) -> None:
     _ACTING.reset(token)
+
+
+@contextlib.contextmanager
+def as_app():
+    """Code in the block acts for nobody, as a background thread does: a job it starts has
+    no starter, so no member's job caps count it."""
+    token = _ACTING.set(None)
+    try:
+        yield
+    finally:
+        _ACTING.reset(token)
 
 
 def note_acting_principal(principal) -> None:
@@ -39,3 +51,16 @@ def acting_user_id():
     auth off, a background thread)."""
     principal = acting_principal()
     return None if principal is None else principal.get("user_id")
+
+
+def acting_device():
+    """A coarse name for the device this request came from ("Chrome on
+    Android", "Browser extension"), or None when unknown: auth off, a
+    background thread, or a queued item started later."""
+    principal = acting_principal()
+    if not principal:
+        return None
+    if principal.get("device_token_id") is not None:
+        return "Browser extension"
+    label = principal.get("device_label")
+    return label if label and label != "Unknown device" else None

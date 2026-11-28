@@ -8,7 +8,8 @@
 .jobs-chip-count { font-variant-numeric: tabular-nums; opacity: 0.8; }
 /* On the selected chip the count is white on the accent: fading it to 80% left it at 3.8:1 in the light theme. */
 .jobs-chips button[aria-pressed='true'] .jobs-chip-count { opacity: 1; }
-.jobs-search { flex: 1 1 12rem; min-width: 0; }
+/* Search and the two filters sit at the row's right, after the status chips. */
+.jobs-search { flex: 0 1 14rem; min-width: 0; margin-left: auto; }
 .jobs-search input { width: 100%; }
 .jobs-mine { display: inline-flex; align-items: center; gap: var(--space-1); }
 .jobs-empty { display: grid; gap: var(--space-2); justify-items: start; }
@@ -56,13 +57,9 @@
   .jobs-card-title, .jobs-cards .jobs-actions a { display: inline-flex; align-items: center; min-height: 44px; }
 }
 
-/* The Queue card (JobQueue.tsx). */
-.queue-card { margin-bottom: var(--space-4); }
-.queue-card p { margin: 0; }
-.queue-fold { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
-.queue-fold-arrow { width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
-.queue-fold[aria-disabled="true"] { cursor: default; }
-.queue-card .card-body { display: grid; gap: var(--space-3); min-width: 0; }
+/* The Queue row (JobQueue.tsx). */
+.queue-section p { margin: 0; }
+.queue-section > .section > .section-body { display: grid; gap: var(--space-3); min-width: 0; }
 .queue-notice { color: var(--warn); }
 .queue-missed { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--warn); border-radius: var(--radius-sm); background: var(--warn-soft); }
 .queue-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2); }
@@ -89,7 +86,7 @@
 
 @media (pointer: coarse), (max-width: 640px) {
   .queue-item-head a, .queue-item a[download] { display: inline-flex; align-items: center; min-height: 44px; }
-  .queue-card input[type="time"], .queue-card select { min-height: 44px; }
+  .queue-section input[type="time"], .queue-section select { min-height: 44px; }
 }
 
 /* Activity log and GPU chart */

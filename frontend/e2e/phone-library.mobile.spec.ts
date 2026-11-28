@@ -12,16 +12,17 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByTestId('drama-count')).toHaveText('5 titles')
 })
 
-test('the first title card is above the fold and the filters open in a sheet', async ({ page }) => {
+test('the first title card starts above the fold and the filters open in a sheet', async ({ page }) => {
   const viewport = page.viewportSize()!
-  // The Ready shelf comes before the full list, so its first card is the one on the first screen when it has one.
-  const card = page.locator('.home-ready-card, .drama-card').first()
+  const card = page.locator('.drama-card').first()
   const box = (await card.boundingBox())!
-  expect(box.y + box.height, 'first card inside the viewport').toBeLessThanOrEqual(viewport.height)
-  await expect(page.getByLabel('Sort by')).toBeHidden()
+  // Two Continue tiles sit above the list, so the card itself starts on the first screen but may run past it.
+  expect(box.y, 'first card starts inside the viewport').toBeLessThan(viewport.height)
+  await expect(page.getByLabel('Sort by')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Favorite' })).toBeVisible()
   await page.getByRole('button', { name: 'Filters' }).tap()
   const sheet = page.getByRole('dialog', { name: 'Filters' })
-  for (const name of ['Status', 'Quick filter', 'Sort by', 'Group by']) await expect(sheet.getByLabel(name)).toBeVisible()
+  for (const name of ['Status', 'Group by']) await expect(sheet.getByLabel(name)).toBeVisible()
   await sheet.getByLabel('Status').selectOption('translated')
   await sheet.getByRole('button', { name: 'Close' }).tap()
   await expect(page.getByRole('button', { name: 'Filters (1)' })).toBeVisible()

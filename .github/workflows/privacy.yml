@@ -1,0 +1,115 @@
+name: Privacy check
+
+# The repository is public, so every push is published at once. Tests calls this for PRs and pushes to the base;
+# a push to a claude/ branch, which may never get a PR, runs it on its own (docs/testing-and-ci.md, "Privacy check").
+on:
+  workflow_call:
+    secrets:
+      PRIVATE_TERMS:
+        required: false
+      PRIVATE_ALLOW:
+        required: false
+  push:
+    branches: ["claude/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  privacy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: No private names, nicknames, PC names or personal emails
+        env:
+          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+          PRIVATE_ALLOW: ${{ secrets.PRIVATE_ALLOW }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PRIVATE_TERMS" ]; then
+            if [ "$ACTOR" = "dependabot[bot]" ]; then echo "Dependabot run: no secrets, skipped."; exit 0; fi
+            echo "::error::The PRIVATE_TERMS repository secret is missing, so the privacy check cannot run (docs/testing-and-ci.md, \"Privacy check\")."
+            exit 1
+          fi
+          terms="$RUNNER_TEMP/terms"
+          printf '%s\n' "$PRIVATE_TERMS" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$terms"
+          if [ ! -s "$terms" ]; then echo "::error::PRIVATE_TERMS holds no terms."; exit 1; fi
+          found=0
+          has_term() { grep -q -i -w -F -f "$terms" <<<"$1"; }
+          set +e; hits="$(git grep -I -n -i -w -F -f "$terms" -- .)"; rc=$?; set -e
+          if [ "$rc" -eq 0 ]; then
+            # A public VTuber's stage name can hold a term; PRIVATE_ALLOW lists those exact phrases, honoured
+            # only in the language packs: a line still fails if any term is left once they are taken out.
+            allow="$RUNNER_TEMP/allow"
+            printf '%s\n' "${PRIVATE_ALLOW:-}" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$allow"
+            printf '%s\n' "$hits" > "$RUNNER_TEMP/hits"
+            hits="$(python3 - "$terms" "$allow" "$RUNNER_TEMP/hits" <<'PY'
+          import re, sys
+          def phrases(path):
+              return [t for t in open(path, encoding="utf-8").read().splitlines() if t]
+          terms = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(t) + r"(?![A-Za-z0-9_])", re.I) for t in phrases(sys.argv[1])]
+          allowed = [re.compile(r"(?<![A-Za-z0-9_])" + re.escape(a) + r"(?![A-Za-z0-9_])", re.I) for a in phrases(sys.argv[2])]
+          # Split on newlines only: splitlines() also breaks on U+2028 and the like, which a line could use to fake a path.
+          for hit in filter(None, open(sys.argv[3], encoding="utf-8", newline="\n").read().split("\n")):
+              path, number, text = hit.split(":", 2)
+              if allowed and path.startswith("language_pack_data/"):
+                  for a in allowed:
+                      text = a.sub(" ", text)
+                  if not any(t.search(text) for t in terms):
+                      continue
+              print(f"{path}:{number}")
+          PY
+            )"
+            rm -f "$allow" "$RUNNER_TEMP/hits"
+            if [ -n "$hits" ]; then
+              printf '%s\n' "$hits" | sed 's/^/::error::Private term in /'
+              found=1
+            fi
+          elif [ "$rc" -ne 1 ]; then
+            echo "::error::git grep failed ($rc)."; exit 1
+          fi
+          if has_term "$(git ls-files)"; then echo "::error::Private term in a tracked file or folder name."; found=1; fi
+          range=""
+          if [ "$EVENT" = pull_request ]; then
+            has_term "$PR_TITLE" && { echo "::error::Private term in the PR title."; found=1; }
+            # The project tool writes a "Requested by" credit line that a thread cannot leave out.
+            has_term "$(grep -v '^_Requested by \*\*' <<<"$PR_BODY" || true)" && { echo "::error::Private term in the PR description."; found=1; }
+            range="HEAD^1..HEAD^2"
+          elif [ "$EVENT" = push ]; then
+            range="$PUSH_BEFORE..$PUSH_AFTER"
+          fi
+          if [ -n "$range" ]; then
+            git fetch --quiet --no-tags --unshallow origin
+            git fetch --quiet --no-tags origin +refs/heads/baihe-subtitler:refs/remotes/origin/baihe-subtitler
+            # A new claude/ branch has no "before", and a force-push's old head is fetched by no ref:
+            # check every commit the branch adds to the base instead.
+            if [ "$EVENT" = push ] && ! git cat-file -e "${PUSH_BEFORE:-0}^{commit}" 2>/dev/null; then
+              if [ "$GITHUB_REF" != refs/heads/baihe-subtitler ]; then
+                range="refs/remotes/origin/baihe-subtitler..$PUSH_AFTER"
+              else
+                range=""
+              fi
+            fi
+          fi
+          if [ -n "$range" ]; then
+            commits="$(git rev-list "$range")"
+            for c in $commits; do
+              meta="$(git log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c")"
+              if has_term "$meta"; then
+                echo "::error::Private term in the message, author or committer of commit $c"
+                found=1
+              fi
+            done
+          fi
+          rm -f "$terms"
+          exit "$found"

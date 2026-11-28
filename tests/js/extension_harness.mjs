@@ -50,7 +50,13 @@ function container(children) {
   return parent;
 }
 
-function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, pictureAddresses = true }) {
+function classes() {
+  const on = new Set();
+  return { toggle: (c, force) => ((force ?? !on.has(c)) ? on.add(c) : on.delete(c)), add: (c) => on.add(c),
+           remove: (c) => on.delete(c), contains: (c) => on.has(c) };
+}
+
+function loadContent({ images = [], canvases = [], fetchImage, screenshot = null, onSend = null, frames = true, readable = false, serverUrl = "", sendReply = null, sendAnswer = null, pictureAddresses = true }) {
   const sent = [];
   const shots = [];
   const marks = [];
@@ -76,12 +82,16 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
       setAttribute: (name) => marks.push(`set ${name}`), removeAttribute: (name) => marks.push(`remove ${name}`) },
     images, head: { appendChild() {} },
     querySelectorAll: (sel) => (sel === "canvas" ? canvases : []),
-    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, append() {}, addEventListener() {}, remove() {}, appendChild() {},
-                                                                 classList: { toggle() {}, add() {}, remove() {} } }),
+    createElement: (tag) => (tag === "canvas" ? cropCanvas() : { style: {}, dataset: {}, children: [], append() {}, addEventListener() {}, remove() {}, appendChild() {},
+                                                                 classList: classes() }),
     getElementById: () => null,
   };
   const sandbox = {
-    document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
+    document, console, URL, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
+    // A whole-chapter capture paces its scroll steps and waits for each page to settle; the script's timers
+    // run 20 times faster so those waits keep their order without taking real seconds. Date, performance
+    // and setInterval stay on real time.
+    setTimeout: (fn, ms = 0, ...args) => setTimeout(fn, ms / 20, ...args),
     atob, btoa, Blob, Uint8Array, TextEncoder, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
     // A background tab never runs animation frames.
     requestAnimationFrame: (cb) => { if (frames) setTimeout(cb, 0); },
@@ -109,6 +119,7 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
           if (message.type === "send") {
             sent.push(message);
             if (onSend) await onSend(message, (m) => new Promise((resolve) => listener(m, {}, resolve)));
+            if (sendAnswer) return sendAnswer(message, sent.length);
             return { ok: true, data: sendReply ? sendReply(message, sent.length) : { pages: [] } };
           }
           if (message.type === "health") return { ok: true, data: { picture_addresses: pictureAddresses } };
@@ -263,6 +274,54 @@ async function content(scenario) {
       const result = await h.ask(visible);
       return { ok: result.ok, sends: h.sent.length, drawnWhileOut };
     }
+    case "a_refused_later_batch_names_the_apps_reason":
+    case "a_dropped_later_batch_names_only_the_place": {
+      // A 413 that names a cap of 1 splits the two pages into two sends; the second is then refused
+      // by the app (a status and its text) or lost on the way (no status).
+      const refused = scenario === "a_refused_later_batch_names_the_apps_reason";
+      const images = [placed(fakeImg(IMG_URL), 0), placed(fakeImg(IMG_URL_2), 1200)];
+      container(images);
+      const sendAnswer = (message, n) => (n === 1 ? { ok: false, status: 413, error: "at most 1 images" }
+        : n === 2 ? { ok: true, data: { pages: message.images.map((i) => ({ key: i.key, regions: [] })), received: 1 } }
+        : refused ? { ok: false, status: 429, error: "This month's limit for the extension is reached." }
+        : { ok: false, error: "Failed to fetch" });
+      const h = loadContent({ images, fetchImage: byUrl, sendAnswer });
+      const result = await h.ask({ ...visible, all: true });
+      return { ok: result.ok, sends: h.sent.length, stopped: result.data && result.data.stopped && result.data.stopped.message };
+    }
+    case "a_page_swapped_in_place_hides_the_old_english": {
+      // The reader keeps the <img> and changes its src; the old page's boxes must not show over the new one,
+      // and come back when a reader that unloads far pages puts the old picture back.
+      const page = img();
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) }) });
+      const result = await h.ask(visible);
+      const hidden = () => [...h.sandbox.__baihe.state.active.values()].map((e) => e.layer.classList.contains("baihe-hidden"));
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      const shown = hidden();
+      page.src = IMG_URL_2;
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      const swapped = hidden();
+      page.src = IMG_URL;
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      const back = hidden();
+      // Unloaded to a blank, zero-size picture, as long-strip readers do with far pages.
+      Object.assign(page, { src: "", naturalWidth: 0, naturalHeight: 0, width: 0, height: 0 });
+      h.sandbox.__baihe.setOverlaysVisible(true);
+      return { ok: result.ok, shown, swapped, back, unloaded: hidden() };
+    }
+    case "a_page_swapped_while_its_batch_is_out_is_not_drawn": {
+      const page = img();
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => {
+          page.src = IMG_URL_2;
+          return { pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) };
+        } });
+      const result = await h.ask(visible);
+      return { ok: result.ok, drawn: h.sandbox.__baihe.state.active.size };
+    }
     case "canvas_tainted_no_url": {
       const canvas = fakeCanvas(800, 1200);
       container([canvas]);
@@ -405,6 +464,20 @@ async function background(scenario) {
     return { ...r, fetchCalls: h.fetchCalls.length, options: h.fetchCalls[0] && h.fetchCalls[0].options };
   };
   switch (scenario) {
+    case "video_and_live_send_only_the_link": {
+      const sent = [];
+      const reply = (body) => async (url, options) => {
+        sent.push({ path: new URL(url).pathname, body: JSON.parse(options.body), credentials: options.credentials });
+        return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+      };
+      const video = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ drama_id: 9 }) });
+      const v = await video.ask({ type: "sendVideo", url: "https://video.example.com/watch?v=abc#t=30" });
+      const live = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({ session_id: "s1" }) });
+      const l = await live.ask({ type: "startLive", url: "https://live.example.com/room/7", sourceLanguage: "ja" });
+      const local = loadBackground({ granted: () => true, stored: { token: "t" }, fetchImpl: reply({}) });
+      const p = await local.ask({ type: "sendVideo", url: "http://192.168.1.20/video.mp4" });
+      return { video: v, live: l, local: p, sent, localCalls: local.fetchCalls.length };
+    }
     case "base64_matches_btoa": {
       const { base64Of } = loadBackground({ granted: () => true }).sandbox;
       const out = {};
@@ -808,7 +881,8 @@ async function novel(scenario) {
     }
     case "worker_series": {
       // A site of numbered chapters; `pages` says what each chapter's page does when asked.
-      const run = async ({ chapters, limit, kind = "novel", saved = new Set(), gatedAt = 0, brokenAt = 0, loop = false }) => {
+      const run = async ({ chapters, limit, kind = "novel", saved = new Set(), gatedAt = 0, brokenAt = 0, loop = false,
+                           comicData = { stored: 12, translated: 12 } }) => {
         let at = 1;
         const calls = [];
         const updated = [];
@@ -837,7 +911,7 @@ async function novel(scenario) {
                   const fresh = !saved.has(at); saved.add(at);
                   return { ok: true, data: { saved: fresh } };
                 }
-                if (m.type === "captureChapter") return { ok: true, data: { stored: 12, translated: 12, reason: "end", message: "ok" } };
+                if (m.type === "captureChapter") return { ok: true, data: { ...comicData, reason: "end", message: "ok" } };
                 return { ok: true, data: {} };
               },
             },
@@ -888,6 +962,9 @@ async function novel(scenario) {
         broken: await run({ chapters: 5, limit: 5, brokenAt: 2 }),
         loop: await run({ chapters: 5, limit: 5, loop: true }),
         comic: await run({ chapters: 2, limit: 2, kind: "comic" }),
+        // Pages the library already has come back as stored too, with none newly translated.
+        comicReused: await run({ chapters: 2, limit: 2, kind: "comic", comicData: { stored: 12, translated: 0, alreadyStored: 12 } }),
+        comicEmpty: await run({ chapters: 2, limit: 2, kind: "comic", comicData: { stored: 0, translated: 0, alreadyStored: 0 } }),
         cancelled,
       };
     }
@@ -915,7 +992,7 @@ async function novel(scenario) {
     }
     case "popup_health_failure": {
       const noop = () => {};
-      const run = async (failure) => {
+      const run = async (failure, settings = {}, line = false) => {
         const els = new Map();
         const el = (id) => {
           if (!els.has(id)) els.set(id, { addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
@@ -924,19 +1001,23 @@ async function novel(scenario) {
         };
         const sandbox = {
           document: { getElementById: el, querySelectorAll: () => [] },
-          chrome: { runtime: { sendMessage: async () => failure, onMessage: { addListener: noop } },
+          chrome: { runtime: { sendMessage: async (m) => (m && m.type === "getSettings" ? { ok: true, data: settings } : failure),
+                               onMessage: { addListener: noop } },
                     tabs: { query: async () => [] } },
           console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
         };
         vm.createContext(sandbox);
         vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}`, sandbox);
         await new Promise((resolve) => setTimeout(resolve, 20));
-        return el("noticeText").textContent;
+        return line ? el("status").textContent : el("noticeText").textContent;
       };
       return {
         revoked: await run({ ok: false, status: 401, error: "a valid token header is required" }),
         refused: await run({ ok: false, status: 403, error: "no" }),
+        refusedLine: await run({ ok: false, status: 403, error: "Your account can't send pages from this device." }, {}, true),
         down: await run({ ok: false, error: "Couldn't reach Baihe" }),
+        downLine: await run({ ok: false, error: "Couldn't reach Baihe" }, {}, true),
+        downRemoteLine: await run({ ok: false, error: "Couldn't reach Baihe" }, { serverUrl: "https://baihe.example" }, true),
       };
     }
     case "popup_labels": {
@@ -969,6 +1050,79 @@ function popupExpression(expression) {
   vm.createContext(sandbox);
   vm.runInContext(`${read("shared.js")}\n${read("popup.js")}\n;this.__out = JSON.stringify(${expression});`, sandbox);
   return JSON.parse(sandbox.__out);
+}
+
+// The popup's own controls, with their listeners kept so a test can fire them.
+async function popupControls() {
+  const noop = () => {};
+  const byId = new Map();
+  const el = (id) => {
+    if (!byId.has(id)) byId.set(id, { id, listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; },
+      classList: { toggle: noop }, appendChild: noop, setAttribute: noop,
+      options: [], value: "", checked: true, textContent: "", hidden: false, disabled: false, href: "" });
+    return byId.get(id);
+  };
+  const stored = [];
+  const toTab = [];
+  const sandbox = {
+    document: { getElementById: el, querySelectorAll: () => [] },
+    chrome: { runtime: { sendMessage: async () => ({ ok: false, error: "x" }), onMessage: { addListener: noop } },
+              storage: { local: { set: async (v) => { stored.push(v); }, get: async () => ({}) } },
+              scripting: { executeScript: async () => {} },
+              tabs: { query: async () => [{ id: 7 }], sendMessage: async (tabId, m) => { toTab.push([tabId, m]); return { ok: true, data: {} }; } } },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}\n;this.__setSaveMode = setSaveMode;`, sandbox);
+  await new Promise((r) => setTimeout(r, 20));
+  const shown = () => ({ continueComic: !el("continueComic").hidden, seriesCountRow: !el("seriesCountRow").hidden,
+                         continueQuickNote: !el("continueQuickNote").hidden });
+  sandbox.__setSaveMode(false, { remember: false });
+  const quick = shown();
+  sandbox.__setSaveMode(true, { remember: false });
+  const save = shown();
+  stored.length = 0; toTab.length = 0;
+  el("overlay").checked = false;
+  await el("overlay").listeners.change();
+  return { quick, save, stored, toTab };
+}
+
+// Two presses of "Subtitle this video" while the first is on its way, then the result line and link.
+async function popupVideo() {
+  const noop = () => {};
+  const byId = new Map();
+  const el = (id) => {
+    if (!byId.has(id)) byId.set(id, { id, addEventListener: noop, classList: { toggle: noop }, appendChild: noop,
+      options: [], value: "", checked: true, textContent: "", hidden: true, disabled: false, href: "" });
+    return byId.get(id);
+  };
+  const sent = [];
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const sandbox = {
+    document: { getElementById: el, querySelectorAll: () => [] },
+    chrome: { runtime: { onMessage: { addListener: noop }, sendMessage: async (message) => {
+                if (message.type !== "sendVideo") return { ok: false, error: "x" };
+                sent.push(message);
+                await gate;
+                return { ok: true, data: { drama_id: 12 } };
+              } },
+              storage: { local: { get: async () => ({}), set: async () => {} } },
+              tabs: { query: async () => [{ id: 3, url: "https://video.example.com/watch?v=abc" }] } },
+    localStorage: { getItem: () => null, setItem: noop },
+    console, JSON, URL, Promise, Math, Object, Array, Number, String, Error, Map, Set,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${read("shared.js")}\n${read("site_access.js")}\n${read("popup.js")}\n;this.__run = runSendVideo;`, sandbox);
+  const first = sandbox.__run();
+  const second = sandbox.__run();
+  await new Promise((r) => setTimeout(r, 0));
+  const disabledWhileSending = el("sendVideo").disabled && el("startLive").disabled;
+  release();
+  await Promise.all([first, second]);
+  return { sends: sent.length, url: sent[0] && sent[0].url, disabledWhileSending,
+           enabledAfter: !el("sendVideo").disabled && !el("startLive").disabled,
+           status: el("status").textContent, link: el("openInBaihe").href, linkShown: !el("openInBaihe").hidden };
 }
 
 async function contentExpression(expression) {
@@ -1081,6 +1235,8 @@ const [kind, scenario] = process.argv.slice(2);
 const handlers = {
   content, background, popup, novel,
   popup_expression: async (e) => popupExpression(e),
+  popup_video: async () => popupVideo(),
+  popup_controls: async () => popupControls(),
   content_expression: async (e) => JSON.parse(await contentExpression(e)),
   batching,
   reload_after_update: reloadAfterUpdate,

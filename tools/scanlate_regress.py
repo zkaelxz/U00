@@ -3,13 +3,15 @@
 SAMPLES_DIR holds pageNN.jpg (or .png) beside pageNN.json, a Quick read cache entry or stored
 regions with `translated_text`. Each page is typeset by the app's own render code twice, once
 with its text and once with the text blanked, and every balloon is checked for fill outside its
-outline, off-centre text, tiny text and source lettering left behind. Writes a report and a
+outline, off-centre text, tiny text, English that runs into a
+neighbour's and source lettering left behind. Writes a report and a
 before|after sheet per page. The samples are private art: keep them out of the repository.
 """
 import argparse
 import json
 import sys
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -57,10 +59,13 @@ def check_page(image: Path, regions: list, out_dir: Path, stem: str):
     typeset = out_dir / f"{stem}-after.png"
     erased = out_dir / f"{stem}-erased.png"
     scanlate_render.process_page(str(image), shown, str(typeset), notes=[])
-    scanlate_render.process_page(str(image), blank, str(erased), notes=[])
+    # A zero-width character is not in every font; one that draws a missing-glyph box makes every
+    # balloon look like it still has lettering, so the blank pass skips drawing text instead.
+    with mock.patch.object(scanlate_render, "_letter_balloons", lambda *a, **k: None):
+        scanlate_render.process_page(str(image), blank, str(erased), notes=[])
     after = cv2.imread(str(typeset), cv2.IMREAD_GRAYSCALE)
     cleaned = cv2.imread(str(erased), cv2.IMREAD_GRAYSCALE)
-    rows = []
+    rows, extents = [], []
     for region in regions:
         if not (region.get("translated_text") or "").strip() or region.get("kind", "bubble") != "bubble":
             continue
@@ -69,6 +74,9 @@ def check_page(image: Path, regions: list, out_dir: Path, stem: str):
             continue
         rows.append({"text": region["translated_text"][:40],
                      "problems": scanlate_checks.region_problems(original, after, cleaned, region, interior)})
+        extents.append(scanlate_checks.text_extent(after, cleaned, region, interior))
+    for index in scanlate_checks.colliding_texts(extents):
+        rows[index]["problems"].append("text-overlap")
     erased.unlink(missing_ok=True)
     return rows, typeset
 

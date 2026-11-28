@@ -80,11 +80,12 @@ def save_read_bubbles(page_id: int, bubbles, newly_stored: bool, reused_rev: int
     return []
 
 
-def reused_page_response(data: bytes, saved, notes, drama_id: int, page_id: int) -> dict:
+def reused_page_response(data: bytes, saved, notes, drama_id: int, page_id: int,
+                         untranslated_lines: int) -> dict:
     width, height = image_size(data)
     return {"width": width, "height": height, "regions": regions_for_response(saved),
             "notes": notes, "drama_id": drama_id, "page_id": page_id,
-            "stored": True, "already_stored": True}
+            "stored": True, "already_stored": True, "untranslated_lines": untranslated_lines}
 
 
 MAX_ECHOED_URL = 200
@@ -134,26 +135,74 @@ def page_with_same_bytes(drama_id: int, data: bytes):
 BLANK_CHECK_MAX_PIXELS = 100_000_000
 
 
-def looks_blank(data: bytes) -> bool:
-    """True for a single-colour image. A reader that has not painted a
-    canvas yet hands back exactly this, and storing it would leave a silent
-    empty page in the chapter. Undecodable data is not called blank: the
-    pipeline reports that itself."""
+def flat_colour(data: bytes):
+    """The one colour of a single-colour image, else None. A reader that has
+    not painted a canvas yet hands back exactly this, and storing it would
+    leave a silent empty page in the chapter. Undecodable data is not called
+    flat: the pipeline reports that itself."""
     try:
         import io
 
         from PIL import Image
         with Image.open(io.BytesIO(data), formats=("PNG", "JPEG", "WEBP")) as img:
             if img.width * img.height > BLANK_CHECK_MAX_PIXELS:
-                return False
+                return None
             # draft() lets JPEG decode at a fraction of the size; convert
             # only after shrinking so the full canvas is never held as RGB.
             img.draft("RGB", (128, 128))
             img.thumbnail((64, 64))
-            probe = img.convert("RGB")
-            return all(isinstance(band, tuple) and band[0] == band[1] for band in probe.getextrema())
+            bands = [band for band in img.convert("RGB").getextrema() if isinstance(band, tuple)]
+            if len(bands) == 3 and all(band[0] == band[1] for band in bands):
+                return tuple(band[0] for band in bands)
+            return None
     except Exception:
-        return False
+        return None
+
+
+# Printed black and white come out at (or within JPEG noise of) 0 and 255; a dark- or
+# light-mode reader's empty canvas is usually a shade off, which must stay "not drawn yet".
+_PLAIN_TONE_MARGIN = 4
+
+
+def _plain_tone(colour) -> str:
+    if max(colour) <= _PLAIN_TONE_MARGIN:
+        return "black"
+    if min(colour) >= 255 - _PLAIN_TONE_MARGIN:
+        return "white"
+    return ""
+
+
+class FlatPages:
+    """Decides, page by page, which flat pages of one batch are not drawn yet.
+
+    A chapter can print one plain black or white page (an intermission), so with `keep_plain`
+    such a page is kept when no other flat page of the batch has its tone and a drawn page is
+    beside it; undrawn canvases come several at a time, alone, or in a reader's own colour.
+    Each page is decoded when its own turn asks, and the rest of the batch only for a plain
+    flat page, so the first page is not held up by the others."""
+
+    def __init__(self, images, keep_plain: bool):
+        self._images = images
+        self._keep_plain = keep_plain
+        self._colours = {}
+
+    def _colour(self, image):
+        # Worker threads may decode the same page twice; the answer is the same either way.
+        if image["key"] not in self._colours:
+            self._colours[image["key"]] = flat_colour(image["content"]) if image.get("content") else None
+        return self._colours[image["key"]]
+
+    def undrawn(self, image) -> bool:
+        colour = self._colour(image)
+        if colour is None:
+            return False
+        tone = _plain_tone(colour)
+        if not (self._keep_plain and tone):
+            return True
+        others = [(other, self._colour(other)) for other in self._images if other is not image]
+        drawn = any(other.get("content") and c is None for other, c in others)
+        alike = any(c is not None and _plain_tone(c) == tone for _, c in others)
+        return not drawn or alike
 
 
 def is_request_fatal(e: Exception) -> bool:

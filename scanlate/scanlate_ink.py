@@ -3,6 +3,7 @@
 import numpy as np
 from PIL import Image
 
+from scanlate.scanlate_balloons import is_flat_dark_balloon
 from scanlate.scanlate_inpaint import background_is_dark
 
 
@@ -174,6 +175,6 @@ def _text_fill(pil_img, box: dict, sampled=None):
         return sampled
     x, y = max(0, box["x"]), max(0, box["y"])
     roi = np.asarray(pil_img.crop((x, y, x + box["w"], y + box["h"])).convert("L"))
-    if roi.size and background_is_dark(roi):
+    if roi.size and (background_is_dark(roi) or is_flat_dark_balloon(roi)):
         return (255, 255, 255)
     return (0, 0, 0)

@@ -19,7 +19,7 @@ test('the Translate primary sits above the options on a phone, with one engine p
   await page.goto('/#/drama/1/translate')
   const run = page.getByRole('region', { name: 'Translate run' })
   await expect(run.getByLabel('AI engine', { exact: true })).toHaveCount(1)
-  const go = await run.locator('button.primary').first().boundingBox()
+  const go = await run.locator('button.btn-primary').first().boundingBox()
   const fold = await run.getByText('More options', { exact: true }).boundingBox()
   expect(go && fold && go.y < fold.y).toBe(true)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)

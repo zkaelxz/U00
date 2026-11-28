@@ -234,9 +234,7 @@ test('GPU PyTorch: shows the GPU, the mismatch, checks CUDA, and sets up the mat
   await page.goto('/#/diagnostics')
   await openSection(page, /^Packages/)
   const panel = page.getByTestId('gpu-torch')
-  // A mismatch is a problem, so the fold is open by itself.
-  const gpuFold = page.locator('details.section', { has: page.locator('> summary', { hasText: /^GPU PyTorch/ }) })
-  await expect(gpuFold).toHaveJSProperty('open', true)
+  await expect(panel).toBeVisible()
   await expect(panel.locator('.pill')).toHaveText("Versions don't match")
   await expect(panel.getByTestId('gpu-torch-state')).toContainText("don't match")
   await expect(panel.getByTestId('gpu-torch-driver')).toHaveText('NVIDIA GeForce RTX 3080 Ti, driver 581.42')
@@ -304,6 +302,23 @@ test('installed packages show versions; Update appears only after a check, with 
   // (The version shown comes from the page's reload of Diagnostics.)
   await expect(list.getByTestId('pkg-update')).toHaveCount(0)
   await expect(list.getByRole('button')).toHaveCount(0)
+  expect(unmocked).toEqual([])
+})
+
+test('a single package update shows its progress and Cancel, like an install', async ({ page }) => {
+  const { unmocked } = await mockPage(page)
+  await mockDependencyInstall(page, () => ({ ok: true, output_tail: [] }), { hold: new Promise<void>(() => undefined) })
+  await page.goto('/#/diagnostics')
+  await openSection(page, /^Packages/)
+  await openSection(page, /^Installed packages/)
+  await page.getByRole('button', { name: 'Check for package updates' }).click()
+  const pinyin = page.getByRole('list', { name: 'Installed packages' }).locator('li', { hasText: 'pypinyin' })
+  await pinyin.getByRole('button', { name: 'Update pypinyin to 0.55.0' }).click()
+  await page.getByRole('button', { name: 'Confirm update pypinyin to 0.55.0' }).click()
+  await page.getByTestId('install-plan').getByRole('button', { name: 'Install now' }).click()
+  await expect(page.getByTestId('install-running')).toHaveText(
+    'Updating pypinyin… this can take several minutes. Cancel it below if needed.')
+  await expect(page.getByRole('button', { name: 'Cancel updating pypinyin' })).toBeEnabled()
   expect(unmocked).toEqual([])
 })
 

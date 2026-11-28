@@ -3,6 +3,7 @@
  * (/api/auth/me paid_limit_reached). The paid engines then vanish from the pickers, so this says why.
  */
 import { useSession } from '../hooks/useSession'
+import { WarnBar } from './WarnBar'
 
 export const PAID_LIMIT_BANNER =
   "You've reached your monthly spending limit, so AI runs are paused for you until next month or until the " +
@@ -12,8 +13,8 @@ export function PaidLimitBanner() {
   const s = useSession()
   if (s.status !== 'ready' || !s.me.paid_limit_reached) return null
   return (
-    <div className="banner banner-prose paid-limit-banner" role="status" data-testid="paid-limit-banner">
+    <WarnBar shell testId="paid-limit-banner" title={PAID_LIMIT_BANNER}>
       {PAID_LIMIT_BANNER}
-    </div>
+    </WarnBar>
   )
 }

@@ -8,7 +8,8 @@ Start fetches a public URL through yt-dlp from this PC, so it needs
 `engine_backends.engine_registry.open_to_all_accounts`) also needs `engines.paid`. An omitted
 engine runs the default (Ollama), so it is gated as that, but an Ollama `-cloud` tag
 outside `MEMBER_CLOUD_MODELS` also needs `engines.paid`. Reading a session is `library.read`; stopping one is
-`jobs.cancel`. Sessions live in this process only (404 after a restart).
+`jobs.cancel`. Fixing a name mid-stream is `media.import_url` (as Start) and
+the session's owner only; saving that fix to the glossary also needs `lines.edit`. Sessions live in this process only (404 after a restart).
 """
 
 from typing import List
@@ -18,8 +19,9 @@ from fastapi.responses import FileResponse
 
 from api.auth import (is_at_pc, is_local_request, local_only, require_cloud_model_allowed,
                       require_engines_allowed, require_permission)
-from api.schemas import (LiveChatPage, LiveFormOptions, LiveOllamaCheck, LiveSessionStart, LiveSessionStarted,
-                         LiveSessionStatus, LiveSessionStopped, LiveSessionSummary, error_responses)
+from api.schemas import (LiveChatPage, LiveFormOptions, LiveNameFixAdd, LiveNameFixes, LiveOllamaCheck,
+                         LiveSessionStart, LiveSessionStarted, LiveSessionStatus, LiveSessionStopped,
+                         LiveSessionSummary, error_responses)
 from lib.errors import ForbiddenError
 from lib.storage_errors import require_readable
 from services import live_service, model_readiness_service
@@ -97,6 +99,19 @@ def get_chat(request: Request, session_id: str = _SID, after: int = Query(0, ge=
              summary="Stop a session (idempotent on a finished one)", responses=_ERRS)
 def post_stop(request: Request, session_id: str = _SID):
     return live_service.stop_session(session_id, principal=request.state.principal)
+
+
+@router.post("/sessions/{session_id}/names", dependencies=[require_permission("media.import_url")],
+             response_model=LiveNameFixes,
+             summary="Fix a name for the rest of the session (its owner only); optionally save it to its glossary",
+             responses=error_responses(403, 404, 409, 422))
+def post_name_fix(body: LiveNameFixAdd, request: Request, session_id: str = _SID):
+    principal = request.state.principal
+    # Saving to the glossary is a glossary edit, which the glossary routes gate as lines.edit.
+    if body.save_to_glossary and principal is not None and "lines.edit" not in (principal.get("permissions") or ()):
+        raise ForbiddenError("You can't change glossaries.")
+    return live_service.add_name_fix(session_id, body.source, body.english,
+                                     save_to_glossary=body.save_to_glossary, principal=principal)
 
 
 _PLAYER_FILE = Path(pattern=r"^(?:(?:master|video|audio)\.m3u8|[va]_\d{6}\.ts)$")

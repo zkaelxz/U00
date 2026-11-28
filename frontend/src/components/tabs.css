@@ -7,7 +7,10 @@
 /* The global button:hover tints the background and recolours the border; a tab only darkens its label, and the underline stays the selected tab's alone. */
 .ui-tabs .ui-tab:hover:not(:disabled) { background: none; color: var(--text); border-bottom-color: transparent; }
 .ui-tabs .ui-tab[aria-selected="true"]:hover:not(:disabled) { border-bottom-color: var(--accent); }
-.ui-tab[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.ui-tab[aria-selected="true"], .ui-tab[aria-current="page"] { color: var(--text); border-bottom-color: var(--accent); }
+/* A tab that is a link to its own address (Find & Add). */
+a.ui-tab { text-decoration: none; }
+.ui-tabs .ui-tab[aria-current="page"]:hover { border-bottom-color: var(--accent); }
 .ui-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 /* On a phone (Tabs.tsx) the short label shows and the full one stays in the accessible name. */
 .ui-tab-full { position: absolute !important; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
@@ -16,6 +19,8 @@
   .ui-tabs { overflow-x: auto; gap: var(--space-1); scrollbar-width: thin; }
   /* Equal shares with wrapping labels; below min-width the row scrolls instead of squeezing. */
   .ui-tab { flex: 1 1 0; min-width: 5rem; padding-inline: var(--space-2); text-align: center; line-height: 1.2; flex-wrap: wrap; }
+  /* Find & Add's four one-word link tabs fit a 360px screen only without the 5rem floor. */
+  a.ui-tab { min-width: 0; }
 }
 
 /* Edits not saved yet on this tab. */
@@ -31,3 +36,24 @@
 .ui-tab-picker-option { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-height: 48px; padding: 0 var(--space-4); border: 0; border-radius: 16px; background: transparent; color: var(--text); font: inherit; font-weight: var(--weight-medium); text-align: left; cursor: pointer; }
 .ui-tab-picker-option[aria-selected="true"] { background: var(--active, var(--surface-2, transparent)); font-weight: var(--weight-bold); }
 .ui-tab-picker-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+/* SidePane: sections listed down the left, one shown on the right. Panels stay mounted (hidden), so a half-filled
+   form or a running install survives switching section. */
+.ui-sidepane { display: grid; grid-template-columns: minmax(180px, 230px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.ui-sidepane-nav { position: sticky; top: var(--space-4); min-width: 0; }
+.ui-sidepane-body { display: grid; gap: var(--gap-section); min-width: 0; }
+.ui-tabs-side { flex-direction: column; gap: 2px; border-bottom: 0; }
+.ui-tab.ui-tab-danger { color: var(--bad); }
+.ui-tabs-side .ui-tab-danger { margin-top: var(--space-2); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.ui-tabs-side .ui-tab { justify-content: space-between; min-height: 40px; padding: var(--space-2) var(--space-3); border-bottom: 0; border-radius: var(--radius-sm); text-align: left; }
+.ui-tabs.ui-tabs-side .ui-tab:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 10%, transparent); border-bottom-color: transparent; }
+.ui-tabs-side .ui-tab[aria-selected="true"],
+.ui-tabs.ui-tabs-side .ui-tab[aria-selected="true"]:hover:not(:disabled) { background: var(--tint-accent); color: var(--accent-text); font-weight: var(--weight-bold); }
+@media (max-width: 640px) {
+  .ui-sidepane { grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .ui-sidepane-nav { position: static; }
+  /* One row that scrolls, so switching section stays one tap; natural widths keep every name whole. These beat the
+     themes' wrapping tab rows on purpose. */
+  .ui-tabs.ui-tabs-scroll { position: relative; flex-wrap: nowrap; overflow-x: auto; }
+  .ui-tabs.ui-tabs-scroll .ui-tab { flex: none; min-width: 0; white-space: nowrap; }
+}

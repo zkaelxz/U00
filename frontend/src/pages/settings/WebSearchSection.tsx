@@ -97,7 +97,7 @@ function WebSearchControls() {
         <div className="settings-form">
           <Field
             label="SearXNG address"
-            help="For example http://localhost:8888. Its settings.yml must list json under search.formats. Change it only on the Baihe PC with key writes on."
+            help="For example http://localhost:8888. Its settings.yml must list json under search.formats. Change it only on the Baihe PC, with saving keys allowed."
           >
             <input type="url" value={url} placeholder="http://localhost:8888" onChange={(e) => setUrl(e.target.value)} />
           </Field>

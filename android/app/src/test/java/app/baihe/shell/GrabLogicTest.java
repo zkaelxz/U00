@@ -93,6 +93,25 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void aSavedSendCountsPagesThatCameBackWithoutEnglish() throws Exception {
+        org.json.JSONObject answer = new org.json.JSONObject("{\"pages\":["
+                + "{\"untranslated_lines\":0,\"regions\":[{\"untranslated\":true,\"left_alone\":true}],\"notes\":[]},"
+                + "{\"untranslated_lines\":2,\"notes\":[[\"info\",\"cover page\"],"
+                + "[\"warning\",\"translation failed (the key was refused); the source text below was still read\"]]},"
+                + "{\"regions\":[],\"notes\":[[\"warning\",\"no text found\"]]},"
+                + "{\"untranslated_lines\":1},"
+                + "{\"already_stored\":true,\"regions\":[{\"untranslated\":true}]},"
+                + "{\"already_stored\":true,\"regions\":[{\"untranslated\":true,\"left_alone\":true},{}]}]}");
+        assertEquals(3, BaiheClient.pagesWithoutEnglish(answer));
+        assertEquals("translation failed (the key was refused); the source text below was still read",
+                BaiheClient.englishProblem(answer));
+        org.json.JSONObject fine = new org.json.JSONObject("{\"pages\":[{\"regions\":[{}]}],\"stored\":1}");
+        assertEquals(0, BaiheClient.pagesWithoutEnglish(fine));
+        assertEquals("", BaiheClient.englishProblem(fine));
+        assertEquals(0, BaiheClient.pagesWithoutEnglish(new org.json.JSONObject()));
+    }
+
+    @Test
     public void refusalShowsTheServersTextNotTheRawBody() {
         assertEquals("no such drama", BaiheClient.refusalText(404, "{\"error\":\"no such drama\"}"));
         assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401, "<html>secret</html>"));
@@ -317,6 +336,32 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void quickReadSummaryNamesEveryFailedPage() {
+        java.util.SortedMap<Integer, String> failed = new java.util.TreeMap<>();
+        assertEquals("Cancelled", QuickRead.withFailedPages("Cancelled", failed));
+        failed.put(7, "the page could not be processed");
+        failed.put(3, "the page was blank (the reader had not drawn it yet)");
+        assertEquals("Pages not opened: 3 (the page was blank (the reader had not drawn it yet)); "
+                + "7 (the page could not be processed)", QuickRead.withFailedPages("", failed));
+        for (int i = 10; i < 22; i++) failed.put(i, "x");
+        assertTrue(QuickRead.withFailedPages("", failed).endsWith("; and 4 more"));
+    }
+
+    @Test
+    public void aPagesGapsAreItsUntranslatedRegionsAndWarnings() throws Exception {
+        org.json.JSONArray regions = new org.json.JSONArray()
+                .put(new org.json.JSONObject().put("untranslated", true))
+                .put(new org.json.JSONObject().put("untranslated", false));
+        org.json.JSONArray notes = new org.json.JSONArray()
+                .put(new org.json.JSONArray().put("info").put("fine"))
+                .put(new org.json.JSONArray().put("warning").put("the redraw failed"));
+        assertEquals(2, QuickRead.gaps(new org.json.JSONObject().put("regions", regions).put("notes", notes)));
+        assertEquals(0, QuickRead.gaps(new org.json.JSONObject().put("regions", new org.json.JSONArray())));
+        // An old sidecar ("{}") gives nothing to compare a redo with.
+        assertEquals(-1, QuickRead.gaps(new org.json.JSONObject()));
+    }
+
+    @Test
     public void aPictureWithOnlyAnAddressNeedsDownloading() {
         assertTrue(new PageImage("p0", "https://cdn.example/1.jpg", "image/jpeg", "").needsDownload());
         assertFalse(new PageImage("p1", "https://cdn.example/2.jpg", "image/jpeg", "AAAA").needsDownload());
@@ -352,6 +397,7 @@ public class GrabLogicTest {
         assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Sent 12 pages", true));
         assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Opened 5 of 5 pages", false));
         assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages. Not sent: 3", true));
+        assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages to Owl. 9 pages saved without English", true));
         assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
     }
 
@@ -537,10 +583,12 @@ public class GrabLogicTest {
         List<GrabQueue.Done> history = new ArrayList<>();
         history.add(new GrabQueue.Done(1, "Ch 5", "Sent 12 pages", "https://a.example.com/c/5/", false));
         history.add(new GrabQueue.Done(2, "Ch 6", "Cancelled.", "https://a.example.com/c/6", false));
-        assertTrue(SeriesRun.alreadyDone("https://www.a.example.com/c/5?x=1", history));
-        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/6", history));
-        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/7", history));
-        assertFalse(SeriesRun.alreadyDone("", history));
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://a.example.com/c/7"));
+        assertTrue(SeriesRun.alreadyDone("https://www.a.example.com/c/5?x=1", done, history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/6", done, history));
+        assertTrue(SeriesRun.alreadyDone("https://a.example.com/c/7", done, history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/8", done, history));
+        assertFalse(SeriesRun.alreadyDone("", done, history));
     }
 
     @Test

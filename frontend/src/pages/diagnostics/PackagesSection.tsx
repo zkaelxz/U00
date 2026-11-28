@@ -240,13 +240,11 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
   // "Update these": the server updates every package below the app's minimum in one job.
   const outdated = presets?.outdated ?? []
   const UPDATE_NAME = 'outdated packages'
-  // Shown as "Installing …" so the job's progress and Cancel appear, like any install.
-  const UPDATE_BUSY = 'updates for outdated packages'
   const runUpdateOutdated = async (acceptedRisks: string[] = []) => {
-    onBusy({ kind: 'install', name: UPDATE_BUSY })
+    onBusy({ kind: 'upgrade', name: UPDATE_NAME })
     setOutcome(null)
     try {
-      const r = await runInstallJob(() => upgradeOutdated(undefined, acceptedRisks), (job) => onBusy({ kind: 'install', name: UPDATE_BUSY, job }), UPDATE_NAME)
+      const r = await runInstallJob(() => upgradeOutdated(undefined, acceptedRisks), (job) => onBusy({ kind: 'upgrade', name: UPDATE_NAME, job }), UPDATE_NAME)
       setUpdates(null)
       setOutcome({ kind: 'upgrade', name: UPDATE_NAME, ok: r.ok, output: r.output_tail, hint: r.hint,
         text: updateOutdatedText(r.ok, !!r.cancelled, r.hint) })
@@ -419,7 +417,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
         )}
         <ErrorBanner error={queuedError} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setQueuedError(null)} />
         {planView}
-        {busy?.kind === 'install' && <InstallProgress job={busy.job} name={busy.name} />}
+        {(busy?.kind === 'install' || busy?.kind === 'upgrade') && <InstallProgress job={busy.job} name={busy.name} kind={busy.kind} />}
         {outcome && <OutcomeBlock outcome={outcome} onRecheck={changed} />}
         {noTranscription && presets && (
           <div className="diag-stack" data-testid="transcription-missing" role="group" aria-labelledby={`${tasksId}-tr`} ref={noTranscriptionRef}>
@@ -461,7 +459,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
                   confirmLabel={updateOutdatedLabel(outdated.length)}
                   disabled={!!blocked}
                   describedBy={running ? runningId : blocked ? reasonId : undefined}
-                  busy={busy?.name === UPDATE_BUSY}
+                  busy={busy?.name === UPDATE_NAME}
                   onConfirm={() => void withPlan(UPDATE_NAME, outdated, (accepted) => runUpdateOutdated(accepted), () => planUpgradeOutdated(), queueOutdatedUpdate)}
                 />
               </div>
@@ -504,7 +502,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           />
         )} />
         {deps.installed.length > 0 && (
-          <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
+          <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length} keepFold>
             <div className="actions" data-testid="update-check">
               <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
                 {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for package updates'}
@@ -684,7 +682,7 @@ function ResultBlock({ outcome }: { outcome: Extract<Outcome, { ok: boolean }> }
       </p>
       {!outcome.ok && outcome.hint && <p data-testid="install-hint">{outcome.hint}</p>}
       {/* Keyed by the result so a new one re-applies defaultOpen. */}
-      <Section key={`${outcome.kind}-${outcome.name}-${outcome.ok}`} title="Output" defaultOpen={!outcome.ok}>
+      <Section key={`${outcome.kind}-${outcome.name}-${outcome.ok}`} title="Output" defaultOpen={!outcome.ok} keepFold>
         <pre className="diag-pre">{outcome.output.length ? outcome.output.join('\n') : 'No output.'}</pre>
       </Section>
     </div>

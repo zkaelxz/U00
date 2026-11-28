@@ -122,7 +122,7 @@ export async function mockDiagnostics(page: Page, m: Mocks, o: { jsFound?: boole
 
 export const openSection = async (page: Page, title: RegExp) => {
   await openTabFor(page, title)
-  // Some sections start open (defaultOpen), and clicking an open one would close it: click only a closed one.
+  // A pane's sections are flat; only a fold inside one (a summary) needs opening, and only when it is closed.
   const summary = page.locator('summary', { hasText: title }).first()
-  if ((await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
+  if (await summary.count() && (await summary.locator('xpath=..').getAttribute('open')) === null) await summary.click()
 }

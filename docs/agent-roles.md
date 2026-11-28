@@ -1,6 +1,6 @@
 # Agent role guides
 
-Last reviewed: 2026-11-27
+Last reviewed: 2026-11-28
 
 Short briefs for the three jobs a session can have, so a new session needs no re-briefing. They point at the rules in `CLAUDE.md`, `docs/testing-and-ci.md` and `docs/engineering-standards.md` instead of restating them; if a rule changes there, change it there, not here. "The coordinator" is the session that starts threads and talks to the owner; "the owner" is the person who decides what merges.
 
@@ -10,8 +10,7 @@ A session that writes code never reviews its own change.
 
 1. **Assumptions first.** Before building, list what you are assuming. Ask the owner only about assumptions that would change the result.
 2. **Confidence.** Every result states how sure you are and what would make it certain.
-3. **Living status.** Update your item on the project dashboard as you work, following the dashboard's README steps. Private paths and links stay out of the repo.
-4. **One question at a time.** Short, plain messages; no walls of text.
+3. **One question at a time.** Short, plain messages; no walls of text.
 
 ## Coder
 
@@ -26,7 +25,7 @@ A session that writes code never reviews its own change.
 9. Search before opening, and bound it: `python tools/repo_map.py --find "<word>"` or `--callers <name>`. A task brief's allowed files are binding; more than about four files means say how to split the task.
 10. Stop and ask before touching: auth, sessions, permissions policy or remote access; keys, secrets, redaction or anything that logs or returns outbound error text; `db/` splits, table rebuilds or any migration that is not a plain `ADD COLUMN`; `background_jobs.py`, process-job workers, locks, threads or GPU slots; a test to skip, delete or loosen.
 11. Work in a clone of its own, never in the checkout that runs the app. The repo root has `__init__.py`, so pytest puts the clone's parent folder on `sys.path`, and a stray `core.py` there shadows the real module (`tests/test_local_coder_tools.py` catches it).
-12. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits.
+12. Privacy: the repo is public; see `docs/testing-and-ci.md`, "Privacy check". Made-up names and placeholders only, and no real names or personal emails in commits. Before every push, read your diff (`git diff origin/baihe-subtitler...HEAD`) and your commit messages (`git log origin/baihe-subtitler..HEAD`) for real names, nicknames, PC names, emails and LAN IPs, and fix any hit first. That includes the owner's own name: write "the owner". A pushed `claude/` branch is public at once, and the privacy job only catches a term after that.
 
 ## Reviewer
 

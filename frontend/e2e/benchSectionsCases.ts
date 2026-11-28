@@ -2,16 +2,9 @@ import { expect, type Locator, type Page } from '@playwright/test'
 
 import { expectPickedTab, pickTab } from './tabPicker'
 
-export const SECTIONS = ['Quality', 'Golden sets', 'Run a benchmark', 'Model re-evaluation', 'Recent runs'] as const
-// Each section is the first (only) card of its own tab, so it starts open.
-export const DEFAULT_OPEN: Record<string, boolean> = {
-  'Golden sets': true,
-  'Run a benchmark': true,
-  'Settings sweep': true,
-  'Translation sweep': true,
-  'Model re-evaluation': true,
-  'Recent runs': true,
-}
+export const SECTIONS = [
+  'Quality', 'Golden sets', 'Add cases', 'Run a benchmark', 'Transcription sweep', 'Translation sweep', 'Model re-evaluation', 'Recent runs',
+] as const
 
 export const benchTab = (page: Page, title: string): Locator =>
   page.getByRole('tablist', { name: 'Benchmark Lab' }).getByRole('tab', { name: title, exact: true })
@@ -21,18 +14,10 @@ export async function selectTab(page: Page, title: string): Promise<void> {
   await expectPickedTab(page, 'Benchmark Lab', title)
 }
 
-export const toggle = (page: Page, title: string): Locator => page.getByRole('button', { name: title, exact: true })
-
-export async function expectExpanded(page: Page, want: Record<string, boolean>): Promise<void> {
-  for (const [title, open] of Object.entries(want)) {
-    // includeHidden: a section in a tab that is not showing is still mounted, with its choice kept.
-    await expect(page.getByRole('button', { name: title, exact: true, includeHidden: true })).toHaveAttribute('aria-expanded', String(open))
-  }
-}
-
 export async function openBench(page: Page): Promise<void> {
   await page.goto('/#/benchmark')
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(6)
+  // Every section is mounted from the start, its pane hidden until picked.
+  await expect(page.locator('section.bench-section')).toHaveCount(6)
 }
 
 // The (i) next to a heading shows the numbered steps on click and hides them with Escape.

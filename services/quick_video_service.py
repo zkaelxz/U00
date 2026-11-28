@@ -103,7 +103,7 @@ def describe_profile(preset: dict) -> list:
         ("Glossary", "None: a new title starts without one", None),
         ("Language packs", ", ".join(packs) if packs else "Off", None),
         ("Paid modes", ", ".join(spend) if spend else "None", None),
-        ("Cost", "Free" if engine in engine_registry.FREE_ENGINES else "Uses your API key and costs money", None),
+        ("Cost", "Free" if engine in engine_registry.FREE_ENGINES else "Costs money", None),
         ("Export", f"{export['format'].upper()}, {export['language']}", None),
     ]
     return [{"label": label, "value": str(value), "engine": eng} for label, value, eng in rows]

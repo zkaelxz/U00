@@ -448,6 +448,8 @@ def test_request_recheck_wakes_only_that_users_streams():
      "Firefox on Mac"),
     ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/129.0 Safari/537.36",
      "Chrome on Linux"),
+    ("Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Chrome/129.0 Mobile Safari/537.36 "
+     "BaiheAndroid/270", "Baihe phone app"),
     ("curl/8.5.0", "Unknown device"),
     ("", "Unknown device"),
     ("<script>alert(1)</script> Windows", "Browser on Windows"),

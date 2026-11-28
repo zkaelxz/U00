@@ -414,14 +414,15 @@ def _hatched_balloon(letter_bgr, hatch_bgr=(200, 160, 150)):
 
 
 def _erase_mask(tmp_path, page, monkeypatch):
-    """The mask inpaint_region would erase, captured instead of inpainted."""
+    """The mask inpaint_region would erase."""
     seen = {}
+    real_fill = scanlate_inpaint._plain_paper_fill
 
-    def fake_inpaint(roi, mask, *args, **kwargs):
+    def spy(roi, mask, inside):
         seen["mask"] = mask.copy()
-        return roi
+        return real_fill(roi, mask, inside)
 
-    monkeypatch.setattr(cv2, "inpaint", fake_inpaint)
+    monkeypatch.setattr(scanlate_inpaint, "_plain_paper_fill", spy)
     path = _save(tmp_path, page)
     gray = scanlate_page_decode.page_gray(path, None)
     box = {"x": 0, "y": 0, "w": 360, "h": 300}
@@ -479,7 +480,7 @@ class TestRimAndCaptionCleanup:
         inside = np.ones((60, 60), bool)
         mask = np.zeros((60, 60), np.uint8)
         mask[5:10, 5:10] = 255                              # lettering far from the art
-        out = scanlate_inpaint._flatten_plain_paper(roi, roi.copy(), mask, inside)
+        out = scanlate_inpaint._paint_paper(roi.copy(), scanlate_inpaint._plain_paper_fill(roi, mask, inside))
         assert (out[10:50, 40:55] == (225, 215, 240)).all()
 
 
@@ -616,6 +617,17 @@ class TestDarkStripErase:
     def test_a_crop_that_is_not_a_dark_strip_is_left_to_the_other_erasers(self):
         assert scanlate_inpaint._dark_strip_inpaint(np.full((40, 400, 3), 220, np.uint8)) is None
         assert scanlate_inpaint._dark_strip_inpaint(np.zeros((200, 200, 3), np.uint8)) is None
+
+
+def test_light_lettering_mask_reaches_past_a_coloured_edge():
+    import cv2
+    import numpy as np
+    from scanlate import scanlate_inpaint
+    page = np.full((160, 200), 40, np.uint8)
+    cv2.rectangle(page, (80, 60), (120, 100), 255, -1)
+    mask = scanlate_inpaint._lettering_mask(page, wide=True)
+    assert scanlate_inpaint._lettering_mask(page)[80, 76] == 0
+    assert mask[80, 76] > 0 and mask[80, 124] > 0 and mask[80, 40] == 0
 
 
 def test_mid_tone_balloon_with_white_lettering_is_not_read_as_paper_or_art():

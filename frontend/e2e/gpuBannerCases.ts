@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 import { openSection } from './diagnosticsInstallsMocks'
+import { mediaPanel, openFold } from './mediaTabs'
 import { mockTranscription } from './transcriptionMissingMocks'
 
 // "Turn on GPU": shown only with an NVIDIA GPU, a CUDA torch and the setting off;
@@ -50,6 +51,7 @@ export function registerGpuBannerCases(prefix: string) {
     const banner = page.getByTestId('gpu-banner')
     await expect(banner).toContainText('GPU PyTorch is installed')
     await expect(page.getByTestId('gpu-note')).toContainText('GPU off')
+    await openFold(mediaPanel(page, 'transcribe'), 'More options')
     await page.getByTestId('before-you-run').locator('summary').click()
     await banner.getByRole('button', { name: 'Turn on GPU' }).click()
     await expect(banner).toHaveCount(0)
@@ -83,8 +85,6 @@ export function registerGpuBannerCases(prefix: string) {
   test(`${prefix}Diagnostics GPU card: Turn on GPU saves the setting`, async ({ page }) => {
     const { saved } = await open(page, { useGpu: false, to: '/#/diagnostics?card=packages' })
     await openSection(page, /^Packages/)
-    // A healthy PyTorch leaves the fold closed.
-    await page.locator('summary', { hasText: /^GPU PyTorch/ }).click()
     const card = page.getByTestId('gpu-torch')
     await expect(card).toBeVisible()
     const banner = card.getByTestId('gpu-banner')

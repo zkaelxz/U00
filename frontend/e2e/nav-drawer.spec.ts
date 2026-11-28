@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// The drawer below 600px at a desktop browser's narrow window, and the
-// hand-over to the dock when the window grows past 600px.
+// The drawer at 640px and below at a desktop browser's narrow window, and the
+// hand-over to the dock when the window grows past 640px.
 
 const menuButton = (page: Page) => page.getByRole('button', { name: /^(Menu|More)$/ })
 const drawer = (page: Page) => page.getByRole('dialog', { name: 'Main menu' })
@@ -36,12 +36,12 @@ test.describe('500px wide', () => {
     await expect(drawer(page)).toBeHidden()
   })
 
-  test('crossing 600px keeps the open page mounted and swaps the drawer for the dock', async ({ page }) => {
+  test('crossing 640px keeps the open page mounted and swaps the drawer for the dock', async ({ page }) => {
     await page.goto('/#/library')
     await menuButton(page).click()
     await expect(drawer(page)).toBeVisible()
     await page.evaluate(() => {
-      const page = document.querySelector('.app-main > :not(header):not(.remote-health-banner)')!
+      const page = document.querySelector('.app-main > :not(header):not(.warn-bar)')!
       ;(page as unknown as { __mark: string }).__mark = 'same node'
     })
     await page.setViewportSize({ width: 1280, height: 800 })
@@ -49,7 +49,7 @@ test.describe('500px wide', () => {
     await expect(menuButton(page)).toHaveCount(0)
     await expect(drawer(page)).toHaveCount(0)
     expect(await page.evaluate(() => document.documentElement.classList.contains('nav-locked'))).toBe(false)
-    expect(await page.evaluate(() => (document.querySelector('.app-main > :not(header):not(.remote-health-banner)') as unknown as { __mark?: string }).__mark)).toBe('same node')
+    expect(await page.evaluate(() => (document.querySelector('.app-main > :not(header):not(.warn-bar)') as unknown as { __mark?: string }).__mark)).toBe('same node')
     await page.setViewportSize({ width: 500, height: 800 })
     await expect(menuButton(page)).toBeVisible()
   })

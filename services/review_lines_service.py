@@ -150,11 +150,6 @@ def _risk_scores(lines) -> list:
     return [_risk_score(ln, speakers_known) for ln in lines]
 
 
-def risk_count(drama_id: int) -> int:
-    """How many lines of a title the Review risk view would list (the title page's "Check N lines")."""
-    return sum(1 for score in _risk_scores(db.load_line_texts(drama_id)) if score > 0)
-
-
 def _find_line(lines, line_id):
     for ln in lines:
         if ln.id == line_id:

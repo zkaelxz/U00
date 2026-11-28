@@ -31,12 +31,13 @@ async function load(page: Page, url: string, theme = 'dark') {
 
 // networkidle fires in the gap between a page's first fetch and the sections that fetch after it mount, so measuring right
 // after it sees "Loading…" placeholders that later swap for taller, button-bearing content. Closed folds are skipped: some
-// (Danger zone, known platforms) fetch only once opened, so they stay "Loading…" until openFolds runs.
+// (Danger zone, known platforms) fetch only once opened, so they stay "Loading…" until openFolds runs. A hidden pane
+// (Diagnostics' Log) is skipped for the same reason: it loads once it is shown.
 async function settled(page: Page) {
   await page.waitForFunction(() =>
     !document.querySelector('.skeleton, [aria-busy="true"]') &&
     ![...document.querySelectorAll('p, span, div')].some((e) =>
-      e.childElementCount === 0 && e.textContent?.trim() === 'Loading…' && !e.closest('details:not([open])')))
+      e.childElementCount === 0 && e.textContent?.trim() === 'Loading…' && !e.closest('details:not([open]), [hidden]')))
   await page.waitForLoadState('networkidle')
 }
 
@@ -81,7 +82,7 @@ for (const size of sizes) {
     await load(page, '/#/drama/1/translate')
     const blocker = page.getByTestId('translate-blocker')
     await expect(blocker).toBeVisible()
-    const primary = page.locator('.translate-go > button.primary')
+    const primary = page.locator('.translate-go > button.btn-primary')
     const p = (await primary.boundingBox())!
     const b = (await blocker.boundingBox())!
     expect(b.y - (p.y + p.height)).toBeGreaterThanOrEqual(8)

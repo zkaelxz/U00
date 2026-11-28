@@ -1,6 +1,7 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type { DramaDetail } from '../../api/types'
+import { titleTextLang } from '../../hanScript'
 import { useRoute, type DramaFocus } from '../../router'
 import type { QueuePlace } from './stages/review/checkQueueModel'
 
@@ -90,7 +91,9 @@ export function useStageFocus(target: DramaFocus, elementId: string, ready = tru
 }
 
 /** The `lang` for a title's source text outside a line row, where no line
- *  language applies: it decides the glyph forms of shared kanji/hanzi. */
+ *  language applies: it decides the glyph forms of shared kanji/hanzi, and for
+ *  Chinese the script (Traditional text gets Taiwan fonts and centred punctuation). */
 export function useTitleTextLang(): string {
-  return useContext(StageContext)?.drama.source_language || 'zh'
+  const drama = useContext(StageContext)?.drama
+  return useMemo(() => (drama ? titleTextLang(drama) : 'zh'), [drama])
 }

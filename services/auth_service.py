@@ -90,7 +90,11 @@ MEMBER_UPLOAD_PERMISSION = "media.upload_member"
 # from away too, with no PC switch; the update source is fixed to this copy's
 # own git remote and nothing in the request chooses it.
 UPDATE_PERMISSION = "system.update"
-ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION)
+# Opening the self-contained pages in the data folder's private-pages folder
+# (services/private_pages_service.py). They embed private audio and video, so
+# only the admin flag grants it and an admin keeps it on the household listener.
+PRIVATE_PAGES_PERMISSION = "pages.private"
+ADMIN_ONLY_PERMISSIONS = (UPLOAD_PERMISSION, UPDATE_PERMISSION, PRIVATE_PAGES_PERMISSION)
 ADMIN_FLAG_PERMISSIONS = ADMIN_PERMISSIONS + ADMIN_ONLY_PERMISSIONS
 PERMISSIONS = (HOUSEHOLD_DEFAULT_PERMISSIONS + OPT_IN_PERMISSIONS + ADMIN_PERMISSIONS
                + ADMIN_ONLY_PERMISSIONS)
@@ -839,7 +843,7 @@ def _lookup(token, now: float):
 
 def resolve_session(token, now: float | None = None,
                     touch: bool = True) -> dict[str, Any] | None:
-    """Live session -> {session_id, user_id, email, is_admin, permissions};
+    """Live session -> {session_id, user_id, email, is_admin, device_label, permissions};
     otherwise None (expired, revoked, unknown, or inactive user).
     touch=False re-checks without counting as activity (the SSE stream's
     periodic re-checks must not keep an idle session alive)."""
@@ -855,6 +859,7 @@ def resolve_session(token, now: float | None = None,
             # Acting on items only an admin can see; api.auth.listener_principal
             # clears it on the household listener.
             "admin_override": bool(user["is_admin"]),
+            "device_label": sess.get("device_label") or "",
             "permissions": working_permissions(user["id"])}
 
 

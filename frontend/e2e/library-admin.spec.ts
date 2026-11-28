@@ -129,6 +129,9 @@ test.describe('Backup and Storage tabs (mocked)', () => {
     await expect(restore).toBeDisabled()
 
     jobRunning = false
+    // The jobs list re-reads on window focus (or every 10 s while the push stream is down); focus makes that read happen
+    // now instead of racing the 10 s poll against this wait.
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')))
     await expect(restore).toBeEnabled({ timeout: 8000 })
     await restore.click()
     await expect(page.getByText('That file is not a Baihe library backup.')).toBeVisible()

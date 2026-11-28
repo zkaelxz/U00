@@ -17,6 +17,7 @@ import { DEFAULT_DELAY, autoDelay, canDelay, sessionStream, steadyDelay } from '
 import { LinesPane } from './LinesPane'
 import { LiveCaptions } from './LiveCaptions'
 import { LiveChatSection } from './LiveChat'
+import { NameFix } from './NameFix'
 import { SaveSession } from './SaveSession'
 import { StreamEmbed } from './StreamEmbed'
 import { isMetered, videoHeldBack } from '../comic/lowData'
@@ -174,6 +175,9 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
         )}
         {!videoLive && !tv.on && !focused && options}
         {active && status === 'running' && !feed.length && <p className="muted">Waiting for the first chunk…</p>}
+        {status === 'running' && !stopping && !tv.on && session.status?.can_fix_names && (
+          <NameFix sessionId={session.id} fixes={session.status.name_fixes ?? []} hasGlossary={session.status.has_glossary === true} lang={lang} />
+        )}
         {hasChat && !tv.on && (
           <div className="live-tabs" role="tablist" aria-label="Show">
             {(['lines', 'chat'] as const).map((t) => (
@@ -192,7 +196,7 @@ export function LiveWatch({ session, stopping, joined, onStop, onClear, onSwitch
           </div>
         )}
         {total > 0 && !tv.on && !focused && <SaveSession cues={session.cues} />}
-        {!active && total > 0 && !tv.on && <button type="button" className="secondary" data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
+        {!active && total > 0 && !tv.on && <button type="button" className={buttonClass('secondary')} data-testid="live-clear-lines" onClick={onClear}>Clear lines</button>}
       </div>
     </div>
   )

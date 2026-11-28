@@ -93,14 +93,23 @@ def test_an_android_change_builds_the_apk_on_its_pr():
     assert "if" not in wf["jobs"]["apk"]
 
 
-def test_a_pr_build_never_reads_the_signing_key_or_publishes():
+def test_only_a_manual_run_of_the_base_branch_reads_the_signing_key_or_publishes():
     wf = _load("android-apk.yml")
-    steps = wf["jobs"]["apk"]["steps"]
-    (key,) = [s for s in steps if "ANDROID_DEBUG_KEYSTORE_BASE64" in str(s.get("env", ""))]
-    assert key["if"] == "github.event_name == 'workflow_dispatch'"
-    staged = [s for s in steps if "baihe-android-publish" in str(s) or s.get("name") == "Stage the files the server fetches"]
-    assert staged and all(s["if"] == "steps.key.outputs.publish == 'true'" for s in staged)
-    assert wf["jobs"]["publish"]["if"].startswith("github.event_name == 'workflow_dispatch'")
+    jobs = wf["jobs"]
+    assert "ANDROID_DEBUG_KEYSTORE_BASE64" not in str({k: v for k, v in wf.items() if k != "jobs"})
+    readers = [name for name, job in jobs.items() if "ANDROID_DEBUG_KEYSTORE_BASE64" in str(job)]
+    assert readers == ["sign"]
+    sign = jobs["sign"]
+    assert sign["if"] == "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/baihe-subtitler'"
+    assert sign["environment"] == "android-publish"
+    assert set(sign["needs"]) == {"apk", "smoke"}
+    # The key never meets the repository's code: the only actions are the artifact hand-offs.
+    actions = {s["uses"].split("@")[0] for s in sign["steps"] if "uses" in s}
+    assert actions == {"actions/download-artifact", "actions/upload-artifact"}
+    assert "baihe-android-publish" not in str(jobs["apk"])
+    publish = jobs["publish"]
+    assert "sign" in publish["needs"]
+    assert publish["if"] == "github.event_name == 'workflow_dispatch' && needs.sign.outputs.publish == 'true'"
 
 
 # --- phone smoke test before a phone build is published or a release promoted ----------
@@ -111,7 +120,7 @@ def test_the_apk_is_published_only_after_the_emulator_smoke_test_passes():
     assert smoke["name"] == "Phone smoke test"  # Promote Release looks the job up by this name
     assert smoke["needs"] == "apk"
     assert "if" not in smoke  # a PR that changes android/ gets it too
-    assert set(jobs["publish"]["needs"]) == {"apk", "smoke"}
+    assert {"apk", "smoke"} <= set(jobs["publish"]["needs"])
     steps = [str(s) for s in smoke["steps"]]
     assert any("name': 'baihe-android-release-apk'" in s for s in steps)
     assert any("android/smoke/run_smoke.py --apk apk/app-release.apk" in s for s in steps)

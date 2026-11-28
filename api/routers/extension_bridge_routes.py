@@ -31,15 +31,13 @@ from api import after_import_plan
 from api.auth import engine_for_caller, holds, require_cloud_model_allowed, require_device_token, require_engines_allowed
 from lib.capped_request import BodyTooLarge, capped, check_content_length
 from lib.errors import InvalidInputError
-from services import extension_bridge_service, quick_read_runs
+from services import extension_bridge_service, extension_subs_service, quick_read_runs
 from services import extension_novel_service as novel
 from services import extension_title_service as titles
-from services import (grab_last_page_service, live_service, model_readiness_service, page_run_service,
-                      quick_video_service,
+from services import (grab_last_page_service, live_service, page_run_service,
                       sources_tracking_service, translate_run_service)
 from engine_backends.shared import redact_secrets
-from lib.errors import (ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError,
-                        RateLimitedError, ServiceError, UnsupportedOperationError)
+from lib.errors import ConflictError, DependencyUnavailableError, ForbiddenError, NotFoundError, ServiceError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 router = APIRouter(prefix="/api/ext-bridge", tags=["extension"])
@@ -52,7 +50,7 @@ def _answer(status: int, payload: dict) -> JSONResponse:
 
 
 def _refusal(error: page_server.EndpointError) -> JSONResponse:
-    return _answer(error.status, {"error": error.message})
+    return _answer(error.status, error.answer())
 
 
 async def _json_body(request: Request) -> dict:
@@ -101,13 +99,36 @@ _HEARTBEAT_SECONDS = 15
 _HEARTBEAT_LIMIT_SECONDS = 20 * 60
 
 
-async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
+class _WatchedStream(StreamingResponse):
+    """Calls `on_close()` however the answer ends, including when the caller goes away before
+    the body was first read."""
+
+    def __init__(self, *args, on_close, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._on_close = on_close
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._on_close()
+
+
+async def _streamed(work, heartbeat: bool = False, run_id: str = "") -> StreamingResponse:
     """Runs `work(write)` on a worker thread and answers with the lines it writes as they come.
     The answer starts only with the first line, so a refusal raised before it (a bad batch, the
     spending cap, no such title) is re-raised here and becomes the usual error answer. With
     `heartbeat`, the answer starts after `_HEARTBEAT_SECONDS` at the latest and a refusal after
-    that comes as an error line instead."""
+    that comes as an error line instead. With `run_id`, a Quick read run is told when its answer
+    is lost before the end (extension_bridge_service.stream_closed)."""
     loop = asyncio.get_running_loop()
+    ended = False
+
+    stream = extension_bridge_service.stream_opened(run_id) if run_id else 0
+
+    def closed(lost: bool):
+        if run_id:
+            extension_bridge_service.stream_closed(run_id, stream, lost)
     lines: asyncio.Queue = asyncio.Queue()
 
     def put(item):
@@ -133,11 +154,17 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
             return None
 
     asyncio.ensure_future(run_in_threadpool(run))
-    first = await next_item()
+    try:
+        first = await next_item()
+    except BaseException:
+        closed(lost=True)
+        raise
     if first is not None and first[0] == "error":
+        closed(lost=False)
         raise first[1]
 
     async def body():
+        nonlocal ended
         item = first
         quiet_since = loop.time()
         while True:
@@ -146,6 +173,7 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
                     return
                 yield b'{"waiting": true}\n'
             elif item[0] == "end":
+                ended = True
                 return
             elif item[0] == "line":
                 quiet_since = loop.time()
@@ -153,14 +181,13 @@ async def _streamed(work, heartbeat: bool = False) -> StreamingResponse:
             else:
                 import applog
                 applog.get_logger().warning("Extension bridge stream failed", exc_info=item[1])
-                status = item[1].status if isinstance(item[1], page_server.EndpointError) else 500
-                message = (item[1].message if isinstance(item[1], page_server.EndpointError)
-                           else "the app failed to answer this request")
-                yield json.dumps({"error": message, "status": status}).encode("utf-8") + b"\n"
+                refusal = (item[1] if isinstance(item[1], page_server.EndpointError)
+                           else page_server.EndpointError(500, "the app failed to answer this request"))
+                yield json.dumps({**refusal.answer(), "status": refusal.status}).encode("utf-8") + b"\n"
             item = await next_item()
 
-    return StreamingResponse(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
-                             headers=_NO_STORE)
+    return _WatchedStream(body(), media_type=extension_bridge_service.STREAM_CONTENT_TYPE,
+                          headers=_NO_STORE, on_close=lambda: closed(lost=not ended))
 
 
 def _text(payload: dict, principal) -> dict:
@@ -198,7 +225,8 @@ async def _handle(request: Request, work, uses_engine: bool = False, needs=(), s
         payload = await _json_body(request)
         if streamed is not None and payload.get("stream") is True:
             return await _streamed(lambda write: streamed(payload, write),
-                                   heartbeat=payload.get("heartbeat") is True)
+                                   heartbeat=payload.get("heartbeat") is True,
+                                   run_id=extension_bridge_service.stream_run_id(payload))
         return _answer(200, await run_in_threadpool(work, payload))
     except page_server.EndpointError as e:
         return _refusal(e)
@@ -289,6 +317,14 @@ async def post_report(request: Request):
         payload, principal=principal), needs=("library.read",))
 
 
+@router.post("/subs", dependencies=[require_device_token()],
+             summary="Device token: the English lines of your title made from this video page, for its own player")
+async def post_subs(request: Request):
+    principal = request.state.principal
+    return await _handle(request, lambda payload: extension_subs_service.subs_for_page(
+        payload, principal=principal), needs=("library.read", "lines.read"))
+
+
 @router.post("/title-progress", dependencies=[require_device_token()],
              summary="Device token: how far the translating of a title the caller saved to has got")
 async def post_title_progress(request: Request):
@@ -321,15 +357,19 @@ async def post_title_translate(request: Request):
 
 def _title_translate(request: Request, payload: dict, principal) -> dict:
     drama_id = _drama_id(payload)
+    new_chapters = payload.get("new_chapters")
+    if new_chapters is not None and (isinstance(new_chapters, bool) or not isinstance(new_chapters, int)
+                                     or not 1 <= new_chapters <= 500):
+        raise page_server.EndpointError(400, "new_chapters must be a whole number from 1 to 500")
     try:
         if page_run_service.after_import_kind(principal, drama_id) != "novel":
             raise page_server.EndpointError(422, "Only a novel title translates after a phone save.")
         plan = after_import_plan.novel_plan(request, drama_id)
         return page_run_service.start_after_import(
             principal, drama_id, plan.engine, plan.lines, at_pc=False, model=plan.model, names=plan.names,
-            follow_import=False)
+            follow_import=False, add_chapters=True, new_chapters=new_chapters)
     except ServiceError as e:
-        # 409 is the only answer the phone keeps quiet about (the title is already running or has lines).
+        # 409 is the only answer the phone keeps quiet about (already running, or no new chapters to translate).
         status = (404 if isinstance(e, NotFoundError) else 403 if isinstance(e, ForbiddenError)
                   else 409 if isinstance(e, ConflictError)
                   else 503 if isinstance(e, DependencyUnavailableError) else 422)
@@ -414,26 +454,7 @@ def _drop_quick_reads(payload: dict, principal) -> dict:
     return {"dropped_runs": 1, "dropped_pages": dropped["dropped_pages"]}
 
 
-_VIDEO_STATUS = ((InvalidInputError, 422), (NotFoundError, 404), (ConflictError, 409),
-                 (DependencyUnavailableError, 503), (UnsupportedOperationError, 400),
-                 (RateLimitedError, 429))
 _VIDEO_NEEDS = ("media.import_url", "jobs.start")
-
-
-def _send_video(payload: dict, principal, holds_paid: bool) -> dict:
-    url = payload.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise page_server.EndpointError(400, "url is required")
-    try:
-        started = quick_video_service.start(principal, url.strip(), None, False,
-                                            holds_paid=holds_paid, at_pc=False)
-    except ForbiddenError:
-        raise
-    except ServiceError as e:
-        # Plain refusals (no profile set, bad link, title limit) are for the person to read.
-        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
-        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
-    return {"drama_id": started["drama_id"]}
 
 
 @router.post("/video", dependencies=[require_device_token()],
@@ -441,40 +462,17 @@ def _send_video(payload: dict, principal, holds_paid: bool) -> dict:
 async def post_video(request: Request):
     principal = request.state.principal
     holds_paid = holds(request, "engines.paid")
-    return await _handle(request, lambda payload: _send_video(payload, principal, holds_paid),
+    return await _handle(request, lambda payload: extension_bridge_service.send_video(payload, principal, holds_paid),
                          needs=_VIDEO_NEEDS)
 
 
 def _start_live(request: Request, payload: dict, principal) -> dict:
-    """Starts Live on a stream page's link with the PC's own defaults: the form's language
-    default Whisper model and chunking, the engine a member may use, no delayed player and
-    no saved logins, as for any other device."""
-    url = payload.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise page_server.EndpointError(400, "url is required")
-    options = live_service.form_options()
-    language = payload.get("source_language") or options["defaults"]["source_language"]
-    if not isinstance(language, str):
-        raise page_server.EndpointError(422, "source_language must be a language code")
-    whisper_size = options["language_whisper_defaults"].get(language) or options["defaults"]["whisper_size"]
-    chunk = live_service.LANGUAGE_CHUNK_DEFAULTS.get(language, {})
-    engine, model = engine_for_caller(request, None, live_service.LIVE_DEFAULT_ENGINE, None)
+    """Live on a stream page's link with the PC's own defaults and the engine a member may use."""
+    choices = extension_bridge_service.live_choices(payload)
+    engine, model = engine_for_caller(request, None, live_service.default_engine(), None)
     require_engines_allowed(request, engine, model=model)
     require_cloud_model_allowed(request, (engine, model))
-    try:
-        model_readiness_service.require_ready(False, model_readiness_service.for_whisper_size, whisper_size)
-        started = live_service.start_session(
-            url.strip(), source_language=language, whisper_size=whisper_size,
-            segment_seconds=chunk.get("segment_seconds", options["defaults"]["segment_seconds"]),
-            overlap_seconds=chunk.get("overlap_seconds", options["defaults"]["overlap_seconds"]),
-            engine=engine, model=model, use_gpu=live_service.gpu_available(),
-            use_saved_cookies=False, principal=principal)
-    except ForbiddenError:
-        raise
-    except ServiceError as e:
-        status = next((code for cls, code in _VIDEO_STATUS if isinstance(e, cls)), 500)
-        raise page_server.EndpointError(status, redact_secrets(e.message)) from None
-    return {"session_id": started["session_id"], "joined": bool(started.get("joined"))}
+    return extension_bridge_service.start_live(choices, engine, model, principal)
 
 
 @router.post("/live", dependencies=[require_device_token()],

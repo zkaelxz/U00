@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { getGpuTorch } from '../../api/diagnostics'
 import { getSettings, updateSetting } from '../../api/settings'
 import { ErrorBanner } from '../../components/ErrorBanner'
-import { buttonClass } from '../../components/uiClasses'
+import { WarnBar } from '../../components/WarnBar'
 import { usePcOnly } from '../../hooks/usePcOnly'
 import type { DiagnosticsGpuTorchStatus } from '../../types/diagnostics'
 import { GPU_BANNER_REMOTE, GPU_BANNER_TEXT, gpuBannerState } from './gpuBannerState'
@@ -48,16 +48,20 @@ export function GpuBanner({ status, onTurnedOn }: {
       setSaving(false)
     }
   }
+  const text = `${GPU_BANNER_TEXT}${state === 'ask_pc' ? ` ${GPU_BANNER_REMOTE}` : ''}`
   return (
-    <div className="diag-stack" role="status" data-testid="gpu-banner">
-      <p className="muted">{GPU_BANNER_TEXT}{state === 'ask_pc' && ` ${GPU_BANNER_REMOTE}`}</p>
-      {state === 'turn_on' && (
-        <div className="actions">
-          <button type="button" className={buttonClass('secondary', 'sm')} disabled={saving} onClick={() => void turnOn()}>
+    <div className="diag-stack">
+      <WarnBar
+        testId="gpu-banner"
+        title={text}
+        action={state === 'turn_on' && (
+          <button type="button" className="link" disabled={saving} onClick={() => void turnOn()}>
             {saving ? 'Turning on…' : 'Turn on GPU'}
           </button>
-        </div>
-      )}
+        )}
+      >
+        {text}
+      </WarnBar>
       <ErrorBanner error={error} describe={{ pcOnly: true, serverText: true }} onDismiss={() => setError(null)} />
     </div>
   )

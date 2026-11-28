@@ -160,10 +160,16 @@ class EndpointError(Exception):
     header value, so a token can't be reflected back into a response.
     """
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, code: str = ""):
         super().__init__(message)
         self.status = status
         self.message = message
+        # A fixed word a client can act on where the status alone is ambiguous; older
+        # clients read only `error`, so it rides beside it.
+        self.code = code
+
+    def answer(self) -> dict:
+        return {"error": self.message, **({"code": self.code} if self.code else {})}
 
 
 # -- the token ---------------------------------------------------------
@@ -398,7 +404,7 @@ def _store_page(drama_id: int, data: bytes, ext: str):
 
 
 def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language: str = "",
-                 glossary=None, reread: bool = False) -> dict:
+                 glossary=None, reread: bool = False, split: dict | None = None) -> dict:
     """Character notes and the page picture, as a Scanlate run sends them, with the built-in
     comic glossary's entries for this page appended to the notes. `reread` first gives
     hard-to-read text a second look with the picture model (page_reread_service), before the
@@ -411,11 +417,16 @@ def _page_extras(drama, config: dict, engine, image: bytes, bubbles=(), language
     except Exception:
         extras = {}
     if reread:
+        reread_started = time.monotonic()
         try:
-            page_reread_service.reread(bubbles, image, language,
-                                       (extras.get("page_image") or {}).get("readers"))
+            changed = page_reread_service.reread(bubbles, image, language,
+                                                 (extras.get("page_image") or {}).get("readers"))
         except Exception:
-            pass
+            changed = 0
+        if split is not None:
+            # Whether the reread changed anything decides if translating beside it would pay off.
+            split["reread"] = round(time.monotonic() - reread_started, 2)
+            split["reread_changed"] = changed
     try:
         extras["character_notes"] = comic_glossary_service.with_reference(
             extras.get("character_notes", ""), language, bubbles, glossary)
@@ -447,7 +458,8 @@ def _is_cover_page(bubbles) -> bool:
 
 def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, member,
                          image: bytes = b"", in_order: bool = True, language: str = "",
-                         turn=page_turns.UNORDERED, cover: bool = False) -> float:
+                         turn=page_turns.UNORDERED, cover: bool = False,
+                         split: dict | None = None) -> float:
     """Translates a freshly read page, asks once more for any lines left empty, and returns the
     seconds spent. Notes are appended for a failure, no engine, or lines still empty after the
     retry, so they are counted rather than silently shown as the source text. `in_order=False`
@@ -476,8 +488,11 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
     usage = _usage_cb(drama, config, engine)
     # A stored page already saved its read, so a corrected reading would disagree with the copy
     # the library keeps; only a page nothing is saved for (Quick read) gets the second look.
+    extras_started = time.monotonic()
     extras = _page_extras(drama, config, engine, image, bubbles, language, glossary,
-                          reread=not in_order)
+                          reread=not in_order, split=split)
+    if split is not None:
+        split["extras"] = round(time.monotonic() - extras_started, 2)
     extras["previous_lines"] = turn.previous_lines()
     # The prompt names the page's language; a Quick read page has no title to take it from.
     meta = drama or {"source_language": language or "zh"}
@@ -505,6 +520,7 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         # A second engine call is a page's slowest case; the log says how often it happens.
         get_logger().info("Extension page: %d of %d lines came back empty, asking again",
                           len(missing), len(bubbles))
+        retry_started = time.monotonic()
         for attempt in range(2):   # a line the model skips twice often comes back on the third ask
             try:
                 scanlate_translate.translate_page_bubbles(
@@ -518,6 +534,8 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
             missing = _lines_without_english(bubbles)
             if not missing:
                 break
+        if split is not None:
+            split["retry"] = round(time.monotonic() - retry_started, 2)
         left = len(_lines_without_english(bubbles))
         if left:
             notes.append(["warning", f"{left} line{'s' if left != 1 else ''} still had no "
@@ -545,7 +563,9 @@ def _translate_missing(saved: list, page_id: int, drama: dict | None, drama_id, 
                                       **_page_extras(drama, config, engine, image, missing, language,
                                                      glossary))
     except Exception as e:
-        return [["warning", f"translation failed ({failure_detail(e, member)})"]]
+        # A partial answer is already in the dicts; keep those lines, as a first read does.
+        return ([["warning", f"translation failed ({failure_detail(e, member)})"]]
+                + page_capture_checks.save_filled_translations(page_id, missing, originals))
     return page_capture_checks.save_filled_translations(page_id, missing, originals)
 
 
@@ -582,7 +602,7 @@ def _remove_quietly(path) -> None:
 
 
 def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
-                     style=None, max_width: int | None = None) -> str:
+                     style=None, max_width: int | None = None, split: dict | None = None) -> str:
     """The cleaned, typeset page as a data: URL for an overlay-only page (nothing is
     stored, so there is no library page to render from), or "" when it cannot be sent.
     The page keeps its plain boxes then, so a failure here only costs the nicer picture.
@@ -593,7 +613,10 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
         return ""
     out_path = storage.new_partial_file("typeset", ".png")
     try:
+        wait_started = time.monotonic()
         with TYPESET_LOCK:
+            if split is not None:
+                split["typeset_wait"] = round(time.monotonic() - wait_started, 2)
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
                                          **({"look": style} if style else {}))
@@ -605,6 +628,17 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
         return ""
     finally:
         _remove_quietly(out_path)
+
+
+@contextlib.contextmanager
+def _timed_entry(seconds: dict, key: str, *contexts):
+    """Enters `contexts` in order and records under `key` how long that took. Pages read side by
+    side queue on these turns and locks, so a page's own step time hides the wait."""
+    started = time.monotonic()
+    with contextlib.ExitStack() as stack:
+        entered = tuple(stack.enter_context(c) for c in contexts)
+        seconds[key] = round(time.monotonic() - started, 2)
+        yield entered
 
 
 def translate_image(data: bytes, content_type: str, drama_id=None,
@@ -649,7 +683,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
     try:
         # The discard runs before the lock is released, while no other
         # request can have seen the page.
-        with turn.reading(), PIPELINE_LOCK, page_turns.discard_on_failure(drama_id) as added:
+        with _timed_entry(seconds, "read_wait", turn.reading(), PIPELINE_LOCK, page_turns.discard_on_failure(drama_id)) as (_, _, added):
             if store and drama is not None and drama_id is not None:
                 page = page_capture_checks.page_with_same_bytes(int(drama_id), data)
                 if page is None:
@@ -713,7 +747,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if mine is None:
                 return page_capture_checks.reused_page_response(
                     data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                    drama_pk, page["id"])
+                    drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
@@ -721,17 +755,17 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
                                                  config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
-                data, reuse_saved, reuse_notes, drama_pk, page["id"])
+                data, reuse_saved, reuse_notes, drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.
         notes.extend(_detect_notes(detect_notes, member))
-        with turn.translating():
+        with _timed_entry(seconds, "translate_wait", turn.translating()):
             translate_seconds = _translate_read_page(bubbles, config, drama, drama_id, source_url,
-                                                     notes, member, data, store, source_language, turn, cover)
+                                                     notes, member, data, store, source_language, turn, cover, seconds)
         if typeset and temp_path and page is None:
             typeset_started = time.monotonic()
-            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width)
+            typeset_image = _overlay_typeset(temp_path, bubbles, notes, member, typeset_style, typeset_max_width, seconds)
             seconds["typeset"] = round(time.monotonic() - typeset_started, 2)
         if page is not None:
             notes.extend(read_notes)
@@ -833,6 +867,24 @@ def _usage_cb(drama, config, engine):
     return paid_calls.usage_logger((drama or {}).get("id"), name, engine, "extension_translate")
 
 
+def _start_from_link(route: str, payload: dict) -> dict:
+    """/video and /live for the PC's own extension: what the device-token routes do, as the PC owner.
+    Only the link is sent, so the run uses no saved logins, as from any other device."""
+    from lib.errors import ForbiddenError
+    from services import auth_service, extension_bridge_service, live_service
+    from services.extension_novel_service import _BRIDGE_PRINCIPAL
+    # The queue checks each step's permissions (an edited step needs lines.edit), so the owner
+    # needs them all, as api.auth's local owner has.
+    owner = {**_BRIDGE_PRINCIPAL, "is_admin": True, "permissions": list(auth_service.PERMISSIONS)}
+    try:
+        if route == "/video":
+            return extension_bridge_service.send_video(payload, owner, holds_paid=True)
+        return extension_bridge_service.start_live(extension_bridge_service.live_choices(payload),
+                                                   live_service.default_engine(), None, owner)
+    except ForbiddenError as e:
+        raise EndpointError(403, e.message) from None
+
+
 # -- HTTP --------------------------------------------------------------
 class _Handler(BaseHTTPRequestHandler):
     server_version = "BaihePageServer/1.0"
@@ -918,7 +970,7 @@ class _Handler(BaseHTTPRequestHandler):
         except EndpointError as e:
             if not state["started"]:
                 raise
-            write({"error": e.message, "status": e.status})
+            write({**e.answer(), "status": e.status})
         except Exception:
             if not state["started"]:
                 raise
@@ -932,7 +984,7 @@ class _Handler(BaseHTTPRequestHandler):
         # would be parsed starting mid-body. Closing is both simpler and
         # safer than reading megabytes we've already decided to refuse.
         self.close_connection = True
-        self._send_json(error.status, {"error": error.message})
+        self._send_json(error.status, error.answer())
 
     # -- routes --------------------------------------------------------
     def do_GET(self):
@@ -952,9 +1004,17 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             self._check_access()
             route = self.path.split("?")[0]
-            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary"):
+            if route not in ("/page", "/pages", "/text", "/novel", "/title", "/cancel", "/capture-summary", "/subs",
+                             "/video", "/live"):
                 raise EndpointError(404, "unknown endpoint")
             payload = extension_bridge_service.parse_json(self._read_body())
+            if route in ("/video", "/live"):
+                self._send_json(200, _start_from_link(route, payload))
+                return
+            if route == "/subs":
+                from services import extension_subs_service
+                self._send_json(200, extension_subs_service.subs_for_page(payload))
+                return
             if route == "/capture-summary":
                 self._send_json(200, extension_bridge_service.record_capture_summary(payload))
                 return

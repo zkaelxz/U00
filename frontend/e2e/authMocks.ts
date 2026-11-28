@@ -75,7 +75,12 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/series': EMPTY,
   '/api/library/history': EMPTY,
   '/api/library/continue': EMPTY,
-  '/api/library/home': { needs_you: [], needs_you_count: 0, running: [], running_count: 0, ready: [], ready_count: 0, can_control_queue: true },
+  '/api/library/home': { running: [], running_count: 0, can_control_queue: true },
+  // Asked only in a month's first week, so a spec's unmocked list doesn't change with the date.
+  '/api/library/recap': {
+    month: '2026-10', titles_read: 0, titles_finished: 0, chapters_read: 0, moments_saved: 0, active_days: 0,
+    most_days: null, spend_usd: null,
+  },
   '/api/library/filter-options': { studios: [], authors: [], voice_actors: [], custom_tags: [] },
   '/api/library/presets': EMPTY,
   '/api/translate/engines': { items: [], default_engine: null },
@@ -88,7 +93,7 @@ export const GET_FIXTURES: Record<string, unknown> = {
   '/api/jobs': EMPTY,
   // The remote-access banner reads this on the PC only (these specs are remote); off here.
   '/api/diagnostics/remote-health': REMOTE_HEALTH_OFF,
-  // The Library's admin GPU line; no sample yet, so it stays hidden.
+  // The Jobs panel's admin GPU line; no sample yet, so it stays hidden.
   '/api/diagnostics/resources': { sampled_seconds_ago: null, sample_seconds: 30, metrics: [] },
   // Settings > Remote access (PC only, so not asked by these remote specs).
   '/api/diagnostics/remote-health/ip-check': { configured: false },

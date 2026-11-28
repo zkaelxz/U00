@@ -19,12 +19,11 @@ import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import type { RemoteHealth } from '../types/diagnostics'
 import { Badge } from './Badge'
-import { ButtonLink } from './Button'
 import {
   POLL_MS, bannerTitle, checkedLine, diagnosticsText, readDismissed, remoteHealthLabel, remoteHealthTone,
   showBanner, stateKey, writeDismissed,
 } from './remoteHealthModel'
-import { buttonClass } from './uiClasses'
+import { WarnBar } from './WarnBar'
 
 const HIDE_ON = [401, 403, 404]
 
@@ -66,26 +65,19 @@ export function RemoteHealthBanner() {
     writeDismissed(key)
     setDismissed(key)
   }
+  const text = `${bannerTitle(health)}: ${health.message} ${checkedLine(health)}`
   return (
-    <div
-      className={`banner remote-health-banner ${health.state}`}
+    <WarnBar
+      shell
+      tone={health.state === 'critical' ? 'bad' : 'warn'}
       role={health.state === 'critical' ? 'alert' : 'status'}
-      data-testid="remote-health-banner"
+      testId="remote-health-banner"
+      title={text}
+      action={<a href={routeHref({ name: 'diagnostics' })}>Diagnostics</a>}
+      onDismiss={dismiss}
     >
-      <div>
-        <strong>{bannerTitle(health)}</strong>
-        <div>{health.message}</div>
-        <div className="muted">{checkedLine(health)}</div>
-      </div>
-      <div className="remote-health-actions">
-        <ButtonLink href={routeHref({ name: 'diagnostics' })} variant="secondary" size="sm">
-          Diagnostics
-        </ButtonLink>
-        <button type="button" className={buttonClass('secondary', 'sm')} onClick={dismiss}>
-          Dismiss
-        </button>
-      </div>
-    </div>
+      <strong>{bannerTitle(health)}:</strong> {health.message} <span className="muted">{checkedLine(health)}</span>
+    </WarnBar>
   )
 }
 

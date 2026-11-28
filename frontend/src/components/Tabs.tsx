@@ -8,6 +8,7 @@
  *   tabs      id + label; optional `count` (a neutral number, e.g. search hits) and
  *             `attention` (a warning number, e.g. problems; announced in the tab's name) and
  *             `unsaved` (a small dot for edits not saved yet; announced in the tab's name) and
+ *             `danger` (a destructive section, drawn red and set apart; keep it last) and
  *             `short` (what a phone shows when the full label is too long for a row; the full label stays the
  *             accessible name)
  *   idPrefix  makes the DOM ids; the panels use tabButtonId / tabPanelId with the same prefix
@@ -16,6 +17,9 @@
  * Phones (640px and narrower): four tabs or fewer stay one row. Five or more become one picker button that names
  * the current section and opens a list, so no label is cut or scrolled out of sight. `keepRow` opts out, for a tab
  * row inside a sticky panel whose height cannot change (Review tools).
+ *
+ * `side` draws the tabs as a list down the left of a SidePane on wider screens. On a phone it stays one row that
+ * scrolls sideways, never the picker, so switching section is one tap.
  */
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -23,7 +27,7 @@ import './tabs.css'
 import { tabButtonId, tabPanelId } from './tabIds'
 import { badgeClass } from './uiClasses'
 
-export type TabInfo<T extends string = string> = { id: T; label: string; short?: string; count?: number; attention?: number; unsaved?: boolean }
+export type TabInfo<T extends string = string> = { id: T; label: string; short?: string; count?: number; attention?: number; unsaved?: boolean; danger?: boolean }
 
 // Four tabs still fit a 390px row with short labels; five do not.
 export const PICKER_MIN_TABS = 5
@@ -118,29 +122,53 @@ export function TabPicker<T extends string>({ tabs, active, onSelect, label, idP
   )
 }
 
-export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix, keepRow }: {
+export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix, keepRow, side }: {
   tabs: TabInfo<T>[]
   active: T
   onSelect: (id: T) => void
   label: string
   idPrefix: string
   keepRow?: boolean
+  side?: boolean
 }) {
   const phone = useMediaQuery(PHONE_QUERY)
+  const vertical = side && !phone
+  // A section picked off-screen in the scrolling phone row (a search hit, a link) slides into view. Only the row
+  // scrolls: moving the page here would jump it on load.
+  useEffect(() => {
+    if (!side || !phone) return
+    const tab = document.getElementById(tabButtonId(idPrefix, active))
+    const row = tab?.parentElement
+    if (!tab || !row) return
+    if (tab.offsetLeft < row.scrollLeft || tab.offsetLeft + tab.offsetWidth > row.scrollLeft + row.clientWidth) {
+      row.scrollLeft = tab.offsetLeft - (row.clientWidth - tab.offsetWidth) / 2
+    }
+  }, [side, phone, idPrefix, active])
   function onKeyDown(ev: KeyboardEvent<HTMLDivElement>) {
     const at = tabs.findIndex((t) => t.id === active)
     const last = tabs.length - 1
-    const to = { ArrowRight: at === last ? 0 : at + 1, ArrowLeft: at === 0 ? last : at - 1, Home: 0, End: last }[ev.key as 'Home']
+    const next = at === last ? 0 : at + 1
+    const prev = at === 0 ? last : at - 1
+    // A list down the side also answers Up and Down, the keys a vertical tablist is expected to use.
+    const keys: Record<string, number> = { ArrowRight: next, ArrowLeft: prev, Home: 0, End: last }
+    if (vertical) Object.assign(keys, { ArrowDown: next, ArrowUp: prev })
+    const to = keys[ev.key]
     if (to === undefined) return
     ev.preventDefault()
     onSelect(tabs[to].id)
     document.getElementById(tabButtonId(idPrefix, tabs[to].id))?.focus()
   }
-  if (phone && !keepRow && tabs.length >= PICKER_MIN_TABS) {
+  if (phone && !keepRow && !side && tabs.length >= PICKER_MIN_TABS) {
     return <TabPicker tabs={tabs} active={active} onSelect={onSelect} label={label} idPrefix={idPrefix} />
   }
   return (
-    <div role="tablist" aria-label={label} className="ui-tabs" onKeyDown={onKeyDown}>
+    <div
+      role="tablist"
+      aria-label={label}
+      aria-orientation={vertical ? 'vertical' : undefined}
+      className={side ? `ui-tabs ${vertical ? 'ui-tabs-side' : 'ui-tabs-scroll'}` : 'ui-tabs'}
+      onKeyDown={onKeyDown}
+    >
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -150,7 +178,7 @@ export function Tabs<T extends string>({ tabs, active, onSelect, label, idPrefix
           aria-selected={t.id === active}
           aria-controls={tabPanelId(idPrefix, t.id)}
           tabIndex={t.id === active ? 0 : -1}
-          className="ui-tab"
+          className={t.danger ? 'ui-tab ui-tab-danger' : 'ui-tab'}
           onClick={() => onSelect(t.id)}
         >
           <TabLabel t={t} phone={phone} />

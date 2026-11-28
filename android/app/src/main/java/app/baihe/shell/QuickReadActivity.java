@@ -40,16 +40,20 @@ public class QuickReadActivity extends Activity {
     private File savedDir;
     // True even when the folder was refused, so leaving never clears or detaches a grab it does not own.
     private boolean savedMode;
+    private boolean toldNoOriginals;
     private final java.util.Set<Integer> showingOriginal = new java.util.HashSet<>();
 
     @Override
     protected void onCreate(Bundle state) {
+        setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
         cache = new LruCache<>(6);
         // Reading has long stretches with no touch, and the screen would otherwise dim mid-page.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         list = new ListView(this);
         list.setDivider(null);
+        // The theme's window colour is white for sepia; the gaps between pages take the look's own.
+        getWindow().setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(GrabUi.Palette.saved(this).bg));
         adapter = new PageAdapter();
         list.setAdapter(adapter);
         list.setOnScrollListener(new android.widget.AbsListView.OnScrollListener() {
@@ -114,7 +118,11 @@ public class QuickReadActivity extends Activity {
     private void flipOriginal(int position) {
         File original = new File(files.get(position).getParentFile(), originalName(files.get(position).getName()));
         if (!original.isFile()) {
-            android.widget.Toast.makeText(this, "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
+            // A saved chapter never keeps originals, so saying it on every tap would only repeat itself.
+            if (savedMode && toldNoOriginals) return;
+            toldNoOriginals = savedMode;
+            android.widget.Toast.makeText(this, savedMode ? "Saved chapters keep the English pages only."
+                    : "No original kept for this page.", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }
         if (!showingOriginal.remove(position)) showingOriginal.add(position);
@@ -294,7 +302,9 @@ public class QuickReadActivity extends Activity {
             String message;
             try {
                 SavedChapters.Saved saved = SavedChapters.save(root, pages, title);
-                message = saved == null ? "Nothing to save yet." : "Saved " + saved.pages + " pages. Find them in Grab > More > Saved chapters.";
+                message = saved == null ? "Nothing to save yet." : "Saved " + saved.pages + " pages. Find them in Grab > More > Saved chapters."
+                        + (saved.removed > 0 ? " The phone keeps your " + SavedChapters.MAX_CHAPTERS
+                                + " newest chapters, so the oldest was removed." : "");
             } catch (java.io.IOException e) {
                 message = "Could not save: the phone may be full.";
             }
@@ -335,19 +345,31 @@ public class QuickReadActivity extends Activity {
                 client.typesetMaxWidth = getResources().getDisplayMetrics().widthPixels;
                 client.textStyle = GrabActivity.textStyle(prefs);
                 byte[][] fresh = {null};
+                org.json.JSONObject[] read = {null};
                 client.streamPages(info.optString("page_url"), java.util.Collections.singletonList(image), answer -> {
                     try {
                         java.util.List<byte[]> jpegs = QuickRead.typesetPages(new org.json.JSONObject().put("pages",
                                 new org.json.JSONArray().put(answer)));
                         if (!jpegs.isEmpty()) fresh[0] = jpegs.get(0);
+                        read[0] = answer;
                     } catch (org.json.JSONException ignored) {
                         // No redraw came back; the check below reports it.
                     }
                 });
                 if (fresh[0] == null) throw new BaiheClient.BridgeException(0, "The PC could not redo this page.");
+                // Some lettering never translates (a sound effect, a refusal), so a redo only has to be
+                // no worse than the page it replaces; an old page with nothing to judge by is replaced.
+                int before = QuickRead.gaps(info);
+                int after = QuickRead.gaps(read[0]);
+                if (before >= 0 && after > before) {
+                    throw new BaiheClient.BridgeException(0, "Kept the old page: the new read had more untranslated lines or warnings.");
+                }
                 try (java.io.FileOutputStream out = new java.io.FileOutputStream(page)) {
                     out.write(fresh[0]);
                 }
+                // The sidecar then describes the page now shown, for a report and the next Redo.
+                QuickReadActivity.writeReportText(this, page.getName(), PageReport.meta(read[0],
+                        info.optString("image_url"), info.optString("page_url"), info.optString("chapter")));
             } catch (BaiheClient.BridgeException e) {
                 message = e.getMessage();
             } catch (Exception e) {

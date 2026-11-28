@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { api } from '../api/client'
 import { getFilterOptions, searchLines } from '../api/library'
 import type { DramaSummary } from '../api/types'
+import { nameLang } from '../hanScript'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { languageLabel, mediaTypeLabel, statusLabel, tagLabel } from '../labels'
@@ -16,6 +17,7 @@ import {
 import type { LibraryFilterOptions, LibrarySearchHit } from '../types/library'
 import { Badge } from './Badge'
 import { Card } from './Card'
+import { CoverGrid } from './CoverGrid'
 import { DramaCards } from './DramaCards'
 import { ErrorBanner } from './ErrorBanner'
 import { isForbidden, LINES_READ_FORBIDDEN } from './errorMessages'
@@ -37,7 +39,8 @@ const STATUSES = ['', 'not started', 'aligned', 'translated', 'dubbed', 'exporte
 const QUICK_FILTERS = ['', 'Favorite', 'On Hold', 'Plan to Translate']
 
 type Scope = 'titles' | 'lines'
-type View = 'grid' | 'list'
+// 'grid' is the card list (tile left, text right); 'covers' is the big-cover shelf; 'list' is the desktop table.
+type View = 'grid' | 'covers' | 'list'
 
 interface Props {
   selectedId: number | null
@@ -126,8 +129,9 @@ export function LibraryList({
   const onVisibleRef = useLatest(onVisible)
   const selecting = !!checked && !!onCheckedChange
   const toggle = (id: number) => checked && onCheckedChange?.(toggleLibraryId(checked, id))
-  // Phones always get cards; List view is the desktop table.
+  // The table needs width: a phone saved on List shows cards.
   const table = view === 'list' && !phone
+  const covers = view === 'covers'
   const titleSearch = scope === 'titles' ? search : ''
   const filtered = !!(titleSearch.trim() || status || quickFilter || reading) || moreFilterCount(more) > 0
   // Hidden, not unmounted: the saved search, sort and view still apply once the first title exists.
@@ -222,7 +226,17 @@ export function LibraryList({
   )
 
   // One group's titles (or the whole list): cards, or on desktop the table.
-  const listView = (list: DramaSummary[], label = '') => !table ? (
+  const listView = (list: DramaSummary[], label = '') => covers ? (
+    <CoverGrid
+      items={list}
+      selectedId={selectedId}
+      onSelect={onSelect}
+      selectMode={selecting && selectMode}
+      checked={checked}
+      onToggle={toggle}
+      continuing={continuing}
+    />
+  ) : !table ? (
     <DramaCards
       items={list}
       selectedId={selectedId}
@@ -272,8 +286,8 @@ export function LibraryList({
                               </td>
                             )}
                             <td className="title-col">
-                              <a className="table-title" href={workspaceHref(d.id)}>{title}</a>
-                              {d.title_en && d.title_zh && <div className="muted">{d.title_zh}</div>}
+                              <a className="table-title" href={workspaceHref(d.id)} lang={nameLang(title, d)}>{title}</a>
+                              {d.title_en && d.title_zh && <div className="muted" lang={nameLang(d.title_zh, d)}>{d.title_zh}</div>}
                               <SharingControl kind="drama" id={d.id} title={title} isPrivate={d.is_private} ownedByMe={d.owned_by_me} seriesId={d.series_id} />
                             </td>
                             <td>{mediaTypeLabel(d.media_type)}</td>
@@ -295,17 +309,12 @@ export function LibraryList({
                 </div>
   )
 
-  const activeFilters = (status ? 1 : 0) + (quickFilter ? 1 : 0) + (reading ? 1 : 0) + moreFilterCount(more)
+  const activeFilters = (status ? 1 : 0) + (reading ? 1 : 0) + moreFilterCount(more)
   const statusSelects = (
     <div className="toolbar-filters">
       <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
         {STATUSES.map((s) => (
           <option key={s} value={s}>{s ? statusLabel(s) : 'Any status'}</option>
-        ))}
-      </select>
-      <select aria-label="Quick filter" value={quickFilter} onChange={(e) => setQuickFilter(e.target.value)}>
-        {QUICK_FILTERS.map((q) => (
-          <option key={q} value={q}>{q ? tagLabel(q) : 'All titles'}</option>
         ))}
       </select>
       <select aria-label="Reading" value={reading} onChange={(e) => setReading(e.target.value as ReadingFilter)}>
@@ -320,20 +329,35 @@ export function LibraryList({
       options={[['titles', 'Titles'], ['lines', 'Lines']]}
     />
   )
-  const sortSelects = (
-    <>
+  // The select sits invisibly over the icon, so a tap opens the platform's own picker.
+  const sortIcon = (
+    <label className="sort-icon" title="Sort order">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4" />
+      </svg>
       <select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}>
         {TITLE_SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
       </select>
-      <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
-        {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
-      </select>
-    </>
+    </label>
+  )
+  const groupSelect = (
+    <select aria-label="Group by" value={shownGroup} onChange={(e) => setGroupBy(e.target.value)}>
+      {GROUP_BYS.map(([id, label]) => <option key={id} value={id}>{id === 'none' ? 'No grouping' : `Group by ${label.toLowerCase()}`}</option>)}
+    </select>
+  )
+  const quickChips = (
+    <div className="quick-chips" role="group" aria-label="Quick filter">
+      {QUICK_FILTERS.map((q) => (
+        <button key={q} type="button" className="quick-chip" aria-pressed={quickFilter === q} onClick={() => setQuickFilter(q)}>
+          {q ? tagLabel(q) : 'All titles'}
+        </button>
+      ))}
+    </div>
   )
   const viewControl = (
     <Segmented<View>
-      label="View" name="library-view" value={view} onChange={setView}
-      options={[['grid', 'Grid'], ['list', 'List']]}
+      label="View" name="library-view" value={phone && view === 'list' ? 'grid' : view} onChange={setView}
+      options={phone ? [['grid', 'Cards'], ['covers', 'Covers']] : [['grid', 'Cards'], ['covers', 'Covers'], ['list', 'List']]}
     />
   )
 
@@ -357,6 +381,8 @@ export function LibraryList({
             <button type="button" className={buttonClass('secondary')} onClick={() => setFiltersOpen(true)}>
               Filters{activeFilters > 0 && ` (${activeFilters})`}
             </button>
+            {scope === 'titles' && sortIcon}
+            {scope === 'titles' && viewControl}
             <div className="toolbar-end">{selectControls}</div>
           </div>
         ) : (
@@ -367,7 +393,8 @@ export function LibraryList({
               {scopeControl}
               {scope === 'titles' && (
                 <>
-                  {sortSelects}
+                  {sortIcon}
+                  {groupSelect}
                   {viewControl}
                 </>
               )}
@@ -376,13 +403,14 @@ export function LibraryList({
           </>
         )}
       </form>
+      {scope === 'titles' && !emptyLibrary && quickChips}
       <Sheet open={phone && filtersOpen} title="Filters" onClose={() => setFiltersOpen(false)}>
         <div className="filter-sheet">
           {scopeControl}
           {scope === 'titles' && (
             <>
               {statusSelects}
-              {sortSelects}
+              {groupSelect}
               {moreFilters}
             </>
           )}

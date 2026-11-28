@@ -11,15 +11,16 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr
 from api.schemas.common import QueueSettingRow
 
 __all__ = ["QueueItem", "QueueSchedule", "QueueState", "QueueAddItem", "QueueAddAllSteps", "QueueAddBulk", "QueueBulkAdded", "QueueBulkSkip", "QueueMove",
-           "QueueScheduleSet", "QueuePolicy", "QueueSettingOption",
+           "QueueScheduleSet", "QueuePolicy", "QueueNight", "QueueNightSet", "QueueTonight", "QueueSettingOption",
            "QueueSettingField", "QueueStepSettings", "TitleFlowRun", "NovelFlowStart", "FileRunStart"]
 
 _QueueStep = Literal["transcribe", "translate", "export"]
 # The download step exists only in the chain Quick video translate adds, and names (the glossary scan),
 # import (a novel link), text and lines only in a title page's one-button run, and follow and run_translate
-# only in the Add box's run (and after a chapter import), run_scanlate only after a comic chapter import; all are shown, never picked.
-_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "lines",
-                         "follow", "run_translate", "run_scanlate"]
+# only in the Add box's run (and after a chapter import), run_scanlate only after a comic chapter import, append
+# only after a phone save to a novel that has lines; all are shown, never picked.
+_QueueItemStep = Literal["download", "transcribe", "translate", "export", "names", "import", "text", "append",
+                         "lines", "follow", "run_translate", "run_scanlate"]
 
 
 class QueueItem(BaseModel):
@@ -37,6 +38,10 @@ class QueueItem(BaseModel):
     changed_settings: List["QueueSettingRow"] = []
     # A waiting item its adder paused; the queue skips it until it is resumed.
     held: bool = False
+    # Waits for the night window and an idle PC.
+    tonight: bool = False
+    # A step of a run started on a title's page, which can't be moved to tonight.
+    page_run: bool = False
     # The caller may reorder, pause, cancel, remove or retry it.
     mine: bool
     added_at: Optional[float] = None
@@ -50,12 +55,19 @@ class QueueSchedule(BaseModel):
     missed: bool         # passed while Baihe was off; never run on its own
 
 
+class QueueNight(BaseModel):
+    start: str           # "HH:MM", the PC's clock
+    end: str
+    self_check: bool
+
+
 class QueueState(BaseModel):
     version: int
     state: Literal["idle", "running", "paused"]
     stop_on_failure: bool
     overlap_online_translate: bool
     schedule: Optional[QueueSchedule] = None
+    night: QueueNight
     notice: Optional[str] = None
     max_items: int
     # Start, pause, schedule and the policy are an admin's (or the PC owner's).
@@ -69,15 +81,18 @@ class QueueAddItem(BaseModel):
     step: _QueueStep
     # This item's own changes to the title's saved settings; the keys are its step's.
     settings: Optional[Dict[str, Union[bool, int, str]]] = None
+    tonight: bool = False
 
 
 class QueueAddAllSteps(BaseModel):
     drama_id: int = Field(ge=1, lt=2**63)
+    tonight: bool = False
 
 
 class QueueAddBulk(BaseModel):
     drama_ids: List[Annotated[int, Field(ge=1, lt=2**63)]] = Field(min_length=1, max_length=200)
     step: Literal["transcribe", "translate", "export", "all"]
+    tonight: bool = False
 
 
 class QueueBulkSkip(BaseModel):
@@ -98,6 +113,20 @@ class QueueMove(BaseModel):
 class QueueScheduleSet(BaseModel):
     # None clears the schedule, a missed one too.
     time: Optional[str] = Field(None, pattern=r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+
+
+_HHMM = r"^([01][0-9]|2[0-3]):[0-5][0-9]$"
+
+
+class QueueNightSet(BaseModel):
+    start: str = Field(pattern=_HHMM)
+    end: str = Field(pattern=_HHMM)
+    self_check: bool = True
+
+
+class QueueTonight(BaseModel):
+    # False is "Run now": the item waits only for its turn again.
+    tonight: bool
 
 
 class QueuePolicy(BaseModel):

@@ -171,18 +171,6 @@ def resume(principal, series_id: int) -> dict:
 
 # --- the queue's side --------------------------------------------------------------
 
-def held_series(principal) -> list:
-    """Series the caller can see whose auto-run is on and stopped on a hold, waiting for a person."""
-    held = []
-    with _lock:
-        rows = [(sid, _read(sid)) for sid, _raw in db.list_series_auto_pipelines()]
-    for series_id, state in rows:
-        if state["on"] and state["hold"] and ownership_service.can_see(principal, "series", series_id):
-            held.append({"series_id": series_id, "name": _series_name(series_id) or f"Series #{series_id}",
-                         "hold": state["hold"], "hold_kind": state["hold_kind"]})
-    return held
-
-
 def require_on(series_id: int) -> None:
     if not _read(series_id)["on"]:
         raise UnsupportedOperationError("Auto-run was switched off for this series.")

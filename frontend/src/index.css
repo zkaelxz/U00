@@ -63,6 +63,12 @@
   --radius-lg: var(--radius);
   --radius-pill: 999px;
   --radius-panel: 14px;
+  /* Spacing roles. Screens use these instead of raw paddings so a density can change four values, not every literal. */
+  --gap-inline: var(--space-2);
+  --gap-stack: var(--space-3);
+  --pad-block: var(--space-4);
+  --gap-section: var(--page-gap);
+  --measure-form: 40rem;
   /* One type scale, "Comfortable": the root is 15px on a phone and 15.4px on wider windows, and everything is rem, so browser zoom scales it.
      --text-xs (about 13px) is for badges and tiny marks only; running text is --text-sm (15px) or larger. */
   --text-xs: 0.8rem;
@@ -74,6 +80,13 @@
   /* Subtitle text people edit and read closely (Review zh/en, textareas). */
   --text-edit: 1.1333rem;
   --leading: 1.5;
+  /* Type roles: a screen picks a role, not a size. The size tokens above stay as the underlying scale. */
+  --type-meta: var(--text-xs);
+  --type-body: var(--text-sm);
+  --type-label: var(--text-sm);
+  --type-title: var(--text-lg);
+  --type-page: var(--text-2xl);
+  --leading-tight: 1.2;
   --leading-cjk: 1.6;
   --weight-medium: 500;
   --weight-bold: 600;
@@ -82,6 +95,8 @@
   --warn-soft: color-mix(in srgb, var(--warn) 16%, transparent);
   --bad-soft: color-mix(in srgb, var(--bad) 14%, transparent);
   --info-soft: color-mix(in srgb, var(--info) 14%, transparent);
+  /* Selected rows and tinted boxes: mixed with the page colour so dark, OLED and sepia get the same step as light. */
+  --tint-accent: color-mix(in srgb, var(--accent) 10%, var(--bg));
   /* Calm motion: short, no bounce. The global reduced-motion rule below turns all of it off. */
   --dur-1: 100ms;
   --dur-2: 160ms;
@@ -89,9 +104,14 @@
   --ease: cubic-bezier(0.2, 0, 0, 1);
   --font-mono: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   --font-sans: 'Figtree', 'Atkinson Hyperlegible', system-ui, 'Segoe UI Variable', 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
-  /* Page headings and the names of titles and series only; section and card headings stay in --font-sans. */
+  /* Page headings only; section and card headings stay in --font-sans. */
   --font-heading: 'Fraunces', var(--font-sans);
+  /* Names of titles and series: the text font, a little bolder, so a name reads like the line under it. */
+  --font-title: var(--font-sans);
+  --weight-title: 650;
   --font-zh: 'Microsoft YaHei UI', 'PingFang SC', 'Noto Sans CJK SC';
+  /* Traditional Chinese: Taiwan fonts, which centre ， and 。 and draw characters in their Taiwan forms. */
+  --font-zh-hant: 'Microsoft JhengHei UI', 'PingFang TC', 'Noto Sans CJK TC';
   --font-ja: 'Yu Gothic UI', 'Hiragino Sans', 'Noto Sans CJK JP';
   --font-ko: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans CJK KR';
   font-family: var(--font-sans);
@@ -225,6 +245,25 @@ select:not(:focus), textarea:not(:focus) { border-color: var(--field-edge); }
   src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
+/* The same file as Figtree, cut to U+0000-00FF so CJK lines can put Latin letters and digits first: leaving out U+2000-206F keeps Chinese curly quotes and the ellipsis full width. */
+@font-face {
+  font-family: 'Figtree Latin';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-wght-normal.woff2') format('woff2');
+  /* U+00B7 is left to the CJK font: it is the full-width dot between the parts of a transliterated name. */
+  unicode-range: U+0000-00B6, U+00B8-00FF;
+}
+/* Pinyin tone letters (ǎ, ū) inside Chinese text, so a romanised word doesn't switch faces mid-word. */
+@font-face {
+  font-family: 'Figtree Latin';
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url('/fonts/figtree-latin-ext-wght-normal.woff2') format('woff2');
+  unicode-range: U+0100-024F;
+}
 @font-face {
   font-family: 'Fraunces';
   font-style: normal;
@@ -276,10 +315,13 @@ html[data-width='full'] { --content-max: none; --content-max-wide: none; }
 html[data-text='small'] { font-size: 87.5%; }
 html[data-text='large'] { font-size: 106.25%; }
 html[data-text='larger'] { font-size: 118.75%; }
-/* CJK text uses each language's system fonts, then the Latin face for any Latin in it. */
-:lang(zh) { font-family: var(--font-zh), var(--font-sans); line-height: var(--leading-cjk); }
-:lang(ja) { font-family: var(--font-ja), var(--font-sans); line-height: var(--leading-cjk); }
-:lang(ko) { font-family: var(--font-ko), var(--font-sans); line-height: var(--leading-cjk); }
+/* CJK text uses each language's system fonts; Latin letters and digits inside it come from Figtree so names and numbers match the rest of the app.
+   --font-lang carries the stack to rules that set their own font-family (title names), which would otherwise drop the CJK fonts. */
+:lang(zh) { --font-lang: 'Figtree Latin', var(--font-zh), var(--font-sans); font-family: var(--font-lang); line-height: var(--leading-cjk); }
+:lang(zh-Hant), :lang(zh-TW), :lang(zh-HK) { --font-lang: 'Figtree Latin', var(--font-zh-hant), var(--font-sans); }
+:lang(ja) { --font-lang: 'Figtree Latin', var(--font-ja), var(--font-sans); font-family: var(--font-lang); line-height: var(--leading-cjk); line-break: strict; }
+/* keep-all stops Korean breaking inside words; break-word still lets a word longer than its box wrap instead of overflowing. */
+:lang(ko) { --font-lang: 'Figtree Latin', var(--font-ko), var(--font-sans); font-family: var(--font-lang); line-height: var(--leading-cjk); word-break: keep-all; overflow-wrap: break-word; }
 body {
   margin: 0 auto;
   /* The frost wash is painted on body, which is only as tall as its content: without this a short page shows a flat band under the wash. */
@@ -400,9 +442,7 @@ textarea {
 textarea { min-height: 0; resize: vertical; font-size: var(--text-edit); line-height: var(--leading); }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); box-shadow: 0 0 0 4px var(--focus); }
 input::placeholder, textarea::placeholder { color: var(--muted); }
-:disabled,
-button.primary:disabled,
-button.danger:disabled {
+:disabled {
   cursor: not-allowed;
   color: var(--muted);
   background: color-mix(in srgb, var(--text) 7%, var(--surface));
@@ -427,10 +467,6 @@ button, a.button-link {
 }
 button:where(:not(.link, .toggle, .field-help-btn)), a.button-link { min-height: var(--control-h); }
 button:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
-button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
-button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); }
-button.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, var(--border)); }
-button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: var(--bad); }
 button.link {
   background: none;
   border: none;
@@ -496,11 +532,24 @@ dd { margin: 0; }
 .error-banner { border-color: var(--bad); color: var(--bad); }
 /* A long message must not squeeze Dismiss into a one-letter column. */
 .error-banner > button.link { flex-shrink: 0; white-space: nowrap; align-self: flex-start; }
-.remote-health-banner { margin: var(--space-3) var(--space-4) 0; align-items: center; flex-wrap: wrap; }
-.remote-health-banner.warn { border-color: var(--warn); background: var(--warn-soft); }
-.remote-health-banner.critical { border-color: var(--bad); background: var(--bad-soft); }
-.remote-health-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
-.paid-limit-banner { margin: var(--space-3) var(--space-4) 0; border-color: var(--warn); background: var(--warn-soft); }
+/* WarnBar (components/WarnBar.tsx): one thin line. With a mouse a long message is cut short and its full text is the
+   tooltip; a touch screen can't hover, so there it wraps instead. */
+.warn-bar { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: var(--space-1) var(--space-3); border-radius: var(--radius-sm); background: var(--warn-soft); color: var(--text); font-size: var(--text-sm); font-weight: var(--weight-medium); line-height: var(--leading-tight); }
+.warn-bar-bad { background: var(--bad-soft); box-shadow: inset 3px 0 0 var(--bad); }
+.warn-bar-shell { margin: var(--space-3) var(--space-4) 0; }
+.warn-bar-text { flex: 1 1 auto; min-width: 0; }
+.warn-bar-action { flex: none; white-space: nowrap; }
+.warn-bar-close { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 32px; min-height: 32px; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--text-lg); cursor: pointer; }
+.warn-bar-close:hover:not(:disabled) { background: none; color: var(--text); }
+@media (hover: hover) and (min-width: 641px) {
+  .warn-bar-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
+@media (hover: none) {
+  .warn-bar-action > :is(a, button), .warn-bar-close { min-height: 44px; display: inline-flex; align-items: center; }
+}
+@media (max-width: 640px) {
+  .warn-bar-action > :is(a, button), .warn-bar-close { min-height: 44px; display: inline-flex; align-items: center; }
+}
 
 .stage-source { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
 
@@ -516,6 +565,14 @@ details.section > summary::-webkit-details-marker { display: none; }
 details.section > summary::before { content: '\25B8'; flex: none; width: 0.9em; color: var(--muted); font-size: 0.85em; line-height: 1; }
 details.section[open] > summary::before { content: '\25BE'; }
 .section-title { font-weight: 600; font-size: inherit; margin: 0; }
+/* A pane's sections drawn flat: a heading and its body, one after another; a nested one is a smaller sub-heading. */
+div.section-flat { margin: 0 0 var(--space-5); min-width: 0; }
+.section-flat-head { display: flex; align-items: baseline; gap: var(--space-2); flex-wrap: wrap; margin-bottom: var(--space-2); }
+div.section-flat > .section-flat-head .section-title { font-size: var(--text-lg); }
+div.section-flat div.section-flat { margin-bottom: var(--space-3); }
+div.section-flat div.section-flat > .section-flat-head .section-title { font-size: inherit; }
+.section-flat .section-title:focus { outline: none; }
+.section-flat .section-title:focus-visible { box-shadow: 0 0 0 4px var(--focus); border-radius: var(--radius-sm); }
 /* Progressive enhancement: where ::details-content exists, the opened body fades in (240ms).
    Fade only, never a height/clip animation: clipping the body would cut the 44px touch hit areas
    of switches at its edges. */
@@ -594,30 +651,17 @@ details.section[open] > summary::before { content: '\25BE'; }
      text painted after it does not cover the padding and take the taps. */
   a.touch-link { position: relative; padding-block: 8px; }
 }
-/* Header controls are icon-only (their old words are the aria-label and tooltip). .header-end is a size container so that "Connected"
-   shows only where the row has room; the min-widths below are the icons' natural widths plus gaps, in rem so a larger text size moves them.
-   The row wraps to its own line rather than squeezing; the PIN/account variant is wider, and a long account name or the server-down badge ask for more. */
-.header-end.has-room { flex: 1 1 0; min-width: min(31.6rem, 100%); justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
-.header-end.has-room.has-extras { min-width: 46.8rem; }
-/* A size container has no content width of its own, so the min-width stands in for the icons' natural width (32.2rem, 47rem with the PIN
-   button or account) and lets the header wrap the row to a line of its own where the icons-only row wraps, so the header is never taller than it is
-   with icons only; up to 640px the row shrinks instead of wrapping. The words steps widen the gaps to the drawn 10px with a margin, because the container cannot change its own gap. The
-   header that also carries the PIN button and the account starts at 6px: with 8px its icons overflow by 5px at some narrow widths. */
-.header-end.has-room.has-extras { gap: 6px; }
-@media (max-width: 640px) { .header-end.has-room, .header-end.has-room.has-extras { gap: var(--space-1); min-width: 0; } }
-/* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is 54px wider than "Connected", which the steps were sized with.
-   The padding narrows what the size container's queries see, so every words step comes 3.6rem later exactly then, with no second set of steps;
-   the first control's negative margin gives the controls that room back. */
-.header-end.has-room:has(.api-down) { padding-left: 3.6rem; }
-.header-end.has-room:has(.api-down) > :first-child { margin-left: -3.6rem; }
-/* The badge itself (140px with its gap) is part of the icons' natural width while it shows, so the row wraps before it would squeeze the controls. */
-.header-end.has-room:has(.api-down) { min-width: min(41.4rem, 100%); }
-.header-end.has-room.has-extras:has(.api-down) { min-width: 56.6rem; }
-@media (max-width: 640px) { .header-end.has-room:has(.api-down), .header-end.has-room.has-extras:has(.api-down) { min-width: 0; } }
-/* "Connected" is a luxury of the same room the five controls' words need: below that step the row keeps today's width and says nothing while the server answers. */
-.header-end .api-connected { display: none; color: var(--ok); font-size: var(--text-sm); white-space: nowrap; }
+/* Header controls are icon-only (their old words are the aria-label and tooltip), plus the You menu. .header-end is a size container
+   so the search button's "Ctrl K" hint shows only where the row has room (nav/palette.css). A size container has no content width of
+   its own, so the min-width stands in for the controls' natural width, in rem so a larger text size moves it, and the header wraps the
+   row to a line of its own rather than squeezing it. */
+.header-end.has-room { flex: 1 1 0; min-width: min(15rem, 100%); justify-content: flex-end; gap: var(--space-2); container: header-end / inline-size; }
+@media (max-width: 640px) { .header-end.has-room { gap: var(--space-1); min-width: 0; } }
+/* While the server does not answer, the badge ("Can't reach Baihe" and its help mark) is part of the row's natural width. */
+.header-end.has-room:has(.api-down) { min-width: min(24rem, 100%); }
+@media (max-width: 640px) { .header-end.has-room:has(.api-down) { min-width: 0; } }
 
-/* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header; the phone
+/* The page-view switch as drawn: a white box holding two choices, the chosen one tinted and bold. Scoped to the header (the You menu); the phone
    drawer and the other segmented controls keep their own look. */
 .header-end fieldset.segmented.view-mode-switch { padding: 2px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); }
 .header-end fieldset.segmented.view-mode-switch label { padding: 6px 12px; border-radius: var(--radius-sm); color: var(--text); font-size: var(--text-md); }
@@ -627,18 +671,20 @@ details.section[open] > summary::before { content: '\25BE'; }
   .header-end fieldset.segmented.view-mode-switch { min-height: var(--control-h); }
 }
 
-/* Frost and Soft draw the other header buttons as boxes in their own stylesheets; these two are plain until they sit in the row. */
-.header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: var(--btn-edge); background: var(--btn); box-shadow: var(--btn-shadow); }
-html[data-style='soft'] .header-end.has-room :is(button.keys-btn, details.user-menu > summary) { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
-
-/* Only "Connected" is words; every button stays an icon. It shows where the old words steps began, so the row never needs more room than the icons. */
-@container header-end (min-width: 52rem) { .header-end:not(.has-extras) .api-connected { display: inline; } }
-@container header-end (min-width: 74rem) { .header-end.has-extras:not(.has-long-name) .api-connected { display: inline; } }
-@container header-end (min-width: 80rem) { .header-end.has-long-name .api-connected { display: inline; } }
+/* The You menu: the word and the avatar in one box, as the header's other buttons are drawn. Frost and Soft draw those in their own
+   stylesheets; this one is plain until it sits in the row. */
+.header-end.has-room details.you-menu > summary { display: inline-flex; width: auto; gap: var(--space-2); padding: 0 4px 0 12px; border-radius: var(--radius); border-color: var(--btn-edge); background: var(--btn); box-shadow: var(--btn-shadow); }
+html[data-style='soft'] .header-end.has-room details.you-menu > summary { border-color: transparent; border-radius: var(--radius-pill); font-weight: 700; }
+.you-menu .user-menu-avatar { position: relative; width: 28px; height: 28px; border-radius: 999px; background: var(--accent-soft); }
+/* Green when the last check reached the server; nothing before the first answer, and the badge in the row when it fails. */
+.you-menu-dot { position: absolute; right: -1px; bottom: -1px; width: 9px; height: 9px; border: 2px solid var(--surface); border-radius: 999px; background: var(--ok); }
+.you-menu-panel { min-width: 16rem; gap: var(--space-2); }
+.you-menu-panel fieldset.segmented.view-mode-switch { justify-self: start; }
+.you-menu-panel button.you-menu-row { justify-content: flex-start; padding-inline: 8px; border-color: transparent; background: transparent; text-align: left; }
+.you-menu-panel button.you-menu-row:hover:not(:disabled) { background: var(--accent-soft); border-color: transparent; }
+.you-menu-account { display: grid; gap: var(--space-2); padding-top: var(--space-2); border-top: 1px solid var(--border); }
 @media (max-width: 640px) {
   .app-header .badge.ok { display: none; }
-  /* "Report a problem" is a 44px icon button in the title row; its aria-label stays its accessible name. */
-  .app-header button.report-btn { min-width: 44px; min-height: 44px; justify-content: center; padding-inline: 0; }
   .app-header { row-gap: var(--space-2); padding-bottom: var(--space-2); }
 }
 @media (pointer: coarse), (max-width: 640px) { .history-read { display: inline-flex; align-items: center; min-height: 44px; } }
@@ -903,16 +949,7 @@ button.toggle::after { content: ''; position: absolute; inset: -11px -4px; }
 .pill-info { color: var(--info); background: color-mix(in srgb, var(--info) 14%, var(--surface)); }
 .pill-row { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
 
-/* Legacy aliases: older screens' `button.primary` and `.badge` take the kit look
-   (.btn-primary, .pill) until they are migrated to Button/Badge. Markup is unchanged. */
-button.primary {
-  padding-inline: 16px;
-  font-weight: var(--weight-bold);
-  line-height: 1.2;
-  transition: background var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease), color var(--dur-2) var(--ease);
-}
-button.primary:hover:not(:disabled) { border-color: var(--accent); color: var(--on-accent); }
-button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 35%, var(--surface)); color: var(--muted); border-style: solid; }
+/* Legacy alias: older screens' `.badge` takes the kit look (.pill) until they are migrated to Badge. Markup is unchanged. */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -981,6 +1018,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
 .page-head-text { display: grid; gap: var(--space-1); min-width: 0; }
 .page-title { overflow-wrap: break-word; margin: 0; font-family: var(--font-heading); font-size: var(--text-2xl); font-weight: var(--weight-bold); line-height: 1.2; }
+.page-title .title-name { font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); }
 .page-meta { margin: 0; color: var(--muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
 .stats-usage > summary { color: var(--muted); font-size: var(--text-sm); cursor: pointer; width: fit-content; }
 .gpu-line { display: flex; align-items: center; gap: var(--space-2); }
@@ -1015,7 +1053,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 .continue-tile { display: grid; place-items: center; width: 36px; height: 48px; border-radius: var(--radius-sm); font-weight: var(--weight-bold); overflow: hidden; }
 .continue-tile img { width: 100%; height: 100%; object-fit: cover; }
 .continue-text { display: grid; min-width: 0; }
-.continue-title { font-family: var(--font-heading); font-weight: var(--weight-bold); overflow-wrap: anywhere; }
+.continue-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); overflow-wrap: anywhere; }
 .continue-meta { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; color: var(--muted); font-size: var(--text-sm); }
 /* The placeholder's tile, text and button as bars: --border, because the tile's own fill is the skeleton colour.
    A text bar is drawn a little shorter than its line (clipped, so the tile keeps its height) and two lines read as
@@ -1064,7 +1102,7 @@ button.primary:disabled { background: color-mix(in srgb, var(--accent) 20%, var(
 @media (min-width: 1024px) { .drama-tile { flex-basis: 64px; width: 64px; height: 86px; } }
 .drama-tile { overflow: hidden; }
 .drama-tile img { width: 100%; height: 100%; object-fit: cover; }
-.drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); line-height: 1.35; text-decoration: none; }
+.drama-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; color: var(--text); font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); line-height: 1.35; text-decoration: none; }
 /* Stretched link: the title link's ::after covers the whole card (.drama-card is position: relative), so the card is
    one hit area; the foot controls sit above it at z-index 1. The link's own focus outline is hidden and the card
    draws the focus ring instead (:has below). */
@@ -1107,7 +1145,7 @@ a.drama-card-title:focus-visible { outline: none; box-shadow: none; }
 .drama-table .title-col, .drama-table .tags-col { white-space: normal; overflow-wrap: break-word; }
 .drama-table .title-col { min-width: 12rem; }
 .drama-table .tags-col { min-width: 8rem; }
-.table-title { color: var(--text); font-family: var(--font-heading); font-weight: var(--weight-bold); text-decoration: none; }
+.table-title { color: var(--text); font-family: var(--font-lang, var(--font-title)); font-weight: var(--weight-title); text-decoration: none; }
 .table-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .row-actions { white-space: nowrap; text-align: right; }
 
@@ -1217,5 +1255,5 @@ dialog.sheet details.section { border: 0; padding-inline: 0; margin: 0; }
 
 /* The header's icon buttons share one width, so the row doesn't look ragged. */
 @media (min-width: 641px) and (pointer: fine) {
-  .header-end.has-room :is(button.palette-btn, button.report-btn, button.jobs-menu-btn, button.notify-bell-btn, button.theme-menu-btn, button.keys-btn) { min-width: 38px; justify-content: center; }
+  .header-end.has-room :is(button.palette-btn, button.jobs-menu-btn, button.notify-bell-btn) { min-width: 38px; justify-content: center; }
 }
