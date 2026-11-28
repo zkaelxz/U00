@@ -17377,6 +17377,13 @@ export interface components {
              * @default false
              */
             ear_placement?: boolean;
+            /** Field */
+            field?: ("en" | "zh" | "bilingual") | null;
+            /**
+             * Karaoke
+             * @default false
+             */
+            karaoke?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -17388,6 +17395,11 @@ export interface components {
             per_speaker_colors?: boolean;
             /** Preset */
             preset?: string | null;
+            /**
+             * Reading Line
+             * @default false
+             */
+            reading_line?: boolean;
             /** Speaker Colors */
             speaker_colors?: {
                 [key: string]: string;

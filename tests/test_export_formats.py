@@ -486,6 +486,15 @@ class TestLinesForClip:
         assert [l.idx for l in out] == [0, 1]
         assert lines[1].start == 10.0  # the source line is a copy, not mutated
 
+    def test_stored_word_times_move_with_the_line(self):
+        from segment_splitting import encode_line_words, line_words
+        words = [{"word": "你好", "start": 10.2, "end": 10.6}, {"word": "世界", "start": 10.6, "end": 11.0}]
+        lines = [Line(idx=0, start=10.0, end=12.0, zh="你好世界", en="",
+                      word_timings=encode_line_words("你好世界", words))]
+        out = sf.lines_for_clip(lines, 9.0, 20.0)
+        assert [(w["start"], w["end"]) for w in line_words(out[0])] == [(1.2, 1.6), (1.6, 2.0)]
+        assert line_words(lines[0])[0]["start"] == 10.2
+
 
 class TestCjkWordAwareWrap:
     """wrap_text breaks CJK between words when a segmenter offers offsets."""

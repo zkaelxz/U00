@@ -174,7 +174,7 @@ def _load_drama_and_lines(drama_id: int, with_words: bool = False):
     return drama, lines
 
 
-def _require_reading_packages(lines, drama: dict) -> None:
+def require_reading_packages(lines, drama: dict) -> None:
     """A reading row needs the Reader's word packages for every language its
     lines are in; say which to install rather than fail on the first line."""
     import segment
@@ -383,7 +383,7 @@ def generate_ass_text(drama_id: int, field: str = "en", style: Optional[dict] = 
 
     drama, lines = _load_drama_and_lines(drama_id, with_words=karaoke)
     if reading_line and field != "en":
-        _require_reading_packages(lines, drama)
+        require_reading_packages(lines, drama)
     # An ASS file always has a header, so without this an untranslated title
     # gives an empty track, and a burned-in export re-encodes for nothing.
     _require_exportable_text(lines, field)
@@ -707,7 +707,7 @@ def generate_subtitle_export(drama_id: int, fmt: str, field: str,
     lines = _with_sound_captions(lines, field, _sound_tags(drama_id) if sound_captions else None)
     readings = {}
     if reading_line and field != "en" and fmt != "lrc":
-        _require_reading_packages(lines, drama)
+        require_reading_packages(lines, drama)
         readings = _reading_rows(lines, drama)
     export_lines, _ = subtitle_formats.clamp_overlaps(lines)
 
