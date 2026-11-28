@@ -321,7 +321,7 @@ def redact_for_support(text) -> str:
 # query must not end the match and leave the rest of the query behind.
 _BUNDLE_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,15}://[^\s\"'<>`]+")
 _LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net))$")
-# The same private hosts written without a scheme ("192.168.1.5:11434", "nas.local").
+# The same private hosts written without a scheme ("172.20.9.5:11434", "nas.local").
 _LAN_IN_TEXT = re.compile(
     r"(?i)(?<![\w.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}"
     r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}"

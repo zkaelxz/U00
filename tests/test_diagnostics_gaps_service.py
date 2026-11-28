@@ -1019,14 +1019,14 @@ _BUNDLE_SECRETS = {
     "jwt": "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhbGV4In0.c2lnbmF0dXJlc2ln",
     "signed": "https://cdn.example.com/a.mp4?X-Amz-Signature=SIGNEDVALUE&Expires=1",
     "source_path": "https://novels.example/book/moonlit-example-garden/ch-1",
-    "lan_url": "http://192.168.1.77:11434/api/chat",
-    "lan_bare": "ollama at 192.168.1.77:11434 or nas-example.local",
+    "lan_url": "http://172.20.9.77:11434/api/chat",
+    "lan_bare": "ollama at 172.20.9.77:11434 or nas-example.local",
     "title": f"Translating 1/3 -- {_TITLE} (0%) and {_TITLE_ZH.upper()}",
     "odd_key": f"rejected key {_ODD_KEY}",
 }
 _BUNDLE_LEAKS = ("alex.example", "alexuser", "pwvalue123", "PRIVATEQUERY", "PLAINCOOKIEVALUE",
                  "hunter2hunter2", "hunter3hunter3", "PLAINBEARERVALUE123", "eyJhbGciOiJIUzI1NiJ9",
-                 "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "192.168.1.77",
+                 "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "172.20.9.77",
                  "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat")
 
 
