@@ -719,7 +719,7 @@ class OllamaEngine:
         try:
             return request_translations_with_retry(
                 zh_lines, context.get("speaker_labels"), call_model,
-                line_ids=line_ids, engine_name="ollama",
+                engine_name="ollama",
                 line_languages=context.get("line_languages"),
                 sentence_groups=context.get("sentence_groups"), recover_replies=True,
                 # The reply guard set to Off in Settings switches these off too. Its

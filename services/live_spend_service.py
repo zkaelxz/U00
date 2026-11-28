@@ -40,6 +40,10 @@ class SessionBudget:
         with self._lock:
             return self._spent >= self.limit_usd
 
+    def spent_usd(self) -> float:
+        with self._lock:
+            return self._spent
+
 
 def session_budget(engine, engine_name: str, limit_usd: float):
     """A SessionBudget when the engine is billed and no monthly cap is set, else
@@ -60,6 +64,16 @@ class LiveSpendGuard:
         self._streak = FailureStreak()
         self._halted = False
         self._metered = engine_name not in engine_registry.FREE_ENGINES
+
+    @property
+    def halted(self) -> bool:
+        return self._halted
+
+    def session_spend(self):
+        """(spent_usd, limit_usd) of the session budget, or None without one."""
+        if self._budget is None:
+            return None
+        return self._budget.spent_usd(), self._budget.limit_usd
 
     def _halt(self, reason: str, label: str) -> None:
         if not self._halted:

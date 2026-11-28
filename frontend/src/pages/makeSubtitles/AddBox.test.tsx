@@ -1,7 +1,6 @@
 import type { ReactElement } from 'react'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { FileRunRequest } from './addBoxModel'
 
 // Mounts the Add box and its run with the real React DOM client. The suite runs in Node with no DOM
 // library, so a small DOM stand-in (only what React DOM touches here) is installed before React DOM loads.
@@ -98,7 +97,7 @@ const localStorage = {
   removeItem: (k: string) => { stored.delete(k) },
 }
 const doc = new FakeDocument()
-const win = { document: doc, localStorage, HTMLIFrameElement: class {}, addEventListener() {}, removeEventListener() {} }
+const win = { document: doc, localStorage, location: { hash: '' }, HTMLIFrameElement: class {}, addEventListener() {}, removeEventListener() {} }
 doc.defaultView = win
 vi.stubGlobal('window', win)
 vi.stubGlobal('document', doc)
@@ -143,12 +142,10 @@ vi.mock('./MakeSubtitles', async (orig) => ({
   FilePlan: (p: { onOnlyAdd: () => void }) => { shown.filePlan = p; return <i data-stub="file-plan" /> },
 }))
 
-const { act, createElement, useEffect } = await import('react')
+const { act, createElement } = await import('react')
 const { createRoot } = await import('react-dom/client')
-const { renderToStaticMarkup } = await import('react-dom/server')
 const { AddBox, ADD_LINK_ID } = await import('./AddBox')
-const { FileRunStatus } = await import('./MakeSubtitles')
-const { useFileRun } = await import('./useFileRun')
+const { clearHandoff, peekHandoff } = await import('./addBoxModel')
 
 afterAll(() => vi.unstubAllGlobals())
 
@@ -180,68 +177,11 @@ afterEach(async () => {
   root = null
 })
 
-describe('a file handed to the Add page while a saved run is still going', () => {
-  const request: FileRunRequest = { file: new File(['abc'], 'Second.mp3'), engine: 'claude', language: 'ja', title: 'Second', variant: 'en-GB' }
-  const seen: { run: ReturnType<typeof useFileRun> | null } = { run: null }
-  function Harness() {
-    const r = useFileRun({ runs: true, request })
-    useEffect(() => { seen.run = r })
-    return null
-  }
-  const run = () => seen.run!
-  const saveRun = () => stored.set('baihe.pref.makeSubtitles.run', JSON.stringify({ dramaId: 7, step: 'transcribe' }))
+describe('the box after Only add it', () => {
+  afterEach(() => clearHandoff(peekHandoff('new-title')))
 
-  it('waits, takes no part in that run, then is in the box after Make another, unstarted', async () => {
-    saveRun()
-    await mount(<Harness />)
-
-    expect(run().showingRun).toBe(true)
-    expect(run().flow).toMatchObject({ phase: 'running', dramaId: 7 })
-    expect(api.createDrama).not.toHaveBeenCalled()
-    expect(api.uploadAndTranscribe).not.toHaveBeenCalled()
-    // The saved run's later steps read these, so none may be the other file's.
-    expect(run().engine).toBe('deepseek')
-    expect(run().variant).toBe('')
-    expect(run().title).toBe('')
-    expect(run().language).toBe('zh')
-    expect(run().file).toBeNull()
-    expect(renderToStaticMarkup(<FileRunStatus run={run()} />)).toContain(
-      '“Second.mp3” has not been started, because this run was already under way. It will be here to start when this one is finished.',
-    )
-
-    await act(async () => run().reset())
-    expect(run().flow.phase).toBe('idle')
-    expect(run().file).toBe(request.file)
-    expect(run()).toMatchObject({ engine: 'claude', language: 'ja', title: 'Second', variant: 'en-GB', waiting: null })
-    expect(api.createDrama).not.toHaveBeenCalled()
-    expect(api.uploadAndTranscribe).not.toHaveBeenCalled()
-    expect(api.startTranslateRun).not.toHaveBeenCalled()
-  })
-
-  it('is in the box, unstarted, when the saved run turns out to be lost', async () => {
-    saveRun()
-    api.probeJob.mockImplementation(async () => null)
-    await mount(<Harness />)
-
-    expect(run().flow.phase).toBe('error')
-    expect(run().file).toBe(request.file)
-    expect(run()).toMatchObject({ engine: 'claude', language: 'ja', title: 'Second', variant: 'en-GB', waiting: null })
-    expect(api.createDrama).not.toHaveBeenCalled()
-    expect(api.uploadAndTranscribe).not.toHaveBeenCalled()
-  })
-
-  it('starts at once when there is no saved run', async () => {
-    await mount(<Harness />)
-    expect(api.createDrama).toHaveBeenCalledWith(expect.objectContaining({ title_en: 'Second', source_language: 'ja' }))
-    expect(api.uploadAndTranscribe).toHaveBeenCalledTimes(1)
-    expect(run().waiting).toBeNull()
-  })
-})
-
-describe('the Library box after Only add it', () => {
   it('is empty again after handing a link to New title', async () => {
-    const onNewTitle = vi.fn()
-    await mount(createElement(AddBox, { place: 'library', onNewTitle }))
+    await mount(createElement(AddBox, {}))
     const field = () => container.find((e) => e.getAttribute('id') === ADD_LINK_ID)
     const link = 'https://www.youtube.com/watch?v=abc'
     await act(async () => {
@@ -251,27 +191,27 @@ describe('the Library box after Only add it', () => {
     expect(byStub('link-plan')).not.toBeNull()
 
     await act(async () => shown.linkPlan!.onOnlyAdd())
-    expect(onNewTitle).toHaveBeenCalledWith({ link })
+    expect(peekHandoff('new-title')?.start).toEqual({ link })
+    expect(win.location.hash).toBe('#/library')
     expect(propsOf(field()).value).toBe('')
     expect(byStub('link-plan')).toBeNull()
   })
 
   it('is empty again after handing a file to New title, and the same file can be chosen again', async () => {
-    const onNewTitle = vi.fn()
-    await mount(createElement(AddBox, { place: 'library', onNewTitle }))
+    await mount(createElement(AddBox, {}))
     const input = container.find((e) => e.getAttribute('aria-label') === 'Audio or video file')!
     input.value = 'C:\\fakepath\\ep1.mp4'
     await act(async () => propsOf(input).onChange({ target: { files: [new File(['abc'], 'ep1.mp4')] } }))
     expect(byStub('file-plan')).not.toBeNull()
 
     await act(async () => shown.filePlan!.onOnlyAdd())
-    expect(onNewTitle).toHaveBeenCalledWith({ fileName: 'ep1.mp4' })
+    expect(peekHandoff('new-title')?.start).toEqual({ fileName: 'ep1.mp4' })
     expect(byStub('file-plan')).toBeNull()
     expect(input.value).toBe('')
   })
 
   it('does not take a link on Enter while an input method is composing', async () => {
-    await mount(createElement(AddBox, { place: 'library', onNewTitle: vi.fn() }))
+    await mount(createElement(AddBox, {}))
     const field = () => container.find((e) => e.getAttribute('id') === ADD_LINK_ID)
     const enter = (isComposing: boolean) => propsOf(field()).onKeyDown({ key: 'Enter', nativeEvent: { isComposing }, preventDefault() {} })
     await act(async () => propsOf(field()).onChange({ target: { value: 'https://a.example/1' } }))

@@ -37,6 +37,10 @@ import db
 from engine_backends.shared import display_url, redact_for_storage
 
 MANIFEST_NAME = "chapters.json"
+# The last good copy, read when the main file is unreadable (a power cut
+# mid-save, a bad sector). Written before the main file on every save, so at
+# least one of the two always holds a complete manifest.
+BACKUP_NAME = "chapters.json.bak"
 MAX_MANIFEST_BYTES = 4 * 1024 * 1024
 # Below the read cap so the app can never write a file it then refuses to read.
 MAX_WRITE_BYTES = 3 * 1024 * 1024
@@ -128,11 +132,25 @@ def _path(drama_id: int) -> str:
     return os.path.join(db.drama_dir(drama_id), MANIFEST_NAME)
 
 
+def _backup_path(drama_id: int) -> str:
+    return os.path.join(db.drama_dir(drama_id), BACKUP_NAME)
+
+
 def _read(drama_id: int):
     """(manifest, readable). A missing file is readable and empty; one that
-    exists but cannot be used is empty and not readable."""
+    exists but cannot be used falls back to the last good copy, and is empty
+    and not readable when that cannot be used either."""
+    manifest, readable = _read_file(_path(drama_id))
+    if readable:
+        return manifest, True
+    backup, backup_readable = _read_file(_backup_path(drama_id))
+    if backup_readable and os.path.exists(_backup_path(drama_id)):
+        return backup, True
+    return manifest, False
+
+
+def _read_file(path: str):
     empty = {"version": 1, "chapters": [], "hidden": []}
-    path = _path(drama_id)
     if not os.path.exists(path):
         return empty, True
     try:
@@ -202,6 +220,7 @@ def _save(drama_id: int, manifest: dict) -> None:
     data = _serialise(manifest)
     for attempt in range(_REPLACE_ATTEMPTS):
         try:
+            core.atomic_write(_backup_path(drama_id), data)
             core.atomic_write(_path(drama_id), data)
             return
         except PermissionError:

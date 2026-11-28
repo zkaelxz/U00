@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react'
 
-import { listLines, searchLines } from '../../../../api/review'
+import { listLines, SEARCH_LIMIT, searchLines } from '../../../../api/review'
 import type { LineFilter, ReviewLine, ReviewLinesPage } from '../../../../types/review'
 import { QUEUE_FILTER } from './checkQueueModel'
 import type { EditState } from './LineRow'
@@ -38,6 +38,12 @@ export const openPendingEdit = (target: ReviewLine) => (cur: EditState | null): 
 export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, focusActive, setActiveId, setEdit, setPage }: Deps) {
   const [data, setData] = useState<ReviewLinesPage | null>(null)
   const [found, setFound] = useState<ReviewLine[] | null>(null)
+  // A full answer may have stopped at the server's limit: Load more asks for the hits after it.
+  const [foundMore, setFoundMore] = useState(false)
+  const termRef = useRef(term)
+  useEffect(() => {
+    termRef.current = term
+  })
   const [allTotal, setAllTotal] = useState<number | null>(null)
   // What `data` was loaded for. A view or a reload asked for since then has not arrived, and until it does the
   // page on screen is the earlier one's: the check queue must not judge "Mark the rest" from it.
@@ -77,6 +83,7 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
       ? searchLines(dramaId, term).then((r) => {
           if (cancelled) return
           setFound(r)
+          setFoundMore(r.length >= SEARCH_LIMIT)
           settle(r)
         })
       : listLines(dramaId, page, PAGE_SIZE, filter).then((r) => {
@@ -111,12 +118,23 @@ export function useLinesLoad({ dramaId, page, filter, term, reloads, pending, fo
     }
   }, [dramaId, filter, reloads])
 
+  const loadMoreFound = async () => {
+    const asked = term
+    const r = await searchLines(dramaId, asked, undefined, found?.[found.length - 1]?.idx ?? -1)
+    if (termRef.current !== asked) return
+    setFound((cur) => {
+      const have = new Set((cur ?? []).map((l) => l.id))
+      return [...(cur ?? []), ...r.filter((l) => !have.has(l.id))]
+    })
+    setFoundMore(r.length >= SEARCH_LIMIT)
+  }
+
   const retry = () => {
     setError(null)
     setRetries((n) => n + 1)
   }
   return {
-    data, setData, found, setFound, allTotal, error, setError, retry, ownPickRef,
+    data, setData, found, setFound, foundMore, loadMoreFound, allTotal, error, setError, retry, ownPickRef,
     dataFilter: loadedFor?.filter ?? null,
     settled: loadedFor?.filter === filter && loadedFor.reloads === reloads,
   }

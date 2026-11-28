@@ -86,7 +86,7 @@ def test_only_creator_or_override_changes_a_group(isolated_db):
                  lambda: svc.delete_term(_p(b), gid, 1)):
         with pytest.raises(NotFoundError):
             call()
-    assert [t["term_original"] for t in svc.list_terms(_p(b), gid)] == ["x"]
+    assert [t["term_original"] for t in db.list_shared_glossary_terms(gid)] == ["x"]
     assert svc.list_groups(_p(b))["items"][0]["can_edit"] is False
     svc.delete_term(LOCAL, gid, db.list_shared_glossary_terms(gid)[0]["id"])
 

@@ -31,7 +31,7 @@ test('a novel opens on its chapter list with Translate, Add chapters, Glossary, 
   await expect(page.getByRole('link', { name: 'Read' })).toHaveAttribute('href', '#/read/2')
 })
 
-test('with lines, each chapter row shows how far it is translated and a Read link to its first page', async ({ page }) => {
+test('with lines, each chapter row shows how far it is translated and a Read link to its first line', async ({ page }) => {
   await mockChapters(page, listBody([row(1, { in_translation: true }), row(2)], { translation_chars: 4001 }))
   await page.route('**/api/workflow/dramas/2/progress', (route) => route.fulfill({ json: progress(80) }))
   await page.route('**/api/novel/dramas/2/line-chapters', (route) => route.fulfill({ json: {
@@ -45,7 +45,7 @@ test('with lines, each chapter row shows how far it is translated and a Read lin
   const items = page.getByRole('list', { name: 'Saved chapters' }).getByRole('listitem')
   await expect(items.first()).toContainText('Translated')
   await expect(items.nth(1)).toContainText('12 of 40 lines translated')
-  await expect(items.nth(1).getByRole('link', { name: /^Read chapter 2/ })).toHaveAttribute('href', '#/read/2?page=2')
+  await expect(items.nth(1).getByRole('link', { name: /^Read chapter 2/ })).toHaveAttribute('href', '#/read/2?line=40')
 })
 
 test('once translation has started the link box becomes Add chapters, which never starts a translation', async ({ page }) => {

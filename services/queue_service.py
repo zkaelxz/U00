@@ -20,6 +20,7 @@ becomes "missed", which only the owner can turn into a run, and a restored
 library brings back no start time.
 """
 
+import contextlib
 import datetime
 import logging
 import re
@@ -70,6 +71,8 @@ _ALL_STEPS = (DOWNLOAD,) + STEPS + _PAGE_STEPS
 # A chain saved before items recorded the steps they wait for is a Quick video run, in this order.
 _LEGACY_CHAIN = (DOWNLOAD,) + STEPS
 _UNFINISHED = "An earlier step of this run did not finish."
+_BEHIND_TONIGHT = "Waits for this title's earlier step, which runs tonight."
+_BEHIND_PAUSED = "Waits for this title's earlier step, which is paused."
 POLL_SECONDS = 5.0
 # A start time first seen this late was slept through (the PC was asleep, so
 # nothing ticked) and becomes "missed", like one that passed while Baihe was
@@ -218,14 +221,24 @@ def _settle(doc: dict, now: float) -> None:
     for item in doc["items"]:
         if item["status"] == RUNNING:
             _finish(item, INTERRUPTED, _INTERRUPTED, now)
+            _log_settled(item, f"was running (job {item['job_id'] or 'not recorded'})")
         elif item["status"] == WAITING and item["now"]:
             # It would otherwise start on its own in the new process, which the queue never does.
             _finish(item, INTERRUPTED, _NOT_STARTED, now)
+            _log_settled(item, "was due to start, not started")
     doc["state"] = IDLE
     if doc["schedule"] and now >= doc["schedule"]["start_at"]:
         doc["schedule"]["missed"] = True
     doc["instance"] = _INSTANCE
     doc["settled"] = True
+
+
+def _log_settled(item: dict, where: str) -> None:
+    with contextlib.suppress(Exception):
+        import applog
+        applog.get_logger().warning(
+            f"Interrupted queue item {item['id']} ({item['step']}, title #{item['drama_id']}): "
+            f"{where} when Baihe stopped; marked interrupted, left for the person to press Retry.")
 
 
 def _save(doc: dict) -> None:
@@ -315,7 +328,8 @@ def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
 
-def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wait: Optional[str] = None) -> dict:
+def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wait: Optional[str] = None,
+               behind: Optional[str] = None) -> dict:
     out = {k: item[k] for k in ("id", "drama_id", "step", "status", "job_id",
                                 "added_at", "started_at", "finished_at")}
     out["reason"] = item["reason"] or None
@@ -324,6 +338,10 @@ def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wai
     out["page_run"] = bool(item.get("now"))
     if out["tonight"] and item["status"] == WAITING and not out["reason"]:
         out["reason"] = night_wait
+    elif item["status"] == WAITING and not out["reason"] and behind == _BEHIND_PAUSED:
+        out["reason"] = behind
+    elif item["status"] == WAITING and not out["reason"] and behind and night_wait:
+        out["reason"] = behind
     out["title"] = _title_name(drama)
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
@@ -356,6 +374,11 @@ def get_queue(principal) -> dict:
     if any(i.get("tonight") and i["status"] == WAITING for i in doc["items"]):
         night_wait = (queue_night.waiting_text(doc["night"]) if not queue_night.in_window(doc["night"], _clock())
                       else None if queue_night.pc_idle() else queue_night.IDLE_WAIT_TEXT)
+    behind_paused, behind_tonight = _behind_earlier_step(doc["items"])
+
+    def behind(item_id):
+        return (_BEHIND_PAUSED if item_id in behind_paused
+                else _BEHIND_TONIGHT if item_id in behind_tonight else None)
     return {
         "version": QUEUE_VERSION,
         "state": doc["state"],
@@ -367,7 +390,7 @@ def get_queue(principal) -> dict:
         "max_items": MAX_ITEMS,
         "can_control": _controls(principal),
         "monthly_cap_usd": monthly,
-        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of, night_wait)
+        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of, night_wait, behind(i["id"]))
                   for i in doc["items"] if _sees(principal, i, owner_of)],
     }
 
@@ -638,7 +661,7 @@ def remove_item(principal, item_id: int) -> dict:
 
 
 def hold_item(principal, item_id: int, held: bool) -> dict:
-    """Pauses (or resumes) one waiting item; the rest of the queue goes on."""
+    """Pauses (or resumes) one waiting item; the rest of the queue, but for its title's later steps, goes on."""
     def change(doc, item):
         if item["status"] != WAITING:
             raise ConflictError("Only a waiting item can be paused or resumed.")
@@ -653,6 +676,11 @@ def set_item_tonight(principal, item_id: int, tonight: bool) -> dict:
     def change(doc, item):
         if item["status"] != WAITING or item["now"]:
             raise ConflictError("Only an item waiting for the queue can wait for tonight.")
+        if not tonight and item["id"] in _behind_earlier_step(doc["items"])[1]:
+            # Running it now would start it before the earlier step it needs; that step may be
+            # another account's, or a transcription the adder wanted kept off the PC by day.
+            raise ConflictError("An earlier step of this title waits for tonight, and this one runs "
+                                "after it. Press Run now on that step first.")
         item["tonight"] = tonight
         if not tonight:
             _auto_start(doc, item["user_id"])
@@ -1121,6 +1149,29 @@ def _overlap_pick(items: list, running: list, ordered: list) -> Optional[dict]:
                  and first_of_title[i["drama_id"]] == i["id"]), None)
 
 
+def _behind_earlier_step(items: list) -> tuple:
+    """(paused, tonight): ids of waiting queue items placed after a waiting step of their own title
+    that is paused, or that waits for tonight. All steps adds a title's steps unchained, so only
+    queue order keeps its Translate after its Transcribe: started first, it is skipped for want of
+    lines, or pays to translate lines the later transcription then replaces. A page's start (`now`)
+    is the owner's press and is not held."""
+    paused_titles, tonight_titles = set(), set()
+    paused, tonight = set(), set()
+    for i in items:
+        if i["status"] != WAITING:
+            continue
+        if not i["now"]:
+            if i["drama_id"] in paused_titles:
+                paused.add(i["id"])
+            elif i["drama_id"] in tonight_titles:
+                tonight.add(i["id"])
+        if i.get("held"):
+            paused_titles.add(i["drama_id"])
+        elif i.get("tonight"):
+            tonight_titles.add(i["drama_id"])
+    return paused, tonight
+
+
 def _held_for_disk(item: dict) -> bool:
     """Fails closed: this runs under _lock after an item was claimed, and an error escaping
     there would leave that item RUNNING with no job."""
@@ -1150,6 +1201,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         running = [i for i in doc["items"] if i["status"] == RUNNING]
         # A paused item holds back its own chain too: a later step would only be skipped for the missing earlier one.
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
+        behind_paused, behind_tonight = _behind_earlier_step(doc["items"])
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
                    and not i.get("held") and i["chain"] not in held_chains]
         # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
@@ -1157,8 +1209,10 @@ def _start_next(now: float, deferred=frozenset()) -> None:
             and queue_night.pc_idle()
         # A Tonight step holds back its whole run: a later step started now would only be skipped for it.
         tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
-        ready = [i for i in waiting if (i.get("not_before") or 0) <= now
-                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains))]
+        # Behind a paused step, but still waiting: the queue must not go idle, as Resume can't restart it
+        # while another account's items wait.
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now and i["id"] not in behind_paused
+                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains or i["id"] in behind_tonight))]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
         ordered = [i for i in ready if i["now"]]
         if doc["state"] == ACTIVE:

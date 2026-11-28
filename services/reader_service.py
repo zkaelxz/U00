@@ -47,14 +47,17 @@ Permission contract for routes (user decision, 2026-09-29):
     `require_engines_allowed`, where an omitted engine counts as paid.
 """
 
+import bisect
 import os
 import re
+import time
 
 import requests
 
 import core as core_module
 from lib import ids as lib_ids
 import db
+import media_inspect
 import novel_text
 import reader
 import storage
@@ -65,7 +68,9 @@ from engine_backends import line_text
 import universe_wiki
 import vocab_export
 from engine_backends import paid_calls
-from services import engine_failure_service, glossary_service, ownership_service, settings_service, translate_service
+from engine_backends import medium_prompts
+from services import (engine_failure_service, glossary_service, novel_line_chapters_service,
+                      ownership_service, settings_service, translate_service)
 from services.media_upload_service import AUDIO_EXTENSIONS, VIDEO_EXTENSIONS
 from lib.errors import (
     DependencyUnavailableError,
@@ -95,13 +100,15 @@ def _cached_definitions(drama_id: int, source_language: str) -> dict:
 def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CHAPTER_SIZE,
                     theme: str = "light", font_size: int = 22, line_height: float = 2.4,
                     max_width: int = 1200, font: str = "system", readings: bool = True,
-                    include_html: bool = True, editable: bool = False) -> dict:
-    """{html, page, page_count, total_lines} for one page of a drama's
+                    include_html: bool = True, editable: bool = False, line: int | None = None) -> dict:
+    """{html, page, page_count, total_lines, page_starts} for one page of a drama's
     reader view, definitions sourced only from what's already cached
     (see module docstring) -- never a live dictionary lookup. `html` is ""
     when include_html is off: the web app fetches the counts here and loads
     the document itself from the page.html route, so the page is built
-    once, not twice. Raises
+    once, not twice. `line` (a line position) asks for the page that holds
+    it instead of `page`. Pages are page_plan's, so a novel's page starts at
+    its chapter. Raises
     InvalidInputError for a bad drama id/page/chapter_size and
     NotFoundError for an unknown drama or one with no lines yet, the
     same vocabulary every other service in this app's migration uses."""
@@ -111,41 +118,113 @@ def get_reader_page(drama_id: int, page: int = 1, chapter_size: int = DEFAULT_CH
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise InvalidInputError("page must be a positive whole number.")
 
+    if line is not None and (not isinstance(line, int) or isinstance(line, bool) or line < 0):
+        raise InvalidInputError("line must be 0 or more.")
+
     drama = ownership_service.require_drama(drama_id)
 
-    total, rows = db.load_line_page(drama_id, (page - 1) * chapter_size, chapter_size)
+    total, _ = db.load_line_page(drama_id, 0, 0)
+    stamp = None
+    if medium_prompts.kind_for(drama) == "novel":
+        stamp = db.line_text_stamp(drama_id) if not include_html or line is not None \
+            else _turn_line_text_stamp(drama_id, total, (chapter_size, page))
     if not total:
         raise NotFoundError(f"Drama {drama_id} has no lines yet.")
-
-    page_count = max(1, (total + chapter_size - 1) // chapter_size)
-    if page > page_count:
-        raise InvalidInputError(f"page {page} is past the last page ({page_count}).",
-                                details={"page_count": page_count})
-
-    page_lines = core_module.lines_from_rows(rows)
-    source_language = drama.get("source_language") or "zh"
-    definitions = _cached_definitions(drama_id, source_language)
-
-    ends = None
-    # Editing works on single lines: a joined paragraph has no one line to save to.
-    if include_html and not editable and drama.get("content_mode") == "novel_narration":
-        ends = _narration_paragraph_ends(drama_id)
+    starts = page_plan(drama_id, drama, chapter_size, total, stamp)
+    if line is not None:
+        page = bisect.bisect_right(starts, min(line, total - 1))
+    _check_page(page, starts)
+    if stamp is not None and not include_html:
+        _start_turn(drama_id, stamp, (chapter_size, page))
     html_str = ""
     if include_html:
+        first, end = _page_range(starts, page, total)
+        _, rows = db.load_line_page(drama_id, first, end - first)
+        page_lines = core_module.lines_from_rows(rows)
+        source_language = drama.get("source_language") or "zh"
+        definitions = _cached_definitions(drama_id, source_language)
+        ends = None
+        # Editing works on single lines: a joined paragraph has no one line to save to.
+        if not editable and drama.get("content_mode") == "novel_narration":
+            ends = _narration_paragraph_ends(drama_id, stamp)
         html_str = reader.build_reader_html(
             page_lines, source_language, definitions, audio_data_uri=None, theme=theme,
             font_size=font_size, line_height=line_height, max_width=max_width, font=font,
             readings=readings, paragraph_ends=ends, editable=editable,
             terms=glossary_service.effective_glossary_terms(drama_id) if editable else None)
 
-    return {"html": html_str, "page": page, "page_count": page_count, "total_lines": total}
+    return {"html": html_str, "page": page, "page_count": len(starts), "total_lines": total,
+            "page_starts": starts}
+
+
+_PAGE_PLANS: dict = {}
+_TURN_STAMPS: dict = {}
+_TURN_SECONDS = 3.0
+
+
+def _turn_line_text_stamp(drama_id: int, total: int, turn: tuple) -> tuple:
+    """db.line_text_stamp, shared by the requests of one page turn. The stamp reads every
+    line's text, most of a turn's time on a long novel, and the web app's turn is three
+    requests for one page: the counts (`html` off), which start it, then the document
+    and, a second later, the saved position. Any other request, such as a different
+    page or a document asked for on its own after an edit, reads the text again."""
+    seen = _TURN_STAMPS.get(drama_id)
+    if seen is not None and time.monotonic() - seen[0] < _TURN_SECONDS \
+            and seen[2] == turn and seen[1][0] == total:
+        return seen[1]
+    return db.line_text_stamp(drama_id)
+
+
+def _start_turn(drama_id: int, stamp: tuple, turn: tuple) -> None:
+    if len(_TURN_STAMPS) >= _PARAGRAPH_ENDS_KEPT:
+        _TURN_STAMPS.pop(next(iter(_TURN_STAMPS)), None)
+    _TURN_STAMPS[drama_id] = (time.monotonic(), stamp, turn)
+
+
+def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int, stamp=None) -> list:
+    """The line position each Reader page starts at. A novel with chapters starts a page
+    at each chapter, so "Read" on a chapter never opens on the tail of the one before;
+    a chapter longer than `chapter_size` lines goes on over more pages, each ending at a
+    paragraph end when the novel's source text gives them. Anything else is a page every
+    `chapter_size` lines. Kept between page turns, like the paragraph ends, once per page
+    size, so a phone and a PC reading the same title at different sizes don't evict each other."""
+    if medium_prompts.kind_for(drama) != "novel":
+        return list(range(0, total, chapter_size))
+    stamp = stamp or db.line_text_stamp(drama_id)
+    ends = _narration_paragraph_ends(drama_id, stamp) if drama.get("content_mode") == "novel_narration" else None
+    ends_key = _PARAGRAPH_ENDS[drama_id][0] if ends is not None and drama_id in _PARAGRAPH_ENDS else None
+    key = (stamp, novel_line_chapters_service.chapters_stamp(drama_id), ends_key)
+    cached = _PAGE_PLANS.get((drama_id, chapter_size))
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    texts = db.load_line_texts(drama_id)
+    chapter_starts = novel_line_chapters_service.start_positions(drama_id, [t.zh for t in texts])
+    bounds = sorted({0, *chapter_starts, len(texts)})
+    plan = []
+    for first, end in zip(bounds, bounds[1:]):
+        at = first
+        while at < end:
+            plan.append(at)
+            cut = min(at + chapter_size, end)
+            if cut < end and ends:
+                cut = next((q for q in range(cut, at, -1) if texts[q - 1].idx in ends), cut)
+            at = cut
+    if len(_PAGE_PLANS) >= _PARAGRAPH_ENDS_KEPT:
+        _PAGE_PLANS.pop(next(iter(_PAGE_PLANS)), None)
+    _PAGE_PLANS[(drama_id, chapter_size)] = (key, plan)
+    return plan
+
+
+def _page_range(starts: list, page: int, total: int) -> tuple:
+    """(first position, end position) of `page` (1-based) in a page plan."""
+    return starts[page - 1], starts[page] if page < len(starts) else total
 
 
 _PARAGRAPH_ENDS: dict = {}
 _PARAGRAPH_ENDS_KEPT = 16
 
 
-def _narration_paragraph_ends(drama_id: int):
+def _narration_paragraph_ends(drama_id: int, stamp=None):
     """novel_text.narration_paragraph_ends for the whole title, kept between page
     turns: it matches every line against the whole source text, which on a long
     novel costs more than building the page itself."""
@@ -154,7 +233,7 @@ def _narration_paragraph_ends(drama_id: int):
         st = os.stat(path)
     except OSError:
         return None
-    key = (st.st_mtime_ns, st.st_size, db.line_text_stamp(drama_id))
+    key = (st.st_mtime_ns, st.st_size, stamp or db.line_text_stamp(drama_id))
     cached = _PARAGRAPH_ENDS.get(drama_id)
     if cached is not None and cached[0] == key:
         return cached[1]
@@ -216,12 +295,15 @@ def _require_lines(drama_id: int) -> list:
     return lines
 
 
-def _check_page(page, chapter_size, n_lines: int) -> int:
+def _check_size(chapter_size) -> None:
     if not isinstance(chapter_size, int) or isinstance(chapter_size, bool) or not (10 <= chapter_size <= 200):
         raise InvalidInputError("chapter_size must be a whole number from 10 to 200.")
+
+
+def _check_page(page, starts: list) -> int:
     if not isinstance(page, int) or isinstance(page, bool) or page < 1:
         raise InvalidInputError("page must be a positive whole number.")
-    page_count = max(1, (n_lines + chapter_size - 1) // chapter_size)
+    page_count = max(1, len(starts))
     if page > page_count:
         raise InvalidInputError(f"page {page} is past the last page ({page_count}).",
                                 details={"page_count": page_count})
@@ -412,17 +494,38 @@ def get_media_availability(drama_id: int) -> dict:
 # Progress and length
 # ---------------------------------------------------------------------------
 
+# The overview is fetched on every Reader visit, so a track is probed once per version of the
+# file, and a failed probe is remembered too.
+_TRACK_SECONDS: dict = {}
+
+
+def _track_seconds(path: str):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = (path, st.st_mtime_ns, st.st_size)
+    if key not in _TRACK_SECONDS:
+        if len(_TRACK_SECONDS) >= 256:
+            _TRACK_SECONDS.clear()
+        _TRACK_SECONDS[key] = media_inspect.duration_seconds(path, timeout=5)
+    return _TRACK_SECONDS[key]
+
+
 def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
     """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
-    last_line_idx}. Timed media use the real duration, text a reading-time
-    estimate."""
+    last_line_idx}. Timed media use the real duration, a narrated text its
+    narration track's length, other text a reading-time estimate."""
     drama = _require_drama(drama_id)
     count, last_end, words = db.line_reading_stats(drama_id)
     if drama.get("media_type") in _LISTENING_MEDIA_TYPES:
         display = story_context.listening_time(last_end)["display"] if count else "0m"
     else:
-        display = story_context.reading_time(words)["display"]
+        narration = _media_paths(drama_id, drama).get("narration")
+        seconds = _track_seconds(narration[1]) if narration else None
+        display = (story_context.listening_time(seconds) if seconds
+                   else story_context.reading_time(words))["display"]
     prog = db.get_progress(drama_id, user_id=user_id) or {}
     return {"drama_id": drama_id, "length_display": display, "line_count": count,
             "percent_complete": float(prog.get("percent_complete") or 0.0),
@@ -434,12 +537,16 @@ def save_reading_position(drama_id: int, page: int, chapter_size: int = DEFAULT_
                           user_id: int = 0) -> dict:
     """Records that `page` was viewed: last line = the page's last line,
     percent from it. Writes only the progress row (partial upsert)."""
-    _require_drama(drama_id)
+    _check_size(chapter_size)
+    drama = _require_drama(drama_id)
     total, _ = db.load_line_page(drama_id, 0, 0)
     if not total:
         raise NotFoundError(f"Drama {drama_id} has no lines yet.")
-    _check_page(page, chapter_size, total)
-    _, last_row = db.load_line_page(drama_id, min(page * chapter_size, total) - 1, 1)
+    stamp = _turn_line_text_stamp(drama_id, total, (chapter_size, page)) \
+        if medium_prompts.kind_for(drama) == "novel" else None
+    starts = page_plan(drama_id, drama, chapter_size, total, stamp)
+    _check_page(page, starts)
+    _, last_row = db.load_line_page(drama_id, _page_range(starts, page, total)[1] - 1, 1)
     last_idx = last_row[0]["idx"]
     percent = story_context.compute_percent_complete(last_idx, total)
     db.save_progress(drama_id, last_line_idx=last_idx, last_page=page, percent_complete=percent,
@@ -545,8 +652,11 @@ def lookup_page_definitions(drama_id: int, page: int, chapter_size: int = DEFAUL
     import segment
     drama = _require_drama(drama_id)
     lines = _require_lines(drama_id)
-    _check_page(page, chapter_size, len(lines))
-    page_lines = lines[(page - 1) * chapter_size: page * chapter_size]
+    _check_size(chapter_size)
+    starts = page_plan(drama_id, drama, chapter_size, len(lines))
+    _check_page(page, starts)
+    first, end = _page_range(starts, page, len(lines))
+    page_lines = lines[first:end]
     lang = drama.get("source_language") or "zh"
     script = drama.get("chinese_script") or "simplified"
     engine = llm_engine(engine_name, model) if use_llm else None
@@ -704,10 +814,13 @@ def recap(drama_id: int, page: int, chapter_size: int = DEFAULT_CHAPTER_SIZE,
     page 1) ("Recap what I've read so far"). Bounded to the
     last MAX_RECAP_LINES lines before the page and MAX_RECAP_CHARS of
     their English text (oldest dropped first); `truncated` says so."""
-    _require_drama(drama_id)
+    drama = _require_drama(drama_id)
     lines = _require_lines(drama_id)
-    _check_page(page, chapter_size, len(lines))
-    section = lines[:(page - 1) * chapter_size] or lines[:chapter_size]
+    _check_size(chapter_size)
+    starts = page_plan(drama_id, drama, chapter_size, len(lines))
+    _check_page(page, starts)
+    first, end = _page_range(starts, page, len(lines))
+    section = lines[:first] or lines[:end]
     full = len(section)
     section = section[-MAX_RECAP_LINES:]
     total = sum(len(ln.en or "") for ln in section)

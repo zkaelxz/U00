@@ -542,6 +542,110 @@ class TestStreamedNarrationTrack:
         assert sorted(os.listdir(tmp_path)) == ["narration_track.flac", "narration_track.flac.ZZZ.part", "notes.part"]
 
 
+class _Logged:
+    def __init__(self):
+        self.lines = []
+
+    def info(self, msg, *args):
+        self.lines.append(("info", msg % args))
+
+    def warning(self, msg, *args):
+        self.lines.append(("warning", msg % args))
+
+
+class TestNarrationRunLog:
+    """A book's narration runs for hours, so its log shows what was reused, memory and disk
+    as it goes, the track's length against what the clips add up to, and an ffmpeg limit hit."""
+
+    def _run(self, monkeypatch, tmp_path, texts=("One.", "Two."), **kw):
+        import applog
+        logged = _Logged()
+        monkeypatch.setattr(applog, "get_logger", lambda: logged)
+        lines = [Line(idx=i, start=0, end=0, zh="x", en=t, speaker=f"S{i}") for i, t in enumerate(texts)]
+        dub_narration.build_narration_track(lines, str(tmp_path), {f"S{i}": dict(VOICE) for i in range(len(texts))},
+                                            **kw)
+        return logged.lines
+
+    def test_a_rerun_logs_its_clips_as_reused_and_the_track_length(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 100, "Two.": b"\x02\x00" * 50})
+        monkeypatch.setattr(dub_narration, "_track_duration_ms", lambda path: 850)
+        first = self._run(monkeypatch, tmp_path)
+        assert first[0][1].startswith("Narration started: 2 clips, 0 reused from an earlier run, 2 to speak")
+        again = self._run(monkeypatch, tmp_path)
+        assert again[0][1].startswith("Narration started: 2 clips, 2 reused from an earlier run, 0 to speak")
+        # 100 ms + 50 ms of clips and two 350 ms gaps.
+        assert again[-1][0] == "info" and "0h 00m long, expected 0h 00m" in again[-1][1]
+        assert "free disk" in again[-1][1] and str(tmp_path) not in "".join(m for _, m in again)
+
+    def test_a_track_far_from_its_expected_length_is_a_warning(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 100, "Two.": b"\x02\x00" * 50})
+        monkeypatch.setattr(dub_narration, "_track_duration_ms", lambda path: 425)
+        level, line = self._run(monkeypatch, tmp_path)[-1]
+        assert level == "warning" and "(-50%, more than 5% off)" in line
+
+    def test_a_log_that_cannot_be_written_does_not_stop_the_narration(self, monkeypatch, tmp_path):
+        import applog
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        monkeypatch.setattr(dub_narration, "PROGRESS_LOG_SECONDS", 0)
+
+        def full_disk():
+            raise OSError(28, "No space left on device")
+        monkeypatch.setattr(applog, "get_logger", full_disk)
+        lines = [Line(idx=0, start=0, end=0, zh="x", en="One.", speaker="S0")]
+        out, errors = dub_narration.build_narration_track(lines, str(tmp_path), {"S0": dict(VOICE)}, pace=0.8)
+        assert os.path.exists(out) and errors == [] and lines[0].end == pytest.approx(0.01 / 0.8)
+
+    def test_memory_and_disk_are_logged_through_the_run(self, monkeypatch, tmp_path):
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10, "Two.": b"\x02\x00" * 10})
+        monkeypatch.setattr(dub_narration, "PROGRESS_LOG_SECONDS", 0)
+        progress = [m for _, m in self._run(monkeypatch, tmp_path)
+                    if m.startswith(("Narration speaking clips", "Narration joining clips"))]
+        assert [m.split(":")[0] for m in progress] == ["Narration speaking clips"] * 2 + ["Narration joining clips"] * 2
+        assert progress[-1].startswith("Narration joining clips: 2 of 2 after 0h 00m; process memory ")
+        assert "free RAM" in progress[-1] and "free disk" in progress[-1]
+
+    def test_the_ffmpeg_limit_is_logged_and_says_the_clips_are_kept(self, monkeypatch, tmp_path):
+        import threading
+        unblocked = threading.Event()
+
+        class _Hung:
+            returncode = None
+
+            class stdin:
+                @staticmethod
+                def write(chunk):
+                    unblocked.wait(5)
+                    raise BrokenPipeError(32, "Broken pipe")
+
+                @staticmethod
+                def close():
+                    pass
+
+            def kill(self):
+                unblocked.set()
+
+            def wait(self, timeout=None):
+                self.returncode = -9
+                return -9
+        _pcm_pydub(monkeypatch)
+        _speak_bytes(monkeypatch, {"One.": b"\x01\x00" * 10})
+        monkeypatch.setattr(dub_narration, "_start_ffmpeg", lambda cmd, stderr: _Hung())
+        real = dub_narration._FlacStream
+        monkeypatch.setattr(dub_narration, "_FlacStream", lambda *a, **kw: real(*a, timeout=0.05, **kw))
+        import applog
+        logged = _Logged()
+        monkeypatch.setattr(applog, "get_logger", lambda: logged)
+        with pytest.raises(RuntimeError, match="clips are kept"):
+            dub_narration.build_narration_track(
+                [Line(idx=0, start=0, end=0, zh="x", en="One.", speaker="S0")], str(tmp_path), {"S0": dict(VOICE)})
+        assert logged.lines[-1][0] == "warning"
+        assert logged.lines[-1][1].startswith("Narration stopped by the 0h 00m ffmpeg wait limit")
+
+
 class TestTrackFormat:
     def _wav(self, path, rate, channels, width):
         import wave

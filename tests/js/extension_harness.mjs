@@ -135,7 +135,8 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
-  document.addEventListener = () => {};
+  document.loadListeners = [];
+  document.addEventListener = (type, fn) => { if (type === "load") document.loadListeners.push(fn); };
   sandbox.innerHeight = 800;
   sandbox.scrollY = 0;
   sandbox.scrollTo = () => {};
@@ -263,6 +264,68 @@ async function content(scenario) {
       Object.defineProperty(h.sandbox, "scrollY", { get: () => scrollY });
       const result = await h.ask(visible);
       return { ok: result.ok, error: result.error, shots: h.shots.length, sent: h.sent.flatMap((m) => m.images).length };
+    }
+    case "capture_keeps_reading_while_a_batch_is_out": {
+      // Three pages at first, two more that the reader loads while the first batch is out.
+      const urls = [1, 2, 3, 4, 5].map((n) => `https://s1.bzcdn.net/p/${n}.jpg`);
+      const distinct = async ({ url }) => ({
+        ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
+                          content_type: "image/jpeg", url } });
+      const images = urls.slice(0, 3).map((u, i) => placed(fakeImg(u), i * 100));
+      let readWhileOut = null;
+      let h = null;
+      const onSend = async (message) => {
+        if (h.sent.length !== 1) return;
+        images.push(placed(fakeImg(urls[3]), 300), placed(fakeImg(urls[4]), 400));
+        const until = Date.now() + 3000;
+        while (Date.now() < until && !urls.slice(3).every((u) => h.fetched.includes(u))) {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        readWhileOut = urls.slice(3).every((u) => h.fetched.includes(u));
+      };
+      const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
+      h = loadContent({ images, fetchImage: distinct, onSend, sendReply });
+      const result = await h.ask(capture);
+      return { ok: result.ok, readWhileOut, batches: h.sent.map((m) => m.images.map((i) => i.url)),
+               progress: h.progress.map((m) => m.text) };
+    }
+    case "capture_answer_for_a_recycled_element_draws_when_its_picture_returns": {
+      // A recycling reader moves the <img> on to the next page while its batch is out, then shows
+      // the first page again later: its English is drawn then, and not while the picture still loads.
+      const page = placed(img(), 0);
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const showPage = (url, complete) => Object.assign(page, { src: url, currentSrc: complete ? url : page.currentSrc, complete });
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => {
+          // The reader has set the next page's src, which has not loaded yet: currentSrc still names this page.
+          showPage(IMG_URL_2, false);
+          return { pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) };
+        } });
+      const result = await h.ask(capture);
+      const drawnFor = () => [...h.sandbox.__baihe.state.active.values()].map((e) => e.picture);
+      const afterAnswer = drawnFor();
+      const load = () => h.sandbox.document.loadListeners.forEach((fn) => fn({ target: page }));
+      showPage(IMG_URL, false);
+      load();
+      const whileLoading = drawnFor();
+      showPage(IMG_URL, true);
+      load();
+      return { ok: result.ok, afterAnswer, whileLoading, returned: drawnFor() };
+    }
+    case "capture_first_batch_size": {
+      // Eight pages on screen: the first request is as many pages as the app translates at once.
+      const sizes = {};
+      for (const store of [false, true]) {
+        const urls = Array.from({ length: 8 }, (_, n) => `https://s1.bzcdn.net/p/${n + 1}.jpg`);
+        const distinct = async ({ url }) => ({
+          ok: true, data: { data: Buffer.concat([Buffer.from(JPEG), Buffer.from(url)]).toString("base64"),
+                            content_type: "image/jpeg", url } });
+        const sendReply = (message) => ({ pages: message.images.map((i) => ({ key: i.key, regions: [] })) });
+        const h = loadContent({ images: urls.map((u, i) => placed(fakeImg(u), i * 100)), fetchImage: distinct, sendReply });
+        await h.ask(store ? { ...capture, dramaId: 5, store: true } : capture);
+        sizes[store ? "saved" : "overlay"] = h.sent.map((m) => m.images.length);
+      }
+      return sizes;
     }
     case "page_drawn_before_its_batch_answers": {
       // The worker forwards a finished page while its batch is still out; the batch's own

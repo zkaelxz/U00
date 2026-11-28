@@ -158,7 +158,7 @@ describe('Find and replace Apply', () => {
   it('applies, then lets the editor close a clean edit left on the old text', async () => {
     const fake = { dramaId: 9, beforeWrite: vi.fn(async () => null), afterWrite: vi.fn() }
     const unregister = registerLinesWriter(fake as unknown as LinesController)
-    const result = { applied: 1, stale: 0, applied_ids: [1], stale_ids: [] }
+    const result = { applied: 1, stale: 0, applied_ids: [1], stale_ids: [], rest: [], error: null }
     expect(await applyAfterEdit(9, matches, vi.fn(async () => result))).toBe(result)
     expect(fake.afterWrite).toHaveBeenCalledWith([1])
     unregister()
