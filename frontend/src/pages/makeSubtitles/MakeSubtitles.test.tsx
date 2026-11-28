@@ -5,7 +5,7 @@ import { FilePlan } from './MakeSubtitles'
 import { useFileRun } from './useFileRun'
 
 function Plan({ file = null }: { file?: File | null }) {
-  const run = useFileRun({ runs: true })
+  const run = useFileRun()
   return <FilePlan run={{ ...run, file }} onChooseFile={() => undefined} onOnlyAdd={() => undefined} onClear={() => undefined} />
 }
 

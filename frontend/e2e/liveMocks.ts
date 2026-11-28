@@ -64,6 +64,8 @@ interface LiveMocks {
   /** Followed channels (the card): the list served, and every POST under /api/live/follows. */
   follows: { items: FollowRow[]; can_auto_start: boolean; posts: { path: string; body: unknown }[]; addStatus: number }
   ollamaChecks: string[]
+  /** POSTs to .../extend; each moves time_left_seconds to an hour. */
+  extends: number
   posts: { url: string; body: unknown; headers: Record<string, string> }[]
   polls: string[]
   unmocked: string[]
@@ -96,7 +98,7 @@ export const LIVE_READY: Record<string, boolean> = {
 
 export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: boolean; enginesFail?: boolean; ollamaMissing?: boolean; readiness?: Record<string, boolean>; liveOptions?: Partial<LiveFormOptions>; permissions?: string[] } = {}): Promise<LiveMocks> {
   const m: LiveMocks = {
-    posts: [], polls: [], unmocked: [], ollamaChecks: [],
+    posts: [], polls: [], unmocked: [], ollamaChecks: [], extends: 0,
     follows: { items: [], can_auto_start: true, posts: [], addStatus: 200 },
     state: { sessions: [], status: 'queued', message: 'Waiting for the GPU', cues: [], startStatus: 200, startMessage: 'Not allowed.', sessionsFail: false, model: null, notes: [], figures: {}, finishOnStop: false, chat: null },
   }
@@ -222,6 +224,11 @@ export async function mockLive(page: Page, opts: { remote?: boolean; ollama?: bo
     })
   })
   await page.route(`**/api/live/sessions/${SID}/chat*`, (route) => json(route, m.state.chat))
+  await page.route(`**/api/live/sessions/${SID}/extend`, (route) => {
+    m.extends += 1
+    m.state.figures = { ...m.state.figures, time_left_seconds: 3900 }
+    return json(route, { session_id: SID, time_left_seconds: 3900 })
+  })
   await page.route(`**/api/live/sessions/${SID}/stop`, (route) => {
     const r = route.request()
     m.posts.push({ url: r.url(), body: null, headers: r.headers() })

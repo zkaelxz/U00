@@ -33,6 +33,7 @@ __all__ = [
     "LiveNameFixes",
     "LiveStreamRef",
     "LiveSessionSummary",
+    "LiveSessionExtended",
     "LiveSessionStopped",
     "LiveChatMessage",
     "LiveChatPage",
@@ -217,6 +218,10 @@ class TranscribeConfig(BaseModel):
     # Shortest silence between words at which a long line may be cut.
     min_pause_sec: float
     separate_vocals_first: bool
+    # False while the title follows the model's default, which the form then follows too.
+    separate_vocals_chosen: bool = False
+    # That default on Breeze-ASR-25 with local Whisper (GPU, separation pack and model ready); every other model's is Off.
+    separates_on_breeze_by_default: bool = False
     separation_backend: str
     realign_long_segments: bool
     whisper_fast_mode: bool
@@ -253,6 +258,9 @@ class TranscribeConfigUpdate(BaseModel):
     hallucination_silence_sec: Optional[float] = None
     min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
+    # True when the user set the switch in this form, so an Off sent with a Breeze pick is
+    # kept; without it such an Off still follows the default (an untouched stale tab).
+    separate_vocals_touched: bool = False
     separation_backend: Optional[str] = None
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None
@@ -423,7 +431,7 @@ class LiveCue(BaseModel):
     end: float
     text: str
     translated: str
-    translation: str   # pending | done | failed | cancelled
+    translation: str   # pending | done | failed | skipped | cancelled
 
 
 class LiveStreamRef(BaseModel):
@@ -476,6 +484,10 @@ class LiveSessionStatus(BaseModel):
     can_fix_names: bool = False
     # Whether this caller may also save a fix into the glossary the session was started with.
     has_glossary: bool = False
+    # Until the time limit stops a running session; None without a limit or once it stopped.
+    time_left_seconds: Optional[int] = None
+    # Whether this caller may move that limit (POST .../extend).
+    can_extend: bool = False
     cues: List[LiveCue]
     next_index: int
 
@@ -519,6 +531,11 @@ class LiveSessionSummary(BaseModel):
     # What the stream chips show: the language and the site, never the link.
     source_language: Optional[str] = None
     stream: Optional[LiveStreamRef] = None
+
+
+class LiveSessionExtended(BaseModel):
+    session_id: str
+    time_left_seconds: int
 
 
 class LiveSessionStopped(BaseModel):

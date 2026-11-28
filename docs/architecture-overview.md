@@ -140,4 +140,4 @@ Done means:
 **Rename a UI label across specs and docs**
 1. `git grep -n -F "<old text>" -- frontend/src frontend/e2e docs` (add `-m 3` per file if long).
 2. Change the component, then every `getByText`/`getByRole` in `frontend/e2e/*.spec.ts` and the `*.test.tsx` files, then the docs.
-3. `cd frontend && npx tsc -b && npx vitest run <changed tests>`; run the one Playwright spec for that page (`docs/testing-and-ci.md`).
+3. `cd frontend && npx tsc -b && npm run lint && npx vitest run <changed tests>`; run the one Playwright spec for that page (`docs/testing-and-ci.md`).

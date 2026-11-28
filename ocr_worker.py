@@ -93,6 +93,38 @@ _params_cache: dict = {}
 inline = False
 
 
+# A burst of reads (a chapter) ends after this long without one; its counts are then logged,
+# so a slow chapter has numbers behind it (GPU against CPU reads, seconds per read).
+READ_BURST_GAP_SECONDS = 60
+_burst_lock = threading.Lock()
+_burst = {"gpu": 0, "cpu": 0, "seconds": [], "last": 0.0, "gpu_loads": 0}
+
+
+def _note_read(on_gpu_helper: bool, seconds: float) -> None:
+    now = time.monotonic()
+    with _burst_lock:
+        if _burst["last"] and now - _burst["last"] > READ_BURST_GAP_SECONDS:
+            _flush_burst_locked()
+        _burst["gpu" if on_gpu_helper else "cpu"] += 1
+        if len(_burst["seconds"]) < 2000:
+            _burst["seconds"].append(seconds)
+        _burst["last"] = now
+
+
+def _flush_burst_locked() -> None:
+    reads = sorted(_burst["seconds"])
+    if reads:
+        _log(f"Text reader stats: {_burst['gpu']} reads on the GPU, {_burst['cpu']} on the CPU, "
+             f"{_burst['gpu_loads']} GPU loads, seconds per read median {reads[len(reads) // 2]:.1f}, "
+             f"max {reads[-1]:.1f}")
+    _burst.update(gpu=0, cpu=0, seconds=[], gpu_loads=0)
+
+
+def flush_read_stats() -> None:
+    with _burst_lock:
+        _flush_burst_locked()
+
+
 def on_gpu() -> bool:
     return _gpu.ready and _gpu.alive()
 
@@ -103,6 +135,7 @@ def read(key: str, source, allow_download: bool = True):
     The GPU engine loads in its own helper while reads go to the CPU one: loaded in the
     same process, torch's import held the CPU reads up (V100: a 63 s first page)."""
     reply = None
+    started = time.monotonic()
     if _gpu_allowed(key) and (allow_download or _gpu_weights_on_disk(key)) and _gpu_ready_or_nearly(key):
         reply = _ask(_gpu, ("read", f"{key}:gpu", None, source))
         if reply[0] == "gpu_failed":
@@ -115,11 +148,13 @@ def read(key: str, source, allow_download: bool = True):
             _stop_helper(_gpu)
         if reply[0] not in ("ok", "error"):
             reply = None
+    gpu_read = reply is not None
     if reply is None:
         reply = _ask(_cpu, ("read", f"{key}:cpu", _params(key), source))
         device_use.note(f"text reader ({key})", "CPU")
     else:
         device_use.note(f"text reader ({key})", "GPU")
+    _note_read(gpu_read, time.monotonic() - started)
     if reply[0] == "error":
         raise RuntimeError(reply[1])
     _, txts, scores, boxes = reply
@@ -143,6 +178,7 @@ def start_gpu_load(key: str = "medium", wait: float = 0.0) -> bool:
 
 def stop() -> None:
     """Ends the helpers and frees what they hold; the next read starts them again."""
+    flush_read_stats()
     _stop_helper(_gpu)
     _stop_helper(_cpu)
     _params_cache.clear()
@@ -238,6 +274,8 @@ def _gpu_ready(key: str) -> bool:
             _gpu.slow_logged = False
             child[1].send(("load", f"{key}:gpu", key, GPU_IDLE_EXIT_SECONDS))
             _gpu.loading = True
+            with _burst_lock:
+                _burst["gpu_loads"] += 1
             _log("Text reader: loading the GPU engine; reads use the CPU until it is ready")
             return False
         assert _gpu.child is not None

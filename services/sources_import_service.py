@@ -757,7 +757,7 @@ def _import_with_adapter(job_id: str, found, url: str, drama_id: int) -> bool:
     n, skipped, present = extraction.write_pages(drama_id, items, job_id, chapter=ref)
     if n:
         drama_service.set_source_url_once(drama_id, url)
-        cover_art_service.fill_missing_cover(drama_id, from_network=False)
+        cover_art_service.fill_missing_cover(drama_id, cover_art_service.site_cover_url(url) or "", url)
     background_jobs.set_result(job_id, _comic_result(False, n, skipped, already_present=present))
     return True
 
@@ -805,7 +805,9 @@ def _comic_url_import_job(job_id: str, url: str, drama_id: int, local: bool, eng
                                                  job_id, chapter=chapter)
     if n:
         drama_service.set_source_url_once(drama_id, url)
-        cover_art_service.fill_missing_cover(drama_id, from_network=False)
+        # The page the reader already fetched, so no second request for the picture's address.
+        cover_art_service.fill_missing_cover(
+            drama_id, cover_art_service.cover_url_from_html(getattr(res.ladder, "html", ""), url), url)
     background_jobs.set_result(job_id, _comic_result(False, n, list(skipped) + list(res.rejected),
                                                      already_present=present))
 

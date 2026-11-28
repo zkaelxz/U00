@@ -323,6 +323,34 @@ class TestProcessJobOnDone:
         bg.clear_job("test_ondone_gpu_thread")
         bg.clear_job(job_id)
 
+    def test_queued_start_preserves_the_partial_hook(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        release = threading.Event()
+        started = threading.Event()
+        job_launch.start_job("test_partial_gpu_thread",
+                             lambda: (started.set(), release.wait(timeout=2.0)), gpu_touching=True)
+        started.wait(timeout=2.0)
+        seen = []
+
+        def worker(q):
+            process_worker.report_partial(q, {"part": 1})
+            q.put(("ok", {}))
+        job_id = "test_partial_queued"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, worker, args=(), gpu_touching=True,
+                                     on_partial=lambda j, p: seen.append((j, p)))
+        assert bg.get_status(job_id)["status"] == "queued"
+        release.set()
+        deadline = time.time() + 3.0
+        status = bg.get_status(job_id)
+        while time.time() < deadline and status and status["status"] in ("queued", "running"):
+            time.sleep(0.01)
+            status = bg.get_status(job_id)
+        assert status["status"] == "done"
+        assert seen == [(job_id, {"part": 1})]
+        bg.clear_job("test_partial_gpu_thread")
+        bg.clear_job(job_id)
+
     def test_hook_return_value_becomes_the_result(self, monkeypatch):
         _install_fake_process(monkeypatch, run_target_on_start=True)
         job_id = "test_ondone_returns"
@@ -888,6 +916,55 @@ class TestProcessJobProgressTuples:
         status = _wait_for_status(job_id, "running")
         assert status["status"] == "cancelled"
         assert procs[0].terminated is True
+        bg.clear_job(job_id)
+
+    def test_work_so_far_reaches_on_partial_under_the_jobs_line_fields(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+        import db
+        seen = []
+
+        def worker(q):
+            process_worker.report_partial(q, {"n": 1})
+            process_worker.report_partial(q, {"n": 2})
+            q.put(("ok", {"n": 3}))
+
+        job_id = "test_partial_items"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, worker, args=(), line_fields=("start", "end"),
+                                     on_partial=lambda j, p: seen.append((j, p, db.current_job_scope())))
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done" and status["result"] == {"n": 3}
+        assert seen == [(job_id, {"n": i}, (job_id, frozenset({"start", "end"}))) for i in (1, 2)]
+        bg.clear_job(job_id)
+
+    def test_work_so_far_is_not_applied_once_a_cancel_is_pending(self):
+        calls = []
+        run = {"on_partial": lambda j, p: calls.append(p), "cancel_requested": True, "status": "running"}
+        with job_table._lock:
+            job_table._jobs["test_partial_cancel"] = run
+        try:
+            assert job_runner._apply_progress_item("test_partial_cancel", ("partial", 1), run=run) is True
+            run["cancel_requested"] = False
+            job_runner._apply_progress_item("test_partial_cancel", ("partial", 2), run=run)
+        finally:
+            with job_table._lock:
+                job_table._jobs.pop("test_partial_cancel", None)
+        assert calls == [2]
+
+    def test_a_failing_on_partial_does_not_fail_the_job(self, monkeypatch):
+        _install_fake_process(monkeypatch, run_target_on_start=True)
+
+        def worker(q):
+            process_worker.report_partial(q, {})
+            q.put(("ok", "fine"))
+
+        def broken(j, p):
+            raise RuntimeError("no")
+        job_id = "test_partial_broken"
+        bg.clear_job(job_id)
+        job_launch.start_process_job(job_id, worker, args=(), on_partial=broken)
+        status = _wait_for_status(job_id, "running")
+        assert status["status"] == "done" and status["result"] == "fine"
         bg.clear_job(job_id)
 
     def test_malformed_progress_tuple_is_ignored(self):

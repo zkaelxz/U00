@@ -19,7 +19,7 @@ const line = (id: number, hand_edited: boolean): GlossaryAffectedLine => ({
 const est = (usd: number | null, n: number): TranslateRunEstimate => ({
   engine: 'claude', model: null, estimated_usd: usd, alignment_check_usd: null, target_line_count: n, free: false,
   cap_applies: true, effective_cap_usd: null, monthly_refusal: false, estimate_above_cap: false,
-  estimate_is_lower_bound: false, thinking: false,
+  balance_too_low: false,
 })
 const lines = [line(1, false), line(2, true), line(3, false)]
 const preview: GlossaryAffectedPreview = {
@@ -29,7 +29,7 @@ const preview: GlossaryAffectedPreview = {
 const form: RunForm = {
   engine: 'claude', model: '', style_preset: 'audio_drama', style_note: '', locale: 'en-GB',
   batch_size: '20', context_window: '6', context_window_ahead: '3', cost_cap: '1.5', fallbacks: [],
-  force: true, forceConfirmed: true, reflect: false, bulk: true, thinking: false, female_pronouns: false, genre_notes: true, memory_examples: false, chapter_from: '', chapter_to: '',
+  force: true, forceConfirmed: true, reflect: false, bulk: true, female_pronouns: false, genre_notes: true, memory_examples: false, chapter_from: '', chapter_to: '',
 }
 
 describe('glossary re-translate selection', () => {

@@ -188,6 +188,10 @@ def get_transcribe_config(drama_id: int) -> dict:
         "hallucination_silence_sec": stored_hallucination_silence_sec(drama),
         "min_pause_sec": stored_min_pause_sec(drama),
         "separate_vocals_first": effective_separate_vocals(drama),
+        "separate_vocals_chosen": drama.get("separate_vocals_first") is not None,
+        "separates_on_breeze_by_default": effective_separate_vocals(
+            {**drama, "separate_vocals_first": None, "use_groq": 0, "asr_backend_choice": "whisper",
+             "whisper_size": whisper_models.BREEZE_KEY}),
         "separation_backend": drama.get("separation_backend") or _DEFAULT_TUNING["separation_backend"],
         "realign_long_segments": bool(drama.get("realign_long_segments")),
         "whisper_fast_mode": bool(drama.get("whisper_fast_mode")),
@@ -207,6 +211,23 @@ def get_transcribe_config(drama_id: int) -> dict:
     }
 
 
+def _separate_vocals_is_a_choice(drama: dict, updates: dict, source_changes: dict, touched: bool) -> bool:
+    """Whether a separate_vocals_first sent for a title that never chose should be saved.
+    Saving the model's default would keep it after a later model change, so a value equal
+    to the default the title has after this save is not a choice. A switch the form says
+    the user touched is a choice otherwise. Without that word, an Off equal to the default
+    shown before the save is not saved: the request alone can't tell it from a stale tab
+    sending the untouched switch's Off with a Breeze pick (whose default is On), and the
+    owner's rule is that such a save keeps following the default. An On is always asked
+    for: no form shows On for a title whose default is Off."""
+    sent = bool(updates["separate_vocals_first"])
+    others = {k: v for k, v in updates.items() if k != "separate_vocals_first"}
+    after = {**drama, **source_changes, **others, "separate_vocals_first": None}
+    if sent == effective_separate_vocals(after):
+        return False
+    return touched or sent or sent != effective_separate_vocals(drama)
+
+
 def update_transcribe_config(drama_id: int, **fields) -> dict:
     """Field-scoped partial update for the tuning knobs the config newly
     persists (whisper_size/alignment_method/asr_backend_choice already had
@@ -219,13 +240,11 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     # The language first: the model and backend checks below are against the language being saved.
     language = fields.get("source_language") or drama.get("source_language") or "zh"
     source_changes = {k: fields[k] for k in ("source_language", "chinese_script") if fields.get(k) is not None}
-    # The form sends back the value it was shown; for a title that never chose, that is the
-    # default, and saving it would turn the default into a choice (and keep it after a
-    # later model change). Only a value that differs from what was shown is a choice.
-    if (drama.get("separate_vocals_first") is None
-            and fields.get("separate_vocals_first") == effective_separate_vocals(drama)):
-        fields = {k: v for k, v in fields.items() if k != "separate_vocals_first"}
     updates = check_transcribe_fields(fields, language)
+    if drama.get("separate_vocals_first") is None and "separate_vocals_first" in updates:
+        if not _separate_vocals_is_a_choice(drama, updates, source_changes,
+                                            bool(fields.get("separate_vocals_touched"))):
+            del updates["separate_vocals_first"]
     if fields.get("run_start") is not None:
         updates["transcribe_start_json"] = check_run_start(fields["run_start"])
     if source_changes:

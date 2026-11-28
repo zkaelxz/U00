@@ -1,4 +1,5 @@
 import { humanizeValue } from '../../../components/labels'
+import { changedKeys } from '../../../hooks/useStageDraft'
 import type { TranscribeConfig, TranscribeConfigUpdate } from '../../../types/workspace'
 
 /** The saved transcription options as the form holds them: numbers stay text until they are checked. */
@@ -58,6 +59,50 @@ export const toUpdate = (f: ConfigForm): TranscribeConfigUpdate => ({
   hardsub_interval_sec: Number(f.hardsub_interval_sec),
 })
 
+/** What an untouched separate-vocals switch shows for a title that never chose: the default of the
+ * model now in the form, so a model change does not leave the previous model's default on screen
+ * (the rule is effective_separate_vocals in services/transcribe_options_service.py). */
+export const defaultSeparateVocals = (
+  c: Pick<TranscribeConfig, 'separates_on_breeze_by_default'>,
+  f: Pick<ConfigForm, 'whisper_size' | 'asr_backend_choice' | 'use_groq'>,
+): boolean =>
+  !!c.separates_on_breeze_by_default && f.whisper_size === 'breeze-asr-25' && f.asr_backend_choice === 'whisper' && !f.use_groq
+
+/** Whether the separate-vocals switch goes in a save: sending an untouched one for a title that never
+ * chose would make the default shown a choice the title keeps after a later model change. */
+export const sendsSeparateVocals = (c: Pick<TranscribeConfig, 'separate_vocals_chosen'>, touched: boolean): boolean =>
+  !!c.separate_vocals_chosen || touched
+
+export function withoutUntouchedSeparateVocals(
+  update: TranscribeConfigUpdate,
+  c: Pick<TranscribeConfig, 'separate_vocals_chosen'>,
+  touched: boolean,
+): TranscribeConfigUpdate {
+  if (sendsSeparateVocals(c, touched)) return update
+  const { separate_vocals_first: _untouched, ...rest } = update
+  return rest
+}
+
+/** A save says when the user set the switch: from the request alone the server can't tell a deliberate
+ * Off sent with a Breeze pick from an untouched one, and it keeps only the deliberate one. */
+export const withSeparateTouched = (update: TranscribeConfigUpdate, touched: boolean): TranscribeConfigUpdate =>
+  touched ? { ...update, separate_vocals_touched: true } : update
+
+/** The Advanced values a draft keeps: those that differ from the saved options, plus a touched
+ * separate-vocals switch even when it equals the saved value (a deliberate Off on a title whose
+ * default turns On with the model picked), so a reload still sends it as touched. An untouched
+ * switch that follows the default is left out. */
+export function advancedDraft(
+  shown: ConfigForm,
+  c: TranscribeConfig,
+  touched: boolean,
+): Partial<ConfigForm> {
+  const changed = changedKeys(shown, formFromConfig(c))
+  if (touched) changed.separate_vocals_first = shown.separate_vocals_first
+  else if (!sendsSeparateVocals(c, touched)) delete changed.separate_vocals_first
+  return changed
+}
+
 // Display names for the Advanced backend choices (the option value stays raw).
 const OPTION_LABELS: Record<string, string> = {
   whisper_diff: 'Whisper (diff)',
@@ -70,7 +115,9 @@ const OPTION_LABELS: Record<string, string> = {
   auto: 'Automatic',
   normal: 'Normal (default)',
   sensitive: 'More sensitive',
-  audio_separator: 'Audio separator',
+  audio_separator: 'Automatic (older setting)',
+  mel_roformer_fv4: 'Mel-Band RoFormer FV4',
+  mel_roformer_original: 'Mel-Band RoFormer (original)',
   tesseract: 'Tesseract',
   paddle: 'PaddleOCR',
 }

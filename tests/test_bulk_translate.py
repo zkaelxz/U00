@@ -814,22 +814,21 @@ class TestSpokenLanguage:
         bulk_reflect.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", {})
         assert "spoken in" not in _request_text(engine)
 
-    def test_offpeak_run_uses_the_thinking_value_stored_with_the_run(self, isolated_db):
+    def test_offpeak_run_ignores_a_thinking_value_stored_before_think_harder_was_removed(self, isolated_db):
         did = _mixed_drama(isolated_db)
         lines = isolated_db.load_line_objects(did)
         jid = bulk_translate.schedule_offpeak_translation(did, lines, "deepseek", "m", {"thinking": True})
-        isolated_db.update_drama(did, translate_thinking=0)  # changed before the job runs
         contexts = []
 
         class Engine:
             model = "m"
 
             def translate_batch(self, zh_lines, context):
-                contexts.append(context.get("reply_with_thinking"))
+                contexts.append(context)
                 return [f"EN:{z}" for z in zh_lines]
 
         bulk_poll.run_scheduled_job(jid, Engine())
-        assert contexts and all(contexts)
+        assert contexts and all(c["reply_without_thinking"] is True for c in contexts)
 
     def test_offpeak_run_reads_the_novel_reference_from_the_title_when_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)
@@ -931,3 +930,83 @@ class TestSpokenLanguage:
         assert seen == [(["こんにちは", "안녕"], [None, "ko"])]
         rows = {r["zh"]: r["en"] for r in isolated_db.load_lines(did)}
         assert rows["hello there"] == "hello there" and rows["안녕"] == "EN:안녕"
+
+
+def test_an_offpeak_deepseek_run_out_of_credit_moves_to_gemma(isolated_db, monkeypatch):
+    from engine_backends import fallback as engine_fallback
+    from services import translate_run_options
+
+    class NoCredit(Exception):
+        status_code = 402
+
+    class DeepSeek:
+        name, model = "deepseek", "deepseek-flash"
+
+        def translate_batch(self, zh_lines, context):
+            raise NoCredit("Insufficient Balance")
+
+    class Gemma:
+        name, model = "ollama", "gemma4:31b-cloud"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"G:{z}" for z in zh_lines]
+
+    monkeypatch.setattr(engine_fallback, "_slow_until", {})
+    monkeypatch.setattr(engine_fallback, "_slow_reason", {})
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda *a, **k: Gemma())
+    did = _mixed_drama(isolated_db)
+    jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did), "deepseek", "m", {})
+    summary = bulk_poll.run_scheduled_job(jid, translate_run_options.with_slow_switch(DeepSeek()))
+    assert summary["batch_errors"] == 0
+    assert [ln.en[:2] for ln in isolated_db.load_line_objects(did)][:2] == ["G:", "G:"]
+    assert summary["fallbacks"] == [{"from": "deepseek", "to": "ollama", "reason": engine_fallback.OUT_OF_CREDIT}]
+
+
+def test_offpeak_deepseek_runs_get_the_switching_engine_when_started_and_resumed(isolated_db, monkeypatch):
+    from engine_backends import engine_registry, fallback as engine_fallback
+    from services import translate_run_service, translate_service
+
+    class Plain:
+        def __init__(self, name):
+            self.name, self.model = name, "m"
+
+    monkeypatch.setattr(engine_registry, "get_engine", lambda name, *a, **k: Plain(name))
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda name: "k")
+    polled = []
+    monkeypatch.setattr(bulk_poll, "run_bulk_poller", lambda *a, engine=None, **k: polled.append(engine))
+    monkeypatch.setattr(isolated_db, "get_bulk_job", lambda _id: {"status": "applied"})
+    translate_run_service.run_bulk_translate_job("j", Plain("deepseek"), "deepseek", lambda: 1)
+    assert isinstance(polled[0], engine_fallback.SlowSwitchEngine)
+    factory = translate_run_service._bulk_engine_factory
+    assert isinstance(factory("deepseek", None), engine_fallback.SlowSwitchEngine)
+    assert factory("claude", None).name == "claude"
+
+
+def test_an_offpeak_run_decides_its_start_engine_when_the_window_opens(isolated_db, monkeypatch):
+    from engine_backends import fallback as engine_fallback
+    from services import translate_run_options
+
+    class DeepSeek:
+        name, model = "deepseek", "deepseek-flash"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"D:{z}" for z in zh_lines]
+
+    class Gemma:
+        name, model = "ollama", "gemma4:31b-cloud"
+
+        def translate_batch(self, zh_lines, context):
+            return [f"G:{z}" for z in zh_lines]
+
+    deepseek = DeepSeek()
+    monkeypatch.setattr(engine_fallback, "_slow_until", {})
+    monkeypatch.setattr(engine_fallback, "_slow_reason", {})
+    monkeypatch.setattr(translate_run_options.engine_registry, "get_engine", lambda *a, **k: Gemma())
+    engine_fallback._remember_slow(deepseek)
+    engine = translate_run_options.with_slow_switch(deepseek)  # built while DeepSeek was slow
+    engine_fallback._slow_until.clear()  # the memory has run out by the time the window opens
+    did = _mixed_drama(isolated_db)
+    jid = bulk_translate.schedule_offpeak_translation(did, isolated_db.load_line_objects(did), "deepseek", "m", {})
+    summary = bulk_poll.run_scheduled_job(jid, engine)
+    assert [ln.en[:2] for ln in isolated_db.load_line_objects(did)][:2] == ["D:", "D:"]
+    assert "fallbacks" not in summary

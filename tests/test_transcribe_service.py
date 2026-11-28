@@ -120,6 +120,8 @@ class TestGetTranscribeConfig:
             "hallucination_silence_sec": 0.0,
             "min_pause_sec": 0.35,
             "separate_vocals_first": False,
+            "separate_vocals_chosen": False,
+            "separates_on_breeze_by_default": False,
             "separation_backend": "auto",
             "realign_long_segments": False,
             "whisper_fast_mode": False,

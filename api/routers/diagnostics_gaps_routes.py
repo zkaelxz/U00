@@ -5,7 +5,8 @@ read-only overview (diagnostics_routes.py) lacks. Thin: see services/diagnostics
 Reads are `admin.diagnostics`: setup checks, model cache (list
 only), pyannote readiness (`check_access=true` asks Hugging Face with
 the server-side token and returns booleans only), finished-job history,
-log tail with keyword filter, the support report and
+log tail with keyword filter, the support report, the Send logs zip
+(the report, system info, recent job records and app.log, scrubbed) and
 install presets (packages grouped by task, installed versions, approx.
 sizes, PyPI links) and GPU PyTorch status. `POST /gpu-torch/check` (the
 status plus a CUDA check in a fresh Python; 409 while a job or another
@@ -28,9 +29,10 @@ exposed.
 
 from typing import Literal
 
-from fastapi import APIRouter, Path, Query
+from fastapi import APIRouter, Path, Query, Request, Response
 
 from api.auth import local_only, require_permission
+from api.no_store import NO_STORE
 from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsCacheDeleteResult, DiagnosticsGpuTorchStatus,
                          DiagnosticsInstallPresets,
@@ -39,6 +41,7 @@ from api.schemas import (DiagnosticsAdminConfirm,
                          DiagnosticsPyannoteReadiness, DiagnosticsResetRequest,
                          DiagnosticsResetResult, DiagnosticsSetupChecks,
                          DiagnosticsSupportReport, error_responses)
+from lib.errors import ForbiddenError
 from services import diagnostics_gaps_service as svc
 from services import diagnostics_admin_service as admin_svc
 from services import diagnostics_packages_service as packages_svc
@@ -86,6 +89,24 @@ def get_log(n: int = Query(svc.LOG_TAIL_DEFAULT, ge=0, le=svc.LOG_TAIL_MAX),
             summary="A redacted plain-text report safe to share")
 def get_support_report():
     return {"report": svc.build_support_report()}
+
+
+@router.get("/support-bundle", dependencies=[require_permission("admin.diagnostics")],
+            response_class=Response,
+            summary="Send logs: a scrubbed zip of the support report, system info, "
+                    "recent job records and app.log (binary download; 409 while one is built)",
+            responses={200: {"content": {"application/zip": {}}}, **error_responses(403, 409)})
+def get_support_bundle(request: Request):
+    # A GET skips the CSRF check, and the zip is costly to build: only the
+    # app's own page or a typed address may start one, never another site's
+    # link or <img>. A browser that sends no Sec-Fetch-Site still gets it.
+    site = request.headers.get("sec-fetch-site")
+    if site is not None and site not in ("same-origin", "none"):
+        raise ForbiddenError("Not allowed.")
+    headers = {"Content-Disposition": f'attachment; filename="{svc.support_bundle_filename()}"',
+               **NO_STORE}
+    return Response(content=svc.build_support_bundle(), media_type="application/zip",
+                    headers=headers)
 
 
 @router.get("/install-presets", dependencies=[require_permission("admin.diagnostics")],

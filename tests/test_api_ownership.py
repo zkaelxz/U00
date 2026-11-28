@@ -99,6 +99,8 @@ JOB_ROUTES = {
     ("GET", "/api/live/sessions/{session_id}/chat"): "live_service.get_chat -> can_see_job",
     ("POST", "/api/live/sessions/{session_id}/stop"):
         "live_service.stop_session -> can_see_job",
+    ("POST", "/api/live/sessions/{session_id}/extend"):
+        "live_service.extend_session -> can_see_job, then the session's starter only",
     ("POST", "/api/live/sessions/{session_id}/names"):
         "live_service.add_name_fix -> can_see_job, then the session's starter only",
     ("GET", "/api/live/player/{session_id}/{name}"):

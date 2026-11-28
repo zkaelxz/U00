@@ -4,7 +4,7 @@ import type { AuthMe } from '../api/auth'
 import type { SessionState } from '../hooks/useSession'
 import type { DramaSummary } from '../api/types'
 import type { ReviewLine } from '../types/review'
-import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
+import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, pageHasOwnSearch, paletteEntries, settingsEntries, titleEntries, type PaletteEntry } from './palette'
 import type { NavContext } from './navItems'
 
 const owner = { id: 1, email: 'o@example.com', display_name: 'Owner', is_admin: true, is_local_owner: true }
@@ -149,6 +149,16 @@ describe('settingsEntries', () => {
     expect(new Set(cards)).toEqual(new Set(['sharing', 'display', 'customize-menu', 'devices', 'extension-devices']))
   })
 
+  it('offers Your limits only to someone the Settings page shows it to', () => {
+    const limits = { daily_job_limit: 5, jobs_today: 1, monthly_paid_cap_usd: null, month_paid_spend_usd: 0, title_limit: 20, titles_owned: 2 }
+    const withLimits = member.session.status === 'ready'
+      ? { ...member, session: { ...member.session, me: { ...member.session.me, limits } as AuthMe } }
+      : member
+    const cards = (ctx: NavContext) => settingsEntries(ctx).map((e) => e.href.split('card=')[1])
+    expect(cards(withLimits)).toContain('limits')
+    expect(cards(member)).not.toContain('limits')
+  })
+
   it('offers the update card away from the PC only to someone holding system.update', () => {
     const away = (permissions: string[]): NavContext => ({ ...member, session: sessionOf(permissions) })
     expect(settingsHits(away(['library.read', 'system.update']), 'update')).toContain('#/settings?card=updates')
@@ -198,5 +208,15 @@ describe('line search', () => {
     expect(a.label).toBe('月亮')
     expect(b.label).toHaveLength(81)
     expect(filterEntries([a, b], 'x')).toContain(a)
+  })
+})
+
+describe('pageHasOwnSearch', () => {
+  it('drops the header search on Library, Find & Add, Jobs and Settings only', () => {
+    for (const name of ['library', 'make-subtitles', 'discover', 'sources', 'updates', 'jobs', 'settings'] as const) {
+      expect(pageHasOwnSearch({ name } as never)).toBe(true)
+    }
+    expect(pageHasOwnSearch({ name: 'translate' } as never)).toBe(false)
+    expect(pageHasOwnSearch({ name: 'drama', id: 1, stage: 'review' } as never)).toBe(false)
   })
 })
