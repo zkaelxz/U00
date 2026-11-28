@@ -417,7 +417,7 @@ def has_source_script(text, source: str = "") -> bool:
 
 def recheck_source_script(texts_by_id: dict, result: dict, engine, drama_meta: dict,
                           previous_context: str = "", usage_cb=None, glossary_terms=None,
-                          character_notes: str = "", chapter_brief: str = ""):
+                          character_notes: str = "", chapter_brief: str = "", summary: bool = True):
     """(result, still_leaking_ids): `result` with one text-only retry for the answers that
     still contain Japanese, Chinese or Korean characters. A retried answer replaces the
     first only when it has fewer such characters, so the retry can never make a region
@@ -443,7 +443,7 @@ def recheck_source_script(texts_by_id: dict, result: dict, engine, drama_meta: d
                 {k: texts_by_id[k] for k in leaking}, engine, drama_meta,
                 previous_context=previous_context, usage_cb=usage_cb,
                 glossary_terms=glossary_terms, character_notes=notes,
-                chapter_brief=chapter_brief)
+                chapter_brief=chapter_brief, summary=summary)
         except (TranslationCancelled, TranslateRunStopped, LLMTaskTimeout, HeadroomError):
             raise
         except Exception:
@@ -565,7 +565,7 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
         result, _ = recheck_source_script(
             {k: b["source_text"] for k, b in by_key.items()}, result, engine, drama_meta,
             previous_context=previous_context, usage_cb=usage_cb, glossary_terms=glossary_terms,
-            character_notes=character_notes)
+            character_notes=character_notes, summary=summary)
     if found_names and chapter_names is not None:
         _keep_chapter_names(found_names, chapter_names, (b["source_text"] for b in eligible))
     if found_cast and cast is not None and result is not None:

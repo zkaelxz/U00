@@ -288,6 +288,16 @@ class TestTitleMemory:
                                       {"source_language": "ja"}, None, None)
         assert "context_summary" not in prompts[2]
 
+    def test_a_side_by_side_page_asks_its_leak_recheck_for_no_summary_either(self, monkeypatch):
+        prompts = []
+        self._reply(monkeypatch, [{"translations": {"0": "ミラ!"}},
+                                  {"translations": {"0": "Mira!"}}], prompts)
+        bubbles = [_bubble("ミラ！")]
+        page_turns.translate_in_chain(None, "side", bubbles, _Engine(),
+                                      {"source_language": "ja"}, None, None, wait_for_turn=False)
+        assert len(prompts) == 2 and "context_summary" not in prompts[1]
+        assert bubbles[0]["translated_text"] == "Mira!"
+
     def test_a_tied_pronoun_is_not_sent(self):
         assert scanlate_translate.settled_pronouns({"Ren": {"she": 1, "he": 1},
                                                     "Mira": {"she": 2, "he": 1}}) == {"Mira": "she"}
