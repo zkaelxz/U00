@@ -84,7 +84,7 @@ TRANSLATE_PROMPT_VERSION = "6"
 SCENE_BREAK_GAP_SECONDS = 3.0
 # A pause this long is a cut between scenes, where a subtitle run may start another lane: the
 # line after it loses only the English of a scene that is over.
-SCENE_LANE_GAP_SECONDS = 20.0
+SCENE_LANE_GAP_SECONDS = 7.0
 
 
 def plan_batches(lines, max_size: int, min_gap: float = SCENE_BREAK_GAP_SECONDS,
