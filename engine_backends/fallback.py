@@ -365,13 +365,13 @@ class SlowSwitchEngine(FallbackEngine):
         # so staying would leave the rest of the chapter blank.
         s = self._state
         with s.lock:
-            if not s.switched:
-                s.switched = True
+            s.switched = True
+            if not any(ev.get("reason") == OUT_OF_CREDIT for ev in s.events):
                 s.events.append({"from": self.choices[0], "to": self.choices[1],
                                  "reason": OUT_OF_CREDIT, "detail": redact_secrets(str(e))[:200]})
         _remember_slow(self.engines[0], OUT_OF_CREDIT)
         self.active = 1
-        return self.translate_batch(zh_lines, context)
+        return self.engines[1].translate_batch(zh_lines, context)
 
     def _note_primary_time(self, seconds, n_lines):
         s = self._state

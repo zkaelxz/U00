@@ -771,12 +771,14 @@ def test_a_deepseek_out_of_credit_moves_the_run_to_the_fallback_at_once(novel, q
     assert after.active == 1 and after.events[0]["reason"] == fb.OUT_OF_CREDIT
 
 
-def test_out_of_credit_is_not_a_switch_when_the_fallback_cannot_serve(monkeypatch, quick_slow_line):
-    engine = _switching(primary_delay=0.0, fallback_error=ConnectionError("refused"))
-    engine._state.fallback_failed = True
+def test_out_of_credit_after_a_slow_switch_is_still_reported(quick_slow_line):
+    engine = _switching(primary_delay=0.0)
+    engine._state.switched = True
+    engine._state.events.append({"from": "deepseek", "to": "ollama", "reason": "slow"})
+    # A lane whose chapter began before the slow switch still asks DeepSeek.
     engine.engines[0].error = _NoCredit("Insufficient Balance")
-    with pytest.raises(_NoCredit):
-        engine.translate_batch(["a"], {})
+    assert engine.translate_batch(["a"], {}) == ["ollama a"]
+    assert [e["reason"] for e in engine.events] == ["slow", fb.OUT_OF_CREDIT]
 
 
 def test_the_finished_job_says_deepseek_is_out_of_credit():
