@@ -154,8 +154,9 @@ def test_a_file_scored_once_is_not_scored_again_and_gets_the_same_scores(monkeyp
 
 
 def test_remembered_scores_give_the_same_spans_as_scoring_afresh(monkeypatch):
-    pytest.importorskip("faster_whisper")
-    from faster_whisper.vad import SileroVADModel, get_vad_model
+    # The submodule, not the package: other test files leave a stub faster_whisper module behind.
+    vad = pytest.importorskip("faster_whisper.vad")
+    SileroVADModel, get_vad_model = vad.SileroVADModel, vad.get_vad_model
     # The model is shared by the whole test process, so start from the plain method and no scores.
     fresh = getattr(SileroVADModel.__call__, "unwrapped", SileroVADModel.__call__)
     monkeypatch.setattr(SileroVADModel, "__call__", fresh)

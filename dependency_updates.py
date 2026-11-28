@@ -12,60 +12,6 @@ import sys
 
 import diagnostics
 
-# ---------------------------------------------------------------------------
-# "Is this dependency outdated?" + an Upgrade action. Like
-# check_pyannote_gated_access above, this reaches the network (PyPI's own
-# public JSON API, a plain unauthenticated GET) -- so it must only ever run
-# from an explicit button click, never automatically on page load, and the
-# caller must cache the result rather than re-querying on every request.
-# ---------------------------------------------------------------------------
-
-
-def get_latest_pypi_version(pip_name: str, timeout: float = 10.0):
-    """The latest version PyPI's public JSON API reports for `pip_name`, or
-    None on any failure (network error, non-200 for a name PyPI doesn't
-    recognize, unexpected JSON shape) -- never raises, since one
-    dependency's lookup failing shouldn't break the whole check. Makes a
-    real network call every time it's called; callers gate this behind an
-    explicit button and cache the result (see check_dependency_versions)."""
-    try:
-        from lib import http
-        resp = http.get(f"https://pypi.org/pypi/{pip_name}/json", timeout=timeout,
-                        max_bytes=PYPI_JSON_MAX_BYTES, guard=None)
-        if resp.status != 200:
-            return None
-        return (json.loads(resp.body).get("info") or {}).get("version") or None
-    except Exception:
-        return None
-
-
-def check_dependency_versions(deps: dict, timeout: float = 10.0) -> dict:
-    """For every dependency in `deps` (as returned by
-    check_all_dependencies()) that's actually installed, looks up its
-    latest PyPI version and compares it to the installed one. Returns
-    {name: {"installed_version", "latest_version", "outdated"}} --
-    "outdated" is None (not guessed) when either version couldn't be
-    determined, True/False otherwise. Makes one real PyPI request per
-    installed dependency -- call this only from an explicit button click,
-    never automatically."""
-    results = {}
-    for name, info in deps.items():
-        # "experimental" entries aren't on PyPI: a lookup by their name could
-        # hit an unrelated package registered under it.
-        if not info.get("installed") or info.get("tier") == "experimental":
-            continue
-        installed_version = diagnostics.get_installed_version(diagnostics.pip_install_name(name))
-        latest_version = get_latest_pypi_version(diagnostics.pip_install_name(name), timeout=timeout)
-        outdated = None
-        if installed_version and latest_version:
-            outdated = diagnostics._version_sort_key(installed_version) < diagnostics._version_sort_key(latest_version)
-        results[name] = {
-            "installed_version": installed_version,
-            "latest_version": latest_version,
-            "outdated": outdated,
-        }
-    return results
-
 
 def constraints_pip_args(project_root: str | None = None) -> list:
     """`["-c", <constraints.txt>]` when the file exists, else []. Every pip
@@ -125,31 +71,10 @@ KNOWN_UPGRADE_LIMITATIONS = {
 }
 
 
-def _constraints_cap(pip_name: str, project_root: str | None = None):
-    """The raw constraint line (e.g. "torch<3") capping `pip_name` in
-    constraints.txt, or None if it isn't capped there. Matches on the
-    package name before the operator, normalizing "_"/"-" the same way
-    pip itself treats them as equivalent."""
-    project_root = project_root or os.path.dirname(os.path.abspath(__file__))
-    path = os.path.join(project_root, "constraints.txt")
-    if not os.path.exists(path):
-        return None
-    target = pip_name.replace("_", "-").lower()
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.split("#", 1)[0].strip()
-            if not line:
-                continue
-            m = re.match(r"([A-Za-z0-9_.\-]+)\s*<\s*([0-9]+)", line)
-            if m and m.group(1).replace("_", "-").lower() == target:
-                return line, int(m.group(2))
-    return None
-
-
 def _known_python_version_limitation(pip_name: str):
     """The KNOWN_UPGRADE_LIMITATIONS entry for `pip_name`, if one exists AND
     this process is actually running the affected Python version -- shared
-    by upgrade_blocked_reason (an installed package that can't go further)
+    by classify_update (an installed package that can't go further)
     and known_install_limitation_reason (the same package failing
     to install in the first place, same root cause, different moment)."""
     known = KNOWN_UPGRADE_LIMITATIONS.get(pip_name.replace("_", "-").lower())
@@ -208,25 +133,6 @@ def known_install_limitation_reason(pip_name: str) -> str | None:
         return None
     py = ".".join(str(p) for p in known["python_version"])
     return f"known not to install on Python {py} -- {known['reason']}"
-
-
-def upgrade_blocked_reason(pip_name: str, latest_version: str | None = None,
-                           project_root: str | None = None) -> str | None:
-    """None if a normal "Upgrade" should be offered for `pip_name`.
-    Otherwise a short, plain-English reason the row should show INSTEAD
-    of the button, so a known-doomed upgrade never just looks like a real
-    option with no explanation."""
-    known = _known_python_version_limitation(pip_name)
-    if known:
-        py = ".".join(str(p) for p in known["python_version"])
-        return f"latest available for Python {py} -- {known['reason']}"
-    known = _known_dependent_limitation(pip_name, latest_version)
-    if known:
-        return f"{latest_version} is known to break this app -- {known['reason']}"
-    cap = _constraints_cap(pip_name, project_root)
-    if cap and latest_version and diagnostics._version_sort_key(latest_version)[:1] >= [cap[1]]:
-        return f"capped at `{cap[0]}` in constraints.txt (see its own comment for why)"
-    return None
 
 
 # ---------------------------------------------------------------------------
