@@ -56,6 +56,7 @@ import requests
 import core as core_module
 from lib import ids as lib_ids
 import db
+import media_inspect
 import novel_text
 import reader
 import storage
@@ -431,14 +432,17 @@ def media_file_path(drama_id: int, kind: str) -> tuple:
 def get_reading_overview(drama_id: int, user_id: int = 0) -> dict:
     """The Length / Progress / Lines metrics plus the resume point:
     {drama_id, length_display, line_count, percent_complete, last_page,
-    last_line_idx}. Timed media use the real duration, text a reading-time
-    estimate."""
+    last_line_idx}. Timed media use the real duration, a narrated text its
+    narration track's length, other text a reading-time estimate."""
     drama = _require_drama(drama_id)
     count, last_end, words = db.line_reading_stats(drama_id)
     if drama.get("media_type") in _LISTENING_MEDIA_TYPES:
         display = story_context.listening_time(last_end)["display"] if count else "0m"
     else:
-        display = story_context.reading_time(words)["display"]
+        narration = _media_paths(drama_id, drama).get("narration")
+        seconds = media_inspect.duration_seconds(narration[1]) if narration else None
+        display = (story_context.listening_time(seconds) if seconds
+                   else story_context.reading_time(words))["display"]
     prog = db.get_progress(drama_id, user_id=user_id) or {}
     return {"drama_id": drama_id, "length_display": display, "line_count": count,
             "percent_complete": float(prog.get("percent_complete") or 0.0),
