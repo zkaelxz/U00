@@ -31,7 +31,7 @@ def _refresh_site_covers(job_id: str) -> None:
     """Gives comic titles the picture their site shows for the series, in place of page one. A cover
     the person chose is kept; so is page one when the site gives nothing usable."""
     ids = _site_candidates()
-    fetched = fallbacks = failed = 0
+    fetched = fallbacks = failed = unreachable = 0
     for i, drama_id in enumerate(ids):
         if background_jobs.is_cancel_requested(job_id):
             raise background_jobs.JobCancelled(job_id)
@@ -42,7 +42,9 @@ def _refresh_site_covers(job_id: str) -> None:
             continue
         link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
         picture = cover_art_service.site_cover_url(link)
-        if not picture:
+        if picture is None:
+            unreachable += 1
+        elif not picture:
             fallbacks += 1
         elif cover_art_service.fetch_site_cover(drama_id, picture, link, replace=True):
             fetched += 1
@@ -50,9 +52,11 @@ def _refresh_site_covers(job_id: str) -> None:
             failed += 1
     applog.get_logger().info(
         f"site covers: {fetched} fetched, {fallbacks} kept page one (no picture on the page), "
-        f"{failed} failed, of {len(ids)} comic titles with a link")
-    with contextlib.suppress(OSError):
-        open(os.path.join(db.LIBRARY_DIR, _SITE_MARKER), "w").close()
+        f"{failed} failed, {unreachable} pages unreachable, of {len(ids)} comic titles with a link")
+    # Left unmarked when nothing could be reached (the PC offline), so the next start tries again.
+    if unreachable < len(ids) or not ids:
+        with contextlib.suppress(OSError):
+            open(os.path.join(db.LIBRARY_DIR, _SITE_MARKER), "w").close()
 
 
 def _run(job_id: str) -> None:

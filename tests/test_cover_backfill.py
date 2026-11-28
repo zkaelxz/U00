@@ -182,3 +182,22 @@ def test_site_refresh_keeps_page_one_when_the_page_has_no_picture(isolated_db, m
     cover_backfill_service.start_backfill()
     wait_for_job(cover_backfill_service.JOB_ID)
     assert cover_art_service.cover_stamp(did) == before
+
+
+def test_a_landscape_site_picture_does_not_replace_page_one(isolated_db, monkeypatch):
+    from services import quick_read_fetch
+    did = _comic()
+    cover_art_service.make_cover_from_first_page(did)
+    before = cover_art_service.cover_stamp(did)
+    monkeypatch.setattr(quick_read_fetch, "fetch_one", lambda url, h, cap: (_png("yellow", (90, 30)), ""))
+    assert cover_art_service.fetch_site_cover(did, "https://cdn.example/logo.png", "", replace=True) is False
+    assert cover_art_service.cover_stamp(did) == before
+
+
+def test_an_offline_first_start_leaves_the_site_pass_to_try_again(isolated_db, monkeypatch):
+    did = _comic()
+    db.update_drama(did, source_url="https://site.example/s")
+    monkeypatch.setattr(cover_art_service, "site_cover_url", lambda link: None)
+    cover_backfill_service.start_backfill()
+    wait_for_job(cover_backfill_service.JOB_ID)
+    assert not os.path.exists(os.path.join(db.LIBRARY_DIR, ".site_covers_refreshed"))

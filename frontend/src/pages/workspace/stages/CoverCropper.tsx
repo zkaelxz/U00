@@ -59,6 +59,12 @@ export function CoverCropper({ dramaId, source, onSaved, onClose }: {
     }
   }, [dramaId, pageId])
 
+  // Frames made here are blob URLs; the page's own are revoked by the effect that made them.
+  useEffect(() => {
+    if (source !== 'video' || !still) return
+    return () => URL.revokeObjectURL(still)
+  }, [source, still])
+
   const grabFrame = () => {
     const v = videoRef.current
     if (!v || !v.videoWidth) return
@@ -131,13 +137,13 @@ export function CoverCropper({ dramaId, source, onSaved, onClose }: {
             onChange={(e) => {
               setPageIndex(Math.min(Math.max(0, Number(e.target.value) - 1), Math.max(0, pages.length - 1)))
               setPos({ x: 0.5, y: 0.5 })
+              setNat(null)
             }}
           />{' '}
           of {pages.length}
         </label>
       ) : (
-        !still && (
-          <div>
+        <div>
             {videoFailed ? (
               <p className="muted">This title has no video to take a frame from.</p>
             ) : (
@@ -155,7 +161,6 @@ export function CoverCropper({ dramaId, source, onSaved, onClose }: {
               </>
             )}
           </div>
-        )
       )}
       {still && (
         <>
@@ -174,6 +179,7 @@ export function CoverCropper({ dramaId, source, onSaved, onClose }: {
                 onPointerDown={onDown}
                 onPointerMove={onMove}
                 onPointerUp={() => (drag.current = null)}
+                onPointerCancel={() => (drag.current = null)}
                 style={{
                   left: `${(rect.x / nat.w) * 100}%`,
                   top: `${(rect.y / nat.h) * 100}%`,

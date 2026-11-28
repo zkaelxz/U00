@@ -361,12 +361,24 @@ def fetch_site_cover(drama_id: int, cover_url: str, page_url: str, replace: bool
     try:
         data, _reason = quick_read_fetch.fetch_one(
             cover_url, {"referer": cover_referer(cover_url, page_url or "")}, MAX_COVER_BYTES)
+        if data and replace and not _is_portrait(data):
+            # A page's og:image is often a site logo or banner; only a cover-shaped picture may displace page one.
+            return False
         if data:
             save_cover(drama_id, io.BytesIO(data), only_if_missing=not replace)
             return True
     except Exception:
         pass
     return False
+
+
+def _is_portrait(data: bytes) -> bool:
+    try:
+        from PIL import Image
+        with Image.open(io.BytesIO(data), formats=tuple(_FORMATS)) as img:
+            return img.height >= img.width * 0.9
+    except Exception:
+        return False
 
 
 _META_TAG = re.compile(r"<meta\b[^>]*>", re.IGNORECASE)
@@ -398,8 +410,8 @@ def cover_url_from_html(page_html: str, page_url: str) -> str:
     return ""
 
 
-def site_cover_url(page_url: str) -> str:
-    """The cover address a stored page link names, or "" when the page can't be read."""
+def site_cover_url(page_url: str) -> str | None:
+    """The cover address a stored page link names; "" when the page names none, None when it can't be read."""
     from lib import http
     from services import quick_read_fetch
     try:
@@ -407,8 +419,8 @@ def site_cover_url(page_url: str) -> str:
                             headers={"User-Agent": quick_read_fetch.FALLBACK_USER_AGENT,
                                      "Accept": "text/html,*/*;q=0.8"}, max_error_bytes=1024)
     except Exception:
-        return ""
-    return cover_url_from_html(response.text(), page_url) if response.ok else ""
+        return None
+    return cover_url_from_html(response.text(), page_url) if response.ok else None
 
 
 # Mean grey difference (0-255) under which two pictures count as the same page.
