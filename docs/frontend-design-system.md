@@ -11,7 +11,7 @@ Everything below was checked against the code on `baihe-subtitler`. Names are fi
 
 | Path | What lives there |
 |---|---|
-| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button at 640px and below, `JobsMenu`, `NotificationBell`, `ReportProblemButton`, `ThemeMenu`, user menu), the side nav from 641px up and the nav drawer below it and picks the page from the route. |
+| `main.tsx`, `App.tsx` | Entry and shell. `main.tsx` applies the saved theme, installs `bootFallback.ts` and `report/capture.ts`, then renders `App` inside a `RouteErrorBoundary`. `App` renders the header (Menu button at 640px and below, then `nav/HeaderEnd.tsx`: search, `JobsMenu`, `NotificationBell` and the You menu, or the PIN and account buttons on a phone), the side nav from 641px up and the nav drawer below it and picks the page from the route. |
 | `router.ts` | The hash router: `Route` type, `parseRoute`, `routeHref`, `useRoute`. |
 | `pages/*.tsx` | One file per top-level page (`Library`, `Translate`, `Sources`, `Discover`, `Live`, `Reader`, `Comic`, `SavedManga`, `Settings`, `Diagnostics`, `Admin`, `Assistant`, `Benchmark`, `Login`, `LibraryTools`). |
 | `pages/<page>/` | A page's own panels, forms and CSS (`settings/`, `diagnostics/`, `sources/`, `reader/`, ...). Pure form and format logic sits beside the panel as `<name>.ts` with a `<name>.test.ts`. |
@@ -102,7 +102,7 @@ Kit components are in `frontend/src/components/`; classes are in the design-kit 
 | `ConfirmButton` | Two-step delete with no typed word. |
 | `TypedConfirm` | Destructive action that needs a typed word (restore, resegment). |
 | `Sheet` | Modal `<dialog>`: a bottom sheet on phones, a centred dialog above 640px. |
-| `JobsMenu`, `NotificationBell`, `ThemeMenu`, `RemoteHealthBanner` | Header chrome. Reuse `useDetailsMenu` for a new header menu. |
+| `JobsMenu`, `NotificationBell`, `HeaderEnd` (You menu), `RemoteHealthBanner` | Header chrome. Reuse `useDetailsMenu` for a new header menu. |
 | `SharingControl` | The private or household switch on a title. |
 
 Related hooks: `useShortcut` (list shortcuts; skips text fields and IME composition), `usePcOnly` (hide or replace PC-only controls when the viewer is remote, with the shared wording constants), `usePersistedState` (section 5).
@@ -161,7 +161,7 @@ Three layers; all of them run in CI (`frontend` job in `.github/workflows/tests.
 |---|---|---|
 | Types and build | `npx tsc -b` (CI: `npm run build`) | TypeScript, then the bundle. |
 | Unit | `npx vitest run` | `src/**/*.test.ts`, run in a **node** environment (no DOM). So components are tested mainly through their logic files (`*Logic.ts`, `*Form.ts`, `*Model.ts`, `*State.ts`), by reading CSS or source text, and (for the kit, `components/uiKit.test.ts`) by rendering to markup; interaction is Playwright's job. |
-| Lint | `npm run lint` (oxlint) | |
+| Lint | `npm run lint` | oxlint, then a type check of `e2e/`, `smoke/` and the Playwright configs. |
 | Browser | `npm run e2e` | Playwright specs in `e2e/`. |
 
 **Static guards in vitest** worth knowing before you write a screen: `noRawRequests` (HTTP only through `api/`), `copyCase` (sentence case), `typeScale` (type tokens and fonts), `themeContrast` (contrast in all four looks), `uiKit` (kit class contracts), `router.test.ts`.

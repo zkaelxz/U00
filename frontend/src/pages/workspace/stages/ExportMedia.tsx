@@ -33,6 +33,7 @@ import { useStage } from '../StageContext'
 import { ExportBlock } from './ExportBlock'
 import { JobPanel } from './JobPanel'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useHolds } from '../../../hooks/useHolds'
 
 export function ExportEpub({ reason, opening }: { reason: string | null; opening: boolean }) {
   const { dramaId, drama } = useStage()
@@ -254,8 +255,8 @@ export function SoftsubVideoBlock({ reason, opening, startError, onStartError }:
       <Field label="Subtitles">
         <select value={field} onChange={(e) => setField(e.target.value as SoftsubVideoRequest['field'])}>
           <option value="en">English</option>
-          <option value="bilingual">Bilingual</option>
           <option value="zh">Source language</option>
+          <option value="bilingual">Both</option>
         </select>
       </Field>
       <Field
@@ -308,7 +309,9 @@ export function MarkExported() {
   const [error, setError] = useState<unknown>(null)
   const [pending, setPending] = useState(false)
   const [done, setDone] = useState(false)
+  const canMark = useHolds('admin.library')
   const exported = done || drama.status === 'exported'
+  if (!exported && !canMark) return null
   const mark = () => {
     setPending(true)
     markExported(dramaId)

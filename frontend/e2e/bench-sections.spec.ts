@@ -73,7 +73,7 @@ test('the last tab is remembered and a deep link wins over it', async ({ page })
 })
 
 test('deep links open the sweeps and Add cases in their own panes', async ({ page }) => {
-  for (const [tab, name] of [['sweep', 'Settings sweep'], ['tsweep', 'Translation sweep'], ['add', 'Add cases']] as const) {
+  for (const [tab, name] of [['sweep', 'Transcription sweep'], ['tsweep', 'Translation sweep'], ['add', 'Add cases']] as const) {
     await page.goto(`/#/benchmark?tab=${tab}`)
     await expect(benchTab(page, name)).toHaveAttribute('aria-selected', 'true')
   }
@@ -87,7 +87,7 @@ test('each heading has a purpose line and a help that lists the steps', async ({
   await checkHelp(page, 'Run a benchmark', /3\. Press Estimate cost/)
   await checkHelp(page, 'Model re-evaluation', /1\. Production is the model later re-evaluations compare against/)
   await checkHelp(page, 'Recent runs', /2\. Results shows one run/)
-  await checkHelp(page, 'Settings sweep', /4\. Stop any time/)
+  await checkHelp(page, 'Transcription sweep', /4\. Stop any time/)
   await checkHelp(page, 'Translation sweep', /5\. Stop any time/)
 })
 

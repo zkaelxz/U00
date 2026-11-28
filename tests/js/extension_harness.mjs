@@ -87,7 +87,11 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
     getElementById: () => null,
   };
   const sandbox = {
-    document, console, URL, setTimeout, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
+    document, console, URL, clearTimeout, setInterval, clearInterval, performance, crypto: globalThis.crypto,
+    // A whole-chapter capture paces its scroll steps and waits for each page to settle; the script's timers
+    // run 20 times faster so those waits keep their order without taking real seconds. Date, performance
+    // and setInterval stay on real time.
+    setTimeout: (fn, ms = 0, ...args) => setTimeout(fn, ms / 20, ...args),
     atob, btoa, Blob, Uint8Array, TextEncoder, Promise, Map, Set, WeakMap, WeakSet, Math, Number, String, Array, Error, Date,
     // A background tab never runs animation frames.
     requestAnimationFrame: (cb) => { if (frames) setTimeout(cb, 0); },

@@ -8,10 +8,10 @@ import {
 
 const item = (p: Partial<QueueItem> = {}): QueueItem => ({
   id: 1, drama_id: 3, title: 'Signal', step: 'translate', status: 'waiting', reason: null, job_id: null,
-  engine: 'claude', paid: true, changed_settings: [], held: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
+  engine: 'claude', paid: true, changed_settings: [], held: false, tonight: false, page_run: false, mine: true, added_at: 1, started_at: null, finished_at: null, ...p,
 })
 const queue = (p: Partial<QueueState> = {}): QueueState => ({
-  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, notice: null, max_items: 200,
+  version: 1, state: 'idle', stop_on_failure: false, overlap_online_translate: false, schedule: null, night: { start: '01:00', end: '07:00', self_check: true }, notice: null, max_items: 200,
   can_control: true, monthly_cap_usd: 0, items: [], ...p,
 })
 
@@ -51,9 +51,9 @@ describe('queueModel', () => {
   })
 
   it('says a paid Translate uses your key and costs money, and names the cap', () => {
-    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+    expect(translateCostNote('Claude', true, 5)).toBe('Uses Claude, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', true, 0)).toContain('No monthly spending cap is set, so the queue will skip it')
-    expect(translateCostNote('Ollama', false, 5)).toBe('Uses Ollama, which is free.')
+    expect(translateCostNote('Example free engine', false, 5)).toBe('Uses Example free engine, which is free.')
   })
 })
 
@@ -72,7 +72,7 @@ describe('saved settings panel', () => {
 
   it('does not double the full stop when an engine description ends with one', () => {
     expect(translateCostNote('Paid, cloud; best tone and character voice.', true, 5)).toBe(
-      'Uses Paid, cloud; best tone and character voice. Uses your API key and costs money. It stops at your $5.00 monthly spending cap.')
+      'Uses Paid, cloud; best tone and character voice, which costs money. It stops at your $5.00 monthly spending cap.')
     expect(translateCostNote('Claude', false, 0)).toBe('Uses Claude, which is free.')
     expect(translateCostNote('Claude.', false, 0)).toBe('Uses Claude, which is free.')
   })

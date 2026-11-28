@@ -45,6 +45,8 @@ class TestGetExportReadiness:
             "overlap_count": 0,
             "auto_qc_issue_count": 0,
             "dense_line_count": 0,
+            "sound_captioned_lines": 0,
+            "ear_marked_lines": 0,
         }
 
     def test_partial_translation_counts_are_correct(self, isolated_db):
@@ -132,6 +134,30 @@ class TestGenerateSubtitleText:
         text = export_service.generate_subtitle_text(did, "srt", "bilingual")
         assert "Hello" in text
         assert "你好" in text
+
+    def test_a_reading_row_goes_between_the_english_and_the_original(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            {"你好": "nǐ hǎo"}.get(text, ""))
+        did = self._drama_with_lines(isolated_db)
+        srt = export_service.generate_subtitle_text(did, "srt", "bilingual", reading_line=True)
+        assert "Hello\nnǐ hǎo\n你好\n" in srt and "Bye\n再见\n" in srt
+        vtt = export_service.generate_subtitle_text(did, "vtt", "zh", reading_line=True)
+        assert "nǐ hǎo\n你好" in vtt
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "lrc", "zh", reading_line=True)
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "srt", "en", reading_line=True)
+
+    def test_the_source_wrap_width_does_not_cut_the_reading_row(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            "wǒ men jīn tiān yì qǐ qù" if "我们" in text else "")
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="我们今天一起去", en="We go")])
+        for fmt in ("srt", "vtt"):
+            text = export_service.generate_subtitle_text(did, fmt, "zh", reading_line=True, wrap_chars_source=4)
+            assert "wǒ men jīn tiān yì qǐ qù\n我们今天\n一起去" in text, fmt
 
     def test_vtt_starts_with_webvtt_header(self, isolated_db):
         did = self._drama_with_lines(isolated_db)
@@ -1023,3 +1049,78 @@ class TestSpeakerNamesInSubtitles:
         isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=2.0, zh="", en="door", speaker="A", sfx=True)])
         text = export_service.generate_subtitle_text(did, "srt", "en", speaker_names=True)
         assert "A:" not in text and "[door]" in text
+
+
+class TestSoundCaptions:
+    def _tagged(self, db):
+        import sensevoice_tags
+        did = _drama(db)
+        db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="哈哈", en="Ha, you're funny.", speaker="A"),
+            Line(idx=1, start=1.0, end=2.0, zh="嗯", en="Mm.", speaker="A"),
+            Line(idx=2, start=2.0, end=3.0, zh="呜", en="I'm sorry.", speaker="B"),
+            Line(idx=3, start=3.0, end=4.0, zh="砰", en="door slams", sfx=True),
+            Line(idx=4, start=4.0, end=5.0, zh="好", en="Fine."),
+        ])
+        ids = [ln.id for ln in lines_from_rows(db.load_lines(did))]
+        sensevoice_tags.save_audio_tags(db.drama_dir(did), {
+            ids[0]: {"emotion": "happy", "events": ["Laughter", "BGM", "Speech"]},
+            ids[1]: {"emotion": "neutral", "events": ["BGM", "Breath"]},
+            ids[2]: {"emotion": "sad", "events": ["Cry", "BGM"]},
+            ids[3]: {"emotion": None, "events": ["Applause"]},
+            ids[4]: {"emotion": None, "events": ["BGM", "Cough"]},
+        })
+        return did
+
+    def test_off_by_default_and_on_marks_the_english(self, isolated_db):
+        did = self._tagged(isolated_db)
+        assert "[" not in export_service.generate_subtitle_text(did, "srt", "en").replace("[door slams]", "")
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True)
+        assert "[laughs] [music] Ha, you're funny." in srt
+        # Music is marked where it starts, not under every line of the scene; after a line
+        # without it (the SFX line), it is marked again.
+        assert "\nMm.\n" in srt and "\n[crying] I'm sorry.\n" in srt
+        assert "\n[music] [coughs] Fine.\n" in srt
+        assert "<i>[door slams]</i>" in srt and "[applause]" not in srt
+
+    def test_vtt_ass_and_bilingual_get_them_and_the_source_export_does_not(self, isolated_db):
+        did = self._tagged(isolated_db)
+        assert "[laughs] [music] Ha" in export_service.generate_subtitle_text(did, "vtt", "en", sound_captions=True)
+        assert "[laughs] [music] Ha" in export_service.generate_ass_text(did, sound_captions=True)
+        assert "[laughs]" not in export_service.generate_ass_text(did)
+        bi = export_service.generate_subtitle_text(did, "srt", "bilingual", sound_captions=True)
+        assert "[laughs] [music] Ha, you're funny.\n哈哈" in bi
+        assert "[" not in export_service.generate_subtitle_text(did, "srt", "zh", sound_captions=True).replace("[砰]", "")
+
+    def test_speaker_name_goes_before_the_sound(self, isolated_db):
+        did = self._tagged(isolated_db)
+        isolated_db.upsert_character(did, "A", character_name="Alice")
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True, speaker_names=True)
+        assert "Alice: [laughs] [music] Ha" in srt
+
+    def test_untagged_title_exports_unchanged_and_readiness_counts(self, isolated_db):
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [Line(idx=0, start=0.0, end=1.0, zh="好", en="Fine.")])
+        assert export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True) == \
+            export_service.generate_subtitle_text(did, "srt", "en")
+        assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 0
+        tagged = self._tagged(isolated_db)
+        # Counts what the export shows: "Mm." only continues the music and the SFX line's
+        # applause gives no caption.
+        assert export_service.get_export_readiness(tagged)["sound_captioned_lines"] == 3
+
+    def test_music_starting_under_an_uncaptioned_line_is_marked_on_the_next(self, isolated_db):
+        import sensevoice_tags
+        did = _drama(isolated_db)
+        isolated_db.save_lines(did, [
+            Line(idx=0, start=0.0, end=1.0, zh="砰", en="door", sfx=True),
+            Line(idx=1, start=1.0, end=2.0, zh="嗯", en=""),
+            Line(idx=2, start=2.0, end=3.0, zh="好", en="Fine."),
+            Line(idx=3, start=3.0, end=4.0, zh="嗯", en="Mm."),
+        ])
+        ids = [ln.id for ln in lines_from_rows(isolated_db.load_lines(did))]
+        sensevoice_tags.save_audio_tags(isolated_db.drama_dir(did),
+                                        {i: {"events": ["BGM"]} for i in ids})
+        srt = export_service.generate_subtitle_text(did, "srt", "en", sound_captions=True)
+        assert "\n[music] Fine.\n" in srt and "\nMm.\n" in srt
+        assert export_service.get_export_readiness(did)["sound_captioned_lines"] == 1

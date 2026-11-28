@@ -299,6 +299,12 @@ async function startLive({ url, sourceLanguage }) {
   return call("/live", { method: "POST", body: { url: link, source_language: sourceLanguage || "zh" } });
 }
 
+async function fetchSiteSubs({ url }) {
+  const link = videoLink(url);
+  if (!link) return { ok: false, error: "Open a video page on a public website first." };
+  return call("/subs", { method: "POST", body: { page_url: link } });
+}
+
 // Finds or creates the title a page belongs to (the app's extension_title_service); the
 // options decide how much it may do. Only a public page's address is sent, as for novels.
 async function resolveTitle({ url, titles, siteName, language, kind, chapterLinks, author, summary, coverUrl }) {
@@ -863,6 +869,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           break;
         case "startLive":
           respond(await startLive(message));
+          break;
+        case "fetchSiteSubs":
+          respond(await fetchSiteSubs(message));
           break;
         case "resolveTitle":
           respond(await resolveTitle(message));

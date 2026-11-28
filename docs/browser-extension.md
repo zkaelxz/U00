@@ -226,6 +226,7 @@ The endpoint's routes:
 | `POST /text` | A block of raw page text. |
 | `POST /novel` | A web-novel page's text, appended to a novel title as a new raw chapter. |
 | `POST /title` | Finds or creates the title (and series) for a page: `url`, `titles` (page title candidates), `language`, `kind` (`comic` or `novel`) and the `create`, `fill`, `series` switches. Answers ids, booleans, the stored display name and which blank fields were filled; never the address. |
+| `POST /video`, `POST /live` | The popup's Subtitle this video and Start Live captions, as the device-token routes below do them (only the link, no saved logins), as the PC owner. |
 
 A page whose bytes already match one in the drama is reused, not added again,
 and counts in `already_stored`. Its saved bubbles are never re-read or
@@ -326,6 +327,7 @@ Edge) reach Baihe through the household address, in three parts:
    `/follow` (Grab's Follow this series: tracks the series of the page being read so its new chapters raise the usual alert; needs `sources.import`; the page address is only matched to a source, and the PC fetches that source's own series page, one follow at a time).
    `/last-page` and `/last-pages` (Grab's Pick up where I left off) keep, per account and per site, the last public https page (scheme, host and path only, no query) the phone finished loading, in `sources.db` (`grab_last_pages`, so it is in library backups; a deleted member's rows go with them). They need only the device token and touch nothing but the caller's own rows.
    `/video` (Grab's Send video: starts Quick video translate for a link, which the PC's yt-dlp downloads from a public host without the saved logins) needs `media.import_url` and `jobs.start` instead.
+   `/subs` (the popup's Show Baihe subs, also on the PC's loopback bridge) needs `library.read` and `lines.read`: it answers with the English lines (start, end, text, speaker name) of the oldest title the caller can see whose saved link is that page and whose media is that link's whole download, never a part, upload or replacement (the oldest with English lines when there are several). A YouTube video matches by its id from any of its addresses (`watch?v=`, `youtu.be`, `/shorts/`, `/live/`, the mobile site), a Bilibili one by its BV or av id and part (no `?p` is part 1), and any other page by its link with the `?v=`, `?id=` or `?p=` id; no link, id or path goes back.
    `/page`, `/pages`, `/text`, `/novel`, `/title` and `/capture-summary` (it keeps a
    note on the title) also need `lines.edit`, and the three that run the engine need
    `jobs.start`, so taking either away from a member

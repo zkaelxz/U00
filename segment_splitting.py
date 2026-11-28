@@ -580,6 +580,12 @@ def _line_word_rows(ln) -> Optional[list]:
     return rows
 
 
+def line_word_spans(ln) -> Optional[list]:
+    """A line's stored words as (first char, end char, {start, end, word}),
+    or None as for line_words."""
+    return _line_word_rows(ln)
+
+
 def line_words(ln) -> Optional[list]:
     """A line's stored words as {start, end, word[, probability]} dicts, or None
     when it has none that fit its current text and time (_line_word_rows)."""

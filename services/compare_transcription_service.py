@@ -496,11 +496,10 @@ def run_second_hearing_job(job_id, drama_id, line_ids, audio_path, cfg, translat
 def _translation_context(drama_id, cfg, translation) -> tuple:
     """(translation context, speaker names) for translating the candidates."""
     drama = db.get_drama(drama_id) or {}
-    style_preset = "novel" if drama.get("content_mode") == "novel_narration" else "audio_drama"
     all_lines = db.load_line_objects(drama_id)
     glossary_terms, style_guidelines, character_names = \
         workspace_job_service.build_run_style_context(
-            drama_id, drama, all_lines, style_preset, with_emotions=False,
+            drama_id, drama, all_lines, profile_service.style_preset(drama), with_emotions=False,
             principal=translation.get("principal"))
     context = translate_pipeline.build_translation_context(
         translation["engine"], drama, style_note=translation["style_note"],

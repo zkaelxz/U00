@@ -396,3 +396,12 @@ def test_a_line_the_detector_hears_nothing_in_is_heard_again_without_it(monkeypa
     heard = rw.hear_window("a.wav", 0, 15, "zh", str(tmp_path / "s.wav"), "small", [])
     assert heard == {"segments": [{"text": "请不吝点赞"}]}
     assert calls == [None, True]
+
+
+def test_the_estimate_prices_the_titles_last_run_style(isolated_db, monkeypatch):
+    did = _seeded(translate_start_json='{"style_preset": "novel"}')
+    presets, real = [], workspace_job_service.build_run_style_context
+    monkeypatch.setattr(workspace_job_service, "build_run_style_context",
+                        lambda d, dr, ln, preset, **k: presets.append(preset) or real(d, dr, ln, preset, **k))
+    translate_run_service.estimate_translate_cost(did, "claude")
+    assert presets == ["novel"]

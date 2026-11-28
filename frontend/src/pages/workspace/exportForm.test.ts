@@ -52,6 +52,13 @@ describe('buildAssRequest', () => {
       field: 'en', preset: 'Clean', per_speaker_colors: true, include_notes: false, notes_as_separate_line: false,
     })
   })
+  it('sends the reading line and karaoke only with the original text', () => {
+    const form = { ...emptyAssForm('Clean'), readingLine: true, karaoke: true }
+    expect(buildAssRequest({ ...form, field: 'bilingual' }, opts).request).toMatchObject({ reading_line: true, karaoke: true })
+    const english = buildAssRequest(form, opts).request
+    expect(english?.reading_line).toBeUndefined()
+    expect(english?.karaoke).toBeUndefined()
+  })
   it('tidy cue timing is off by default and remembered through the draft', () => {
     expect(emptyAssForm('Clean').tidyTiming).toBe(false)
     const saved = { form: { ...emptyAssForm('Clean'), tidyTiming: true } }
@@ -59,6 +66,10 @@ describe('buildAssRequest', () => {
     expect(assFormFromDraft({ form: { field: 'en' } })?.tidyTiming).toBe(false)
     expect(emptyAssForm('Clean').speakerNames).toBe(false)
     expect(assFormFromDraft({ form: { speakerNames: true } })?.speakerNames).toBe(true)
+  })
+  it('sends sound captions only when turned on', () => {
+    expect(emptyAssForm('Clean').soundCaptions).toBe(false)
+    expect(buildAssRequest({ ...emptyAssForm('Clean'), soundCaptions: true }, opts).request).toMatchObject({ sound_captions: true })
   })
   it('maps overrides', () => {
     const f = { ...emptyAssForm('Clean'), size: '48', bold: 'yes' as const, primary: '#FFFFFF', wrapEn: '30', includeNotes: true, notesAsSeparateLine: true }

@@ -3,7 +3,7 @@ import { expect, type Locator, type Page } from '@playwright/test'
 import { expectPickedTab, pickTab } from './tabPicker'
 
 export const SECTIONS = [
-  'Quality', 'Golden sets', 'Add cases', 'Run a benchmark', 'Settings sweep', 'Translation sweep', 'Model re-evaluation', 'Recent runs',
+  'Quality', 'Golden sets', 'Add cases', 'Run a benchmark', 'Transcription sweep', 'Translation sweep', 'Model re-evaluation', 'Recent runs',
 ] as const
 
 export const benchTab = (page: Page, title: string): Locator =>

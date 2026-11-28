@@ -1,5 +1,8 @@
-/** Saves `blob` as a file through a temporary object URL (the browser's normal download). */
+import { saveInShell } from '../phoneShell'
+
+/** Saves `blob` as a file through a temporary object URL (the browser's normal download), or through the phone app. */
 export function downloadBlob(blob: Blob, filename: string): void {
+  if (saveInShell(blob, filename)) return
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url

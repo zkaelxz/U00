@@ -28,7 +28,7 @@ const line = (id: number, en = `en ${id}`): ReviewLine => ({
 
 const conflict = () => new ApiError(409, { code: 'conflict', message: 'changed' })
 
-function setup(lines: ReviewLine[], edit: EditState | null = null) {
+function setup(lines: ReviewLine[], edit: EditState | null = null, onEnglishSaved?: (id: number, before: string, after: string) => void) {
   const st = {
     current: {
       shown: lines, edit, page: 1, pages: 1, filter: 'all', searching: false,
@@ -45,7 +45,7 @@ function setup(lines: ReviewLine[], edit: EditState | null = null) {
     selectRef: { current: vi.fn() }, showOnPageRef: { current: vi.fn() },
     setData: vi.fn(), setFound: vi.fn(), setIssue, setEdit: vi.fn(), setStatus: status,
     setActiveId: vi.fn(), setPage, setFilter: vi.fn(), setError: vi.fn(), setSheet: vi.fn(),
-    setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(), setSpeakerUndo,
+    setStructError: vi.fn(), setAi: vi.fn(), setRetranscribeFocusId: vi.fn(), setSpeakerUndo, onEnglishSaved,
   })
   return { ctl, st, status, setIssue, pending, setPage, setSpeakerUndo }
 }
@@ -270,5 +270,31 @@ describe('taking a suggested speaker', () => {
     api.setLineSpeaker.mockResolvedValue({ updated: 0, undo: [] })
     expect(await ctl.actions.acceptSpeaker(1, 'Anvil')).toBe(true)
     expect(setSpeakerUndo).not.toHaveBeenCalled()
+  })
+})
+
+describe('a saved edit that changed the English', () => {
+  it('is reported with the English before and after, and one that did not is not', async () => {
+    const a = line(1, 'Lin left.')
+    const saved = vi.fn()
+    const { ctl } = setup([a], editing(a, 'Rin left.'), saved)
+    api.patchLine.mockImplementation(async (_d: number, id: number, p: LinePatch) => ({ ...a, id, ...p }))
+    expect(await ctl.saveEdit()).toBe(true)
+    expect(saved).toHaveBeenCalledWith(1, 'Lin left.', 'Rin left.')
+    saved.mockClear()
+    const b = line(2, 'same')
+    api.patchLine.mockImplementation(async (_d: number, id: number, p: LinePatch) => ({ ...b, id, ...p }))
+    const other = setup([b], { ...editing(b, 'same'), draft: { ...draftFromLine(b), zh: 'zh changed' } }, saved)
+    await other.ctl.saveEdit()
+    expect(saved).not.toHaveBeenCalled()
+  })
+
+  it('is not reported when only another field was sent and the English changed elsewhere', async () => {
+    const a = line(1, 'Lin left.')
+    const saved = vi.fn()
+    api.patchLine.mockImplementation(async (_d: number, id: number, p: LinePatch) => ({ ...a, id, ...p, en: 'Rin left.' }))
+    const { ctl } = setup([a], { ...editing(a, 'Lin left.'), draft: { ...draftFromLine(a), zh: 'zh changed' } }, saved)
+    expect(await ctl.saveEdit()).toBe(true)
+    expect(saved).not.toHaveBeenCalled()
   })
 })

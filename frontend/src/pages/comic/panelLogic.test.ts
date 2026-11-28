@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { NO_ZOOM } from './comicLogic'
-import { arriveAt, panelIndexFor, panelStep, panelZoom, PANEL_START, visiblePart } from './panelLogic'
+import { arriveAt, panelIndexFor, panelScroll, panelStep, panelZoom, PANEL_START, visiblePart } from './panelLogic'
 
 describe('panel stepping', () => {
   it('starts a page on its first panel', () => {
@@ -81,5 +81,21 @@ describe('panel zoom', () => {
 
   it('keeps only the part of the stage that is in the window', () => {
     expect(visiblePart({ x: 0, y: -100, w: 400, h: 1000 }, { w: 400, h: 700 })).toEqual({ x: 0, y: 100, w: 400, h: 700 })
+  })
+})
+
+describe('panelScroll', () => {
+  it('centres a panel that fits below the bars', () => {
+    // 800 tall window, 100 of bars: 700 of room; a 300 tall panel at 1500 is centred 200 below the bars.
+    expect(panelScroll(1500, 300, 800, 100)).toBe(1500 - 100 - 200)
+  })
+  it('puts a panel taller than the room just below the bars', () => {
+    expect(panelScroll(1500, 900, 800, 100)).toBe(1400)
+    expect(panelScroll(-400, 900, 800, 100)).toBe(-500)
+  })
+  it('leaves a panel already in full view below the bars where it is', () => {
+    expect(panelScroll(300, 300, 800, 100)).toBe(0)
+    expect(panelScroll(110, 300, 800, 100)).toBe(0)
+    expect(panelScroll(90, 300, 800, 100)).not.toBe(0)
   })
 })

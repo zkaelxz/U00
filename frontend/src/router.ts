@@ -12,7 +12,7 @@ import { isBenchmarkTab, type BenchmarkTab } from './pages/benchmark/benchmarkTa
 import { isSeriesTab, type SeriesTab } from './pages/series/seriesModel'
 import { isDiagnosticsCard, isDiagnosticsTab, type DiagnosticsCard, type DiagnosticsTab } from './pages/diagnostics/diagnosticsTabs'
 
-export const ADMIN_CARDS = ['people', 'activity', 'address', 'uploads', 'pc-profiles'] as const
+export const ADMIN_CARDS = ['people', 'activity', 'remote', 'address', 'uploads', 'pc-profiles'] as const
 export type AdminCard = (typeof ADMIN_CARDS)[number]
 const isAdminCard = (v: unknown): v is AdminCard => ADMIN_CARDS.includes(v as AdminCard)
 
@@ -34,7 +34,7 @@ export type Route =
   // section: "#/settings?section=developer-mode" (or "uploads") opens that card's fold and scrolls to it.
   // card: "#/settings?card=display" does the same for any card id in the settings index; an unknown id is dropped.
   | { name: 'settings'; section?: 'developer-mode' | 'uploads'; card?: string }
-  // card: "#/admin?card=uploads" opens that card of People and access and scrolls to it; an unknown id is dropped.
+  // card: "#/admin?card=uploads" shows the pane holding that part of People and access and scrolls to it; an unknown id is dropped.
   | { name: 'admin'; card?: AdminCard }
   // card: "#/diagnostics?card=ports" opens the tab that holds that card and scrolls to it;
   // tab alone opens that tab. install=transcription (Before-you-run) lands on the Packages card.

@@ -139,10 +139,28 @@ test('clears history after a second press, then shows the empty list', async ({ 
   await expect(page.getByTestId('translate-history').locator('li').first()).toContainText('再见')
 
   await page.getByRole('button', { name: 'Clear history' }).click()
-  await page.getByRole('button', { name: 'Confirm clear translation history' }).click()
+  await page.getByRole('button', { name: "Clear everyone's Text history on this PC?" }).click()
   await expect(page.getByText('No translations yet.')).toBeVisible()
   await expect(page.getByTestId('translate-history')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Clear history' })).toHaveCount(0)
+})
+
+test("history names each row's account once it holds more than one", async ({ page }) => {
+  const row = (source_text: string, account: string) => ({
+    source_text, translated_text: 'x', source_language: 'zh', target_language: 'en', engine: 'fake',
+    created_at: '2026-09-29 12:00:00', account,
+  })
+  let items = [row('一', 'PC owner'), row('二', 'Alex Example')]
+  await page.route('**/api/translate/history**', (r) => r.fulfill({ json: { items } }))
+  await page.goto('/#/translate')
+  const list = page.getByTestId('translate-history')
+  await expect(list.locator('li').nth(0)).toContainText('PC owner')
+  await expect(list.locator('li').nth(1)).toContainText('Alex Example')
+
+  items = [row('三', 'PC owner')]
+  await page.reload()
+  await expect(list).toContainText('三')
+  await expect(list).not.toContainText('PC owner')
 })
 
 test('another device sees why it cannot clear history', async ({ page }) => {
