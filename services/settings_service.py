@@ -375,13 +375,13 @@ _TOP_LANES = 3
 _MORE_LANES = {"deepseek": 6}
 
 
-def parallel_chapters(engine_name=None) -> int:
+def parallel_chapters(engine_name: str | None = None) -> int:
     """How many novel chapters one run may translate at once."""
     try:
         lanes = max(1, min(_TOP_LANES, int(str(get("novel_parallel_chapters")))))
     except (TypeError, ValueError):
         return 1
-    return _MORE_LANES.get(engine_name, lanes) if lanes == _TOP_LANES else lanes
+    return _MORE_LANES.get(engine_name or "", lanes) if lanes == _TOP_LANES else lanes
 
 
 def reply_guard_override():
