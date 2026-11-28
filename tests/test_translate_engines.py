@@ -979,6 +979,31 @@ class TestRequestTranslationsWithRetry:
         assert calls[1] == "2. 乙\n3. 丙"
         assert result == ["A.", "", ""]
 
+    def test_a_sentence_retry_answering_every_shown_part_fills_the_missing_one(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "When I", "3": "home."}'
+            return '{"1": "When I", "2": "got", "3": "home."}'
+        result = engine_shared.request_translations_with_retry(
+            ["我", "回到", "家"], None, call_model, sentence_groups=[[0, 1, 2]])
+        assert result == ["When I", "got", "home."]
+        assert len(calls) == 2
+
+    def test_a_sentence_retry_shifted_below_its_shown_parts_is_still_refused(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "A.", "2": "B."}'
+            return '{"2": "X.", "3": "Y."}'   # shown parts 3-4 of the second sentence, renumbered
+        result = engine_shared.request_translations_with_retry(
+            ["甲", "乙", "丙", "丁"], None, call_model, sentence_groups=[[0, 1], [2, 3]])
+        assert result == ["A.", "B.", "", ""]
+
     def test_a_made_up_key_after_a_retrys_last_line_keeps_its_good_answers(self):
         calls = []
 
