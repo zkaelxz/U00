@@ -120,8 +120,7 @@ public class GrabHistoryActivity extends Activity {
         if (finished > 0) {
             list.addView(section("Finished chapters"));
             list.addView(text("Grab whole series and Keep going skip the " + finished
-                    + (finished == 1 ? " chapter" : " chapters") + " this phone already sent in full. "
-                    + "Clear history doesn't change that.", 13, false, palette.muted));
+                    + (finished == 1 ? " chapter" : " chapters") + " this phone already sent in full.", 13, false, palette.muted));
             LinearLayout actions = row();
             actions.addView(button("Forget finished chapters", palette.bad, v -> new android.app.AlertDialog.Builder(this)
                     .setTitle("Forget finished chapters?")
