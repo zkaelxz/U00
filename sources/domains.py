@@ -175,7 +175,8 @@ class SiteDomains:
         self.base = base
         if not self.fixed:
             try:
-                store.set_setting(_failed_since_key(self.source), None)
+                if store.get_setting(_failed_since_key(self.source)) is not None:
+                    store.set_setting(_failed_since_key(self.source), None)
             except store.SourcesDatabaseBusy:
                 pass
         try:
