@@ -122,7 +122,7 @@ def chapter_starts(text: str) -> list:
     for line in text.splitlines(keepends=True):
         stripped = line.strip()
         if stripped:
-            if is_heading_text(stripped):
+            if is_heading_text(stripped) or is_volume_heading_text(stripped):
                 run.append((offset, stripped))
             elif run:
                 # A volume heading over a chapter heading (or a chapter with no

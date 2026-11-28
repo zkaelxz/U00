@@ -145,6 +145,11 @@ def test_chapter_starts_keeps_a_volume_heading_with_its_first_chapter():
     assert [t for _o, t in starts] == ["第一章 开始", "第三章 后来"]
     assert book[starts[0][0]:].startswith("第一卷 风起\n第一章")
     assert book[starts[1][0]:].startswith("第二章 空\n第三章")
+    # A bare 卷N is only a volume heading, and still opens the chapter under it.
+    book = "第一章 开始\n一段。\n卷二\n第二章 后来\n二段。\n"
+    starts = novel_text.chapter_starts(book)
+    assert [t for _o, t in starts] == ["第一章 开始", "第二章 后来"]
+    assert book[starts[1][0]:].startswith("卷二\n第二章")
 
 
 HEADING_SHAPES = [
