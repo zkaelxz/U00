@@ -28,6 +28,7 @@ from jobs import user_caps
 from jobs.gpu_queue import (GPU_WAIT_MESSAGE, _gpu_queue, _gpu_slot_available_locked, _left_unstarted_hooks,
                             _refresh_queue_messages_locked, _release_gpu_slot, _run_finish_hooks,
                             _running_gpu_job_count_locked, _sort_fair_locked)
+from jobs import job_stats
 from jobs.job_settings import _notify_job_finished, get_gpu_max_parallel
 from jobs.job_table import _job_threads, _jobs, _lock, _mirror_locked, _warn, _workers
 
@@ -65,6 +66,7 @@ def _log_activity(job_id, token, gpu_touching):
         pass
     db.add_activity(job_id, job.get("description") or "", job.get("owner_user_id"), outcome,
                     token, time.time(), gpu_touching)
+    job_stats.log_job_end(job_id, job, token, outcome, gpu_touching)
 
 
 def _timing_finish(job_id, token, thread_job=True, gpu_touching=False):
@@ -489,6 +491,7 @@ def _promote_one_queued_gpu_job(dropped):
         else:
             _jobs[job_id]["status"] = "running"
             _jobs[job_id]["message"] = "Starting..."
+            _jobs[job_id]["queue_wait_s"] = time.time() - (_jobs[job_id].get("started_at") or time.time())
             _jobs[job_id]["started_at"] = time.time()
             _mirror_locked(job_id)
             target, args, kwargs = entry["target"], entry["args"], entry["kwargs"]

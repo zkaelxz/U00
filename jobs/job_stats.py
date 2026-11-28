@@ -1,0 +1,68 @@
+"""Owns the one app.log stats line written when a job ends: numbers and fixed words only."""
+
+import re
+import time
+
+from lib.error_kinds import error_kind
+
+# Stage names are fixed phrases in job code. One that carries a digit, path or other
+# punctuation was built from data (an id, a title, a file), so it is logged as "other".
+_FIXED_PHRASE = re.compile(r"[A-Za-z][A-Za-z ,()-]{0,39}")
+_MAX_STAGES = 8
+
+
+def _stage_label(name) -> str:
+    text = " ".join(str(name or "").split())
+    return text if _FIXED_PHRASE.fullmatch(text) else "other"
+
+
+def _stage_seconds(job_id, token) -> dict:
+    import job_timing
+    runs = job_timing.list_runs(job_id, 1)
+    if not runs or runs[0]["run_started_at"] != token:
+        return {}
+    seconds = {}
+    for stage in runs[0]["stages"]:
+        label = _stage_label(stage["stage"])
+        seconds[label] = round(seconds.get(label, 0.0) + stage["duration_seconds"], 1)
+    return dict(sorted(seconds.items(), key=lambda kv: -kv[1])[:_MAX_STAGES])
+
+
+def _error_counts(job) -> dict:
+    texts = []
+    result = job.get("result")
+    errors = result.get("errors") if isinstance(result, dict) else None
+    if isinstance(errors, dict):
+        texts.extend(errors.values())
+    elif isinstance(errors, (list, tuple)):
+        texts.extend(errors)
+    if job.get("error"):
+        texts.append(job["error"])
+    counts = {}
+    for text in texts:
+        kind = error_kind(text)
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
+def line(job_id, job, token, outcome, gpu_touching) -> str:
+    from services import jobs_service
+    parts = [f"kind={jobs_service.job_kind(job_id)}", f"status={outcome}",
+             f"total_s={max(0.0, (job.get('finished_at') or time.time()) - token):.1f}",
+             f"queue_wait_s={float(job.get('queue_wait_s') or 0.0):.1f}", f"gpu={int(bool(gpu_touching))}"]
+    stages = _stage_seconds(job_id, token)
+    if stages:
+        parts.append("stages=" + ", ".join(f"{name} {secs}" for name, secs in stages.items()))
+    errors = _error_counts(job)
+    if errors:
+        parts.append("errors=" + ", ".join(f"{kind} {n}" for kind, n in sorted(errors.items())))
+    return "Job stats: " + " ".join(parts)
+
+
+def log_job_end(job_id, job, token, outcome, gpu_touching) -> None:
+    """Never raises: a logging slip must not turn a finished job into a failed one."""
+    try:
+        import applog
+        applog.get_logger().info(line(job_id, job, token, outcome, gpu_touching))
+    except Exception:
+        pass
