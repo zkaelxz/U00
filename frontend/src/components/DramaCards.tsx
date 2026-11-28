@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { coverUrl } from '../api/metadata'
+import { coverThumbUrl } from '../api/metadata'
 import type { DramaSummary } from '../api/types'
 import { nameLang } from '../hanScript'
 import { mediaTypeLabel } from '../labels'
@@ -70,7 +70,7 @@ export function DramaTile({ d }: { d: DramaSummary }) {
   return (
     <div className={`drama-tile ${tileHue(d.id)}`} aria-hidden="true" lang={d.title_zh ? nameLang(d.title_zh, d) : undefined}>
       {d.has_cover_art && !broken
-        ? <img src={coverUrl(d.id)} alt="" loading="lazy" onError={() => setBroken(true)} />
+        ? <img src={coverThumbUrl(d.id)} alt="" loading="lazy" onError={() => setBroken(true)} />
         : tileText(d)}
     </div>
   )

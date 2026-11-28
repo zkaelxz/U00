@@ -98,7 +98,6 @@ export interface ProfileOptions {
   fallback_engines?: string[]
   reflect?: boolean
   bulk?: boolean
-  thinking?: boolean
   // Quick video translate: the language a new title is made in, its export and its language packs.
   quick_source_language?: string
   quick_export_format?: string

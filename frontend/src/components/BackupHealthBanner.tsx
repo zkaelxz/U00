@@ -1,13 +1,14 @@
 /*
  * BackupHealthBanner: in the app shell, on the main PC only (usePcOnly 'local'; the backup routes are PC only),
- * while the last automatic backup failed or none has succeeded for a long while
- * (GET /api/backups/settings `problem`). Dismissing hides it for this page load only, so a lasting problem
- * comes back after a reload. A refusal or a server without the route stops the reads.
+ * while the last automatic backup failed, none has succeeded for a long while, or the copies share the
+ * library's drive (GET /api/backups/settings `problem`). Dismissing hides it for this page load only, so a lasting problem
+ * comes back after a reload; the one-time same-drive note is dismissed on the server, for good.
+ * A refusal or a server without the route stops the reads.
  */
 import { useEffect, useState } from 'react'
 
 import { ApiError } from '../api/client'
-import { getBackupSettings } from '../api/backups'
+import { dismissSameDriveNote, getBackupSettings } from '../api/backups'
 import { usePcOnly } from '../hooks/usePcOnly'
 import { routeHref } from '../router'
 import { BACKUP_PROBLEM_TEXT } from '../pages/backupsFormat'
@@ -52,7 +53,10 @@ export function BackupHealthBanner() {
       testId="backup-health-banner"
       title={text}
       action={<a href={routeHref({ name: 'library-tools', tab: 'backup' })}>Backups</a>}
-      onDismiss={() => setDismissed(problem)}
+      onDismiss={() => {
+        setDismissed(problem)
+        if (problem === 'same_drive') void dismissSameDriveNote().catch(() => undefined)
+      }}
     >
       {text}
     </WarnBar>

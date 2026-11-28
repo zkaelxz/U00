@@ -219,6 +219,7 @@ SLOW_REQUESTS_TO_SWITCH = 2
 # rather than paying for two more slow requests first.
 SLOW_MEMORY_SECONDS = 30 * 60
 _slow_until = {}
+_slow_reason = {}
 _slow_until_lock = threading.Lock()
 _clock = time.monotonic  # patchable
 
@@ -249,9 +250,27 @@ def recently_slow(engine) -> bool:
         return _clock() < _slow_until.get(_engine_key(engine), 0.0)
 
 
-def _remember_slow(engine):
+def _remember_slow(engine, reason: str = "slow"):
     with _slow_until_lock:
         _slow_until[_engine_key(engine)] = _clock() + SLOW_MEMORY_SECONDS
+        _slow_reason[_engine_key(engine)] = reason
+
+
+def _earlier_reason(engine) -> str:
+    with _slow_until_lock:
+        return _slow_reason.get(_engine_key(engine), "slow")
+
+
+# DeepSeek answers 402 "Insufficient Balance" once its prepaid credit is used up; every
+# later request fails the same way until the owner tops up, so the run moves at once.
+OUT_OF_CREDIT = "out_of_credit"
+OUT_OF_CREDIT_NOTICE = ("DeepSeek is out of credit. Top up at platform.deepseek.com; "
+                        "Gemma is translating for now.")
+
+
+def is_out_of_credit(e: Exception) -> bool:
+    status = getattr(e, "status_code", None) or getattr(getattr(e, "response", None), "status_code", None)
+    return status == 402
 
 
 class _SlowSwitchState:
@@ -288,8 +307,10 @@ class SlowSwitchEngine(FallbackEngine):
         if state is None:
             self._state.spent = self.spent
             if self._state.switched:
-                self._state.events.append({"from": choices[0], "to": choices[1], "reason": "slow",
-                                           "detail": f"{choices[0]} was slow in an earlier run"})
+                reason = _earlier_reason(engines[0])
+                self._state.events.append({"from": choices[0], "to": choices[1], "reason": reason,
+                                           "detail": OUT_OF_CREDIT_NOTICE if reason == OUT_OF_CREDIT
+                                           else f"{choices[0]} was slow in an earlier run"})
         self.spent = self._state.spent
         self.events = self._state.events
 
@@ -322,20 +343,48 @@ class SlowSwitchEngine(FallbackEngine):
         try:
             result = self.engines[self.active].translate_batch(zh_lines, context)
         except Exception as e:
+            if on_primary and is_out_of_credit(e) and not self._state.fallback_failed:
+                return self._leave_primary_out_of_credit(e, zh_lines, context)
             if on_primary or not _cannot_serve(e):
                 raise
             # The fallback can't serve this PC (Ollama not running or not signed in): the
             # slow engine is still better than none.
-            with self._state.lock:
-                self._state.fallback_failed = True
-                self._state.events.append({"from": self.choices[1], "to": self.choices[0],
-                                           "reason": type(e).__name__,
-                                           "detail": redact_secrets(str(e))[:200]})
-            self.active = 0
+            self._hand_back(e)
             return self.engines[0].translate_batch(zh_lines, context)
         if on_primary:
             self._note_primary_time(_clock() - started, len(zh_lines))
         return result
+
+    def _leave_primary_out_of_credit(self, e, zh_lines, context):
+        # Mid-chapter on purpose: the primary can't translate anything until it is topped up,
+        # so staying would leave the rest of the chapter blank.
+        s = self._state
+        with s.lock:
+            s.switched = True
+            if not any(ev.get("reason") == OUT_OF_CREDIT for ev in s.events):
+                s.events.append({"from": self.choices[0], "to": self.choices[1],
+                                 "reason": OUT_OF_CREDIT, "detail": redact_secrets(str(e))[:200]})
+        self.active = 1
+        try:
+            result = self.engines[1].translate_batch(zh_lines, context)
+        except Exception as fallback_error:
+            if not _cannot_serve(fallback_error):
+                raise
+            # With no fallback the user's problem is DeepSeek's credit, not a stopped Ollama.
+            self._hand_back(fallback_error)
+            raise e from None
+        # Only once the fallback has served: otherwise the next run would skip DeepSeek and
+        # waste a call on a fallback that isn't there before getting the same 402.
+        _remember_slow(self.engines[0], OUT_OF_CREDIT)
+        return result
+
+    def _hand_back(self, fallback_error):
+        with self._state.lock:
+            self._state.fallback_failed = True
+            self._state.events.append({"from": self.choices[1], "to": self.choices[0],
+                                       "reason": type(fallback_error).__name__,
+                                       "detail": redact_secrets(str(fallback_error))[:200]})
+        self.active = 0
 
     def _note_primary_time(self, seconds, n_lines):
         s = self._state

@@ -51,8 +51,6 @@ PAID_GROUP = "付费 / paid (not bought)"
 _ID = re.compile(r"[0-9]{1,12}")
 # A teaser row the site slots in ahead of chapter one; it holds no story pages.
 _NOTICE_TITLE = re.compile(r"^预告")
-_JPEG_MAGIC = bytes.fromhex("ffd8ff")
-_PNG_MAGIC = bytes.fromhex("89504e470d0a1a0a")
 
 LayoutChanged = layout_changed_class("Fanjiao", "comic page layout")
 
@@ -89,16 +87,6 @@ def _data(entry: dict | None) -> dict:
         return {}
     data = parsed.get("data") if isinstance(parsed, dict) else None
     return data if isinstance(data, dict) else {}
-
-
-def _extension_from_bytes(content: bytes) -> str:
-    if content.startswith(_JPEG_MAGIC):
-        return ".jpg"
-    if content.startswith(_PNG_MAGIC):
-        return ".png"
-    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
-        return ".webp"
-    return ""
 
 
 def _body_keys(entry) -> str:
@@ -152,6 +140,7 @@ class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
     languages = ["zh"]
     needs_browser = True
     url_patterns = [r"fanjiao\.co/cartoon(?:Detail|Read)\?(?:[^#]*&)?data="]
+    name_by_bytes = True
     # One render makes several API calls on the site's side, so renders are spaced well apart.
     host_min_interval = {HOST: 10.0}
     default_headers = {"Accept-Language": "zh-CN,zh;q=0.9", "Referer": REFERER}
@@ -252,11 +241,6 @@ class FanjiaoComicSource(PlainImageDownload, SourceAdapter):
             raise LayoutChanged("all of the chapter's images (the page had not finished loading them)")
         return [PageRef(self.name, chapter.chapter_id, i, u, headers={"Referer": REFERER})
                 for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        content, ext = super().download_page(page)
-        # Name the file by its bytes: the importer re-encodes an extension it doesn't keep as is.
-        return content, _extension_from_bytes(content) or ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

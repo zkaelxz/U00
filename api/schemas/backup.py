@@ -56,9 +56,11 @@ class AutoBackupSettings(BaseModel):
     running: bool
     same_drive_as_library: bool = Field(description="The copies share a drive with the library, "
                                                     "so one drive failure loses both.")
-    problem: Optional[Literal["failing", "stale"]] = Field(
-        None, description="Why the owner should look: the last run failed, or no success "
-                          "for a long while. Never set while backups are off.")
+    problem: Optional[Literal["failing", "stale", "same_drive"]] = Field(
+        None, description="Why the owner should look: the last run failed, no success "
+                          "for a long while, or (until dismissed, once the library has a few "
+                          "titles) the copies share the library's drive. Never set while "
+                          "backups are off.")
     copies: List[SnapshotCopy] = Field(default_factory=list, description="Newest first.")
 
 

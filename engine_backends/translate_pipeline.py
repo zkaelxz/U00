@@ -24,7 +24,6 @@ from .run_limits import FailureStreak, RateLimitWaitBudget, _rate_limit_budget_v
 from .prompts import (MALE_PRONOUN_WORD, build_stable_system_text, is_male_speaker_label,
                       known_male_names, pronoun_default_active, pronoun_neutral_texts)
 from .reflect_pass import REFLECT_PASSES, reflect_translate_batch
-from .thinking import title_thinking
 from .translation_guard import FLAG_NOTE as MERGE_SHIFT_FLAG_NOTE
 from .translation_guard import (HEADER_NOTE, IMPERIAL_NOTE, NUMBER_NOTE, SCRIPT_LEAK_NOTE, added_chapter_header,
                                 allowed_source_runs, changed_number, converted_to_imperial, flag_unusable_replies,
@@ -47,23 +46,19 @@ from en_cleanup import SCENE_BREAK, drop_em_dashes, is_divider
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
                               locale: str = "en-US", glossary_terms=None, style_guidelines: str = "",
-                              ollama_num_ctx_override: int | None = None, thinking: bool | None = None,
+                              ollama_num_ctx_override: int | None = None,
                               temperature: float | None = None, reasoning: str | None = None) -> dict:
     """The per-job context every engine's prompt is built from -- shared by
     the batch paths (runs, bulk submission, Compare, stronger engine, Manhua)
     so they send the same prompt. Live builds its own per-chunk context
     (live_cue_translation.build_live_context).
 
-    thinking: let a model that can reason do so. None means the title's
-    remembered choice, else off, so a run is fast and cheap by default;
-    engines without a request switch ignore it.
+    Thinking is switched off for the engines with a request switch, so a run
+    is fast and cheap; the others ignore it.
     reasoning: "less" asks Claude (Sonnet 5.5) or OpenAI (Luna) to reason less (see
     thinking.REASONING_MODES); None keeps the provider's default."""
-    if thinking is None:
-        thinking = title_thinking(drama_meta)
     return {
-        "reply_without_thinking": not thinking,
-        "reply_with_thinking": bool(thinking),
+        "reply_without_thinking": True,
         "drama_meta": drama_meta,
         "style_note": style_note,
         "novel_reference": novel_reference if getattr(engine, "supports_reference", False) else None,
@@ -307,7 +302,7 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  character_names: dict | None = None, ollama_num_ctx_override: int | None = None,
                                  reflect: bool = False, notes_cb=None, cost_cap_usd: float | None = None,
                                  cap_cb=None, month_cap_spent_cb=None, target_ids=None, detail_cb=None,
-                                 scene_aware_batches: bool = False, thinking: bool | None = None,
+                                 scene_aware_batches: bool = False,
                                  translate_by_sentence=None, check_replies: bool | None = None,
                                  scene_break_gap: float = SCENE_BREAK_GAP_SECONDS,
                                  sentence_limits: sentence_groups.GroupLimits = sentence_groups.DEFAULT_LIMITS,
@@ -367,7 +362,7 @@ class _TranslateRun:
         self.context = build_translation_context(
             self.engine, a.drama_meta, style_note=a.style_note, novel_reference=a.novel_reference,
             locale=a.locale, glossary_terms=a.glossary_terms, style_guidelines=a.style_guidelines,
-            ollama_num_ctx_override=a.ollama_num_ctx_override, thinking=a.thinking,
+            ollama_num_ctx_override=a.ollama_num_ctx_override,
             temperature=a.temperature, reasoning=a.reasoning)
         self.context["check_replies"] = a.check_replies
         self.size = a.batch_size or default_batch_size(self.engine, reflect=a.reflect)
