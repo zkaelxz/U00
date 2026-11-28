@@ -55,7 +55,7 @@ function checkNote(risk: number | null, reached: boolean): string {
 export function checkActionLabel(risk: number | null): string | null {
   if (risk === 0) return null
   if (risk === null) return 'Check the lines'
-  return risk === 1 ? 'Check the line' : `Check the ${risk} lines`
+  return risk === 1 ? 'Check the line' : `Check the ${risk.toLocaleString('en-US')} lines`
 }
 
 /** "Step 4 of 5 · Check": where `key` sits among the steps, for the phone's one button that opens the steps. */

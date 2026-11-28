@@ -268,6 +268,23 @@ test('Continue shows its tiles that name the next step and open it; only the til
   expect(mock.asked).toEqual([3])
 })
 
+test('a big line count keeps each Continue button inside its tile, in the Soft style on a four-tile row', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 800 })
+  await page.addInitScript(() => localStorage.setItem('baihe.style', 'soft'))
+  const mock = await mockShelf(page, (id) => (id === 3 ? 12_345 : 0))
+  Object.assign(mock.rows[1], { line_count: 123_456 + 766, translated_count: 766 })
+  await page.goto('/')
+  const shelf = page.getByRole('region', { name: 'Continue' })
+  await expect(shelf.getByRole('link', { name: /^Translate 123\.5K lines:/ })).toBeVisible()
+  await expect(shelf.getByRole('link', { name: /^Check the 12,345 lines:/ })).toBeVisible()
+  for (const tile of await shelf.getByRole('listitem').all()) {
+    const box = (await tile.boundingBox())!
+    const button = (await tile.locator('.continue-next').boundingBox())!
+    expect(button.x).toBeGreaterThanOrEqual(box.x)
+    expect(button.x + button.width).toBeLessThanOrEqual(box.x + box.width - 8)
+  }
+})
+
 test('a failed count request leaves Check the lines, with no error on the page', async ({ page }) => {
   const mock = await mockShelf(page, () => null)
   // "Check the lines" is also the label while the count loads: only what the page shows once the 500 is in counts.
