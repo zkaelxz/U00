@@ -35,6 +35,15 @@ class TestChapterCapture:
         assert out["batches"] == [urls[:3], urls[3:]]
         assert any("translating 1-3 of 3" in p for p in out["progress"]), out["progress"]
 
+    def test_english_for_a_recycled_element_is_drawn_when_its_picture_shows_again(self):
+        out = _run("content", "capture_answer_for_a_recycled_element_draws_when_its_picture_returns")
+        assert out["ok"] is True
+        first = "https://s1.bzcdn.net/p/1.jpg"
+        # The element may carry the second page's own English meanwhile, never the first page's.
+        assert first not in out["afterAnswer"]
+        assert first not in out["whileLoading"]
+        assert out["returned"] == [first]
+
 
 class TestPageSideFallback:
     def test_a_tainted_img_is_downloaded_by_the_worker_and_sent(self):

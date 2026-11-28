@@ -132,7 +132,8 @@ function loadContent({ images = [], canvases = [], fetchImage, screenshot = null
   };
   sandbox.window = sandbox;
   sandbox.addEventListener = () => {};
-  document.addEventListener = () => {};
+  document.loadListeners = [];
+  document.addEventListener = (type, fn) => { if (type === "load") document.loadListeners.push(fn); };
   sandbox.innerHeight = 800;
   sandbox.scrollY = 0;
   sandbox.scrollTo = () => {};
@@ -284,6 +285,28 @@ async function content(scenario) {
       const result = await h.ask(capture);
       return { ok: result.ok, readWhileOut, batches: h.sent.map((m) => m.images.map((i) => i.url)),
                progress: h.progress.map((m) => m.text) };
+    }
+    case "capture_answer_for_a_recycled_element_draws_when_its_picture_returns": {
+      // A recycling reader moves the <img> on to the next page while its batch is out, then shows
+      // the first page again later: its English is drawn then, and not while the picture still loads.
+      const page = placed(img(), 0);
+      page.getAttribute = (name) => (name === "src" ? page.src : null);
+      const showPage = (url, complete) => Object.assign(page, { src: url, currentSrc: complete ? url : page.currentSrc, complete });
+      const h = loadContent({ images: [page], fetchImage: okImage(),
+        sendReply: (message) => {
+          showPage(IMG_URL_2, true);
+          return { pages: message.images.map((i) => ({ key: i.key, regions: [{ translated_text: "Hi", box: [0, 0, 10, 10] }] })) };
+        } });
+      const result = await h.ask(capture);
+      const drawnFor = () => [...h.sandbox.__baihe.state.active.values()].map((e) => e.picture);
+      const afterAnswer = drawnFor();
+      const load = () => h.sandbox.document.loadListeners.forEach((fn) => fn({ target: page }));
+      showPage(IMG_URL, false);
+      load();
+      const whileLoading = drawnFor();
+      showPage(IMG_URL, true);
+      load();
+      return { ok: result.ok, afterAnswer, whileLoading, returned: drawnFor() };
     }
     case "page_drawn_before_its_batch_answers": {
       // The worker forwards a finished page while its batch is still out; the batch's own

@@ -91,6 +91,9 @@
     unsaved: new Set(),
     // element -> { layer, regions, naturalWidth }
     active: new Map(),
+    // Picture key -> regions for answers that came back after a recycling reader
+    // had moved the element on to another page: drawn when an element shows it again.
+    byPicture: new Map(),
     observer: null,
     // The running chapter capture ({cancelled, text}), or null.
     capture: null,
@@ -853,9 +856,39 @@
   // swaps the image without a navigation, so a load handler would never
   // fire. Watch the DOM instead, so the old page's English is taken off
   // the new picture (repositionAll); pressing Translate again draws it.
+  // Bounded: a long chapter on a recycling reader would otherwise keep every page's boxes.
+  const MAX_REMEMBERED_PICTURES = 400;
+  function rememberPicture(key, regions) {
+    state.byPicture.delete(key);
+    state.byPicture.set(key, regions);
+    if (state.byPicture.size > MAX_REMEMBERED_PICTURES) state.byPicture.delete(state.byPicture.keys().next().value);
+  }
+
+  // Until the new src has loaded, currentSrc still names the old picture, so the key would match the old page.
+  const showsLoadedPicture = (img) => img.complete && img.naturalWidth > 0;
+
+  function drawRememberedPicture(el) {
+    if (!el || el.tagName !== "IMG" || !state.byPicture.size || !showsLoadedPicture(el)) return;
+    const regions = state.byPicture.get(elementKey(el));
+    if (!regions) return;
+    const entry = state.active.get(el);
+    if (entry && entry.picture === pictureOf(el) && entry.regions === regions) return;
+    drawOverlay(el, regions);
+  }
+
+  // The answer's own element went on to another page, but the reader may already show
+  // this page in a different element of its pool.
+  function drawWherePictureShows(key, regions) {
+    for (const img of document.images) {
+      if (img.isConnected && showsLoadedPicture(img) && elementKey(img) === key) drawOverlay(img, regions);
+    }
+  }
+
   function watchForPageChanges() {
     if (state.observer) return;
     state.observer = new MutationObserver(() => scheduleReposition());
+    // currentSrc, part of the picture key, changes only once the new picture has loaded.
+    document.addEventListener("load", (event) => drawRememberedPicture(event.target), true);
     state.observer.observe(document.body, {
       subtree: true, attributes: true, childList: true,
       attributeFilter: ["src", "style", "class"],
@@ -1618,10 +1651,12 @@
   // again, a bounded number of times so a wrong counter only costs a few seconds.
   const CAPTURE_PATIENT_WAIT_MS = 3000;
   const CAPTURE_PATIENT_TRIES = 3;
-  // The first batch of a capture goes out at this many pages, so English shows
-  // early; later ones fill the request. Scrolling and reading go on while a batch
-  // is out, at most one more batch ahead, so the page images held stay bounded.
-  const CAPTURE_FIRST_BATCH = 3;
+  // The first batch of a capture goes out small, so English shows early; later ones
+  // fill the request. It is as many pages as the app translates at once (6 when
+  // nothing is saved, 2 when saving: extension_bridge_service), so it costs no
+  // extra round. Scrolling and reading go on while a batch is out, at most one more
+  // batch ahead, so the page images held stay bounded.
+  const CAPTURE_FIRST_BATCH = { overlay: 6, store: 2 };
   // Attributes a list renderer uses to number its rows. Used only to order
   // pages, and only when every page in the comparison has one.
   const READER_INDEX_KEYS = ["pageIndex", "pageNum", "pageNumber", "page", "index", "idx"];
@@ -1982,6 +2017,7 @@
     let serverStop = "";
     let seq = 0;
     let limit = MAX_IMAGES_PER_REQUEST;
+    const firstBatch = store ? CAPTURE_FIRST_BATCH.store : CAPTURE_FIRST_BATCH.overlay;
     let capHit = false;
     let unreadable = "";
     const needAccess = new Set();
@@ -2096,6 +2132,9 @@
           if (srcKey && el.isConnected && await currentDrawTargetKey(el) === srcKey) {
             drawOverlay(el, regions);
             counts.drawn += 1;
+          } else if (srcKey && el.tagName === "IMG") {
+            rememberPicture(srcKey, regions);
+            drawWherePictureShows(srcKey, regions);
           }
         }
       }
@@ -2191,9 +2230,12 @@
     let sending = null;
     let sendFailure = "";
     let sentAny = false;
-    const startSending = () => {
-      const size = sentAny ? limit : Math.min(limit, CAPTURE_FIRST_BATCH);
-      if (sending || queue.length < size) return;
+    // Two steps in a row with no new page send what is queued, so the last pages translate while the
+    // scroll makes sure the chapter has ended.
+    const startSending = (quiet) => {
+      if (sending || !queue.length) return;
+      const size = quiet ? queue.length : sentAny ? limit : Math.min(limit, firstBatch);
+      if (queue.length < size) return;
       sentAny = true;
       sending = flush(false, size).then((r) => {
         sendFailure = r;
@@ -2228,7 +2270,7 @@
       const counter = readerCounter();
       if (counter) expected = Math.max(expected, counter.total);
       report();
-      startSending();
+      startSending(stalls >= 2);
       if (sending && queue.length >= 2 * limit) await sending;
       if (sendFailure) { failure = sendFailure; reason = "error"; break; }
       if (run.cancelled) { reason = "cancelled"; break; }
