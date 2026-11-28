@@ -74,7 +74,8 @@ OPTIONAL_DEPENDENCIES = {
     "yt-dlp": ("yt_dlp", "downloading video from YouTube and other sites, live translation, "
                          "Bilibili source adapter", "feature"),
     "opencc-python-reimplemented": ("opencc", "Traditional Chinese segmentation (Reader; "
-                                              "converts to Simplified for jieba)", "feature"),
+                                              "converts to Simplified for jieba) and glossary "
+                                              "terms matching lines in either script", "feature"),
     "sudachidict_core": ("sudachidict_core", "Japanese word segmentation dictionary (sudachipy)",
                          "feature"),
     "safetensors": ("safetensors", "ML inpainting (Scanlate, LaMa-manga checkpoint)", "feature"),

@@ -19,7 +19,7 @@ import { LineActionsSheet, type SheetState } from './LineActionsSheet'
 import { useLineSelectionContext } from './useLineSelectionContext'
 import { SelectionBar } from './SelectionBar'
 import { selectionContext } from './selectionActions'
-import { useSimple } from '../../StageContext'
+import { useSimple, useTitleTextLang } from '../../StageContext'
 import { useCheckQueue, useLineTab, useQueueMedia } from './useCheckQueue'
 import { ThisLineDock } from './ThisLinePanel'
 import { LineRow, type EditState, type RowIssue } from './LineRow'
@@ -114,7 +114,7 @@ const STATUS_MS = 8000
 
 export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind, hasAudio = false, sourceLanguage, translationEngine = null, prose = false, onLineCount, onFlaggedCount, onCompareSelected, onRetimeSelected, onRetranscribeLines, onOpenHistory, goTo, onQueue, onLineTab, lineDock = null, watchDock = null }: Props) {
   const isPhone = useMediaQuery(PHONE)
-  const simple = useSimple()
+  const simple = useSimple(), titleLang = useTitleTextLang()
   const isWide = useMediaQuery(WIDE) // tablets and wider: a source video gets its own sticky card beside the lines
   const isShort = useMediaQuery(SHORT)
   const collapsed = useScrollCollapse(isPhone)
@@ -496,7 +496,7 @@ export function LinesPanel({ dramaId, reloads, onChanged, jobRunning, mediaKind,
               key={l.id}
               dramaId={dramaId}
               line={l}
-              sourceLanguage={sourceLanguage} prose={prose}
+              sourceLanguage={sourceLanguage} titleLang={titleLang} prose={prose}
               active={l.id === activeId}
               selected={selection.selectedSet.has(l.id)}
               isPhone={isPhone}

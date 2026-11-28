@@ -34,6 +34,11 @@ public class TitleProgressTest {
     }
 
     @Test
+    public void aRunLeftToThePcPointsAtTheJobsPage() {
+        assertEquals("Translating Owl is still going on the PC. See the Jobs page.", TitleProgress.leftToPc("Owl"));
+    }
+
+    @Test
     public void idleShowsNothing() {
         assertNull(TitleProgress.line("idle", null, "Owl", ""));
         assertNull(TitleProgress.line(null, null, "Owl", null));
