@@ -104,7 +104,7 @@ class SteadyServer(uvicorn.Server):
         await super().startup(sockets=sockets)
         self._addresses = [s.getsockname()[:2] for srv in getattr(self, "servers", [])
                            for s in (srv.sockets or ())]
-        self._reopen_failed_logged = False
+        self._reopen_failures = 0
         self._reopening = False
         if self.started and self._addresses:
             self._watch_task = asyncio.get_running_loop().create_task(self._watch())
@@ -125,12 +125,18 @@ class SteadyServer(uvicorn.Server):
             await asyncio.sleep(CHECK_SECONDS)
             if self.should_exit:
                 return
-            if any(_closed(srv) for srv in self.servers):
+            if any(_closed(srv) for srv in self.servers) or self._missing():
                 self._reopening = True
                 try:
                     await self._reopen()
                 finally:
                     self._reopening = False
+
+    def _missing(self) -> bool:
+        # A reopen that failed has already dropped the closed server from
+        # self.servers, so the addresses are what remember the port.
+        open_addresses = {s.getsockname()[:2] for srv in self.servers for s in (srv.sockets or ())}
+        return any(address not in open_addresses for address in self._addresses)
 
     def _protocol(self, _loop=None):
         # The same factory uvicorn's startup builds (uvicorn 0.54, pinned in
@@ -155,11 +161,12 @@ class SteadyServer(uvicorn.Server):
             try:
                 kept.append(await loop.create_server(self._protocol, host=host, port=port,
                                                      ssl=self.config.ssl, backlog=self.config.backlog))
-                self._reopen_failed_logged = False
+                self._reopen_failures = 0
                 _log.error("The listener on %s:%s had closed; it is open again.", host, port)
             except OSError as exc:
-                if not self._reopen_failed_logged:
-                    _log.error("The listener on %s:%s closed and can't open again yet (%s); retrying.",
-                               host, port, exc)
-                    self._reopen_failed_logged = True
+                self._reopen_failures += 1
+                # First failure, then about once a minute, so a stuck port shows in the log without filling it.
+                if self._reopen_failures % 12 == 1:
+                    _log.error("The listener on %s:%s closed and can't open again yet (%s); failed %d times, retrying every %s s.",
+                               host, port, exc, self._reopen_failures, CHECK_SECONDS)
         self.servers = kept

@@ -163,6 +163,43 @@ def test_a_listener_that_closed_is_opened_again_on_the_same_port(monkeypatch):
     asyncio.run(go())
 
 
+def test_a_failed_reopen_is_tried_again(monkeypatch):
+    monkeypatch.setattr(steady_listener, "CHECK_SECONDS", 0.05)
+
+    async def go():
+        server = steady_listener.SteadyServer(uvicorn.Config(
+            _ok_app, host="127.0.0.1", port=0, log_level="critical", lifespan="on"))
+        task = asyncio.create_task(server.serve())
+        while not server.started:
+            await asyncio.sleep(0.01)
+        port = server.servers[0].sockets[0].getsockname()[1]
+        loop = asyncio.get_running_loop()
+        real, failures = loop.create_server, []
+
+        async def flaky(*args, **kwargs):
+            if len(failures) < 2:
+                failures.append(1)
+                raise OSError("port busy")
+            return await real(*args, **kwargs)
+        loop.create_server = flaky
+        for s in server.servers[0].sockets:
+            loop.remove_reader(s.fileno())
+            getattr(s, "_sock").close()
+        for _ in range(100):
+            await asyncio.sleep(0.05)
+            try:
+                if b" 200 " in await _get(port):
+                    break
+            except OSError:
+                continue
+        else:
+            pytest.fail("the port was not tried again after a failed reopen")
+        assert len(failures) == 2
+        server.should_exit = True
+        await task
+    asyncio.run(go())
+
+
 def test_new_event_loop_is_a_working_loop():
     loop = steady_listener.new_event_loop()
     try:
