@@ -23,6 +23,13 @@ describe('subtitleQuery', () => {
   })
 })
 
+describe('reading line', () => {
+  it('is only sent when on', () => {
+    expect(subtitleQuery({ fmt: 'srt', field: 'zh', includeNotes: false, readingLine: true })).toBe('fmt=srt&field=zh&reading_line=true')
+    expect(subtitleQuery({ fmt: 'srt', field: 'zh', includeNotes: false, readingLine: false })).toBe('fmt=srt&field=zh')
+  })
+})
+
 describe('tidy timing', () => {
   it('is only sent when on', () => {
     expect(subtitleQuery({ fmt: 'srt', field: 'en', includeNotes: false, tidyTiming: false })).toBe('fmt=srt&field=en')

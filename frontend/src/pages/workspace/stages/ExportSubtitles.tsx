@@ -52,6 +52,9 @@ interface Props {
 export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLines }: Props) {
   const { dramaId, drama, refetchDrama } = useStage()
   const blocked = exportBlocked(totalLines)
+  const sourceLanguage = drama.source_language
+  // Korean is written in Hangul, which already spells the sound.
+  const canRead = form.field !== 'en' && (sourceLanguage === 'zh' || sourceLanguage === 'ja')
   const [problem, setProblem] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [result, setResult] = useState<{ text: string; filename: string; fmt: SubtitleExportFormat } | null>(null)
@@ -89,6 +92,7 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
       fmt, field: form.field, includeNotes: form.includeNotes, wrapEn: en.value, wrapSource: src.value,
       tidyTiming: form.tidyTiming && fmt === 'srt',
       speakerNames: form.speakerNames,
+      readingLine: canRead && form.readingLine && fmt !== 'lrc',
     })
   }
 
@@ -186,6 +190,16 @@ export function ExportSubtitles({ fmt, setFmt, form, setForm, options, totalLine
           <Field label="Include notes" help="Add translation notes inline in the exported text.">
             <Toggle checked={form.includeNotes} onChange={(v) => set('includeNotes', v)} />
           </Field>
+          {canRead && fmt !== 'lrc' && (
+            <Field label="Reading line" help={`${sourceLanguage === 'ja' ? 'Furigana (kana)' : 'Pinyin'} in smaller text above the original. Needs the Reader's word packages (Diagnostics).`}>
+              <Toggle checked={form.readingLine} onChange={(v) => set('readingLine', v)} />
+            </Field>
+          )}
+          {form.field !== 'en' && fmt === 'ass' && (
+            <Field label="Karaoke" help="ASS only. Each word of the original fills in as it is spoken, from the word times Whisper kept. Lines without word times, or edited since, show as usual.">
+              <Toggle checked={form.karaoke} onChange={(v) => set('karaoke', v)} />
+            </Field>
+          )}
           <Field
             label="Tidy cue timing for players"
             help="SRT only. Lengthens very short cues into silence (up to 1 s) and leaves 2 frames between cues that touch, so players don't flash or merge them. Starts never move and your saved times are not changed."

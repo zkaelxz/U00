@@ -133,6 +133,19 @@ class TestGenerateSubtitleText:
         assert "Hello" in text
         assert "你好" in text
 
+    def test_a_reading_row_goes_between_the_english_and_the_original(self, isolated_db, monkeypatch):
+        import segment
+        monkeypatch.setattr(segment, "missing_reader_packages", lambda language: [])
+        monkeypatch.setattr(segment, "reading_text", lambda text, language, chinese_script="simplified":
+                            {"你好": "nǐ hǎo"}.get(text, ""))
+        did = self._drama_with_lines(isolated_db)
+        srt = export_service.generate_subtitle_text(did, "srt", "bilingual", reading_line=True)
+        assert "Hello\nnǐ hǎo\n你好\n" in srt and "Bye\n再见\n" in srt
+        vtt = export_service.generate_subtitle_text(did, "vtt", "zh", reading_line=True)
+        assert "nǐ hǎo\n你好" in vtt
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "lrc", "zh", reading_line=True)
+        assert "nǐ hǎo" not in export_service.generate_subtitle_text(did, "srt", "en", reading_line=True)
+
     def test_vtt_starts_with_webvtt_header(self, isolated_db):
         did = self._drama_with_lines(isolated_db)
         text = export_service.generate_subtitle_text(did, "vtt", "en")

@@ -172,3 +172,25 @@ class TestLineBreakOffsets:
         monkeypatch.setattr(segment, "segment_words", words)
         assert _offsets("我們今天去", "zh", "traditional") == {2, 4}
         assert seen == ["traditional"]
+
+
+def test_reading_text_spaces_pinyin_words_but_not_before_punctuation():
+    pytest.importorskip("jieba")
+    pytest.importorskip("pypinyin")
+    assert segment.reading_text("你好，世界。", "zh") == "nǐ hǎo， shì jiè。"
+
+
+def test_reading_text_is_kana_for_japanese_and_empty_where_it_adds_nothing():
+    pytest.importorskip("sudachipy")
+    pytest.importorskip("pykakasi")
+    assert segment.reading_text("東京に行く", "ja") == "とうきょうにいく"
+    assert segment.reading_text("すごい", "ja") == ""
+    assert segment.reading_text("안녕", "ko") == ""
+
+
+def test_reading_text_of_traditional_chinese_needs_no_opencc(monkeypatch):
+    pytest.importorskip("pypinyin")
+    import importlib.util
+    real_find = importlib.util.find_spec
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name, *a: None if name == "opencc" else real_find(name, *a))
+    assert segment.reading_text("你們好", "zh", chinese_script="traditional") == "nǐ men hǎo"

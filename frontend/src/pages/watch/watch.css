@@ -54,6 +54,9 @@
 .watch-now > p, .watch-now-form { margin: 0; }
 .watch-now-meta { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; color: var(--muted); }
 .watch-now-zh { font-size: var(--text-lg); overflow-wrap: anywhere; }
+.watch-now-zh rt { font-size: 0.55em; color: var(--text-muted, inherit); }
+.watch-now-original .watch-word { transition: color 0.12s; }
+.watch-now-original:has(.watch-word-heard) .watch-word:not(.watch-word-heard) { opacity: 0.55; }
 .watch-now-label { font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--muted); }
 .watch-now-form { display: grid; gap: var(--space-2); }
 /* The English is what a listener reads, so it is the largest text on the page after the title. */

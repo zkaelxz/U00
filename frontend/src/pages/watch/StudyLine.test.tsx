@@ -1,14 +1,15 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { StudyLine, StudyWords } from './StudyLine'
+import { OriginalLine, StudyLine, StudyWords } from './StudyLine'
+import { heardUpTo } from './watchLogic'
 
 const study = { line_id: 7, language: 'zh', original: '你好', needs_install: null }
 
 describe('StudyWords', () => {
   it('shows each word with its reading and meanings', () => {
     const out = renderToStaticMarkup(
-      <StudyWords study={{ ...study, words: [{ word: '你好', reading: 'nǐ hǎo', meanings: ['hello', 'hi'] }] }} language="zh" />,
+      <StudyWords study={{ ...study, words: [{ word: '你好', reading: 'nǐ hǎo', meanings: ['hello', 'hi'], start: null }] }} language="zh" />,
     )
     expect(out).toContain('nǐ hǎo')
     expect(out).toContain('hello; hi')
@@ -25,5 +26,25 @@ describe('StudyLine', () => {
     const out = renderToStaticMarkup(<StudyLine dramaId={3} lineId={7} language="zh" />)
     expect(out).toContain('>Study<')
     expect(out).not.toContain('data-testid="watch-study"')
+  })
+})
+
+describe('the original line on the now card', () => {
+  it('shows the text and a pinyin switch, off until turned on', () => {
+    const out = renderToStaticMarkup(<OriginalLine dramaId={3} lineId={7} text="你好" language="zh" />)
+    expect(out).toContain('<p class="watch-now-zh" lang="zh">你好</p>')
+    expect(out).toContain('Pinyin')
+    expect(out).toContain('aria-checked="false"')
+  })
+
+  it('has no switch for Korean, which Hangul already spells', () => {
+    expect(renderToStaticMarkup(<OriginalLine dramaId={3} lineId={7} text="안녕" language="ko" />)).not.toContain('role="switch"')
+  })
+
+  it('lights every word heard so far, skipping words without a time', () => {
+    const words = [{ start: 1 }, { start: null }, { start: 2 }]
+    expect(heardUpTo(words, 0.5)).toBe(-1)
+    expect(heardUpTo(words, 1.5)).toBe(0)
+    expect(heardUpTo(words, 2)).toBe(2)
   })
 })

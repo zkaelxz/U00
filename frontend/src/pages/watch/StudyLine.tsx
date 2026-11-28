@@ -1,9 +1,14 @@
 // A small "Study" button on the Watch page's now card: the line's original text, then each word with its reading and
-// meaning. It is a button, not a tap on the line, because tapping a line jumps the video there.
-import { useEffect, useState } from 'react'
+// meaning. It is a button, not a tap on the line, because tapping a line jumps the video there. Also the card's
+// original text itself, with its Reading switch.
+import { useEffect, useState, type RefObject } from 'react'
 
 import { readerApi } from '../../api/reader'
+import { Field } from '../../components/Field'
+import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
+import { usePersistedState } from '../../hooks/usePersistedState'
+import { heardUpTo } from './watchLogic'
 import type { StudyLine as Study } from '../../types/reader'
 
 export function StudyLine({ dramaId, lineId, language }: { dramaId: number; lineId: number; language: string }) {
@@ -49,6 +54,89 @@ export function StudyWords({ study, language }: { study: Study; language: string
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+const KANJI = /[㐀-䶿一-鿿豈-﫿々]/
+
+/**
+ * The now card's original text with a Reading switch: on, pinyin or furigana sits over each word and the words light up
+ * as they are spoken (from the line's stored word times; a line without them just shows the readings).
+ */
+export function OriginalLine({ dramaId, lineId, text, language, mediaRef }: {
+  dramaId: number
+  lineId: number
+  text: string
+  language: string
+  mediaRef?: RefObject<HTMLMediaElement | null>
+}) {
+  const canRead = language === 'zh' || language === 'ja'
+  const [reading, setReading] = usePersistedState('watch.reading', false)
+  const [study, setStudy] = useState<Study | null>(null)
+  const [heard, setHeard] = useState(-1)
+  const on = canRead && reading
+
+  useEffect(() => {
+    if (!on || study) return
+    let cancelled = false
+    readerApi.lineStudy(dramaId, lineId).then((s) => !cancelled && setStudy(s), () => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [on, study, dramaId, lineId])
+
+  const words = on && study && !study.needs_install ? study.words : null
+  const timed = !!words?.some((w) => w.start != null)
+  useEffect(() => {
+    const el = mediaRef?.current
+    if (!timed || !el || !words) return
+    // Read every frame while playing, so a word lights with the voice; state changes only when the word does.
+    let raf = 0
+    const tick = () => {
+      const next = heardUpTo(words, el.currentTime)
+      setHeard((h) => (h === next ? h : next))
+      raf = el.paused ? 0 : requestAnimationFrame(tick)
+    }
+    const start = () => {
+      cancelAnimationFrame(raf)
+      tick()
+    }
+    tick()
+    el.addEventListener('play', start)
+    el.addEventListener('seeked', start)
+    return () => {
+      cancelAnimationFrame(raf)
+      el.removeEventListener('play', start)
+      el.removeEventListener('seeked', start)
+    }
+  }, [timed, words, mediaRef])
+
+  const lang = study?.language || language
+  return (
+    <div className="watch-now-original">
+      <p className="watch-now-zh" lang={lang}>
+        {words && words.length > 0
+          ? words.map((w, i) => {
+              const cls = timed && i <= heard ? 'watch-word watch-word-heard' : 'watch-word'
+              // Katakana and kana need no reading over them.
+              const show = w.reading && w.reading !== w.word && (lang !== 'ja' || KANJI.test(w.word))
+              return show ? (
+                <ruby key={i} className={cls}>
+                  {w.word}
+                  <rt>{w.reading}</rt>
+                </ruby>
+              ) : (
+                <span key={i} className={cls}>{w.word}</span>
+              )
+            })
+          : text}
+      </p>
+      {canRead && (
+        <Field label={language === 'ja' ? 'Furigana' : 'Pinyin'}>
+          <Toggle checked={reading} onChange={setReading} />
+        </Field>
+      )}
     </div>
   )
 }
