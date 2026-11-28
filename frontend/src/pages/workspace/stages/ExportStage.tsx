@@ -5,9 +5,9 @@ import { useFeatures } from '../../../hooks/useFeatures'
 import { useResetUndo } from '../../../hooks/useResetUndo'
 import { ResetButton } from '../../../components/ResetButton'
 import { getAssStyleOptions, getReadiness } from '../../../api/export'
-import { Badge } from '../../../components/Badge'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { RetryBanner } from '../../../components/RetryBanner'
+import { WarnBar } from '../../../components/WarnBar'
 import type { AssStyleOptions, ExportReadiness } from '../../../types/export'
 import { routeHref } from '../../../router'
 import { browserStorage, readPref, writePref } from '../../../hooks/usePersistedState'
@@ -25,7 +25,7 @@ import { TITLE_KIND_LABEL, titleKind } from '../titleKind'
 import { useExportInputs } from '../useExportInputs'
 import { AudiobookBlock, BurnedVideoBlock, DubbedVideoBlock, ExportEpub, MarkExported, SoftsubVideoBlock, type StartError } from './ExportMedia'
 import { ExportBlock } from './ExportBlock'
-import { ShownExportBlocks } from './ShownExportBlocks'
+import { ExportChoices, ShownExportBlocks } from './ShownExportBlocks'
 import { ExportSubtitles, type SubtitleExportFormat } from './ExportSubtitles'
 import { SourceChangedWarning } from './SourceChangedWarning'
 import './export.css'
@@ -113,6 +113,16 @@ export default function ExportStage() {
     if (r.dense_line_count > 0) review.push(plural(r.dense_line_count, 'dense line'))
   }
   const untranslated = r !== null && r.total_lines > 0 && !r.fully_translated
+  const counts = !r ? '' : `${TITLE_KIND_LABEL[kind]} · ${
+    r.total_lines === 0 ? '0 lines' : r.fully_translated ? `all ${plural(r.total_lines, 'line')} translated` : `${r.en_filled} of ${plural(r.total_lines, 'line')} translated`}`
+  // One thin line: the short words show, and the full sentences are its tooltip.
+  const notes: { short: string; full: string }[] = []
+  if (untranslated) notes.push({ short: 'untranslated lines export empty', full: 'Some lines are not translated yet, so English exports will have empty cues for them.' })
+  if (r && r.overlap_count > 0) {
+    notes.push({ short: `${plural(r.overlap_count, 'cue')} overlap`, full: `${plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.` })
+  }
+  if (review.length > 0) notes.push({ short: review.join(' · '), full: `${review.join(', ')}.` })
+  const reviewLink = !!r && (r.overlap_count > 0 || review.length > 0)
   const assStyle = options ? <ExportAss form={form} setForm={setForm} options={options} /> : <ErrorBanner error={optionsError} />
   const mediaRequest = () =>
     options ? buildAssRequest(form, options) : { error: 'The style options have not loaded yet.' }
@@ -163,38 +173,31 @@ export default function ExportStage() {
   return (
     <div className="stage-export">
       <section className="panel" aria-label="Export">
-        <h2>Export</h2>
-        <p className="export-line"><Badge>{TITLE_KIND_LABEL[kind]}</Badge></p>
         <RetryBanner error={readinessError} what="the export checks" onRetry={() => { setReadinessError(null); setReadinessTry((n) => n + 1) }} />
         {!r && !readinessError && <div className="skeleton-block export-readiness-skeleton" aria-hidden="true" />}
-        {r && (
-          <>
-            <p className="export-line pill-row" data-testid="readiness">
-              <Badge>{plural(r.total_lines, 'line')}</Badge>{' '}
-              <Badge tone={r.total_lines === 0 ? 'neutral' : r.fully_translated ? 'ok' : 'warn'}>{r.en_filled} translated</Badge>
-            </p>
-            {(untranslated || review.length > 0 || r.overlap_count > 0) && (
-              <ul className="export-warnings" data-testid="readiness-warnings">
-                {untranslated && <li className="muted">Some lines are not translated yet, so English exports will have empty cues for them.</li>}
-                {r.overlap_count > 0 && (
-                  <li className="muted">
-                    {plural(r.overlap_count, 'cue')} overlap; both stay fully visible in ASS and VTT and are shortened in SRT.{' '}
-                    <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
-                  </li>
-                )}
-                {review.length > 0 && (
-                  <li className="muted">
-                    {review.join(', ')}. <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks</a> to flag them.
-                  </li>
-                )}
-              </ul>
-            )}
-          </>
-        )}
+        {r && (notes.length > 0 ? (
+          <WarnBar
+            testId="readiness-warnings"
+            title={[counts, ...notes.map((n) => n.full)].join(' ')}
+            action={reviewLink && <a className="touch-link" href={routeHref({ name: 'drama', id: dramaId, stage: 'review' })}>Open Review checks ›</a>}
+          >
+            <span data-testid="readiness">{counts}</span>{notes.map((n) => ` · ${n.short}`).join('')}
+          </WarnBar>
+        ) : (
+          <p className="muted export-line" data-testid="readiness">{counts}</p>
+        ))}
         <SourceChangedWarning dramaId={dramaId} />
         {inputs.ffmpegFound === false && <PreflightCard needs={['ffmpeg']} />}
       </section>
-      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : <ShownExportBlocks.Provider value={shown}>{shown.map((id) => blocks[id])}</ShownExportBlocks.Provider>}
+      {opening === null ? <div className="skeleton-block export-blocks-skeleton" aria-hidden="true" /> : (
+        <ShownExportBlocks.Provider value={shown}>
+          {simple ? (
+            <ExportChoices.Provider value={{ main: opening }}>
+              <div className="export-choices">{shown.map((id) => blocks[id])}</div>
+            </ExportChoices.Provider>
+          ) : shown.map((id) => blocks[id])}
+        </ShownExportBlocks.Provider>
+      )}
       {!simple && featureOn('jellyfin', features) && <ExportJellyfin field={form.field} inputs={inputs} assRequest={mediaRequest} />}
       {/* After the exports, so the status isn't offered before there is anything to mark. */}
       <div className="panel">

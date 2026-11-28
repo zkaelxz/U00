@@ -161,11 +161,11 @@ test('the readiness warning links to Review checks instead of hosting flag butto
     route.fulfill({ json: { drama_id: 1, total_lines: 10, zh_filled: 10, en_filled: 10, fully_translated: true, overlap_count: 2, auto_qc_issue_count: 0, dense_line_count: 1 } }))
   await page.goto('/#/drama/1/export')
   const warnings = page.getByTestId('readiness-warnings')
-  await expect(warnings).toContainText('2 cues overlap; both stay fully visible in ASS and VTT and are shortened in SRT.')
-  await expect(warnings).toContainText('1 dense line.')
-  await expect(warnings.getByRole('link', { name: 'Open Review checks' })).toHaveCount(2)
+  await expect(warnings).toContainText('all 10 lines translated · 2 cues overlap · 1 dense line')
+  await expect(warnings).toHaveAttribute('title', /2 cues overlap; both stay fully visible in ASS and VTT and are shortened in SRT\./)
+  await expect(warnings.getByRole('link', { name: 'Open Review checks' })).toHaveCount(1)
   await expect(page.getByRole('button', { name: 'Flag overlapping lines' })).toHaveCount(0)
-  await warnings.getByRole('link', { name: 'Open Review checks' }).first().click()
+  await warnings.getByRole('link', { name: 'Open Review checks' }).click()
   await expect(page).toHaveURL(/#\/drama\/1\/review$/)
 })
 
@@ -352,13 +352,13 @@ test.describe('export blocks fold under their headings', () => {
 
   test('novel and subtitle-only titles lead with their own block', async ({ page }) => {
     await page.goto('/#/drama/2/export')
-    await expect(page.getByRole('region', { name: 'Export' }).getByText('Novel', { exact: true })).toBeVisible()
+    await expect(page.getByTestId('readiness')).toContainText('Novel ·')
     await expect(page.locator('.export-block').first()).toHaveAttribute('aria-label', FIRST_OPEN.novel)
     // Audiobook cannot run on the seeded novel, so the first block that can starts open.
     await expectOpen(page, { [SEEDED_OPEN.novel]: true, [FIRST_OPEN.novel]: false })
     await asMediaType(page, 'other')
     await page.goto('/#/drama/1/export')
-    await expect(page.getByText('Subtitle-only title')).toBeVisible()
+    await expect(page.getByTestId('readiness')).toContainText('Subtitle-only title ·')
     await expectOpen(page, { [FIRST_OPEN.subtitle]: true })
   })
 
@@ -406,7 +406,7 @@ test.describe('export blocks fold under their headings', () => {
     await page.addInitScript(() => localStorage.setItem('baihe.pref.title.view', '"simple"'))
     await page.reload()
     await expect(exportBlock(page, 'Audiobook')).toHaveCount(0)
-    await expectOpen(page, { 'Subtitle file': true })
+    await expect(exportBlock(page, 'Subtitle file')).toHaveClass(/export-choice-main/)
   })
 
   test('works with storage blocked: the defaults still hold', async ({ page }) => {
