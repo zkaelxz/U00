@@ -118,11 +118,13 @@ def get_reader_page(
         readings: bool = Query(True, description="Pinyin or kana above each word; words stay clickable without them."),
         html: bool = Query(True, description="Off: `html` is empty; the web app loads the document "
                                              "from the page.html route instead."),
-        edit: bool = Query(False, description="Single lines with an edit button, not joined paragraphs.")):
+        edit: bool = Query(False, description="Single lines with an edit button, not joined paragraphs."),
+        line: Optional[int] = Query(None, ge=0, description="A line position: answer with the page "
+                                                             "that holds it instead of `page`.")):
     return reader_service.get_reader_page(
         drama_id, page=page, chapter_size=chapter_size, theme=theme, font_size=font_size,
         line_height=line_height, max_width=max_width, font=font, readings=readings,
-        include_html=html, editable=edit)
+        include_html=html, editable=edit, line=line)
 
 
 @router.get("/dramas/{drama_id}/page.html", dependencies=[require_permission("lines.read")],
