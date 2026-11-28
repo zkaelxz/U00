@@ -305,7 +305,7 @@ export function TranscribeAdvanced(p: Props) {
         p.needs?.separation,
       ),
     hallucination_silence_sec: () =>
-      num('Skip invented text over silence', 'hallucination_silence_sec', 0.5, `Experimental. Also called the hallucination guard. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages and Fast mode.`, 's', 'hallucination_guard'),
+      num('Skip invented text over silence', 'hallucination_silence_sec', 0.5, `Experimental. Also called the hallucination guard. Off (0) by default: 0 or ${rangeHint(0.5, 10, { unit: 's' })} Titles that were at exactly 2.0, the old default, were reset to 0 once. Whisper skips a line with this much silence inside it, which stops invented text over silence or music. Lower is stricter and can drop real lines after a pause. Local Whisper only: ignored by Qwen3-ASR, Groq, Mixed languages, Fast mode, kotoba-v2 and the Thai model.`, 's', 'hallucination_guard'),
     whisper_repeat_guard: () =>
       toggle(
         'Whisper repeat guard',
