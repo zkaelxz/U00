@@ -28,6 +28,7 @@ No FastAPI import.
 import logging
 import os
 
+import background_jobs
 import storage
 from lib import ids as lib_ids, storage_errors
 import db
@@ -108,6 +109,8 @@ def remove_media(drama_id, confirm=False) -> dict:
         raise NotFoundError("This title has no audio or video to remove.")
     _require_confirm(confirm, "the title's audio/video")
     _require_idle(drama_id)
+    if not background_jobs.stop_side_jobs(drama_id):
+        raise ConflictError(_JOB_RUNNING)
     folder = _drama_folder(drama_id)
     removed, failure, paths = {}, None, {}
     for f in _MEDIA_FIELDS:

@@ -224,7 +224,7 @@ def get_ear_marks(drama_id: int = Path(ge=1)):
 
 @router.post("/dramas/{drama_id}/ear-marks", dependencies=[require_permission("jobs.start")],
              response_model=EarMarksStarted, summary="Work out the ear marks (poll the GET)",
-             responses=error_responses(400, 404, 422))
+             responses=error_responses(400, 404, 409, 422, 429))
 def post_ear_marks(drama_id: int = Path(ge=1)):
     return ear_marks_service.start_ear_marks(drama_id)
 

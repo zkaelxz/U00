@@ -118,6 +118,12 @@ PC_NAME_KEY = "pc_name"                   # also inside the CATEGORY_SETTING blo
 PC_NAME_MAX = 40
 PRIVATE_TITLES_KEY = "private_titles"   # kept inside the CATEGORY_SETTING blob, off unless True
 CHAPTER_CHECK_JOB_ID = "sources_chapter_check"   # services.chapter_check_service.CHECK_JOB_ID
+# background_jobs.SIDE_JOB_PREFIXES: jobs nobody asked for, so only a failure is worth telling.
+QUIET_DONE_JOB_PREFIXES = ("earmarks_",)
+
+
+def quiet_when_done(job_id, status) -> bool:
+    return status == "done" and str(job_id or "").startswith(QUIET_DONE_JOB_PREFIXES)
 RECENT_MAX = 50          # events returned to one viewer
 RECENT_KEEP = 500        # events kept in memory for everyone
 ENV_VARS = {"discord": ("BAIHE_DISCORD_WEBHOOK_URL",), "ntfy": ("BAIHE_NTFY_TOPIC_URL",)}
@@ -1108,7 +1114,7 @@ def notify_job_finished(description, status, job_id=None, owner_user_id=None,
     left (jobs_service.waiting_note); the job then says "Waiting for you"
     instead of "Finished". Never raises, never blocks on the network."""
     try:
-        if status not in ("done", "error"):
+        if status not in ("done", "error") or quiet_when_done(job_id, status):
             return
         if status == "done" and isinstance(waiting, dict) and job_id != CHAPTER_CHECK_JOB_ID:
             notify_waiting(_waiting_job_text(description, waiting, False),

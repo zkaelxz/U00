@@ -307,9 +307,26 @@ def _fit_cjk_rows(text: str, limit: int, language, chinese_script: str) -> str:
                      for row in text.split("\n"))
 
 
-# lines_to_ass's ear_placement. libass keeps an event's first alignment tag, so one put in
-# front wins over an imported line's own.
-_EAR_TAGS = {"left": r"{\an1}", "right": r"{\an3}"}
+_EAR_SIDES = {"left": 1, "right": 3}
+# An event that places itself: an \a or \an tag, \pos or \move.
+_OWN_PLACEMENT = re.compile(r"\\(?:an?\d|pos\s*\(|move\s*\()")
+
+
+def _ear_tag(ear_placement, ln, style: dict, record, imported_row) -> str:
+    """The \\an tag that moves a one-ear line to its side of its style's own row (bottom,
+    middle or top); "" for any other line, and for an imported event that places itself:
+    libass keeps an event's first alignment tag, so ours would move a positioned sign."""
+    side = (ear_placement or {}).get(getattr(ln, "id", None))
+    if side not in _EAR_SIDES or (record is not None and any(
+            isinstance(record.get(k), str) and _OWN_PLACEMENT.search(record[k]) for k in ("lead", "raw"))):
+        return ""
+    if imported_row is not None:
+        code = _ass_int(imported_row.get("alignment"), 2)
+    else:
+        name = style.get("sfx_alignment") if getattr(ln, "sfx", False) else None
+        code = ALIGNMENTS.get(name or style.get("alignment") or "", 2)
+    row = (code - 1) // 3 if 1 <= code <= 9 else 0
+    return f"{{\\an{3 * row + _EAR_SIDES[side]}}}"
 
 
 def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | None = None,
@@ -338,7 +355,7 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
     the key its events carry (ass_header_for). Those lines are written back
     with their own style, layer, margins, effect and override tags
     (_event_text); the rest get Baihe's styles, scaled to that canvas.
-    ear_placement: {line_id: "left" | "right"} puts those lines' Dialogue bottom left / right."""
+    ear_placement: {line_id: "left" | "right"} moves those lines to that side (_ear_tag)."""
     speaker_colors = speaker_colors or {}
     lines = list(lines)
     records = [_header_record(ln, ass_header, ass_header_key) for ln in lines]
@@ -384,14 +401,13 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
         plain = _cue_text(ln, field, cue_notes, wrap_chars, italic_tags=False,
                           language=language, chinese_script=chinese_script)
         start, end = _ass_ts(ln.start), _ass_ts(ln.end)
-        ear = _EAR_TAGS.get((ear_placement or {}).get(getattr(ln, "id", None)) or "", "")
         if getattr(ln, "sfx", False):
             style_name, name = sfx_name, ""
         else:
             style_name = style_for.get(ln.speaker, default_name)
             name = _ass_field((speaker_names or {}).get(ln.speaker) or "") if ln.speaker else ""
         if record is None:
-            text = ear + _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
+            text = _ear_tag(ear_placement, ln, style, None, None) + _ass_escape(_fit_cjk_rows(plain, row_limit, language, chinese_script))
             events.append(f"Dialogue: 0,{start},{end},{style_name},{name},0,0,0,,{text}")
         else:
             own = _ass_field(record.get("style") or "")
@@ -403,8 +419,8 @@ def lines_to_ass(lines, style: dict, field: str = "en", notes_by_idx: dict | Non
                 limit = imported_limits[own]
             if not ln.speaker:
                 name = _ass_clean(record.get("name")).replace(",", " ").strip()
-            text = ear + _event_text(ln, record, field, plain,
-                                     _fit_cjk_rows(plain, limit, language, chinese_script))
+            text = _ear_tag(ear_placement, ln, style, record, imported.get(own)) + _event_text(
+                ln, record, field, plain, _fit_cjk_rows(plain, limit, language, chinese_script))
             events.append(_imported_dialogue(record, start, end, style_name, name, text))
         if notes_as_separate_line:
             note_text = notes_suffix(ln.idx, notes_by_idx).lstrip("\n")

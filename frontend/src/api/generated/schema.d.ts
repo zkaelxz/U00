@@ -17306,6 +17306,11 @@ export interface components {
         };
         /** BurnPreviewStart */
         BurnPreviewStart: {
+            /**
+             * Ear Placement
+             * @default false
+             */
+            ear_placement?: boolean;
             /** Line Id */
             line_id: number;
             /** Pad Seconds */
@@ -60435,8 +60440,26 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

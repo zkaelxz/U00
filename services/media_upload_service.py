@@ -793,7 +793,7 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
     media_hash = None
     hash_handed_to_job = False
     try:
-        if drama_service.job_running_for_drama(drama_id):
+        if drama_service.job_running_for_drama(drama_id) or not background_jobs.stop_side_jobs(drama_id):
             raise ConflictError(_BUSY)
         recover_stale_uploads(drama_id)
         ext, size, staged, media_hash = _save_upload(drama_id, client_filename, fileobj, confirm_replace_audio, principal)
