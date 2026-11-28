@@ -929,7 +929,7 @@ the rest of the admin folder, so a link Caddy made in them is never followed)
 and tells the owner the command to delete a rule they added.
 
 *Reproducible Caddy build.* The same `go build -trimpath -buildvcs=false`
-gives `8cf980cd...` (`CADDY_SHA256`) on Linux and on Windows only from the
+gives `452b383d...` (`CADDY_SHA256`) on Linux and on Windows only from the
 same source bytes: CRLF line endings in `installer/caddy/main.go` (what a
 Windows checkout gives without `.gitattributes`) give a different hash
 (`d37ffe33...` when last tried; no test pins that value). `.gitattributes` pins
