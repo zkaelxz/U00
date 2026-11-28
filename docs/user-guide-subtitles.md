@@ -1286,11 +1286,15 @@ of exported empty. Chapter OCR skips a page that isn't a readable image and coun
   clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not
   verified end to end in development: test on one short line first.
 - **Qwen3-TTS** (Listen and Voices): clones a voice from a clip only (no designed voices), in Chinese,
-  Japanese, Korean and English; give the clip's transcript for the best match. It lives in its own folder
-  (`voice_engines/qwen3_tts` in the data folder) so its packages never change Baihe's own; until that folder
-  is installed it shows "Qwen3-TTS is not installed. Install it in Diagnostics." The first narration downloads
-  its model (a few GB). A narration speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is
-  left as a gap with "The voice engine could not speak this line."
+  Japanese, Korean and English. It copies a voice best when it has the clip's transcript: for a clip saved
+  without one, the next narration first writes down what the clip says with Whisper (large-v3, or the Whisper
+  model folder set in Settings, in the clip's own language; only when that model is already on the PC, so
+  nothing is downloaded for it) and keeps it as that speaker's transcript in Voices, where you can correct it;
+  a transcript you type is never replaced. It lives in its own folder (`voice_engines/qwen3_tts` in the data
+  folder) so its packages never change Baihe's own; until that folder is installed it shows "Qwen3-TTS is not
+  installed. Install it in Diagnostics." The first narration downloads its model (a few GB). A narration
+  speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is left as a gap with "The voice
+  engine could not speak this line."
 - **Chatterbox** (Listen and Voices): clones a voice from a clip only, in Chinese, Japanese, Korean and
   English; it doesn't use the clip's transcript. Like Qwen3-TTS it lives in its own folder
   (`voice_engines/chatterbox`), shows "Chatterbox is not installed. Install it in Diagnostics." until that is
