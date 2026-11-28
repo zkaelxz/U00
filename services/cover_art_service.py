@@ -20,6 +20,7 @@ import contextlib
 import io
 import os
 import tempfile
+import threading
 from typing import TypeGuard
 
 import db
@@ -144,6 +145,70 @@ def cover_file(drama_id: int):
     if os.path.dirname(path) != folder or not os.path.isfile(path):
         raise NotFoundError("This title has no cover.")
     return path, _SERVE_TYPES[os.path.splitext(name)[1].lower()]
+
+
+# Cover tiles are drawn 150-250 px wide (two columns on a phone); 480 stays sharp
+# on a high-density screen.
+_THUMB_WIDTH = 480
+_THUMB_QUALITY = 82
+_THUMB_FOLDER = "reader_cache"
+# A first Library visit asks for every cover at once; each decode of a 25-megapixel
+# cover takes a few hundred MB.
+_THUMB_SLOTS = threading.BoundedSemaphore(2)
+
+
+def cover_thumb(drama_id: int):
+    """(path, media type) of a small JPEG copy of the cover for lists, made once
+    beside the title and remade when the cover changes; the cover itself when the
+    copy can't be made or isn't smaller. A cover is kept at full size (up to 25
+    megapixels), and a Library page drew every one of them at list size."""
+    path, media_type = cover_file(drama_id)
+    st = os.stat(path)
+    folder = os.path.join(os.path.dirname(path), _THUMB_FOLDER)
+    stamp = f"cover.{st.st_mtime_ns}.{st.st_size}"
+    thumb = os.path.join(folder, f"{stamp}.thumb.jpg")
+    try:
+        made = os.path.isfile(thumb)
+        if not made:
+            with _THUMB_SLOTS:
+                # Another request may have made it while this one waited.
+                made = os.path.isfile(thumb) or _write_thumb(path, folder, stamp, thumb)
+        if made and os.path.getsize(thumb) < st.st_size:
+            return thumb, "image/jpeg"
+    except Exception:
+        pass
+    return path, media_type
+
+
+def _write_thumb(path: str, folder: str, stamp: str, thumb: str) -> bool:
+    """False, writing nothing, for a cover already no wider than a thumb."""
+    from PIL import Image
+    # A restored library puts cover files back unchecked, so only the parsers an upload may use.
+    with Image.open(path, formats=tuple(_FORMATS)) as img:
+        if img.width <= _THUMB_WIDTH:
+            return False
+        os.makedirs(folder, exist_ok=True)
+        img.load()
+        if img.mode != "RGB":
+            rgba = img.convert("RGBA")
+            img = Image.new("RGB", rgba.size, "white")
+            img.paste(rgba, mask=rgba.getchannel("A"))
+        img = img.resize((_THUMB_WIDTH, max(1, round(img.height * _THUMB_WIDTH / img.width))),
+                         Image.Resampling.LANCZOS)
+        fd, tmp = tempfile.mkstemp(dir=folder, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "wb") as fh:
+                img.save(fh, "JPEG", quality=_THUMB_QUALITY, optimize=True)
+            os.replace(tmp, thumb)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+            raise
+    for name in os.listdir(folder):
+        if name.startswith("cover.") and name.endswith(".thumb.jpg") and not name.startswith(stamp + "."):
+            with contextlib.suppress(OSError):
+                os.remove(os.path.join(folder, name))
+    return True
 
 
 # Short, because the automatic cover runs inside an upload or download job that can't be cancelled meanwhile.

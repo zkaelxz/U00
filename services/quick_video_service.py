@@ -89,7 +89,7 @@ def describe_profile(preset: dict) -> list:
     style = translation_guide.STYLE_PRESETS[style_key if style_key in translation_guide.STYLE_PRESETS else "audio_drama"]
     language = options.get("quick_source_language") or ""
     packs = options.get("quick_language_packs") or []
-    spend = [name for key, name in (("reflect", "Reflect"), ("bulk", "Bulk"), ("thinking", "Thinking")) if options.get(key)]
+    spend = [name for key, name in (("reflect", "Reflect"), ("bulk", "Bulk")) if options.get(key)]
     recognizer = options.get("asr_backend_choice") or (f"Whisper {options['whisper_size']}" if options.get("whisper_size") else None)
     export = _export_settings(options)
     rows = [

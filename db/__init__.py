@@ -772,8 +772,6 @@ from db.benchmark import (  # noqa: F401
     create_benchmark_case,
     list_benchmark_cases,
     delete_benchmark_case,
-    save_benchmark_run,
-    list_benchmark_runs,
     create_benchmark_lab_case,
     update_benchmark_case_texts,
     list_benchmark_case_edits,

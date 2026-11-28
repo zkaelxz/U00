@@ -814,22 +814,21 @@ class TestSpokenLanguage:
         bulk_reflect.submit_reflect_pipeline(did, isolated_db.load_line_objects(did), engine, "claude", {})
         assert "spoken in" not in _request_text(engine)
 
-    def test_offpeak_run_uses_the_thinking_value_stored_with_the_run(self, isolated_db):
+    def test_offpeak_run_ignores_a_thinking_value_stored_before_think_harder_was_removed(self, isolated_db):
         did = _mixed_drama(isolated_db)
         lines = isolated_db.load_line_objects(did)
         jid = bulk_translate.schedule_offpeak_translation(did, lines, "deepseek", "m", {"thinking": True})
-        isolated_db.update_drama(did, translate_thinking=0)  # changed before the job runs
         contexts = []
 
         class Engine:
             model = "m"
 
             def translate_batch(self, zh_lines, context):
-                contexts.append(context.get("reply_with_thinking"))
+                contexts.append(context)
                 return [f"EN:{z}" for z in zh_lines]
 
         bulk_poll.run_scheduled_job(jid, Engine())
-        assert contexts and all(contexts)
+        assert contexts and all(c["reply_without_thinking"] is True for c in contexts)
 
     def test_offpeak_run_reads_the_novel_reference_from_the_title_when_it_runs(self, isolated_db):
         did = _mixed_drama(isolated_db)
