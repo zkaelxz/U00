@@ -158,11 +158,11 @@ def test_a_missing_install_is_asked_again(tmp_path, monkeypatch):
 
 def test_a_page_opencv_cannot_handle_is_empty_not_an_error(client, page, monkeypatch):
     cv2 = pytest.importorskip("cv2")
-    from scanlate import scanlate_panels
+    from scanlate import scanlate_reader_panels
 
     def broken(*a, **k):
         raise cv2.error("bad page")
-    monkeypatch.setattr(scanlate_panels, "detect_panels", broken)
+    monkeypatch.setattr(scanlate_reader_panels, "find_panels", broken)
     d, p = page("zh")
     r = client.get(_url(d, p))
     assert r.status_code == 200 and r.json()["panels"] == []
