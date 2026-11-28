@@ -227,7 +227,8 @@ def remote_uploads_on(now: float | None = None) -> bool:
         return now < on_at + REMOTE_UPLOADS_DAYS * 86400
     if not remote_uploads_auto_off():
         return True
-    start = max(on_at, float(get("remote_uploads.auto_off_from") or 0))
+    chosen_at = get("remote_uploads.auto_off_from")
+    start = max(on_at, float(chosen_at) if isinstance(chosen_at, (int, float)) else 0.0)
     return now < start + REMOTE_UPLOADS_DAYS * 86400
 
 
