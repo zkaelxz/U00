@@ -135,14 +135,19 @@ def plan(changed, limit):
 
 
 def frontend_steps(changed):
-    web = [c for c in changed if c.startswith("frontend/") and not c.startswith("frontend/e2e/")]
+    web = [c for c in changed if c.startswith("frontend/")]
     if not web:
         return []
     rel = [c[len("frontend/"):] for c in web]
-    tests = [r for r in rel if re.search(r"\.test\.tsx?$", r)]
-    steps = ["cd frontend && npx tsc -b"]
-    steps.append("cd frontend && npx vitest run " + " ".join(tests) if tests
-                 else "cd frontend && npx vitest related --run " + " ".join(rel[:6]))
+    app = [r for r in rel if not r.startswith("e2e/")]
+    specs = [r for r in rel if r.startswith("e2e/") and r.endswith(".spec.ts")]
+    steps = ["cd frontend && npx tsc -b", "cd frontend && npm run lint"]
+    if app:
+        tests = [r for r in app if re.search(r"\.test\.tsx?$", r)]
+        steps.append("cd frontend && npx vitest run " + " ".join(tests) if tests
+                     else "cd frontend && npx vitest related --run " + " ".join(app[:6]))
+    if specs:
+        steps.append("cd frontend && npx playwright test --trace off " + " ".join(specs))
     return steps
 
 

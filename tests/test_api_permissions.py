@@ -828,13 +828,19 @@ class TestPaidEngines:
     def test_default_engine_run_passes_the_checked_engine_on(self, isolated_db, monkeypatch,
                                                              path, body):
         from lib.errors import ConflictError
-        from services import translate_thinking_service
+        from services import (failed_lines_service, glossary_retranslate_service,
+                              novel_chapter_retranslate_service, source_change_service, translate_run_service)
         seen = {}
 
-        def stub(start, drama_id, thinking, remember, *args, **kwargs):
+        def stub(drama_id, *args, **kwargs):
             seen.update(kwargs)
             raise ConflictError("stop here")
-        monkeypatch.setattr(translate_thinking_service, "start_with_thinking", stub)
+        for module, name in ((translate_run_service, "start_translate_run"),
+                             (glossary_retranslate_service, "start_affected_retranslate"),
+                             (source_change_service, "start_retranslate"),
+                             (failed_lines_service, "start_retry"),
+                             (novel_chapter_retranslate_service, "start")):
+            monkeypatch.setattr(module, name, stub)
         c = _remote(_app())
         _u, s = _user()
         did = db.create_drama(title_en="T", source_language="zh")
@@ -852,6 +858,34 @@ class TestPaidEngines:
         assert c.post(url, json=body, headers=_h(s)).status_code == 409
         # The service must run what was checked, not re-read the title's engine.
         assert seen["engine_name"] == "ollama"
+
+    @pytest.mark.parametrize("path,body,has_fallback", [
+        ("run", {}, True),
+        ("glossary-affected/run", {"line_ids": [1], "preview_hash": "x"}, True),
+        ("source-changed/run", {"line_ids": [1]}, True),
+        ("retry-failed/run", {}, True),
+        ("chapters/1/retranslate/run", {}, False),
+    ])
+    def test_every_translate_run_start_refuses_a_paid_engine(self, isolated_db, monkeypatch,
+                                                             path, body, has_fallback):
+        from services import (failed_lines_service, glossary_retranslate_service,
+                              novel_chapter_retranslate_service, source_change_service, translate_run_service)
+        started = []
+        for module, name in ((translate_run_service, "start_translate_run"),
+                             (glossary_retranslate_service, "start_affected_retranslate"),
+                             (source_change_service, "start_retranslate"),
+                             (failed_lines_service, "start_retry"),
+                             (novel_chapter_retranslate_service, "start")):
+            monkeypatch.setattr(module, name, lambda *a, **k: started.append(k))
+        c = _remote(_app())
+        _u, s = _user()
+        did = db.create_drama(title_en="T", source_language="zh", translation_engine="ollama")
+        url = f"/api/translate-run/dramas/{did}/{path}"
+        assert c.post(url, json={**body, "engine": "claude"}, headers=_h(s)).status_code == 403
+        r = c.post(url, json={**body, "engine": "ollama", "fallback_chain": [{"engine": "claude"}]},
+                   headers=_h(s))
+        assert r.status_code == (403 if has_fallback else 422)
+        assert started == []
 
     def test_resegment_llm_is_gated(self, isolated_db):
         c = _remote(_app())

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   deleteModelFile, getDiagnostics, getLog, getModelCache, getPyannote, getPorts, getSetupChecks,
-  getSupportReport, installDependency, planUpgrade, resetLibrary, upgradeDependency,
+  getSupportBundle, getSupportReport, installDependency, planUpgrade, resetLibrary, upgradeDependency,
 } from './diagnostics'
 import { getPcMode, resetPcModeForTests } from './pcOnly'
 
@@ -43,6 +43,17 @@ describe('diagnostics api', () => {
       '/api/diagnostics/pyannote',
       '/api/diagnostics/pyannote?check_access=true',
     ])
+  })
+
+  it('support bundle saves under the name the server gives, with a fallback', async () => {
+    const zip = (headers: Record<string, string>) => new Response(new Blob(['PK']), { status: 200, headers })
+    const mock = vi.fn()
+      .mockResolvedValueOnce(zip({ 'Content-Disposition': 'attachment; filename="baihe-logs-20261128-101500.zip"' }))
+      .mockResolvedValueOnce(zip({}))
+    const f = mock as unknown as typeof fetch
+    expect((await getSupportBundle(f)).filename).toBe('baihe-logs-20261128-101500.zip')
+    expect((await getSupportBundle(f)).filename).toBe('baihe-logs.zip')
+    expect(mock.mock.calls[0][0]).toBe('/api/diagnostics/support-bundle')
   })
 
   it('log sends n and a trimmed keyword only when set, within the server caps', async () => {

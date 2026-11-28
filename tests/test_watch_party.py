@@ -41,17 +41,18 @@ def test_a_room_starts_paused_at_zero(drama):
 
 def test_another_account_gets_not_found_like_a_code_that_never_existed(drama):
     code = party.create_room(ME, drama)["code"]
-    for call in (lambda: party.get_room(OTHER, code), lambda: party.set_state(OTHER, code, True, 5.0),
+    assert party.poll(OTHER, code, 0) is None and party.poll(ME, "nosuchcode", 0) is None
+    for call in (lambda: party.set_state(OTHER, code, True, 5.0),
                  lambda: party.end_room(OTHER, code), lambda: party.open_stream(OTHER, code)):
         with pytest.raises(NotFoundError):
             call()
     with pytest.raises(NotFoundError):
-        party.get_room(ME, "nosuchcode")
+        party.set_state(ME, "nosuchcode", True, 5.0)
 
 
 def test_a_play_state_moves_the_seq_and_is_validated(drama):
     code = party.create_room(ME, drama)["code"]
-    first = party.get_room(ME, code)["seq"]
+    first = party.poll(ME, code, 0)["seq"]
     out = party.set_state(ME, code, True, 12.5)
     assert out["seq"] > first and out["playing"] and out["position"] == 12.5
     for playing, position in ((1, 5.0), (True, -1), (True, float("nan")), (True, float("inf")),
@@ -73,11 +74,11 @@ def test_rooms_per_account_are_capped_and_an_idle_one_is_dropped(drama, monkeypa
 def test_streams_are_counted_and_capped_per_account(drama):
     code = party.create_room(ME, drama)["code"]
     held = [party.open_stream(ME, code)[0] for _ in range(party.MAX_STREAMS_PER_PRINCIPAL)]
-    assert party.get_room(ME, code)["watching"] == party.MAX_STREAMS_PER_PRINCIPAL
+    assert party.poll(ME, code, 0)["watching"] == party.MAX_STREAMS_PER_PRINCIPAL
     with pytest.raises(RateLimitedError):
         party.open_stream(ME, code)
     party.close_stream(held[0])
-    assert party.get_room(ME, code)["watching"] == party.MAX_STREAMS_PER_PRINCIPAL - 1
+    assert party.poll(ME, code, 0)["watching"] == party.MAX_STREAMS_PER_PRINCIPAL - 1
 
 
 def test_an_ended_room_reads_as_gone_to_its_listeners(drama):
@@ -93,12 +94,11 @@ def test_the_routes_create_sync_and_end(isolated_db):
     assert made.status_code == 200
     code = made.json()["code"]
     assert client.post(f"/api/watch-party/rooms/{code}/state", json={"playing": True, "position": 3}).json()["playing"]
-    assert client.get(f"/api/watch-party/rooms/{code}").json()["position"] == 3
     assert client.post(f"/api/watch-party/rooms/{code}/state", json={"playing": "yes", "position": 3}).status_code == 422
     assert client.post(f"/api/watch-party/rooms/{code}/state", json={"playing": True, "position": -2}).status_code == 422
     assert client.delete(f"/api/watch-party/rooms/{code}").json() == {"ended": True}
-    assert client.get(f"/api/watch-party/rooms/{code}").status_code == 404
-    assert client.get("/api/watch-party/rooms/bad!code!x").status_code == 422
+    assert client.post(f"/api/watch-party/rooms/{code}/state", json={"playing": True, "position": 3}).status_code == 404
+    assert client.post("/api/watch-party/rooms/bad!code!x/state", json={"playing": True, "position": 3}).status_code == 422
     assert client.post("/api/watch-party/rooms", json={"drama_id": 99999}).status_code == 404
 
 

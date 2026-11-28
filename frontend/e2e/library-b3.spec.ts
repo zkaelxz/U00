@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+import { openNewTitle } from './addBoxMocks'
+
 import { ME } from './authMocks'
 
 // Library parity batch B3 (inventory P06, L01, L04, L05, P03). Seed data:
@@ -8,7 +10,7 @@ import { ME } from './authMocks'
 
 test('New title sends the Summary (P06)', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Summary Title')
   await sheet.getByText('Credits, summary and series').click()
@@ -125,7 +127,7 @@ test('Series fold is hidden when there is no series (L05)', async ({ page }) => 
 test('Create + fill with AI is left out for an account that cannot save details', async ({ page }) => {
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: { ...ME.signedIn, permissions: ['library.read', 'library.create', 'media.import_url'] } }))
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await expect(sheet.getByRole('button', { name: 'Create title', exact: true })).toBeVisible()
   await expect(sheet.getByRole('button', { name: 'Create + fill with AI' })).toHaveCount(0)
@@ -133,7 +135,7 @@ test('Create + fill with AI is left out for an account that cannot save details'
 
 test('Create + fill with AI lands on the Source stage with Auto-fill open (P03)', async ({ page, request }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+  await openNewTitle(page)
   const sheet = page.getByRole('dialog', { name: 'New title' })
   await sheet.getByLabel('English title').fill('E2E Autofill Title')
   const created = page.waitForResponse((r) => r.url().endsWith('/api/dramas') && r.request().method() === 'POST')

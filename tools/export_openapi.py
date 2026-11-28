@@ -32,8 +32,10 @@ def require_served_fields(doc, skip=frozenset()):
     FastAPI serializes defaulted fields, so a client always receives them, but
     the schema lists them as optional and the generated types come out
     `x?: T`. Models of routes that drop None or unset fields (`skip`) keep
-    their optional fields, since there the key really may be missing. A model that is also a request body is left alone: there the
-    default means "may be left out".
+    their optional fields, since there the key really may be missing; so does a
+    property marked `x-omitted-when-none`, which its route deletes when None. A
+    model that is also a request body is left alone: there the default means
+    "may be left out".
     """
     schemas = doc.get("components", {}).get("schemas", {})
     requests, responses = set(), set()
@@ -78,7 +80,8 @@ def require_served_fields(doc, skip=frozenset()):
         schema = schemas[name]
         props = schema.get("properties")
         if props:
-            schema["required"] = sorted(props)
+            schema["required"] = sorted(p for p, spec in props.items()
+                                        if not spec.get("x-omitted-when-none"))
     return doc
 
 

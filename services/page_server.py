@@ -521,18 +521,28 @@ def _translate_read_page(bubbles, config, drama, drama_id, source_url, notes, me
         get_logger().info("Extension page: %d of %d lines came back empty, asking again",
                           len(missing), len(bubbles))
         retry_started = time.monotonic()
-        for attempt in range(2):   # a line the model skips twice often comes back on the third ask
-            try:
-                scanlate_translate.translate_page_bubbles(
-                    missing, engine, meta, previous_context="", glossary_terms=glossary,
-                    usage_cb=usage, character_notes=extras.get("character_notes", ""),
-                    previous_lines=extras["previous_lines"],
-                    # Only the first retry pays for the picture: a second one would double the slowest case.
-                    page_image=extras.get("page_image") if attempt == 0 else None)
-            except Exception:
-                break  # the first call's own note already says why; this is a second chance only
+        failed = False
+        for attempt in range(2):
+            # Gemma leaves the same lines out of a group again, so the second ask sends each
+            # line alone, as a Scanlate run does (scanlate_translate.retry_missing_regions).
+            groups = [missing] if attempt == 0 else [[b] for b in missing[:scanlate_translate._MAX_SOLO_RETRIES]]
+            for group in groups:
+                try:
+                    scanlate_translate.translate_page_bubbles(
+                        group, engine, meta, previous_context="", glossary_terms=glossary,
+                        usage_cb=usage, character_notes=extras.get("character_notes", ""),
+                        previous_lines=extras["previous_lines"], summary=in_order,
+                        # Only the first retry pays for the picture: a second one would double the slowest case.
+                        page_image=extras.get("page_image") if attempt == 0 else None)
+                except ValueError:
+                    continue  # part of the answer was applied, or none; the rest is asked again
+                except Exception:
+                    failed = True  # the first call's own note already says why; this is a second chance only
+                    break
+            # A lone line was already asked alone, with the picture; asking it again without one adds little.
+            lone = len(groups[0]) == 1 and attempt == 0
             missing = _lines_without_english(bubbles)
-            if not missing:
+            if failed or not missing or lone:
                 break
         if split is not None:
             split["retry"] = round(time.monotonic() - retry_started, 2)
@@ -619,6 +629,8 @@ def _overlay_typeset(image_path: str, bubbles: list, notes: list, member: bool,
                 split["typeset_wait"] = round(time.monotonic() - wait_started, 2)
             scanlate_render.process_page(image_path, bubbles, out_path,
                                          match_color=bool(settings_service.get("scanlate_match_text_color")),
+                                         # Read back at once as a JPEG and deleted, so pack fast.
+                                         png_compress_level=1,
                                          **({"look": style} if style else {}))
         return page_capture_checks.jpeg_data_url(out_path, max_width)
     except Exception as e:

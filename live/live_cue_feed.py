@@ -82,7 +82,7 @@ def _joined(cues: list, group: list) -> str:
 
 
 def translate_cues(cues: list, translator, checkpoint, on_stage=None, on_cues=None,
-                   lock=None) -> None:
+                   lock=None, on_sentence_error=None) -> None:
     """Translates the chunk's sentences (sentence_groups) in one id-keyed request,
     then one request per sentence only for those the reply left out or that
     failed, calling on_cues(cues) after each change so the transcript is already
@@ -123,7 +123,15 @@ def translate_cues(cues: list, translator, checkpoint, on_stage=None, on_cues=No
             checkpoint()
             if on_stage:
                 on_stage("translating")
-            translated = translator.translate(texts[unit])
+            try:
+                translated = translator.translate(texts[unit])
+            except background_jobs.JobCancelled:
+                raise
+            except Exception as exc:
+                if on_sentence_error is None:
+                    raise
+                on_sentence_error(group, exc)
+                continue
             with guard:
                 finish(group, translated)
                 publish()

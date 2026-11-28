@@ -78,6 +78,7 @@ SERVICE_AUTO_APPLY_KEY = "update.service_auto_apply"
 # 03:00 to 06:00 local: the app restarts for an automatic update only then.
 QUIET_HOURS = (3, 6)
 QUIET_WAIT_SECONDS = 24 * 3600
+FIRST_VERIFIED_APP_KEY = "update.app_first_verified"
 KEPT_CODES = ("updated", "updated_unrecorded", "queued")
 
 RESULT_MESSAGES = {
@@ -427,11 +428,19 @@ def download() -> dict:
     final = os.path.join(folder, release["name"])
     us.fetch_verified(release["url"], final, release["size"], MAX_APP_ZIP_BYTES, expected,
                       public_key, signature, release["name"], _progress, what="update")
+    try:
+        record = db.get_app_setting(FIRST_VERIFIED_APP_KEY, None)
+    except (sqlite3.Error, ValueError):
+        record = None       # only the wait restarts; the verified download still counts
+    at = us.first_verified_at(record, release["version"], release["name"], expected, time.time())
     with _lock:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. Download again.")
         _verified = {"version": release["version"], "name": release["name"], "path": final,
-                     "sha256": expected, "signature": signature, "at": time.time()}
+                     "sha256": expected, "signature": signature, "at": at}
+        held = _verified
+    with contextlib.suppress(sqlite3.Error):
+        db.set_app_setting(FIRST_VERIFIED_APP_KEY, us.first_verified_record(held))
     return us.status()
 
 

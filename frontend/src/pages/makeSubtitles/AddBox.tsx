@@ -6,7 +6,7 @@ import { useHolds } from '../../hooks/useHolds'
 import { routeHref } from '../../router'
 import { MAX_URL_LEN } from '../libraryForm'
 import { UPLOAD_EXTENSIONS } from '../workspace/sourceForm'
-import { handOff, linkFrom, linkTaker, type FileRunRequest, type NewTitleStart } from './addBoxModel'
+import { handOff, linkFrom, linkTaker, type NewTitleStart } from './addBoxModel'
 import { FindResults, type FindRequest } from './FindResults'
 import { FilePlan, FileRunNotice, FileRunStatus } from './MakeSubtitles'
 import { useFileRun } from './useFileRun'
@@ -16,23 +16,14 @@ export const ADD_LINK_ID = 'add-box-link'
 
 const go = (route: Parameters<typeof routeHref>[0]) => { window.location.hash = routeHref(route) }
 
-/**
- * On the Library (`place="library"`) the box only collects the input and the choices: a run goes on to
- * the Add page, which shows its progress there so the title list is not pushed down, and Only add it
- * opens the Library's New title sheet through `onNewTitle`. On the Add page the run happens in place,
- * and New title is the Library's, so the choice is handed over there.
- */
-export function AddBox({ place, onNewTitle, request = null, initialLink = null }: {
-  place: 'library' | 'page'
-  onNewTitle?: (start: NewTitleStart) => void
-  request?: FileRunRequest | null
+/** A run happens in place; New title is the Library's, so that choice is handed over there. */
+export function AddBox({ initialLink = null }: {
   // A link another app shared: the box starts with it, as if it had just been pasted.
   initialLink?: string | null
 }) {
-  const onPage = place === 'page'
   // A member given only Import from a link can run a link but not make a title by hand.
   const canCreate = useHolds('library.create')
-  const run = useFileRun({ runs: onPage, request })
+  const run = useFileRun()
   const [text, setText] = useState(initialLink ?? '')
   const [dragging, setDragging] = useState(false)
   const [runsKey, setRunsKey] = useState(0)
@@ -42,7 +33,7 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
   const taker = useMemo(() => linkTaker(setLink), [])
   useEffect(() => taker.cancel, [taker])
   const pasted = useRef(false)
-  // A name typed on the page is searched in Sources; the Library's box only takes links.
+  // A name typed in the box is searched in Sources.
   const [find, setFind] = useState<FindRequest | null>(null)
 
   const clearLink = () => {
@@ -50,7 +41,7 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
     taker.clear()
   }
   const submit = () => {
-    if (onPage && text.trim() && !linkFrom(text)) setFind((f) => ({ query: text.trim(), n: (f?.n ?? 0) + 1 }))
+    if (text.trim() && !linkFrom(text)) setFind((f) => ({ query: text.trim(), n: (f?.n ?? 0) + 1 }))
     else taker.now(text)
   }
   const pickFile = (f: File | null | undefined) => {
@@ -69,16 +60,10 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
     // New title keeps the link or the file's name, and a second press here would make a duplicate.
     if (start && 'link' in start) clearLink()
     else if (start) clearFile()
-    if (onNewTitle) { onNewTitle(start); return }
     handOff({ kind: 'new-title', start })
     go({ name: 'library' })
   }
-  const makeElsewhere = onPage ? undefined : (request: FileRunRequest) => {
-    handOff({ kind: 'run-file', request })
-    go({ name: 'make-subtitles' })
-  }
   const linkStarted = () => {
-    if (!onPage) { go({ name: 'make-subtitles' }); return }
     clearLink()
     setRunsKey((k) => k + 1)
   }
@@ -88,7 +73,7 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
   return (
     <>
       <section
-        className={`add-box ${onPage ? 'add-box-page' : 'card'}${dragging ? ' is-dragging' : ''}`}
+        className={`add-box add-box-page${dragging ? ' is-dragging' : ''}`}
         aria-label="Add"
         onDragOver={drops ? (e) => { e.preventDefault(); setDragging(true) } : undefined}
         onDragLeave={drops ? () => setDragging(false) : undefined}
@@ -97,18 +82,17 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
         {run.showingRun ? <FileRunStatus run={run} /> : (
           <>
             {!link && <FileRunNotice run={run} />}
-            <h2 className="card-title">{onPage ? 'What do you want to add?' : 'Add something to translate'}</h2>
+            <h2 className="card-title">What do you want to add?</h2>
             <div className="add-box-row">
-              <label htmlFor={ADD_LINK_ID} className="visually-hidden">{onPage ? 'Paste a link, or type a name to search' : 'Paste a link'}</label>
+              <label htmlFor={ADD_LINK_ID} className="visually-hidden">Paste a link, or type a name to search</label>
               <input
                 id={ADD_LINK_ID}
-                type={onPage ? 'text' : 'url'}
-                inputMode={onPage ? undefined : 'url'}
-                enterKeyHint={onPage ? 'search' : undefined}
-                autoComplete={onPage ? 'off' : undefined}
+                type="text"
+                enterKeyHint="search"
+                autoComplete="off"
                 value={text}
                 maxLength={MAX_URL_LEN}
-                placeholder={onPage ? 'A name, or a link' : 'Paste a link'}
+                placeholder="A name, or a link"
                 onPaste={() => { pasted.current = true }}
                 onChange={(e) => {
                   setText(e.target.value)
@@ -119,35 +103,30 @@ export function AddBox({ place, onNewTitle, request = null, initialLink = null }
                 // Enter while an input method is composing only confirms the characters.
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); submit() } }}
               />
-              {onPage && <button type="button" className={buttonClass('primary')} disabled={!text.trim()} onClick={submit}>Search</button>}
+              <button type="button" className={buttonClass('primary')} disabled={!text.trim()} onClick={submit}>Search</button>
               <button type="button" className={buttonClass('secondary')} title="Or drop an audio or video file on this box" onClick={chooseFile}>
                 Choose a file
               </button>
               <input ref={fileInput} type="file" className="visually-hidden" tabIndex={-1} aria-label="Audio or video file"
                 accept={UPLOAD_EXTENSIONS.join(',')} onChange={(e) => pickFile(e.target.files?.[0])} />
             </div>
-            {onPage && !link && !run.file && <p className="muted">A name searches your comic and novel sites. A link to a video or a page is read and added.</p>}
+            {!link && !run.file && <p className="muted">A name searches your comic and novel sites. A link to a video or a page is read and added.</p>}
             {link ? (
               <QuickVideoLinkPlan key={link} url={link} onStarted={linkStarted} onOnlyAdd={canCreate ? () => newTitle({ link }) : undefined} onClear={clearLink} />
             ) : run.file || run.flow.phase === 'error' ? (
-              <FilePlan run={run} onChooseFile={chooseFile} onMake={makeElsewhere} onClear={clearFile}
+              <FilePlan run={run} onChooseFile={chooseFile} onClear={clearFile}
                 onOnlyAdd={() => run.file && newTitle({ fileName: run.file.name })} />
-            ) : onPage ? (
+            ) : (
               <p className="muted add-box-quiet">
                 {canCreate && <><button type="button" className="link" onClick={() => newTitle(null)}>Add a title by hand</button><span className="add-box-quiet-sep" aria-hidden="true">·</span></>}
                 <span>Just want to translate some pasted text? <a className="touch-link" href={routeHref({ name: 'translate' })}>Open Text</a></span>
               </p>
-            ) : (
-              <div className="add-box-quiet">
-                {canCreate && <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => newTitle(null)}>Add a title by hand</button>}
-                <p className="muted">Just want to translate some pasted text? <a href={routeHref({ name: 'translate' })}>Open Text</a></p>
-              </div>
             )}
           </>
         )}
       </section>
-      {onPage && !link && !run.file && !run.showingRun && <FindResults request={find} />}
-      {onPage && <QuickVideoRuns refreshKey={runsKey} />}
+      {!link && !run.file && !run.showingRun && <FindResults request={find} />}
+      <QuickVideoRuns refreshKey={runsKey} />
     </>
   )
 }

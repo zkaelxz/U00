@@ -16,7 +16,7 @@ from fastapi import APIRouter, Path, Query, Request
 from api import after_import_plan
 from api.auth import (engine_for_caller, holds, holds_paid_engines, is_at_pc, is_local_request,
                       require_cloud_model_allowed, require_engines_allowed, require_permission)
-from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueueNightSet, QueuePolicy, QueueTonight,
+from api.schemas import (QueueAddAllSteps, QueueAddBulk, QueueAddItem, QueueBulkAdded, QueueMove, QueueNightSet, QueuePolicy, QueueRetriedInterrupted, QueueTonight,
                          FileRunStart, NovelFlowStart, QueueScheduleSet, QueueState, QueueStepSettings, TitleFlowRun, error_responses)
 from services import (glossary_extract_service, model_readiness_service, page_run_service, queue_service,
                       scanlate_pages_service)
@@ -116,6 +116,14 @@ def cancel_item(request: Request, item_id: int = _ITEM):
              responses=_ERRORS)
 def retry_item(request: Request, item_id: int = _ITEM):
     return queue_service.retry_item(request.state.principal, item_id, at_pc=is_at_pc(request))
+
+
+@router.post("/retry-interrupted", dependencies=[require_permission("jobs.start")],
+             response_model=QueueRetriedInterrupted, responses=_ERRORS,
+             summary="Put every interrupted item the caller may change back to waiting and start the queue")
+def retry_interrupted(request: Request):
+    return queue_service.retry_interrupted(request.state.principal, holds_paid=holds_paid_engines(request),
+                                           at_pc=is_at_pc(request))
 
 
 @router.post("/clear-finished", dependencies=[require_permission("jobs.start")],

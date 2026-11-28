@@ -136,7 +136,7 @@ list is checked for the model column before the session is left to run.
 ```
 python -m pytest -q tests/test_<area>.py
 python -m pytest -q tests/test_static_analysis.py tests/test_api_permissions.py tests/test_split_guards.py
-cd frontend && npx tsc -b && npx vitest run    # when frontend files changed
+cd frontend && npx tsc -b && npm run lint && npx vitest run    # when frontend files changed
 ```
 
 Then re-read the diff for: a frozen file that grew, a comment with a PR or
