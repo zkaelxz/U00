@@ -35,7 +35,8 @@ public class MediaPlayback extends Service {
     private static final String CHANNEL = "playback";
     private static final int NOTIFICATION_ID = 9;
     private static final String PRESS = "app.baihe.shell.media.";
-    private static final String DISMISS = PRESS + "dismiss";
+    private static final String CLOSE = "close";
+    private static final String DISMISS = PRESS + CLOSE;
     /** The activity intent of a tap on the controls: MainActivity only comes to the front for it. */
     static final String SHOW_PLAYER = "app.baihe.shell.SHOW_PLAYER";
     /**
@@ -153,6 +154,7 @@ public class MediaPlayback extends Service {
             @Override
             public void onCustomAction(String action, Bundle extras) {
                 if (MediaState.FORWARD.equals(action) || MediaState.BACK.equals(action)) send(action, MediaState.SKIP_SECONDS);
+                else if (CLOSE.equals(action)) close();
             }
 
             @Override
@@ -185,7 +187,7 @@ public class MediaPlayback extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         String action = intent == null ? null : intent.getAction();
         if (DISMISS.equals(action)) {
-            finish();
+            close();
             return START_NOT_STICKY;
         }
         if (action != null && action.startsWith(PRESS)) {
@@ -212,6 +214,7 @@ public class MediaPlayback extends Service {
 
     @Override
     public void onDestroy() {
+        main.removeCallbacks(pauseOver);
         // After finish() a newer instance may already own the notification, so only a stop finish() did not see clears it.
         if (running == this) {
             running = null;
@@ -225,6 +228,12 @@ public class MediaPlayback extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
+    }
+
+    /** Close or a swipe: the sound stops with the controls, or it would carry on with nothing to stop it. */
+    private void close() {
+        if (page != null) page.send(MediaState.PAUSE, 0);
+        finish();
     }
 
     private void send(String action, double value) {
@@ -270,13 +279,15 @@ public class MediaPlayback extends Service {
     }
 
     private void finish() {
+        // An instance already finished (or replaced) must not touch the notification a newer one owns.
+        if (running != this) return;
         if (startOwed) {
             // Stopped between the start and its first command: an unpaid startForeground crashes the app.
             goForeground(notification(null));
             startOwed = false;
         }
         // Reports from here on start a new instance instead of reaching one that is going away.
-        if (running == this) running = null;
+        running = null;
         main.removeCallbacks(pauseOver);
         listenForNoisy(false);
         session.setActive(false);
@@ -320,6 +331,9 @@ public class MediaPlayback extends Service {
                         MediaState.BACK, "Back 10 seconds", android.R.drawable.ic_media_rew).build())
                 .addCustomAction(new PlaybackState.CustomAction.Builder(
                         MediaState.FORWARD, "Forward 10 seconds", android.R.drawable.ic_media_ff).build())
+                // Android 8-13 cannot swipe a foreground notification away, and paused controls stay foreground.
+                .addCustomAction(new PlaybackState.CustomAction.Builder(
+                        CLOSE, "Close", android.R.drawable.ic_menu_close_clear_cancel).build())
                 .build();
     }
 
@@ -354,7 +368,8 @@ public class MediaPlayback extends Service {
                 .addAction(playing
                         ? button(android.R.drawable.ic_media_pause, "Pause", MediaState.PAUSE)
                         : button(android.R.drawable.ic_media_play, "Play", MediaState.PLAY))
-                .addAction(button(android.R.drawable.ic_media_ff, "Forward 10 seconds", MediaState.FORWARD));
+                .addAction(button(android.R.drawable.ic_media_ff, "Forward 10 seconds", MediaState.FORWARD))
+                .addAction(button(android.R.drawable.ic_menu_close_clear_cancel, "Close", CLOSE));
     }
 
     private Notification.Action button(int icon, String label, String action) {
