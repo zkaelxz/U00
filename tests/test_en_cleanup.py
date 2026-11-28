@@ -243,3 +243,12 @@ def test_a_dash_in_the_source_keeps_the_english_dashes(source):
 def test_a_source_without_a_dash_still_loses_them():
     assert ec.drop_em_dashes("He—the king—came.", "国王来了") == "He, the king, came."
     assert ec.drop_em_dashes("Wait—", "ちょっと待ってー") == "Wait..."
+
+
+@pytest.mark.parametrize("before,after", [
+    ("I told him—he never listens.\nOkay.", "I told him. He never listens.\nOkay."),
+    ("It was him—that guy over there.", "It was him, that guy over there."),
+    ("The man who—he was tall.", "The man who... he was tall."),
+])
+def test_sentence_split_edges(before, after):
+    assert ec.drop_em_dashes(before) == after
