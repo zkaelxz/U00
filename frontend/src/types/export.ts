@@ -29,6 +29,8 @@ export interface SubtitleOptions {
   wrapSource?: number
   tidyTiming?: boolean
   speakerNames?: boolean
+  soundCaptions?: boolean
+  readingLine?: boolean
 }
 
 export type AssStyleOverrides = Schemas['AssStyleOverrides']
@@ -43,6 +45,10 @@ export interface AssExportRequest {
   notes_as_separate_line: boolean
   wrap_chars_en?: number
   wrap_chars_source?: number
+  sound_captions?: boolean
+  reading_line?: boolean
+  karaoke?: boolean
+  ear_placement?: boolean
 }
 
 export type AssStyleOptions = Schemas['AssStyleOptions']

@@ -62,7 +62,7 @@
     <div class="pane glass" id="targetPane">
       <div id="dramaPick">
         <label for="drama">Send pages to</label>
-        <select id="drama"><option value="">— pick a drama —</option></select>
+        <select id="drama"><option value="">— pick a title —</option></select>
         <p id="dramaTitle" class="hint" hidden></p>
       </div>
       <div class="switches">
@@ -71,6 +71,7 @@
         <div class="row"><label class="switch"><input type="checkbox" role="switch" id="typeset"><span>Clean and typeset pages</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: Clean and typeset pages" aria-describedby="help-typeset" aria-expanded="false">i</button><span id="help-typeset" role="tooltip" class="help-text" hidden>Off: pages are saved with their text and the preview is drawn over the page. On: Baihe also erases the original lettering and puts the English in, in saved pages too, so Typeset is already on when you open the title. It adds a few seconds per page on the PC running Baihe.</span></span></div>
       </div>
       <div id="typesetStyle">
+        <p class="hint">Used for quick translate with Clean and typeset on. Saved pages use the title's own lettering.</p>
         <label for="typesetAlign">Text alignment</label>
         <select id="typesetAlign">
           <option value="auto">Auto</option>
@@ -115,11 +116,12 @@
         <button id="captureFromHere" type="button">Capture from here</button>
       </div>
       <div class="pane">
-        <div>
+        <div id="seriesCountRow">
           <div class="row"><label for="seriesCount">Chapters to capture</label><span class="help"><button type="button" class="help-btn" aria-label="Help: Chapters to capture" aria-describedby="help-series" aria-expanded="false">i</button><span id="help-series" role="tooltip" class="help-text" hidden>Follows the site's next-chapter link and stops at a sign-in or purchase page, so free chapters only. Each chapter is translated like a single capture, so a paid engine costs more as the count grows.</span></span></div>
           <input id="seriesCount" type="number" min="1" max="50" value="5">
         </div>
         <button id="continueComic" type="button">Capture and continue</button>
+        <p id="continueQuickNote" class="hint" hidden>Pick Save to a title to capture several chapters.</p>
       </div>
       <div id="novelSection" class="pane" aria-label="Save text into a title" hidden>
         <div class="row"><h2>Save this chapter</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: Save this chapter" aria-describedby="help-novel" aria-expanded="false">i</button><span id="help-novel" role="tooltip" class="help-text" hidden>Uses your selection, or the page's main text. It is added as a new raw chapter to the title picked above, or to an automatic one.</span></span></div>
@@ -130,7 +132,7 @@
 
     <section id="panel-text" class="pane" role="tabpanel" aria-labelledby="tab-text" hidden>
       <div>
-        <div class="row"><label for="textDirection">Languages</label><span class="help"><button type="button" class="help-btn" aria-label="Help: Translate text" aria-describedby="help-text-tab" aria-expanded="false">i</button><span id="help-text-tab" role="tooltip" class="help-text" hidden>Uses your selection, or the page's main text. It is saved to Standalone translate history unless Quick translate is on.</span></span></div>
+        <div class="row"><label for="textDirection">Languages</label><span class="help"><button type="button" class="help-btn" aria-label="Help: Translate text" aria-describedby="help-text-tab" aria-expanded="false">i</button><span id="help-text-tab" role="tooltip" class="help-text" hidden>Uses your selection, or the page's main text. It is saved to the history on Baihe's Text page unless Quick translate is on.</span></span></div>
         <select id="textDirection">
           <option value="zh:en">Chinese → English</option>
           <option value="ja:en">Japanese → English</option>
@@ -145,6 +147,9 @@
 
     <section id="panel-video" class="pane" role="tabpanel" aria-labelledby="tab-video" hidden>
       <div class="row"><h2>This video or stream</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: Video" aria-describedby="help-video" aria-expanded="false">i</button><span id="help-video" role="tooltip" class="help-text" hidden>Sends only this page's link to Baihe on the PC, which downloads and subtitles the video, or starts Live captions on a stream. Your logins in this browser are not sent, so a video that needs one won't download.</span></span></div>
+      <div class="switches">
+        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="siteSubs"><span>Show Baihe subs on this player</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: Baihe subs" aria-describedby="help-site-subs" aria-expanded="false">i</button><span id="help-site-subs" role="tooltip" class="help-text" hidden>Plays your title's English over this page's own video or audio, when the title was made from this whole video. Nudge the timing by half a second with the buttons on the player. On a player that puts only the video full screen, the lines can't be shown; use the page's theatre mode.</span></span></div>
+      </div>
       <button id="sendVideo" class="primary" type="button">Subtitle this video</button>
       <div>
         <label for="liveLanguage">Spoken language</label>
@@ -161,11 +166,11 @@
       <div class="row"><h2>Titles</h2><span class="help"><button type="button" class="help-btn" aria-label="Help: automatic titles" aria-describedby="help-auto" aria-expanded="false">i</button><span id="help-auto" role="tooltip" class="help-text" hidden>Used while “Send pages to” is on Auto. A matching title only gets its blank fields filled; merge or move titles afterwards in Baihe.</span></span></div>
       <div class="switches">
         <label class="switch"><input type="checkbox" role="switch" id="autoCreate" checked><span>Create a new title when none matches</span></label>
-        <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill name and source link from the page</span></label>
+        <label class="switch"><input type="checkbox" role="switch" id="autoFill" checked><span>Fill blank details (name, link, author, summary, cover) from the page</span></label>
         <label class="switch"><input type="checkbox" role="switch" id="autoSeries" checked><span>Put the title in a series</span></label>
       </div>
       <div class="switches">
-        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="screenshot"><span>Use a screenshot when a page can't be read</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: screenshot capture" aria-describedby="help-screenshot" aria-expanded="false">i</button><span id="help-screenshot" role="tooltip" class="help-text" hidden>For readers that draw pages so the browser blocks reading them. It captures the visible window one page at a time, so each page must fit on screen (zoom out if needed) and capture is slower. Off by default.</span></span></div>
+        <div class="row"><label class="switch"><input type="checkbox" role="switch" id="screenshot"><span>Use a screenshot when a page can't be read</span></label><span class="help"><button type="button" class="help-btn" aria-label="Help: screenshot capture" aria-describedby="help-screenshot" aria-expanded="false">i</button><span id="help-screenshot" role="tooltip" class="help-text" hidden>For readers that draw pages so the browser blocks reading them. It captures the visible window one page at a time, so each page must fit the window's width (zoom out if needed); tall pages are taken in pieces, and capture is slower. Off by default.</span></span></div>
       </div>
     </section>
 

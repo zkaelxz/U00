@@ -29,10 +29,9 @@ import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, https_only
-from ..http_transport import header
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceError)
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, https_only
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef,
+                      SearchResult, SeriesInfo)
 from ..registry import register
 
 BASE_URL = "https://mangak.io"
@@ -73,7 +72,7 @@ def page_props(html: str) -> dict:
 
 
 @register
-class MangaKSource(SourceAdapter):
+class MangaKSource(PlainImageDownload, SourceAdapter):
     name = "mangak"
     display_name = "MangaK"
     homepage = "https://mangak.io"
@@ -81,6 +80,8 @@ class MangaKSource(SourceAdapter):
     languages = ["en"]
     url_patterns = [r"mangak\.io/[A-Za-z0-9]"]
     default_headers = {"Referer": REFERER}
+    images_only = True
+    default_page_ext = ".webp"
 
     def __init__(self, client=None, **client_kwargs):
         super().__init__(client, **client_kwargs)
@@ -170,18 +171,6 @@ class MangaKSource(SourceAdapter):
             raise LayoutChanged("any page images in this chapter")
         return [PageRef(self.name, chapter.chapter_id, i, u, headers={"Referer": REFERER})
                 for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
-        if ctype and not ctype.startswith("image/"):
-            # An error or block page sent with a 200: never saved as a page.
-            raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
-                              FailureReason.HTTP_ERROR)
-        name = urlsplit(page.url).path.rsplit("/", 1)[-1]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".webp"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

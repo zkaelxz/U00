@@ -743,7 +743,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             try {
                 String title = new BaiheClient(server, token).follow(link);
                 say("Following " + (title.isEmpty() ? "this series" : title)
-                        + ". Your phone will tell you when a new chapter comes out.", GrabUi.Kind.OK);
+                        + ". With alerts on and the Studio tab signed in, your phone tells you when a new chapter comes out.", GrabUi.Kind.OK);
             } catch (BaiheClient.BridgeException e) {
                 say(e.getMessage(), GrabUi.Kind.BAD);
             }
@@ -930,7 +930,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 say("Open the series page, the one that lists its chapters, first.");
                 return;
             }
-            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.history(prefs()), GrabStore.queue(prefs()));
+            SeriesRun.Plan plan = SeriesRun.plan(links, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()), GrabStore.queue(prefs()));
             int room = GrabQueue.MAX_QUEUED - GrabStore.queue(prefs()).size();
             if (plan.fresh.isEmpty() || room <= 0) {
                 say(plan.fresh.isEmpty() ? "Every chapter listed here is already done or waiting." : "The queue is full.");
@@ -1279,7 +1279,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 next = ServerAddress.nextChapterUrl(pageUrl, pageNext);
                 if (next == null) {
                     message = message + (toEnd ? ". That was the last chapter." : ". No next chapter link was found.");
-                } else if (toEnd && SeriesRun.alreadyDone(next, GrabStore.history(prefs()))) {
+                } else if (toEnd && SeriesRun.stopsBefore(next, pageUrl, GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs()))) {
                     // An earlier run already sent everything from here on; going further would only repeat it.
                     next = null;
                     message = message + ". The next chapter was grabbed before, so it stopped here.";
@@ -1581,6 +1581,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 novelAdded = 0;
             }
             if (added) novelAdded++;
+            if (!cancelRequested) GrabStore.markDone(prefs(), url);
             finishGrab((added ? "Saved the chapter to " : "Already saved in ") + where, true);
             // Translating waits for the last chapter of this run, and a run that saved nothing new asks for nothing.
             if (!cancelRequested && chaptersLeft == 0 && !loadingNext && novelAdded > 0) {
@@ -1590,7 +1591,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                 novelAdded = 0;
             }
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(cancelRequested ? "Cancelled." : e.getMessage());
+            endSend(cancelRequested ? "Cancelled." : e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not save the chapter.");
         }
@@ -1637,7 +1638,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                     // A token the server refused, or a spent limit, would refuse every later part too.
                     if (cause instanceof BaiheClient.BridgeException) {
                         int status = ((BaiheClient.BridgeException) cause).status;
-                        if (status == 401 || status == 403 || status == 429) {
+                        if (GrabQueue.refusesTheRest(status)) {
                             stoppedBy = why;
                             break;
                         }
@@ -1852,7 +1853,7 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
                         synchronized (lock) {
                             if (firstError[0].isEmpty()) firstError[0] = e.getMessage();
                             // A token the server refused, or a spent limit, would refuse every later batch too.
-                            if (e.status == 401 || e.status == 403 || e.status == 429) refused[0] = true;
+                            if (GrabQueue.refusesTheRest(e.status)) refused[0] = true;
                         }
                     }
                     synchronized (lock) {
@@ -2086,30 +2087,51 @@ public class GrabActivity extends Activity implements GrabBridge.Listener {
             List<List<PageImage>> batches = Batches.plan(images, max);
             int stored = 0;
             int failed = 0;
+            int noEnglish = 0;
             String firstError = "";
+            String englishProblem = "";
+            boolean refused = false;
             for (int i = 0; i < batches.size() && !cancelRequested; i++) {
                 say("Sending " + (i + 1) + " of " + batches.size());
                 try {
                     JSONObject answer = client.sendPages(dramaId, url, batches.get(i));
                     stored += answer.optInt("stored", 0) + answer.optInt("already_stored", 0);
                     failed += answer.optJSONArray("failed") == null ? 0 : answer.optJSONArray("failed").length();
+                    noEnglish += BaiheClient.pagesWithoutEnglish(answer);
+                    if (englishProblem.isEmpty()) englishProblem = BaiheClient.englishProblem(answer);
                 } catch (BaiheClient.BridgeException e) {
                     failed += batches.get(i).size();
                     if (firstError.isEmpty()) firstError = e.getMessage();
-                    // A token the server refused would be refused again by every later batch.
-                    if (e.status == 401 || e.status == 403) break;
+                    if (GrabQueue.refusesTheRest(e.status)) {
+                        refused = true;
+                        break;
+                    }
                 }
             }
             failed += unreadable;
             StringBuilder out = new StringBuilder((cancelRequested ? "Cancelled. " : "") + "Sent " + stored + " pages to " + title.optString("title", "Baihe"));
             if (failed > 0 || truncated) out.append(". Not sent: ").append(failed + (truncated ? " or more" : ""));
+            if (noEnglish > 0) {
+                out.append(". ").append(noEnglish).append(noEnglish == 1 ? " page" : " pages").append(" saved without English");
+                if (!englishProblem.isEmpty()) out.append(" (").append(englishProblem).append(")");
+            }
             if (!firstError.isEmpty()) out.append(". ").append(firstError);
+            if (stored > 0 && failed == 0 && noEnglish == 0 && !truncated && !cancelRequested) {
+                GrabStore.markDone(prefs(), url);
+            }
             // A chapter where every page was refused must not send the chain on to the next.
-            finishGrab(out.toString(), stored > 0);
+            endSend(out.toString(), stored > 0, refused);
         } catch (BaiheClient.BridgeException e) {
-            finishGrab(e.getMessage());
+            endSend(e.getMessage(), false, GrabQueue.refusesTheRest(e.status));
         } catch (Exception e) {
             finishGrab("Could not send the pages.");
         }
+    }
+
+    private void endSend(String message, boolean sent, boolean refused) {
+        boolean moreDue = chaptersLeft > 1 || (queueRunning && !GrabStore.queue(prefs()).isEmpty());
+        GrabQueue.AfterSend end = GrabQueue.afterSend(message, sent, refused, queueRunning, moreDue);
+        queueRunning = end.queueRunning;
+        finishGrab(end.message, end.goOn);
     }
 }

@@ -146,7 +146,7 @@ export function SitesTab({ phone, sources, settings, onSource, onHealth }: Props
                 <th scope="col">Site</th>
                 <th scope="col">Status</th>
                 <th scope="col">On</th>
-                <th scope="col">Rules</th>
+                <th scope="col">Pace</th>
                 <th scope="col">
                   <span className="visually-hidden">Details</span>
                 </th>

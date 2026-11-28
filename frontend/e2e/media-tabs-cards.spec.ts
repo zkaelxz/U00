@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { expectFitsScreens, gotoMedia, mediaPanel, topCards, selectMediaTab } from './mediaTabs'
-import { enableDeveloperMode, openAdvanced } from './sourceHelpers'
+import { enableDeveloperMode, openAdvanced, openTranscribeOptions } from './sourceHelpers'
 
 // The cards inside each Media sub-tab: the one-open-card fold rule, the Switches card, the prompt fold, and
 // the Details and Credits tabs sharing one draft. Seeded title 1 is an audio drama.
@@ -31,7 +31,7 @@ async function noNovel(page: Page) {
 }
 
 const fold = (panel: ReturnType<typeof mediaPanel>, title: string) =>
-  panel.locator('details.section', { has: panel.page().locator(`summary > .section-title`, { hasText: new RegExp(`^${title}$`) }) }).first()
+  panel.locator('details.section', { has: panel.page().locator(`:scope > summary > .section-title`, { hasText: new RegExp(`^${title}$`) }) }).first()
 
 test.describe('one open card per sub-tab', () => {
   test('fresh storage opens exactly one card on every tab that has several', async ({ page }) => {
@@ -186,7 +186,7 @@ test.describe('prompt fold', () => {
     await page.reload()
     const again = await openAdvanced(page)
     await expect(again.getByLabel('Extra names to expect', { exact: true })).toHaveValue('沈清疑、云隐宗')
-    await selectMediaTab(page, 'transcribe')
+    await openTranscribeOptions(page)
     const transcript = page.getByLabel('Transcript text', { exact: true })
     if (await transcript.count()) await transcript.fill('line one')
     await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
@@ -258,10 +258,17 @@ test.describe('Details and Credits share one draft', () => {
       } }))
       await gotoMedia(page, 'details')
       const details = mediaPanel(page, 'details')
+      if (member) {
+        // Without admin.library the details can't be saved, so the link is read-only and there is nothing to fill.
+        await expect(details.locator('input[name="source_url"]')).toBeDisabled()
+        await expect(details.getByRole('button', { name: 'Fill from link' })).toHaveCount(0)
+        await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(0)
+        return
+      }
       await details.locator('input[name="source_url"]').fill('https://example.com/p')
       await details.getByRole('button', { name: 'Fill from link' }).click()
       await expect(details.getByText('Nothing could be read from this page.')).toBeVisible()
-      await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(member ? 0 : 1)
+      await expect(details.getByRole('button', { name: 'Read with AI (paid)' })).toHaveCount(1)
     })
   }
 

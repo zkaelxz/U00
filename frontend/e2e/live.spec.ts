@@ -23,7 +23,7 @@ test('read chat is sent with Start and the chat shows beside the lines', async (
   m.state.status = 'running'
   m.state.chat = { state: 'reading', message: 'Reading the chat.', next_id: 2, messages: [
     { id: 1, author: 'Ann', text: '今天好开心', paid: '', sent_at: 0, translation: 'So happy today', state: 'done' },
-    { id: 2, author: 'Bo', text: '加油', paid: '$5.00', translation: '', state: 'pending' },
+    { id: 2, author: 'Bo', text: '加油', paid: '$5.00', sent_at: 0, translation: '', state: 'pending' },
   ] }
   const live = await openLive(page)
   await openMoreOptions(live)
@@ -166,11 +166,11 @@ test('a member gets the link, language and glossary only; Start sends the defaul
 test('a refusal with its own reason shows that reason, not the permission text', async ({ page }) => {
   const m = await mockLive(page, { remote: true, permissions: [...HOUSEHOLD, 'media.import_url', 'engines.paid'] })
   m.state.startStatus = 403
-  m.state.startMessage = 'Ollama cloud models send your text off this PC and use the owner\'s Ollama quota, so they need paid-engine permission or your own Ollama key (Settings > Your Ollama key). Pick a local model instead.'
+  m.state.startMessage = 'Ollama cloud models send your text off this PC and use the owner\'s Ollama quota, so they need paid-engine permission or your own Ollama key (Settings > Your Ollama key).'
   const live = await openLive(page)
   await live.getByLabel('Stream link', { exact: true }).fill('https://www.youtube.com/watch?v=abc')
   await live.getByRole('button', { name: 'Start', exact: true }).click()
-  await expect(live.getByRole('alert')).toContainText('Pick a local model instead.')
+  await expect(live.getByRole('alert')).toContainText('need paid-engine permission or your own Ollama key')
   await expect(live.getByRole('alert')).not.toContainText('import from a link')
   expect(m.unmocked).toEqual([])
 })
@@ -550,7 +550,7 @@ test('the form offers and starts on what the server says, and a remembered choic
     ollama: true,
     liveOptions: {
       whisper_sizes: ['small', 'medium'], max_minutes_range: [1, 30], default_model: 'translategemma:27b',
-      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480 },
+      defaults: { source_language: 'ja', whisper_size: 'medium', segment_seconds: 10, overlap_seconds: 3, max_minutes: 20, player_height: 480, spend_limit_usd: 2 },
     },
   })
   const live = await openLive(page)

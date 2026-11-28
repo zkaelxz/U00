@@ -159,7 +159,9 @@ def hold_title(drama_id: int, busy_message: str):
     (busy_message), taking no hold, when a job here already runs on the
     title: a hold then would refuse that job's own follow-up starts
     (transcribe starts diarize). Checked and taken under _lock, so no start
-    slips in between; a job in another process is still the caller's check."""
+    slips in between; a job in another process is still the caller's check.
+    Side jobs (background_jobs.SIDE_JOB_PREFIXES) are stopped once the hold
+    is taken, outside the lock; TitleBusy when one won't stop."""
     import background_jobs   # it imports this module
     drama_id = int(drama_id)
     with _lock:
@@ -167,6 +169,8 @@ def hold_title(drama_id: int, busy_message: str):
             raise TitleBusy(busy_message)
         _held_titles[drama_id] = _held_titles.get(drama_id, 0) + 1
     try:
+        if not background_jobs.stop_side_jobs(drama_id):
+            raise TitleBusy(busy_message)
         yield
     finally:
         with _lock:

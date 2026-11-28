@@ -46,6 +46,7 @@ MAX_READ_PIXELS = 25_000_000
 # Claude takes at most 5 MB per image; stay under it.
 MAX_SENT_BYTES = 4_500_000
 _JPEG_QUALITIES = (85, 70, 55)
+PAGE_JPEG_QUALITY = 95
 
 _PIXELS_PER_TOKEN = 750
 # The most a picture of MAX_EDGE can be billed at: Claude shrinks to about 1600
@@ -79,14 +80,30 @@ def _tokens(engine_name: str, width: int, height: int) -> tuple:
     return image + _PROMPT_TOKENS, output
 
 
-def _encoded(im) -> tuple:
-    """(bytes, mime) of a decoded picture written out fresh: PNG, or JPEG when
-    the PNG is too big for a provider."""
+def _flattened(im):
+    """The picture as RGB for JPEG, which has no transparency: a see-through area shows
+    as paper, not as the black that dropping the alpha channel can leave."""
+    from PIL import Image
+    if im.mode in ("RGBA", "LA", "P"):
+        backed = Image.new("RGBA", im.size, "white")
+        backed.alpha_composite(im.convert("RGBA"))
+        return backed.convert("RGB")
+    return im.convert("RGB") if im.mode != "RGB" else im
+
+
+def _encoded(im, page: bool = False) -> tuple:
+    """(bytes, mime) of a decoded picture written out fresh: a screenshot as PNG, a
+    comic page as JPEG at quality 95 with full colour detail (in comic translation
+    tests it scored the same as PNG at a third of the bytes or less), and either as
+    a smaller JPEG when too big for a provider."""
     out = io.BytesIO()
-    im.save(out, "PNG")
+    if page:
+        _flattened(im).save(out, "JPEG", quality=PAGE_JPEG_QUALITY, subsampling=0)
+    else:
+        im.save(out, "PNG")
     if out.tell() <= MAX_SENT_BYTES:
-        return out.getvalue(), "image/png"
-    flat = im.convert("RGB") if im.mode != "RGB" else im
+        return out.getvalue(), "image/jpeg" if page else "image/png"
+    flat = _flattened(im)
     for quality in _JPEG_QUALITIES:
         out = io.BytesIO()
         flat.save(out, "JPEG", quality=quality)
@@ -95,7 +112,7 @@ def _encoded(im) -> tuple:
     raise InvalidInputError("This picture is too detailed to send. Crop it smaller.")
 
 
-def _prepared(content: bytes) -> tuple:
+def _prepared(content: bytes, page: bool = False) -> tuple:
     """(bytes, mime, width, height) of the picture as it will be sent."""
     from PIL import Image, ImageOps
     try:
@@ -115,7 +132,7 @@ def _prepared(content: bytes) -> tuple:
                                Image.Resampling.LANCZOS)
             if im.mode not in ("RGB", "RGBA", "L", "LA", "P"):
                 im = im.convert("RGB")
-            data, mime = _encoded(im)
+            data, mime = _encoded(im, page)
             width, height = im.size
     except InvalidInputError:
         raise
@@ -124,8 +141,9 @@ def _prepared(content: bytes) -> tuple:
     return data, mime, width, height
 
 
-# A page translation sends a stored page the same way a screenshot is sent.
-prepare_picture = _prepared
+def prepare_picture(content: bytes) -> tuple:
+    """A comic page for a page translation: sized like a screenshot, sent as JPEG."""
+    return _prepared(content, page=True)
 
 
 def _estimate(engine_name: str, model: Optional[str], use_free_tier: bool,

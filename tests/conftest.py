@@ -299,6 +299,18 @@ def _echo_engine_off_after_each_test():
 
 
 @pytest.fixture(autouse=True)
+def _faster_whisper_stub_forgotten():
+    """Many tests put a plain-module faster_whisper stub straight into sys.modules;
+    left there, a later test's `import faster_whisper.vad` fails with "not a package"."""
+    before = sys.modules.get("faster_whisper")
+    yield
+    if before is None:
+        sys.modules.pop("faster_whisper", None)
+    else:
+        sys.modules["faster_whisper"] = before
+
+
+@pytest.fixture(autouse=True)
 def _home_addresses_forgotten():
     """url_guard refuses the home's own public addresses process-wide; one
     test's remote-health check must not make the next test's fetch refused."""
@@ -466,14 +478,6 @@ def _template_library(tmp_path_factory):
     finally:
         db.configure_library_dir(previous)
     return template
-
-
-@pytest.fixture
-def local_ollama_default(isolated_db):
-    """Makes Ollama's default a model on this PC (qwen3:4b), for a test that is
-    about the free, GPU-bound path; the built-in default is hosted and billed."""
-    from engine_backends import engine_registry
-    isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3:4b"})
 
 
 @pytest.fixture
@@ -741,25 +745,29 @@ def _isolated_page_server_config():
             page_server._config_provider = saved[1]
 
 
+@pytest.fixture(scope="session")
+def _default_app():
+    """One app with default settings for every `client` and `local_client`: a new app's first request
+    builds every route and the middleware stack, about a second each time. The app keeps no state a test
+    could leave behind: the library is opened per request and cookies live on each TestClient. A test that
+    adds routes or changes `app.state` builds its own app."""
+    from api.server import create_app
+    from api.api_config import ApiSettings
+    return create_app(ApiSettings())
+
+
 @pytest.fixture
-def client(isolated_db):
+def client(isolated_db, _default_app):
     """API client with a fresh database; a file that needs another setup defines its own `client`."""
     from fastapi.testclient import TestClient
-
-    from api.server import create_app
-    from api.api_config import ApiSettings
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(_default_app, raise_server_exceptions=False)
 
 
 @pytest.fixture
-def local_client(isolated_db):
+def local_client(isolated_db, _default_app):
     """Like `client`, but sends X-Baihe-Local on every request, as the React client does."""
     from fastapi.testclient import TestClient
-
-    from api.server import create_app
-    from api.api_config import ApiSettings
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
+    return TestClient(_default_app, raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
 
 
 @pytest.fixture

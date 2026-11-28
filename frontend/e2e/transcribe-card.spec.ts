@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures'
 import { shot } from './shots'
-import { mediaPanel, selectMediaTab } from './mediaTabs'
+import { mediaPanel } from './mediaTabs'
 import { mockTranscription } from './transcriptionMissingMocks'
 import { openTranscribeOptions, enableDeveloperMode, transcribeCard, openAdvanced } from './sourceHelpers'
 
@@ -28,6 +28,7 @@ test('a refused option is highlighted on its field, with the reason beside it', 
     }),
   )
   await page.goto('/#/drama/1/source?tab=transcribe')
+  await openTranscribeOptions(page)
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
 
@@ -102,23 +103,34 @@ test('an unnamed 422 shows the server sentence in the banner', async ({ page }) 
     }),
   )
   await page.goto('/#/drama/1/source?tab=transcribe')
+  await openTranscribeOptions(page)
   await page.getByLabel('Transcript text').fill('line one')
   await page.getByRole('button', { name: 'Transcribe', exact: true }).click()
   await expect(page.locator('.error-banner')).toContainText('Unknown source_language.')
 })
 
-test('the language and Whisper model are on Transcribe; the options are on Tools in folds', async ({ page }) => {
+test('Run shows the language and Transcribe first; the model is under More options and the tuning under Tools', async ({ page }) => {
   await page.goto('/#/drama/1/source?tab=transcribe')
   const card = transcribeCard(page)
   await expect(page.getByTestId('settings-summary')).toBeVisible()
   await expect(card.getByLabel('Source language', { exact: true })).toBeVisible()
-  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
+  await expect(card.getByRole('button', { name: 'Transcribe', exact: true })).toBeVisible()
+  // Closed, the fold's summary line names today's values instead.
+  const more = card.locator('details.section').filter({ has: page.locator(':scope > summary', { hasText: /^More options/ }) })
+  await expect(more.locator(':scope > summary .section-summary')).toContainText('Speakers off')
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeHidden()
+  await expect(card.getByRole('switch', { name: 'Detect speakers' })).toBeHidden()
   await expect(card.getByLabel('Expected speakers', { exact: true })).toHaveCount(0)
   await expect(card.getByLabel('Beam size', { exact: true })).toHaveCount(0)
   await expect(card.getByRole('heading', { name: 'Transcribe' })).toHaveCount(0)
   await shot(page, 'transcribe-folded-desktop', true)
-  await selectMediaTab(page, 'tools')
+  await openTranscribeOptions(page)
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
+  await expect(card.getByRole('switch', { name: 'Detect speakers' })).toBeVisible()
+  await shot(page, 'transcribe-more-options-desktop', true)
   const tools = mediaPanel(page, 'tools')
+  await expect(tools.getByRole('switch', { name: 'Use Groq' })).toBeHidden()
+  await tools.locator('.section-title', { hasText: /^Tools$/ }).click()
   // Options never saved: the Switches fold opens by itself and the others stay closed until opened.
   await expect(tools.getByRole('switch', { name: 'Use Groq' })).toBeVisible()
   await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeHidden()
@@ -130,9 +142,18 @@ test('the language and Whisper model are on Transcribe; the options are on Tools
     .poll(() => page.evaluate(() => window.localStorage.getItem('baihe.section.source.advanced.speakers')))
     .toBe('1')
   await page.reload()
+  await expect(card.getByLabel('Accuracy and speed', { exact: true })).toBeVisible()
   await expect(tools.getByLabel('Expected speakers', { exact: true })).toBeVisible()
   // Developer Mode is off here, so the gated knobs are not in the DOM even with the fold open.
   await expect(tools.getByLabel('Beam size', { exact: true })).toHaveCount(0)
+})
+
+test('Paste transcript opens More options and puts the cursor in the transcript box', async ({ page }) => {
+  await page.goto('/#/drama/1/source?tab=transcribe')
+  const card = transcribeCard(page)
+  await expect(card.getByLabel('Transcript text')).toBeHidden()
+  await page.locator('#transcribe-needed').getByRole('button', { name: 'Paste transcript' }).click()
+  await expect(card.getByLabel('Transcript text')).toBeFocused()
 })
 
 test('"Still needed" is a callout with its fix button', async ({ page }) => {

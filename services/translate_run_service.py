@@ -232,15 +232,14 @@ def validate_run_options(engine_name: str, model, *, locale: str, style_preset: 
 
 
 def _estimate_run_calls(drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
-                        context_lines, *, whole_title, bulk) -> float:
+                        context_lines, *, whole_title, bulk, style_preset) -> float:
     """Dollars for every paid call a translate run makes: its batches (with the
     title's real prompt), the pre-read of the whole episode and the episode summary.
     The summary is priced on its own engine, which Settings can set apart from the run's."""
-    is_novel = drama.get("content_mode") == "novel_narration"
     ids = {ln["id"] for ln in targets}
     lines = [ln for ln in db.load_line_objects(drama_id) if ln.id in ids]
     glossary_terms, style_guidelines, _ = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, "novel" if is_novel else "audio_drama",
+        drama_id, drama, lines, style_preset,
         engine_name=stand_in.name, model=stand_in.model)
     stable_text = engine_prompts.build_stable_system_text({
         "drama_meta": drama, "style_guidelines": style_guidelines, "glossary_terms": glossary_terms})
@@ -289,10 +288,11 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
                             bulk: bool = False, gemini_free_tier: bool | None = None,
                             job_cost_cap_usd: float | None = None, line_ids=None,
                             batch_size: int | None = None, chapter_from: int | None = None,
-                            chapter_to: int | None = None) -> dict:
+                            chapter_to: int | None = None, style_preset: str | None = None) -> dict:
     """line_ids (optional): estimate only these lines (of those the run
     would translate). batch_size (optional): the run's own batch size, which
-    sets how many times the instructions are sent; omitted, the engine's default."""
+    sets how many times the instructions are sent; omitted, the engine's default.
+    style_preset (optional): the Style the form picked; omitted, the title's own."""
     reflect = reflect and engine_registry.REFLECT_RUNS_ENABLED
     gemini_free_tier = settings_service.resolve_gemini_free_tier(gemini_free_tier)
     drama = ownership_service.require_drama(drama_id)
@@ -311,6 +311,8 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         raise UnsupportedOperationError("Bulk mode needs Claude, Gemini (paid) or DeepSeek.")
     if job_cost_cap_usd is not None and job_cost_cap_usd < 0:
         raise InvalidInputError("job_cost_cap_usd can't be negative.")
+    if style_preset and style_preset not in translation_guide.STYLE_PRESETS:
+        raise InvalidInputError("Unknown style preset.")
 
     free_tier = engine_name == "gemini" and gemini_free_tier
     resolved_model = model or engine_registry.effective_default_model(engine_name)
@@ -328,14 +330,16 @@ def estimate_translate_cost(drama_id: int, engine_name: str | None = None, model
         # constructing a real engine (SDK import, key, network).
         stand_in = SimpleNamespace(name=engine_name, model=resolved_model, free_tier=free_tier)
         is_novel = drama.get("content_mode") == "novel_narration"
-        defaults = get_translate_config_defaults(is_novel, engine_name, model)
+        defaults = get_translate_config_defaults(is_novel, engine_name, model,
+                                                 _plain_stream(drama, engine_name, model))
         if batch_size is None:
             batch_size = defaults["batch_size"]
         zh_lines = [ln["zh"] for ln in targets]
         estimated = _estimate_run_calls(
             drama_id, drama, stand_in, targets, zh_lines, batch_size, reflect,
             (defaults["context_window"], defaults["context_window_ahead"]),
-            whole_title=line_ids is None, bulk=bulk)
+            whole_title=line_ids is None, bulk=bulk,
+            style_preset=style_preset or profile_service.style_preset(drama))
         if bulk and not reflect and cap_applies:
             estimated *= bulk_translate.BATCH_PRICE_FACTOR
     alignment_usd = (_alignment_check_estimate(engine_name, resolved_model, targets)
@@ -517,9 +521,9 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
     job_id, bulk_estimate = _job_id_and_bulk_estimate(
         drama_id, bulk, engine_name, model, caps[0], reflect, force_retranslate, gemini_free_tier,
-        job_cost_cap_usd)
+        job_cost_cap_usd, opts.style_preset)
 
-    engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps)
+    engines, engine, cost_cap = translate_run_options.instantiate_engines(built, chain, caps, not (reflect or bulk))
 
     resp, run_settings, novel_reference, glossary_terms, style_guidelines = _prepare_run(
         job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
@@ -543,13 +547,13 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
 
 def _job_id_and_bulk_estimate(drama_id, bulk, engine_name, model, cap, reflect, force_retranslate,
-                              gemini_free_tier, job_cost_cap_usd):
+                              gemini_free_tier, job_cost_cap_usd, style_preset):
     """(job id, bulk estimate or None); refuses when that job is already busy."""
     job_id, bulk_estimate = f"translate_{drama_id}", None
     if bulk:
         bulk_estimate = translate_run_options.require_bulk_ready(
             drama_id, engine_name, model, cap, reflect, force_retranslate,
-            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost)
+            gemini_free_tier, job_cost_cap_usd, estimate_translate_cost, style_preset)
         job_id = bulk_job_id(drama_id)
     _refuse_if_busy(job_id)
     return job_id, bulk_estimate

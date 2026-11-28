@@ -403,7 +403,9 @@ class TestSettingsEndpoint:
                              "use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models", "remote_uploads", "preferences", "endpoints",
                              "upload_max_mb_from_env", "effective_upload_max_mb",
                              "monthly_cap_env_usd", "effective_monthly_cap_usd", "month_spend_usd",
-                             "month_spend_counted_usd", "month_spend_imported_usd", "month_spend_reset_at", "choices"}
+                             "month_spend_counted_usd", "month_spend_imported_usd", "month_spend_reset_at", "choices",
+                             "desktop_popups"}
+        assert isinstance(body["desktop_popups"], bool)
         assert isinstance(body["engine_keys"], dict)
         assert "claude" in body["engine_keys"]
         assert "monthly_cap_usd" not in body["engine_keys"]
@@ -523,6 +525,8 @@ class TestExportReadinessEndpoint:
             "drama_id": did, "total_lines": 1, "zh_filled": 1, "en_filled": 1,
             "fully_translated": True,
             "overlap_count": 0, "auto_qc_issue_count": 0, "dense_line_count": 0,
+            "sound_captioned_lines": 0,
+            "ear_marked_lines": 0,
         }
 
     def test_unknown_drama_is_404(self, local_client, isolated_db):

@@ -8,7 +8,7 @@ import { buttonClass } from '../../../components/uiClasses'
 import { useStage } from '../StageContext'
 import { instructionsSummary } from './glossaryTabs'
 
-const LABEL = { project: 'Project instructions', series: 'Series instructions' } as const
+const LABEL = { project: 'Title instructions', series: 'Series instructions' } as const
 
 // One instructions text (this title's, or its series') with its own Save. `saved` is what the
 // server holds, so the summary and the "set" line don't claim text that was never saved.
@@ -56,7 +56,7 @@ export function InstructionsEditor({ scope, initial, saved, onSaved, defaultOpen
               }, setError)
             }
           >
-            Save {scope} instructions
+            Save {scope === 'project' ? 'title' : 'series'} instructions
           </button>
           {done && <span role="status">Saved.</span>}
         </div>

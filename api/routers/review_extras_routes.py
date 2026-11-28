@@ -159,7 +159,9 @@ def post_burn_preview(body: BurnPreviewStart, drama_id: int = Path(ge=1)):
     return svc.start_burn_preview(
         drama_id, body.line_id, body.pad_seconds, body.preset, style=style,
         speaker_colors=body.speaker_colors, per_speaker_colors=body.per_speaker_colors,
-        wrap_chars_en=body.wrap_chars_en, wrap_chars_source=body.wrap_chars_source)
+        wrap_chars_en=body.wrap_chars_en, wrap_chars_source=body.wrap_chars_source,
+        ear_placement=body.ear_placement, field=body.field, reading_line=body.reading_line,
+        karaoke=body.karaoke)
 
 
 @router.get("/dramas/{drama_id}/burn-preview/info", dependencies=[require_permission("lines.read")],

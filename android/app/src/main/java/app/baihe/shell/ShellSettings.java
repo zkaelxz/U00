@@ -46,6 +46,9 @@ final class ShellSettings {
 
         /** Hides (true) or shows the Studio | Grab strip, for a reader that wants the whole screen. */
         void setBarsHidden(boolean hidden);
+
+        /** The Watch page's player changed (MediaState's JSON), for the lock-screen controls. */
+        void mediaState(String json);
     }
 
     /** What Baihe's own pages can call as `BaiheShell`; only Baihe's address ever loads in the WebView. */
@@ -148,6 +151,12 @@ final class ShellSettings {
         @JavascriptInterface
         public void setBarsHidden(boolean hidden) {
             host.setBarsHidden(hidden);
+        }
+
+        /** Needs the page key too, so a Live player's frame cannot put its own controls on the lock screen. */
+        @JavascriptInterface
+        public void mediaState(String key, String json) {
+            if (keyMatches(key)) host.mediaState(json);
         }
 
         @JavascriptInterface

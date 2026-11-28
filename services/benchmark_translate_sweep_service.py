@@ -99,7 +99,7 @@ class _Plan:
         entry = next(e for e in translate_service.list_engines() if e["name"] == engine)
         self.models = _model_choices(engine, [m for m in (entry["models"] or []) if m != self.default_model])
         self.knobs = [{"key": key, "label": label, "included": True, "reason": None,
-                       "values": list(values if values is not None else translation_guide.STYLE_PRESETS)}
+                       "values": list(values if values is not None else translation_guide.PICKER_STYLE_PRESETS)}
                       for key, label, values in KNOBS
                       if (key != "memory_examples" or series_id)
                       and (key != "temperature" or engine in TEMPERATURE_ENGINES)]
@@ -158,7 +158,7 @@ def _model_choices(engine: str, models: list) -> list:
     without the owner having picked that model."""
     out = []
     for m in models:
-        reason = ("Runs on Ollama's servers and sends text off this PC; the sweep skips it."
+        reason = ("Runs on Ollama's servers; the sweep tries only the Ollama model you picked."
                   if engine == "ollama" else None)
         out.append({"engine": engine, "model": m, "label": m, "included": reason is None, "reason": reason})
     return out

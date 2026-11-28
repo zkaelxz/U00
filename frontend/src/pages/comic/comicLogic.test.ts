@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 
 import type { StorageLike } from '../../components/sectionStorage'
 import {
+  importFailureText,
+  isReadTranslated,
+  markReadTranslated,
+  readTranslatedJob,
   clampPage,
   clampZoom,
   comicHref,
@@ -13,6 +17,8 @@ import {
   savedComicPrefs,
   NO_ZOOM,
   orderedLines,
+  PAGE_ALT_MAX,
+  pageAlt,
   inRenderWindow,
   preloadWindow,
   regionBox,
@@ -170,6 +176,18 @@ describe('text overlay', () => {
       [2, 'Two'],
     ])
   })
+
+  it("describes a page's picture with its lines in the text panel's order", () => {
+    const r = (idx: number, translated_text: string, source_text = '') => ({ idx, x: 0, y: 0, w: 1, h: 1, translated_text, source_text, kind: 'bubble' })
+    const regions = [r(2, 'Run!'), r(0, 'Where are we?'), r(1, '  ')]
+    expect(pageAlt(12, { regions })).toBe('Page 12: Where are we? Run!')
+    expect(pageAlt(12, { regions })).toBe(`Page 12: ${orderedLines(regions).map((l) => l.text).join(' ')}`)
+    expect(pageAlt(3, { regions: [] })).toBe('Page 3, no text')
+    expect(pageAlt(3, null)).toBe('Page 3')
+    const long = pageAlt(1, { regions: [r(0, 'word '.repeat(2000))] })
+    expect(long.length).toBeLessThanOrEqual(PAGE_ALT_MAX)
+    expect(long.endsWith('…')).toBe(true)
+  })
 })
 
 describe('zoom maths', () => {
@@ -267,5 +285,24 @@ describe('double page', () => {
     expect(d.spread).toBe('auto')
     expect(sanitizePrefs({ spread: 'double', coverAlone: false }, d)).toMatchObject({ spread: 'double', coverAlone: false })
     expect(sanitizePrefs({ spread: 'triple', coverAlone: 'no' }, d)).toMatchObject({ spread: 'auto', coverAlone: true })
+  })
+})
+
+describe('Read translated marks', () => {
+  it('keeps the import job id beside the mark, and none when no job was started', () => {
+    const s = memoryStorage()
+    expect(readTranslatedJob(s, 7)).toBeNull()
+    markReadTranslated(s, 7, 'sourceimport_7')
+    expect(isReadTranslated(s, 7)).toBe(true)
+    expect(readTranslatedJob(s, 7)).toBe('sourceimport_7')
+    markReadTranslated(s, 8)
+    expect(isReadTranslated(s, 8)).toBe(true)
+    expect(readTranslatedJob(s, 8)).toBeNull()
+  })
+
+  it('says why an import failed without the error class name', () => {
+    expect(importFailureText({ error: 'JobFailed: The chapter is locked.' })).toBe('The chapter is locked.')
+    expect(importFailureText({ error: 'Note: the chapter is locked.' })).toBe('Note: the chapter is locked.')
+    expect(importFailureText({ error: null })).toBeNull()
   })
 })

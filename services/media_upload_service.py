@@ -131,6 +131,11 @@ claims_lock = threading.Lock()
 claimed = set()
 
 
+def upload_in_progress(drama_id: int) -> bool:
+    with claims_lock:
+        return drama_id in claimed
+
+
 @contextlib.contextmanager
 def upload_claim(drama_id: int, busy_message: str):
     """Takes the per-drama upload claim, refusing with busy_message while an
@@ -415,6 +420,12 @@ def _downloaded_from(ddir, link) -> dict:
     return {n: m for n, m in files.items() if isinstance(n, str) and isinstance(m, list)}
 
 
+def downloaded_whole_from(drama_id, link) -> bool:
+    """Whether the title's media is the whole download of `link`: a part ("Only this part"), an
+    upload or a later replacement leaves no record for it, and its times would not match the page."""
+    return bool(link) and bool(_downloaded_from(db.drama_dir(drama_id), link))
+
+
 def _still_that_file(ddir, name, mark) -> bool:
     """False when the file under a recorded name is no longer the one that
     was downloaded (swapped by hand, or by a path that keeps no record)."""
@@ -507,6 +518,11 @@ def install_media(drama_id, new_files, transcribe_new_audio=False, origin_link=N
     the record says came from origin_link, and is still that very file, is
     deleted instead of kept, because it can be fetched again; one that
     can't be deleted is kept."""
+    # Ear marks may be reading the old file (a Watch visit); on Windows an open file can't be
+    # moved. A new one can't start meanwhile: the caller's job or title hold refuses it.
+    if not background_jobs.stop_side_jobs(drama_id):
+        raise ConflictError("Ear marks are still reading this title's sound and would not stop. "
+                            "Try again in a minute.")
     ddir = db.drama_dir(drama_id)
     old = db.get_drama(drama_id) or {}
     # An old video kept beside new audio would be shown in Review and muxed
@@ -813,9 +829,12 @@ def upload_media(drama_id, client_filename, fileobj, transcribe_options=None,
         if ext not in VIDEO_EXTENSIONS:
             refuse_unreadable_audio(staged)
             try:
-                name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
-                                    transcribe_new_audio=transcribe_options is None,
-                                    media_hash=media_hash)["audio_filename"]
+                # Held, so ear marks (a Watch visit's job) is stopped and can't start again while
+                # the old file is retired; on Windows an open file can't be moved.
+                with job_launch.hold_title(drama_id, _BUSY):
+                    name = install_media(drama_id, {"audio_filename": (staged, "source", ext)},
+                                        transcribe_new_audio=transcribe_options is None,
+                                        media_hash=media_hash)["audio_filename"]
             except BaseException as exc:
                 _keep_failed_upload(ddir, staged, ext)
                 if isinstance(exc, (OSError, sqlite3.Error)):

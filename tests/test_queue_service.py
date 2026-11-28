@@ -16,7 +16,7 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoun
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
                       translate_run_service)
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default", "free_engine")
+pytestmark = pytest.mark.usefixtures("isolated_db", "free_engine")
 
 
 WAIT = 10
@@ -462,6 +462,8 @@ def test_reorder_remove_and_clear_finished(jobs):
 
 def test_runner_exits_on_shutdown_and_holds_no_lock_while_a_job_runs(jobs, monkeypatch):
     monkeypatch.setattr(q, "POLL_SECONDS", 0.05)
+    # The runner's night tick would start the real self-check when the suite runs inside the night window.
+    monkeypatch.setattr(q.queue_night, "maybe_start_self_check", lambda night, now: False)
     did = _drama()
     q.add_item(None, did, "transcribe", True, at_pc=True)
     assert q.start_runner()
@@ -1167,3 +1169,310 @@ def test_a_members_add_never_starts_another_accounts_waiting_items(jobs):
     q.add_item(member, mine, "transcribe", False, at_pc=True)
     q.tick()
     assert q.get_queue(None)["state"] == "idle" and jobs.started == []
+
+
+# --- the overnight lane (services/queue_night.py) ------------------------------
+
+def _at(hour, minute=0, day=28):
+    import datetime
+    return datetime.datetime(2026, 11, day, hour, minute).timestamp()
+
+
+@pytest.fixture
+def idle(monkeypatch):
+    from services import queue_night
+    seconds = {"value": None}
+    monkeypatch.setattr(queue_night, "pc_idle_seconds", lambda: seconds["value"])
+    return seconds
+
+
+def test_a_tonight_item_waits_for_the_window_while_the_rest_runs_now(jobs, idle, monkeypatch):
+    a, b = _drama("A"), _drama("B")
+    q.add_item(None, a, "transcribe", True, at_pc=True, tonight=True)
+    q.add_item(None, b, "transcribe", True, at_pc=True)
+    monkeypatch.setattr(q, "_clock", lambda: _at(15))
+    q.tick(now=_at(15))
+    assert jobs.started == [f"transcribe_{b}"]
+    jobs.finish(f"transcribe_{b}")
+    q.tick(now=_at(15, 1))
+    first = _items()[0]
+    assert first["tonight"] and first["status"] == "waiting"
+    assert first["reason"] == "Waits for tonight, 1:00-7:00."
+    # Still waiting, so the queue doesn't go idle and forget it.
+    assert q.get_queue(None)["state"] == "running"
+    q.tick(now=_at(1, 5, day=29))
+    assert jobs.started == [f"transcribe_{b}", f"transcribe_{a}"]
+
+
+def test_a_tonight_item_waits_for_ten_idle_minutes_inside_the_window(jobs, idle, monkeypatch):
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True, tonight=True)
+    monkeypatch.setattr(q, "_clock", lambda: _at(2))
+    idle["value"] = 60.0
+    q.tick(now=_at(2))
+    assert jobs.started == []
+    assert _items()[0]["reason"] == "Waits until no one has used this PC's keyboard or mouse for 10 minutes."
+    idle["value"] = 600.0
+    q.tick(now=_at(2, 1))
+    assert jobs.started == [f"transcribe_{a}"]
+
+
+def test_run_now_clears_tonight_and_the_item_runs_in_turn(jobs, idle):
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True, tonight=True)
+    q.tick(now=_at(15))
+    assert jobs.started == []
+    item_id = _items()[0]["id"]
+    assert q.set_item_tonight(None, item_id, False)["items"][0]["tonight"] is False
+    q.tick(now=_at(15, 1))
+    assert jobs.started == [f"transcribe_{a}"]
+    with pytest.raises(ConflictError):
+        q.set_item_tonight(None, item_id, True)     # running now
+
+
+def test_a_window_past_midnight_and_a_same_day_one():
+    from services import queue_night as n
+    late = {"start": "23:00", "end": "05:00", "self_check": True}
+    assert n.in_window(late, _at(23, 30)) and n.in_window(late, _at(4, 59))
+    assert not n.in_window(late, _at(5)) and not n.in_window(late, _at(22, 59))
+    # 23:30 on the 27th and 04:00 on the 28th are the same night.
+    assert n.night_key(late, _at(23, 30, day=27)) == n.night_key(late, _at(4, day=28)) == "2026-11-27"
+    day = dict(n.DEFAULT_NIGHT)
+    assert n.in_window(day, _at(1)) and not n.in_window(day, _at(7))
+    assert n.night_key(day, _at(3)) == "2026-11-28"
+
+
+def test_set_night_checks_times_and_who_may_change_it(jobs):
+    out = q.set_night(None, "22:30", "06:00", False)
+    assert out["night"] == {"start": "22:30", "end": "06:00", "self_check": False}
+    with pytest.raises(InvalidInputError):
+        q.set_night(None, "02:00", "02:00", True)
+    with pytest.raises(ForbiddenError):
+        q.set_night(_member(), "01:00", "07:00", True)
+    # A hand-edited window falls back to the default rather than guessing.
+    with q._lock:
+        doc = q._load()
+        doc["night"] = {"start": "9am", "end": "07:00", "self_check": False}
+        q._save(doc)
+    assert q.get_queue(None)["night"] == {"start": "01:00", "end": "07:00", "self_check": False}
+
+
+def test_bulk_and_all_steps_adds_can_wait_for_tonight(jobs):
+    a, b = _drama("A"), _drama("B")
+    q.add_bulk(None, [a], "transcribe", True, at_pc=True, tonight=True)
+    q.add_all_steps(None, b, True, at_pc=True, tonight=True)
+    assert [i["tonight"] for i in _items()] == [True, True, True, True]
+
+
+def test_the_morning_summary_is_sent_once_after_the_window(jobs, idle, monkeypatch):
+    from services import notification_service, queue_night
+    told = []
+    monkeypatch.setattr(notification_service, "notify_resource_alert",
+                        lambda text, recovered=False: told.append(text))
+    monkeypatch.setattr(queue_night, "maybe_start_self_check", lambda night, now: False)
+    a, b, c = _drama("A"), _drama("B"), _drama("C")
+    for did in (a, b, c):
+        q.add_item(None, did, "transcribe", True, at_pc=True, tonight=True)
+    jobs.fail.add(f"transcribe_{b}")
+    q.night_tick(now=_at(1))
+    for did in (a, b):
+        q.tick(now=_at(2))
+        jobs.finish(f"transcribe_{did}")
+    q.tick(now=_at(3))
+    q.night_tick(now=_at(6))
+    assert told == []
+    q.night_tick(now=_at(7, 1))
+    q.night_tick(now=_at(7, 2))
+    assert told == ["Overnight queue: 1 done, 1 skipped or failed, 1 still running."]
+
+
+def test_a_night_with_no_tonight_items_sends_no_summary(jobs, monkeypatch):
+    from services import notification_service, queue_night
+    told = []
+    monkeypatch.setattr(notification_service, "notify_resource_alert", lambda text, recovered=False: told.append(text))
+    monkeypatch.setattr(queue_night, "maybe_start_self_check", lambda night, now: False)
+    q.night_tick(now=_at(2))
+    q.night_tick(now=_at(8))
+    assert told == []
+
+
+def test_the_self_check_starts_once_a_night_only_when_idle_and_nothing_runs(jobs, idle, monkeypatch):
+    from jobs import job_launch
+    from services import library_admin_service
+    ran = []
+    monkeypatch.setattr(job_launch, "start_job", lambda job_id, target, *a, **kw: ran.append((job_id, kw)) or True)
+    busy = {"value": False}
+    monkeypatch.setattr(library_admin_service, "any_job_running", lambda: busy["value"])
+    q.night_tick(now=_at(15))
+    idle["value"] = 30.0
+    q.night_tick(now=_at(2))
+    busy["value"], idle["value"] = True, None
+    q.night_tick(now=_at(2, 5))
+    assert ran == []
+    busy["value"] = False
+    q.night_tick(now=_at(2, 10))
+    q.night_tick(now=_at(3))
+    assert [job_id for job_id, _ in ran] == ["nightly_check"]
+    assert ran[0][1]["gpu_touching"] is True and ran[0][1]["line_fields"] == ()
+    q.night_tick(now=_at(2, day=29))
+    assert len(ran) == 2
+    q.set_night(None, "01:00", "07:00", False)
+    q.night_tick(now=_at(2, day=30))
+    assert len(ran) == 2
+
+
+def test_the_self_check_waits_for_tonights_own_items(jobs, idle, monkeypatch):
+    from services import queue_night
+    tried = []
+    monkeypatch.setattr(queue_night, "maybe_start_self_check", lambda night, now: tried.append(now))
+    q.add_item(None, _drama("A"), "transcribe", True, at_pc=True, tonight=True)
+    q.night_tick(now=_at(2))
+    assert tried == []
+
+
+def test_a_check_alerts_only_on_its_second_failed_night_in_a_row(isolated_db):
+    from services import queue_night as n
+    fail = {"id": "asr", "label": "Transcription", "status": "fail", "reason": "bad key sk-abcdefghijklmnopqrstuvwx"}
+    ok = {**fail, "status": "pass", "reason": "ok"}
+    skip = {**fail, "status": "skipped", "reason": "not installed"}
+    assert n.record_results([fail]) == []
+    assert n.record_results([skip]) == []          # a skipped night neither breaks nor extends the run
+    alerts = n.record_results([fail])
+    assert len(alerts) == 1 and "two nights in a row" in alerts[0] and "Transcription" in alerts[0]
+    assert "sk-abcdefghijklmnopqrstuvwx" not in alerts[0]
+    assert n.record_results([fail]) == []          # one alert per run of failures
+    assert n.record_results([ok]) == []
+    assert n.record_results([fail]) == []
+
+
+class _NightEngine:
+    name, model, free_tier, last_usage = "deepseek", "deepseek-chat", False, None
+    error = None
+
+    def translate_batch(self, texts, context=None):
+        if self.error:
+            raise RuntimeError(self.error)
+        self.last_usage = {"input_tokens": 20, "output_tokens": 5}
+        return ["Hello" for _ in texts]
+
+
+@pytest.fixture
+def night_engine(isolated_db, monkeypatch):
+    from engine_backends import engine_registry
+    from services import engine_routing_service, translate_run_service, translate_service
+    engine = _NightEngine()
+    status = {"needs_key": True, "key_configured": True}
+    cap = {"usd": 5.0}
+    monkeypatch.setattr(engine_routing_service, "resolve_capability", lambda c: "deepseek")
+    monkeypatch.setattr(engine_routing_service, "engine_status", lambda e: status)
+    monkeypatch.setattr(translate_service, "resolve_api_key", lambda e: "sk-test")
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **kw: engine)
+    monkeypatch.setattr(translate_run_service, "month_cap_usd", lambda: cap["usd"])
+    return engine, status, cap
+
+
+def _usage_rows():
+    import contextlib
+    with contextlib.closing(db.get_conn()) as c:
+        return c.execute("select count(*) from usage_log").fetchone()[0]
+
+
+def test_the_paid_check_is_one_call_counted_in_the_monthly_cap(night_engine):
+    from services import queue_night as n
+    from services.engine_routing_service import ENGINE_TEST_PREFIX
+    assert n._paid_check()["status"] == "pass"
+    assert _usage_rows() == 1 and db.get_month_spend() > 0
+    assert db.get_app_setting(ENGINE_TEST_PREFIX + "deepseek")["ok"] is True
+
+
+def test_the_paid_check_is_skipped_without_a_key_a_cap_or_room_under_it(night_engine, monkeypatch):
+    from services import queue_night as n
+    engine, status, cap = night_engine
+    status["key_configured"] = False
+    assert n._paid_check() is None
+    status["key_configured"] = True
+    cap["usd"] = 0.0
+    assert n._paid_check() is None
+    cap["usd"] = 5.0
+    monkeypatch.setattr(db, "get_month_spend", lambda *a, **k: 5.0)
+    assert n._paid_check() is None
+    assert _usage_rows() == 0
+
+
+def test_a_keyless_engine_is_still_checked_and_metered(night_engine):
+    from services import queue_night as n
+    _engine, status, _cap = night_engine
+    status["needs_key"] = False      # a hosted Ollama model is billed though it needs no key
+    assert n._paid_check()["status"] == "pass" and _usage_rows() == 1
+
+
+def test_the_self_check_makes_no_unmetered_translation_call(night_engine, monkeypatch):
+    import background_jobs
+    from services import queue_night as n, real_model_check_service as checks
+    ran = []
+    monkeypatch.setattr(checks, "_CHECKS", tuple(
+        (cid, label, lambda cid=cid, **_kw: ran.append(cid) or "ok")
+        for cid, label in (("asr", "Transcription"), ("ocr", "OCR"), ("translate", "Translation (Ollama)"))))
+    monkeypatch.setattr(checks.whisper_models, "release_gpu_models", lambda: None)
+    monkeypatch.setattr(background_jobs, "update_progress", lambda *a, **k: None)
+    monkeypatch.setattr(background_jobs, "set_result", lambda *a, **k: None)
+    n.run_self_check()
+    assert ran == ["asr", "ocr"] and _usage_rows() == 1
+
+
+def test_a_blank_answer_fails_the_paid_check(night_engine, monkeypatch):
+    from services import queue_night as n
+    engine, _status, _cap = night_engine
+    monkeypatch.setattr(engine, "translate_batch", lambda texts, context=None: ["" for _ in texts])
+    assert n._paid_check()["status"] == "fail"
+
+
+def test_a_refused_key_fails_the_paid_check_without_showing_it(night_engine):
+    from services import queue_night as n
+    engine, _status, _cap = night_engine
+    engine.error = "401 refused for key sk-abcdefghijklmnopqrstuvwx"
+    result = n._paid_check()
+    assert result["status"] == "fail" and "401 refused" in result["reason"]
+    assert "sk-abcdefghijklmnopqrstuvwx" not in result["reason"]
+
+
+def test_an_unreadable_idle_time_counts_as_idle(monkeypatch):
+    from services import queue_night as n
+    monkeypatch.setattr(n, "pc_idle_seconds", lambda: None)
+    assert n.pc_idle()
+    monkeypatch.setattr(n, "pc_idle_seconds", lambda: 599.0)
+    assert not n.pc_idle()
+
+
+def test_the_morning_summary_counts_a_tonight_item_started_on_the_windows_first_poll(jobs, idle, monkeypatch):
+    from services import notification_service, queue_night
+    told = []
+    monkeypatch.setattr(notification_service, "notify_resource_alert", lambda text, recovered=False: told.append(text))
+    monkeypatch.setattr(queue_night, "maybe_start_self_check", lambda night, now: False)
+    a = _drama("A")
+    q.add_item(None, a, "transcribe", True, at_pc=True, tonight=True)
+    q.tick(now=_at(23, day=27))
+    q.night_tick(now=_at(23, day=27))
+    q.tick(now=_at(1, 0, day=28))           # the runner ticks first, then night_tick reads its own clock
+    q.night_tick(now=_at(1, 0, day=28) + 0.01)
+    jobs.finish(f"transcribe_{a}")
+    q.tick(now=_at(3, day=28))
+    q.night_tick(now=_at(7, 5, day=28))
+    assert told == ["Overnight queue: 1 done, 0 skipped or failed."]
+
+
+def test_a_tonight_step_holds_back_the_rest_of_its_run(jobs, idle):
+    a = _drama("A")
+    q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1")
+    q.set_item_tonight(None, _items()[0]["id"], True)
+    q.tick(now=_at(15))
+    assert [i["status"] for i in _items()] == ["waiting", "waiting"] and jobs.started == []
+    q.tick(now=_at(1, 30, day=28))
+    assert jobs.started == [f"transcribe_{a}"]
+
+
+def test_a_page_started_step_offers_no_run_tonight(jobs):
+    a = _drama("A")
+    q._append_items(None, a, [("transcribe", {}), ("translate", {})], True, chain="c1", now=True)
+    q._append_items(None, _drama("B"), [("transcribe", {})], True)
+    assert [i["page_run"] for i in q.get_queue(None)["items"]] == [True, True, False]

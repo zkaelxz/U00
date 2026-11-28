@@ -29,6 +29,7 @@ is a fixed message with the redacted detail in the app log.
 import re
 
 import db
+from en_cleanup import drop_em_dashes
 from engine_backends import engine_registry, translate_pipeline, prompts, pricing, shared
 from engine_backends import line_text
 from engine_backends import llm_tasks as engine_llm_tasks
@@ -124,9 +125,8 @@ def _run_context(drama_id: int, drama: dict, lines: list, engine) -> tuple:
     """(context, character_names): the same glossary, style guidelines
     (learned style, character gender hints), locale and novel reference a
     translate run sends (workspace_job_service.build_run_style_context)."""
-    is_novel = drama.get("content_mode") == "novel_narration"
     glossary, style, character_names = workspace_job_service.build_run_style_context(
-        drama_id, drama, lines, "novel" if is_novel else "audio_drama", with_emotions=False,
+        drama_id, drama, lines, profile_service.style_preset(drama), with_emotions=False,
         principal=acting.acting_principal())
     num_ctx = settings_service.get("ollama_num_ctx_override")
     locale, style_note = profile_service.locale_and_note(
@@ -317,5 +317,5 @@ def try_line(drama_id: int, line_id: int, engine_name: str) -> dict:
     if not isinstance(text, str) or not text.strip():
         raise ServiceError("The engine returned no translation for this line.")
     return {"drama_id": drama_id, "line_id": line.id, "engine": engine_name,
-            "model": getattr(engine, "model", None), "text": text.strip(),
+            "model": getattr(engine, "model", None), "text": drop_em_dashes(text.strip(), line.zh),
             "based_on_en": line.en or "", "cost_usd": round(cost, 6)}

@@ -52,6 +52,17 @@ test('manhua: resumes at the saved page in vertical scroll and saves progress', 
   expect(s.unmocked).toEqual([])
 })
 
+test("with Text off each page's picture is described by its English, and a page without text says so", async ({ page }) => {
+  const s = await mockComic(page, { mediaType: 'manhua', pageCount: 3, lastPage: 1, noRegions: [1] })
+  await page.goto('/#/comic/7')
+  const img = (n: number) => page.getByTestId('comic-page').nth(n).locator('img')
+  await expect(img(0)).toHaveAttribute('alt', 'Page 1: Where did you go last night? (p1) Nowhere. I was reading. (p1) Then why is the lamp still warm? (p1)')
+  await expect(img(1)).toHaveAttribute('alt', 'Page 2, no text')
+  // The text boxes themselves stay hidden.
+  await expect(page.getByTestId('comic-boxes')).toHaveCount(0)
+  expect(s.unmocked).toEqual([])
+})
+
 test('a long vertical chapter keeps only the pages around the reader loaded', async ({ page }) => {
   const s = await mockComic(page, { mediaType: 'manhua', pageCount: 150, lastPage: 75 })
   await page.goto('/#/comic/7')
@@ -217,6 +228,35 @@ test('panel by panel: each key zooms to the next panel, then turns the page; bac
   await expect(label(page)).toHaveText('Page 4 of 4')
   await expect(layer).not.toHaveAttribute('style', /scale/)
   expect(JSON.parse((await page.evaluate(() => localStorage.getItem('baihe.pref.comic.panels')))!)).toBe(true)
+  expect(s.unmocked).toEqual([])
+})
+
+test('panel by panel in Fit width: a panel taller than the window is scrolled to instead of zoomed', async ({ page }) => {
+  // A tall page (not tall enough to count as a strip): at full width, each half-page panel is taller than the window.
+  const s = await mockComic(page, { id: 9, mediaType: 'manga', pageCount: 4, lastPage: 1, width: 800, height: 1500 })
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/#/comic/9?page=2')
+  await page.getByRole('button', { name: 'View settings' }).click()
+  await page.getByRole('switch', { name: 'Panel by panel' }).click()
+  await page.getByLabel('Fit', { exact: true }).selectOption('width')
+  await page.keyboard.press('Escape')
+  const layer = page.getByTestId('comic-zoom-layer')
+  const img = page.getByTestId('comic-page').locator('img')
+  // Where a panel's top is on screen: the mocked panels start 3% and 52% down the page.
+  const panelTop = async (y: number) => {
+    const box = (await img.boundingBox())!
+    return box.y + y * box.height
+  }
+  await expect(layer).not.toHaveAttribute('style', /scale/)
+  await expect.poll(async () => Math.round(await panelTop(0.03))).toBeLessThan(200)
+  const before = await page.evaluate(() => window.scrollY)
+  await page.keyboard.press('ArrowLeft')
+  await expect(label(page)).toHaveText('Page 2 of 4')
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(before + 300)
+  const second = await panelTop(0.52)
+  expect(second).toBeGreaterThanOrEqual(0)
+  expect(second).toBeLessThan(200)
+  await expect(layer).not.toHaveAttribute('style', /scale/)
   expect(s.unmocked).toEqual([])
 })
 

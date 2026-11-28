@@ -36,6 +36,7 @@ import {
   historyCount,
   historyLabel,
   historyTime,
+  severalAccounts,
   isDirection,
   orderEngines,
   shownEngine,
@@ -196,6 +197,7 @@ export default function TranslatePage() {
   const english = <span className="translate-lang-fixed">English</span>
 
   const shown = visibleHistory(history, showAll)
+  const namedRows = severalAccounts(history)
 
   return (
     <PageShell
@@ -401,6 +403,7 @@ export default function TranslatePage() {
           pc !== 'remote' && (
             <ConfirmButton
               name="translation history"
+              confirmLabel="Clear everyone's Text history on this PC?"
               label="Clear history…"
               ariaLabel="Clear history"
               verb="clear"
@@ -419,6 +422,7 @@ export default function TranslatePage() {
               {shown.map((h, i) => (
                 <li key={`${h.created_at}-${i}`}>
                   <div className="translate-history-meta">
+                    {namedRows && h.account && <span>{h.account}</span>}
                     <span>{historyLabel(h)}</span>
                     {h.created_at && <span className="muted">{historyTime(h.created_at)}</span>}
                   </div>

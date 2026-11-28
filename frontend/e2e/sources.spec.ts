@@ -11,7 +11,7 @@ import { SERIES_LINKS, SETTINGS, mockSources, openManage, posted, searchResult }
 async function noInnerScroll(page: Page) {
   const bad = await page.locator('.sources-chapters').evaluate((list) => {
     const out: string[] = []
-    for (let e: HTMLElement | null = list; e && e !== document.documentElement; e = e.parentElement) {
+    for (let e: Element | null = list; e && e !== document.documentElement; e = e.parentElement) {
       const oy = getComputedStyle(e).overflowY
       if ((oy === 'auto' || oy === 'scroll') && e.scrollHeight > e.clientHeight) out.push(e.className || e.tagName)
     }
