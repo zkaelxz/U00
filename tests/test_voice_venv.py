@@ -372,8 +372,8 @@ class _FakeChatterbox:
         self.calls.append(("voice", wav_fpath))
         self.conds = f"conds:{wav_fpath}"
 
-    def generate(self, text, language_id):
-        self.calls.append(("speak", text, language_id, self.conds))
+    def generate(self, text, language_id, **options):
+        self.calls.append(("speak", text, language_id, self.conds, *([options] if options else [])))
         return _FakeWav(self.conds)
 
 
@@ -423,6 +423,39 @@ def test_chatterbox_speaks_a_long_unit_in_pieces_under_its_40_second_limit(monke
 def test_chatterbox_pieces_cut_an_endless_sentence_at_the_cap():
     assert [len(p) for p in voice_worker._chatterbox_pieces("a" * 700)] == [280, 280, 140]
     assert voice_worker._chatterbox_pieces("Hi there. How are you?") == ["Hi there. How are you?"]
+
+
+def test_chatterbox_cuts_a_long_chinese_sentence_after_a_comma_not_inside_a_word():
+    clauses = ["他走过长长的山路", "看见远处的灯火", "想起那个属于过她的夜晚", "心里一阵难过"]
+    sentence = "，".join(clauses * 4) + "。"
+    assert len(sentence) > voice_worker.CHATTERBOX_MAX_CHARS_CJK
+    pieces = voice_worker._chatterbox_pieces(sentence)
+    assert "".join(pieces) == sentence
+    assert all(len(p) <= voice_worker.CHATTERBOX_MAX_CHARS_CJK for p in pieces)
+    assert all(p.endswith("，") for p in pieces[:-1]) and pieces[-1].endswith("。")
+
+
+def test_chatterbox_cuts_a_long_english_sentence_at_a_space():
+    words = [f"word{i}" for i in range(80)]
+    pieces = voice_worker._chatterbox_pieces(" ".join(words) + ".")
+    assert len(pieces) > 1 and all(len(p) <= voice_worker.CHATTERBOX_MAX_CHARS for p in pieces)
+    assert " ".join(pieces).split() == words[:-1] + [words[-1] + "."]
+
+
+def test_chatterbox_keeps_a_decimal_point_inside_its_sentence():
+    long_next = "It went on " + "and on " * 40 + "until dawn."
+    pieces = voice_worker._chatterbox_pieces("The rate rose to 3.5 percent. " + long_next)
+    assert any("3.5 percent." in p for p in pieces)
+
+
+def test_chatterbox_gets_cfg_weight_only_for_an_item_that_sets_it(monkeypatch):
+    calls, written = [], []
+    _fake_chatterbox_stack(monkeypatch, calls, written)
+    voice_worker.run({"engine": "chatterbox", "items": [
+        {"id": "0", "text": "Hi", "language": "en", "ref_audio": "a.wav", "out": "0.wav", "cfg_weight": 0.0},
+        {"id": "1", "text": "Hi", "language": "en", "ref_audio": "b.wav", "out": "1.wav", "cfg_weight": None}]},
+        lambda e: None)
+    assert [c[4:] for c in calls if c[0] == "speak"] == [({"cfg_weight": 0.0},), ()]
 
 
 def test_the_worker_exits_once_nobody_reads_its_output(monkeypatch):

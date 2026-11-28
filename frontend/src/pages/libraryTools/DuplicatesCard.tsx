@@ -45,7 +45,7 @@ export function DuplicatesCard({ canScan }: { canScan: boolean }) {
       )}
       {found && !found.groups.length && <p className="muted">No duplicates found.</p>}
       {found && found.groups.length > 0 && (
-        <ul className="tool-list" aria-label="Duplicate titles">
+        <ul className="tool-list scroll-box" tabIndex={0} aria-label="Duplicate titles">
           {found.groups.map((g) => (
             <li key={`${g.same}-${g.items.map((i) => i.id).join('-')}`}>
               <strong>{WHY[g.same]}:</strong>

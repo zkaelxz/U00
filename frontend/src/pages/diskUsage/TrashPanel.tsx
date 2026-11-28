@@ -52,7 +52,7 @@ export function TrashPanel({ trash, onChanged, onStale }: Props) {
           <p className="muted du-why">
             Items you moved to Trash stay inside Baihe&apos;s data folder until you restore or delete them here.
           </p>
-          <ul className="du-list" aria-label="Items in Trash">
+          <ul className="du-list scroll-box" tabIndex={0} aria-label="Items in Trash">
             {trash.items.map((t) => (
               <TrashRow key={t.id} item={t} blocked={blocked} onChanged={onChanged} onStale={onStale} />
             ))}

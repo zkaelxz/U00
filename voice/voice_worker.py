@@ -108,6 +108,9 @@ def _write_each(sf, items, wavs, rate) -> None:
 CHATTERBOX_MAX_CHARS_CJK = 120
 CHATTERBOX_MAX_CHARS = 280
 _SENTENCE_ENDS = "。！？；…!?;."
+# Where an over-long sentence is cut instead, best first: after a clause mark, then at a space.
+# A cut anywhere else lands inside a word or a name, and the voice restarts mid-phrase.
+_CLAUSE_ENDS = "，、：,:—）)」』”"
 
 
 def _is_cjk(text: str) -> bool:
@@ -115,13 +118,29 @@ def _is_cjk(text: str) -> bool:
                or "\uac00" <= ch <= "\ud7af" for ch in text)
 
 
+def _sentence_end(text: str, i: int) -> bool:
+    # A full stop inside "3.5" or "e.g." is not one.
+    return text[i] in _SENTENCE_ENDS and (text[i] != "." or i + 1 == len(text) or text[i + 1].isspace())
+
+
+def _cut_at(sentence: str, cap: int) -> int:
+    """Where to cut an over-long sentence: after the last clause mark within the cap, else at
+    its last space, else at the cap (a run of text with neither, which has no better place)."""
+    head = sentence[:cap + 1]
+    clause = max(head.rfind(mark, 0, cap) for mark in _CLAUSE_ENDS)
+    if clause > 0:
+        return clause + 1
+    space = head.rfind(" ")
+    return space if space > 0 else cap
+
+
 def _chatterbox_pieces(text: str) -> list:
     """`text` cut at sentence ends into pieces of at most the cap (a sentence longer
-    than that is cut at the cap)."""
+    than that is cut where _cut_at says)."""
     cap = CHATTERBOX_MAX_CHARS_CJK if _is_cjk(text) else CHATTERBOX_MAX_CHARS
     sentences, start = [], 0
-    for i, ch in enumerate(text):
-        if ch in _SENTENCE_ENDS:
+    for i in range(len(text)):
+        if _sentence_end(text, i):
             sentences.append(text[start:i + 1])
             start = i + 1
     sentences.append(text[start:])
@@ -131,8 +150,9 @@ def _chatterbox_pieces(text: str) -> list:
             if current.strip():
                 pieces.append(current)
             current = ""
-            pieces.append(sentence[:cap])
-            sentence = sentence[cap:]
+            cut = _cut_at(sentence, cap)
+            pieces.append(sentence[:cut])
+            sentence = sentence[cut:]
         if len(current) + len(sentence) > cap and current.strip():
             pieces.append(current)
             current = ""
@@ -160,8 +180,10 @@ def _load_chatterbox(spec: dict):
             model.prepare_conditionals(item["ref_audio"])
             voices[item["ref_audio"]] = model.conds
         model.conds = voices[item["ref_audio"]]
-        # Chatterbox takes the language codes the app uses (zh, ja, ko, en).
-        parts = [_trim_tail(model.generate(piece, language_id=item.get("language") or "en")
+        # Chatterbox takes the language codes the app uses (zh, ja, ko, en). cfg_weight is
+        # passed only when set (a clip in another language), so the rest keep its default.
+        options = {} if item.get("cfg_weight") is None else {"cfg_weight": float(item["cfg_weight"])}
+        parts = [_trim_tail(model.generate(piece, language_id=item.get("language") or "en", **options)
                             .squeeze(0).numpy(), model.sr)
                  for piece in _chatterbox_pieces(item["text"]) or [item["text"]]]
         sf.write(item["out"], numpy.concatenate(parts) if len(parts) > 1 else parts[0], model.sr)

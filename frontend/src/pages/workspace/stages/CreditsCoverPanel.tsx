@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { coverUrl, makeCoverFromVideo, romanizeCredits, uploadCover } from '../../../api/metadata'
+import { coverUrl, makeCoverFromVideo, refreshCoverFromSite, romanizeCredits, uploadCover } from '../../../api/metadata'
 import { ErrorBanner } from '../../../components/ErrorBanner'
 import { Field } from '../../../components/Field'
 import { humanize } from '../../../components/labels'
@@ -11,6 +11,13 @@ import { CoverCropper } from './CoverCropper'
 import { COVER_ACCEPT, coverFileProblem, creditRows, hasCredits } from '../preambleForm'
 import { useStage } from '../StageContext'
 import './preamble.css'
+
+const SITE_COVER_NOTICE: Record<string, string> = {
+  fetched: 'Cover taken from the site.',
+  kept: 'The site gave no usable picture, so the cover stays.',
+  unreachable: "Couldn't reach the site.",
+  no_link: 'This title has no saved link to ask.',
+}
 
 /**
  * Romanize and cover upload inside Edit details (inventory P13, P14). Romanize asks the drama's
@@ -28,6 +35,7 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
   const [fileKey, setFileKey] = useState(0)
   const [uploading, setUploading] = useState(false)
   const [grabbing, setGrabbing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [cropping, setCropping] = useState(false)
   const [coverVersion, setCoverVersion] = useState(0)
   const [coverBroken, setCoverBroken] = useState(false)
@@ -93,6 +101,27 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
       },
       (e: unknown) => {
         setGrabbing(false)
+        setError(e)
+      },
+    )
+  }
+
+  const refreshFromSite = () => {
+    setRefreshing(true)
+    setError(null)
+    setNotice(null)
+    refreshCoverFromSite(dramaId).then(
+      (r) => {
+        setRefreshing(false)
+        if (r.outcome === 'fetched') {
+          setCoverBroken(false)
+          setCoverVersion(Date.now())
+          refetchDrama()
+        }
+        setNotice(SITE_COVER_NOTICE[r.outcome] ?? 'Done.')
+      },
+      (e: unknown) => {
+        setRefreshing(false)
         setError(e)
       },
     )
@@ -166,6 +195,13 @@ export function CreditsCover({ onAddCredits }: { onAddCredits?: () => void }) {
                     {grabbing ? 'Making cover…' : 'Make cover from video'}
                   </button>
                 </div>
+                {drama.media_type !== 'novel' && !!drama.source_url && (
+                  <div>
+                    <button type="button" className={buttonClass('ghost', 'sm')} disabled={refreshing} onClick={refreshFromSite}>
+                      {refreshing ? 'Asking the site…' : 'Refresh cover from site'}
+                    </button>
+                  </div>
+                )}
                 {drama.media_type !== 'novel' && (
                   <div>
                     <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCropping((c) => !c)}>

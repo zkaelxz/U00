@@ -24,6 +24,7 @@ Merging a title into another and moving chapters between titles are PC-only
 not in this router.
 """
 
+from contextlib import nullcontext
 import os
 from typing import Literal
 
@@ -32,10 +33,11 @@ from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
+from api.llm_slots import llm_slot
 from api.auth import holds_paid_engines, is_at_pc, local_only, require_engines_allowed, require_permission
 from api.conditional_get import or_not_modified
 from api.routers.library_routes import to_detail
-from api.schemas import (CoverArtResult, DramaCreateRequest, DramaCreateResult,
+from api.schemas import (CoverArtResult, SiteCoverResult, DramaCreateRequest, DramaCreateResult,
                          DramaDeleteResult, DramaDetail, DramaFolderOpened, DramaMetadataUpdate,
                          DramaSeriesUpdate, NextEpisode, OwnTitleDelete, SameTitleList, SameTitleQuery, TitleLinkLookup, TitleLinkMatches, TitleSettingSources,
                          DramaSourceLink, DuplicateGroups, JobStarted, TitleRestructureApplyRequest, TitleRestructureInfo,
@@ -115,6 +117,12 @@ def post_duplicate_scan():
              summary="Make covers, in the background, for titles that have none (a video frame or comic page one)")
 def post_cover_backfill():
     return cover_backfill_service.start_backfill()
+
+
+@router.post("/covers/from-site", dependencies=[require_permission("admin.library")], response_model=JobStarted,
+             summary="Fetch the site's own cover for comics still showing page one (30 titles per press, paced per source)")
+def post_cover_site_refresh():
+    return cover_backfill_service.start_site_refresh()
 
 
 @router.post("/by-links", dependencies=[require_permission("library.read")], response_model=TitleLinkMatches,
@@ -218,6 +226,20 @@ async def post_cover(request: Request, drama_id: int = Path(ge=1)):
              responses=error_responses(404, 422, 503))
 async def post_cover_from_video(drama_id: int = Path(ge=1)):
     return await run_in_threadpool(cover_art_service.make_cover_from_video, drama_id)
+
+
+_SITE_COVER_BUSY = "Baihe is busy reading another link or running an AI tool. Try again in a moment."
+
+
+@router.post("/{drama_id}/cover/from-site", dependencies=[require_permission("admin.library")], response_model=SiteCoverResult,
+             summary="Replace the cover with the picture the title's own link names for the series",
+             responses=error_responses(404, 429))
+async def post_cover_from_site(request: Request, drama_id: int = Path(ge=1)):
+    # A video press runs a yt-dlp read (a worker and a child process for up to 45 s), so a caller
+    # away from the PC takes a slot from the shared cap, as the pasted-link probe does.
+    with nullcontext() if is_at_pc(request) else llm_slot(request, _SITE_COVER_BUSY):
+        outcome = await run_in_threadpool(cover_art_service.refresh_site_cover, drama_id)
+    return SiteCoverResult(drama_id=drama_id, outcome=outcome)
 
 
 # Revalidated on every use (a new cover keeps the same address), answered with a 304

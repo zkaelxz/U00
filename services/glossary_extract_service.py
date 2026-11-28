@@ -229,7 +229,7 @@ def _review_waiting(drama_id: int, proposals: list) -> dict:
     """{"waiting": note} for the job's result when the Glossary tab will
     offer at least one name (new to the glossary and not ignored), so the
     bell and the push say there is something to review
-    (jobs_service.waiting_note); {} when there is none."""
+    (job_results.waiting_note); {} when there is none."""
     new = [p["term"] for p in proposals if not p.get("already_in_glossary")]
     try:
         sid = (db.get_drama(drama_id) or {}).get("series_id")

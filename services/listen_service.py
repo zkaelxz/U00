@@ -10,6 +10,7 @@ No FastAPI import: plain dicts out, no filesystem path.
 import functools
 import importlib.util
 import os
+import re
 import shutil
 
 import background_jobs
@@ -19,7 +20,7 @@ from voice import dub_narration
 import novel_text
 from voice import voice_venv
 from jobs import job_launch
-from services import ownership_service, settings_service
+from services import characters_service, model_readiness_service, ownership_service, settings_service
 from lib.errors import ConflictError, DependencyUnavailableError, InvalidInputError, NotFoundError
 
 NARRATION_LANGUAGE_OPTIONS = ["translation", "original"]
@@ -208,7 +209,7 @@ def require_can_generate(tts_engine: str, characters, narrate_original: bool = F
         raise DependencyUnavailableError(reason)
 
 
-def apply_narration_result(drama_id: int, result: dict) -> None:
+def apply_narration_result(drama_id: int, result: dict, clips_at_start=None) -> None:
     """on_done hook body: persists a finished narration run -- field-scoped
     save_lines(dub_filename, start, end) and status "dubbed". The subprocess's
     returned lines are only a source of those fields, matched by permanent line
@@ -219,6 +220,7 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
     lines from the translate flow."""
     if db.get_drama(drama_id) is None:
         return
+    _keep_clip_transcripts(drama_id, (result or {}).get("clip_transcripts") or {}, clips_at_start or {})
     lines = [ln for ln in (result or {}).get("lines") or [] if ln.id is not None]
     failed = {e.get("line_idx") for e in (result or {}).get("errors") or []}
     # A failed unit made no clip, so a name left from an earlier run would point at stale audio.
@@ -229,6 +231,27 @@ def apply_narration_result(drama_id: int, result: dict) -> None:
         return  # nothing was narrated; "dubbed" would claim a track that is only silence
     db.update_drama(drama_id, status="dubbed")
     _remove_unused_clips(drama_id)
+
+
+def _clip_whisper():
+    """The Whisper a clip's transcript is written with ({"local_model_path"}), or None when it is
+    not on this PC: the Settings folder as transcription uses it, else the cached large-v3."""
+    local = settings_service.get("whisper_model_path") or None
+    if not model_readiness_service.whisper_ready(dub_narration.CLIP_TRANSCRIPT_WHISPER, local):
+        return None
+    return {"local_model_path": local}
+
+
+def _keep_clip_transcripts(drama_id: int, transcripts: dict, clips_at_start: dict) -> None:
+    """Saves the transcript Whisper wrote for a speaker's clip, so later runs and Voices use it
+    (and it can be corrected there). Only while the speaker still has the clip it was heard
+    from and no transcript: one typed or a clip changed during the run wins."""
+    rows = {c["speaker_label"]: c for c in db.list_characters(drama_id)}
+    for label, text in transcripts.items():
+        row = rows.get(label)
+        if (row and row.get("ref_audio_filename") and row.get("ref_audio_filename") == clips_at_start.get(label)
+                and not (row.get("ref_text") or "").strip()):
+            db.upsert_character(drama_id, label, ref_text=text[:characters_service.MAX_REF_TEXT_LEN])
 
 
 def _save_narration_times(drama_id: int, times: dict) -> bool:
@@ -320,17 +343,20 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
     speaker_labels = {ln.speaker or None for ln in lines}
     clone_map = dub.clone_map_from_characters(
         chars, ddir, default_engine=tts_engine, speaker_labels=speaker_labels)
+    _set_cross_language_cfg(clone_map, chars, source_lang if narrate_original else "en", source_lang)
     # Keyword-bound so background_jobs' trailing result_queue lands on the
     # worker's result_queue parameter (declared before these options).
     worker = functools.partial(dub_narration.build_narration_subprocess_worker,
                                narrate_original=narrate_original, source_language=source_lang,
-                               pace=_narration_pace())
+                               pace=_narration_pace(), use_gpu=bool(settings_service.get("use_gpu")),
+                               clip_whisper=_clip_whisper())
+    clips_at_start = {c["speaker_label"]: c.get("ref_audio_filename") for c in chars}
     started = job_launch.start_process_job(
         job_id, worker, args=(lines, ddir, clone_map),
         gpu_touching=dub.clone_map_uses_local_model(clone_map),
         description=f"Narration (title #{drama_id})",
         kill_whole_tree=True, start_method="spawn",
-        on_done=lambda _jid, result: apply_narration_result(drama_id, result),
+        on_done=lambda _jid, result: apply_narration_result(drama_id, result, clips_at_start),
         on_partial=lambda jid, payload: apply_narration_part(drama_id, jid, payload),
         # A cancel kills the worker before it can remove its half-written track.
         on_finish=lambda _jid: dub_narration.remove_partial_track(ddir),
@@ -347,6 +373,28 @@ def start_listen(drama_id: int, tts_engine: str, narration_language=None) -> dic
 
 
 _ALREADY_RUNNING = "A narration is already running for this title."
+
+_BANK_CLIP = re.compile(r"voicebank_(\d+)_")
+
+
+def _clip_language(char: dict, source_language: str) -> str:
+    """The language spoken in a character's clip: its voice bank entry's (db names an applied
+    entry's copy voicebank_<id>_...), else the title's, whose audio a picked clip is cut from."""
+    found = _BANK_CLIP.match(os.path.basename(char.get("ref_audio_filename") or ""))
+    entry = db.get_voice_bank_entry(int(found.group(1))) if found else None
+    return (entry or {}).get("language") or source_language
+
+
+def _set_cross_language_cfg(clone_map: dict, chars, spoken_language: str, source_language: str) -> None:
+    """Chatterbox's README (chatterbox-tts 0.1.7, "Original Chatterbox Tips"): with a clip in
+    another language than the language tag, "outputs may inherit the accent of the reference
+    clip's language. To mitigate this, set `cfg_weight` to `0`." Its default (0.5) is kept for a
+    clip in the spoken language. In the clone entry, so the clip signature changes with it."""
+    rows = {c["speaker_label"]: c for c in chars}
+    for label, clone in clone_map.items():
+        if clone.get("engine") == "chatterbox" and clone.get("ref_audio") and label in rows:
+            if _clip_language(rows[label], source_language) != spoken_language:
+                clone["cfg_weight"] = 0.0
 
 
 def _keep_default_voices(drama_id: int, chars, speaker_labels) -> bool:
@@ -387,6 +435,7 @@ def start_test_voice(drama_id: int, speaker_label: str, tts_engine: str, narrati
     # Every speaker with text is passed so a default voice is the one the full run gives this speaker.
     clone_map = dub.clone_map_from_characters(chars, db.drama_dir(drama_id), default_engine=tts_engine,
                                               speaker_labels={who for who, _ in spoken})
+    _set_cross_language_cfg(clone_map, chars, source_lang if narrate_original else "en", source_lang)
     voice = clone_map.get(speaker_label)
     if voice is None:
         names = {c["speaker_label"]: c.get("character_name") or c["speaker_label"] for c in chars}

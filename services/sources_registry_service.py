@@ -26,7 +26,7 @@ import db
 from services import ownership_service
 from lib.errors import (InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
-from services.sources_extension_service import require_not_extension_only
+from services.sources_extension_service import EXTENSION_ONLY_SITES, require_not_extension_only
 from sources import auth_browser, cache as src_cache, extension_marker, health, ladder, pacing, registry, store
 from sources import http as src_http
 from sources import profiles as src_profiles
@@ -232,6 +232,7 @@ def get_settings() -> dict:
     out["cache_modes"] = list(src_cache.MODES)
     stats = src_cache.RawCache().stats()
     out["cache"] = {"entries": stats["entries"], "bytes": stats["bytes"]}
+    out["extension_sites"] = [{"name": n, "host": h} for n, h in EXTENSION_ONLY_SITES]
     return out
 
 

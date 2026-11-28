@@ -985,7 +985,9 @@ they are; each fold remembers how you left it. "Extra names to expect" sits with
   transcribing (about 5 minutes for a two-hour stream on a V100 GPU, run in half precision, which is about as
   long as the transcription itself). Transcribing the same audio again reuses the vocals the last run
   separated (kept beside the audio until the audio is replaced or a storage cleanup removes them), so only the
-  first run pays for it. A title that has never chosen this switch has it on when it transcribes with
+  first run pays for it. After an app update, a PC that has the separation pack but not the newer FV4 model
+  downloads it (about 0.9 GB) in the quiet hours (3 to 6 am), when nothing is running, no update is waiting and
+  there are 3 GB free; it tries once a night. A title that has never chosen this switch has it on when it transcribes with
   Breeze-ASR-25 (Chinese; on three hand-corrected Chinese titles Breeze scored 0.675 with it against 0.623
   without), provided the GPU is on and the separation pack and its model are both installed (a model left
   behind without the pack keeps it off); with any other model it is off, because it hurt large-v3. Turning it
@@ -1286,15 +1288,23 @@ of exported empty. Chapter OCR skips a page that isn't a readable image and coun
   clip gets a designed voice. "Find clips in the audio" pulls reference clips from a diarized audio drama. Not
   verified end to end in development: test on one short line first.
 - **Qwen3-TTS** (Listen and Voices): clones a voice from a clip only (no designed voices), in Chinese,
-  Japanese, Korean and English; give the clip's transcript for the best match. It lives in its own folder
-  (`voice_engines/qwen3_tts` in the data folder) so its packages never change Baihe's own; until that folder
-  is installed it shows "Qwen3-TTS is not installed. Install it in Diagnostics." The first narration downloads
-  its model (a few GB). A narration speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is
-  left as a gap with "The voice engine could not speak this line."
+  Japanese, Korean and English. It copies a voice best when it has the clip's transcript: for a clip saved
+  without one, the next narration first writes down what the clip says with Whisper (large-v3, or the Whisper
+  model folder set in Settings, in the clip's own language; only when that model is already on the PC, so
+  nothing is downloaded for it) and keeps it as that speaker's transcript in Voices, where you can correct it;
+  a transcript you type is never replaced. It lives in its own folder (`voice_engines/qwen3_tts` in the data
+  folder) so its packages never change Baihe's own; until that folder is installed it shows "Qwen3-TTS is not
+  installed. Install it in Diagnostics." The first narration downloads its model (a few GB). A narration
+  speaks all of its Qwen3-TTS lines in one go, and a line it can't speak is left as a gap with "The voice
+  engine could not speak this line."
 - **Chatterbox** (Listen and Voices): clones a voice from a clip only, in Chinese, Japanese, Korean and
   English; it doesn't use the clip's transcript. Like Qwen3-TTS it lives in its own folder
   (`voice_engines/chatterbox`), shows "Chatterbox is not installed. Install it in Diagnostics." until that is
-  installed, downloads its model on the first narration and speaks all of its lines in one go. Everything it
+  installed, downloads its model on the first narration and speaks all of its lines in one go. When a clip is
+  in another language than the one being spoken (a clip from a Chinese title reading the English, or a voice
+  bank voice saved in another language), it speaks with the setting its makers give for that case, so the
+  English does not carry the clip's accent; changing it makes those speakers' clips again on the next run. A
+  long sentence is spoken in parts split after a comma or at a space, never inside a word. Everything it
   speaks carries an inaudible watermark (Resemble AI's Perth). A character saved with the old Chatterbox
   engine uses this one.
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA and GPT-SoVITS were removed. A title or character that

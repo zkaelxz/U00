@@ -737,7 +737,7 @@ def test_translate_job_resolves_named_characters_for_the_engine(isolated_db, mon
 def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolated_db, monkeypatch):
     """Cancel stops the run between batches; the job must not then read as
     done at 100% with "Finished." (the bell and Jobs said Done)."""
-    from services import jobs_service
+    from jobs import job_results
     job_id = "test_translate_cancelled"
     _clear(job_id)
     did = isolated_db.create_drama(title_en="Test")
@@ -759,8 +759,8 @@ def test_a_cancelled_translate_run_ends_cancelled_with_its_real_progress(isolate
     assert job["progress"] == 0.5
     assert job["message"] == job_runner.CANCELLED_MESSAGE
     assert job["result"]["errors"] == []
-    outcome, _message = jobs_service.derive_outcome(
-        job["status"], job.get("error"), jobs_service.project_result(job["result"]))
+    outcome, _message = job_results.derive_outcome(
+        job["status"], job.get("error"), job_results.project_result(job["result"]))
     assert outcome == "cancelled"
     _clear(job_id)
 
@@ -832,7 +832,7 @@ def test_a_force_retranslate_counts_lines_whose_english_came_out_the_same(isolat
 
 
 def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_failed(isolated_db, monkeypatch):
-    from services import jobs_service
+    from jobs import job_results
     job_id = "test_translate_counts_written"
     _clear(job_id)
     job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
@@ -847,7 +847,7 @@ def test_translate_job_result_counts_the_lines_it_wrote_so_a_dead_run_reads_fail
 
     result = job_table._jobs[job_id]["result"]
     assert result["translated_count"] == 0
-    outcome, _msg = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+    outcome, _msg = job_results.derive_outcome("done", None, job_results.project_result(result))
     assert outcome == "failed"
     _clear(job_id)
 
@@ -1006,7 +1006,7 @@ class TestSpendingCapJob:
         _clear(job_id)
 
     def test_a_cap_too_small_for_the_first_batch_stops_at_the_cap_not_failed(self, isolated_db):
-        from services import jobs_service
+        from jobs import job_results
         job_id = "test_translate_cap_first_batch"
         _clear(job_id)
         job_table._jobs[job_id] = {"status": "running", "progress": 0.0, "message": "",
@@ -1021,7 +1021,7 @@ class TestSpendingCapJob:
         result = background_jobs.get_status(job_id)["result"]
         assert result["cap_reached"] == 0.0 and result["errors"] == []
         assert all(not r["en"] for r in isolated_db.load_lines(did))
-        outcome, message = jobs_service.derive_outcome("done", None, result)
+        outcome, message = job_results.derive_outcome("done", None, result)
         assert outcome == "partial" and message.startswith("Stopped at the spending cap")
         _clear(job_id)
 

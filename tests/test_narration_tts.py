@@ -445,6 +445,24 @@ class TestSequentialNarration:
     def test_every_engine_runs_on_the_gpu_slot(self, engine):
         assert dub.clone_map_uses_local_model({"A": {"engine": engine}})
 
+    def test_a_chatterbox_clip_in_another_language_is_spoken_with_its_cfg_weight(
+            self, monkeypatch, fake_pydub, tmp_path):
+        sent = []
+
+        def speak(engine, requests, workdir):
+            for i, r in enumerate(requests):
+                sent.append(r["cfg_weight"])
+                open(r["out"], "w").close()
+                yield i, None
+        monkeypatch.setattr(dub_narration, "speak_in_venv", speak)
+        clip = tmp_path / "a.wav"
+        clip.write_bytes(b"RIFF")
+        voice = {"engine": "chatterbox", "ref_audio": str(clip), "ref_text": ""}
+        lines = [Line(idx=0, start=0, end=0, zh="a", en="One.", speaker="A"),
+                 Line(idx=1, start=0, end=0, zh="b", en="Two.", speaker="B")]
+        dub_narration.build_narration_track(lines, str(tmp_path), {"A": {**voice, "cfg_weight": 0.0}, "B": voice})
+        assert sent == [0.0, None]
+
 
 class _Killed(BaseException):
     """A cancel: the worker is killed, nothing after it runs."""
@@ -630,7 +648,7 @@ class TestListenWhileItIsMade:
 
     def test_a_held_final_track_is_logged_and_the_job_says_what_to_do(
             self, monkeypatch, fake_pydub, tmp_path, logged):
-        from services import jobs_service
+        from jobs import job_results
         (tmp_path / "narration_track.flac").write_bytes(b"playing")
         os.utime(tmp_path / "narration_track.flac", (1, 1))
         self._hold(monkeypatch, "narration_track.flac")
@@ -639,7 +657,7 @@ class TestListenWhileItIsMade:
         assert logged == [("warning", "narration: the finished track could not replace the old one, which is "
                            "in use (the Reader may be playing it); it waits as narration_track.next.flac until "
                            "the old file is free (PermissionError: The process cannot access the file)")]
-        outcome, message = jobs_service.derive_outcome("done", None, jobs_service.project_result(result))
+        outcome, message = job_results.derive_outcome("done", None, job_results.project_result(result))
         assert outcome == "ok" and dub_narration.TRACK_IN_USE_NOTICE in message
         logged.clear()
         assert novel_text.find_narration_track(str(tmp_path)) == "narration_track.flac"

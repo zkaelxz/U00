@@ -6989,6 +6989,13 @@ export interface components {
             /** Opened */
             opened: boolean;
         };
+        /** ExtensionSite */
+        ExtensionSite: {
+            /** Host */
+            host: string;
+            /** Name */
+            name: string;
+        };
         /**
          * ExtensionStatus
          * @description No port and no token, ever.
@@ -16568,6 +16575,13 @@ export interface components {
              */
             remote_uploads: boolean;
             /**
+             * Remote Uploads Auto Off
+             * @default false
+             */
+            remote_uploads_auto_off: boolean;
+            /** Remote Uploads Since */
+            remote_uploads_since: number | null;
+            /**
              * Upload Max Mb From Env
              * @default false
              */
@@ -17141,6 +17155,8 @@ export interface components {
             realign_pause_seconds?: number | null;
             /** Remote Uploads */
             remote_uploads?: boolean | null;
+            /** Remote Uploads Auto Off */
+            remote_uploads_auto_off?: boolean | null;
             /** Repeat Loop Min Repeats */
             repeat_loop_min_repeats?: number | null;
             /** Retime Window Pad Seconds */
@@ -17482,6 +17498,13 @@ export interface components {
              * @description `stopping`: jobs were asked to stop and the server exits shortly.
              */
             status: string;
+        };
+        /** SiteCoverResult */
+        SiteCoverResult: {
+            /** Drama Id */
+            drama_id: number;
+            /** Outcome */
+            outcome: string;
         };
         /** SnapshotCopy */
         SnapshotCopy: {
@@ -18685,6 +18708,11 @@ export interface components {
             check_interval_hours: number;
             /** Demo Source Enabled */
             demo_source_enabled: boolean;
+            /**
+             * Extension Sites
+             * @description Sites that work only through the browser extension, shown read-only.
+             */
+            extension_sites: components["schemas"]["ExtensionSite"][];
             /** Extraction Diagnostics */
             extraction_diagnostics: boolean;
             /** Max Concurrent */

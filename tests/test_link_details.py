@@ -114,16 +114,20 @@ def _probe(client, url=VIDEO):
 
 # --- the child's fields ----------------------------------------------------
 
-def test_link_fields_are_shape_checked_and_carry_no_description_or_url():
+def test_link_fields_are_shape_checked_and_carry_only_the_thumbnail_url():
     fields = ytdlp_child.link_fields(INFO)
     assert fields == {"status": "not_live", "title": "配信 #12", "channel": "Some Channel",
                       "release_timestamp": None, "upload_date": "20260301", "duration": 3600.0,
-                      "episode_number": None, "has_thumbnail": True, "is_playlist": False}
+                      "episode_number": None, "has_thumbnail": True, "is_playlist": False,
+                      "thumbnail_url": "https://i.example/t.jpg"}
     assert ytdlp_child._valid_event({"link": fields})
     odd = ytdlp_child.link_fields({"upload_date": "2026-03-01", "duration": float("inf"),
                                    "title": "x" * 5000, "release_timestamp": True})
     assert (odd["upload_date"], odd["duration"], odd["release_timestamp"]) == ("", None, None)
     assert len(odd["title"]) == 200
+    for bad_url in ("http://i.example/t.jpg", "https://i.example/a b", "https://" + "x" * 1000):
+        assert ytdlp_child.link_fields({"thumbnail": bad_url})["thumbnail_url"] == ""
+    assert not ytdlp_child._valid_event({"link": dict(fields, thumbnail_url="file:///etc/passwd")})
 
 
 @pytest.mark.parametrize("bad", [

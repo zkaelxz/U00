@@ -161,6 +161,7 @@ def get_settings_overview(env_path: str | None = None) -> dict:
     URLs that pass validate_endpoint_url (no userinfo, query or fragment),
     so neither can carry a secret."""
     from services import media_upload_service  # imports this module at load
+    switch_on = remote_uploads_on()
     return {
         "engine_keys": key_status(env_path),
         "gpu_limit_enabled": job_settings.get_gpu_limit_enabled(),
@@ -171,7 +172,9 @@ def get_settings_overview(env_path: str | None = None) -> dict:
         "gemini_free_tier": get("gemini_free_tier"),
         "bulk_auto_resume": get("bulk_auto_resume"),
         "offer_provider_models": get("offer_provider_models"),
-        "remote_uploads": remote_uploads_on(),
+        "remote_uploads": switch_on,
+        "remote_uploads_since": _remote_uploads_since() if switch_on else None,
+        "remote_uploads_auto_off": _auto_off_shown(switch_on),
         "preferences": get_preferences(),
         "endpoints": endpoint_values(env_path),
         "upload_max_mb_from_env": media_upload_service.upload_limit_from_env(),
@@ -188,19 +191,64 @@ def get_settings_overview(env_path: str | None = None) -> dict:
 # pref.* rows, endpoint URLs go through set_endpoint_url.
 _DB_TOGGLES = ("use_gpu", "gemini_free_tier", "bulk_auto_resume", "offer_provider_models")
 
-# A stolen admin cookie could fill the disk with uploads, so the switch that
-# lets an admin upload from away lapses on its own.
+# With the opt-in auto-off, a stolen admin cookie's window to fill the disk with uploads
+# ends this long after the switch (or the auto-off) was turned on.
 REMOTE_UPLOADS_DAYS = 7
 
 
+def _remote_uploads_since() -> float | None:
+    on_at = get("remote_uploads.since")
+    return float(on_at) if isinstance(on_at, (int, float)) and on_at > 0 else None
+
+
+def remote_uploads_auto_off() -> bool:
+    return bool(get("remote_uploads_auto_off"))
+
+
+def _auto_off_shown(switch_on: bool) -> bool:
+    """What the card ticks: the stored choice, except that a switch saved before the choice
+    existed and still on shows the 7 day limit it has. While the switch is off it shows what
+    turning it on will record (stay on), so the tick does not flip when the switch is turned on."""
+    return remote_uploads_auto_off() or (_auto_off_never_chosen() and switch_on)
+
+
+def _auto_off_never_chosen() -> bool:
+    import db
+    return not isinstance(db.get_app_setting("remote_uploads_auto_off"), bool)
+
+
 def remote_uploads_on(now: float | None = None) -> bool:
-    """Whether a signed-in admin away from the PC may upload (media.upload).
-    Off unless the switch was turned on in the last REMOTE_UPLOADS_DAYS days."""
+    """Whether a signed-in admin away from the PC may upload (media.upload). Needs the switch
+    and a valid turned-on stamp (a stamp from before the stamp was kept apart must not count);
+    with the opt-in auto-off, also within REMOTE_UPLOADS_DAYS of the later of that stamp and
+    the day the auto-off was chosen."""
     if not get("remote_uploads"):
         return False
     now = time.time() if now is None else now
-    on_at = get("remote_uploads.since")
-    return isinstance(on_at, (int, float)) and 0 < on_at <= now < on_at + REMOTE_UPLOADS_DAYS * 86400
+    on_at = _remote_uploads_since()
+    if on_at is None or not on_at <= now:
+        return False
+    # Never chosen: a switch from before this setting existed keeps its old 7 day lapse, so
+    # one that had already lapsed does not come back on with the update. Turning the switch
+    # on again records the choice (_set_remote_uploads). An unreadable row counts as never chosen.
+    if _auto_off_never_chosen():
+        return now < on_at + REMOTE_UPLOADS_DAYS * 86400
+    if not remote_uploads_auto_off():
+        return True
+    chosen_at = get("remote_uploads.auto_off_from")
+    start = max(on_at, float(chosen_at) if isinstance(chosen_at, (int, float)) else 0.0)
+    return now < start + REMOTE_UPLOADS_DAYS * 86400
+
+
+def _remote_uploads_audit(action: str, detail: str) -> None:
+    from services import auth_service
+    # Only the PC can flip this, so there is no acting account to name. The change is
+    # already saved: a failing log write must not turn it into a 500.
+    try:
+        auth_service.write_audit(None, action, detail)
+    except Exception:
+        import applog
+        applog.get_logger().warning("could not write the remote-uploads audit row", exc_info=True)
 
 
 def _set_remote_uploads(enabled: bool) -> None:
@@ -208,21 +256,31 @@ def _set_remote_uploads(enabled: bool) -> None:
     # Time first: a crash between the two writes leaves the switch off.
     if enabled:
         db.set_app_setting("remote_uploads.since", time.time())
+        if _auto_off_never_chosen():
+            db.set_app_setting("remote_uploads_auto_off", False)
     db.set_app_setting("remote_uploads", enabled)
-    from services import auth_service
-    # Only the PC can flip this, so there is no acting account to name. The switch is
-    # already saved: a failing log write must not turn the change into a 500.
-    try:
-        auth_service.write_audit(None, "remote_uploads.on" if enabled else "remote_uploads.off",
-                                 f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
-    except Exception:
-        import applog
-        applog.get_logger().warning("could not write the remote-uploads audit row", exc_info=True)
+    _remote_uploads_audit("remote_uploads.on" if enabled else "remote_uploads.off",
+                          f"auto-off after {REMOTE_UPLOADS_DAYS} days" if enabled and remote_uploads_auto_off()
+                          else "stays on until turned off" if enabled else "")
+
+
+def _set_remote_uploads_auto_off(enabled: bool) -> None:
+    import db
+    # A lapsed switch still reads as stored-on; choosing either mode must not bring it back.
+    if get("remote_uploads") and not remote_uploads_on():
+        db.set_app_setting("remote_uploads", False)
+        _remote_uploads_audit("remote_uploads.off", "lapsed")
+    if enabled:
+        db.set_app_setting("remote_uploads.auto_off_from", time.time())
+    db.set_app_setting("remote_uploads_auto_off", enabled)
+    _remote_uploads_audit("remote_uploads.auto_off" if enabled else "remote_uploads.stay_on",
+                          f"{REMOTE_UPLOADS_DAYS} days" if enabled else "")
 
 
 # Switches whose owner (a root module) keeps its own storage and setter.
 _WRITABLE_SETTINGS = {
     "remote_uploads": _set_remote_uploads,
+    "remote_uploads_auto_off": _set_remote_uploads_auto_off,
     "gpu_limit_enabled": job_settings.set_gpu_limit_enabled,
     "notify_on_completion": job_settings.set_notify_on_completion,
 }

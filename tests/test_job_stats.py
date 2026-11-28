@@ -74,6 +74,36 @@ def test_the_daily_summary_is_logged_when_the_date_changes(isolated_db):
             "median queue wait 2.0 s; errors: 429 1") in summary
 
 
+def test_the_daily_summary_carries_the_listener_reopen_counts(isolated_db):
+    from lib import listener_counts
+    listener_counts.take()
+    job_stats._day.update(date=None, jobs=[])
+    listener_counts.record("failed")
+    listener_counts.record("failed")
+    listener_counts.record("succeeded")
+    job_stats._record("translate", {"finished_at": 110.0}, 100.0, "done", "2026-11-28")
+    job_stats._record("translate", {"finished_at": 110.0}, 100.0, "done", "2026-11-29")
+    summary = [ln for ln in _log_text().splitlines() if "Daily job summary" in ln][0]
+    assert summary.endswith("; listener reopens: tried 3, failed 2, succeeded 1")
+    # Taken once: the next day's line starts from zero, and an idle day with a dead port still logs.
+    listener_counts.record("failed")
+    job_stats._day.update(date="2026-11-29", jobs=[])
+    job_stats.flush_day()
+    assert "Daily job summary 2026-11-29: no jobs; listener reopens: tried 1, failed 1, succeeded 0" in _log_text()
+
+
+def test_a_day_change_flushes_reopen_counts_without_any_job(isolated_db):
+    from lib import listener_counts
+    listener_counts.take()
+    job_stats._day.update(date="2026-11-28", jobs=[])
+    listener_counts.record("failed")
+    job_stats.flush_if_day_changed("2026-11-28")
+    assert "listener reopens" not in _log_text()
+    job_stats.flush_if_day_changed("2026-11-29")
+    assert "Daily job summary 2026-11-28: no jobs; listener reopens: tried 1, failed 1, succeeded 0" in _log_text()
+    assert job_stats._day["date"] == "2026-11-29"
+
+
 def test_the_stats_lines_pass_the_send_logs_scrub_unchanged():
     import diagnostics_report
     lines = [

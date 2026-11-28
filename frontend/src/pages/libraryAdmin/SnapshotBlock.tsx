@@ -327,7 +327,7 @@ function RestorePicker({ copies, initial, onDone, onCancel }: {
             </Field>
           )}
           <p className="muted">Pick the title to restore. Nothing changes until you confirm.</p>
-          <ul className="snapshot-dramas" aria-label="Titles in the copy">
+          <ul className="snapshot-dramas scroll-box" tabIndex={0} aria-label="Titles in the copy">
             {shown.map((d) => (
               <li key={d.id}>
                 <button type="button" onClick={() => setPicked(d)}>

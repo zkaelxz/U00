@@ -29,6 +29,9 @@ survive a restart and apply to every caller of the adapter.
     too. Its form may already have been re-sent by a 307/308 redirect: the
     transport follows those as any HTTP client does.
   * A challenge on any domain stops everything and hands off to the person.
+  * After a whole day of every domain failing, a numbered domain (name108)
+    is probed for the next ten numbers, once a day; one that serves the site
+    becomes a proposal like any other ("found by trying the next numbers").
   * When every domain failed, the source's health records
     ALL_DOMAINS_UNREACHABLE; if no proposal is pending, the unreachable hook
     (set by the service layer) gets redacted probe lines -- host names and
@@ -40,6 +43,7 @@ is proposed.
 """
 
 import re
+import time
 from urllib.parse import urljoin, urlsplit
 
 from engine_backends.shared import redact_for_storage
@@ -51,6 +55,15 @@ from .models import ChallengeDetected, FailureReason, FetchFailed, SourceUnavail
 _DEFAULT_PORTS = {"https": 443, "http": 80}
 # A DNS name with an alphabetic TLD. IP literals of every form fail it.
 _HOST_RE = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}")
+
+# Sites that change by counting up (name108 -> name113) are probed this many numbers ahead, at most
+# once a day and only after a whole day of every domain failing, so a short outage never spends requests.
+NEXT_NUMBERS = 10
+# The probes run inside the request that found every domain dead, so they stop after this long
+# in total; the rest wait for the next day's try.
+NUMBERS_BUDGET_SECONDS = 30.0
+_NUMBERED_WAIT_SECONDS = 24 * 3600
+_NUMBERED_HOST = re.compile(r"^([a-z][a-z-]*?)(\d{1,4})(\..+)$")
 
 _unreachable_hook = None
 
@@ -108,6 +121,14 @@ def configured_origins(adapter_cls) -> list:
     return store.domain_list(adapter_cls.name) or [origin(u) for u in adapter_cls.base_urls]
 
 
+def _failed_since_key(source: str) -> str:
+    return f"source_domain_failed_since.{source}"
+
+
+def _numbers_tried_key(source: str) -> str:
+    return f"source_domain_numbers_tried.{source}"
+
+
 def _ordered(source: str, origins: list) -> list:
     last = store.last_good_domain(source)
     if last in origins:
@@ -155,6 +176,12 @@ class SiteDomains:
 
     def _worked(self, base: str):
         self.base = base
+        if not self.fixed:
+            try:
+                if store.get_setting(_failed_since_key(self.source)) is not None:
+                    store.set_setting(_failed_since_key(self.source), None)
+            except store.SourcesDatabaseBusy:
+                pass
         try:
             if not self.fixed and store.last_good_domain(self.source) != base:
                 store.set_last_good_domain(self.source, base)
@@ -200,6 +227,52 @@ class SiteDomains:
             import applog
             applog.get_logger().warning("Looking for a new address failed", exc_info=True)
             return False
+
+    def _try_next_numbers(self, now: float | None = None) -> bool:
+        """After a day of every domain failing, tries the next NEXT_NUMBERS numbers of a numbered
+        domain (once a day). A host that serves this site becomes a proposal the owner confirms.
+        Returns True when one was proposed."""
+        now = time.time() if now is None else now
+        try:
+            since = store.get_setting(_failed_since_key(self.source))
+            if not isinstance(since, (int, float)):
+                store.set_setting(_failed_since_key(self.source), now)
+                return False
+            last = store.get_setting(_numbers_tried_key(self.source))
+            if now - since < _NUMBERED_WAIT_SECONDS or (
+                    isinstance(last, (int, float)) and now - last < _NUMBERED_WAIT_SECONDS):
+                return False
+            store.set_setting(_numbers_tried_key(self.source), now)
+        except store.SourcesDatabaseBusy:
+            store.log_dropped("a numbered-domain check")
+            return False
+        listed = {hostport(o) for o in self.origins()}
+        tried, found = 0, False
+        deadline = time.monotonic() + NUMBERS_BUDGET_SECONDS
+        for host in listed:
+            match = _NUMBERED_HOST.match(host)
+            if not match:
+                continue
+            prefix, number, suffix = match.group(1), int(match.group(2)), match.group(3)
+            for n in range(number + 1, number + 1 + NEXT_NUMBERS):
+                candidate = f"{prefix}{n}{suffix}"
+                if candidate in listed:
+                    continue
+                if time.monotonic() >= deadline:
+                    break
+                tried += 1
+                try:
+                    home = self.client.get(f"https://{candidate}/", action="Checking a possible new address",
+                                           use_cache=False, record_health=False)
+                    if hostport(home.url or "") == candidate and self.adapter.verify_site(home.text):
+                        found = store.propose_domain(self.source, candidate) or found
+                        break
+                except Exception:
+                    continue
+        import applog
+        applog.get_logger().info("Source domains: %s tried %d next numbers, %s", self.source, tried,
+                                 "proposed one" if found else "none served the site")
+        return found
 
     def _log_summary(self, probed: int, redirected: int, found: bool):
         import applog
@@ -260,10 +333,14 @@ class SiteDomains:
             return resp
         if not found and not self.fixed:
             found = self._discover(redirected)
+        by_numbers = False
+        if not found and not self.fixed:
+            by_numbers = found = self._try_next_numbers()
         self._log_summary(len(listed), len(redirected), found)
         msg = "Every domain on this source's list failed:\n" + "\n".join(errors)
         if found:
-            msg += ("\nA possible new address was found. Confirm it on this PC under "
+            msg += ("\nA possible new address was found" + (" by trying the next numbers" if by_numbers else "")
+                    + ". Confirm it on this PC under "
                     "Sources to add it to the list.")
         elif not self.fixed and not self._proposals_pending():
             _notify_unreachable(self.source, self.adapter.display_name or self.source, errors)

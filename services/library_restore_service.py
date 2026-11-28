@@ -61,6 +61,7 @@ _RESTORE_KEPT_APP_SETTINGS = ("auto_backup.identity", "auto_backup.settings",
     # setting is kept by type, so a new one is covered without being listed here.
     # "jellyfin", "comic_save" and "web_search" are those services' SETTING keys.
     "jellyfin", "comic_save", "web_search", "remote_uploads", "remote_uploads.since",
+    "remote_uploads_auto_off", "remote_uploads.auto_off_from",
     # This PC window's Guest PIN belongs to the PC, not to the library a backup came from.
     "pc_profile_pin", "pc_profile_pin.blocked_until",
     # The accounts' rights stay this library's (RESTORE_LIVE_TABLES), so the marker that says the

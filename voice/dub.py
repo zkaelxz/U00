@@ -152,7 +152,7 @@ def speak_in_venv(engine: str, requests: list, workdir: str):
         return
     items = [{"id": str(i), "text": r["text"], "out": r["out"], "language": r["language"],
               "ref_audio": r.get("ref_audio"), "ref_text": r.get("ref_text") or "",
-              "instruct": r.get("instruct") or ""}
+              "instruct": r.get("instruct") or "", "cfg_weight": r.get("cfg_weight")}
              for i, r in enumerate(requests)]
     if not voice_venv.is_ready(engine):
         for i in range(len(requests)):

@@ -253,7 +253,7 @@ export function AutoBackupBlock() {
               Newest copy: {describeSnapshot(snapshot)}
             </p>
             {managed.length > 0 && (
-              <ul className="backup-copies" aria-label="Backup copies, newest first" data-testid="auto-backup-copies">
+              <ul className="backup-copies scroll-box" tabIndex={0} aria-label="Backup copies, newest first" data-testid="auto-backup-copies">
                 {managed.map((c) => (
                   <li key={c.name}>{describeCopy(c)}</li>
                 ))}
@@ -264,7 +264,7 @@ export function AutoBackupBlock() {
                 <p className="muted">
                   {UNMANAGED_LABEL}: {UNMANAGED_NOTE}
                 </p>
-                <ul className="backup-copies" aria-label={UNMANAGED_LABEL} data-testid="auto-backup-unmanaged">
+                <ul className="backup-copies scroll-box" tabIndex={0} aria-label={UNMANAGED_LABEL} data-testid="auto-backup-unmanaged">
                   {unmanaged.map((c) => (
                     <li key={c.name}>{describeCopy(c)}</li>
                   ))}

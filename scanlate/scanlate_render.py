@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 from lib.atomic_write import replace_file
 
 from scanlate import scanlate_art_text
+from scanlate import scanlate_halo
 from scanlate import scanlate_sfx
 from scanlate import scanlate_tilt
 from scanlate import scanlate_tuning
@@ -25,6 +26,7 @@ from scanlate.scanlate_fonts import _CJK_PUNCTUATION, _PLAIN, TypesetStyle, _fin
 from scanlate.scanlate_ink import _fade_lettering, _sampled_inks, _text_fill, chosen_color
 from scanlate.scanlate_inpaint import (
     erase_box, InpaintModelUnavailable, inpaint_region, widen_to_dark_strip, is_art_mistaken_for_sign, sign_text_line,
+    _lettering_mask,
 )
 from scanlate.scanlate_lama import lama_ml_weights_cached
 from scanlate.scanlate_regions import SHAPE_FITTED_KINDS, region_excluded_from_auto
@@ -176,7 +178,7 @@ def process_page(image_path: str, bubbles: list, out_path: str, font_path: str |
         # Shape masks follow the original lettering, so they are taken before
         # any bubble is erased.
         gray = (page_gray(image_path, page) if any(
-            (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS for b in to_render) else None)
+            (b.get("kind") or "bubble") in (*SHAPE_FITTED_KINDS, "sign") for b in to_render) else None)
         # Lettering on the artwork is painted out and re-lettered in its own
         # style (scanlate_art_text); bubbles keep the balloon path below.
         captions = [b for b in to_render if b.get("kind") == "caption"]
@@ -303,17 +305,18 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
 
     fonts: dict = {}
 
-    def draw(target, b, shape_mask, size, ink, report=None, balance=True):
+    def draw(target, b, shape_mask, size, ink, report=None, balance=True, forced=None, outlined=False):
         # Only a mask that centring would rebuild needs the dark pixels, so other balloons are
         # drawn exactly as before.
         extra: dict[str, Any] = ({"dark": _dark_under(gray, b, shape_mask.shape)}
                                  if shape_mask is not None and gray is not None and _symmetrised(shape_mask) is not None
                                  else {})
-        render_text_in_box(target, b, b["translated_text"], font_size=size,
-                           font_path=font_path,
+        render_text_in_box(target, _lettering_box(gray, b) if shape_mask is None else b, b["translated_text"],
+                           font_size=size, font_path=font_path,
                            font_category=b.get("font_category") or "regular",
-                           custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout, style=style,
-                           fill=_text_fill(target, b, ink), report=report, balance=balance,
+                           custom_fonts=custom_fonts, mask=shape_mask, rect_layout=rect_layout,
+                           style=style.outlined() if outlined else style,
+                           fill=forced or _text_fill(target, b, ink), report=report, balance=balance,
                            fonts=fonts, **extra)
 
     starts = [b.get("font_size", 18) for b in to_render]
@@ -344,12 +347,59 @@ def _letter_balloons(pil_img, image_path: str, to_render: list, gray,
                     target, shifted, b["translated_text"], font_size=sz, font_path=font_path,
                     font_category=b.get("font_category") or "regular", custom_fonts=custom_fonts,
                     mask=shifted_mask, rect_layout=rect_layout, style=style, fill=fill))
+        # A tilted balloon keeps the plain look: the halo is cut from the unrotated lettering.
         if not tilted:
-            draw(pil_img, b, m, size, ink)
+            if style.halo and m is None and scanlate_halo.over_art(pil_img, b):
+                _draw_with_halo(pil_img, b, m, size, draw)
+            else:
+                draw(pil_img, b, m, size, ink)
         if fade:
             lettered = pil_img.crop(region)
             _fade_lettering(before, lettered, *fade)
             pil_img.paste(lettered, region[:2])
+
+
+def _lettering_box(gray, b: dict) -> dict:
+    """`b` narrowed to where the original lettering stood, for a sign whose box is the round or
+    spiked balloon it sits in: English wrapped to the whole box ran past a rim narrower than the box.
+    Marks that touch the box edge or are huge (the rim, art) are not lettering. `b` itself when the
+    lettering is not clearly narrower, or when none is found."""
+    if gray is None or (b.get("kind") or "bubble") in SHAPE_FITTED_KINDS:
+        return b
+    import cv2
+    x0, y0 = max(0, b["x"]), max(0, b["y"])
+    roi = gray[y0:b["y"] + b["h"], x0:b["x"] + b["w"]]
+    if roi.shape[0] < 20 or roi.shape[1] < 20:
+        return b
+    count, _, stats, _ = cv2.connectedComponentsWithStats((_lettering_mask(roi) > 0).astype(np.uint8), connectivity=8)
+    rh, rw = roi.shape
+    marks = [stats[i] for i in range(1, count)
+             if stats[i][0] > 0 and stats[i][1] > 0 and stats[i][0] + stats[i][2] < rw and stats[i][1] + stats[i][3] < rh
+             and stats[i][4] < scanlate_tuning.LETTERING_BOX_MAX_MARK_SHARE * rw * rh and stats[i][3] >= 8]
+    if not marks:
+        return b
+    left, right = min(int(m[0]) for m in marks), max(int(m[0] + m[2]) for m in marks)
+    top, bottom = min(int(m[1]) for m in marks), max(int(m[1] + m[3]) for m in marks)
+    pad_x, pad_y = int((right - left) * scanlate_tuning.LETTERING_BOX_PAD), int((bottom - top) * scanlate_tuning.LETTERING_BOX_PAD_Y)
+    new_left, new_right = max(0, left - pad_x), min(rw, right + pad_x)
+    new_top, new_bottom = max(0, top - pad_y), min(rh, bottom + pad_y)
+    narrow = new_right - new_left <= scanlate_tuning.LETTERING_BOX_MAX_SHARE * rw
+    short = new_bottom - new_top <= scanlate_tuning.LETTERING_BOX_MAX_SHARE * rh
+    if not (narrow or short):
+        return b
+    return dict(b, x=x0 + new_left if narrow else b["x"], w=new_right - new_left if narrow else b["w"],
+                y=y0 + new_top if short else b["y"], h=new_bottom - new_top if short else b["h"])
+
+
+def _draw_with_halo(pil_img, b: dict, shape_mask, size: int, draw) -> None:
+    """Lettering over art: a soft glow, then the text outlined, in light or dark chosen from the art
+    around it. `draw` is the balloon lettering closure, called with a fixed colour and a black canvas to
+    learn where the glyphs fall."""
+    canvas = Image.new("RGB", pil_img.size, (0, 0, 0))
+    draw(canvas, b, shape_mask, size, None, forced=(255, 255, 255))
+    text, edge = scanlate_halo.colours(pil_img, b)
+    scanlate_halo.paint(pil_img, canvas.convert("L").point([0] + [255] * 255), edge, size, b)
+    draw(pil_img, b, shape_mask, size, None, forced=text, outlined=True)
 
 
 def _split_art_signs(page, regions: list):
