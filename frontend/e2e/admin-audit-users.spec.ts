@@ -452,9 +452,10 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
   await expect(row.getByText('The daily job limit is too high.')).toBeVisible()
   await expect(jobs).toHaveValue('9000')
   await expect(jobs).toHaveAttribute('aria-invalid', 'true')
-  // Leaving the field doesn't send the refused value again.
+  // Leaving the field doesn't send the refused value again; Enter does, as a retry.
   await jobs.blur()
-  await jobs.focus()
+  await jobs.press('Enter')
+  await expect.poll(() => bodies.filter(([what]) => what === 'job-limit').length).toBe(2)
   // Esc puts the saved value back.
   await jobs.press('Escape')
   await expect(jobs).toHaveValue('')
@@ -463,6 +464,7 @@ test('People: name and limits save on Enter or leaving the field, show Saved onl
     ['display-name', { display_name: 'Kid Example' }],
     ['paid-limit', { monthly_cap_usd: 12.5 }],
     ['paid-limit', { monthly_cap_usd: null }],
+    ['job-limit', { jobs_per_day: 9000 }],
     ['job-limit', { jobs_per_day: 9000 }],
   ])
   expect(unmocked).toEqual([])

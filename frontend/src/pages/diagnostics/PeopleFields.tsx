@@ -38,11 +38,12 @@ export function AutoSaveField<T extends string | number | null>({ id, label, hel
   }
   // One save at a time: Enter then leaving the field would otherwise send it twice.
   const sending = useRef(false)
-  // The text the server last refused, so leaving the field doesn't send it again; typing clears it.
+  // The text the server last refused, so leaving the field doesn't send it again; typing or Enter tries again.
   const refused = useRef<string | null>(null)
 
   const commit = (byEnter: boolean) => {
-    if (sending.current || text === refused.current) return
+    // Enter still retries a refused value: the refusal may have been passing (a restart, a dropped connection).
+    if (sending.current || (!byEnter && text === refused.current)) return
     const parsed = parse(text)
     if ('problem' in parsed) {
       setStatus({ kind: 'error', text: parsed.problem })
