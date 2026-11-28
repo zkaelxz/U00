@@ -324,6 +324,7 @@ class _TranslateRun:
         self.groups = []
         # Lines whose English this attempt split by length; flagged only once that English lands.
         self.split_by_length = set()
+        self._one_by_one_left = 0
         self.character_names = args.character_names or {}
         self.allowed_runs = allowed_source_runs(args.glossary_terms, args.style_guidelines)
         self.required_glossary = stream_recipe.required_terms(args.glossary_terms,
@@ -785,6 +786,7 @@ class _TranslateRun:
         # A forced rerun keeps the old English on a line the reply omitted (it may be the
         # user's own edit), so re-asking it would be the only path that rewrites it.
         if empty and not self.args.force_retranslate and (len(chunk) > 1 or len(empty) < len(chunk)):
+            self._one_by_one_left = self._ONE_BY_ONE_MAX
             empty = self._retry_smaller(empty, fresh, depth=0)
         flag_unusable_replies(empty, getattr(self.engine, "last_rejected", None))
         if empty:
@@ -815,8 +817,8 @@ class _TranslateRun:
     _EMPTY_RETRY_DEPTH = 2
     # Gemma leaves the same ids out of a reply again when they are re-asked in a group (on a
     # 5,131-line novel, 83 of 132 empty lines after both halving rounds), so the lines still
-    # empty then are asked one at a time. Bounded so a model refusing a whole batch costs at
-    # most this many extra requests.
+    # empty then are asked one at a time, at most this many per batch, so a model refusing a
+    # whole batch costs at most this many extra requests.
     _ONE_BY_ONE_MAX = 12
 
     def _retry_smaller(self, empty, fresh, depth):
@@ -826,13 +828,15 @@ class _TranslateRun:
         that are still empty."""
         if not empty:
             return empty
+        still = []
         if depth >= self._EMPTY_RETRY_DEPTH:
-            if len(empty) > self._ONE_BY_ONE_MAX:
-                return empty
-            parts = [[ln] for ln in empty]
+            # One budget for the whole batch: up to four quarters reach this depth.
+            asked = empty[:max(0, self._one_by_one_left)]
+            self._one_by_one_left -= len(asked)
+            parts = [[ln] for ln in asked]
+            still = empty[len(asked):]
         else:
             parts = [empty] if len(empty) == 1 else [empty[:len(empty) // 2], empty[len(empty) // 2:]]
-        still = []
         for part in parts:
             if self._should_stop():
                 still.extend(part)

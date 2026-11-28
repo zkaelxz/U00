@@ -588,21 +588,15 @@ def test_lines_still_empty_after_the_retry_are_reported(isolated_db):
     assert engine.sizes.count(1) == 8
 
 
-class _SkipsInAGroup(fake_engine.FakeEngine):
-    """Leaves line z3 out of every reply except one that asks for it alone."""
 
-    def __init__(self):
-        super().__init__()
-        self.sizes = []
-
-    def translate_batch(self, zh, context):
-        self.sizes.append(len(zh))
-        return ["" if z == "z3" and len(zh) > 1 else f"T:{z}" for z in zh]
-
-
-def test_a_line_left_out_of_every_group_is_asked_alone(isolated_db):
-    engine = _SkipsInAGroup()
+def test_lines_left_out_of_every_group_are_asked_alone(isolated_db):
+    engine = _CutOffWhenBig(limit=1)
     lines, errors = _run_big_batch(engine)
     assert errors == []
-    assert lines[3].en == "T:z3"
-    assert engine.sizes[-1] == 1
+    assert all(ln.en == f"T:z{i}" for i, ln in enumerate(lines))
+
+
+def test_asking_alone_is_bounded_per_batch(isolated_db):
+    engine = _CutOffWhenBig(limit=0)
+    _run_big_batch(engine, n=30)
+    assert engine.sizes.count(1) == 12
