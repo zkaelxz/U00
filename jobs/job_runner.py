@@ -18,7 +18,7 @@ import db
 from engine_backends.redaction import redact_secrets
 import gpu_probe
 import job_process_result
-from jobs import crash_retry
+from jobs import crash_retry, warm_worker
 from lib import storage_errors
 from lib.errors import exception_text
 from background_jobs import (CANCELLING_MESSAGE, JobCancelled, _db_cancel_requested, _forget_cancel_check,
@@ -175,6 +175,9 @@ def _run_on_done(job_id, run, on_done, payload):
 
 
 def _spawn(job_id, target, args, kwargs, gpu_touching=False, run=None):
+    if gpu_touching:
+        warm_worker.retire_idle("another GPU job is starting")
+
     def runner():
         import applog
         logger = applog.get_logger()
@@ -477,7 +480,8 @@ def _promote_one_queued_gpu_job(dropped):
                     run.get("owner_user_id"), start_method=entry.get("start_method"),
                     run_settings=run.get("run_settings"),
                     initial_result=run.get("result"), line_fields=_line_fields(run),
-                    daily_day=run.get("daily_day"), origin_device=run.get("origin_device"))
+                    daily_day=run.get("daily_day"), origin_device=run.get("origin_device"),
+                    warm_key=entry.get("warm_key"))
                 run = _jobs[job_id]
             except Exception as exc:
                 # mp.Queue()/Process() can fail (no fds, no /dev/shm)
@@ -498,7 +502,7 @@ def _promote_one_queued_gpu_job(dropped):
                 raise build_error
             if proc is None:
                 raise RuntimeError("the process job's worker was not built")
-            proc.start()
+            _start_worker(proc, True)
             _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                               job_id, proc, result_queue, True, on_done=on_done,
                               on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
@@ -519,23 +523,42 @@ def _promote_one_queued_gpu_job(dropped):
 def _register_process_job(job_id, target, args, gpu_touching, description, owner_user_id=None,
                           start_method=None, run_settings=None,
                           initial_result=None, line_fields=None, daily_day=None,
-                          origin_device=None):
+                          origin_device=None, warm_key=None):
     """Caller must already hold _lock. Builds the Process and its result
     queue and records the job dict entry, but doesn't call proc.start()
     itself -- constructing a Process is cheap, but actually starting one
     (forking/spawning a real OS process) shouldn't happen while holding
     _lock, so callers start it themselves right after releasing the
     lock. Returns (proc, result_queue) for that. start_method None keeps
-    the platform's default context."""
-    mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
-    result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
-    proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
-    _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
-                               run_settings, result=initial_result, process=proc,
-                               line_fields=line_fields, daily_day=daily_day,
-                               origin_device=origin_device)
-    _mirror_locked(job_id)
+    the platform's default context. warm_key (jobs/warm_worker.py): the job
+    runs in the warm worker when it is free, a WarmJob standing in for the
+    Process."""
+    proc = warm_worker.claim(job_id, target, args, warm_key) if warm_key else None
+    if proc is not None:
+        result_queue = proc.channel
+    else:
+        mp = multiprocessing.get_context(start_method) if start_method else multiprocessing
+        result_queue = job_process_result.wrap_queue(mp.Queue(), job_id)
+        proc = mp.Process(target=target, args=(*args, result_queue), daemon=True)
+    try:
+        _jobs[job_id] = _new_entry("running", "process", gpu_touching, description, owner_user_id,
+                                   run_settings, result=initial_result, process=proc,
+                                   line_fields=line_fields, daily_day=daily_day,
+                                   origin_device=origin_device)
+        _mirror_locked(job_id)
+    except BaseException:
+        if isinstance(proc, warm_worker.WarmJob):
+            proc.close()   # the claimed warm worker goes back
+        raise
     return proc, result_queue
+
+
+def _start_worker(proc, gpu_touching):
+    """proc.start() for a process job. An idle warm worker is retired first
+    unless proc is a run in it: it must not hold VRAM this job needs."""
+    if gpu_touching and not isinstance(proc, warm_worker.WarmJob):
+        warm_worker.retire_idle("another GPU job is starting")
+    proc.start()
 
 
 def _new_entry(status, kind, gpu_touching, description, owner_user_id, run_settings,

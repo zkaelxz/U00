@@ -11,6 +11,9 @@ import model_pins
 
 
 _whisper_model_cache = {}
+# Set only inside a warm transcription worker (jobs/warm_worker.py, arm "c"):
+# the end of a run keeps the Whisper model loaded for the worker's next job.
+keep_whisper_between_runs = False
 
 # Speech-recognition models offered in the Workspace picker (faster-whisper
 # names). large-v3 is the default by the owner's choice: on his streamer comparisons it
@@ -229,7 +232,7 @@ def release_whisper_models():
             pass  # a broken CUDA install must not fail the stage that follows
 
 
-def release_gpu_models():
+def release_gpu_models(keep_whisper: bool = False):
     """Call after a GPU stage (transcription, alignment, diarization)
     finishes: drops the cached Whisper / Qwen3-ASR / forced-aligner models (and the comic
     eraser's GPU copy)
@@ -237,11 +240,20 @@ def release_gpu_models():
     translation model in Ollama, or TTS -- isn't fighting leftovers for
     the same VRAM. The next run of a stage reloads its model (seconds, from
     disk). Only touches modules that are already loaded, so it never
-    imports torch or a model library just to clear it."""
+    imports torch or a model library just to clear it.
+
+    keep_whisper keeps a Whisper model that loaded on the GPU (see
+    keep_whisper_between_runs). One that fell back to the CPU is dropped, so
+    the next run tries the GPU again as a fresh worker would."""
     import gc
     import sys
-    _whisper_model_cache.clear()
-    _whisper_device_info.clear()
+    if keep_whisper:
+        for key in [k for k in _whisper_model_cache if _whisper_device_info.get(k, {}).get("device") != "cuda"]:
+            _whisper_model_cache.pop(key, None)
+            _whisper_device_info.pop(key, None)
+    else:
+        _whisper_model_cache.clear()
+        _whisper_device_info.clear()
     for module_name, cache_name in (("asr_backend", "_asr_model_cache"),
                                     ("forced_align", "_aligner_model_cache"),
                                     ("scanlate.scanlate_lama", "_lama_gpu")):

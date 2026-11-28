@@ -96,6 +96,11 @@ def start_own_process_group():
     the parent *thread* that started the worker exits, and a queued job is
     started from another job's watcher thread, which ends right after."""
     global _worker_parent, _worker_parent_pid
+    if _worker_parent_pid is not None:
+        # A warm worker (jobs/warm_worker.py) set this up once and then runs
+        # each job's target, which calls it again; a second watchdog would
+        # only add a thread per job.
+        return
     try:
         parent = multiprocessing.parent_process()
         _worker_parent = parent

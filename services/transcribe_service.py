@@ -45,7 +45,7 @@ from types import SimpleNamespace
 from typing import Optional
 
 import background_jobs
-from jobs import crash_retry, gpu_guard, job_launch
+from jobs import crash_retry, gpu_guard, job_launch, warm_worker
 import core as core_module
 import whisper_models
 import segment_splitting
@@ -522,6 +522,10 @@ def _start_worker_job(job_id, drama_id, drama, run) -> bool:
             # Spawn, not Linux's default fork: a forked child of a process
             # that has already initialised CUDA cannot use the GPU.
             start_method="spawn",
+            # args[18] is the offline model folder exactly as the worker gets it.
+            warm_key=warm_worker.transcription_key(
+                run.whisper_size, run.use_gpu, args[18], run.separation_backend,
+                run.asr_backend_choice, run.transcript_mode),
             on_done=functools.partial(
                 _apply_on_done, drama_id=drama_id, source_language=run.source_language,
                 whisper_size=run.whisper_size, use_gpu=run.use_gpu,

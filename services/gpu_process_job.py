@@ -18,7 +18,7 @@ import threading
 import time
 
 import background_jobs
-from jobs import crash_retry, job_runner, process_worker
+from jobs import crash_retry, job_runner, process_worker, warm_worker
 import cuda_runtime_path
 import job_process_kill
 import job_process_result
@@ -134,6 +134,7 @@ def run_in_child(job_id, body, args, *, timeout_s, poll_s=0.25, on_item=None):
     try:
         # Spawn, not Linux's default fork: a forked child of a process that
         # has already initialised CUDA cannot use the GPU.
+        warm_worker.retire_idle("a GPU child process is starting")
         proc.start()
         worker_deadline = time.monotonic() + timeout_s
         result = _await_child(job_id, proc, channel, poll_s, worker_deadline,

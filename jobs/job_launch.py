@@ -17,7 +17,7 @@ from jobs import crash_retry, gpu_guard, user_caps
 from jobs.gpu_queue import (_enqueue_locked, _gpu_queue_waiting_locked,
                             _gpu_slot_available_locked, _note_gpu_wait_reason_locked, _release_gpu_slot)
 from jobs.job_runner import (_fail_start, _new_entry, _process_watcher, _register_process_job, _spawn,
-                             _start_job_thread)
+                             _start_job_thread, _start_worker)
 from jobs.job_settings import get_gpu_limit_enabled
 from jobs.job_table import _jobs, _lock, _mirror_locked, _warn
 from lib import model_offline
@@ -328,7 +328,7 @@ def _wrap_process_hooks(target, on_done, cpu_retry_args, start_method, owner_use
 def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool = False,
                       description: str | None = None, on_done=None, on_finish=None,
                       kill_whole_tree: bool = False, start_method: str | None = None, run_settings: dict | None = None,
-                      initial_result=None, line_fields=None, cpu_retry_args=None) -> bool:
+                      initial_result=None, line_fields=None, cpu_retry_args=None, warm_key=None) -> bool:
     """
     Like start_job(), but runs target in a real OS subprocess
     (multiprocessing.Process) instead of a thread -- the first
@@ -400,8 +400,9 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
     start_job's; it limits what on_done writes.
 
     on_done/on_finish/kill_whole_tree/start_method/cpu_retry_args (one CPU run after a native
-    crash: jobs/crash_retry.py) are carried through the GPU queue like target/args. Records its
-    starter, applies the per-user caps and refuses during a clean stop like start_job().
+    crash: jobs/crash_retry.py)/warm_key (jobs/warm_worker.py) are carried through the GPU queue
+    like target/args. Records its starter, applies the per-user caps and refuses during a clean
+    stop like start_job().
     """
     line_fields = db.check_line_fields(line_fields)
     owner_user_id, origin_device = _acting_user_id(), _acting_device()
@@ -419,7 +420,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             _new_run_locked(job_id)
             _enqueue_locked({"job_id": job_id, "target": target, "args": args,
                                 "kwargs": {}, "description": description, "kind": "process",
-                                "on_done": on_done, "on_finish": on_finish,
+                                "on_done": on_done, "on_finish": on_finish, "warm_key": warm_key,
                                 "kill_whole_tree": kill_whole_tree, "start_method": start_method,
                                 "cpu_retry": cpu_retry, "cap_exempt": user_caps.refusing()})
             _note_gpu_wait_reason_locked(job_id)
@@ -427,9 +428,8 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
         try:
             proc, result_queue = _register_process_job(job_id, target, args, gpu_touching,
                                                        description, owner_user_id,
-                                                       start_method=start_method,
-                                                       run_settings=run_settings,
-                                                       initial_result=initial_result,
+                                                       start_method=start_method, warm_key=warm_key,
+                                                       run_settings=run_settings, initial_result=initial_result,
                                                        line_fields=line_fields, daily_day=counted_day, origin_device=origin_device)
         except Exception:
             # mp.Queue()/Process() failed after the slot was taken; no run exists to free it.
@@ -437,7 +437,7 @@ def start_process_job(job_id: str, target, args: tuple = (), gpu_touching: bool 
             raise
         run = _new_run_locked(job_id, mirror=False)
     try:
-        proc.start()
+        _start_worker(proc, gpu_touching)
         _start_job_thread(_process_watcher, f"job-watcher:{job_id}",
                           job_id, proc, result_queue, gpu_touching, on_done=on_done,
                           on_finish=on_finish, kill_whole_tree=kill_whole_tree, run=run,
