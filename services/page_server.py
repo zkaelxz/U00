@@ -745,7 +745,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
             if mine is None:
                 return page_capture_checks.reused_page_response(
                     data, reuse_saved, [page_turns.STILL_TRANSLATING_NOTE],
-                    drama_pk, page["id"])
+                    drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
             claim = (page["id"], mine)
         if reuse_saved is not None:
             page, drama_pk = _stored(page, drama_id)
@@ -753,7 +753,7 @@ def translate_image(data: bytes, content_type: str, drama_id=None,
                 reuse_notes = _translate_missing(reuse_saved, page["id"], drama, drama_id, source_url,
                                                  config, member, image=data, language=source_language)
             return page_capture_checks.reused_page_response(
-                data, reuse_saved, reuse_notes, drama_pk, page["id"])
+                data, reuse_saved, reuse_notes, drama_pk, page["id"], len(_lines_without_english(reuse_saved)))
 
         # Detector/OCR notes can quote a Hugging Face download error;
         # the saved HF token now reaches that call, so redact them.

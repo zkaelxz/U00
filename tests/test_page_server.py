@@ -1420,6 +1420,7 @@ class TestConcurrentCapturesOfOneTitle:
         again = second_out["handler"].payload
         assert again["failed"] == [] and again["already_stored"] == 1
         assert again["pages"][0]["regions"][0]["translated_text"] == "the translation"
+        assert again["pages"][0]["untranslated_lines"] == 0
         assert first_out["handler"].payload["failed"] == []
         assert len(db.list_pages(drama_id)) == 1
 
@@ -1438,6 +1439,7 @@ class TestConcurrentCapturesOfOneTitle:
         assert len(state["calls"]) == 1
         assert again["failed"] == [] and again["already_stored"] == 1
         assert "still being translated" in again["pages"][0]["notes"][0][1]
+        assert again["pages"][0]["untranslated_lines"] == 1
 
     def test_two_pages_of_one_title_keep_the_context_chain_in_order(
             self, token, fake_pipeline, isolated_db, monkeypatch):

@@ -73,6 +73,12 @@ final class GrabStore {
         }
     }
 
+    static void clearDone(android.content.SharedPreferences prefs) {
+        synchronized (LOCK) {
+            prefs.edit().remove(KEY_DONE).apply();
+        }
+    }
+
     static void clearHistory(android.content.SharedPreferences prefs) {
         synchronized (LOCK) {
             prefs.edit().putString(KEY_HISTORY, "[]").apply();
