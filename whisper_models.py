@@ -462,6 +462,13 @@ def get_whisper_device_info(model_size: str, use_gpu: bool = False,
     return dict(_whisper_device_info.get(key, {}))
 
 
+def forget_whisper_model(model_size: str, use_gpu: bool = False, local_model_path: str | None = None) -> None:
+    """Drops one cached Whisper model, so the next load_whisper_model builds it again."""
+    key = f"{local_model_path or model_size}_{'gpu' if use_gpu else 'cpu'}"
+    _whisper_model_cache.pop(key, None)
+    _whisper_device_info.pop(key, None)
+
+
 def describe_whisper_device(info: dict) -> str:
     """Plain-words one-liner for get_whisper_device_info()'s dict."""
     if not info:

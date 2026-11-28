@@ -116,6 +116,11 @@ def test_update_to_the_newest_release():
     assert out == {"status": "update", "latest": "0.42.1", "target": "0.42.1", "reason": None}
 
 
+def test_versions_compare_as_numbers_not_text():
+    out = _c("jieba", "1.9.0", ["1.10.0", "1.9.0"])
+    assert out == {"status": "update", "latest": "1.10.0", "target": "1.10.0", "reason": None}
+
+
 def test_constraints_hold_back_the_newest_but_allow_an_update():
     cons = {"transformers": (SPEC.SpecifierSet("<6"), "transformers<6")}
     out = _c("transformers", "5.1.0", ["5.1.0", "5.2.0", "6.0.0"], cons)
@@ -162,6 +167,11 @@ def test_real_constraints_file_parses():
     cons = dependency_updates.constraint_specifiers()
     assert "torch" in cons and cons["torch"][0].contains("2.11.0")
     assert not cons["transformers"][0].contains("6.0.0")
+
+
+def test_a_copy_without_constraints_txt_has_no_caps(tmp_path):
+    # Portable and installer copies may ship without the file.
+    assert dependency_updates.constraint_specifiers(str(tmp_path)) == {}
 
 
 # ---- the service: check, cache, upgrade to exactly the target ----

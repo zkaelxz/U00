@@ -5,6 +5,8 @@
 import type { TranslateEngine } from '../types/translate'
 import type {
   CaptionTrack,
+  EarMarks,
+  EarMarksStarted,
   ReaderAnswer,
   ReaderChatTurn,
   ReaderEngineFields,
@@ -114,6 +116,10 @@ export const readerApi = {
   watchPosition: (id: number, f?: Fetch) => getJson<ReaderWatchPosition>(`${root(id)}/watch-position`, f),
   saveWatchPosition: (id: number, seconds: number, f?: Fetch) =>
     postJson<ReaderWatchPosition>(`${root(id)}/watch-position`, { seconds }, f),
+  /** Lines heard mostly in one ear of a stereo title. */
+  earMarks: (id: number, f?: Fetch) => getJson<EarMarks>(`${root(id)}/ear-marks`, f),
+  startEarMarks: (id: number, f?: Fetch) =>
+    postJson<EarMarksStarted>(`${root(id)}/ear-marks`, {}, f),
   lookup: (id: number, body: ReaderLookupRequest, f?: Fetch) =>
     postJson<ReaderLookupResult>(`${root(id)}/lookup`, body, f),
   vocab: (id: number, f?: Fetch) => getJson<ReaderVocabList>(`${root(id)}/vocab`, f),
