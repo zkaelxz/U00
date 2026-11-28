@@ -126,6 +126,8 @@ public class MainActivity extends Activity {
                 barsHidden = false;
                 showStrip();
                 loadFailed = false;
+                // The page that was playing is gone, and its cleanup never ran.
+                MediaPlayback.report(MainActivity.this, null);
             }
 
             @Override
@@ -146,7 +148,8 @@ public class MainActivity extends Activity {
                 String address = savedAddress();
                 if (address != null && ServerAddress.sameOrigin(address, url)) {
                     // evaluateJavascript runs in the top page only, so no iframe ever sees the key.
-                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey()), null);
+                    view.evaluateJavascript("window.__baiheSaveKey=" + org.json.JSONObject.quote(bridge.newSaveKey())
+                            + ";window.dispatchEvent(new Event('baihekey'))", null);
                     checkForUpdate(address);
                 }
             }
@@ -263,8 +266,14 @@ public class MainActivity extends Activity {
                     showStrip();
                 });
             }
+            @Override
+            public void mediaState(String json) {
+                MediaState state = MediaState.parse(json);
+                if (state != null) runOnUiThread(() -> MediaPlayback.report(MainActivity.this, state));
+            }
         });
         web.addJavascriptInterface(bridge, "BaiheShell");
+        MediaPlayback.attach(mediaPage);
         setContentView(page());
         open(getIntent());
         try {
@@ -514,6 +523,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        // A tap on the playback controls only brings the app back; opening the address again would stop the sound.
+        if (MediaPlayback.SHOW_PLAYER.equals(intent.getAction())) return;
         if (web != null) open(intent);
     }
 
@@ -754,15 +765,33 @@ public class MainActivity extends Activity {
         if (web == null) return;
         // Coming back to the front is what cleared a stale layout by hand; do it without the person having to.
         refreshAfterResize();
+        // A start Android refused while the app was in the background can go through now that it is in front.
+        MediaPlayback.retryIfRefused(this);
         web.removeCallbacks(poll);
         poll.run();
     }
 
+    // Only the update poll stops here: pausing the WebView or its timers would stop the Watch page's sound
+    // on the lock screen.
     @Override
     protected void onPause() {
         super.onPause();
         if (web != null) web.removeCallbacks(poll);
     }
+
+    @Override
+    protected void onDestroy() {
+        MediaPlayback.detach(mediaPage);
+        // The WebView is not destroyed with the activity, so a player still going would play on with no controls.
+        mediaPage.send(MediaState.PAUSE, 0);
+        super.onDestroy();
+    }
+
+    /** Hands a press on the lock screen, notification or headset to the Watch page. */
+    private final MediaPlayback.Page mediaPage = (action, value) -> {
+        String script = MediaState.pageScript(action, value);
+        if (web != null && script != null) web.evaluateJavascript(script, null);
+    };
 
     private File updateFile() {
         File dir = new File(getCacheDir(), "updates");

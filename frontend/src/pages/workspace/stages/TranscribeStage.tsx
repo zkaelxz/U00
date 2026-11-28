@@ -49,7 +49,7 @@ import { GpuBanner } from '../../diagnostics/GpuBanner'
 import { PreflightCard } from '../../preflight/PreflightCard'
 import { NeedRows, type ListedNeed } from '../../readiness/NeedRows'
 import { NeedsInstall } from '../../readiness/NeedsInstall'
-import { QWEN3_BACKENDS, nemotronWillRun, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
+import { QWEN3_BACKENDS, nemotronWillRun, whisperSizeCached, qwen3Warning, runBlockers, transcribeNeeds, usesLocalWhisper, type TranscribeNeedsForm } from '../../readiness/needs'
 import { useSimple, useStage } from '../StageContext'
 import type { MediaTab } from '../mediaTabs'
 import { titleKind } from '../titleKind'
@@ -551,13 +551,16 @@ export default function TranscribeStage({
   const qwenWarnings = [qwen3Chosen && qwen3Warning(), aligning && qwen3Warning(true)].filter((w): w is string => !!w)
   const gpuUnavailable = useGpu === true && config?.gpu_runtime.status === 'missing'
   const showBeforeYouRun = notInstalled || listed.length > 0 || qwenWarnings.length > 0
+  const pickedCached = cf
+    ? whisperSizeCached(readiness, cf.whisper_size, config ? { size: config.whisper_size, cached: config.whisper_model_cached } : null)
+    : null
   const estimate = cf && whisperRun && !uploadFile && hasMedia
     ? transcribeEstimate({
         audioSeconds: duration,
         whisperSize: cf.whisper_size,
         useGpu,
         fastMode: cf.whisper_fast_mode,
-        modelCached: config?.whisper_model_cached,
+        modelCached: pickedCached ?? undefined,
         measuredSpeed: config?.whisper_size === cf.whisper_size ? config.measured_speed : null,
         measuredRuns: config?.measured_speed_runs,
         measuredStages: config?.whisper_size === cf.whisper_size ? config.measured_stage_seconds : undefined,
@@ -683,7 +686,7 @@ export default function TranscribeStage({
         <Section title="More options" storageKey="transcribe.more" summary={moreSummary}>
           <div className="source-grid">
             {cf && (
-              <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, !!config && !config.whisper_model_cached, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
+              <Field label="Accuracy and speed" unit={cf.whisper_size} help={whisperModelHelp(cf.whisper_size, pickedCached === false, backendNotUsed, replacementModel(cf.asr_backend_choice))}>
                 <select className="w-md" value={cf.whisper_size} disabled={!!backendNotUsed} title={backendNotUsed ?? undefined} onChange={(e) => setC('whisper_size', e.target.value)}>
                   {whisperChoices.map((o) => (
                     <option key={o.size} value={o.size} disabled={!!o.reason} title={o.reason ?? undefined}>

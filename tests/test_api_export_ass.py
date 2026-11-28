@@ -121,6 +121,18 @@ def test_style_options(client):
     assert body["custom_font_allowed"] is True
 
 
+def test_sound_captions_reach_the_ass_and_srt_downloads(client, drama, isolated_db):
+    import sensevoice_tags
+    from core import lines_from_rows
+    first = lines_from_rows(isolated_db.load_lines(drama))[0].id
+    sensevoice_tags.save_audio_tags(isolated_db.drama_dir(drama), {first: {"emotion": "happy", "events": ["Laughter"]}})
+    assert "[laughs] Hello" in client.post(_url(drama), json={"sound_captions": True}).text
+    assert "[laughs]" not in client.post(_url(drama), json={}).text
+    srt = client.get(f"/api/export/dramas/{drama}/subtitle", params={"fmt": "srt", "sound_captions": "true"})
+    assert srt.status_code == 200 and "[laughs] Hello" in srt.text
+    assert client.get(f"/api/export/dramas/{drama}/readiness").json()["sound_captioned_lines"] == 1
+
+
 def _dialogues(text):
     return [ln.split(",", 9)[9] for ln in text.splitlines() if ln.startswith("Dialogue:")]
 

@@ -32,6 +32,7 @@ from urllib.parse import urlsplit
 
 from . import pacing, store
 from .http import PacingPolicy, SourceClient
+from .http_transport import header
 from .models import (FailureReason, NotSupportedError, Requirement, SourceCapabilities,
                      SourceError)
 
@@ -142,14 +143,24 @@ class PlainImageDownload:
     #: (min, max) seconds between downloads from the picture server; None keeps
     #: the person's page pace. Set it for a site whose chapter is hundreds of slices.
     image_pace = None
+    #: The extension for a page URL whose file name has none.
+    default_page_ext = ".jpg"
+    #: True for a site that can send an error or block page with a 200: a reply not sent
+    #: as an image is refused instead of being saved as a page.
+    images_only = False
     client: SourceClient
 
     def download_page(self, page):
         resp = self.client.get(page.url, classify_body=False, headers=page.headers,
                                action=f"Downloading page {page.index + 1}",
                                image_pace=self.image_pace)
-        name = page.url.split("?", 1)[0]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name.rsplit("/", 1)[-1] else ".jpg"
+        if self.images_only:
+            ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
+            if ctype and not ctype.startswith("image/"):
+                raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
+                                  FailureReason.HTTP_ERROR)
+        name = urlsplit(page.url).path.rsplit("/", 1)[-1]
+        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else self.default_page_ext
         return resp.content, ext
 
 

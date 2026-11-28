@@ -21,6 +21,7 @@ import re
 from typing import Any
 
 import review_thresholds
+import segment_splitting
 from core import cue_speaker_name, fmt_ts, notes_suffix, sfx_cue_text
 
 # ---------------------------------------------------------------- wrapping
@@ -219,10 +220,21 @@ def lines_for_clip(lines, start: float, end: float):
         c = copy.copy(ln)
         c.start = max(ln.start, start) - start
         c.end = min(ln.end, end) - start
+        c.word_timings = _shift_words(ln, start)
         out.append(c)
     for i, ln in enumerate(out):
         ln.idx = i
     return out
+
+
+def _shift_words(ln, by: float):
+    """The line's stored words moved `by` seconds earlier (word times are
+    absolute audio times, so a clip's karaoke needs them on its own timeline)."""
+    words = segment_splitting.line_words(ln)
+    if not words:
+        return None
+    moved = [{**w, "start": max(0.0, w["start"] - by), "end": max(0.0, w["end"] - by)} for w in words]
+    return segment_splitting.encode_line_words(ln.zh or "", moved)
 
 
 # ---------------------------------------------------------- reading speed

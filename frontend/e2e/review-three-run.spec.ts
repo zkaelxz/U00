@@ -19,7 +19,7 @@ test('three runs, then pick only the differing lines by key', async ({ page }) =
   const seen = { begin: 0, runs: 0, captures: [] as number[], picks: [] as unknown[], keepRest: [] as unknown[] }
   let state: Record<string, unknown> = { active: false, runs_done: 0, history_id: null, line_count: 0, items: [] }
   const items = [
-    { line_id: 1, idx: 0, zh: '句1', versions: ['A1', 'A2', 'A3'], picked_run: null, current_en: 'A3' },
+    { line_id: 1, idx: 0, zh: '句1', versions: ['A1', 'A2', 'A3'], picked_run: null as number | null, current_en: 'A3' },
     { line_id: 2, idx: 1, zh: '句2', versions: ['B1', 'B2', 'B3'], picked_run: null, current_en: 'B3' },
   ]
   await page.route('**/api/**', (route) => (route.request().method() === 'GET' ? route.continue() : route.abort()))

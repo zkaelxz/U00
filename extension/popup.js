@@ -22,6 +22,7 @@ const els = {
   retryMissed: document.getElementById("retryMissed"),
   textDirection: document.getElementById("textDirection"),
   translateText: document.getElementById("translateText"),
+  siteSubs: document.getElementById("siteSubs"),
   sendVideo: document.getElementById("sendVideo"),
   startLive: document.getElementById("startLive"),
   liveLanguage: document.getElementById("liveLanguage"),
@@ -260,6 +261,7 @@ async function showNovelSection() {
     // A saved chapter needs a title, so quick translate leaves it out; the Text tab covers novels.
     els.novelSection.hidden = !els.store.checked || !(status && status.ok &&
                                 (status.data.textPage || status.data.hasSelection));
+    if (status && status.ok) els.siteSubs.checked = !!status.data.siteSubs;
   } catch (e) { /* a page the browser keeps extensions out of */ }
 }
 
@@ -719,6 +721,38 @@ const runStartLive = () => runVideo("startLive", { sourceLanguage: els.liveLangu
   route: () => "#/live",
 });
 
+function describeSiteSubs(data) {
+  if (!data.media) return "No video or audio on this page.";
+  if (!data.found) return "Not in your library. “Subtitle this video” sends it to Baihe.";
+  if (!data.count) return `${data.title || "Your title"} has no English lines yet.`;
+  const lines = `${data.count} line${data.count === 1 ? "" : "s"}${data.cutOff ? ", the first part only" : ""}`;
+  return `Showing ${data.title || "your title"} (${lines}).`;
+}
+
+async function runSiteSubs() {
+  const on = els.siteSubs.checked;
+  const tab = await activeTab();
+  if (!tab || !tab.id) return say("No active tab.", true);
+  try {
+    await ensureContentScript(tab.id);
+    if (on) say("Looking for this video in Baihe…");
+    const result = await chrome.tabs.sendMessage(tab.id, { type: "showSiteSubs", on });
+    if (!result || !result.ok) {
+      els.siteSubs.checked = false;
+      return say((result && result.error) || "That didn't work.", true);
+    }
+    if (!on) return say("Baihe subs off.");
+    const data = result.data || {};
+    // A later switch of the toggle already answered for this page.
+    if (data.superseded) return;
+    els.siteSubs.checked = !!(data.found && data.count);
+    say(describeSiteSubs(data), !els.siteSubs.checked);
+  } catch (e) {
+    els.siteSubs.checked = false;
+    say(`Couldn't run on this page (${e.message}).`, true);
+  }
+}
+
 // One line for the save's outcome: whether a chapter was added, and from what.
 function describeNovelSave(data) {
   const title = dramaTitles.get(String(data.drama_id)) || "the title";
@@ -807,6 +841,7 @@ els.retryMissed.addEventListener("click", async () => {
   }
 });
 els.translateText.addEventListener("click", runText);
+els.siteSubs.addEventListener("change", runSiteSubs);
 els.sendVideo.addEventListener("click", runSendVideo);
 els.startLive.addEventListener("click", runStartLive);
 els.saveNovel.addEventListener("click", runSaveNovel);

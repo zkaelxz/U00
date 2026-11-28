@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { LanguagePackEntry, TitleLanguagePack } from '../../../types/languagePacks'
-import { choiceAfter, entryRendering, packsSummary, termFromEntry } from './languagePacksModel'
+import { choiceAfter, entryRendering, packsSummary, SHOWN_ENTRIES, shownEntries, termFromEntry } from './languagePacksModel'
 
 const pack = (over: Partial<TitleLanguagePack> = {}): TitleLanguagePack => ({
   id: 'ja-address', version: 1, language: 'ja', title: 'Japanese honorifics', description: 'd', entry_count: 2,
@@ -10,7 +10,7 @@ const pack = (over: Partial<TitleLanguagePack> = {}): TitleLanguagePack => ({
 })
 const senpai: LanguagePackEntry = {
   source: '先輩', en: { romanised: 'senpai', natural: 'senior' }, category: 'honorific',
-  note: 'Said instead of the name', context: 'junior to senior',
+  note: 'Said instead of the name', context: 'junior to senior', link: '',
 }
 
 describe('language packs model', () => {
@@ -39,5 +39,22 @@ describe('language packs model', () => {
       category: 'honorific', policy: 'contextual',
     })
     expect(termFromEntry({ ...senpai, category: 'phrase', en: 'Welcome back' }, pack()).policy).toBe('translate_meaning')
+  })
+})
+
+describe('shownEntries', () => {
+  const many: LanguagePackEntry[] = Array.from({ length: SHOWN_ENTRIES + 50 }, (_, i) => ({
+    source: `名${i}`, en: `Name ${i}`, category: 'streamer', note: i === 7 ? 'fans: Ling Qiu' : '', context: '', link: '',
+  }))
+
+  it('caps what is shown and counts every match', () => {
+    expect(shownEntries(many, '')).toMatchObject({ matching: SHOWN_ENTRIES + 50 })
+    expect(shownEntries(many, '').shown).toHaveLength(SHOWN_ENTRIES)
+  })
+
+  it('finds by source, English (any style) or note, ignoring case', () => {
+    expect(shownEntries(many, '名149').shown.map((e) => e.en)).toEqual(['Name 149'])
+    expect(shownEntries(many, 'ling qiu').shown.map((e) => e.source)).toEqual(['名7'])
+    expect(shownEntries([senpai], 'SENIOR').matching).toBe(1)
   })
 })

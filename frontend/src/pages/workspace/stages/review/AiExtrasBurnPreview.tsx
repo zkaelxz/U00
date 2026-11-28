@@ -104,6 +104,9 @@ export function AiExtrasBurnPreview({ dramaId }: Props) {
           wrap_chars_en: built.request.wrap_chars_en,
           wrap_chars_source: built.request.wrap_chars_source,
           ear_placement: built.request.ear_placement,
+          field: built.request.field,
+          reading_line: built.request.reading_line,
+          karaoke: built.request.karaoke,
         }),
       })
       setJobId(r.job_id)
