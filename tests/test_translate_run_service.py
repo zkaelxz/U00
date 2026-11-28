@@ -327,6 +327,19 @@ def test_new_run_uses_the_defaults_and_explicit_sizes_are_kept(isolated_db, monk
                               batch_size=20) == (6, 3, 20)
 
 
+def test_only_a_chosen_batch_size_lifts_the_novel_character_budget(isolated_db, monkeypatch):
+    did = _drama()
+    _seed(did, [("你好", "")])
+    budgets = []
+    monkeypatch.setattr(svc.job_launch, "start_job",
+                        lambda *a, **k: budgets.append(k["novel_char_budget"]) or True)
+    monkeypatch.setattr(engine_registry, "get_engine", lambda *a, **k: object())
+    patch_setting(monkeypatch, "ollama_num_ctx_override", 0)
+    svc.start_translate_run(did, engine_name="ollama")
+    svc.start_translate_run(did, engine_name="ollama", batch_size=20)
+    assert budgets == [True, False]
+
+
 def test_config_reports_the_titles_saved_toggles_and_none_before_a_choice(isolated_db):
     did = isolated_db.create_drama(title_zh="D")
     cfg = svc.get_translate_config(did)
