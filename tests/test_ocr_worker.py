@@ -37,7 +37,8 @@ def _fresh(monkeypatch):
     monkeypatch.setattr(ocr_worker, "_cpu", ocr_worker._Helper("cpu"))
     monkeypatch.setattr(ocr_worker, "_gpu", ocr_worker._Helper("gpu"))
     monkeypatch.setattr(ocr_worker, "_gpu_off_reason", None)
-    monkeypatch.setattr(ocr_worker, "_gpu_checked_at", None)
+    monkeypatch.setattr(ocr_worker, "_ko_off_reason", None)
+    monkeypatch.setattr(ocr_worker, "_gpu_checked_at", {})
 
 
 def _fake_rapidocr(monkeypatch, engine):
@@ -108,7 +109,7 @@ def test_gpu_models_that_cannot_be_fetched_read_on_the_cpu_for_now(worker):
     worker.setattr(ocr, "_rapidocr_params", params)
     _fake_rapidocr(worker, lambda p, source: _Result("cpu"))
     assert ocr_worker.read("medium", "/fake/a.png").txts == ("cpu",)
-    assert ocr_worker._gpu_off_reason is None and ocr_worker._gpu_checked_at is not None, \
+    assert ocr_worker._gpu_off_reason is None and "medium" in ocr_worker._gpu_checked_at, \
         "a failed download is tried again after the recheck interval, not given up on"
 
 
@@ -151,10 +152,18 @@ class TestGpuAllowed:
         assert not ocr_worker._gpu_allowed("medium")
         assert not ocr_worker._gpu_allowed("medium")
         assert self.readings == 1
-        assert ocr_worker._gpu_checked_at is not None
-        ocr_worker._gpu_checked_at -= ocr_worker.GPU_RECHECK_SECONDS + 1
+        assert "medium" in ocr_worker._gpu_checked_at
+        ocr_worker._gpu_checked_at["medium"] -= ocr_worker.GPU_RECHECK_SECONDS + 1
         self.free = 16000
         assert ocr_worker._gpu_allowed("medium") and self.readings == 2
+
+    def test_a_full_card_for_one_key_does_not_hold_the_other_keys_check(self, monkeypatch):
+        monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: True)
+        self.free = 500
+        assert not ocr_worker._gpu_allowed("medium")
+        self.free = 16000
+        assert ocr_worker._gpu_allowed("ko") and self.readings == 2
+        assert not ocr_worker._gpu_allowed("medium"), "medium still waits out its own interval"
 
     def test_a_fault_turns_the_gpu_off_for_a_while_not_for_the_rest_of_the_process(self):
         ocr_worker._gpu_off("CUDA error")
@@ -169,7 +178,7 @@ class TestGpuAllowed:
         self.free = None
         for _ in range(3):
             ocr_worker._gpu_allowed("medium")
-            ocr_worker._gpu_checked_at = None
+            ocr_worker._gpu_checked_at.clear()
         assert len(lines) == 1 and "could not be read" in lines[0]
 
 
@@ -265,7 +274,7 @@ def test_a_card_that_fills_while_loading_is_asked_again_later(helpers):
     helpers.scripts += [_FakeConn([("gpu_later",)]), _FakeConn([("ok", ("cpu",), None, None)] * 2)]
     ocr_worker.read("medium", "/fake/a.png")
     ocr_worker.read("medium", "/fake/b.png")
-    assert ocr_worker._gpu_checked_at is not None and ocr_worker._gpu_off_reason is None
+    assert "medium" in ocr_worker._gpu_checked_at and ocr_worker._gpu_off_reason is None
     assert not ocr_worker._gpu.alive(), "the GPU helper is stopped so its memory goes back"
 
 
@@ -405,6 +414,66 @@ def test_a_helper_that_died_without_answering_is_replaced_at_once(helpers):
     assert len(helpers.starts) == 2
 
 
+def _medium_on_the_gpu(helpers, gpu_reply=("ok", ("medium-gpu",), None, None)):
+    """A loaded medium GPU helper and a CPU helper that answers every read with ("cpu",)."""
+    medium = _FakeConn([("ready",), gpu_reply])
+    helpers.scripts += [medium, _FakeConn([("ok", ("cpu",), None, None)] * 10)]
+    ocr_worker.read("medium", "/fake/warm.png")
+    assert ocr_worker._gpu_ready("medium")
+    return medium
+
+
+def _read_in_the_gap(helpers, other_key):
+    """Has another thread read `other_key` after a medium read found the GPU ready and before it
+    sends its request, the window in which that thread can swap the GPU helper's engine."""
+    real = ocr_worker._gpu_ready_or_nearly
+    other = {}
+
+    def gap(key):
+        ready = real(key)
+        if key == "medium" and not other:
+            other["started"] = True
+            thread = threading.Thread(
+                target=lambda: other.update(txts=ocr_worker.read(other_key, "/fake/other.png").txts))
+            thread.start()
+            thread.join(10)
+        return ready
+    helpers.monkeypatch.setattr(ocr_worker, "_gpu_ready_or_nearly", gap)
+    return other
+
+
+def test_a_read_never_takes_the_reply_meant_for_another_keys_load(helpers):
+    _medium_on_the_gpu(helpers)
+    ko = _FakeConn([("ready",), ("ok", ("ko-gpu",), None, None)])
+    helpers.scripts.append(ko)
+    other = _read_in_the_gap(helpers, "ko")
+    assert ocr_worker.read("medium", "/fake/a.png").txts == ("cpu",), "its engine was swapped out"
+    assert other["txts"] == ("cpu",)
+    assert ko.sent == [("load", "ko:gpu", "ko", ocr_worker.GPU_IDLE_EXIT_SECONDS)], \
+        "the medium read never reaches the Korean helper"
+    assert ocr_worker.read("ko", "/fake/b.png").txts == ("ko-gpu",), "Korean still gets its own load reply"
+    assert ocr_worker._gpu_off_reason is None and ocr_worker._ko_off_reason is None
+
+
+def test_a_korean_load_fault_does_not_turn_the_chinese_gpu_reader_off(helpers):
+    _medium_on_the_gpu(helpers)
+    helpers.scripts.append(_FakeConn([("gpu_failed", "onnxruntime has no CUDA provider")]))
+    _read_in_the_gap(helpers, "ko")
+    assert ocr_worker.read("medium", "/fake/a.png").txts == ("cpu",)
+    assert ocr_worker._gpu_off_reason is None
+    assert ocr_worker.read("ko", "/fake/b.png").txts == ("cpu",)
+    assert "no CUDA provider" in ocr_worker._ko_off_reason and ocr_worker._gpu_off_reason is None
+
+
+def test_reads_for_the_same_key_share_the_loaded_gpu_engine(helpers):
+    medium = _medium_on_the_gpu(helpers)
+    medium.replies.append(("ok", ("medium-gpu-2",), None, None))
+    other = _read_in_the_gap(helpers, "medium")
+    assert ocr_worker.read("medium", "/fake/a.png").txts == ("medium-gpu-2",)
+    assert other["txts"] == ("medium-gpu",)
+    assert len(helpers.starts) == 2 and ocr_worker.on_gpu()
+
+
 def test_warming_does_not_start_the_gpu_load_without_its_weights(helpers):
     helpers.monkeypatch.setattr(ocr_worker, "_gpu_weights_on_disk", lambda key="medium": False)
     helpers.scripts.append(_FakeConn([("ok", ("cpu",), None, None)]))
@@ -489,7 +558,7 @@ def test_korean_uses_the_gpu_only_with_onnxruntime_gpu_installed(monkeypatch):
     monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: False)
     assert ocr_worker._gpu_allowed("ko") is False
     monkeypatch.setattr(ocr_worker, "_ort_gpu_installed", lambda: True)
-    monkeypatch.setattr(ocr_worker, "_gpu_checked_at", None)
+    monkeypatch.setattr(ocr_worker, "_gpu_checked_at", {})
     # The card checks (Settings, guard, free memory) still apply beyond this point.
     import stored_settings
     monkeypatch.setattr(stored_settings, "read", lambda *a, **k: False)

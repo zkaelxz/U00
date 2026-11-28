@@ -27,13 +27,25 @@ final class ProblemReportDialog {
     /** Long side of the preview and the sent picture, so a report stays well under the PC's 4 MB limit. */
     private static final int MAX_SIDE = 1280;
 
+    private static final String NOT_SET_UP = "Set up Grab first: enter your server address and a key.";
+
     private ProblemReportDialog() {}
+
+    private static boolean setUp(Activity activity) {
+        android.content.SharedPreferences prefs = activity.getSharedPreferences(GrabActivity.PREFS, Activity.MODE_PRIVATE);
+        return !prefs.getString(GrabActivity.KEY_SERVER, "").isEmpty() && !prefs.getString(GrabActivity.KEY_TOKEN, "").isEmpty();
+    }
 
     /**
      * `area` is the page view: only its rectangle is copied, because the address bar above it shows
      * the full address (query and all), which the report deliberately leaves out.
      */
     static void show(Activity activity, String screen, String pageUrl, View area) {
+        // Checked before the note is typed, so a note is never written only to be dropped.
+        if (!setUp(activity)) {
+            Toast.makeText(activity, NOT_SET_UP, Toast.LENGTH_LONG).show();
+            return;
+        }
         int[] at = new int[2];
         area.getLocationInWindow(at);
         Rect source = new Rect(at[0], at[1], at[0] + area.getWidth(), at[1] + area.getHeight());
@@ -104,7 +116,7 @@ final class ProblemReportDialog {
         String server = prefs.getString(GrabActivity.KEY_SERVER, "");
         String token = prefs.getString(GrabActivity.KEY_TOKEN, "");
         if (server.isEmpty() || token.isEmpty()) {
-            Toast.makeText(activity, "Set up Grab first: enter your server address and a phone token.", Toast.LENGTH_LONG).show();
+            Toast.makeText(activity, NOT_SET_UP, Toast.LENGTH_LONG).show();
             return;
         }
         String phone = ProblemReport.phoneInfo(BuildConfig.VERSION_CODE, Build.VERSION.SDK_INT, Build.MODEL);

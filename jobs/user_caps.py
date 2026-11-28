@@ -16,6 +16,7 @@ import threading
 import time
 
 import db
+from lib import acting
 from lib.errors import ConflictError, RateLimitedError
 
 MAX_RUNNING_JOBS_PER_USER = 2
@@ -91,8 +92,22 @@ def refund_daily_start(owner_user_id, day: str | None) -> None:
 
 # Matches the default of the "free disk space" PC alert. A member's download, import or dub can
 # write gigabytes, and nobody is at the PC to notice the drive filling, so their jobs stop
-# starting before the library drive is nearly full. The owner's own jobs are never held back.
+# starting before the library drive is nearly full. The owner's and admins' own jobs are never
+# held back.
 MEMBER_MIN_FREE_GB = 10
+
+
+def _is_admin_account(user_id) -> bool:
+    """Read now, so a demotion or a deactivation applies at once."""
+    user = db.auth_get_user(user_id)
+    return bool(user and user["is_admin"] and user["is_active"])
+
+
+def held_back_by_low_disk(owner_user_id) -> bool:
+    """Whether this account's queue items wait for disk space: members only. With sign-in on,
+    the PC owner's own account has a user id like everyone else's, so the admin flag is what
+    tells them apart."""
+    return owner_user_id is not None and not _is_admin_account(owner_user_id)
 
 
 def refuse_if_disk_low(owner_user_id) -> None:
@@ -104,7 +119,14 @@ def refuse_if_disk_low(owner_user_id) -> None:
         free_gb = shutil.disk_usage(db.LIBRARY_DIR).free / 1024 ** 3
     except OSError:
         return
-    if free_gb < MEMBER_MIN_FREE_GB:
+    if free_gb >= MEMBER_MIN_FREE_GB:
+        return
+    # The request's own principal must be an admin's too: a device token or scheduled work acts
+    # for an admin account with member rights only, so it is held like a member's, and so is a
+    # queue item it added (held_for_disk, set by the queue runner).
+    principal = acting.acting_principal() or {}
+    if not (principal.get("user_id") == owner_user_id and principal.get("is_admin")
+            and not principal.get("held_for_disk") and _is_admin_account(owner_user_id)):
         raise DiskLowError("This PC is almost out of disk space, so new jobs can't start right now. "
                             "Try again later, or ask the PC owner to free some space.")
 

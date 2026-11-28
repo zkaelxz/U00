@@ -42,8 +42,8 @@ import {
   DEFAULT_PROFILE, MAX_SUMMARY_LEN, MEDIA_TYPES, NEW_SERIES, SOURCE_LANGUAGES, buildCreateRequest, chosenProfile, formForLink,
   createProblemField, deleteNotice, validateCreate, type CreateExtras,
 } from './libraryForm'
-import { GpuLine } from './libraryParity/GpuLine'
 import { GetStarted } from './libraryParity/GetStarted'
+import { MonthRecap } from './libraryParity/MonthRecap'
 import { GET_STARTED_PREF, showGetStarted } from './libraryParity/getStartedLogic'
 import {
   autofillHref, libraryHeadline, usageLine, usageSpent,
@@ -388,8 +388,6 @@ export default function LibraryPage() {
   const [checked, setChecked] = useState<Set<number>>(() => new Set())
   const [selectMode, setSelectMode] = useState(false)
   const pc = usePcOnly()
-  // GET /api/diagnostics/resources needs admin.diagnostics.read, which an admin keeps away from the PC; members see no GPU line.
-  const canSeeGpu = useHolds('admin.diagnostics.read')
   // POST /api/dramas needs library.create (a member default; an admin can take it away). It only hides the
   // buttons: the open sheet must outlive a lost session so its draft survives signing back in.
   const canCreate = useHolds('library.create')
@@ -517,7 +515,6 @@ export default function LibraryPage() {
               <p className="page-meta" data-testid="stats-usage">{usageLine(stats.data.usage)}</p>
             </details>
           )}
-          {canSeeGpu && <GpuLine />}
         </>
       )}
       actions={canCreate && startedDismissed && stats.data?.total_dramas === 0 && (
@@ -537,6 +534,7 @@ export default function LibraryPage() {
           <button type="button" className={buttonClass('ghost', 'sm')} onClick={() => setCreatedNote(null)}>Dismiss</button>
         </p>
       )}
+      <MonthRecap />
       {getStarted && <GetStarted canCreate={canCreate} onHide={() => setStartedDismissed(true)} />}
 
       {!canCreate && stats.data?.total_dramas === 0 && !showGetStarted(0, startedDismissed) && (
