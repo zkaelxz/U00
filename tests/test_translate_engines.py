@@ -916,6 +916,29 @@ class TestRequestTranslationsWithRetry:
         assert result == ["A.", "B.", "C."]
         assert len(calls) == 2
 
+    def test_a_retry_renumbered_from_1_is_not_written_onto_the_neighbours(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "A."}'
+            return '{"1": "B.", "2": "C."}'   # asked "2. 乙\n3. 丙", renumbered from 1
+        result = engine_shared.request_translations_with_retry(["甲", "乙", "丙"], None, call_model)
+        assert calls[1] == "2. 乙\n3. 丙"
+        assert result == ["A.", "", ""]
+
+    def test_a_made_up_key_after_a_retrys_last_line_keeps_its_good_answers(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "A."}'
+            return '{"2": "B.", "3": "C.", "4": "X."}'
+        result = engine_shared.request_translations_with_retry(["甲", "乙", "丙"], None, call_model)
+        assert result == ["A.", "B.", "C."]
+
     def test_a_reply_shifted_every_time_leaves_the_lines_blank(self):
         def call_model(numbered):
             return '{"0": "A.", "1": "B.", "2": "C."}'
