@@ -21,11 +21,10 @@ refused before it reaches a URL.
 import re
 from urllib.parse import quote, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, soup as _soup, https_only
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup, https_only
 from ..domains import SiteDomains
-from ..http_transport import header
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceError)
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef,
+                      SearchResult, SeriesInfo)
 from ..registry import register
 
 BASE_URL = "https://wfwf546.com"
@@ -43,7 +42,7 @@ def _clean(text) -> str:
 
 
 @register
-class WfwfSource(SourceAdapter):
+class WfwfSource(PlainImageDownload, SourceAdapter):
     name = "wfwf"
     display_name = "wfwf (Korean webtoons)"
     homepage = BASE_URL
@@ -52,6 +51,7 @@ class WfwfSource(SourceAdapter):
     url_patterns = [r"wfwf\d*\.com/(?:list|view)\?toon=\d+"]
     base_urls = [BASE_URL]
     host_min_interval = {"wfwf546.com": 2.5}
+    images_only = True
 
     def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
@@ -147,17 +147,6 @@ class WfwfSource(SourceAdapter):
             raise LayoutChanged("any page images in this chapter")
         referer = self.base_url + "/"
         return [PageRef(self.name, num, i, u, headers={"Referer": referer}) for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
-        if ctype and not ctype.startswith("image/"):
-            raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
-                              FailureReason.HTTP_ERROR)
-        name = urlsplit(page.url).path.rsplit("/", 1)[-1]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):

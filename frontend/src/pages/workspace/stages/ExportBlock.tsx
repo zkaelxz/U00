@@ -6,7 +6,7 @@ import { browserStorage } from '../../../hooks/usePersistedState'
 import { EXPORT_BLOCK_TITLES, exportBlockStorageKey, type ExportBlockId } from '../exportBlocks'
 import { useStage } from '../StageContext'
 import { titleKind } from '../titleKind'
-import { ShownExportBlocks } from './ShownExportBlocks'
+import { ExportChoices, ShownExportBlocks } from './ShownExportBlocks'
 
 interface Props {
   id: ExportBlockId
@@ -29,6 +29,19 @@ export function ExportBlock({ id, opening, reason, hint, children, status }: Pro
   const title = EXPORT_BLOCK_TITLES[id]
   // A block the viewer left open wins; opening this one as well would leave two open in the accordion.
   const remembered = useContext(ShownExportBlocks).some((b) => readSectionOpen(browserStorage(), exportBlockStorageKey(kind, b), false))
+  const choices = useContext(ExportChoices)
+  if (choices) {
+    return (
+      <div className={`export-block export-choice${choices.main === id ? ' export-choice-main' : ''}`} role="group" aria-label={title}>
+        <div className="export-choice-head">
+          <h2 className="section-title">{title}</h2>
+          {(reason ?? hint) && <span className="section-summary">{reason ?? hint}</span>}
+        </div>
+        <div className="section-body">{children}</div>
+        {status}
+      </div>
+    )
+  }
   return (
     <div className="export-block" role="group" aria-label={title}>
       <Section

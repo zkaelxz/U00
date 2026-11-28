@@ -7,11 +7,12 @@ import { ME, USER, maybeScreenshot, mockAuth } from './authMocks'
 
 test.use({ viewport: { width: 1440, height: 900 } })
 
-test('auth off: the app renders as before, no user menu, no Login page', async ({ page }) => {
+test('auth off: the app renders as before, no account or Sign out in the You menu, no Login page', async ({ page }) => {
   const s = await mockAuth(page, ME.authOff)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  await expect(page.locator('details.user-menu')).toHaveCount(0)
+  await expect(page.locator('details.you-menu')).toHaveCount(1)
+  await expect(page.locator('.you-menu-account')).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toHaveCount(0)
   expect(s.unmocked).toEqual([])
 })
@@ -104,13 +105,13 @@ test("sign-in not set up on the PC: says so, no button", async ({ page }) => {
   expect(s.unmocked).toEqual([])
 })
 
-test('signed in: the header account is an icon named for the user and the menu shows the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
+test('signed in: the You menu is named for the user and shows the email; Sign out posts with CSRF and returns to Login', async ({ page, context, baseURL }) => {
   await context.addCookies([{ name: 'baihe_csrf', value: 'csrf-token-123', url: baseURL! }])
   const s = await mockAuth(page, ME.signedIn)
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
-  const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name}`)
+  const menu = page.locator('details.you-menu')
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', `You: ${USER.display_name}`)
   await expect(menu.locator('summary')).toHaveAttribute('title', USER.display_name!)
   await menu.locator('summary').click()
   await expect(page.getByTestId('user-email')).toHaveText(USER.email!)
@@ -184,7 +185,7 @@ test('/me failing (502) then answering: the app at once, then the signed-in user
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   // The retry lands about a second later and the account appears.
-  await expect(page.locator('details.user-menu summary')).toHaveAttribute('aria-label', `Account: ${USER.display_name ?? USER.email}`, { timeout: 10_000 })
+  await expect(page.locator('details.you-menu summary')).toHaveAttribute('aria-label', `You: ${USER.display_name ?? USER.email}`, { timeout: 10_000 })
   expect(meCalls).toBe(2)
   expect(s.unmocked).toEqual([])
 })
@@ -198,8 +199,8 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   await page.goto('/#/library')
   await expect(page.getByRole('navigation', { name: 'Main' })).toBeVisible()
   await expect(page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'People and access' })).toHaveCount(0)
-  const menu = page.locator('details.user-menu')
-  await expect(menu.locator('summary')).toHaveAttribute('aria-label', 'Account: Account')
+  const menu = page.locator('details.you-menu')
+  await expect(menu.locator('summary')).toHaveAttribute('aria-label', 'You')
   await menu.locator('summary').click()
   await page.getByRole('button', { name: 'Sign out' }).click()
   await expect(page.getByRole('link', { name: 'Sign in with Google' })).toBeVisible()
@@ -208,7 +209,7 @@ test('/me unavailable: no People and access, and Sign out is still offered', asy
   expect(s.unmocked).toEqual([])
 })
 
-test.describe('below 600px', () => {
+test.describe('at 640px and below', () => {
   test.use({ viewport: { width: 500, height: 800 } })
 
 test('signed in: the Menu button replaces the cogwheel and its drawer stays on screen', async ({ page }) => {

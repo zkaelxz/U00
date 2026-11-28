@@ -20,7 +20,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     let sweep: Record<string, unknown> | null = null
     await mockTranslateSweep(page, () => sweep)
     await page.goto('/#/benchmark')
-    await openBenchTab(page, 'Run a benchmark')
+    await openBenchTab(page, 'Translation sweep')
     const card = page.getByRole('region', { name: 'Translation sweep' })
     await expect(card.getByLabel('Golden set', { exact: true })).toHaveValue('My scenes')
     await expect(card.getByTestId('tsweep-start-reason')).toHaveText('Estimate this sweep first.')
@@ -37,7 +37,7 @@ for (const theme of ['light', 'dark', 'sepia', 'oled']) {
     expect((await sent).postDataJSON()).toMatchObject({ set_name: 'My scenes', language: 'zh', series_id: null, confirm: true })
 
     sweep = finished
-    await page.goto('/#/benchmark?tab=run')
+    await page.goto('/#/benchmark?tab=tsweep')
     const rec = page.getByRole('region', { name: 'Translation sweep' }).getByTestId('sweep-recommendation')
     await expect(rec).toContainText('Change recommended')
     await expect(rec).toContainText('claude, Batch size 15')

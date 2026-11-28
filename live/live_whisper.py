@@ -372,18 +372,9 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
             progress_cb(0.0)
 
 
-# Rough VRAM faster-whisper needs per size (float16), for deciding whether a
-# failed first load is worth freeing Ollama again.
-_VRAM_NEEDED_MB = {"tiny": 1000, "base": 1000, "small": 2000, "medium": 3500,
-                   "large-v3-turbo": 3500, "ja-1.5b": 4200, "breeze-asr-25": 4200, "thonburian-large-v3": 5000}
-_VRAM_NEEDED_LARGE_MB = 5500
 # A chunk that takes more than this many times its own audio is called out in
 # the status, so the owner sees a stall without opening the log.
 SLOW_CHUNK_FACTOR = 3.0
-
-
-def vram_needed_mb(whisper_size: str) -> float:
-    return _VRAM_NEEDED_MB.get(whisper_size, _VRAM_NEEDED_LARGE_MB)
 
 
 class SkipNotes:

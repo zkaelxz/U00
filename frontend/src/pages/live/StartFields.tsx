@@ -21,7 +21,7 @@ export function StreamLinkField({ value, maxLength, disabled, onChange }: Stream
     }
   }
   return (
-    <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. Signed-in (cookie) streams don't work from here.">
+    <Field label="Stream link" help="A live stream or video page (YouTube, Bilibili, …) that yt-dlp can open. At the PC, a signed-in stream uses the cookies saved in Settings; from another device it doesn't work.">
       <LinkInput value={value} maxLength={maxLength} disabled={disabled} onChange={onChange}
         onPaste={canPaste ? () => void paste() : undefined} pasteFailed={pasteFailed} />
     </Field>

@@ -1,11 +1,12 @@
 // Pure helpers (and one small hook) for the Diagnostics admin sections and
 // the Settings extension section. Copy lives here so it is unit-tested.
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useContext, useEffect, useState } from 'react'
 
 import type { ApiError } from '../../api/client'
 import type { BadgeTone } from '../../components/labels'
 import { PC_ONLY_FORBIDDEN, describeError, safeDetail } from '../../components/errorMessages'
 import { humanize } from '../../components/labels'
+import { FlatPaneContext } from '../../components/flatPane'
 import type {
   DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelFolder, DiagnosticsPyannoteReadiness,
   DiagnosticsSetupChecks,
@@ -119,7 +120,7 @@ export function setupRows(c: DiagnosticsSetupChecks, gpu: GpuStatus | null): Set
     if (c.browser.found || !optional) {
       add('browser', 'Browser for JavaScript-only sites', c.browser.found,
         `Using ${BROWSER_NAMES[c.browser.name ?? ''] ?? c.browser.name ?? 'a browser'}`,
-        'None found: install Chrome or Edge, or use Install browser support (Packages and installs)')
+        'None found: install Chrome or Edge, or use Install browser support above')
     }
   }
   const gpuBlind = c.cuda.torch_installed && c.cuda.cuda_available === false
@@ -171,13 +172,22 @@ export function headerBadges(
   return out
 }
 
+/** "Loading…" in place of the badges only while a read is still out: once one failed, its error banner says why. */
+export const headerLoading = (badges: HeaderBadge[], failed: boolean) => !badges.length && !failed
+
 // ---- Speaker detection ----
 
+// The checks below are pyannote's only: Nemotron, the default model, needs no token, so a missing
+// pyannote must not read as speaker detection being unavailable.
 export function pyannoteSummary(r: DiagnosticsPyannoteReadiness): string {
-  if (r.ready) return 'Ready'
-  if (!r.pyannote_installed) return 'Not ready: pyannote missing'
-  if (!r.hf_token_configured) return 'Not ready: no Hugging Face token'
-  return 'Not ready: a model needs its terms accepted'
+  const pyannote = r.ready
+    ? 'ready'
+    : !r.pyannote_installed
+      ? 'not installed'
+      : !r.hf_token_configured
+        ? 'no Hugging Face token'
+        : 'a model can’t be opened'
+  return `Nemotron (default) needs no token · pyannote: ${pyannote}`
 }
 
 export const hfModelUrl = (model: string) => `https://huggingface.co/${model.split('/').map(encodeURIComponent).join('/')}`
@@ -275,7 +285,7 @@ export function modelCacheSummary(c: DiagnosticsModelCache): string {
 
 export const LOG_LINE_CHOICES = [50, 100, 200] as const
 export const LOG_DEBOUNCE_MS = 300
-export const logEmptyText = (keyword: string) => (keyword.trim() ? 'No lines match.' : 'Nothing logged yet.')
+export const logEmptyText = (keyword: string) => (keyword.trim() ? 'No match in the last 5,000 lines.' : 'Nothing logged yet.')
 export const copyFallbackText = (touch: boolean) => (touch ? 'Long-press to copy.' : 'Press Ctrl+C to copy.')
 export const COPIED_MS = 2000
 
@@ -335,5 +345,7 @@ export function useDetailsOpen(): [(el: HTMLElement | null) => void, boolean] {
   const ref = useCallback((el: HTMLElement | null) => {
     if (el) setDetails(el.closest('details'))
   }, [])
-  return [ref, open]
+  // A flat pane has no fold: the body is "open" while its pane is on screen.
+  const pane = useContext(FlatPaneContext)
+  return [ref, details ? open : !!pane?.showing]
 }

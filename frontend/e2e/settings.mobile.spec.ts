@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { openSettingsGroups } from './settingsNav'
 import { hitHeight, installHitArea } from './hitArea'
-import { expectPickedTab, pickTab } from './tabPicker'
 
 test.beforeEach(async ({ page }) => {
   await installHitArea(page)
@@ -37,23 +36,20 @@ test('settings switches have 44px touch targets on a phone', async ({ page }) =>
 })
 
 for (const width of [360, 390]) {
-  test(`phone ${width}: the seven sections are one 48px picker, and search spans the width`, async ({ page }) => {
+  test(`phone ${width}: the seven sections are one swipeable row of 44px tabs, one tap each`, async ({ page }) => {
     await page.setViewportSize({ width, height: 800 })
     await page.goto('/#/settings')
-    await expect(page.getByRole('tablist')).toHaveCount(0)
-    const picker = page.getByRole('button', { name: /^Settings: / })
-    await expect(picker).toBeVisible()
-    const button = (await picker.boundingBox())!
-    expect(button.height).toBeGreaterThanOrEqual(44)
-    const search = (await page.getByRole('searchbox', { name: 'Search settings' }).boundingBox())!
-    expect(Math.abs(search.width - button.width)).toBeLessThan(2)
-    await picker.click()
-    const options = page.locator('.ui-tab-picker-list').getByRole('option')
-    await expect(options).toHaveCount(7)
-    for (const option of await options.all()) expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    await pickTab(page, 'Transcription and jobs', 'Settings')
-    await expectPickedTab(page, 'Settings', 'Transcription and jobs')
-    await expect(page.locator('.ui-tab-picker-list')).toHaveCount(0) // choosing closes the list
+    const row = page.getByRole('tablist', { name: 'Settings' })
+    await expect(row).toBeVisible()
+    await expect(page.locator('.ui-tab-picker-btn')).toHaveCount(0)
+    const tabs = row.getByRole('tab')
+    await expect(tabs).toHaveCount(7)
+    for (const tab of await tabs.all()) expect((await tab.boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    // The row scrolls inside itself; the page never scrolls sideways.
+    expect(await row.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+    await row.getByRole('tab', { name: 'Advanced', exact: true }).click()
+    await expect(row.getByRole('tab', { name: 'Advanced', exact: true })).toHaveAttribute('aria-selected', 'true')
+    await expect(page.locator('.settings-panel:not([hidden])')).toHaveCount(1)
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 }

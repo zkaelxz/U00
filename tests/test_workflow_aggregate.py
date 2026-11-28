@@ -2,11 +2,14 @@
 
 A job missing from its `needs` is invisible to it: a red `guards` once left `test` green.
 Read as text because the CI test environments do not install a YAML parser.
-Also pins the concurrency blocks of tests.yml and windows-bootstrap.yml, which nothing but GitHub evaluates."""
+Also pins the concurrency blocks of tests.yml and windows-bootstrap.yml, which nothing but GitHub evaluates,
+and the optional-tests job's file list."""
+import ast
 import re
 from pathlib import Path
 
-WORKFLOWS = Path(__file__).resolve().parent.parent / ".github" / "workflows"
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOWS = ROOT / ".github" / "workflows"
 WORKFLOW = WORKFLOWS / "tests.yml"
 BOOTSTRAP = WORKFLOWS / "windows-bootstrap.yml"
 
@@ -100,3 +103,43 @@ def test_turning_on_auto_merge_starts_the_run_with_the_browser_tests():
     assert ('--merge-approved "$MERGE_APPROVED"' in text
             and "MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null"
                 " || github.event.action == 'auto_merge_enabled' }}" in text)
+
+
+# pip names on the optional-tests install line whose import name differs.
+_IMPORT_NAMES = {"opencv-contrib-python-headless": "cv2", "pyyaml": "yaml",
+                 "opencc-python-reimplemented": "opencc", "audioop-lts": "audioop"}
+
+
+def _skips_whole_file_without(path):
+    """The modules a test file needs at import: a module-level `pytest.importorskip("x")`."""
+    needed = set()
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        call = getattr(node, "value", None)
+        if (isinstance(call, ast.Call) and getattr(call.func, "attr", "") == "importorskip"
+                and call.args and isinstance(call.args[0], ast.Constant)):
+            needed.add(call.args[0].value.split(".")[0])
+    return needed
+
+
+def test_every_file_that_needs_an_optional_library_runs_in_the_optional_job():
+    """Other shards don't install these libraries, so a test file that skips at import without one runs nowhere else;
+    six comic test files once went unrun for that reason.
+
+    Retire this when the job's file list is generated instead of written by hand."""
+    block = _job_blocks()["optional-tests"]
+    install = re.search(r"run: pip install (.*)", block).group(1).split()
+    extras = {_IMPORT_NAMES.get(w, w) for i, w in enumerate(install)
+              if not w.startswith("-") and install[i - 1] not in ("-r", "-c")}
+    listed = set(re.findall(r"tests/test_\w+\.py", block))
+    missing = sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "tests").glob("test_*.py")
+                     if _skips_whole_file_without(p) & extras
+                     and p.relative_to(ROOT).as_posix() not in listed)
+    assert missing == []
+
+
+def test_a_run_that_reuses_on_approval_records_what_the_tree_needed():
+    """The push after the merge shortens its run from this record; the reused run covered the rest."""
+    text = WORKFLOW.read_text(encoding="utf-8")
+    assert "tools/ci_tested_tree.py --on-approval) || out=$needed" in text
+    assert 'record=$needed || record=$out' in text
+    assert 'printf \'%s\\n\' "$record" | python3 tools/ci_tested_tree.py --write tested.json' in text

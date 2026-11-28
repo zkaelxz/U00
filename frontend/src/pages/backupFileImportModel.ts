@@ -37,7 +37,7 @@ export function importNotes(list: BackupFileDramaList, chosen: readonly BackupFi
     notes.push("The file's voice bank entries are added; one you already have with the same name and clip is skipped.")
   }
   if (settings) {
-    notes.push("Your translation settings and preferences take the file's values. API keys, folders, app updates and the System page stay as they are here.")
+    notes.push("Your translation style and engine defaults take the file's values. API keys, the monthly cap, the Gemini free-tier switch, the comic page picture switch, the hosted Ollama default, the job pop-up, the sharing default, folders, app updates and hardware settings stay as they are here.")
   }
   if (list.schema_differs) {
     notes.push('The file is from a different version; anything this version does not know is left out.')

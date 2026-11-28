@@ -95,3 +95,12 @@ describe('every tab stays enabled', () => {
     expect(html).not.toContain('aria-disabled')
   })
 })
+
+describe('side list', () => {
+  it('is a vertical tablist on a wide screen, with the same tab ids', () => {
+    const html = renderToStaticMarkup(<Tabs side label="Demo" idPrefix="demo" tabs={tabs} active="a" onSelect={() => undefined} />)
+    expect(html).toContain('aria-orientation="vertical"')
+    expect(html).toContain('ui-tabs-side')
+    expect(html).toContain(`id="${tabButtonId('demo', 'a')}"`)
+  })
+})

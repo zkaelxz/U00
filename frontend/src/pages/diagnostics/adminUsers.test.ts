@@ -6,7 +6,7 @@ import {
   activeAdminCount, ADMIN_PC_ONLY, adminTargetBlock, appendAudit, auditActionLabel, auditActor,
   auditTime, canChangeUsers, MAX_PAID_LIMIT_USD, paidSpendText, parsePaidLimit, canViewUsers, deactivateBlock, holds, revokeAdminBlock, revokeBlock, rowBlocks,
   rightAbout, rightName, sessionsText, showDeleteUser, showRevokeAdmin, showRights, userName,
-  jobsTodayText, lastSeenText, parseJobLimit,
+  jobsTodayText, lastSeenText, parseJobLimit, matchesPerson, personShortName, personStatus, readDisplayName, readJobLimit, readPaidLimit,
 } from './adminUsers'
 
 const user = (o: Partial<AdminUser> = {}): AdminUser => ({
@@ -126,6 +126,8 @@ describe('remove admin', () => {
     expect(auditActionLabel('user.revoke_admin')).toBe('Admin rights removed')
     expect(auditActionLabel('upload.away')).toBe('Upload from away')
     expect(auditActionLabel('audit.prune')).toBe('Old activity cleared')
+    expect(auditActionLabel('device_token.create')).toBe('Remote access key added')
+    expect(auditActionLabel('pc_profile.hide_existing')).toBe('Existing titles and series made private')
   })
 })
 
@@ -145,6 +147,8 @@ describe('rights toggles', () => {
       expect(rightAbout(p)).toMatch(/\.$/)
     }
     expect(new Set(member.map(rightName)).size).toBe(member.length)
+    // Phone tokens are device tokens too, so this right is also what Grab needs.
+    expect(rightName('extension.send')).toMatch(/Baihe Grab/)
     expect(rightName('some.new')).toBe('some.new')
     expect(rightAbout('some.new')).toBeNull()
   })
@@ -214,5 +218,41 @@ describe('daily job limit text', () => {
     expect(jobsTodayText({ jobs_today: 3 })).toBe('Jobs started today: 3')
     expect(jobsTodayText({ jobs_today: 3, daily_job_limit: 10 })).toBe('Jobs started today: 3 of their 10 a day')
     expect(jobsTodayText({ jobs_today: 10, daily_job_limit: 10 })).toContain('limit reached until tomorrow')
+  })
+})
+
+describe('self-saving People fields', () => {
+  it('reads a name, collapsing spaces; empty clears it', () => {
+    expect(readDisplayName('  Alex   Example ')).toEqual({ value: 'Alex Example' })
+    expect(readDisplayName('   ')).toEqual({ value: '' })
+  })
+
+  it('reads limits: empty is no limit, a bad number is a problem and never a value', () => {
+    expect(readPaidLimit('')).toEqual({ value: null })
+    expect(readPaidLimit('$12.50')).toEqual({ value: 12.5 })
+    expect(readPaidLimit('0')).toHaveProperty('problem')
+    expect(readPaidLimit('abc')).toHaveProperty('problem')
+    expect(readJobLimit(' ')).toEqual({ value: null })
+    expect(readJobLimit('10')).toEqual({ value: 10 })
+    expect(readJobLimit('2.5')).toHaveProperty('problem')
+  })
+})
+
+describe('People rows', () => {
+  it('sum a closed row up: sign-in state, then a member\'s limits', () => {
+    expect(personStatus(user({ active_sessions: 0 }))).toBe('Not signed in')
+    expect(personStatus(user({ monthly_paid_cap_usd: 5, daily_job_limit: 1 }))).toBe('Signed in on 1 device · $5.00 a month · 1 job a day')
+    // An admin holds every right, so limits are not theirs to show.
+    expect(personStatus(user({ is_admin: true, monthly_paid_cap_usd: 5 }))).toBe('Signed in on 1 device')
+  })
+
+  it('name a grid column and find a person by name or email', () => {
+    expect(personShortName(user({ display_name: 'Sam Sample' }))).toBe('Sam Sample')
+    expect(personShortName(user())).toBe('a@example.com')
+    const sam = user({ email: 'sam@example.com', display_name: 'Sam Sample' })
+    expect(matchesPerson(sam, 'SAMPLE')).toBe(true)
+    expect(matchesPerson(sam, 'sam@')).toBe(true)
+    expect(matchesPerson(sam, 'jordan')).toBe(false)
+    expect(matchesPerson(sam, '  ')).toBe(true)
   })
 })

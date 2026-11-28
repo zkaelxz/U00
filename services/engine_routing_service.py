@@ -64,10 +64,10 @@ CAPABILITIES = {
         "unset_label": "Off (no suggestions)",  # no suggestions are offered while unset
     },
     "llm.instructions": {
-        "label": "Line helpers for translation-only engines",
+        "label": "Line helpers when a title has no engine",
         "help": ("Improve, Why this?, Alternatives and Grammar use the title's own engine. "
-                 "For a title translated with an engine that "
-                 "can't follow instructions, they use this engine instead."),
+                 "A title with no engine saved, or one that was removed from Baihe, "
+                 "uses this engine instead."),
         "requires": engine_registry.CAP_INSTRUCTIONS,
         "default": _DEFAULT_ENGINE,
     },
@@ -87,7 +87,7 @@ CAPABILITIES = {
 }
 
 ENGINE_TEST_PREFIX = settings_service.ENGINE_TEST_PREFIX
-_MAX_TEST_ERROR = 300
+MAX_TEST_ERROR = 300
 # The request waits this long for a Test; a slower engine is reported as a
 # failure (its call finishes in the background and is ignored). SDK clients
 # can otherwise wait minutes.
@@ -293,12 +293,15 @@ def test_engine(engine: str, model: str | None = None) -> dict:
         # Keys, then paths and URLs-with-paths (a local server's address)
         # come out: this text is shown later by an admin.settings read.
         error = diagnostics_report.redact_for_support(str(result.get("error") or "The test failed."))
-        error = error[:_MAX_TEST_ERROR]
+        error = error[:MAX_TEST_ERROR]
     # A key or endpoint saved while the test ran makes this result stale:
     # it tested the old one, so it isn't recorded.
     if settings_service.engine_test_generation(engine) == generation:
-        db.set_app_setting(ENGINE_TEST_PREFIX + engine, {
-            "ok": bool(result.get("ok")),
-            "tested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "error": error})
+        record_test(engine, bool(result.get("ok")), error)
     return engine_status(engine)
+
+
+def record_test(engine: str, ok: bool, error: str | None) -> None:
+    """The engine's Test badge; `error` must already be redacted."""
+    db.set_app_setting(ENGINE_TEST_PREFIX + engine, {
+        "ok": ok, "tested_at": datetime.now(timezone.utc).isoformat(timespec="seconds"), "error": error})

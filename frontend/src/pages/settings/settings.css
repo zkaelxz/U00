@@ -13,7 +13,7 @@
 .settings-note { margin: 0; max-width: var(--measure); color: var(--muted); font-size: var(--text-sm); }
 .settings-elsewhere ul { margin: var(--space-1) 0 0; padding-left: var(--space-4); font-size: var(--text-sm); }
 
-/* Search above the tabs; the tabs are components/Tabs. */
+/* Search and Expand / Collapse share the row above the section list (components/Tabs with `side`). */
 .settings-search input { width: 100%; box-sizing: border-box; }
 .settings-panel { display: grid; gap: var(--page-gap); min-width: 0; }
 .settings-panel[hidden], .settings-card[hidden], .settings-card:empty { display: none; }
@@ -22,11 +22,11 @@
 .settings-card > .card-fold { padding-block: var(--space-2); }
 .settings-card > .card-fold > details.section { padding-block: 0; }
 
-.settings-tabrow { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
-.settings-tabrow > :first-child { flex: 1 1 auto; min-width: 0; }
+.settings-tabrow { display: flex; align-items: center; justify-content: flex-end; gap: var(--space-3); }
+.settings-tabrow > .settings-search { flex: 1 1 auto; min-width: 0; }
 .settings-fold-controls { display: flex; justify-content: flex-end; gap: var(--space-2); }
 @media (max-width: 640px) {
-  /* The picker takes the whole row; the fold menu keeps a row of its own below it. */
+  /* Search takes the whole row; the fold menu keeps a row of its own below it. */
   .settings-tabrow { flex-direction: column; align-items: stretch; }
   .settings-fold-menu { justify-self: end; align-self: flex-end; }
   .settings-fold-menu > summary { min-height: 44px; display: inline-flex; align-items: center; padding-inline: var(--space-2); color: var(--muted); cursor: pointer; }

@@ -26,15 +26,20 @@
  *                Bodies stay mounted (it is still a <details>), so form state
  *                survives. The remembered state of the ones closed this way is
  *                written too, so only the last opened one is remembered open.
+ *   keepFold     stays a fold inside a FlatPaneContext too: for a long list or log most viewers never open
  *   onToggle     optional; called with the new open state when the viewer
  *                opens or closes it (e.g. to load the body on first open)
  *   children     the body
  *
+ * Inside a FlatPaneContext (a page that shows one pane at a time, Diagnostics) a Section is a plain heading and
+ * its body, always shown: the pane is the fold, so opening a second level would only add a click.
+ *
  * localStorage may throw or be missing (private window, blocked site data);
  * every access is wrapped, and the section then just uses defaultOpen.
  */
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { capFirst } from '../labels'
+import { FlatPaneContext } from './flatPane'
 import { announceOpen, joinGroup } from './sectionGroup'
 import { readSectionOpen, writeSectionOpen } from './sectionStorage'
 import { browserStorage } from '../hooks/usePersistedState'
@@ -50,10 +55,33 @@ type SectionProps = {
   expandSignal?: number
   closeSignal?: number
   group?: string
+  keepFold?: boolean
   children: ReactNode
 }
 
-export function Section({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, expandSignal, closeSignal, group, children }: SectionProps) {
+export function Section(props: SectionProps) {
+  const flat = useContext(FlatPaneContext)
+  if (flat && !props.keepFold) return <FlatSection {...props} />
+  return <FoldSection {...props} />
+}
+
+// Not a labelled region: the cards inside already name theirs, and a second region of the same name would be noise.
+function FlatSection({ title, summary, count, children }: SectionProps) {
+  return (
+    <div className="section section-flat">
+      <div className="section-flat-head">
+        {/* A deep link focuses the heading, as it focused the fold's summary. */}
+        <h2 className="section-title" tabIndex={-1}>{title}</h2>
+        {count !== undefined && <span className="badge section-count">{count}</span>}
+        {/* The one-line state a closed fold showed; a long pane is easier to scan with it. */}
+        {summary && <span className="section-summary">{capFirst(summary)}</span>}
+      </div>
+      <div className="section-body">{children}</div>
+    </div>
+  )
+}
+
+function FoldSection({ title, summary, count, defaultOpen = false, storageKey, onToggle, openSignal, expandSignal, closeSignal, group, children }: SectionProps) {
   // A signal already raised when the section mounts (a deep link to a card that renders once its data
   // loads) still opens it; the section would otherwise miss the change.
   const [open, setOpen] = useState(() =>

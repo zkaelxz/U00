@@ -47,13 +47,16 @@ class ThreeRunState(BaseModel):
     runs_done: int
     history_id: Optional[int] = None
     line_count: int
+    # The review's lines, so a page opened after a run was lost can run the remaining ones.
+    line_ids: List[int] = Field(default_factory=list)
     items: List[ThreeRunItem]
 
 
 class ThreeRunPick(BaseModel):
     model_config = ConfigDict(extra="forbid")
     line_id: StrictInt
-    run: StrictInt = Field(ge=1, le=3)
+    # None takes a pick back: the line returns to the last run's English and counts as not picked.
+    run: Optional[StrictInt] = Field(..., ge=1, le=3)
 
 
 class ThreeRunPicks(BaseModel):

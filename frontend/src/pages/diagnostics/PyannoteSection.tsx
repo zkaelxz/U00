@@ -8,7 +8,7 @@ import { buttonClass } from '../../components/uiClasses'
 import type { DiagnosticsPyannoteReadiness } from '../../types/diagnostics'
 import { hfModelUrl, pyannoteSummary } from './diagnosticsAdmin'
 
-/** Packages and installs > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
+/** Diagnostics > "Speaker detection": pyannote installed, token set, and (on request) gated models open. */
 export function PyannoteSection({ openSignal }: { openSignal?: number }) {
   const [data, setData] = useState<DiagnosticsPyannoteReadiness | null>(null)
   const [checked, setChecked] = useState(false)
@@ -67,7 +67,7 @@ export function PyannoteSection({ openSignal }: { openSignal?: number }) {
                     `${m.model}: open`
                   ) : (
                     <>
-                      <span className="warn">{m.model}: terms not accepted</span>{' '}
+                      <span className="warn">{m.model}: can’t open it (check the connection and token, or accept its terms)</span>{' '}
                       <a className="hf-terms" href={hfModelUrl(m.model)} target="_blank" rel="noopener noreferrer">
                         Accept terms ↗
                       </a>

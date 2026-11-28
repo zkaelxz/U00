@@ -674,6 +674,7 @@ JOB_KIND_BY_PREFIX = {
     "sourceimport_": "import", "urlmedia_": "import", "lncrawl_": "import",
     "extract_audio_": "import",
     "scanlate_": "other", "restructure_": "other", "hardsub_reference_": "other",
+    "earmarks_": "other",
 }
 
 

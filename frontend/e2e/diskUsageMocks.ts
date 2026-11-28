@@ -93,7 +93,7 @@ export async function mockDiskUsage(page: Page, opts: { notShown?: number; slow?
     if (opts.slowScan && isScan) await new Promise((r) => setTimeout(r, opts.slowScan))
     if (url.pathname === '/api/data-usage/previous-library') {
       return route.fulfill({ json: {
-        present: state.previous > 0, label: 'Previous library kept after restore', size_bytes: state.previous,
+        present: state.previous > 0, label: 'Previous library kept after a restore or reset', size_bytes: state.previous,
         file_count: state.previous ? 12 : 0, folder_count: state.previous ? 1 : 0, partial: false,
       } })
     }

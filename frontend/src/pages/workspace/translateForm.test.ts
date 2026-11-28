@@ -183,6 +183,7 @@ describe('translate form', () => {
     expect(estimateKeyFor({ ...base, reflect: true })).not.toBe(key)
     expect(estimateKeyFor({ ...base, cost_cap: 'x' })).toBeNull()
     expect(estimateKeyFor({ ...base, batch_size: '8' })).not.toBe(key)
+    expect(estimateKeyFor({ ...base, style_preset: base.style_preset === 'novel' ? 'audio_drama' : 'novel' })).not.toBe(key)
     expect(buildEstimateParams({ ...base, batch_size: '8' })).toMatchObject({ batch_size: 8 })
     expect(buildEstimateParams({ ...base, batch_size: '99999' })?.batch_size).toBeUndefined()
   })

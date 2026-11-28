@@ -22,7 +22,7 @@ from engine_backends import translate_pipeline, fallback, pricing, engine_regist
 from engine_backends import gemini as engine_gemini
 from engine_backends import shared as engine_shared
 from engine_backends import alignment_judge, medium_prompts, stream_recipe
-from engine_backends.llm_feature_prompts import glossary_term_forms
+from engine_backends.llm_feature_prompts import matching_glossary_terms
 import translation_guide as tguide
 import translation_memory
 from engine_backends.run_limits import FailureStreak
@@ -78,8 +78,7 @@ def build_run_style_context(drama_id, drama, lines, style_preset, with_emotions=
     if glossary_terms:
         # A big series glossary would otherwise ride in every batch's prompt.
         run_text = "\n".join(ln.zh or "" for ln in lines)
-        glossary_terms = [t for t in glossary_terms
-                          if any(f and f in run_text for f in glossary_term_forms(t))]
+        glossary_terms = matching_glossary_terms(run_text, glossary_terms)
     series_chars = db.list_series_characters(series_id) if series_id else []
     drama_chars = db.list_characters_with_series_names(drama_id)
     prof = db.get_style_profile(f"series:{series_id}" if series_id else "global")
@@ -418,7 +417,8 @@ def _run_result(errors, cap_spent, summary_skip_reason, recheck, kept_edits, eng
 
 
 def _bill_failed_attempts(drama_id, engine):
-    if isinstance(engine, fallback.FallbackEngine):
+    # A slow switch calls one engine per attempt, so the pipeline records its failed attempts.
+    if isinstance(engine, fallback.FallbackEngine) and not isinstance(engine, fallback.SlowSwitchEngine):
         # Tokens a provider reported for an attempt that then failed are
         # billed too: logged against the engine that spent them.
         engine.failed_usage_cb = lambda choice, eng, inp, out, cache_read=0, cache_write=0: \

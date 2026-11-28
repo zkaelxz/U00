@@ -8,7 +8,7 @@ import { setupRows, setupSummary } from './diagnosticsAdmin'
 /**
  * "Setup": every check (Python, ffmpeg with libass, JS runtime, GPU, app
  * files, library folder) as a row with an OK/Problem badge, problems first.
- * The fixes (browser support, Deno) are cards on the Packages and installs tab.
+ * The fixes (browser support, Deno) are cards above it in the Setup pane.
  */
 export function SetupSection({ checks, gpu, openSignal, checking, onRecheck }: {
   checks: DiagnosticsSetupChecks

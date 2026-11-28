@@ -504,7 +504,7 @@ export function PackagesSection({ overview, pc, jobsActive, busy, onBusy, onChan
           />
         )} />
         {deps.installed.length > 0 && (
-          <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length}>
+          <Section storageKey="diagnostics.installed" title="Installed packages" count={deps.installed.length} keepFold>
             <div className="actions" data-testid="update-check">
               <button type="button" className={buttonClass('secondary', 'sm')} onClick={() => void checkUpdates()} disabled={checking} aria-busy={checking}>
                 {checking ? 'Checking PyPI…' : updates ? 'Check again' : 'Check for package updates'}
@@ -684,7 +684,7 @@ function ResultBlock({ outcome }: { outcome: Extract<Outcome, { ok: boolean }> }
       </p>
       {!outcome.ok && outcome.hint && <p data-testid="install-hint">{outcome.hint}</p>}
       {/* Keyed by the result so a new one re-applies defaultOpen. */}
-      <Section key={`${outcome.kind}-${outcome.name}-${outcome.ok}`} title="Output" defaultOpen={!outcome.ok}>
+      <Section key={`${outcome.kind}-${outcome.name}-${outcome.ok}`} title="Output" defaultOpen={!outcome.ok} keepFold>
         <pre className="diag-pre">{outcome.output.length ? outcome.output.join('\n') : 'No output.'}</pre>
       </Section>
     </div>

@@ -36,8 +36,8 @@ from jobs import user_caps
 from lib.errors import (ConflictError, ForbiddenError, InvalidInputError, NotFoundError,
                         RateLimitedError, ServiceError, UnsupportedOperationError)
 from services import (auth_service, export_service, inbox_service, jobs_service, series_auto_service, quick_video_service,
-                      model_readiness_service, ownership_service, profile_service, settings_service, transcribe_service,
-                      transcribe_options_service, translate_run_service, translate_thinking_service)
+                      model_readiness_service, ownership_service, profile_service, queue_night, settings_service,
+                      transcribe_service, transcribe_options_service, translate_run_service, translate_thinking_service)
 from services.queue_export_settings import (EXPORT_KEYS, changed_rows as _export_changed_rows,
                                             check_export_settings, export_fields, run_export)
 from services.queue_translate_settings import (TRANSLATE_KEYS, _NO_CAP, _cap_left, _check_translate_spend, _queued_model_and_batch,  # noqa: F401  (_NO_CAP is read from here)
@@ -116,7 +116,7 @@ def _clock() -> float:
 def _empty() -> dict:
     return {"version": QUEUE_VERSION, "instance": _INSTANCE, "state": IDLE,
             "stop_on_failure": False, "overlap_online_translate": False, "schedule": None, "notice": None, "next_id": 1,
-            "items": []}
+            "night": dict(queue_night.DEFAULT_NIGHT), "night_open": None, "items": []}
 
 
 _SETTING_KEYS = {"transcribe": transcribe_options_service.QUEUE_SETTING_KEYS,
@@ -162,11 +162,16 @@ def _clean_item(raw) -> Optional[dict]:
             "reason": _short(raw.get("reason")), "job_id": raw.get("job_id") or None,
             "user_id": uid if isinstance(uid, int) else None,
             "override": bool(raw.get("override")),
+            # Added with an admin's own rights, not a device token's or scheduled work's member
+            # rights. Items saved before it was recorded count as a member's for the disk hold.
+            "by_admin": bool(raw.get("by_admin")),
             "chain": chain, "needs": needs if chain else [],
             # Started by a button, not by the queue's Start: runs without the queue running.
             "now": bool(raw.get("now")),
             # A waiting item its adder paused: the queue skips it until it is resumed.
             "held": bool(raw.get("held")),
+            # Waits for the night window and an idle PC (services/queue_night.py).
+            "tonight": bool(raw.get("tonight")),
             # Not tried again before this time: its account's daily job limit is used up.
             "not_before": raw["not_before"] if type(raw.get("not_before")) in (int, float) else None,
             "auto_series": raw["auto_series"] if type(raw.get("auto_series")) is int else None,
@@ -195,6 +200,8 @@ def _load(now: float | None = None, settle: bool = False) -> dict:
         doc["schedule"] = {"time": sched["time"], "start_at": float(sched["start_at"]),
                            "missed": bool(sched.get("missed"))}
     doc["notice"] = _short(raw.get("notice")) or None
+    doc["night"] = queue_night.clean_night(raw.get("night"))
+    doc["night_open"] = raw["night_open"] if type(raw.get("night_open")) in (int, float) else None
     doc["items"] = [i for i in (_clean_item(r) for r in raw.get("items") or [])
                     if i is not None][:MAX_ITEMS]
     ids = [i["id"] for i in doc["items"]]
@@ -307,11 +314,15 @@ def _item_changed_rows(item: dict, drama: Optional[dict]) -> list:
     return step_rows(item["settings"]) if step_rows else _changed_rows(item, drama)
 
 
-def _view_item(principal, item: dict, drama: Optional[dict], owner_of) -> dict:
+def _view_item(principal, item: dict, drama: Optional[dict], owner_of, night_wait: Optional[str] = None) -> dict:
     out = {k: item[k] for k in ("id", "drama_id", "step", "status", "job_id",
                                 "added_at", "started_at", "finished_at")}
     out["reason"] = item["reason"] or None
     out["held"] = bool(item.get("held")) and item["status"] == WAITING
+    out["tonight"] = bool(item.get("tonight"))
+    out["page_run"] = bool(item.get("now"))
+    if out["tonight"] and item["status"] == WAITING and not out["reason"]:
+        out["reason"] = night_wait
     out["title"] = _title_name(drama)
     out["mine"] = _may_change(principal, item, owner_of)
     out["engine"] = None
@@ -340,17 +351,22 @@ def get_queue(principal) -> dict:
             owners[did] = _title_owner(did)
         return owners[did]
     monthly = settings_service.get_monthly_cap_usd()
+    night_wait = None
+    if any(i.get("tonight") and i["status"] == WAITING for i in doc["items"]):
+        night_wait = (queue_night.waiting_text(doc["night"]) if not queue_night.in_window(doc["night"], _clock())
+                      else None if queue_night.pc_idle() else queue_night.IDLE_WAIT_TEXT)
     return {
         "version": QUEUE_VERSION,
         "state": doc["state"],
         "stop_on_failure": doc["stop_on_failure"],
         "overlap_online_translate": doc["overlap_online_translate"],
         "schedule": dict(doc["schedule"]) if doc["schedule"] else None,
+        "night": dict(doc["night"]),
         "notice": doc["notice"],
         "max_items": MAX_ITEMS,
         "can_control": _controls(principal),
         "monthly_cap_usd": monthly,
-        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of)
+        "items": [_view_item(principal, i, drama_of(i["drama_id"]), owner_of, night_wait)
                   for i in doc["items"] if _sees(principal, i, owner_of)],
     }
 
@@ -469,7 +485,7 @@ def _auto_start(doc: dict, uid) -> None:
 
 
 def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: Optional[str] = None,
-                  auto_series: Optional[int] = None, now: bool = False) -> None:
+                  auto_series: Optional[int] = None, now: bool = False, tonight: bool = False) -> None:
     """Appends `entries` (step, settings) in order, all or none, under one lock. In a `chain` each
     item waits for the steps before it. `now` items start without the queue's Start."""
     with _lock:
@@ -491,9 +507,10 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
                 "id": doc["next_id"], "drama_id": drama_id, "step": step, "status": WAITING,
                 "reason": "", "job_id": None, "user_id": uid,
                 "override": _overrides(principal), "at_pc": at_pc, "added_at": _clock(),
+                "by_admin": bool(principal and principal.get("is_admin")),
                 "chain": chain, "auto_series": auto_series, "settings": settings,
                 "needs": [s for s, _ in entries[:n]] if chain else [], "now": now,
-                "started_at": None, "finished_at": None})
+                "tonight": bool(tonight) and not now, "started_at": None, "finished_at": None})
             doc["next_id"] += 1
         if not now:
             _auto_start(doc, uid)
@@ -502,28 +519,28 @@ def _append_items(principal, drama_id: int, entries: list, at_pc: bool, chain: O
 
 
 def add_item(principal, drama_id: int, step: str, holds_paid: bool, *, at_pc: bool,
-             settings: Optional[dict] = None, holds_edit: bool = True) -> dict:
+             settings: Optional[dict] = None, holds_edit: bool = True, tonight: bool = False) -> dict:
     """Validates and appends one item. `settings` are this item's own
     changes to the title's saved options; the title is not changed. The title must exist and be the
     caller's; a Translate item on a paid engine needs `engines.paid`, as the
     Translate stage's run does; a Transcribe item added away from the PC
     needs its models on disk (model_readiness_service)."""
     settings = _check_addable(principal, drama_id, step, holds_paid, at_pc, settings, holds_edit)
-    _append_items(principal, drama_id, [(step, settings)], at_pc)
+    _append_items(principal, drama_id, [(step, settings)], at_pc, tonight=tonight)
     return get_queue(principal)
 
 
-def _add_steps(principal, drama_id: int, steps: tuple, holds_paid: bool, at_pc: bool) -> None:
+def _add_steps(principal, drama_id: int, steps: tuple, holds_paid: bool, at_pc: bool, tonight: bool = False) -> None:
     """Every step passes the single-step checks first, so a title the caller can't run
     all of adds nothing; then the steps go in, in order, with the title's saved options."""
     for step in steps:
         _check_addable(principal, drama_id, step, holds_paid, at_pc, None, True)
-    _append_items(principal, drama_id, [(step, {}) for step in steps], at_pc)
+    _append_items(principal, drama_id, [(step, {}) for step in steps], at_pc, tonight=tonight)
 
 
-def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool) -> dict:
+def add_all_steps(principal, drama_id: int, holds_paid: bool, *, at_pc: bool, tonight: bool = False) -> dict:
     """Appends Transcribe, Translate and Export for one title, in that order. The queue starts by itself, as for any added item."""
-    _add_steps(principal, drama_id, STEPS, holds_paid, at_pc)
+    _add_steps(principal, drama_id, STEPS, holds_paid, at_pc, tonight)
     return get_queue(principal)
 
 
@@ -558,7 +575,7 @@ def remove_waiting_auto_items(series_id: int) -> int:
     return removed
 
 
-def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool) -> dict:
+def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: bool, tonight: bool = False) -> dict:
     """Adds `step` ("all" = the chain) for each title. A title failing the add checks is
     skipped with its reason; the rest go in. The queue starts by itself, as for any added item."""
     if step != "all" and step not in STEPS:
@@ -571,7 +588,7 @@ def add_bulk(principal, drama_ids: list, step: str, holds_paid: bool, *, at_pc: 
             skipped.append({"drama_id": drama_id, "reason": full})
             continue
         try:
-            _add_steps(principal, drama_id, steps, holds_paid, at_pc)
+            _add_steps(principal, drama_id, steps, holds_paid, at_pc, tonight)
             added.append(drama_id)
         except ServiceError as e:
             reason = _short(e.message)
@@ -628,6 +645,17 @@ def hold_item(principal, item_id: int, held: bool) -> dict:
             raise ConflictError("Only a waiting item can be paused or resumed.")
         item["held"] = held
         if not held:
+            _auto_start(doc, item["user_id"])
+    return _mutate_item(principal, item_id, change)
+
+
+def set_item_tonight(principal, item_id: int, tonight: bool) -> dict:
+    """Marks a waiting item to run in the night window, or clears the mark (Run now)."""
+    def change(doc, item):
+        if item["status"] != WAITING or item["now"]:
+            raise ConflictError("Only an item waiting for the queue can wait for tonight.")
+        item["tonight"] = tonight
+        if not tonight:
             _auto_start(doc, item["user_id"])
     return _mutate_item(principal, item_id, change)
 
@@ -722,6 +750,18 @@ def set_schedule(principal, hhmm: Optional[str], now: float | None = None) -> di
     with _lock:
         doc = _load()
         doc["schedule"] = sched
+        _save(doc)
+    _wake.set()
+    return get_queue(principal)
+
+
+def set_night(principal, start: str, end: str, self_check: bool) -> dict:
+    """The night window Tonight items wait for (HH:MM on the PC's clock), and the nightly self-check switch."""
+    _require_controls(principal)
+    queue_night.check_night(start, end)
+    with _lock:
+        doc = _load()
+        doc["night"] = {"start": start, "end": end, "self_check": bool(self_check)}
         _save(doc)
     _wake.set()
     return get_queue(principal)
@@ -850,8 +890,11 @@ def _start_item(item: dict) -> Optional[str]:
     # for this start only.
     offline = model_offline.set_offline(not item["at_pc"])
     try:
-        # Records the job as the adder's, as if they had pressed the button.
-        acting.note_acting_principal(principal)
+        # Records the job as the adder's, as if they had pressed the button. _run_principal reads
+        # is_admin from the account, so an item an admin's device token added keeps member rules
+        # for the disk hold here.
+        acting.note_acting_principal(
+            principal if principal is None or item.get("by_admin") else dict(principal, held_for_disk=True))
         if item["step"] == DOWNLOAD:
             return quick_video_service.start_download(drama, (item.get("settings") or {}).get("url"), item["at_pc"])
         if item["step"] == "transcribe":
@@ -973,16 +1016,36 @@ def _announce_stop(item: dict) -> None:
                                         target={"page": "jobs"})
 
 
-def _may_overlap(running: list, candidate: dict) -> bool:
-    """Whether `candidate` may start beside the running items. Only a transcription (the PC's GPU
-    and CPU) beside one translation, which runs on a hosted engine and never touches this PC's
-    GPU, and never two runs of one title."""
-    if len(running) != 1 or candidate["step"] != "transcribe":
-        return False
+def _overlap_pick(items: list, running: list, ordered: list) -> Optional[dict]:
+    """The first of `ordered` that may start beside the running items, or None. Only a
+    transcription (the PC's GPU and CPU) beside one translation, which runs on a hosted engine and
+    never touches this PC's GPU, and never two runs of one title. It may pass waiting items of other
+    titles (the running title's Export, say), but never a waiting step of its own title: All steps
+    adds a title's steps unchained, so only queue order keeps its Translate after its Transcribe."""
+    if len(running) != 1:
+        return None
     other = running[0]
-    if other["step"] != "translate" or other["drama_id"] == candidate["drama_id"] or other["job_id"] is None:
+    if other["step"] != "translate" or other["job_id"] is None or db.get_drama(other["drama_id"]) is None:
+        return None
+    first_of_title = {}
+    for i in items:
+        if i["status"] == WAITING:
+            first_of_title.setdefault(i["drama_id"], i["id"])
+    return next((i for i in ordered if i["step"] == "transcribe" and i["drama_id"] != other["drama_id"]
+                 and first_of_title[i["drama_id"]] == i["id"]), None)
+
+
+def _held_for_disk(item: dict) -> bool:
+    """Fails closed: this runs under _lock after an item was claimed, and an error escaping
+    there would leave that item RUNNING with no job."""
+    if item["user_id"] is None:
         return False
-    return db.get_drama(other["drama_id"]) is not None
+    try:
+        return not item.get("by_admin") or user_caps.held_back_by_low_disk(item["user_id"])
+    except Exception as exc:
+        _log.warning("Could not read an account for the low-disk hold: %s",
+                     engine_shared.redact_secrets(str(exc)))
+        return True
 
 
 def _start_next(now: float, deferred=frozenset()) -> None:
@@ -1003,19 +1066,29 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         held_chains = {i["chain"] for i in doc["items"] if i["status"] == WAITING and i.get("held") and i["chain"]}
         waiting = [i for i in doc["items"] if i["status"] == WAITING and i["id"] not in deferred
                    and not i.get("held") and i["chain"] not in held_chains]
-        # Resting items still count as waiting below, so the queue doesn't go idle and forget them.
-        ready = [i for i in waiting if (i.get("not_before") or 0) <= now]
+        # Resting and Tonight items still count as waiting below, so the queue doesn't go idle and forget them.
+        night_ok = any(i.get("tonight") for i in waiting) and queue_night.in_window(doc["night"], now) \
+            and queue_night.pc_idle()
+        # A Tonight step holds back its whole run: a later step started now would only be skipped for it.
+        tonight_chains = {i["chain"] for i in waiting if i.get("tonight") and i["chain"]}
+        ready = [i for i in waiting if (i.get("not_before") or 0) <= now
+                 and (night_ok or not (i.get("tonight") or i["chain"] in tonight_chains))]
         # A start pressed on a page goes ahead of the items waiting for the queue's Start.
-        item = next((i for i in ready if i["now"]), None)
-        if item is None and doc["state"] == ACTIVE:
-            item = next(iter(ready), None)
-        if item is None:
+        ordered = [i for i in ready if i["now"]]
+        if doc["state"] == ACTIVE:
+            ordered += [i for i in ready if not i["now"]]
+        if not ordered:
             if not running and not deferred and doc["state"] == ACTIVE and not waiting:
                 doc["state"] = IDLE
                 _save(doc)
             return
-        if running and not (doc["overlap_online_translate"] and _may_overlap(running, item)):
-            return
+        item = ordered[0]
+        if running:
+            # A page's start must not wait behind a queue item that overtook it.
+            pressed = [i for i in ordered if i["now"]] or ordered
+            item = _overlap_pick(doc["items"], running, pressed) if doc["overlap_online_translate"] else None
+            if item is None:
+                return
         item.update(status=RUNNING, started_at=now, reason="", job_id=None)
         claimed = dict(item)
         _save(doc)
@@ -1032,8 +1105,7 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         rest = (lambda other: other["user_id"] == claimed["user_id"], DAILY_LIMIT_RETRY_SECONDS)
     except user_caps.DiskLowError:
         status, wait_reason = WAITING, _WAITING_FOR_DISK
-        # The owner's own jobs are never held back (user_caps.refuse_if_disk_low).
-        rest = (lambda other: other["user_id"] is not None, DISK_LOW_RETRY_SECONDS)
+        rest = (_held_for_disk, DISK_LOW_RETRY_SECONDS)
     except RateLimitedError:
         status = WAITING
     except ServiceError as exc:
@@ -1071,6 +1143,33 @@ def _start_next(now: float, deferred=frozenset()) -> None:
         _wake.set()     # straight on to the next item
 
 
+def night_tick(now: float | None = None) -> None:
+    """The morning summary once the night window closes, and the nightly self-check inside it. The
+    runner calls it apart from tick(), so a test's tick never starts a real model check."""
+    now = _clock() if now is None else now
+    summary = None
+    with _lock:
+        doc = _load(now)
+        inside = queue_night.in_window(doc["night"], now)
+        if inside and doc["night_open"] is None:
+            # The window's start, not now: tick() may already have started a Tonight item this poll.
+            doc["night_open"] = queue_night.window_start(doc["night"], now)
+            _save(doc)
+        elif not inside and doc["night_open"] is not None:
+            summary = queue_night.summary_text(doc["items"], doc["night_open"])
+            doc["night_open"] = None
+            _save(doc)
+        # Tonight's own items go first; the check gets the night only once they are through.
+        pending = doc["state"] == ACTIVE and any(
+            i["status"] in (WAITING, RUNNING) and i.get("tonight") and not i.get("held") for i in doc["items"])
+        night = dict(doc["night"])
+    if summary:
+        from services import notification_service
+        notification_service.notify_resource_alert(summary, recovered=True)
+    if inside and not pending:
+        queue_night.maybe_start_self_check(night, now)
+
+
 def clear_schedule(conn) -> None:
     """Drops the start time from the document on `conn` (a restored library:
     its start time is from the moment the backup was taken, and one still
@@ -1100,6 +1199,10 @@ def _loop() -> None:
             tick()
         except Exception as exc:
             _log.warning("Job queue tick failed: %s", engine_shared.redact_secrets(str(exc)))
+        try:
+            night_tick()
+        except Exception as exc:
+            _log.warning("Job queue night check failed: %s", engine_shared.redact_secrets(str(exc)))
         series_auto_service.scan()
         inbox_service.scan()
         _wake.wait(POLL_SECONDS)

@@ -23,7 +23,7 @@ from services import disk_usage_measure as measure
 from services import disk_usage_trash_service as trash_svc
 from lib.errors import ConflictError, InvalidInputError, ServiceError
 
-LABEL = "Previous library kept after restore"
+LABEL = "Previous library kept after a restore or reset"
 DELETE_WORD = "DELETE"
 PRE_RESET_MARKER = ".pre_reset_"
 STAGING_PREFIX = ".restore_staging_"

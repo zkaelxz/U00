@@ -83,8 +83,11 @@ jobs:
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           # The event's own copy of the PR may predate the approval that triggered it.
           MERGE_APPROVED: ${{ github.event.pull_request.auto_merge != null || github.event.action == 'auto_merge_enabled' }}
-          # Only the push lookup needs it; a PR run's step runs the PR's own code.
-          GITHUB_TOKEN: ${{ github.event_name == 'push' && github.token || '' }}
+          # Turning auto-merge on starts a new run; it reuses an earlier green run of the identical tree.
+          ON_APPROVAL: ${{ github.event.action == 'auto_merge_enabled' && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Only the lookups need it (read-only); a PR run's step runs the PR's own code.
+          GITHUB_TOKEN: ${{ (github.event_name == 'push' || github.event.action == 'auto_merge_enabled') && github.token || '' }}
         run: |
           all_true=$'run_e2e=true\nrun_full_pytest=true\nrun_windows_scripts=true\nrun_caddy=true\nrun_app_checks=true\nrun_sources_subset=false\ne2e_deferred=false'
           # The checkout is the merge commit; its first parent is the base.
@@ -93,9 +96,12 @@ jobs:
           # runs everything for any event but a pull request.
           out=$(git diff --name-only --no-renames HEAD^1 HEAD | python3 tools/ci_changes.py --event "$GITHUB_EVENT_NAME" --labels-json "$PR_LABELS" --merge-approved "$MERGE_APPROVED") || out=$all_true
           # A squash merge of a tree a green PR run already tested runs only what that run skipped.
+          needed=$out
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             # A slow API must not time the job out (that would turn the run red, not run more).
             out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --after-merge) || out=$all_true
+          elif [ "$ON_APPROVAL" = true ]; then
+            out=$(printf '%s\n' "$out" | timeout 90 python3 tools/ci_tested_tree.py --on-approval) || out=$needed
           fi
           # Fail open: an empty or partial answer runs everything.
           printf '%s\n' "$out" | grep -qx 'run_e2e=\(true\|false\)' && \
@@ -107,8 +113,10 @@ jobs:
             printf '%s\n' "$out" | grep -qx 'e2e_deferred=\(true\|false\)' || out=$all_true
           printf '%s\n' "$out" | tee -a "$GITHUB_OUTPUT"
           # The tree this run tests (the PR merged into the base) and what it runs, for the push after a merge.
+          # A reusing run records what the tree needed: the run it reused covered the rest, on the same tree.
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
-            printf '%s\n' "$out" | python3 tools/ci_tested_tree.py --write tested.json || true
+            [ "$ON_APPROVAL" = true ] && [ "$out" != "$all_true" ] && record=$needed || record=$out
+            printf '%s\n' "$record" | python3 tools/ci_tested_tree.py --write tested.json || true
           fi
 
       - name: Keep the tested tree for the push after a merge
@@ -214,64 +222,10 @@ jobs:
   # with a masked part would hint at a term.
   privacy:
     needs: changes
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-
-      - name: No private names, nicknames, PC names or personal emails
-        env:
-          PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
-          ACTOR: ${{ github.actor }}
-          EVENT: ${{ github.event_name }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_BODY: ${{ github.event.pull_request.body }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PUSH_AFTER: ${{ github.event.after }}
-        run: |
-          set -euo pipefail
-          if [ -z "$PRIVATE_TERMS" ]; then
-            if [ "$ACTOR" = "dependabot[bot]" ]; then echo "Dependabot run: no secrets, skipped."; exit 0; fi
-            echo "::error::The PRIVATE_TERMS repository secret is missing, so the privacy check cannot run (docs/testing-and-ci.md, \"Privacy check\")."
-            exit 1
-          fi
-          terms="$RUNNER_TEMP/terms"
-          printf '%s\n' "$PRIVATE_TERMS" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//; /^$/d' > "$terms"
-          if [ ! -s "$terms" ]; then echo "::error::PRIVATE_TERMS holds no terms."; exit 1; fi
-          found=0
-          has_term() { grep -q -i -w -F -f "$terms" <<<"$1"; }
-          set +e; hits="$(git grep -I -n -i -w -F -f "$terms" -- .)"; rc=$?; set -e
-          if [ "$rc" -eq 0 ]; then
-            printf '%s\n' "$hits" | cut -d: -f1,2 | sed 's/^/::error::Private term in /'
-            found=1
-          elif [ "$rc" -ne 1 ]; then
-            echo "::error::git grep failed ($rc)."; exit 1
-          fi
-          if has_term "$(git ls-files)"; then echo "::error::Private term in a tracked file or folder name."; found=1; fi
-          range=""
-          if [ "$EVENT" = pull_request ]; then
-            has_term "$PR_TITLE" && { echo "::error::Private term in the PR title."; found=1; }
-            # The project tool writes a "Requested by" credit line that a thread cannot leave out.
-            has_term "$(grep -v '^_Requested by \*\*' <<<"$PR_BODY" || true)" && { echo "::error::Private term in the PR description."; found=1; }
-            range="HEAD^1..HEAD^2"
-          elif [ "$EVENT" = push ] && [ -n "$PUSH_BEFORE" ] && [ "${PUSH_BEFORE//0/}" != "" ]; then
-            range="$PUSH_BEFORE..$PUSH_AFTER"
-          fi
-          if [ -n "$range" ]; then
-            git fetch --quiet --no-tags --unshallow origin
-            commits="$(git rev-list "$range")"
-            for c in $commits; do
-              meta="$(git log -1 --format='%an%n%ae%n%cn%n%ce%n%B' "$c")"
-              if has_term "$meta"; then
-                echo "::error::Private term in the message, author or committer of commit $c"
-                found=1
-              fi
-            done
-          fi
-          rm -f "$terms"
-          exit "$found"
+    uses: ./.github/workflows/privacy.yml
+    secrets:
+      PRIVATE_TERMS: ${{ secrets.PRIVATE_TERMS }}
+      PRIVATE_ALLOW: ${{ secrets.PRIVATE_ALLOW }}
 
   # The mocked suite in four shards that run at the same time. pytest-split
   # assigns whole tests to shards from the recorded durations in
@@ -327,12 +281,14 @@ jobs:
       # Tests that failed on this branch's last run go first, so a red run
       # shows its failure early. One entry per shard: a shard's cache only
       # knows its own slice. A miss falls back to the base branch's entry, or
-      # to nothing, and the run is just unordered.
+      # to nothing, and the run is just unordered. Restore and save are separate
+      # steps because actions/cache saves only when the job passes, which never
+      # stored a failure.
       - name: Restore last-failed list
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: .pytest_cache
-          key: pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}
+          key: pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-
             pytest-lastfailed-${{ matrix.shard }}-${{ github.base_ref || 'baihe-subtitler' }}-
@@ -376,6 +332,13 @@ jobs:
             $(python tools/ci_changes.py --docs-tests) \
             tests/test_dub.py::TestHostedCloningRemoved::test_no_references_remain \
             $(sed 's/^/--ignore=/' tests/ci_guards.txt) 2>&1 | tee pytest.log
+
+      - name: Save last-failed list
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .pytest_cache
+          key: pytest-lastfailed-${{ matrix.shard }}-${{ github.head_ref || github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       # Information only: never fails the job. The wall time line shows shard
       # balance; the slowest list shows what to look at when a shard drifts.
@@ -439,7 +402,9 @@ jobs:
             tests/test_scanlate_bench.py tests/test_scanlate_condense.py tests/test_scanlate_ocr_deps.py tests/test_scanlate_quality.py \
             tests/test_scanlate_regions.py tests/test_segment.py tests/test_transcription_quality.py tests/test_api_reader_m4.py tests/test_release_signing.py tests/test_api_scanlate_auto.py \
             tests/test_video_export.py tests/test_vocab_export.py tests/test_misheard_finder.py tests/test_ci_workflows.py \
-            tests/test_audio_levelling.py tests/test_narration_tts.py --junitxml=optional-tests.xml
+            tests/test_audio_levelling.py tests/test_narration_tts.py tests/test_picture_subtitles.py \
+            tests/test_scanlate_checks.py tests/test_scanlate_layout_fixes.py tests/test_scanlate_review_fixes.py \
+            tests/test_scanlate_text_colour.py tests/test_scanlate_tilt.py --junitxml=optional-tests.xml
 
       # A skip counts as a pass, so a library this job stopped installing would turn its tests
       # into green skips; the checker fails on any skip reason it doesn't expect.

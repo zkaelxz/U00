@@ -128,3 +128,17 @@ test('an extraction left running picks up again when the panel is reopened', asy
   await expect(panel.getByTestId('voice-extract-status')).toContainText('2 candidate clip(s) ready.')
   await expect(wei.getByRole('button', { name: 'Find clips in the audio' })).toBeEnabled()
 })
+
+test('without admin.library there is no Save to voice bank, only the saved voices', async ({ page }) => {
+  await guard(page)
+  await mockVoiceClone(page)
+  await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
+    auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'lan',
+    permissions: ['library.read', 'lines.edit'],
+    user: { id: 2, email: 'member@example.com', display_name: 'Member', is_admin: false, is_local_owner: false },
+  } }))
+  const panel = await openVoices(page)
+  const wei = panel.getByRole('listitem', { name: 'Voice for SPEAKER_00' })
+  await expect(wei.getByRole('heading', { name: 'Voice bank' })).toBeVisible()
+  await expect(wei.getByRole('button', { name: 'Save to voice bank' })).toHaveCount(0)
+})

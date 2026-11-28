@@ -2,7 +2,7 @@ import { expect, test } from './fixtures'
 import type { Page } from '@playwright/test'
 import { guardWrites } from './mockHelpers'
 
-// People and access > Public address check (PC only). The
+// People and access > Remote access > Public address check (PC only). The
 // ip-check routes are mocked; other reads go to the seeded API and any other
 // write is aborted and recorded. The saved address is never shown back.
 
@@ -49,16 +49,13 @@ async function mockIpCheck(page: Page, configured: boolean, saveStatus = 200): P
   return m
 }
 
-const checkSection = (page: Page) =>
-  page.locator('details.section').filter({ has: page.locator('summary', { hasText: 'Public address check' }) })
+const checkSection = (page: Page) => page.locator('#admin-card-address')
 
 async function open(page: Page) {
   await page.goto('/#/admin')
+  await page.getByRole('tab', { name: 'Remote access' }).click()
   const section = checkSection(page)
-  await expect(section).toBeVisible()
-  // Closed the first time: only the first card (People) starts open.
-  await section.locator('summary').click()
-  await expect(section).toHaveAttribute('open', '')
+  await expect(section.getByRole('heading', { name: 'Public address check' })).toBeVisible()
   return section
 }
 
@@ -108,7 +105,7 @@ test('a refused save explains key writes and keeps nothing', async ({ page }) =>
   await input.fill(SECRET)
   await section.getByRole('button', { name: 'Save public address check' }).click()
   await section.getByRole('button', { name: 'Confirm save public address check' }).click()
-  await expect(section.getByText(/Change this on the Baihe PC with key writes on/)).toBeVisible()
+  await expect(section.getByText(/Change this on the Baihe PC, with saving keys allowed/)).toBeVisible()
   await expect(input).toHaveValue('')
   await expect(section.getByTestId('ip-check-state')).toHaveText('Address check not set')
   expect(await page.content()).not.toContain('SECRET-DDNS-TOKEN')
@@ -129,6 +126,7 @@ test('away from the PC the check is left out and makes no calls', async ({ page 
   })
   await page.goto('/#/admin')
   await expect(page.getByRole('heading', { name: 'People and access' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Remote access' })).toHaveCount(0)
   await expect(checkSection(page)).toHaveCount(0)
   expect(calls).toEqual([])
   expect(unmocked).toEqual([])

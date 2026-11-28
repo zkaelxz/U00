@@ -77,6 +77,11 @@
 .live-tabs button { min-height: 44px; padding: 0 var(--space-4); border: 0; border-radius: 0; }
 .live-tabs button[aria-selected='true'] { background: var(--accent); color: var(--on-accent, #fff); font-weight: var(--weight-bold); }
 .live-stopbar { padding: var(--space-2) 0; display: flex; gap: var(--space-2); }
+.live-namefix { margin: var(--space-2) 0; }
+.live-namefix form { display: grid; gap: var(--space-2); }
+.live-namefix label { display: grid; gap: var(--space-1); }
+.live-namefix .live-namefix-save { display: flex; align-items: center; gap: var(--space-2); }
+.live-namefix-actions { display: flex; gap: var(--space-2); }
 .live-stopbar button { flex: 1; min-height: 48px; }
 @media (min-width: 900px) {
   .live-watch[data-running] { display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); grid-template-areas: 'bar bar' 'video feed'; }
@@ -178,8 +183,22 @@ html.shell-pip body { overflow: hidden; }
 .live-follow-original { overflow-wrap: anywhere; }
 .live-follow-nickname { display: grid; gap: var(--space-2); justify-items: start; }
 
-.live-check-all { margin-bottom: var(--space-3); display: grid; gap: var(--space-2); }
+.live-check-all { display: grid; gap: var(--space-2); justify-items: end; }
+.live-check-all p { margin: 0; max-width: min(24rem, 80vw); text-align: right; }
 .live-check-all button { min-height: 44px; }
+
+/* Start on the left, followed channels on the right; one column on narrow screens. */
+.live-columns { display: grid; gap: var(--space-5); min-width: 0; }
+.live-start { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
+.live-start-row { align-items: center; }
+.live-start-row p { margin: 0; }
+.live-follows-col { display: grid; gap: var(--space-3); align-content: start; min-width: 0; }
+.live-follows-head { margin: 0; font-size: var(--text-lg); display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.live-follows-head .muted { font-size: var(--text-sm); font-weight: normal; }
+@media (min-width: 1024px) {
+  .live-columns { grid-template-columns: 1.25fr 1fr; gap: 48px; }
+  .live-follows-col { border-left: 1px solid var(--border); padding-left: var(--space-6); }
+}
 
 /* Focus: the player and the lines only. The page title goes too, so the picture gets the height. */
 .live-focus .page-head { display: none; }
