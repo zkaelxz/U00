@@ -211,19 +211,21 @@ def get_transcribe_config(drama_id: int) -> dict:
     }
 
 
-def _separate_vocals_is_a_choice(drama: dict, updates: dict, source_changes: dict) -> bool:
+def _separate_vocals_is_a_choice(drama: dict, updates: dict, source_changes: dict, touched: bool) -> bool:
     """Whether a separate_vocals_first sent for a title that never chose should be saved.
     Saving the model's default would keep it after a later model change, so a value equal
-    to the default the title has after this save is not a choice. An Off equal to the
-    default shown before the save is not one either: an older form sends the untouched
-    switch's Off when Breeze is picked in the same save, and Breeze's default is On. An On
-    is always asked for: the form never shows On for a title whose default is Off."""
+    to the default the title has after this save is not a choice. A switch the form says
+    the user touched is a choice otherwise. Without that word, an Off equal to the default
+    shown before the save is not saved: the request alone can't tell it from a stale tab
+    sending the untouched switch's Off with a Breeze pick (whose default is On), and the
+    owner's rule is that such a save keeps following the default. An On is always asked
+    for: no form shows On for a title whose default is Off."""
     sent = bool(updates["separate_vocals_first"])
     others = {k: v for k, v in updates.items() if k != "separate_vocals_first"}
     after = {**drama, **source_changes, **others, "separate_vocals_first": None}
     if sent == effective_separate_vocals(after):
         return False
-    return sent or sent != effective_separate_vocals(drama)
+    return touched or sent or sent != effective_separate_vocals(drama)
 
 
 def update_transcribe_config(drama_id: int, **fields) -> dict:
@@ -240,7 +242,8 @@ def update_transcribe_config(drama_id: int, **fields) -> dict:
     source_changes = {k: fields[k] for k in ("source_language", "chinese_script") if fields.get(k) is not None}
     updates = check_transcribe_fields(fields, language)
     if drama.get("separate_vocals_first") is None and "separate_vocals_first" in updates:
-        if not _separate_vocals_is_a_choice(drama, updates, source_changes):
+        if not _separate_vocals_is_a_choice(drama, updates, source_changes,
+                                            bool(fields.get("separate_vocals_touched"))):
             del updates["separate_vocals_first"]
     if fields.get("run_start") is not None:
         updates["transcribe_start_json"] = check_run_start(fields["run_start"])

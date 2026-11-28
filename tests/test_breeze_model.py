@@ -122,6 +122,38 @@ class TestRegistry:
         transcribe_service.update_transcribe_config(did, separate_vocals_first=False)
         assert isolated_db.get_drama(did)["separate_vocals_first"] == 0
 
+    def test_a_touched_off_while_picking_breeze_is_a_choice(self, isolated_db, monkeypatch):
+        # Shown Off on large-v3, On once Breeze is picked; the user turns it Off and saves.
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=False, separate_vocals_touched=True)
+        drama = isolated_db.get_drama(did)
+        assert drama["separate_vocals_first"] == 0
+        assert transcribe_options_service.effective_separate_vocals(drama) is False
+        assert transcribe_service.get_transcribe_config(did)["separate_vocals_first"] is False
+
+    @pytest.mark.parametrize("start, change", [
+        ({"use_groq": 1}, {"use_groq": False}),
+        ({"asr_backend_choice": "qwen3_asr"}, {"asr_backend_choice": "whisper"}),
+    ])
+    def test_a_touched_off_while_leaving_groq_or_qwen_on_breeze_is_a_choice(
+            self, isolated_db, monkeypatch, start, change):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size=KEY, **start)
+        transcribe_service.update_transcribe_config(
+            did, separate_vocals_first=False, separate_vocals_touched=True, **change)
+        drama = isolated_db.get_drama(did)
+        assert drama["separate_vocals_first"] == 0
+        assert transcribe_options_service.effective_separate_vocals(drama) is False
+
+    def test_a_touched_switch_equal_to_the_new_default_still_follows_it(self, isolated_db, monkeypatch):
+        self._separation_setup(monkeypatch)
+        did = isolated_db.create_drama(title_zh="t", source_language="zh", whisper_size="large-v3")
+        transcribe_service.update_transcribe_config(
+            did, whisper_size=KEY, separate_vocals_first=True, separate_vocals_touched=True)
+        assert isolated_db.get_drama(did)["separate_vocals_first"] is None
+
     @pytest.mark.parametrize("ready", [True, False])
     def test_config_says_what_breeze_would_default_to(self, isolated_db, monkeypatch, ready):
         self._separation_setup(monkeypatch, ready)

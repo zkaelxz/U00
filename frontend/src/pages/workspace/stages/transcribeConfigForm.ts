@@ -1,4 +1,5 @@
 import { humanizeValue } from '../../../components/labels'
+import { changedKeys } from '../../../hooks/useStageDraft'
 import type { TranscribeConfig, TranscribeConfigUpdate } from '../../../types/workspace'
 
 /** The saved transcription options as the form holds them: numbers stay text until they are checked. */
@@ -80,6 +81,26 @@ export function withoutUntouchedSeparateVocals(
   if (sendsSeparateVocals(c, touched)) return update
   const { separate_vocals_first: _untouched, ...rest } = update
   return rest
+}
+
+/** A save says when the user set the switch: from the request alone the server can't tell a deliberate
+ * Off sent with a Breeze pick from an untouched one, and it keeps only the deliberate one. */
+export const withSeparateTouched = (update: TranscribeConfigUpdate, touched: boolean): TranscribeConfigUpdate =>
+  touched ? { ...update, separate_vocals_touched: true } : update
+
+/** The Advanced values a draft keeps: those that differ from the saved options, plus a touched
+ * separate-vocals switch even when it equals the saved value (a deliberate Off on a title whose
+ * default turns On with the model picked), so a reload still sends it as touched. An untouched
+ * switch that follows the default is left out. */
+export function advancedDraft(
+  shown: ConfigForm,
+  c: TranscribeConfig,
+  touched: boolean,
+): Partial<ConfigForm> {
+  const changed = changedKeys(shown, formFromConfig(c))
+  if (touched) changed.separate_vocals_first = shown.separate_vocals_first
+  else if (!sendsSeparateVocals(c, touched)) delete changed.separate_vocals_first
+  return changed
 }
 
 // Display names for the Advanced backend choices (the option value stays raw).

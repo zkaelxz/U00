@@ -57,7 +57,7 @@ import { AutoTune } from './AutoTune'
 import { MediaTabPanel } from './MediaTabPanel'
 import { TranscribeAdvanced } from './TranscribeAdvanced'
 import { useTranscribeForm } from './useTranscribeForm'
-import { formFromConfig, toUpdate, withoutUntouchedSeparateVocals, type ConfigForm } from './transcribeConfigForm'
+import { formFromConfig, toUpdate, withoutUntouchedSeparateVocals, withSeparateTouched, type ConfigForm } from './transcribeConfigForm'
 import { NovelFilePanel } from './NovelFilePanel'
 import { startAsNovel } from './novelSetup'
 import { useNovelFilesVersion } from './novelFileEvents'
@@ -329,7 +329,7 @@ export default function TranscribeStage({
 
   const runChoices = (): RunChoices => ({ language, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override })
   // The form's language and run choices go to the title with its options, so the Queue and other browsers repeat them.
-  const withRunChoices = (update: TranscribeConfigUpdate): TranscribeConfigUpdate => ({ ...update, ...runChoicesUpdate(runChoices(), script) })
+  const withRunChoices = (update: TranscribeConfigUpdate) => withSeparateTouched({ ...update, ...runChoicesUpdate(runChoices(), script) }, form.separateTouched)
   const afterSave = (c: TranscribeConfig) => {
     setSaved(true)
     setSavedBefore(true)

@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { getDiarizationConfig, getTranscribeConfig } from '../../../api/workspace'
 import { useResetUndo } from '../../../hooks/useResetUndo'
-import { changedKeys, isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
+import { isRecord, pickDraft, useStageDraft } from '../../../hooks/useStageDraft'
 import type { DiarizationConfig, TranscribeConfig } from '../../../types/workspace'
 import { mergeRunChoices, runChoicesFromConfig, TRANSCRIBE_DRAFT_SHAPE, TRANSCRIBE_DRAFT_STAGE } from '../sourceForm'
-import { defaultSeparateVocals, formFromConfig, sendsSeparateVocals, type ConfigForm } from './transcribeConfigForm'
+import { advancedDraft, defaultSeparateVocals, formFromConfig, sendsSeparateVocals, type ConfigForm } from './transcribeConfigForm'
 
 interface Options {
   dramaId: number
@@ -107,13 +107,11 @@ export function useTranscribeForm({ dramaId, defaultLanguage, busy, onLoadError,
 
   useEffect(() => {
     // Until the saved options arrive the stored Advanced changes are kept as they are.
-    const changed = shownCf && config ? changedKeys(shownCf, formFromConfig(config)) : null
-    if (changed && followsDefault) delete changed.separate_vocals_first
-    const advanced = changed ?? rawDraft?.advanced
+    const advanced = (shownCf && config ? advancedDraft(shownCf, config, separateTouched) : null) ?? rawDraft?.advanced
     // `base` is the saved choices written beside the form's, so a later visit can tell an edit from a stale copy.
     const base = config ? runChoicesFromConfig(config, defaultLanguage) : rawDraft?.base
     saveDraft({ language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override, advanced, base })
-  }, [saveDraft, rawDraft, shownCf, config, followsDefault, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
+  }, [saveDraft, rawDraft, shownCf, config, separateTouched, defaultLanguage, language, script, transcriptText, runDiarize, speakers, minSpeakers, maxSpeakers, extraNames, override])
 
   // Back to the drama's language and the saved options; the draft for this title is dropped.
   const resetUndo = useResetUndo()

@@ -257,6 +257,9 @@ class TranscribeConfigUpdate(BaseModel):
     hallucination_silence_sec: Optional[float] = None
     min_pause_sec: Optional[float] = None
     separate_vocals_first: Optional[bool] = None
+    # True when the user set the switch in this form, so an Off sent with a Breeze pick is
+    # kept; without it such an Off still follows the default (an untouched stale tab).
+    separate_vocals_touched: bool = False
     separation_backend: Optional[str] = None
     realign_long_segments: Optional[bool] = None
     whisper_fast_mode: Optional[bool] = None

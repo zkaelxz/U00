@@ -34152,6 +34152,11 @@ export interface components {
             sensitivity_preset?: string | null;
             /** Separate Vocals First */
             separate_vocals_first?: boolean | null;
+            /**
+             * Separate Vocals Touched
+             * @default false
+             */
+            separate_vocals_touched?: boolean;
             /** Separation Backend */
             separation_backend?: string | null;
             /** Source Language */
