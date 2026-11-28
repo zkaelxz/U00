@@ -86,11 +86,12 @@ export function saveInShell(blob: Blob, filename: string): boolean {
   const b = bridge()
   if (typeof b?.saveFile !== 'function' || blob.size > SHELL_SAVE_MAX_BYTES) return false
   // Set by the app on Baihe's own top page only, so a frame inside it cannot save files.
-  const key = (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
-  if (typeof key !== 'string') return false
+  const key = () => (window as unknown as { __baiheSaveKey?: unknown }).__baiheSaveKey
+  if (typeof key() !== 'string') return false
   void blob.arrayBuffer().then((buffer) => {
     try {
-      b.saveFile?.(key, filename, blob.type, toBase64(new Uint8Array(buffer)))
+      // Read again: the app hands out a new key on each page load.
+      b.saveFile?.(String(key()), filename, blob.type, toBase64(new Uint8Array(buffer)))
     } catch {
       // The shell went away with the page.
     }

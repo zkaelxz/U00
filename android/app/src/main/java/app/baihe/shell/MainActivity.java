@@ -217,7 +217,7 @@ public class MainActivity extends Activity {
             }
         });
         // Baihe's own pages read and set the phone app's switches (Settings > Phone app). Only Baihe's
-        // address loads in this WebView, so no other site can reach it.
+        // address loads as the page, but the bridge also reaches its iframes, so saveFile needs a key.
         bridge = new ShellSettings.Bridge(this, new ShellSettings.Host() {
             @Override
             public void alertsSwitchedOn() {

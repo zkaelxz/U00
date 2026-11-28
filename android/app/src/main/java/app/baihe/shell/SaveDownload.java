@@ -94,6 +94,10 @@ final class SaveDownload {
         }
     }
 
+    static void refused(Context context) {
+        toast(context, "Could not save the file. Reload the page and try again.");
+    }
+
     private static void toast(Context context, String text) {
         new Handler(Looper.getMainLooper()).post(() -> Toast.makeText(context, text, Toast.LENGTH_LONG).show());
     }

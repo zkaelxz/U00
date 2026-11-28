@@ -111,6 +111,7 @@ final class ShellSettings {
             String expected = saveKey;
             if (expected.isEmpty() || key == null || !java.security.MessageDigest.isEqual(
                     expected.getBytes(java.nio.charset.StandardCharsets.UTF_8), key.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                SaveDownload.refused(context);
                 return false;
             }
             return SaveDownload.saveBytes(context, name, mimeType, base64);
