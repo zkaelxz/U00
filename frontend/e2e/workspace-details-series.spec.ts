@@ -141,7 +141,7 @@ test('the header shows Source when a link exists, else a muted "Add a source lin
 })
 
 test('without admin.library the details are read-only, but the series still saves', async ({ page }) => {
-  const bodies = await stubDrama(page, { series_id: null })
+  const bodies = await stubDrama(page, { series_id: null, author: 'Alex Example' })
   await page.route('**/api/auth/me', (r) => r.fulfill({ json: {
     auth_enabled: true, signed_in: true, sign_in_configured: true, zone: 'lan',
     permissions: ['library.read', 'library.create', 'lines.edit'],
@@ -157,4 +157,5 @@ test('without admin.library the details are read-only, but the series still save
   await openCreditsTab(page)
   await expect(page.getByLabel('Genre', { exact: true })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Save credits' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Romanize credits' })).toHaveCount(0)
 })
