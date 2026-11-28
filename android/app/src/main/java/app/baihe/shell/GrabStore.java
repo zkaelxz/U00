@@ -13,6 +13,7 @@ final class GrabStore {
     private static final String KEY_HISTORY = "history";
     /** Kept apart from the history, so Clear history and its 50-row cap don't make a series run grab chapters again. */
     private static final String KEY_DONE = "done_chapters";
+    private static final String KEY_DONE_FORGOTTEN = "done_forgotten_at";
 
     private GrabStore() {}
 
@@ -73,9 +74,16 @@ final class GrabStore {
         }
     }
 
-    static void clearDone(android.content.SharedPreferences prefs) {
+    /** The history rows a series run may still count as finished: those after the last "Forget finished chapters". */
+    static List<GrabQueue.Done> doneHistory(android.content.SharedPreferences prefs) {
         synchronized (LOCK) {
-            prefs.edit().remove(KEY_DONE).apply();
+            return SeriesRun.since(GrabQueue.parseHistory(prefs.getString(KEY_HISTORY, "")), prefs.getLong(KEY_DONE_FORGOTTEN, 0));
+        }
+    }
+
+    static void forgetDone(android.content.SharedPreferences prefs) {
+        synchronized (LOCK) {
+            prefs.edit().remove(KEY_DONE).putLong(KEY_DONE_FORGOTTEN, System.currentTimeMillis()).apply();
         }
     }
 

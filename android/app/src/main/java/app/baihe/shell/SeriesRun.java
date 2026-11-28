@@ -166,10 +166,26 @@ final class SeriesRun {
         return !key(next).equals(key(current)) && alreadyDone(next, done, history);
     }
 
+    /** Every chapter a series run skips: the finished list plus the older history rows that count. */
+    static Set<String> finished(Set<String> done, List<GrabQueue.Done> history) {
+        Set<String> out = new HashSet<>(done);
+        for (GrabQueue.Done d : history) {
+            String k = key(d.url);
+            if (isDone(d) && !k.isEmpty()) out.add(k);
+        }
+        return out;
+    }
+
+    /** History rows written after `at`, so "Forget finished chapters" also covers rows already in the history. */
+    static List<GrabQueue.Done> since(List<GrabQueue.Done> history, long at) {
+        List<GrabQueue.Done> out = new ArrayList<>();
+        for (GrabQueue.Done d : history) if (d.at > at) out.add(d);
+        return out;
+    }
+
     static Plan plan(List<GrabQueue.Item> links, Set<String> done, List<GrabQueue.Done> history,
                      List<GrabQueue.Item> queue) {
-        Set<String> finished = new HashSet<>(done);
-        for (GrabQueue.Done d : history) if (isDone(d)) finished.add(key(d.url));
+        Set<String> finished = finished(done, history);
         Set<String> waiting = new HashSet<>();
         for (GrabQueue.Item q : queue) waiting.add(key(q.url));
         List<GrabQueue.Item> fresh = new ArrayList<>();

@@ -116,18 +116,18 @@ public class GrabHistoryActivity extends Activity {
                     + "is translated again and costs like any page. Nothing is kept on this phone.",
                     13, false, palette.muted));
         }
-        int finished = GrabStore.doneChapters(prefs()).size();
+        int finished = SeriesRun.finished(GrabStore.doneChapters(prefs()), GrabStore.doneHistory(prefs())).size();
         if (finished > 0) {
             list.addView(section("Finished chapters"));
             list.addView(text("Grab whole series and Keep going skip the " + finished
                     + (finished == 1 ? " chapter" : " chapters") + " this phone already sent in full. "
-                    + "Clear history keeps this list.", 13, false, palette.muted));
+                    + "Clear history doesn't change that.", 13, false, palette.muted));
             LinearLayout actions = row();
             actions.addView(button("Forget finished chapters", palette.bad, v -> new android.app.AlertDialog.Builder(this)
                     .setTitle("Forget finished chapters?")
                     .setMessage("Grab whole series and Keep going will offer these chapters again. Nothing in your library changes.")
                     .setPositiveButton("Forget", (d, w) -> {
-                        GrabStore.clearDone(prefs());
+                        GrabStore.forgetDone(prefs());
                         refresh();
                     })
                     .setNegativeButton("Cancel", null)
