@@ -741,25 +741,29 @@ def _isolated_page_server_config():
             page_server._config_provider = saved[1]
 
 
+@pytest.fixture(scope="session")
+def _default_app():
+    """One app with default settings for every `client` and `local_client`: a new app's first request
+    builds every route and the middleware stack, about a second each time. The app keeps no state a test
+    could leave behind: the library is opened per request and cookies live on each TestClient. A test that
+    adds routes or changes `app.state` builds its own app."""
+    from api.server import create_app
+    from api.api_config import ApiSettings
+    return create_app(ApiSettings())
+
+
 @pytest.fixture
-def client(isolated_db):
+def client(isolated_db, _default_app):
     """API client with a fresh database; a file that needs another setup defines its own `client`."""
     from fastapi.testclient import TestClient
-
-    from api.server import create_app
-    from api.api_config import ApiSettings
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False)
+    return TestClient(_default_app, raise_server_exceptions=False)
 
 
 @pytest.fixture
-def local_client(isolated_db):
+def local_client(isolated_db, _default_app):
     """Like `client`, but sends X-Baihe-Local on every request, as the React client does."""
     from fastapi.testclient import TestClient
-
-    from api.server import create_app
-    from api.api_config import ApiSettings
-    return TestClient(create_app(ApiSettings()), raise_server_exceptions=False,
-                      headers={"X-Baihe-Local": "1"})
+    return TestClient(_default_app, raise_server_exceptions=False, headers={"X-Baihe-Local": "1"})
 
 
 @pytest.fixture
