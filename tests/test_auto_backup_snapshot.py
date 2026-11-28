@@ -647,3 +647,27 @@ class TestDiskSpaceCheck:
         monkeypatch.setattr(backup_space_check.shutil, "disk_usage", no_info)
         _snap()
         assert len(_copy_names()) == 1
+
+
+
+@pytest.mark.parametrize("which", ["full", "own items"])
+def test_backups_store_compressed_media_and_deflate_the_rest(isolated_db, which):
+    from services import library_backup_service as lbs
+    from services import library_user_backup_service as lubs
+    did = db.create_drama(title_en="Media")
+    folder = os.path.join(db.DRAMAS_DIR, str(did))
+    os.makedirs(folder, exist_ok=True)
+    for name in ("clip.mp4", "cover.JPG", "notes.txt", "dub.wav"):
+        with open(os.path.join(folder, name), "wb") as fh:
+            fh.write(b"a" * 4096)
+    dest = os.path.join(db.LIBRARY_DIR, "check.zip")
+    if which == "full":
+        lbs.write_backup_zip(dest, include_media=True)
+    else:
+        lubs.write_user_backup_zip(dest)
+    with zipfile.ZipFile(dest) as zf:
+        kinds = {os.path.basename(i.filename): i.compress_type for i in zf.infolist()}
+        assert zf.testzip() is None
+    assert kinds["clip.mp4"] == kinds["cover.JPG"] == zipfile.ZIP_STORED
+    assert kinds["notes.txt"] == kinds["dub.wav"] == kinds["library.db"] == zipfile.ZIP_DEFLATED
+    lbs._check_backup_zip(dest)

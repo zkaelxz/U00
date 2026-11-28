@@ -59,7 +59,7 @@ def acquire_exclusive(label: str, ignore_job_id: str | None = None) -> bool:
         if _exclusive_label is not None or _maintenance_count or any(
                 j.get("status") in ("running", "queued")
                 for jid, j in _jobs.items() if jid != ignore_job_id
-        ) or live_whisper.outstanding_label() or job_force_stop.any_abandoned_alive_locked():
+        ) or live_whisper.thread_label() or job_force_stop.any_abandoned_alive_locked():
             return False
         _exclusive_label = label
         return True
