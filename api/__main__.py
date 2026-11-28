@@ -76,6 +76,8 @@ def _open_library(db):
         if not sqlite_check.damaged(db.DB_PATH):
             raise
         _refuse_to_start(db.DAMAGED_LIBRARY_MESSAGE)
+    from services import local_model_cleanup_service
+    local_model_cleanup_service.run_once()
     db.pack_old_translation_versions()
     from db import compact
     compact.compact_if_worthwhile(notify=lambda m: print(f"NOTE: {m}", flush=True))
