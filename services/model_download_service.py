@@ -251,8 +251,11 @@ def _fetch_separation_fv4(report, cancelled) -> None:
     # so without this button FV4 would only arrive with a run that chose it by name.
     import audio_preprocess
     report(0.0, "Downloading the FV4 vocal separation model (about 0.9 GB)…")
-    audio_preprocess.download_separation_model(audio_preprocess.MEL_ROFORMER_FV4_MODEL,
-                                               cancel_check_cb=cancelled)
+    try:
+        audio_preprocess.download_separation_model(audio_preprocess.MEL_ROFORMER_FV4_MODEL,
+                                                   cancel_check_cb=cancelled)
+    except audio_preprocess.VocalSeparationCancelled:
+        raise background_jobs.JobCancelled() from None
     report(0.99, "Downloaded the FV4 vocal separation model")
 
 

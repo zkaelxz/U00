@@ -414,3 +414,13 @@ def test_the_fv4_download_fetches_that_model(monkeypatch):
                         lambda model, cancel_check_cb=None: asked.append(model))
     svc.CATALOG["vocal_separation_fv4"]["fetch"](lambda f, m: None, lambda: False)
     assert asked == [audio_preprocess.MEL_ROFORMER_FV4_MODEL]
+
+
+def test_a_cancelled_fv4_download_reads_as_cancelled(monkeypatch):
+    import audio_preprocess
+
+    def cancel(model, cancel_check_cb=None):
+        raise audio_preprocess.VocalSeparationCancelled("Vocal separation cancelled.")
+    monkeypatch.setattr(audio_preprocess, "download_separation_model", cancel)
+    with pytest.raises(background_jobs.JobCancelled):
+        svc.CATALOG["vocal_separation_fv4"]["fetch"](lambda f, m: None, lambda: True)
