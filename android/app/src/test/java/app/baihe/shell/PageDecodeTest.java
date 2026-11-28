@@ -41,4 +41,19 @@ public class PageDecodeTest {
         assertEquals(4, PageDecode.sampleSize(4400, 1080));
         assertEquals(1, PageDecode.sampleSize(4400, 0));
     }
+
+    @Test
+    public void aPageThatFailedToReadIsLeftAloneForAWhileThenTriedAgain() {
+        assertTrue(PageDecode.mayTry(null, 0));
+        assertFalse(PageDecode.mayTry(1000L, 1000));
+        assertFalse(PageDecode.mayTry(1000L, 1000 + PageDecode.RETRY_AFTER_MS - 1));
+        assertTrue(PageDecode.mayTry(1000L, 1000 + PageDecode.RETRY_AFTER_MS));
+    }
+
+    @Test
+    public void theCacheHoldsAQuarterOfTheHeapInBytes() {
+        assertEquals(64 * 1024 * 1024, PageDecode.cacheBytes(256L * 1024 * 1024));
+        assertEquals(Integer.MAX_VALUE, PageDecode.cacheBytes(16L * 1024 * 1024 * 1024));
+        assertEquals(1, PageDecode.cacheBytes(0));
+    }
 }

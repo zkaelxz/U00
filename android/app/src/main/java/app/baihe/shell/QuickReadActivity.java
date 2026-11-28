@@ -29,9 +29,12 @@ public class QuickReadActivity extends Activity {
     private LruCache<String, Bitmap> cache;
     // Decoding a page takes tens of milliseconds, several frames, so it runs here and never on the thread that scrolls.
     private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
-    // UI-thread only, like the cache: the keys being decoded, each page file's size, and each file's Redo count.
+    // UI-thread only, like the cache: the keys being decoded, each page file's size, and each file's Redo count;
+    // and when a page's header or picture last failed to read, so a bind does not read it again each time.
     private final java.util.Set<String> decoding = new java.util.HashSet<>();
     private final java.util.Map<String, int[]> pageSizes = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> headerFailedAt = new java.util.HashMap<>();
+    private final java.util.Map<String, Long> decodeFailedAt = new java.util.HashMap<>();
     private final java.util.Map<String, Integer> redone = new java.util.HashMap<>();
     private PageAdapter adapter;
     // The footer is read from the grab's state, which its thread changes at any moment; ListView throws
@@ -53,7 +56,12 @@ public class QuickReadActivity extends Activity {
     protected void onCreate(Bundle state) {
         setTheme(GrabUi.Palette.saved(this).themeRes());
         super.onCreate(state);
-        cache = new LruCache<>(6);
+        cache = new LruCache<String, Bitmap>(PageDecode.cacheBytes(Runtime.getRuntime().maxMemory())) {
+            @Override
+            protected int sizeOf(String key, Bitmap bitmap) {
+                return bitmap.getAllocationByteCount();
+            }
+        };
         // Reading has long stretches with no touch, and the screen would otherwise dim mid-page.
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         list = new ListView(this);
@@ -600,15 +608,25 @@ public class QuickReadActivity extends Activity {
         cache.remove(PageDecode.key(path, generation == null ? 0 : generation));
         redone.put(path, generation == null ? 1 : generation + 1);
         pageSizes.remove(path);
+        headerFailedAt.remove(path);
     }
 
     /** The page's size from its header only, which is quick; remembered so a row is sized once. */
     private int[] sizeOf(File source) {
-        int[] size = pageSizes.get(source.getPath());
+        String path = source.getPath();
+        int[] size = pageSizes.get(path);
         if (size != null) return size;
+        long now = android.os.SystemClock.uptimeMillis();
+        if (!PageDecode.mayTry(headerFailedAt.get(path), now)) return new int[] {-1, -1};
         size = headerSize(source);
-        // A header that could not be read (a file still being written) is read again next time.
-        if (size[0] > 0 && size[1] > 0) pageSizes.put(source.getPath(), size);
+        // A header that could not be read (a file still being written) is read again after a pause; the
+        // background decode reads it too and fills the size in when it can.
+        if (size[0] > 0 && size[1] > 0) {
+            pageSizes.put(path, size);
+            headerFailedAt.remove(path);
+        } else {
+            headerFailedAt.put(path, now);
+        }
         return size;
     }
 
@@ -623,14 +641,17 @@ public class QuickReadActivity extends Activity {
     private void decode(int position) {
         if (position < 0 || position >= files.size()) return;
         String key = keyFor(position);
-        if (cache.get(key) != null || !decoding.add(key)) return;
+        if (cache.get(key) != null || decoding.contains(key)
+                || !PageDecode.mayTry(decodeFailedAt.get(key), android.os.SystemClock.uptimeMillis())) return;
+        decoding.add(key);
         File source = fileFor(position);
         int screenWidth = getResources().getDisplayMetrics().widthPixels;
         try {
             decoder.execute(() -> {
                 // Sized from the header read here, never from a failed one: a full-size decode of a
                 // long strip is what the sample size keeps from running out of memory.
-                int width = headerSize(source)[0];
+                int[] size = headerSize(source);
+                int width = size[0];
                 Bitmap bitmap = null;
                 if (width > 0) {
                     BitmapFactory.Options options = new BitmapFactory.Options();
@@ -638,19 +659,28 @@ public class QuickReadActivity extends Activity {
                     bitmap = BitmapFactory.decodeFile(source.getPath(), options);
                 }
                 Bitmap decoded = bitmap;
-                runOnUiThread(() -> shown(source.getPath(), key, decoded));
+                runOnUiThread(() -> shown(source.getPath(), key, size, decoded));
             });
         } catch (java.util.concurrent.RejectedExecutionException closing) {
             decoding.remove(key);
         }
     }
 
-    private void shown(String path, String key, Bitmap bitmap) {
+    private void shown(String path, String key, int[] size, Bitmap bitmap) {
         decoding.remove(key);
-        if (bitmap == null || isDestroyed()) return;
+        if (isDestroyed()) return;
         Integer generation = redone.get(path);
         // A Redo landed while this decoded: the old picture must not take a cache slot.
         if (!key.equals(PageDecode.key(path, generation == null ? 0 : generation))) return;
+        if (size[0] > 0 && size[1] > 0) {
+            pageSizes.put(path, size);
+            headerFailedAt.remove(path);
+        }
+        if (bitmap == null) {
+            decodeFailedAt.put(key, android.os.SystemClock.uptimeMillis());
+            return;
+        }
+        decodeFailedAt.remove(key);
         cache.put(key, bitmap);
         for (int i = 0; i < list.getChildCount(); i++) {
             View row = list.getChildAt(i);
