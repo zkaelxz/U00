@@ -14,8 +14,9 @@ test('Setup and Model status show in full on their panes; GPU PyTorch has a one-
   await mockDiagnostics(page)
   await page.goto('/#/diagnostics')
   await expect(fold(page, /^Setup/)).toBeVisible()
-  // No card is a fold; only long lists inside one (Installed packages, the other configured models) still fold.
-  await expect(page.locator('.diag-panel > .diag-card > details.section')).toHaveCount(0)
+  // Only the long blocks fold (voice engines, Packages, Models and the lists inside them); no other card does.
+  const folds = await page.locator('.diag-panel > .diag-card > details.section > summary .section-title').allTextContents()
+  for (const t of folds) expect(t).toMatch(/^(Packages|Models|Voice cloning|Installed packages|Output)/)
   await openDiagTab(page, 'Model status')
   await expect(fold(page, /^Model status/)).toBeVisible()
   await openDiagTab(page, 'Packages and installs')

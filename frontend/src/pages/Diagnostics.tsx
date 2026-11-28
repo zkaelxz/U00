@@ -127,7 +127,10 @@ function DiagnosticsContent() {
     // After the tab's panel is no longer hidden.
     const frame = requestAnimationFrame(() => {
       scroll()
-      document.getElementById(cardAnchorId(target.card))?.querySelector<HTMLElement>('.section-title')?.focus({ preventScroll: true })
+      const heading = document.getElementById(cardAnchorId(target.card))?.querySelector<HTMLElement>('.section-title')
+      // A fold's title is not focusable by default, so give it a roving tabindex first.
+      heading?.setAttribute('tabindex', '-1')
+      heading?.focus({ preventScroll: true })
     })
     // Cards above the target (Ports, Log) finish loading after the jump and push it down the page, so keep
     // it in place until the person scrolls or a couple of seconds pass.
