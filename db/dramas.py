@@ -431,6 +431,9 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int | None =
     """Searches zh/en text across every drama's lines, returns results
     with the parent drama's title attached, for the Library tab's
     global search -- not scoped to one drama like the Reader tab is.
+    Newest titles first, so a capped answer isn't filled by the oldest. CROSS JOIN keeps
+    dramas the outer loop whatever the planner's statistics say, so the newest-first order
+    comes from walking titles and the LIMIT stops the scan instead of sorting every match.
     `visible_to` (auth B2): only dramas that user may see."""
     visible, vparams = "", []
     if visible_to is not None:
@@ -441,9 +444,11 @@ def search_lines_globally(query: str, limit: int = 100, visible_to: int | None =
         like = _contains_pattern(query)
         rows = conn.execute(f"""
             SELECT l.drama_id, l.idx, l.zh, l.en, d.title_en, d.title_zh
-            FROM lines l JOIN dramas d ON d.id = l.drama_id
-            WHERE ({col.format("l.zh")} LIKE ? ESCAPE '\\'
+            FROM dramas d CROSS JOIN lines l
+            WHERE l.drama_id = d.id
+              AND ({col.format("l.zh")} LIKE ? ESCAPE '\\'
                    OR {col.format("l.en")} LIKE ? ESCAPE '\\'){visible}
+            ORDER BY d.id DESC, l.idx
             LIMIT ?
         """, [like, like] + vparams + [limit]).fetchall()
     return [dict(r) for r in rows]
