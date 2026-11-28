@@ -1047,3 +1047,14 @@ def test_fresh_active_reads_rows_by_key_not_the_whole_table(isolated_db, monkeyp
     with contextlib.closing(db.get_conn()) as conn, conn:
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'dub_7'", (time.time() - 10**6,))
     assert not job_store.fresh_active(job_ids=[*ids, "dub_7"])
+
+
+def test_the_sweep_reports_the_rows_it_closed(isolated_db):
+    from jobs import job_store, job_table
+    db.save_job_record("translate_7", "running", description="Translation (drama #7)",
+                       owner_pid=os.getpid())
+    _set_row("translate_7", owner_instance="an-earlier-server")
+    closed = []
+    assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS, closed_out=closed) == 1
+    assert [r["job_id"] for r in closed] == ["translate_7"]
+    assert closed[0]["description"] == "Translation (drama #7)"

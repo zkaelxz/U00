@@ -453,7 +453,7 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
                         fallback_chain: list | None = None, reflect: bool = False,
                         bulk: bool = False, default_female_pronouns: bool | None = None,
                         include_genre_notes: bool | None = None, allow_paid_summary: bool = True,
-                        own_lines_only: bool = False, expected_en: dict | None = None, thinking: bool | None = None,
+                        own_lines_only: bool = False, expected_en: dict | None = None,
                         record_run: bool = True, memory_examples: bool = False, replace_flags: frozenset = frozenset(),
                         chapter_from: int | None = None, chapter_to: int | None = None) -> dict:
     """Starts a normal translation (single pass; not bulk, not Reflect) as a
@@ -527,18 +527,18 @@ def start_translate_run(drama_id: int, engine_name: str | None = None, model: st
 
     resp, run_settings, novel_reference, glossary_terms, style_guidelines = _prepare_run(
         job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
-        force_retranslate, own_lines_only, thinking, include_genre_notes, default_female_pronouns,
+        force_retranslate, own_lines_only, include_genre_notes, default_female_pronouns,
         memory_examples)
 
     if bulk:
         _launch_bulk(job_id, drama_id, drama, engines[0], opts, reflect, novel_reference,
                      glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                     thinking, run_settings, include_genre_notes, default_female_pronouns, bulk_estimate)
+                     run_settings, include_genre_notes, default_female_pronouns, bulk_estimate)
         return {**resp, "fallback_engines": []}
 
     _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
                       novel_reference, glossary_terms, style_guidelines, force_retranslate,
-                      target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
+                      target_ids, own_lines_only, allow_paid_summary, run_settings,
                       include_genre_notes, default_female_pronouns, replace_flags)
     if target_ids is not None:
         # expected_en may have dropped some of the caller's ids.
@@ -560,7 +560,7 @@ def _job_id_and_bulk_estimate(drama_id, bulk, engine_name, model, cap, reflect, 
 
 
 def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts, reflect, bulk,
-                 force_retranslate, own_lines_only, thinking, include_genre_notes,
+                 force_retranslate, own_lines_only, include_genre_notes,
                  default_female_pronouns, memory_examples=False):
     """(response, run settings, novel reference, glossary terms, style guidelines)."""
     if not bulk:
@@ -579,20 +579,20 @@ def _prepare_run(job_id, drama_id, drama, lines, eligible, engines, chain, opts,
         drama, include_genre_notes, default_female_pronouns, glossary_terms, style_guidelines,
         opts.style_note, resp, locale=opts.locale, style_preset=opts.style_preset,
         context_window=opts.context_window, context_window_ahead=opts.context_window_ahead,
-        batch_size=opts.batch_size, force_retranslate=force_retranslate, thinking=thinking,
+        batch_size=opts.batch_size, force_retranslate=force_retranslate,
         own_lines_only=own_lines_only)
     return resp, run_settings, novel_reference, glossary_terms, style_guidelines
 
 
 def _launch_bulk(job_id, drama_id, drama, engine, opts, reflect, novel_reference,
                  glossary_terms, style_guidelines, force_retranslate, job_cost_cap_usd,
-                 thinking, run_settings, include_genre_notes, default_female_pronouns,
+                 run_settings, include_genre_notes, default_female_pronouns,
                  estimate_usd=None) -> None:
     submit = bulk_submit_service.bulk_submitter(
         drama_id, drama, engine, opts.engine_name, reflect, novel_reference, glossary_terms,
         style_guidelines, opts.style_note or "", opts.locale, opts.style_preset,
         opts.context_window, opts.context_window_ahead, opts.batch_size, force_retranslate,
-        job_cost_cap_usd, drama.get("series_id"), thinking, estimate_usd)
+        job_cost_cap_usd, drama.get("series_id"), estimate_usd)
     runner = run_bulk_translate_job
     if estimate_usd is not None:
         key = paid_job_service.bulk_hold_key(drama_id, "translate")
@@ -624,7 +624,7 @@ def _refuse_if_busy(job_id: str) -> None:
 
 def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, opts, reflect,
                       novel_reference, glossary_terms, style_guidelines, force_retranslate,
-                      target_ids, own_lines_only, thinking, allow_paid_summary, run_settings,
+                      target_ids, own_lines_only, allow_paid_summary, run_settings,
                       include_genre_notes, default_female_pronouns, replace_flags) -> None:
     # Imported here: it needs this module for the drama lookup and Ollama probe.
     from services import episode_summary_service
@@ -643,7 +643,7 @@ def _launch_translate(job_id, drama_id, drama, lines, engine, cost_cap, chain, o
         novel_char_budget=opts.chosen_batch_size is None,
         summary_engine=summary_engine, summary_engine_choice=summary_choice,
         summary_monthly_cap_usd=month_cap_usd() or None, summary_skip_reason=summary_skip_reason,
-        target_ids=target_ids, own_lines_only=own_lines_only, thinking=thinking,
+        target_ids=target_ids, own_lines_only=own_lines_only,
         replace_flags=replace_flags,
         description=f"{'Reflect-mode t' if reflect else 'T'}ranslation (title #{drama_id})",
         run_settings=run_settings, line_fields=("en", "flag", "flag_note"))
@@ -773,7 +773,7 @@ def _record_started_run(drama_id, drama, opts, include_genre_notes, default_fema
 
 
 def save_style_toggles(drama_id: int, include_genre_notes=None,
-                       default_female_pronouns=None, thinking=None,
+                       default_female_pronouns=None,
                        translate_by_sentence=None) -> None:
     """Stores the toggles a run was started with as the title's choice, so
     every later run that is not handed them (retry, glossary re-translate,
@@ -782,7 +782,6 @@ def save_style_toggles(drama_id: int, include_genre_notes=None,
     saved = {k: int(bool(v)) for k, v in (
         ("include_genre_notes", include_genre_notes),
         ("default_female_pronouns", default_female_pronouns),
-        ("translate_thinking", thinking),
         ("translate_by_sentence", translate_by_sentence)) if v is not None}
     if saved:
         db.update_drama(drama_id, **saved)

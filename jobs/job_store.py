@@ -491,13 +491,14 @@ def _log_interrupted(rec: dict, why: str) -> None:
             f"({why}); marked interrupted, {what}."))
 
 
-def sweep_dead_owners(stale_seconds: float, records=None) -> int:
+def sweep_dead_owners(stale_seconds: float, records=None, closed_out=None) -> int:
     """Closes every queued/running row that is not live in this process and
     whose owner is gone (close_if_owner_gone) or has not heartbeated for
     `stale_seconds`. Also marks this process's own running jobs whose
     worker thread is gone (job_runner.reconcile_dead_workers). `records`:
     the job_records rows the caller has just read, so they aren't read
-    twice. Returns how many rows it closed."""
+    twice. `closed_out`: a list each closed row is appended to. Returns how
+    many rows it closed."""
     import background_jobs as bj
     from jobs import job_runner
     job_runner.reconcile_dead_workers()
@@ -508,11 +509,15 @@ def sweep_dead_owners(stale_seconds: float, records=None) -> int:
         if rec.get("status") not in ACTIVE or bj.get_status(job_id):
             continue
         if close_if_owner_gone(rec):
-            _log_interrupted(rec, "its process is gone")
-            closed += 1
+            why = "its process is gone"
         elif (rec.get("updated_at") or 0) < cutoff and close_stale(job_id, cutoff):
-            _log_interrupted(rec, f"no heartbeat for {int(stale_seconds // 60)} min")
-            closed += 1
+            why = f"no heartbeat for {int(stale_seconds // 60)} min"
+        else:
+            continue
+        _log_interrupted(rec, why)
+        closed += 1
+        if closed_out is not None:
+            closed_out.append(rec)
     return closed
 
 
