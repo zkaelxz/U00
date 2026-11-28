@@ -998,6 +998,20 @@ def test_the_page_plan_is_rebuilt_when_the_saved_chapters_change(isolated_db, mo
     assert 5 in reader_service.get_reader_page(did, page=1, chapter_size=20)["page_starts"]
 
 
+def test_two_page_sizes_on_one_title_each_keep_their_plan(isolated_db, monkeypatch):
+    _stub_render(monkeypatch)
+    monkeypatch.setattr(reader_service, "_PAGE_PLANS", {})
+    monkeypatch.setattr(reader_service, "_PARAGRAPH_ENDS", {})
+    did, _heads, _ends, _total = _chaptered_novel(isolated_db, TestChapterPages.SHAPES)
+    loads = []
+    real = isolated_db.load_line_texts
+    monkeypatch.setattr(isolated_db, "load_line_texts", lambda d: loads.append(d) or real(d))
+    for size in (20, 40, 20, 40):
+        reader_service.page_plan(did, isolated_db.get_drama(did), size, _total)
+    # Built once per size; the narration's paragraph ends load the texts once more.
+    assert len(loads) == 3
+
+
 def test_chapters_stamp_follows_the_manifest_file(isolated_db):
     import os
     from services import novel_line_chapters_service as chapters

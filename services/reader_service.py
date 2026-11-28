@@ -160,14 +160,14 @@ def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int) -> list
     at each chapter, so "Read" on a chapter never opens on the tail of the one before;
     a chapter longer than `chapter_size` lines goes on over more pages, each ending at a
     paragraph end when the novel's source text gives them. Anything else is a page every
-    `chapter_size` lines. Kept between page turns, like the paragraph ends."""
+    `chapter_size` lines. Kept between page turns, like the paragraph ends, once per page
+    size, so a phone and a PC reading the same title at different sizes don't evict each other."""
     if medium_prompts.kind_for(drama) != "novel":
         return list(range(0, total, chapter_size))
     ends = _narration_paragraph_ends(drama_id) if drama.get("content_mode") == "novel_narration" else None
     ends_key = _PARAGRAPH_ENDS[drama_id][0] if ends is not None and drama_id in _PARAGRAPH_ENDS else None
-    key = (db.line_text_stamp(drama_id), novel_line_chapters_service.chapters_stamp(drama_id),
-           chapter_size, ends_key)
-    cached = _PAGE_PLANS.get(drama_id)
+    key = (db.line_text_stamp(drama_id), novel_line_chapters_service.chapters_stamp(drama_id), ends_key)
+    cached = _PAGE_PLANS.get((drama_id, chapter_size))
     if cached is not None and cached[0] == key:
         return cached[1]
     texts = db.load_line_texts(drama_id)
@@ -184,7 +184,7 @@ def page_plan(drama_id: int, drama: dict, chapter_size: int, total: int) -> list
             at = cut
     if len(_PAGE_PLANS) >= _PARAGRAPH_ENDS_KEPT:
         _PAGE_PLANS.pop(next(iter(_PAGE_PLANS)), None)
-    _PAGE_PLANS[drama_id] = (key, plan)
+    _PAGE_PLANS[(drama_id, chapter_size)] = (key, plan)
     return plan
 
 
