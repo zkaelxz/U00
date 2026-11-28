@@ -9,6 +9,7 @@ import getpass
 import importlib.metadata
 import ipaddress
 import os
+import platform
 import re
 from urllib.parse import urlsplit
 
@@ -321,12 +322,20 @@ def redact_for_support(text) -> str:
 # query must not end the match and leave the rest of the query behind.
 _BUNDLE_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]{1,15}://[^\s\"'<>`]+")
 _LAN_NAME = re.compile(r"(?i)^(?:localhost|.+\.(?:local|lan|home|internal|ts\.net))$")
+# A request path written without its scheme and host, as urllib3 does in
+# "Max retries exceeded with url: /book/<slug>?page=2": the path is a title's
+# slug as often as not, and the query its search words.
+_BARE_REQUEST_PATH = re.compile(r"(?i)(\burl:\s*)[^\s\"'<>`]+|(?<![\w/.:~])/[^\s\"'<>`/]+(?:/[^\s\"'<>`/]*)*\?[^\s\"'<>`]*")
+# Any query string left over ("login?password=...&next=..."): its values are what was asked for.
+_BARE_QUERY = re.compile(r"\?[\w.%\[\]-]+=[^\s\"'<>`]*")
+# host='nas' in a connection-pool error: a name with no dot is a PC on the network.
+_DOTLESS_HOST_ARG = re.compile(r"(?i)(\bhost=['\"]?)([a-z0-9-]+)(?=['\"]?[,)\s])")
 # The same private hosts written without a scheme ("172.20.9.5:11434", "nas.local").
 _LAN_IN_TEXT = re.compile(
     r"(?i)(?<![\w.])(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}"
     r"|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}"
     r"|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}"
-    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|ts\.net))(?![\w.])")
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:local|lan|home|internal|ts\.net))(?![\w.])")
 _BUNDLE_PATTERNS = [
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"), "[EMAIL]"),
     (re.compile(r"(?i)((?:set-)?cookie[\"']?\s*[:=]\s*)[^\r\n]*"), r"\1[REDACTED]"),
@@ -351,7 +360,7 @@ def _url_host_only(m) -> str:
         return "[URL]"
     if not host:
         return "[URL]"
-    if _LAN_NAME.match(host) or _non_global_ip(host):
+    if "." not in host or _LAN_NAME.match(host) or _non_global_ip(host):
         return "[LAN]"
     return f"{parts.scheme.lower()}://{host}"
 
@@ -381,10 +390,16 @@ def bundle_redactor(titles=(), secrets=()):
     before account names become [USER] inside it."""
     secret_re = _terms_pattern(secrets, 8)
     title_re = _terms_pattern(titles, 2)
+    pc_re = _terms_pattern([platform.node()], 2)
 
     def redact(text) -> str:
         text = _ANSI_PATTERN.sub("", "" if text is None else str(text))
         text = _BUNDLE_URL.sub(_url_host_only, text)
+        text = _BARE_REQUEST_PATH.sub(lambda m: (m.group(1) or "") + "[PATH]", text)
+        text = _BARE_QUERY.sub("?[QUERY]", text)
+        text = _DOTLESS_HOST_ARG.sub(lambda m: m.group(1) + "[LAN]", text)
+        if pc_re:
+            text = pc_re.sub("[PC]", text)
         if secret_re:
             text = secret_re.sub("[REDACTED]", text)
         if title_re:

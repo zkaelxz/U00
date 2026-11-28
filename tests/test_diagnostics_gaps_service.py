@@ -1023,17 +1023,25 @@ _BUNDLE_SECRETS = {
     "lan_bare": "ollama at 172.20.9.77:11434 or nas-example.local",
     "title": f"Translating 1/3 -- {_TITLE} (0%) and {_TITLE_ZH.upper()}",
     "odd_key": f"rejected key {_ODD_KEY}",
+    "bare_path": "HTTPSConnectionPool(host='novels.example', port=443): Max retries exceeded with url: "
+                 "/book/moonlit-example-garden?page=2&q=PRIVATESEARCH",
+    "bare_query": "GET /search?q=PRIVATEWORDS 404",
+    "dotless_host": "HTTPConnectionPool(host='nas', port=80) and http://DESKTOP-EXAMPLE:11434/api/tags",
+    "pc_name": "running on DESKTOP-EXAMPLE",
 }
 _BUNDLE_LEAKS = ("alex.example", "alexuser", "pwvalue123", "PRIVATEQUERY", "PLAINCOOKIEVALUE",
                  "hunter2hunter2", "hunter3hunter3", "PLAINBEARERVALUE123", "eyJhbGciOiJIUzI1NiJ9",
                  "SIGNEDVALUE", "Expires=1", "moonlit-example-garden", "/book/", "172.20.9.77",
-                 "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat")
+                 "nas-example", _TITLE, _TITLE.lower(), _TITLE_ZH, _ODD_KEY, "/api/chat",
+                 "PRIVATENEXT", "PRIVATESEARCH", "PRIVATEWORDS", "host='nas'", "DESKTOP-EXAMPLE")
 
 
 def _bundle(monkeypatch):
     import io
+    import platform
     import zipfile
     from services import diagnostics_service
+    monkeypatch.setattr(platform, "node", lambda: "DESKTOP-EXAMPLE")
     monkeypatch.setattr(settings_service, "key_status", lambda env_path=None: {"claude": True})
     monkeypatch.setattr(settings_service, "resolve_key",
                         lambda name, env_path=None: _ODD_KEY if name == "openai" else None)

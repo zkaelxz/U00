@@ -92,6 +92,7 @@ def get_support_report():
 
 
 @router.get("/support-bundle", dependencies=[require_permission("admin.diagnostics")],
+            response_class=Response,
             summary="Send logs: a scrubbed zip of the support report, system info, "
                     "recent job records and app.log (binary download; 409 while one is built)",
             responses={200: {"content": {"application/zip": {}}}, **error_responses(403, 409)})
