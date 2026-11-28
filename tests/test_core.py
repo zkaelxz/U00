@@ -477,6 +477,21 @@ class TestWhisperPrompt:
         seen, _ = self._seen(monkeypatch, language="zh", chinese_script="traditional")
         assert seen["initial_prompt"] == "以下是普通話的句子。"
 
+    def test_the_v62_gate_wraps_the_decode_unless_turned_off(self, monkeypatch):
+        import contextlib
+        import vad_model
+        entered = []
+
+        @contextlib.contextmanager
+        def gated():
+            entered.append(True)
+            yield True
+        monkeypatch.setattr(vad_model, "gated", gated)
+        self._seen(monkeypatch, language="zh")
+        assert entered == [True]
+        self._seen(monkeypatch, language="zh", standalone_extra_speech=False)
+        assert entered == [True]
+
     def test_no_hint_outside_chinese_or_without_a_chosen_script(self, monkeypatch):
         for call in ({"language": "ja", "chinese_script": "simplified"},
                      {"language": "zh", "chinese_script": None}, {"language": "zh"}):

@@ -88,6 +88,11 @@ def start_gpu_queue_poller(interval: float | None = None) -> bool:
                     update_service.periodic_tick()
                 except Exception as exc:
                     log_warning("update check failed: %s", exc)
+                try:
+                    from services import device_token_service
+                    device_token_service.periodic_tick()
+                except Exception as exc:
+                    log_warning("remote access key expiry check failed: %s", exc)
 
         thread = threading.Thread(target=loop, daemon=True, name="api-gpu-queue-poller")
         _gpu_poller = (thread, stop)

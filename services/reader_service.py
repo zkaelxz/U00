@@ -20,8 +20,7 @@ Conventions shared by all of them:
   - every function takes a drama id and raises NotFoundError for an
     unknown one (the ownership check); a sub-record (a vocab word, a
     wiki entry) is only ever read/written through its own drama;
-  - plain dicts/lists/str/bytes out, never a filesystem path or key
-    (media_file_path is the one server-internal exception, documented);
+  - plain dicts/lists/str/bytes out, never a filesystem path or key;
   - keys are resolved server-side, never accepted or returned, an engine
     failure answers with a fixed sentence (engine_failure_service), and a
     local OSError becomes a fixed message;
@@ -195,7 +194,6 @@ MAX_WIKI_CHUNKS_PER_CALL = 10
 MAX_RICH_CARDS = 300
 RICH_CLIP_TIMEOUT_SECONDS = 15
 RICH_AUDIO_BUDGET_SECONDS = 120
-MEDIA_KINDS = ("original", "narration")
 _LISTENING_MEDIA_TYPES = ("audio_drama", "video_drama", "asmr")
 
 
@@ -408,20 +406,6 @@ def get_media_availability(drama_id: int) -> dict:
     return {"drama_id": drama_id, "original": original,
             "narration": "narration" in media, "caption_tracks": labels,
             "captions_overlay": original == "video" and bool(labels)}
-
-
-def media_file_path(drama_id: int, kind: str) -> tuple:
-    """(media_type, absolute path) of one playable file, for a Range-
-    capable streaming endpoint to open server-side. SERVER-INTERNAL: the
-    path must never be put in a response body, header or log. NotFound
-    when the drama or that file doesn't exist."""
-    drama = _require_drama(drama_id)
-    if kind not in MEDIA_KINDS:
-        raise InvalidInputError("kind must be one of: " + ", ".join(MEDIA_KINDS))
-    found = _media_paths(drama_id, drama).get(kind)
-    if found is None:
-        raise NotFoundError(f"This title has no {kind} media file.")
-    return found
 
 
 # ---------------------------------------------------------------------------

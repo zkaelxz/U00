@@ -331,7 +331,7 @@ def test_startup_finishes_interrupted_moves(isolated_db, monkeypatch):
     for name in ("start_background_services", "start_gpu_queue_poller",
                  "start_reeval_scheduler", "stop_gpu_queue_poller", "stop_reeval_scheduler"):
         monkeypatch.setattr(background, name, lambda *_: None)
-    monkeypatch.setattr(jobs_service, "sweep_stale_job_records", lambda: 0)
+    monkeypatch.setattr(jobs_service, "sweep_at_startup", lambda: [])
     monkeypatch.setattr(auth_service, "sweep_stale_sessions", lambda: 0)
     ran = []
     monkeypatch.setattr(svc, "recover_interrupted_moves", lambda: ran.append(1) or [])

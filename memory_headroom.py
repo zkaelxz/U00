@@ -19,11 +19,9 @@ not measurements; the error text says so. Cloud engines and a remote Ollama
 use none of this machine's memory and are never checked.
 """
 
-import json
 import os
 import sys
 
-from lib import http
 
 MB = 1024 * 1024
 KEEP_FREE_KEYS = {"vram": "keep_free_vram_gb", "ram": "keep_free_ram_gb"}
@@ -294,18 +292,6 @@ def before_load(kind: str, name: str, use_gpu: bool, cached: bool) -> None:
     """The ASR / aligner loaders' one hook; a cached model needs no check."""
     if not cached:
         check(kind, name, use_gpu)
-
-
-def _ollama_json(url: str) -> dict:
-    """GET a JSON answer from the Ollama address the owner configured (loopback)."""
-    # engine_backends.shared imports this module, so it can only be imported late.
-    from engine_backends.shared import PROVIDER_RESPONSE_MAX_BYTES
-    # guard=None: base_url is the Ollama address the user configured (loopback here).
-    resp = http.get(url, timeout=3, max_bytes=PROVIDER_RESPONSE_MAX_BYTES, guard=None,
-                    trust_env=False)  # loopback only: an HTTP_PROXY must not carry it
-    if resp.status >= 400:
-        raise ValueError(f"HTTP {resp.status}")
-    return json.loads(resp.body)
 
 
 def status() -> dict:

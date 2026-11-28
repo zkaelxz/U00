@@ -39,10 +39,10 @@ test('filters go through the API', async ({ page }) => {
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'All titles' }).click()
-  await page.getByLabel('Search title or summary').fill('Heaven')
+  await page.getByLabel('Search titles, people, tags and series').fill('Heaven')
   await expect(page.getByTestId('drama-count')).toHaveText('1 title')
 
-  await page.getByLabel('Search title or summary').fill('zzz-nothing')
+  await page.getByLabel('Search titles, people, tags and series').fill('zzz-nothing')
   await expect(page.getByText('No titles match.')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).click()
   await expect(page.getByTestId('drama-count')).toHaveText('3 titles')
