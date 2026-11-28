@@ -1,4 +1,4 @@
-// Pure helpers for Settings > Sharing (SharingCard.tsx).
+// Pure helpers for Settings > Sharing (SharingCard.tsx) and the Sharing page (SharingPage.tsx).
 import { ApiError, hasStatus } from '../../api/client'
 import { describeError } from '../../components/errorMessages'
 import type { SessionState } from '../../hooks/useSession'

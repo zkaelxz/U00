@@ -152,6 +152,12 @@ test('admin: share-new-items switch, every item with its owner on the Sharing pa
   await expect(list.getByRole('listitem')).toHaveCount(2)
   await card.getByRole('combobox', { name: 'Order' }).selectOption({ label: 'Title' })
   await expect(list.getByRole('listitem')).toHaveText([/^Hidden Letters/, /^Saga Ep 1/])
+  // Giving an owner's last item away drops the filter back to everyone instead of an empty list.
+  await card.getByRole('combobox', { name: 'Owner', exact: true }).selectOption({ label: 'Ann' })
+  await expect(list.getByRole('listitem')).toHaveCount(1)
+  await card.getByRole('combobox', { name: 'Owner of series “Saga”' }).selectOption({ label: 'Bo' })
+  await expect(list.getByRole('listitem')).toHaveCount(4)
+  await expect(card.getByRole('combobox', { name: 'Owner', exact: true })).toHaveValue('')
 
   expect(posts).toEqual([
     { path: '/api/sharing/share-by-default', body: { share_by_default: true } },
@@ -159,6 +165,7 @@ test('admin: share-new-items switch, every item with its owner on the Sharing pa
     { path: '/api/sharing/series/9/private', body: { private: true } },
     { path: '/api/sharing/dramas/3/owner', body: { owner_user_id: 3 } },
     { path: '/api/sharing/dramas/5/private', body: { private: false } },
+    { path: '/api/sharing/series/9/owner', body: { owner_user_id: 3 } },
   ])
   expect(unmocked).toEqual([])
 })

@@ -102,10 +102,11 @@ function ownerLabel(id: number, displayName: string): string {
 }
 
 /** Every page of the list, in the server's order. */
-async function loadAll(): Promise<SharingItem[]> {
+async function loadAll(live: () => boolean): Promise<SharingItem[]> {
   let items: SharingItem[] = []
   for (;;) {
     const r = await listSharing(items.length, PAGE)
+    if (!live()) return items
     const before = items.length
     items = mergePage(items, r.items)
     // Rows can shift between pages; an empty or all-seen page ends the loop rather than asking forever.
@@ -126,7 +127,7 @@ function SharingItems({ owners }: { owners: boolean }) {
 
   useEffect(() => {
     let live = true
-    loadAll().then(
+    loadAll(() => live).then(
       (all) => live && setItems(all),
       (e: unknown) => {
         if (!live) return
@@ -186,12 +187,12 @@ function SharingItems({ owners }: { owners: boolean }) {
     )
   }
 
-  const renderRow = (item: SharingItem) => {
+  const renderRow = (item: SharingItem, seriesShown: ReadonlySet<number>) => {
     const key = itemKey(item)
     const title = itemTitle(item)
     const kindLabel = item.kind === 'series' ? 'Series' : 'Title'
-    // Indented under its series only where the series is the row above it.
-    const nested = order === 'status' && followsSeries(item)
+    // Indented only under its own series row; a filter or the owner order can leave a title without it.
+    const nested = order === 'status' && followsSeries(item) && seriesShown.has(item.series_id ?? -1)
     return (
       <li key={key} className={nested ? 'sharing-in-series' : undefined} data-testid={`sharing-${key}`}>
         <div className="status-row sharing-row">
@@ -240,7 +241,9 @@ function SharingItems({ owners }: { owners: boolean }) {
   }
 
   const choices = items ? ownerChoices(items) : []
-  const groups = items ? arrangeSharing(items, order, show, owner) : []
+  // An owner change can take an owner's last item; the filter then falls back to everyone rather than an empty list.
+  const ownerShown = choices.some((c) => c.value === owner) ? owner : ''
+  const groups = items ? arrangeSharing(items, order, show, ownerShown) : []
   return (
     <div className="settings-group">
       <p className="settings-note">
@@ -267,7 +270,7 @@ function SharingItems({ owners }: { owners: boolean }) {
           {choices.length > 1 && (
             <label>
               Owner
-              <select value={owner} onChange={(e) => setOwner(e.target.value)}>
+              <select value={ownerShown} onChange={(e) => setOwner(e.target.value)}>
                 <option value="">Everyone</option>
                 {choices.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -290,7 +293,7 @@ function SharingItems({ owners }: { owners: boolean }) {
             <div key={group.key}>
               <h2 className="subhead">{group.label} ({group.items.length})</h2>
               <ul className="status-list sharing-list" aria-label={`${group.label} titles and series`}>
-                {group.items.map(renderRow)}
+                {group.items.map((i) => renderRow(i, new Set(group.items.filter((x) => x.kind === 'series').map((x) => x.id))))}
               </ul>
             </div>
           ))}
