@@ -210,6 +210,17 @@ def test_developer_mode_off_by_default_and_validated(isolated_db):
     assert settings_svc.set_settings({"developer_mode": True, "engine": "ollama"})["engine"] == "ollama"
 
 
+def test_keep_quick_read_pages_is_saved_where_quick_read_reads_it(isolated_db, monkeypatch):
+    from services import quick_read_keep
+    monkeypatch.setattr(quick_read_keep, "_enabled_at", float("-inf"))
+    assert settings_svc.get_settings()["quick_read_keep_pages"] is False
+    s = settings_svc.set_settings({"developer_mode": True, "quick_read_keep_pages": True})
+    assert s["quick_read_keep_pages"] is True
+    assert quick_read_keep.enabled() is True
+    with pytest.raises(errors.InvalidInputError):
+        settings_svc.set_settings({"quick_read_keep_pages": "yes"})
+
+
 # --- changelog -------------------------------------------------------------------
 
 def test_changelog_feeds_the_commit_range_to_the_model(dev_mode, fake_engine, monkeypatch):

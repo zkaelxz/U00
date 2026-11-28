@@ -34,7 +34,7 @@ test.describe('selection bar (real API)', () => {
   test('select two, set status, translate needs aligned, typed DELETE removes both', async ({ page }) => {
     ids.push(await createDrama(page, 'Admin E2E One'), await createDrama(page, 'Admin E2E Two'))
     await page.goto('/')
-    await page.getByLabel('Search title or summary').fill('Admin E2E')
+    await page.getByLabel('Search titles, people, tags and series').fill('Admin E2E')
     await expect(page.getByTestId('drama-count')).toHaveText('2 titles')
     // List view: Select shows the checkbox column (select mode works in both views).
     await page.getByRole('radio', { name: 'List' }).check()

@@ -42,7 +42,7 @@ from .shared import (
 )
 from .line_text import is_english_line, keep_first_alternative, strip_echoed_label, tagged_line_languages
 import source_change
-from en_cleanup import drop_em_dashes
+from en_cleanup import SCENE_BREAK, drop_em_dashes, is_divider
 
 
 def build_translation_context(engine, drama_meta: dict, style_note: str = "", novel_reference=None,
@@ -274,7 +274,7 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             continue
         for ln, tr in zip(chunk, redone):
             if (tr or "").strip():
-                ln.en = drop_em_dashes(tr)
+                ln.en = drop_em_dashes(tr, ln.zh)
                 retried.append(ln)
     if retried and save_cb:
         save_cb(lines)
@@ -283,6 +283,19 @@ def _recheck_male_pronouns(engine, lines, translated, context, character_names, 
             ln.flag = PRONOUN_CHECK_FLAG
             ln.flag_note = ("Says he/him but no he/him character is set for this speaker; "
                             "check the pronoun")
+
+
+def _uses_char_budget(a) -> bool:
+    """A novel batch is also held to its model's character budget unless the user chose the
+    batch size. The run service always passes a size, so it says which one it passed."""
+    return not a.batch_size if a.novel_char_budget is None else a.novel_char_budget
+
+
+def _planning_engine(engine):
+    # A wrapper's own type names no model; the engine the run starts on sets the budget.
+    if isinstance(engine, FallbackEngine):
+        return engine.engines[engine.active]
+    return engine
 
 
 def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: int | None = None,
@@ -301,7 +314,8 @@ def _translate_lines_with_engine(lines, engine, drama_meta: dict, batch_size: in
                                  stop_before_batch=None, temperature: float | None = None,
                                  reasoning: str | None = None, sentence_groups_cb=None,
                                  replace_flags: frozenset = frozenset(), parallel_chapters: int = 1,
-                                 lane_thread_scope=None, month_cap_left_cb=None):
+                                 lane_thread_scope=None, month_cap_left_cb=None,
+                                 novel_char_budget: bool | None = None):
     """Translates `lines` in place and returns (lines, errors); see _TranslateRun
     for what each argument does."""
     # The signature stays the one place the arguments are listed: the public
@@ -379,11 +393,15 @@ class _TranslateRun:
             target_lines = [ln for ln in target_lines if getattr(ln, "id", None) in a.target_ids]
         # A line with no source text has nothing to translate; sent, it only invites invented English.
         target_lines = [ln for ln in target_lines if (ln.zh or "").strip()]
-        english = [ln for ln in target_lines if is_english_line(ln)]
+        # A novel's scene divider is copied as the English scene break: there is nothing to translate.
+        novel = medium_prompts.kind_for(a.drama_meta) == "novel"
+        dividers = {id(ln) for ln in target_lines if novel and is_divider(ln.zh.strip())}
+        english = [ln for ln in target_lines if is_english_line(ln) or id(ln) in dividers]
         for ln in english:
-            ln.en = ln.zh
+            ln.en = SCENE_BREAK if id(ln) in dividers else ln.zh
             source_change.clear_for_new_english(ln, a.replace_flags)
-        target_lines = [ln for ln in target_lines if not is_english_line(ln)]
+        copied = {id(ln) for ln in english}
+        target_lines = [ln for ln in target_lines if id(ln) not in copied]
         self.english = english
         if not target_lines:
             if english and a.save_cb:
@@ -412,7 +430,8 @@ class _TranslateRun:
         # Planned part by part, so every scene cut is where a batch starts.
         cuts = [0, *(i for i, ln in enumerate(target_lines) if ln.idx in self.scene_starts), len(target_lines)]
         batches = (plan_paragraph_batches(target_lines, size, novel_ends,
-                                          max_chars=None if a.batch_size else novel_batch_chars(self.engine),
+                                          max_chars=novel_batch_chars(_planning_engine(self.engine))
+                                          if _uses_char_budget(a) else None,
                                           chapter_starts=chapter_starts,
                                           one_chapter_per_batch=side_by_side) if novel_ends
                    else [b for lo, hi in zip(cuts, cuts[1:]) for b in subtitle_batches(target_lines[lo:hi])])
@@ -835,7 +854,7 @@ class _TranslateRun:
         for ln, tr in zip(chunk, translations):
             if (tr or "").strip():
                 ln.en = drop_em_dashes(keep_first_alternative(
-                    strip_echoed_label(self.character_names.get(ln.speaker), tr)))
+                    strip_echoed_label(self.character_names.get(ln.speaker), tr)), ln.zh)
                 source_change.clear_for_new_english(ln, self.args.replace_flags)
                 self._flag_if_split(ln)
                 self.translated.append(ln)
@@ -904,7 +923,7 @@ class _TranslateRun:
             missed = []
             for ln, tr in zip(part, translations):
                 if (tr or "").strip():
-                    ln.en = drop_em_dashes(tr)
+                    ln.en = drop_em_dashes(tr, ln.zh)
                     source_change.clear_for_new_english(ln, self.args.replace_flags)
                     self._flag_if_split(ln)
                     self.translated.append(ln)

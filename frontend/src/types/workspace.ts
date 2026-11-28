@@ -36,7 +36,7 @@ export type TranscribeConfigUpdate = Partial<
     | 'use_gpu'
     | 'has_video_source'
     | 'effective_vad_threshold'
-  >
+  > & Pick<Schemas['TranscribeConfigUpdate'], 'separate_vocals_touched'>
 >
 
 export type TranscribeRunRequest = Schemas['TranscribeRunRequest']
