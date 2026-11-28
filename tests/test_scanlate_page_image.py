@@ -178,8 +178,20 @@ def test_a_page_that_loses_its_picture_says_so_in_the_log(monkeypatch):
     picture = {"data": b"x", "mime": "image/png", "scale": 1.0}
     scanlate_translate.translate_page_bubbles([_region("你好")], _Engine(), {"source_language": "zh"},
                                               page_image=picture)
-    assert any(level == "warning" and "did not match" in m and "from its text only" in m
+    assert any(level == "warning" and "did not match" in m and "the page again from its text only" in m
                for level, m in messages)
+    # A dense page whose second chunk lost its picture sends only that chunk as text.
+    messages.clear()
+    monkeypatch.setattr(scanlate_translate, "translate_regions_with_image",
+                        lambda chunk, *a, **k: ({r["id"]: "t" for r in chunk}, "c")
+                        if chunk[0]["id"] == "0" else (None, "c"))
+    count = scanlate_translate.REGIONS_PER_CALL + 1
+    scanlate_translate.translate_page_bubbles([_region(f"文{i}") for i in range(count)], _Engine(),
+                                              {"source_language": "zh"}, page_image=picture)
+    left = count - scanlate_translate.REGIONS_PER_CALL
+    assert [m for level, m in messages if level == "warning"] == [
+        "Comic translate: no usable answer with the picture (answer did not match the regions), "
+        f"translating the {left} of {count} regions it did not answer from their text only"]
 
 
 def _stored_page(drama_id, width=120, height=80):

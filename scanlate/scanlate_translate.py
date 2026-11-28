@@ -509,17 +509,19 @@ def _translate_with_page_image(by_key: dict, page_image: dict, engine, drama_met
                 result, new_context = {**(result or {}), **part}, context
                 break
     if len(result or {}) < len(regions):
-        _log_lost_picture(failure)
+        _log_lost_picture(failure, len(regions) - len(result or {}), len(regions))
     return result, new_context
 
 
-def _log_lost_picture(failure: str) -> None:
+def _log_lost_picture(failure: str, left: int, total: int) -> None:
     # Without this line a page that lost its picture (worth 1-3 chrF) and
     # paid a second call looked the same in the log as any other page.
     import applog
+    what = ("the page again from its text only" if left == total
+            else f"the {left} of {total} regions it did not answer from their text only")
     applog.get_logger().warning("Comic translate: no usable answer with the picture (%s), "
-                                "translating the page again from its text only",
-                                failure or "answer did not match the regions")
+                                "translating %s",
+                                failure or "answer did not match the regions", what)
 
 
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
