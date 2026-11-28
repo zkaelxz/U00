@@ -1459,3 +1459,23 @@ def test_another_file_for_the_same_version_starts_its_own_wait(http, monkeypatch
 def test_a_damaged_or_future_time_is_not_believed(at):
     record = {"version": "0.2.0", "name": NAME, "sha256": "a" * 64, "at": at}
     assert us.first_verified_at(record, "0.2.0", NAME, "a" * 64, 1000.0) == 1000.0
+
+
+
+def test_an_unreadable_first_verified_record_only_restarts_the_wait(http, monkeypatch):
+    import contextlib
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (us.FIRST_VERIFIED_INSTALLER_KEY, "{not json"))
+        conn.commit()
+    _serve_release(http)
+    us.check()
+    us.download()
+    assert us.status()["verified"] is True and us._verified["at"] > 1.0
+
+
+def test_a_restore_keeps_this_pcs_first_verified_times():
+    from services import library_restore_service as lrs
+    from services import app_update_service as aus
+    assert us.FIRST_VERIFIED_INSTALLER_KEY in lrs._RESTORE_KEPT_APP_SETTINGS
+    assert aus.FIRST_VERIFIED_APP_KEY in lrs._RESTORE_KEPT_APP_SETTINGS

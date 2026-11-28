@@ -1082,3 +1082,15 @@ def test_after_a_restart_the_day_counts_from_the_first_verification(service_env,
     assert env["sc"].calls == []
     aus.auto_apply_tick(now=first + aus.QUIET_WAIT_SECONDS)
     assert [c[1:] for c in env["sc"].calls] == [["start", "BaiheUpdate"]]
+
+
+
+def test_an_unreadable_first_verified_record_still_verifies_the_zip(env):
+    with contextlib.closing(db.get_conn()) as conn:
+        conn.execute("INSERT INTO app_settings (key, value) VALUES (?, ?)",
+                     (aus.FIRST_VERIFIED_APP_KEY, "{not json"))
+        conn.commit()
+    _serve(env)
+    us.check()
+    _download(env)
+    assert us.status()["app_verified"] is True

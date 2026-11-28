@@ -428,8 +428,11 @@ def download() -> dict:
     final = os.path.join(folder, release["name"])
     us.fetch_verified(release["url"], final, release["size"], MAX_APP_ZIP_BYTES, expected,
                       public_key, signature, release["name"], _progress, what="update")
-    at = us.first_verified_at(db.get_app_setting(FIRST_VERIFIED_APP_KEY, None),
-                              release["version"], release["name"], expected, time.time())
+    try:
+        record = db.get_app_setting(FIRST_VERIFIED_APP_KEY, None)
+    except (sqlite3.Error, ValueError):
+        record = None       # only the wait restarts; the verified download still counts
+    at = us.first_verified_at(record, release["version"], release["name"], expected, time.time())
     with _lock:
         if _release is None or _release["version"] != release["version"]:
             raise ConflictError("A different version was found while downloading. Download again.")
