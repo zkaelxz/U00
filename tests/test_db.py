@@ -101,6 +101,30 @@ class TestDramaCRUD:
         results = isolated_db.list_dramas(search="dragons")
         assert len(results) == 1
 
+    def test_search_matches_people_tags_and_series_every_viewer_sees(self, isolated_db):
+        sid = isolated_db.get_or_create_series("Night Radio")
+        found = {
+            "Alex Writer": isolated_db.create_drama(title_en="One", author="Alex Writer"),
+            "Sam Romaji": isolated_db.create_drama(title_en="Two", author="山本", author_romanized="Sam Romaji"),
+            "Echo Studio": isolated_db.create_drama(title_en="Three", studio="Echo Studio"),
+            "Kim Voice": isolated_db.create_drama(title_en="Four", voice_actors="Kim Voice, Lee Voice"),
+            "Lee Roman": isolated_db.create_drama(title_en="Five", voice_actors_romanized="Lee Roman"),
+            "slowburn": isolated_db.create_drama(title_en="Six", custom_tags="Favorite,slowburn"),
+            "Night Radio": isolated_db.create_drama(title_en="Seven", series_id=sid),
+        }
+        for term, did in found.items():
+            assert [d["id"] for d in isolated_db.list_dramas(search=term)] == [did], term
+
+    def test_search_never_reads_old_private_notes_or_another_members_private_title(self, isolated_db):
+        isolated_db.create_drama(title_en="Noted", personal_notes="secretword")
+        assert isolated_db.list_dramas(search="secretword") == []
+        a = isolated_db.auth_create_user("a@example.com")
+        b = isolated_db.auth_create_user("b@example.com")
+        mine = isolated_db.create_drama(title_en="Private", author="Hidden Writer",
+                                        owner_user_id=a, is_private=1)
+        assert [d["id"] for d in isolated_db.list_dramas(search="Hidden Writer", visible_to=a)] == [mine]
+        assert isolated_db.list_dramas(search="Hidden Writer", visible_to=b) == []
+
 
 class TestDramaColumnCheck:
     BAD_KEYS = ["nope", "title en", "title_en'", "title_en;", "title_en -- ", "Title_en", "id"]
