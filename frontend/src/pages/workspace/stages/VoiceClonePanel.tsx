@@ -44,6 +44,7 @@ import {
   speakerTitle,
 } from './voiceClone'
 import { useCancellableEffect } from '../../../hooks/useCancellableEffect'
+import { useHolds } from '../../../hooks/useHolds'
 
 interface CardProps {
   entry: CharacterEntry
@@ -61,6 +62,8 @@ interface CardProps {
 
 function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, extracting, onExtract, onSaved, onBankSaved }: CardProps) {
   const { dramaId } = useStage()
+  // Saving to the bank needs admin.library; applying a saved voice needs only lines.edit.
+  const canSaveVoice = useHolds('admin.library')
   const label = entry.speaker_label
   const [actor, setActor] = useState(entry.voice_actor ?? '')
   const [design, setDesign] = useState(entry.voice_design ?? '')
@@ -242,7 +245,7 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
 
       <div className="voice-block">
         <h4>Voice bank</h4>
-        <div className="voice-row">
+        {canSaveVoice && <div className="voice-row">
           <Field label="Save as" help="Name this voice to reuse it in other titles. It starts private; tick it off Private in Library tools to share it with members.">
             <input aria-label={`Voice bank name for ${label}`} value={bankName} onChange={(e) => setBankName(e.target.value)} />
           </Field>
@@ -260,8 +263,8 @@ function SpeakerCard({ entry, warning, candidates, bank, cast, pc, hasAudio, ext
           >
             Save to voice bank
           </button>
-        </div>
-        <DisabledReason id={bankReasonId}>{bankHint ?? (!bankName.trim() && 'Type a name first.')}</DisabledReason>
+        </div>}
+        {canSaveVoice && <DisabledReason id={bankReasonId}>{bankHint ?? (!bankName.trim() && 'Type a name first.')}</DisabledReason>}
         {bank.length > 0 && (
           <div className="voice-row">
             <Field label="Use a saved voice">

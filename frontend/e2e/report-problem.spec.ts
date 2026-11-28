@@ -3,6 +3,12 @@ import { shot } from './shots'
 
 import { ME } from './authMocks'
 
+// Report a problem sits in the header's You menu on a wide window.
+async function openReport(page: Page) {
+  await page.locator('details.you-menu > summary').click()
+  await page.locator('details.you-menu').getByRole('button', { name: 'Report a problem' }).click()
+}
+
 // "Report a problem" (desktop): the header dialog, its Copy a report
 // and Saved reports parts. Every /api request is fulfilled or aborted here: /api/meta and
 // the bug-report calls are mocked, any other GET gets a mocked 404 and any
@@ -75,8 +81,8 @@ test('Report a problem: send, saved as #N, copy, GitHub link', async ({ page, co
   await failed
   await page.evaluate(() => console.error('boom from test', { line: 'private line text' }))
 
-  const open = page.getByRole('button', { name: 'Report a problem' })
-  await open.click()
+  await openReport(page)
+  const open = page.locator('details.you-menu > summary')
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByLabel(/What happened\?/)).toBeFocused()
@@ -131,7 +137,7 @@ test('Report a problem: server down still offers Copy and GitHub', async ({ page
   const unmocked = await guard(page)
   await page.route('**/api/diagnostics/bug-reports', (route) => route.abort('connectionrefused'))
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Report a problem' }).click()
+  await openReport(page)
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   const key = 'sk-ant-api03-SECRETSECRETSECRET123456'
   const win = String.raw`C:\Users\alexwinuser\AppData\Local\Baihe\library.db`
@@ -164,7 +170,7 @@ const REPORT = [
 
 async function openDialog(page: Page) {
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Report a problem' }).click()
+  await openReport(page)
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   await expect(dialog).toBeVisible()
   return dialog
@@ -275,12 +281,12 @@ test('Report a problem > Copy a report: a failed build shows the error; no clipb
   expect(unmocked).toEqual([])
 })
 
-test('Report a problem: Escape closes the dialog and focus returns to the header button', async ({ page }) => {
+test('Report a problem: Escape closes the dialog and focus returns to the You menu', async ({ page }) => {
   const unmocked = await guard(page)
   const dialog = await openDialog(page)
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeFocused()
+  await expect(page.locator('details.you-menu > summary')).toBeFocused()
   expect(unmocked).toEqual([])
 })
 
@@ -293,7 +299,7 @@ test('Report a problem off the PC: no screenshot field, text-only report', async
     return route.fulfill({ json: { ...SAVED, id: 8, markdown: SAVED.issue_markdown } })
   })
   await page.goto('/#/library')
-  await page.getByRole('button', { name: 'Report a problem' }).click()
+  await openReport(page)
   const dialog = page.getByRole('dialog', { name: 'Report a problem' })
   await expect(dialog.getByTestId('report-shot-pc-only')).toHaveText(/only be attached at the main PC/)
   await expect(dialog.getByLabel(/Screenshot/)).toHaveCount(0)

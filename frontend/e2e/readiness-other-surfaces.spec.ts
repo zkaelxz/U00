@@ -62,20 +62,20 @@ async function openNarration(page: Page, engines: Array<{ key: string; key_confi
     }),
   )
   await page.goto('/#/drama/1/source')
-  await page.getByText('Chunk and tag speakers').click()
+  await page.getByText('Split into lines and name speakers').click()
 }
 
-test('Narration Chunk and tag stays on when the engine has no key (lines are marked Narrator)', async ({ page }) => {
+test('Narration Split and name speakers stays on when the engine has no key (lines are marked Narrator)', async ({ page }) => {
   await readiness(page, {})
   await openNarration(page, [{ key: 'claude', key_configured: false }])
-  await expect(page.getByRole('button', { name: 'Chunk and tag', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Split and name speakers', exact: true })).toBeEnabled()
   await expect(page.getByTestId('engine-gate')).toHaveCount(0)
 })
 
-test('Narration Chunk and tag stays on for an engine with a key', async ({ page }) => {
+test('Narration Split and name speakers stays on for an engine with a key', async ({ page }) => {
   await readiness(page, {})
   await openNarration(page, [{ key: 'claude', key_configured: true }])
-  await expect(page.getByRole('button', { name: 'Chunk and tag', exact: true })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Split and name speakers', exact: true })).toBeEnabled()
   await expect(page.getByTestId('engine-gate')).toHaveCount(0)
 })
 

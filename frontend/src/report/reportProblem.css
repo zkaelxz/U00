@@ -1,13 +1,4 @@
 /* "Report a problem" (report/ReportProblem.tsx) */
-button.report-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  font-size: var(--text-sm);
-  color: var(--muted);
-}
-button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-form { display: grid; gap: var(--space-3); }
 .report-form .field-item { display: grid; gap: 4px; }
 .report-check { display: inline-flex; align-items: center; gap: var(--space-2); }
@@ -56,7 +47,7 @@ button.report-btn:hover:not(:disabled) { color: var(--text); }
 .report-extra summary { min-height: 44px; display: flex; align-items: center; }
 
 @media (pointer: coarse) {
-  button.report-btn, .report-actions button, a.button-link, .report-check,
+  .report-actions button, a.button-link, .report-check,
   .report-form details summary { min-height: 44px; }
   .report-form input[type='file'] { min-height: 44px; }
 }

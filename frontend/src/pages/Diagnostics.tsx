@@ -13,6 +13,7 @@ import { tabButtonId, tabPanelId } from '../components/tabIds'
 import { useHolds } from '../hooks/useHolds'
 import { useJobs } from '../hooks/useJobs'
 import { usePcOnly } from '../hooks/usePcOnly'
+import { menuUser, useSession } from '../hooks/useSession'
 import { usePersistedState } from '../hooks/usePersistedState'
 import { routeHref, useRoute, type Route } from '../router'
 import { useDeveloperMode } from './assistant/developerMode'
@@ -50,11 +51,14 @@ const HIDDEN = { showing: false }
 // The gate sits outside the page so a member's browser never fires the
 // diagnostics calls the server would refuse.
 export default function DiagnosticsPage() {
-  if (!useHolds('admin.diagnostics')) {
+  const holds = useHolds('admin.diagnostics')
+  // An admin away from the PC lacks the right only because the server strips it off the PC.
+  const awayAdmin = !!menuUser(useSession())?.is_admin
+  if (!holds) {
     return (
       <PageShell width="standard" title="Diagnostics" label="Diagnostics" className="diag-page">
         <p className="muted" data-testid="diagnostics-not-allowed">
-          Only an admin can see this page. Ask the PC owner to make you an admin.{' '}
+          {awayAdmin ? 'Diagnostics opens only at the main PC.' : 'Only an admin can see this page. Ask the PC owner to make you an admin.'}{' '}
           <a href={routeHref({ name: 'library' })}>Back to Library</a>
         </p>
       </PageShell>
