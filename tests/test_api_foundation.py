@@ -777,7 +777,7 @@ class TestExportEpubEndpoint:
 
     def test_unknown_field_is_422(self, local_client, isolated_db):
         did = self._novel_drama_with_lines(isolated_db)
-        resp = local_client.get(f"/api/export/dramas/{did}/epub?field=bilingual")
+        resp = local_client.get(f"/api/export/dramas/{did}/epub?field=fr")
         assert resp.status_code == 422
 
     def test_missing_ebooklib_is_503(self, local_client, isolated_db, monkeypatch):
@@ -795,6 +795,13 @@ class TestExportEpubEndpoint:
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("application/epub+zip")
         assert "attachment" in resp.headers["content-disposition"]
+
+    def test_two_language_epub_downloads(self, local_client, isolated_db):
+        pytest.importorskip("ebooklib")
+        did = self._novel_drama_with_lines(isolated_db)
+        resp = local_client.get(f"/api/export/dramas/{did}/epub?field=bilingual")
+        assert resp.status_code == 200
+        assert resp.content[:2] == b"PK"
 
 
 class TestSourceConfigEndpoints:
