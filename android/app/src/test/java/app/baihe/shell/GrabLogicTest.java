@@ -93,6 +93,23 @@ public class GrabLogicTest {
     }
 
     @Test
+    public void aSavedSendCountsPagesThatCameBackWithoutEnglish() throws Exception {
+        org.json.JSONObject answer = new org.json.JSONObject("{\"pages\":["
+                + "{\"regions\":[{\"untranslated\":false}],\"notes\":[]},"
+                + "{\"regions\":[{\"untranslated\":true}],\"notes\":[[\"info\",\"cover page\"],"
+                + "[\"warning\",\"translation failed (the key was refused); the source text below was still read\"]]},"
+                + "{\"regions\":[],\"notes\":[[\"warning\",\"no text found\"]]},"
+                + "{\"regions\":[{\"untranslated\":true}]}]}");
+        assertEquals(2, BaiheClient.pagesWithoutEnglish(answer));
+        assertEquals("translation failed (the key was refused); the source text below was still read",
+                BaiheClient.englishProblem(answer));
+        org.json.JSONObject fine = new org.json.JSONObject("{\"pages\":[{\"regions\":[{}]}],\"stored\":1}");
+        assertEquals(0, BaiheClient.pagesWithoutEnglish(fine));
+        assertEquals("", BaiheClient.englishProblem(fine));
+        assertEquals(0, BaiheClient.pagesWithoutEnglish(new org.json.JSONObject()));
+    }
+
+    @Test
     public void refusalShowsTheServersTextNotTheRawBody() {
         assertEquals("no such drama", BaiheClient.refusalText(404, "{\"error\":\"no such drama\"}"));
         assertEquals(BaiheClient.TOKEN_HELP, BaiheClient.refusalText(401, "<html>secret</html>"));
@@ -378,6 +395,7 @@ public class GrabLogicTest {
         assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Sent 12 pages", true));
         assertEquals(GrabUi.Kind.OK, GrabUi.kindOf("Opened 5 of 5 pages", false));
         assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages. Not sent: 3", true));
+        assertEquals(GrabUi.Kind.INFO, GrabUi.kindOf("Sent 9 pages to Owl. 9 pages saved without English", true));
         assertEquals(GrabUi.Kind.BAD, GrabUi.kindOf("Could not read the pages.", false));
     }
 
@@ -563,10 +581,12 @@ public class GrabLogicTest {
         List<GrabQueue.Done> history = new ArrayList<>();
         history.add(new GrabQueue.Done(1, "Ch 5", "Sent 12 pages", "https://a.example.com/c/5/", false));
         history.add(new GrabQueue.Done(2, "Ch 6", "Cancelled.", "https://a.example.com/c/6", false));
-        assertTrue(SeriesRun.alreadyDone("https://www.a.example.com/c/5?x=1", history));
-        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/6", history));
-        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/7", history));
-        assertFalse(SeriesRun.alreadyDone("", history));
+        java.util.Set<String> done = SeriesRun.doneKeys(SeriesRun.withDone("", "https://a.example.com/c/7"));
+        assertTrue(SeriesRun.alreadyDone("https://www.a.example.com/c/5?x=1", done, history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/6", done, history));
+        assertTrue(SeriesRun.alreadyDone("https://a.example.com/c/7", done, history));
+        assertFalse(SeriesRun.alreadyDone("https://a.example.com/c/8", done, history));
+        assertFalse(SeriesRun.alreadyDone("", done, history));
     }
 
     @Test

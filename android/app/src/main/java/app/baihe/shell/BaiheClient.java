@@ -577,6 +577,45 @@ final class BaiheClient {
     static final String TOKEN_HELP = "Baihe didn't accept this key. Make a new one in Baihe "
             + "(Settings > Remote access keys) and paste it in Grab > Settings.";
 
+    private static final java.util.regex.Pattern ENGINE_NOTE =
+            java.util.regex.Pattern.compile("translat|engine|key", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /** Pages of a saved send that were stored with their text read but no English back. */
+    static int pagesWithoutEnglish(JSONObject answer) {
+        JSONArray pages = answer.optJSONArray("pages");
+        int count = 0;
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page != null && hasUntranslatedRegion(page)) count++;
+        }
+        return count;
+    }
+
+    /** The PC's first note on why a page has no English (no engine, a refused key, a failed call); "" when none says. */
+    static String englishProblem(JSONObject answer) {
+        JSONArray pages = answer.optJSONArray("pages");
+        for (int i = 0; pages != null && i < pages.length(); i++) {
+            JSONObject page = pages.optJSONObject(i);
+            if (page == null || !hasUntranslatedRegion(page)) continue;
+            JSONArray notes = page.optJSONArray("notes");
+            for (int n = 0; notes != null && n < notes.length(); n++) {
+                JSONArray note = notes.optJSONArray(n);
+                String text = note == null ? "" : note.optString(note.length() - 1, "");
+                if (ENGINE_NOTE.matcher(text).find()) return text;
+            }
+        }
+        return "";
+    }
+
+    private static boolean hasUntranslatedRegion(JSONObject page) {
+        JSONArray regions = page.optJSONArray("regions");
+        for (int i = 0; regions != null && i < regions.length(); i++) {
+            JSONObject region = regions.optJSONObject(i);
+            if (region != null && region.optBoolean("untranslated", false)) return true;
+        }
+        return false;
+    }
+
     /**
      * What to show for a refused call: a fixed line for a refused token, else the server's own text.
      * The server sends {"error": "text"} from the bridge and {"error": {"code", "message"}} from the
