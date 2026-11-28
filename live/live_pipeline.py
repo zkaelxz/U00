@@ -9,6 +9,7 @@ figures for the owner."""
 import collections
 import contextlib
 import contextvars
+import itertools
 import statistics
 import threading
 import time
@@ -384,26 +385,28 @@ class TranslationWorker:
         picked = time.monotonic()
         cues = [cue for work in works for cue in work.cues]
         newest = works[-1].idx
+        starts = list(itertools.accumulate((len(w.cues) for w in works), initial=0))
 
         def checkpoint():
             if self._stop_now():
                 raise background_jobs.JobCancelled("live translate")
+
+        def sentence_failed(group, exc):
+            # Chunks merged into one request fail one by one, as they did when each
+            # had its own request: the others' sentences are still asked.
+            for pos, work in enumerate(works):
+                if any(starts[pos] <= p < starts[pos + 1] for p in group):
+                    self._fail(work.cues, work.idx, exc)
         try:
             live_cue_feed.translate_cues(
                 cues, self._translator, checkpoint,
                 on_stage=lambda stage: self._stage.chunk(stage, newest),
-                on_cues=self._board.publish, lock=self._board.lock)
+                on_cues=self._board.publish, lock=self._board.lock,
+                on_sentence_error=sentence_failed)
         except background_jobs.JobCancelled:
             return False
         except Exception as exc:
-            from engine_backends.shared import redact_secrets
-            live_whisper.log_failure(f"chunk {newest} translation failed", exc)
-            note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
-            with self._board.lock:
-                for cue in cues:
-                    if cue["translation"] == live_cue_feed.PENDING:
-                        cue["translated"], cue["translation"] = note, live_cue_feed.FAILED
-                self._board.publish()
+            self._fail(cues, newest, exc)
         finally:
             self._stage.translated()
             self._wake.set()
@@ -414,6 +417,16 @@ class TranslationWorker:
                                            queue_depth=len(works) - 1 - pos)
                 self._stats.chunk_done(work.audio, total)
         return True
+
+    def _fail(self, cues: list, idx: int, exc: Exception) -> None:
+        from engine_backends.shared import redact_secrets
+        live_whisper.log_failure(f"chunk {idx} translation failed", exc)
+        note = f"{live_cue_feed.FAILED_PREFIX}: {redact_secrets(str(exc))}]"
+        with self._board.lock:
+            for cue in cues:
+                if cue["translation"] == live_cue_feed.PENDING:
+                    cue["translated"], cue["translation"] = note, live_cue_feed.FAILED
+            self._board.publish()
 
 
 @contextlib.contextmanager
