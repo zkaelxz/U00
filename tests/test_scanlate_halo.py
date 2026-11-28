@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from PIL import Image
 
 from scanlate import scanlate_halo, scanlate_render
@@ -66,6 +67,7 @@ def test_a_box_wholly_off_the_page_is_not_art_and_paints_nothing():
 
 
 def test_a_sign_is_set_where_its_lettering_stood_when_the_box_is_the_wide_balloon_round_it():
+    pytest.importorskip("cv2")
     gray = np.full((200, 400), 200, np.uint8)
     gray[:, :6] = 0                                  # the rim, touching the box edge
     for row in (60, 100, 140):                        # three lines of lettering in the middle
