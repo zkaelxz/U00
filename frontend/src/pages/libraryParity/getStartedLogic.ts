@@ -10,7 +10,7 @@ export function showGetStarted(totalDramas: number | null | undefined, dismissed
 }
 
 interface FirstRunStep {
-  id: 'key' | 'transcription' | 'subtitles'
+  id: 'key' | 'transcription' | 'ffmpeg' | 'subtitles'
   label: string
   done: boolean
   /** Where the step goes; null for a step this person can only ask someone else to do. */
@@ -20,12 +20,13 @@ interface FirstRunStep {
 interface FirstRunFacts {
   canSetUp: boolean
   canCreate: boolean
-  readiness: Pick<SetupReadiness, 'faster_whisper' | 'ollama_reachable' | 'key_claude' | 'key_deepseek' | 'key_gemini' | 'key_openai' | 'key_groq'> | null
+  readiness: Pick<SetupReadiness, 'faster_whisper' | 'ffmpeg' | 'ollama_reachable' | 'ollama_model_pulled' | 'key_claude' | 'key_deepseek' | 'key_gemini' | 'key_openai' | 'key_groq'> | null
   totalDramas: number
 }
 
+// A running Ollama without its model fails the first translation, so it does not count.
 const hasTranslationEngine = (r: NonNullable<FirstRunFacts['readiness']>): boolean =>
-  r.ollama_reachable || r.key_claude || r.key_deepseek || r.key_gemini || r.key_openai || r.key_groq
+  (r.ollama_reachable && r.ollama_model_pulled) || r.key_claude || r.key_deepseek || r.key_gemini || r.key_openai || r.key_groq
 
 /** The steps this person can act on. The key step goes away once an engine can run (and
  *  while readiness is unknown, so it never flashes up for someone who already has one);
@@ -41,6 +42,10 @@ export function firstRunSteps({ canSetUp, canCreate, readiness, totalDramas }: F
     done: !!readiness?.faster_whisper,
     href: canSetUp ? routeHref({ name: 'diagnostics', card: 'recommended' }) : null,
   })
+  // Only when known to be missing: most installs have it, and a first audio or video title needs it.
+  if (readiness && !readiness.ffmpeg) {
+    steps.push({ id: 'ffmpeg', label: 'Install FFmpeg', done: false, href: canSetUp ? routeHref({ name: 'diagnostics', card: 'recommended' }) : null })
+  }
   if (canCreate) steps.push({ id: 'subtitles', label: 'Add your first title', done: totalDramas > 0, href: routeHref({ name: 'make-subtitles' }) })
   return steps
 }
