@@ -1300,7 +1300,11 @@ of exported empty. Chapter OCR skips a page that isn't a readable image and coun
 - **Chatterbox** (Listen and Voices): clones a voice from a clip only, in Chinese, Japanese, Korean and
   English; it doesn't use the clip's transcript. Like Qwen3-TTS it lives in its own folder
   (`voice_engines/chatterbox`), shows "Chatterbox is not installed. Install it in Diagnostics." until that is
-  installed, downloads its model on the first narration and speaks all of its lines in one go. Everything it
+  installed, downloads its model on the first narration and speaks all of its lines in one go. When a clip is
+  in another language than the one being spoken (a clip from a Chinese title reading the English, or a voice
+  bank voice saved in another language), it speaks with the setting its makers give for that case, so the
+  English does not carry the clip's accent; changing it makes those speakers' clips again on the next run. A
+  long sentence is spoken in parts split after a comma or at a space, never inside a word. Everything it
   speaks carries an inaudible watermark (Resemble AI's Perth). A character saved with the old Chatterbox
   engine uses this one.
 - **Removed engines**: Edge TTS, Piper, F5-TTS, TADA and GPT-SoVITS were removed. A title or character that
