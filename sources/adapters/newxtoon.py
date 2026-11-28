@@ -27,11 +27,10 @@ import json
 import re
 from urllib.parse import quote, urljoin, urlsplit
 
-from ..base import SourceAdapter, layout_changed_class, soup as _soup, https_only
+from ..base import PlainImageDownload, SourceAdapter, layout_changed_class, soup as _soup, https_only
 from ..domains import SiteDomains
-from ..http_transport import header
-from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, FailureReason,
-                      PageRef, SearchResult, SeriesInfo, SourceError)
+from ..models import (AutomationPermission, ChapterInfo, ContentAccess, ContentType, PageRef,
+                      SearchResult, SeriesInfo)
 from ..registry import register
 
 BASE_URL = "https://newxtoon5.com"
@@ -56,7 +55,7 @@ def _clean(text) -> str:
 
 
 @register
-class NewXToonSource(SourceAdapter):
+class NewXToonSource(PlainImageDownload, SourceAdapter):
     name = "newxtoon"
     display_name = "NewXToon"
     homepage = "https://newxtoon5.com"
@@ -66,6 +65,7 @@ class NewXToonSource(SourceAdapter):
     base_urls = [BASE_URL, "https://xn--vg1b002axlc8ts.com"]
     # Fast stays off: no terms page to vet, and Fast is limited to vetted sites.
     host_min_interval = {"newxtoon5.com": 2.5, "xn--vg1b002axlc8ts.com": 2.5}
+    images_only = True
 
     def __init__(self, client=None, base_url: str | None = None, **client_kwargs):
         super().__init__(client, **client_kwargs)
@@ -205,17 +205,6 @@ class NewXToonSource(SourceAdapter):
         # The image host answers 403 without a Referer from the site itself (ordinary hotlink handling).
         referer = self.base_url + "/"
         return [PageRef(self.name, cid, i, u, headers={"Referer": referer}) for i, u in enumerate(urls)]
-
-    def download_page(self, page):
-        resp = self.client.get(page.url, classify_body=False, headers=page.headers,
-                               action=f"Downloading page {page.index + 1}")
-        ctype = header(resp.headers, "content-type").split(";")[0].strip().lower()
-        if ctype and not ctype.startswith("image/"):
-            raise SourceError(f"Page {page.index + 1} didn't come back as an image.",
-                              FailureReason.HTTP_ERROR)
-        name = urlsplit(page.url).path.rsplit("/", 1)[-1]
-        ext = "." + name.rsplit(".", 1)[-1].lower() if "." in name else ".jpg"
-        return resp.content, ext
 
     def parse_url(self, url: str):
         if not self.matches_url(url):
