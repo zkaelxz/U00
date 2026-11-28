@@ -1,11 +1,11 @@
 import { useState } from 'react'
 
-import { previewFindReplace } from '../../../../api/review'
+import { previewFindReplace, unsentNote, type ApplyOutcome } from '../../../../api/review'
 import { ErrorBanner } from '../../../../components/ErrorBanner'
 import { Field } from '../../../../components/Field'
 import { Toggle } from '../../../../components/Toggle'
 import { buttonClass } from '../../../../components/uiClasses'
-import type { ApplyResult, ReviewMatch } from '../../../../types/review'
+import type { ReviewMatch } from '../../../../types/review'
 import { applyAfterEdit } from './linesController'
 import { staleLabels } from './reviewLogic'
 import { lineNumber } from '../../../../lineNumber'
@@ -24,7 +24,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [useRegex, setUseRegex] = useState(false)
   const [matches, setMatches] = useState<ReviewMatch[] | null>(null)
-  const [result, setResult] = useState<{ r: ApplyResult; tried: ReviewMatch[] } | null>(null)
+  const [result, setResult] = useState<{ r: ApplyOutcome; tried: ReviewMatch[] } | null>(null)
   const [error, setError] = useState<unknown>(null)
   const [held, setHeld] = useState<string | null>(null)
 
@@ -40,18 +40,19 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
     )
   }
 
-  const apply = () => {
-    if (!matches?.length) return
+  const apply = (sent: ReviewMatch[]) => {
+    if (!sent.length) return
     setHeld(null)
-    applyAfterEdit(dramaId, matches).then((r) => {
+    applyAfterEdit(dramaId, sent).then((r) => {
       setHeld(typeof r === 'string' ? r : null)
       if (typeof r === 'string') return
-      setError(null)
-      setResult({ r, tried: matches })
+      setError(r.error)
+      setResult({ r, tried: sent })
       setMatches(null)
       onChanged()
     }, setError)
   }
+  const rest = result?.r.rest ?? []
 
   return (
     <section className="review-replace" aria-label="Find and replace">
@@ -78,7 +79,7 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
       </div>
       <div className="review-actions">
         <button type="button" className={buttonClass('secondary')} disabled={!find} onClick={preview}>Preview</button>
-        <button type="button" className={buttonClass('secondary')} disabled={!matches?.length} onClick={apply}>
+        <button type="button" className={buttonClass('secondary')} disabled={!matches?.length} onClick={() => apply(matches ?? [])}>
           Apply {matches?.length ?? 0} change{matches?.length === 1 ? '' : 's'}
         </button>
       </div>
@@ -96,9 +97,14 @@ export function FindReplacePanel({ dramaId, onChanged, onClose }: Props) {
       )}
       {result && (
         <div role="status" data-testid="fr-result">
-          Applied {result.r.applied}; skipped {result.r.stale} that changed since the preview.
+          Applied {result.r.applied}; skipped {result.r.stale} that changed since the preview.{unsentNote(result.r)}
           {result.r.stale > 0 && (
             <div data-testid="fr-stale">Skipped: {staleLabels(result.r.stale_ids, result.tried).join(', ')}</div>
+          )}
+          {rest.length > 0 && (
+            <button type="button" className={buttonClass('secondary')} onClick={() => apply(rest)}>
+              Apply the rest ({rest.length})
+            </button>
           )}
         </div>
       )}

@@ -34,7 +34,7 @@ test('three runs, then pick only the differing lines by key', async ({ page }) =
   await page.route('**/api/translate-run/dramas/3/run', (route) => {
     seen.runs += 1
     return route.fulfill({
-      json: { job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: 3, fallback_engines: [], reflect: false, bulk: false, thinking: false, line_ids: [1, 2, 3] },
+      json: { job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: 3, fallback_engines: [], reflect: false, bulk: false, line_ids: [1, 2, 3] },
     })
   })
   await page.route('**/api/jobs/translate_3', (route) =>
@@ -97,7 +97,7 @@ test('a review left after one run picks up with Run the remaining', async ({ pag
   await page.route('**/api/translate-run/dramas/3/run', (route) => {
     runBodies.push(route.request().postDataJSON())
     return route.fulfill({
-      json: { job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: 3, fallback_engines: [], reflect: false, bulk: false, thinking: false, line_ids: [1, 2, 3] },
+      json: { job_id: 'translate_3', drama_id: 3, engine: 'fake', model: null, target_line_count: 3, fallback_engines: [], reflect: false, bulk: false, line_ids: [1, 2, 3] },
     })
   })
   await page.route('**/api/jobs/translate_3', (route) =>

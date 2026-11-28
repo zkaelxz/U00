@@ -43,3 +43,9 @@ export async function mockAddLink(page: Page, probe: MediaLinkProbe, opts: { cap
   }))
   return m
 }
+
+// New title on a computer: the Library's + Add opens Find & Add, whose "Add a title by hand" comes back with the sheet.
+export async function openNewTitle(page: Page) {
+  await page.getByRole('link', { name: '+ Add', exact: true }).click()
+  await page.getByRole('button', { name: 'Add a title by hand' }).click()
+}

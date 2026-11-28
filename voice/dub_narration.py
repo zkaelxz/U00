@@ -7,7 +7,9 @@ voice and clip helpers, never the other way round.
 import contextlib
 import os
 import re
+import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -33,6 +35,10 @@ NARRATION_TTS_MAX_CHARS = 500
 # written one paragraph per line, which the owner found worse (2026-11-22).
 CLIP_GAP_MS = 350
 PACE_MIN, PACE_MAX = 0.75, 1.25
+
+# A book's narration runs for hours; one log line this often shows whether memory or disk
+# crept up and how far it got if it stops.
+PROGRESS_LOG_SECONDS = 600
 
 
 def _repeated_headings(lines, narrate_original: bool) -> set:
@@ -158,6 +164,115 @@ _PIPE_CHUNK_BYTES = 8 * 1024 * 1024
 _DEFAULT_FORMAT = (24000, 1, 2)
 
 
+def _hours_minutes(seconds: float) -> str:
+    minutes = int(round(seconds / 60))
+    return f"{minutes // 60}h {minutes % 60:02d}m"
+
+
+def _process_rss_mb():
+    """This process's resident memory in MB, or None where it can't be read."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            from ctypes import wintypes
+
+            class _Counters(ctypes.Structure):
+                _fields_ = [("cb", wintypes.DWORD), ("faults", wintypes.DWORD),
+                            ("peak_working_set", ctypes.c_size_t), ("working_set", ctypes.c_size_t),
+                            ("quota_peak_paged", ctypes.c_size_t), ("quota_paged", ctypes.c_size_t),
+                            ("quota_peak_nonpaged", ctypes.c_size_t), ("quota_nonpaged", ctypes.c_size_t),
+                            ("pagefile", ctypes.c_size_t), ("peak_pagefile", ctypes.c_size_t)]
+            counters = _Counters()
+            counters.cb = ctypes.sizeof(_Counters)
+            kernel32 = ctypes.windll.kernel32
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            # Without argtypes ctypes passes the 64-bit pseudo-handle as a 32-bit int and refuses.
+            kernel32.K32GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_Counters),
+                                                         wintypes.DWORD]
+            if not kernel32.K32GetProcessMemoryInfo(kernel32.GetCurrentProcess(),
+                                                    ctypes.byref(counters), counters.cb):
+                return None
+            return counters.working_set / 2 ** 20
+        with open("/proc/self/status", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                if line.startswith("VmRSS:"):
+                    return float(line.split()[1]) / 1024
+    except Exception:
+        pass
+    return None
+
+
+def _never_raises(method):
+    """A log line that can't be written must not stop the narration it describes."""
+    def quiet(*args, **kwargs):
+        with contextlib.suppress(Exception):
+            method(*args, **kwargs)
+    return quiet
+
+
+class _RunLog:
+    """Log lines for a narration run: what was reused, memory and disk every
+    PROGRESS_LOG_SECONDS, and the track's length against the time it took. Lines carry
+    counts and sizes only, never the title's text or paths."""
+
+    def __init__(self, drama_dir: str):
+        self.drama_dir, self.done = drama_dir, {}
+        self.began = self.last = time.monotonic()
+
+    @property
+    def log(self):
+        import applog
+        return applog.get_logger()
+
+    def _resources(self) -> str:
+        import memory_headroom
+        rss, ram = _process_rss_mb(), memory_headroom.read_memory_mb("ram")
+        try:
+            disk = f"{shutil.disk_usage(self.drama_dir).free / 2 ** 30:.1f} GB"
+        except OSError:
+            disk = "unknown"
+        return (f"process memory {'unknown' if rss is None else f'{rss:.0f} MB'}, "
+                f"free RAM {'unknown' if ram is None else f'{ram[1]:.0f} MB'}, free disk {disk}")
+
+    @_never_raises
+    def started(self, units) -> None:
+        to_speak = [u for u in units if not u["error"] and not os.path.exists(u["clip_path"])]
+        self.log.info("Narration started: %d clips, %d reused from an earlier run, %d to speak; %s",
+                      len(units), len(units) - len(to_speak), len(to_speak), self._resources())
+
+    @_never_raises
+    def tick(self, stage: str, total: int) -> None:
+        """One more unit through `stage`."""
+        done = self.done[stage] = self.done.get(stage, 0) + 1
+        now = time.monotonic()
+        if now - self.last < PROGRESS_LOG_SECONDS:
+            return
+        self.last = now
+        self.log.info("Narration %s: %d of %d after %s; %s", stage, done, total,
+                      _hours_minutes(now - self.began), self._resources())
+
+    @_never_raises
+    def finished(self, expected_ms: float, track_path: str) -> None:
+        actual_ms = _track_duration_ms(track_path)
+        took = _hours_minutes(time.monotonic() - self.began)
+        if actual_ms is None:
+            self.log.info("Narration track made in %s; expected length %s, actual length unreadable; %s",
+                          took, _hours_minutes(expected_ms / 1000), self._resources())
+            return
+        line = (f"Narration track made in {took}: {_hours_minutes(actual_ms / 1000)} long, "
+                f"expected {_hours_minutes(expected_ms / 1000)}; {self._resources()}")
+        if expected_ms and abs(actual_ms - expected_ms) > 0.05 * expected_ms:
+            self.log.warning("%s (%+.0f%%, more than 5%% off)", line, 100 * (actual_ms - expected_ms) / expected_ms)
+        else:
+            self.log.info("%s", line)
+
+    @_never_raises
+    def limit_hit(self, limit_seconds: float) -> None:
+        self.log.warning("Narration stopped by the %s ffmpeg wait limit after %s; %s",
+                         _hours_minutes(limit_seconds), _hours_minutes(time.monotonic() - self.began),
+                         self._resources())
+
+
 def _start_ffmpeg(cmd, stderr):
     return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr, creationflags=NO_WINDOW)
 
@@ -172,8 +287,9 @@ class _FlacStream:
     channels, sample width) is the track's; without it the first clip's is used."""
 
     def __init__(self, path: str, pace: float, workdir: str, timeout: float = M4B_ENCODE_TIMEOUT_SECONDS,
-                 track_format=None):
+                 track_format=None, run_log=None):
         self.path, self.pace, self.workdir, self.timeout = path, pace, workdir, timeout
+        self.run_log = run_log
         self.proc = self.err = self.timer = None
         self.track_format, self.format = track_format, None
         self.frames, self.timed_out, self.time_left = 0, False, timeout
@@ -268,8 +384,11 @@ class _FlacStream:
     def _fail(self):
         self._stop()
         if self.timed_out:
+            if self.run_log:
+                self.run_log.limit_hit(self.timeout)
             message = (f"ffmpeg took more than {int(self.timeout // 3600)} hours to write the "
-                       "narration track, so it was stopped.")
+                       "narration track, so it was stopped. The spoken clips are kept, so "
+                       "starting the narration again only joins them.")
         else:
             self.err.seek(0)
             # ffmpeg names the output path; job errors never carry filesystem paths.
@@ -400,6 +519,19 @@ def _stretch_times(lines, pace: float) -> None:
             ln.start, ln.end = ln.start / pace, ln.end / pace
 
 
+def _name_clips(units, clips_dir: str, lang) -> None:
+    for unit in units:
+        first, last = unit["lines"][0].idx, unit["lines"][-1].idx
+        if unit["clone"] is None:
+            unit["error"] = NO_VOICE_ERROR
+            continue
+        signature = clip_signature(unit["text"], _voice_for_signature(unit["clone"], lang=lang))
+        span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
+        # Signature in the name: an edited unit gets a fresh clip, an unchanged
+        # one is reused.
+        unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
+
+
 def build_narration_track(lines, drama_dir: str, character_clone_map: dict, progress_cb=None,
                            pace: float = 1.0,
                            narrate_original: bool = False, source_language: str = "zh",
@@ -446,18 +578,7 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     steps = _narration_steps(lines, character_clone_map,
                              narration_paragraph_ends(lines, drama_dir), narrate_original=narrate_original)
     units = [unit for kind, unit in steps if kind == "unit"]
-    for unit in units:
-        first, last = unit["lines"][0].idx, unit["lines"][-1].idx
-        if unit["clone"] is None:
-            unit["error"] = NO_VOICE_ERROR
-            continue
-        signature = clip_signature(unit["text"], _voice_for_signature(
-            unit["clone"],
-            lang=(source_language if narrate_original else None)))
-        span = f"{first:04d}" if first == last else f"{first:04d}-{last:04d}"
-        # Signature in the name: an edited unit gets a fresh clip, an unchanged
-        # one is reused.
-        unit["clip_path"] = os.path.join(clips_dir, f"line_{span}_{signature}.wav")
+    _name_clips(units, clips_dir, source_language if narrate_original else None)
 
     finished = 0
     # A title that already has a track keeps it whole until this run's track is complete: a part
@@ -465,21 +586,25 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
     # engine that fails to start would then leave the title with only that part.
     early = None if find_narration_track(drama_dir) else on_partial
     checkpoints = _Checkpoints(steps, drama_dir, pace, narrate_original, early)
+    run_log = _RunLog(drama_dir)
 
     def record(unit, error):
         nonlocal finished
         unit["error"] = error
         unit["done"] = True
         finished += 1
+        run_log.tick("speaking clips", len(units))
         if progress_cb:
             progress_cb(finished / len(units))
         checkpoints.maybe_join()
 
     remove_partial_track(drama_dir)
+    run_log.started(units)
     _generate_units(units, record, source_language if narrate_original else "en", clips_dir)
 
     _refuse_mostly_failed(units, drama_dir, checkpoints.joined_any)
-    errors, waiting = _join_track(steps, lines, drama_dir, pace, narrate_original, final=True)
+    errors, waiting = _join_track(steps, lines, drama_dir, pace, narrate_original, final=True,
+                                  run_log=run_log)
     # A regenerated title must not keep serving, or backing up, its old WAV copy.
     legacy = os.path.join(drama_dir, NARRATION_TRACK_NAMES[1])
     if os.path.isfile(legacy):
@@ -488,11 +613,12 @@ def build_narration_track(lines, drama_dir: str, character_clone_map: dict, prog
 
 
 def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: bool,
-                final: bool = False) -> tuple:
+                final: bool = False, run_log=None) -> tuple:
     """Joins the clips of `steps` (all of the title's, or the part spoken so far) into the
     title's track and sets the times and clip of `lines` (theirs). Returns (the failed lines'
     errors, whether the track waits under NARRATION_WAITING_NAME).
-    final: the whole track, which is kept under NARRATION_WAITING_NAME when the old one stays held."""
+    final: the whole track, which is kept under NARRATION_WAITING_NAME when the old one stays held.
+    run_log: the run's _RunLog; only the whole track's join is logged."""
     from types import SimpleNamespace
     from pydub import AudioSegment
     from resegment import split_times
@@ -503,7 +629,7 @@ def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: boo
     # Written beside the final name and renamed, so a kill mid-export can't leave a
     # truncated track that the Reader would serve as complete.
     part_path = _new_partial_track(drama_dir)
-    stream = _FlacStream(part_path, pace, drama_dir,
+    stream = _FlacStream(part_path, pace, drama_dir, run_log=run_log,
                          track_format=_track_format(u["clip_path"] for u in units if not u["error"]))
     try:
         cursor_ms = 0
@@ -540,12 +666,17 @@ def _join_track(steps, lines, drama_dir: str, pace: float, narrate_original: boo
                 ln.end = edges[k + 1] / 1000.0
             # Shortened by the pace, so the gap is the same length once the track is slowed.
             cursor_ms = end_ms + round(CLIP_GAP_MS * pace)
+            if run_log:
+                run_log.tick("joining clips", len(units))
         stream.finish(cursor_ms)
         waiting = _put_track_in_place(part_path, out_path, drama_dir, final)
     finally:
         stream.abort()
         remove_partial_track(drama_dir)
 
+    if run_log:
+        # atempo plays the track at pace, so its length is the joined length divided by it.
+        run_log.finished(cursor_ms / pace, os.path.join(drama_dir, NARRATION_WAITING_NAME) if waiting else out_path)
     _stretch_times(lines, pace)
     return errors, waiting
 

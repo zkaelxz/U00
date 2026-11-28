@@ -92,7 +92,7 @@ class TestHttpCallsHaveTimeouts:
         files += [os.path.join(PROJECT_ROOT, n) for n in (
             "bulk/bulk_translate.py", "voice/dub.py", "navigator.py", "page_fetch.py", "title_library.py",
             "core.py", "whisper_transcribe.py", "diagnostics.py", "dependency_updates.py",
-            "diagnostics_report.py", "memory_headroom.py", "video_download.py",
+            "diagnostics_report.py", "tools/self_test.py", "video_download.py",
             "sources/pipeline.py", "sources/front_door.py", "sources/generic_import.py",
             "sources/store.py", "sources/adaptive.py", "sources/novel_follow.py",
             "sources/domains.py", "tools/ci_tested_tree.py")]
@@ -107,11 +107,6 @@ class TestHttpCallsHaveTimeouts:
 
     def test_asmr_vad_model_download(self):
         problems = _find_requests_calls_missing_timeout(os.path.join(PROJECT_ROOT, "asmr_vad.py"))
-        assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
-
-    def test_memory_headroom(self):
-        problems = _find_requests_calls_missing_timeout(
-            os.path.join(PROJECT_ROOT, "memory_headroom.py"))
         assert problems == [], f"requests call(s) missing timeout= at line(s): {problems}"
 
     def test_sources_http_and_dictionary(self):

@@ -10,7 +10,7 @@ const viaButton = (page: Page) => async () => {
 }
 
 test('the header button is 44px, opens a full-width sheet, and Enter goes to the page', async ({ page }) => {
-  await page.goto('/#/library')
+  await page.goto('/#/translate')
   const box = (await searchButton(page).boundingBox())!
   expect(box.width).toBeGreaterThanOrEqual(44)
   expect(box.height).toBeGreaterThanOrEqual(44)

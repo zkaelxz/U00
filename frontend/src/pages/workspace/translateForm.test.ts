@@ -151,7 +151,6 @@ describe('translate form', () => {
       context_window_ahead: 2,
       job_cost_cap_usd: 1.5,
       fallback_chain: [{ engine: 'gemini' }],
-      thinking: false,
       default_female_pronouns: false,
       include_genre_notes: true,
     })
@@ -385,7 +384,7 @@ describe('workflow tiers (X02) and save as preset (X22)', () => {
     expect(buildPresetBody(f, 'fake_mt', ' Mine ')).toEqual({
       name: 'Mine', translation_engine: 'fake_mt', engine_model: null, style_preset: 'wuxia',
       locale: null, default_female_pronouns: true, include_genre_notes: false,
-      options: { reflect: false, bulk: false, thinking: false, context_window: 5, context_window_ahead: 2 },
+      options: { reflect: false, bulk: false, context_window: 5, context_window_ahead: 2 },
     })
     const g = { ...f, engine: 'claude', model: 'claude-sonnet-5' }
     expect(buildPresetBody(g, 'fake_mt', 'Mine', true)).toMatchObject({
@@ -476,12 +475,6 @@ describe('Ollama reachability warning (X24)', () => {
   it('stays quiet for other engines, even with a stale false', () => {
     expect(ollamaWarning('claude', false)).toBe(false)
     expect(ollamaWarning('', false)).toBe(false)
-  })
-})
-
-describe('think harder (removed)', () => {
-  it('is always off, even when the title remembers it', () => {
-    expect(initialForm({ ...config, title_thinking: true }).thinking).toBe(false)
   })
 })
 
@@ -689,12 +682,12 @@ describe('Save as profile captures every form field', () => {
   it('saves run options, and leaves blank ones out', () => {
     const f = {
       ...initialForm(config), style_note: ' Be formal ', batch_size: '15', cost_cap: '2', reflect: true,
-      fallbacks: ['deepseek'], thinking: true,
+      fallbacks: ['deepseek'],
     }
     const body = buildPresetBody(f, 'claude', 'P')
     expect(body.locale).toBeNull()
     expect(body.options).toEqual({
-      reflect: true, bulk: false, thinking: true, style_note: 'Be formal', batch_size: 15,
+      reflect: true, bulk: false, style_note: 'Be formal', batch_size: 15,
       context_window: 5, context_window_ahead: 2, cost_cap: 2, fallback_engines: ['deepseek'],
     })
   })

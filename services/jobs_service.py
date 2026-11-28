@@ -142,8 +142,9 @@ def _project_fallbacks(events):
     """A FallbackEngine's switch events ({"from", "to", "reason", "detail"})
     as [{"from", "to", "count"}]: engine names and how often each switch
     happened, never error text. Also accepts its own output (re-projection).
-    A switch for lack of credit keeps its fixed reason code, so the outcome can say so."""
-    counts, no_credit = {}, set()
+    A switch for lack of credit keeps its fixed reason code and the model it moved to, so
+    the outcome can say so."""
+    counts, no_credit = {}, {}
     for ev in events if isinstance(events, (list, tuple)) else []:
         if not isinstance(ev, dict):
             continue
@@ -152,9 +153,11 @@ def _project_fallbacks(events):
         n = _int_id(ev.get("count")) or 1
         counts[pair] = counts.get(pair, 0) + max(1, n)
         if ev.get("reason") == engine_fallback.OUT_OF_CREDIT:
-            no_credit.add(pair)
+            model = ev.get("to_model")
+            no_credit[pair] = (_safe_scalar(str(model)) or "")[:60] if model else None
     return [{"from": a, "to": b, "count": n,
-             **({"reason": engine_fallback.OUT_OF_CREDIT} if (a, b) in no_credit else {})}
+             **({"reason": engine_fallback.OUT_OF_CREDIT, "to_model": no_credit[(a, b)]}
+                if (a, b) in no_credit else {})}
             for (a, b), n in list(counts.items())[:_MAX_LIST]]
 
 
@@ -548,8 +551,9 @@ def _summary_outcome(result: dict) -> tuple:
     if fallbacks:
         parts.append("Switched engine: " + ", ".join(
             f"{f.get('from')} to {f.get('to')}" for f in fallbacks) + ".")
-        if any(f.get("reason") == engine_fallback.OUT_OF_CREDIT for f in fallbacks):
-            parts.append(engine_fallback.OUT_OF_CREDIT_NOTICE)
+        parts.extend(dict.fromkeys(
+            engine_fallback.out_of_credit_notice(str(f.get("from")), str(f.get("to")), f.get("to_model"))
+            for f in fallbacks if f.get("reason") == engine_fallback.OUT_OF_CREDIT))
     if cap is not None or errors or stopped or result.get("partial") or warnings:
         return "partial", " ".join(parts)
     return "ok", (" ".join(parts) or "Finished.")
@@ -757,6 +761,15 @@ def sweep_stale_job_records(records=None) -> int:
     """Closes every queued/running row left behind by a crashed, killed or
     restarted process (jobs/job_store.sweep_dead_owners). Returns how many."""
     return job_store.sweep_dead_owners(STALE_JOB_SECONDS, records=records)
+
+
+def sweep_at_startup() -> list:
+    """The startup sweep: closes what the last run left running, as
+    sweep_stale_job_records does, and returns those rows for the restart
+    notice."""
+    closed = []
+    job_store.sweep_dead_owners(STALE_JOB_SECONDS, closed_out=closed)
+    return closed
 
 
 def _still_active_here(job_id) -> bool:

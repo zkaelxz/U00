@@ -45,6 +45,21 @@ def _set_row(job_id, **cols):
         conn.commit()
 
 
+def app_log_lines(monkeypatch, prefix):
+    """The app.log lines that start with `prefix`, logged from here on."""
+    import logging
+    import applog
+    logged = []
+
+    class Keep(logging.Handler):
+        def emit(self, record):
+            if record.getMessage().startswith(prefix):
+                logged.append(record.getMessage())
+    logger = applog.get_logger()
+    monkeypatch.setattr(logger, "handlers", logger.handlers + [Keep()])
+    return logged
+
+
 def _gpu_holders():
     with contextlib.closing(db.get_conn()) as conn:
         return {r[0] for r in conn.execute("SELECT holder FROM gpu_lock").fetchall()}
@@ -313,6 +328,34 @@ class TestRowsOfGoneOwners:
         row = db.get_job_record("st_earlier")
         assert (row["status"], row["detail_state"], row["error"]) == (
             "cancelled", "interrupted", bg.INTERRUPTED_MESSAGE)
+
+    def test_each_closed_row_gets_one_log_line_with_ids_and_kinds_only(self, isolated_db, monkeypatch):
+        logged = app_log_lines(monkeypatch, "Interrupted job")
+        gone = subprocess.Popen([sys.executable, "-c", "pass"])
+        gone.wait(timeout=30)
+        rows = (("translate_7", "running", 0.4, "Ollama translation (A Private Title)"),
+                ("transcribe_8", "queued", None, "Transcription (title #8)"),
+                (f"{bg.BULK_POLL_JOB_PREFIX}3", "running", None, "Bulk translation (title #9)"))
+        for job_id, status, progress, description in rows:
+            db.save_job_record(job_id, status, progress=progress, description=description,
+                               message="Reading C:/Users/Alex Example/a.mp3", owner_pid=gone.pid)
+            _set_row(job_id, owner_instance="an-earlier-server")
+        assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS) == 3
+        assert sorted(logged) == sorted([
+            "Interrupted job translate_7 (Ollama translation): was running at 40% when its server "
+            "stopped (its process is gone); marked interrupted, not started again; left for the "
+            "person to run again.",
+            "Interrupted job transcribe_8 (Transcription): was queued, not started when its server "
+            "stopped (its process is gone); marked interrupted, not started again; left for the "
+            "person to run again.",
+            "Interrupted job bulkpoll_3 (Bulk translation): was running when its server stopped "
+            "(its process is gone); marked interrupted, the bulk batch resume at startup decides "
+            "whether it runs again.",
+        ])
+        assert db.get_job_record("translate_7")["error"].endswith(
+            "It was not started again: run it again from its page.")
+        job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS)
+        assert len(logged) == 3
 
     def test_a_stale_heartbeat_closes_a_dead_owners_row_not_a_live_ones(self, isolated_db):
         """A live owner that stopped heartbeating (paused, under a debugger)
@@ -1004,3 +1047,14 @@ def test_fresh_active_reads_rows_by_key_not_the_whole_table(isolated_db, monkeyp
     with contextlib.closing(db.get_conn()) as conn, conn:
         conn.execute("UPDATE job_records SET updated_at = ? WHERE job_id = 'dub_7'", (time.time() - 10**6,))
     assert not job_store.fresh_active(job_ids=[*ids, "dub_7"])
+
+
+def test_the_sweep_reports_the_rows_it_closed(isolated_db):
+    from jobs import job_store, job_table
+    db.save_job_record("translate_7", "running", description="Translation (drama #7)",
+                       owner_pid=os.getpid())
+    _set_row("translate_7", owner_instance="an-earlier-server")
+    closed = []
+    assert job_store.sweep_dead_owners(job_table.STALE_JOB_SECONDS, closed_out=closed) == 1
+    assert [r["job_id"] for r in closed] == ["translate_7"]
+    assert closed[0]["description"] == "Translation (drama #7)"

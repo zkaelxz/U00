@@ -16,6 +16,8 @@ import { RetryBanner } from '../components/RetryBanner'
 import { AppVersionLine } from '../components/AppVersionLine'
 import { PageShell } from '../components/PageShell'
 import { buttonClass } from '../components/uiClasses'
+import { downloadBlob } from '../components/downloadBlob'
+import { getSupportBundle } from '../api/diagnostics'
 import { Field } from '../components/Field'
 import { Toggle } from '../components/Toggle'
 import { usePersistedState } from '../hooks/usePersistedState'
@@ -318,7 +320,12 @@ export default function SettingsPage() {
       label="Settings"
       className="settings-page"
       meta={<AppVersionLine />}
-      actions={<a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>}
+      actions={(
+        <>
+          {canDiagnostics && <SendLogsButton onError={setError} />}
+          <a className={buttonClass('secondary', 'sm')} href={USER_GUIDE_URL} target="_blank" rel="noopener noreferrer">Help: user guide</a>
+        </>
+      )}
       tabs={(
         <>
           <div className="settings-tabrow">
@@ -474,5 +481,29 @@ export default function SettingsPage() {
       </CardChangesProvider>
       </SidePane>
     </PageShell>
+  )
+}
+
+/** Saves the scrubbed logs zip (app log, recent jobs, system info) for the person to send to the owner. */
+function SendLogsButton({ onError }: { onError: (e: unknown) => void }) {
+  const [busy, setBusy] = useState(false)
+  const save = async () => {
+    setBusy(true)
+    onError(null)
+    try {
+      const { blob, filename } = await getSupportBundle()
+      downloadBlob(blob, filename)
+    } catch (e) {
+      onError(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <button type="button" className={buttonClass('secondary', 'sm')} disabled={busy} aria-busy={busy}
+      title="Saves a .zip of recent logs, jobs and system info, with keys, emails and folder names removed"
+      onClick={() => void save()}>
+      {busy ? 'Saving logs…' : 'Send logs'}
+    </button>
   )
 }

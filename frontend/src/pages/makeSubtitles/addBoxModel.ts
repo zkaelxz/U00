@@ -170,14 +170,14 @@ export function planForLink(o: { pc: PcMode; allowed: boolean; source: boolean; 
   return `Download it ${where}, transcribe it, then translate it${engine}${profile}, through the Queue.`
 }
 
-type Handoff = { kind: 'run-file'; request: FileRunRequest } | { kind: 'new-title'; start: NewTitleStart }
+type Handoff = { kind: 'new-title'; start: NewTitleStart }
 
-// A File can't go through the URL or storage, so the choice waits here for the page it opens.
+// A chosen file's name and type can't go through the URL, so the choice waits here for the Library.
 // Reading is separate from clearing so React's doubled first render in development reads the same value.
 let pending: { handoff: Handoff; at: number } | null = null
 
-/** Only the page being opened now may take a hand-off: going Back before it loads must not leave a run
- *  that a much later visit starts with no press. */
+/** Only the page being opened now may take a hand-off: going Back before it loads must not leave a New
+ *  title that a much later visit opens with no press. */
 export const HANDOFF_LIFE_MS = 30_000
 
 export function handOff(h: Handoff): void {

@@ -30,7 +30,8 @@ export function useSameFix(dramaId: number, onChanged: () => void, setStatus: (t
     setBusy(true)
     try {
       const done = await applySameFix(dramaId, offer, always)
-      if (!done.blocked) setOffer(null)
+      if (done.rest) setOffer({ ...done.rest, dramaId })
+      else if (!done.blocked) setOffer(null)
       setStatus(done.text)
       if (done.changed) onChanged()
     } catch (e) {

@@ -73,7 +73,3 @@ export function lineProgress(row: Pick<NovelLineChapterRow, 'line_count' | 'tran
   return `${row.translated.toLocaleString()} of ${row.line_count.toLocaleString()} lines translated`
 }
 
-/** The Reader page (1-based) that holds line `firstIdx` when a page is `chapterSize` lines. */
-export function readerPageOf(firstIdx: number, chapterSize: number): number {
-  return Math.floor(Math.max(0, firstIdx) / Math.max(1, chapterSize)) + 1
-}

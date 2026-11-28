@@ -13,7 +13,7 @@ import type { ReviewLine } from '../types/review'
 import { trapTabWithin, useModalDialog } from '../hooks/useModalDialog'
 import type { Route } from '../router'
 import type { NavContext } from './navItems'
-import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, MIN_LINE_QUERY, paletteEntries, titleEntries } from './palette'
+import { filterEntries, isPaletteShortcut, lineEntries, lineSearchTitle, MIN_LINE_QUERY, pageHasOwnSearch, paletteEntries, titleEntries } from './palette'
 import './palette.css'
 
 const FOCUSABLE = 'input, button:not([disabled])'
@@ -23,6 +23,8 @@ const SHORTCUT_LABEL = IS_MAC ? '⌘K' : 'Ctrl+K'
 const trapTab = trapTabWithin(FOCUSABLE)
 
 export function CommandPalette({ route, context }: { route: Route; context: NavContext }) {
+  // Ctrl+K still opens the dialog there; only the header button goes, so the screen shows one search box.
+  const showButton = !pageHasOwnSearch(route)
   const [open, setOpen] = useState(false)
   const opener = useRef<HTMLElement | null>(null)
   const button = useRef<HTMLButtonElement>(null)
@@ -34,10 +36,12 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
     opener.current = active instanceof HTMLElement && active !== document.body && active !== document.documentElement ? active : button.current
     setOpen(true)
   }
+  const pageSearch = () => document.querySelector<HTMLElement>('main input[type="search"], main [role="searchbox"]')
   const close = () => {
     setOpen(false)
     // After the dialog closes: the page is inert while a modal is open.
-    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : button.current)?.focus())
+    // A page with its own search has no header button: its search box takes focus back instead of the page body.
+    requestAnimationFrame(() => (opener.current?.isConnected ? opener.current : button.current ?? pageSearch())?.focus())
   }
 
   // Held in a ref so the document listener is attached once.
@@ -66,20 +70,22 @@ export function CommandPalette({ route, context }: { route: Route; context: NavC
 
   return (
     <>
-      <button
-        ref={button}
-        type="button"
-        className="palette-btn"
-        aria-haspopup="dialog"
-        aria-label="Search pages and titles"
-        title={`Search pages and titles (${SHORTCUT_LABEL})`}
-        onClick={show}
-      >
-        <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
-        </svg>
-        <kbd className="palette-key" aria-hidden="true">{SHORTCUT_LABEL}</kbd>
-      </button>
+      {showButton && (
+        <button
+          ref={button}
+          type="button"
+          className="palette-btn"
+          aria-haspopup="dialog"
+          aria-label="Search pages and titles"
+          title={`Search pages and titles (${SHORTCUT_LABEL})`}
+          onClick={show}
+        >
+          <svg className="hb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" focusable="false" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-5-5" />
+          </svg>
+          <kbd className="palette-key" aria-hidden="true">{SHORTCUT_LABEL}</kbd>
+        </button>
+      )}
       <dialog
         ref={dialog}
         className="palette"
