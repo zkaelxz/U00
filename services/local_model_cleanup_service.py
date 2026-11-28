@@ -99,7 +99,14 @@ def _clear_queue(conn, engines: dict) -> int:
         if not isinstance(settings, dict) or "model" not in settings:
             continue
         # A Translate step runs on its title's engine; every other step names its own.
-        engine = engines.get(item.get("drama_id")) if item.get("step") == "translate" else settings.get("engine")
+        if item.get("step") == "translate":
+            try:
+                # The document is editable on disk; queue_service reads the id the same way.
+                engine = engines.get(int(item["drama_id"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+        else:
+            engine = settings.get("engine")
         if _is_local(engine, settings["model"]):
             del settings["model"]
             changed += 1
@@ -109,7 +116,9 @@ def _clear_queue(conn, engines: dict) -> int:
 
 
 def _clear_reeval_production(conn) -> int:
-    # model_reeval_service saves this record as JSON text inside the JSON value.
+    # model_reeval_service saves this record as JSON text inside the JSON value. The record is
+    # dropped, not given model None: without it get_production names the effective default,
+    # the model candidates are stored with, so one equal to it is still seen as production.
     raw = _setting(conn, _REEVAL_PRODUCTION)
     try:
         prod = json.loads(raw) if isinstance(raw, str) else None
@@ -117,14 +126,11 @@ def _clear_reeval_production(conn) -> int:
         return 0
     if not isinstance(prod, dict):
         return 0
-    changed = 0
-    for record in prod.values():
-        if isinstance(record, dict) and _is_local(record.get("engine"), record.get("model")):
-            record["model"] = None
-            changed += 1
-    if changed:
-        _put(conn, _REEVAL_PRODUCTION, json.dumps(prod))
-    return changed
+    local = [cap for cap, record in prod.items()
+             if isinstance(record, dict) and _is_local(record.get("engine"), record.get("model"))]
+    if local:
+        _put(conn, _REEVAL_PRODUCTION, json.dumps({k: v for k, v in prod.items() if k not in local}))
+    return len(local)
 
 
 def _clear_assistant(conn) -> int:
@@ -152,30 +158,42 @@ def run_once() -> dict:
                 conn.execute("ROLLBACK")
                 return {}
             engines = _title_engines(conn, unset_engine)
-            counts = {
-                "presets": _clear_presets(conn),
-                "title start values": _clear_title_starts(conn, engines),
-                _OVERRIDES_DEFAULTS: _clear_overrides(conn, _OVERRIDES_DEFAULTS, lambda k: k),
-                _OVERRIDES_TIERS: _clear_overrides(
+            steps = {
+                "presets": lambda: _clear_presets(conn),
+                "title start values": lambda: _clear_title_starts(conn, engines),
+                _OVERRIDES_DEFAULTS: lambda: _clear_overrides(conn, _OVERRIDES_DEFAULTS, lambda k: k),
+                _OVERRIDES_TIERS: lambda: _clear_overrides(
                     conn, _OVERRIDES_TIERS, lambda k: (tiers.get(k) or {}).get("translation_engine")),
-                _EXTENSION: _clear_extension(conn),
-                _QUEUE: _clear_queue(conn, engines),
-                _REEVAL_PRODUCTION: _clear_reeval_production(conn),
-                "assistant": _clear_assistant(conn),
+                _EXTENSION: lambda: _clear_extension(conn),
+                _QUEUE: lambda: _clear_queue(conn, engines),
+                _REEVAL_PRODUCTION: lambda: _clear_reeval_production(conn),
+                "assistant": lambda: _clear_assistant(conn),
             }
+            counts, skipped = {}, []
+            for name, step in steps.items():
+                try:
+                    counts[name] = step()
+                except (TypeError, ValueError, AttributeError, LookupError):
+                    # A malformed stored value must never stop the app from starting; that
+                    # storage keeps its value and the read-time fallback still covers it.
+                    counts[name] = 0
+                    skipped.append(name)
             conn.execute("INSERT INTO app_settings (key, value) VALUES (?, 'true')", (MARKER,))
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
     changed = {name: n for name, n in counts.items() if n}
-    _log(changed)
+    _log(changed, skipped)
     return changed
 
 
-def _log(changed: dict) -> None:
+def _log(changed: dict, skipped: list) -> None:
     try:
         import applog
+        if skipped:
+            applog.get_logger().warning("Saved local Ollama models not cleared in unreadable settings: %s",
+                                        ", ".join(skipped))
         if changed:
             applog.get_logger().info(
                 "Cleared %d saved local Ollama model choice(s); they now follow the default Ollama model (%s): %s",

@@ -17,6 +17,8 @@ class _Log:
     def info(self, msg, *args):
         self.lines.append(msg % args)
 
+    warning = info
+
 
 @pytest.fixture
 def log(monkeypatch):
@@ -89,8 +91,7 @@ def test_every_saved_local_model_is_cleared_once(isolated_db, log):
     assert settings == [{"batch_size": 20}, {"model": "claude-sonnet-5-5"},
                         {"engine": "ollama", "source": "lines"}, {"engine": "ollama", "chapter_from": 1},
                         {"engine": "ollama", "capped": True}]
-    prod = json.loads(db.get_app_setting("model_reeval_production"))
-    assert prod["translation"] == {"engine": "ollama", "model": None, "promoted_at": "2026-01-01"}
+    assert json.loads(db.get_app_setting("model_reeval_production")) == {}
     assert db.get_app_setting("assistant.model") is None
     assert db.get_app_setting("assistant.review_model") is None
     assert log.lines == ["Cleared 11 saved local Ollama model choice(s); they now follow the default "
@@ -154,3 +155,42 @@ def test_a_failure_changes_nothing_and_runs_again(isolated_db, log, monkeypatch)
     monkeypatch.undo()
     monkeypatch.setattr(applog, "get_logger", lambda: log)
     assert svc.run_once() == {"presets": 1, "extension_translation_engine": 1}
+
+
+def test_queue_items_with_odd_title_ids_are_skipped_or_matched(isolated_db, log):
+    did = isolated_db.create_drama(title_en="Ollama title", translation_engine="ollama")
+    isolated_db.set_app_setting("job_queue", _queue([
+        _item(1, [did], "translate", {"model": LOCAL}),
+        _item(2, {"id": did}, "translate", {"model": LOCAL}),
+        _item(3, str(did), "translate", {"model": LOCAL}),
+    ]))
+
+    assert svc.run_once() == {"job_queue": 1}
+    assert [i["settings"] for i in isolated_db.get_app_setting("job_queue")["items"]] == [
+        {"model": LOCAL}, {"model": LOCAL}, {}]
+
+
+def test_a_malformed_setting_is_skipped_and_the_rest_still_cleared(isolated_db, log, monkeypatch):
+    db = isolated_db
+    db.set_app_setting("extension_translation_engine", {"engine": "ollama", "model": LOCAL})
+    monkeypatch.setattr(svc, "_clear_queue", lambda conn, engines: [][1])
+
+    assert svc.run_once() == {"extension_translation_engine": 1}
+    assert db.get_app_setting(svc.MARKER) is True
+    assert log.lines[0] == "Saved local Ollama models not cleared in unreadable settings: job_queue"
+
+
+def test_a_cleared_production_model_is_the_default_candidates_compare_with(isolated_db, log):
+    from lib.errors import InvalidInputError
+    from services import model_reeval_service, settings_service
+    settings_service.set_settings({"default_engine": "ollama"})
+    isolated_db.set_app_setting("model_reeval_production", json.dumps(
+        {"translation": {"engine": "ollama", "model": LOCAL, "promoted_at": "2026-01-01"}}))
+
+    assert svc.run_once() == {"model_reeval_production": 1}
+
+    default = engine_registry.effective_default_model("ollama")
+    assert model_reeval_service.get_production("translation") == {
+        "engine": "ollama", "model": default, "source": "settings"}
+    with pytest.raises(InvalidInputError, match="current production model"):
+        model_reeval_service._add_candidate_locked("translation", {"engine": "ollama"}, default, "")
