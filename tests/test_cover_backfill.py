@@ -195,6 +195,7 @@ def test_refresh_reports_what_happened_and_keeps_the_cover(isolated_db):
     before = cover_art_service.cover_stamp(did)
     assert cover_art_service.refresh_site_cover(did, _FakeClient(page="<p>no picture</p>")) == "kept"
     assert cover_art_service.refresh_site_cover(did, _FakeClient(fail=True)) == "unreachable"
+    assert cover_art_service.refresh_site_cover(did, _FakeClient(None, _PAGE)) == "unreachable"
     assert cover_art_service.refresh_site_cover(did, _FakeClient(_png("yellow", (90, 30)), _PAGE)) == "kept"
     assert cover_art_service.cover_stamp(did) == before
     bare = _comic(title="B")

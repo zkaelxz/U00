@@ -85,24 +85,26 @@ def _refresh_site_covers(job_id: str) -> None:
     counts: dict = {}
     per_site: dict = {}
     newly_kept: set = set()
-    for i, drama_id in enumerate(todo):
-        if background_jobs.is_cancel_requested(job_id):
-            raise background_jobs.JobCancelled(job_id)
-        background_jobs.update_progress(job_id, i / max(len(todo), 1),
-                                        f"Fetching site covers ({i} of {len(todo)})...")
-        drama = db.get_drama(drama_id) or {}
-        link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
-        client = cover_art_service.paced_client(link)
-        outcome = cover_art_service.refresh_site_cover(drama_id, client, only_first_page=True)
-        counts[outcome] = counts.get(outcome, 0) + 1
-        if outcome == "kept":
-            newly_kept.add(drama_id)
-        # Source names are the app's own adapter names or "generic"; no link or host is logged.
-        per_site[client.source] = per_site.get(client.source, 0) + 1
-    if newly_kept:
-        with contextlib.suppress(OSError):
-            with open(os.path.join(db.LIBRARY_DIR, _KEPT_FILE), "w", encoding="utf-8") as f:
-                json.dump(sorted(_kept_ids() | newly_kept), f)
+    try:
+        for i, drama_id in enumerate(todo):
+            if background_jobs.is_cancel_requested(job_id):
+                raise background_jobs.JobCancelled(job_id)
+            background_jobs.update_progress(job_id, i / max(len(todo), 1),
+                                            f"Fetching site covers ({i} of {len(todo)})...")
+            drama = db.get_drama(drama_id) or {}
+            link = (drama.get("source_url_full") or drama.get("source_url") or "").strip()
+            client = cover_art_service.paced_client(link)
+            outcome = cover_art_service.refresh_site_cover(drama_id, client, only_first_page=True)
+            counts[outcome] = counts.get(outcome, 0) + 1
+            if outcome == "kept":
+                newly_kept.add(drama_id)
+            # Source names are the app's own adapter names or "generic"; no link or host is logged.
+            per_site[client.source] = per_site.get(client.source, 0) + 1
+    finally:
+        if newly_kept:
+            with contextlib.suppress(OSError):
+                with open(os.path.join(db.LIBRARY_DIR, _KEPT_FILE), "w", encoding="utf-8") as f:
+                    json.dump(sorted(_kept_ids() | newly_kept), f)
     applog.get_logger().info(
         f"site covers: {counts.get('fetched', 0)} fetched, {counts.get('kept', 0)} kept, "
         f"{counts.get('unreachable', 0)} unreachable, {counts.get('skipped', 0)} skipped; "
