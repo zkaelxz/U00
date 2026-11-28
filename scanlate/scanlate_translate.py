@@ -513,6 +513,37 @@ def _log_lost_picture(regions: int, failure: str) -> None:
                        "translating the page again from its text only",
                        failure or "answer did not match the regions")
 
+def _translate_with_picture(by_key: dict, page_image: dict, engine, drama_meta: dict, *,
+                            previous_context, usage_cb, glossary_terms, character_notes,
+                            names_out, summary):
+    """The page's regions sent with its picture to each reader in turn, until one answers.
+    Returns (result or None, context, the last failure's type name or "")."""
+    scale = page_image["scale"]
+    regions = [{"id": k, "text": b["source_text"],
+                "box": {n: round(b[n] * scale) for n in ("x", "y", "w", "h")},
+                **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
+               for k, b in by_key.items()]
+    readers = page_image.get("readers") or [
+        {"engine": page_image.get("engine"), "usage_cb": page_image.get("usage_cb")}]
+    failure = ""
+    for reader in readers:
+        try:
+            result, new_context = translate_regions_with_image(
+                regions, page_image["data"], page_image["mime"],
+                reader.get("engine") or engine, drama_meta, previous_context=previous_context,
+                usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
+                character_notes=character_notes, names_out=names_out, summary=summary)
+        except Exception as exc:
+            failure = type(exc).__name__
+            on_failure = reader.get("on_failure")
+            if on_failure is not None:
+                on_failure(exc)
+            continue
+        if result is not None:
+            return result, new_context, failure
+    return None, previous_context, failure
+
+
 def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_context: str = "",
                            glossary_terms=None, usage_cb=None, character_notes: str = "",
                            page_image: dict | None = None, previous_lines=None,
@@ -565,28 +596,10 @@ def translate_page_bubbles(bubbles: list, engine, drama_meta: dict, previous_con
     new_context = previous_context
     failure = ""
     if page_image is not None and len(by_key) <= REGIONS_PER_CALL:
-        scale = page_image["scale"]
-        regions = [{"id": k, "text": b["source_text"],
-                    "box": {n: round(b[n] * scale) for n in ("x", "y", "w", "h")},
-                    **({"sound_effect": True} if b.get("kind") == "sfx" else {})}
-                   for k, b in by_key.items()]
-        readers = page_image.get("readers") or [
-            {"engine": page_image.get("engine"), "usage_cb": page_image.get("usage_cb")}]
-        for reader in readers:
-            try:
-                result, new_context = translate_regions_with_image(
-                    regions, page_image["data"], page_image["mime"],
-                    reader.get("engine") or engine, drama_meta, previous_context=previous_context,
-                    usage_cb=reader.get("usage_cb") or usage_cb, glossary_terms=glossary_terms,
-                    character_notes=character_notes, names_out=found_names, summary=summary)
-            except Exception as exc:
-                failure = type(exc).__name__
-                on_failure = reader.get("on_failure")
-                if on_failure is not None:
-                    on_failure(exc)
-                result, new_context = None, previous_context
-            if result is not None:
-                break
+        result, new_context, failure = _translate_with_picture(
+            by_key, page_image, engine, drama_meta, previous_context=previous_context,
+            usage_cb=usage_cb, glossary_terms=glossary_terms, character_notes=character_notes,
+            names_out=found_names, summary=summary)
     if page_image is not None and result is None and by_key:
         _log_lost_picture(len(by_key), failure)
     if result is None:
