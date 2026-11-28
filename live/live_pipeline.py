@@ -443,6 +443,8 @@ class TranslationWorker:
             for pos, work in enumerate(works):
                 if any(starts[pos] <= p < starts[pos + 1] for p in group):
                     self._fail(work.cues, work.idx, exc)
+        if self._stage.timeline is not None:
+            self._stage.timeline.mark("first translation request")
         try:
             live_cue_feed.translate_cues(
                 cues, self._translator, checkpoint,

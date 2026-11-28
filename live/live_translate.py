@@ -602,6 +602,9 @@ _timeline_clock = time.monotonic
 # the normal pipeline); beyond this the oldest are dropped, not queued, so
 # captions stay near the live edge when Whisper runs slower than the stream.
 MAX_BACKLOG_CHUNKS = 2
+# The first chunks each get their own start-timeline lines: a long wait before the first
+# caption is usually a chunk with no speech, which one "first chunk" line hides.
+STAGE_LOGGED_CHUNKS = 6
 
 
 def process_chunk(chunk_path: str, chunk_index: int, segment_seconds: float,
@@ -1023,6 +1026,8 @@ class _LiveRun(ChunkCaptioner):
             # One chunk per pass, so the backlog is looked at again after each.
             if waiting:
                 self.timeline.mark("first chunk closed")
+                if waiting[0][0] < STAGE_LOGGED_CHUNKS:
+                    self.timeline.mark(f"chunk {waiting[0][0]} closed")
                 after_break = self.outage is not None
                 self._resumed()
                 try:
@@ -1329,6 +1334,8 @@ class _LiveRun(ChunkCaptioner):
             # job at the next loop check. Whisper and a blocked
             # Ollama call are aborted either way (guard, cancel check).
             is_cancelled=self._superseded)
+        if idx < STAGE_LOGGED_CHUNKS:
+            self.timeline.mark(f"chunk {idx} transcribed, {len(new_cues)} lines")
         return new_cues, timing
 
 
