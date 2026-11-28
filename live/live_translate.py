@@ -714,6 +714,7 @@ def current_generation(job_id: str) -> int:
 # so its owner can move the limit without a restart (extend_time_limit).
 _deadlines = {}
 _deadlines_lock = threading.Lock()
+_finishing = set()
 
 
 def extend_time_limit(job_id: str, seconds: float, longest: float) -> float | None:
@@ -729,10 +730,17 @@ def extend_time_limit(job_id: str, seconds: float, longest: float) -> float | No
         return box[0] - now
 
 
-def drop_time_limit(job_id: str) -> None:
-    """A session that is finishing can't be given more time: it stops anyway."""
+def mark_finishing(job_id: str) -> None:
+    """A session that is finishing (its time is up, or Stop was pressed while
+    the tail is still captioned) can't be given more time: it stops anyway."""
     with _deadlines_lock:
         _deadlines.pop(job_id, None)
+        _finishing.add(job_id)
+
+
+def is_finishing(job_id: str) -> bool:
+    with _deadlines_lock:
+        return job_id in _finishing
 
 
 def time_left(job_id: str) -> float | None:
@@ -798,9 +806,6 @@ class _LiveRun(ChunkCaptioner):
         self.report_player = report_player
         self.my_generation = bump_generation(job_id)
         self.deadline = None if max_seconds is None else [time.monotonic() + max_seconds]
-        if self.deadline is not None:
-            with _deadlines_lock:
-                _deadlines[job_id] = self.deadline
         self.note = report_note or (lambda text, key=None: None)
         self.runner = live_whisper.WhisperRunner(
             self.should_stop, self.note, clock=whisper_clock, gpu=use_gpu)
@@ -817,6 +822,11 @@ class _LiveRun(ChunkCaptioner):
         # {"since", "attempt", "reason"} from a stream break until a chunk arrives again.
         self.outage = None
         self.breaks = 0
+        # Last, so an __init__ that raises leaves no deadline behind for extend to find.
+        with _deadlines_lock:
+            _finishing.discard(job_id)
+            if self.deadline is not None:
+                _deadlines[job_id] = self.deadline
 
     def should_stop(self):
         return (background_jobs.is_cancel_requested(self.job_id)
@@ -839,6 +849,7 @@ class _LiveRun(ChunkCaptioner):
 
     def forget_deadline(self):
         with _deadlines_lock:
+            _finishing.discard(self.job_id)
             if self.deadline is not None and _deadlines.get(self.job_id) is self.deadline:
                 del _deadlines[self.job_id]
 
@@ -1183,7 +1194,7 @@ class _LiveRun(ChunkCaptioner):
         replaced when the job ends, and the page then only says it finished."""
         background_jobs.update_progress(self.job_id, 0.0, why)
         self.note(why, "ended")
-        self.forget_deadline()
+        mark_finishing(self.job_id)
 
     def _caption_remaining(self, worker):
         # ffmpeg writes out the segment it is in, so the speech up to

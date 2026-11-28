@@ -864,7 +864,7 @@ def stop_session(session_id, principal=None) -> dict:
             return {"session_id": session_id, "stopping": False, "finishing": False}
     ownership_service.require_job_changeable(principal, session_id, entry.get("owner_user_id"))
     if (job or {}).get("status") == "running" and live_pipeline.request_finish(session_id):
-        live_translate.drop_time_limit(session_id)
+        live_translate.mark_finishing(session_id)
         add_note(session_id, FINISHING_NOTE, key="finishing")
         return {"session_id": session_id, "stopping": True, "finishing": True}
     # A finished run has dropped its generation; bumping would only add it back.
@@ -882,14 +882,17 @@ def stop_session(session_id, principal=None) -> dict:
 def extend_session(session_id, principal=None) -> dict:
     """Moves a running session's time limit EXTEND_MINUTES later, never past
     MAX_MINUTES_RANGE's longest from now; nothing restarts, and the spend limit
-    still applies. Its starter only, as for name fixes: it keeps an engine busy longer."""
+    still applies. Its starter only (_started): it keeps an engine busy longer."""
     job = _require(session_id, principal)
     with _lock:
         entry = _sessions.get(session_id) or {}
-    if not _may_fix_names(principal, session_id, entry):
+    if not _started(principal, entry):
         raise ForbiddenError("Only whoever started this session can give it more time.")
+    running = (job or {}).get("status") == "running"
+    if running and live_translate.is_finishing(session_id):
+        raise ConflictError("This session is already finishing.")
     left = None
-    if (job or {}).get("status") == "running":
+    if running:
         left = live_translate.extend_time_limit(session_id, EXTEND_MINUTES * 60,
                                                 MAX_MINUTES_RANGE[1] * 60)
     if left is None:
@@ -961,6 +964,16 @@ def _may_fix_names(principal, session_id, entry) -> bool:
     uid = ownership_service.user_id(principal)
     if owner is None:
         return bool(principal.get("is_admin"))
+    return uid is not None and uid == owner
+
+
+def _started(principal, entry) -> bool:
+    """Only the session's starter: an admin or the PC owner may not lengthen someone else's
+    session (owner, 2026-11-28: every session is independent). No owner means the PC started it."""
+    owner = entry.get("owner_user_id")
+    if owner is None:
+        return principal is None or bool(principal.get("is_local_owner"))
+    uid = ownership_service.user_id(principal)
     return uid is not None and uid == owner
 
 
@@ -1051,7 +1064,7 @@ def get_session(session_id, after=0, principal=None) -> dict:
             "name_fixes": name_fixes(session_id),
             "can_fix_names": _may_fix_names(principal, session_id, entry),
             "time_left_seconds": (left := _time_left(status, session_id)),
-            "can_extend": left is not None and status == "running" and _may_fix_names(principal, session_id, entry),
+            "can_extend": left is not None and status == "running" and _started(principal, entry),
             "has_glossary": _may_save_fix(principal, entry.get("glossary_target")),
             **{name: cast((entry.get("stats") or {}).get(name, 0)) for name, cast in STAT_FIELDS.items()},
             "cues": out, "next_index": max(after, len(cues))}

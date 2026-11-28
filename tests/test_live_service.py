@@ -521,8 +521,47 @@ def test_more_time_is_refused_once_the_session_is_finishing(live):
     assert _wait(lambda: "out_dir" in live and live_service.get_session(sid)["time_left_seconds"] is not None)
     assert live_service.stop_session(sid)["finishing"] is True
     assert live_service.get_session(sid)["can_extend"] is False
-    with pytest.raises(ConflictError):
+    with pytest.raises(ConflictError, match="already finishing"):
         live_service.extend_session(sid)
+
+
+def test_more_time_is_refused_once_the_time_is_up_and_the_tail_is_captioned(live, monkeypatch):
+    _short_limit(monkeypatch, 0.02)   # 1.2 s
+    tail, release = threading.Event(), threading.Event()
+
+    def slow_tail(out_dir, last):
+        tail.set()
+        release.wait(5)
+        return []
+
+    monkeypatch.setattr(live_translate, "list_remaining_chunks", slow_tail)
+    sid = _start()
+    try:
+        assert tail.wait(5)
+        s = live_service.get_session(sid)
+        assert s["status"] == "running" and s["can_extend"] is False
+        with pytest.raises(ConflictError, match="already finishing"):
+            live_service.extend_session(sid)
+    finally:
+        release.set()
+    assert _terminal(sid)
+    assert not live_translate.is_finishing(sid)
+
+
+def test_only_the_starter_may_give_more_time(live):
+    sid = _start(max_minutes=60)
+    assert _wait(lambda: live_service.get_session(sid)["time_left_seconds"] is not None)
+    live_service._sessions[sid]["owner_user_id"] = 1
+    starter = {"user_id": 1, "permissions": ["media.import_url"]}
+    for other in ({"user_id": None, "is_admin": True, "is_local_owner": True},
+                  {"user_id": 3, "is_admin": True, "admin_override": True}):
+        assert live_service.get_session(sid, principal=other)["can_extend"] is False
+        with pytest.raises(ForbiddenError):
+            live_service.extend_session(sid, principal=other)
+    with pytest.raises(NotFoundError):
+        live_service.extend_session(sid, principal={"user_id": 4})
+    assert live_service.get_session(sid, principal=starter)["can_extend"] is True
+    assert live_service.extend_session(sid, principal=starter)["time_left_seconds"] > 3600
 
 
 def test_more_time_is_refused_without_a_limit_or_for_a_viewer(live):
