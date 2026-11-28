@@ -196,6 +196,11 @@ TYPESET_SMALLEST_PX = 8
 # Below this height English is hard to read, so a word too wide for its
 # balloon is hyphenated before the text shrinks past it.
 TYPESET_COMFORT_PX = 13
+# Halo behind lettering over art: how textured the cleaned area must be, the median luma
+# below which the lettering is light, and how strong the glow is.
+HALO_MIN_TEXTURE = 8.0
+HALO_LIGHT_TEXT_BELOW = 150
+HALO_STRENGTH = 0.85
 # Space between lines, and between the text and a balloon's outline.
 # Balloons whose starting sizes are within this ratio count as lettered alike, and
 # the cramped ones among them set a shared fit ratio; no balloon loses more than
