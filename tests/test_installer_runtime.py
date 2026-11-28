@@ -347,6 +347,63 @@ class TestServicePort:
             launcher.launch()
 
 
+class TestStartRefusal:
+    """The server's refusal sentence reaches the launcher's message box: its
+    own console closes with it."""
+
+    def test_the_server_leaves_its_refusal_for_the_launcher(self, tmp_path, monkeypatch):
+        import api.__main__ as entry
+        assert entry.START_REFUSAL_FILE_ENV == launcher.START_REFUSAL_ENV
+        target = tmp_path / "refused.txt"
+        monkeypatch.setenv(entry.START_REFUSAL_FILE_ENV, str(target))
+        with pytest.raises(SystemExit) as exc:
+            entry._refuse_to_start("The library is damaged. Restore it.", log=False)
+        assert exc.value.code == "ERROR: The library is damaged. Restore it."
+        assert target.read_text(encoding="utf-8") == "The library is damaged. Restore it."
+
+    def test_without_the_launcher_no_file_is_written(self, tmp_path, monkeypatch):
+        import api.__main__ as entry
+        monkeypatch.delenv(entry.START_REFUSAL_FILE_ENV, raising=False)
+        monkeypatch.chdir(tmp_path)
+        with pytest.raises(SystemExit):
+            entry._refuse_to_start("x", log=False)
+        assert os.listdir(tmp_path) == []
+
+    def test_a_secret_in_the_sentence_is_redacted(self, tmp_path, monkeypatch):
+        import api.__main__ as entry
+        target = tmp_path / "refused.txt"
+        monkeypatch.setenv(entry.START_REFUSAL_FILE_ENV, str(target))
+        with pytest.raises(SystemExit):
+            entry._refuse_to_start("bad key sk-ant-api03-" + "a" * 40, log=False)
+        assert "a" * 40 not in target.read_text(encoding="utf-8")
+
+    def _exits_at_once(self, monkeypatch):
+        monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
+        monkeypatch.setattr(launcher, "port_open", lambda port: False)
+        monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kw: _Proc(exited=True))
+
+    def test_the_message_box_shows_the_servers_sentence(self, data_dir, monkeypatch):
+        self._exits_at_once(monkeypatch)
+        real_popen = launcher.subprocess.Popen
+
+        def refuse(cmd, **kw):
+            Path(kw["env"][launcher.START_REFUSAL_ENV]).write_text("The library is damaged.", encoding="utf-8")
+            return real_popen(cmd, **kw)
+        monkeypatch.setattr(launcher.subprocess, "Popen", refuse)
+        with pytest.raises(launcher.LaunchError) as exc:
+            launcher.launch()
+        assert str(exc.value) == "The library is damaged."
+        assert not (data_dir / "launcher" / launcher.START_REFUSAL_NAME).exists()
+
+    def test_an_old_refusal_never_explains_a_new_failure(self, data_dir, monkeypatch):
+        self._exits_at_once(monkeypatch)
+        (data_dir / "launcher").mkdir(parents=True)
+        (data_dir / "launcher" / launcher.START_REFUSAL_NAME).write_text("old reason", encoding="utf-8")
+        with pytest.raises(launcher.LaunchError, match="didn't answer") as exc:
+            launcher.launch()
+        assert "old reason" not in str(exc.value)
+
+
 class TestWaitForHealth:
     def test_stops_waiting_when_the_server_exits(self, monkeypatch):
         monkeypatch.setattr(launcher, "health_ok", lambda port, timeout=1.0: False)
