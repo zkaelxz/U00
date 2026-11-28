@@ -104,9 +104,7 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
   const addReasonShown = !!text.trim() && !!addReason
   const emptyShown = !!list && !items.length && !loadError
   const liveCount = items.filter((f) => f.live_now).length
-  const summary = items.length
-    ? `${items.length} channel${items.length === 1 ? '' : 's'}${liveCount ? ` · ${liveCount} live now` : ''}`
-    : 'None yet'
+  const headingId = useId()
 
   const add = async (e: FormEvent) => {
     e.preventDefault()
@@ -163,35 +161,17 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
     })
 
   return (
-    <Section storageKey="live.follows" title="Followed channels" summary={summary} count={items.length || undefined}>
+    <section className="live-follows-col" aria-labelledby={headingId}>
+      <h2 id={headingId} className="live-follows-head">
+        Followed channels {items.length > 0 && <Badge tone="neutral">{items.length}</Badge>}
+        {liveCount > 0 && <span className="muted"> · {liveCount} live now</span>}
+      </h2>
       <div className="live-follows">
-        {list && <Section storageKey="live.followAdd" title="Follow a channel" defaultOpen={!items.length}>
-        <form className="live-follow-add" onSubmit={(e) => void add(e)}>
-          <Field label="Channels" help={`One per line, up to ${MAX_CHANNELS_PER_ADD}: a YouTube channel link (…/@name, /channel/UC… or /c/name), a Twitch link (twitch.tv/name) or an @handle. Each new channel keeps the Live form’s current settings (language, caption model, translator, GPU) for Start Live. Check now shows whether it is live; Check every hour alerts you when it goes live.`}>
-            <textarea
-              rows={2}
-              value={text}
-              maxLength={MAX_CHANNEL_INPUT * MAX_CHANNELS_PER_ADD}
-              placeholder={'@channel or https://www.youtube.com/@channel\nOne per line to follow several'}
-              onChange={(e) => setText(e.target.value)}
-              disabled={busy === 'add'}
-            />
-          </Field>
-          <div className="actions">
-            <button type="submit" className={buttonClass('secondary')} disabled={!!addReason}
-              aria-describedby={addReasonShown ? 'live-follow-add-reason' : undefined}
-              title={addReasonShown ? undefined : addReason ?? 'Follow these channels for live streams, with the Live form’s current settings.'}>
-              {busy === 'add' ? 'Following…' : 'Follow'}
-            </button>
-          </div>
-          {addReasonShown && <p className="muted" id="live-follow-add-reason">{addReason}</p>}
-        </form>
-        </Section>}
         {error && <p className="error" role="alert">{error}</p>}
         {note && <p className="muted" role="status">{note}</p>}
         {loadError && <p className="error" role="alert">{loadError}</p>}
         {emptyShown && (
-          <p className="muted">No channels followed yet. Paste a channel link or an @handle above.</p>
+          <p className="muted">No channels followed yet. Paste a channel link or an @handle below.</p>
         )}
         {items.length > 0 && (
           <ul className="live-follow-list" aria-label="Followed channels">
@@ -221,8 +201,30 @@ export function FollowedChannels({ follows, picked, liveOptions, formOptions, en
             ))}
           </ul>
         )}
+        {list && <Section storageKey="live.followAdd" title="Follow a channel" defaultOpen={!items.length}>
+        <form className="live-follow-add" onSubmit={(e) => void add(e)}>
+          <Field label="Channels" help={`One per line, up to ${MAX_CHANNELS_PER_ADD}: a YouTube channel link (…/@name, /channel/UC… or /c/name), a Twitch link (twitch.tv/name) or an @handle. Each new channel keeps the Live form’s current settings (language, caption model, translator, GPU) for Start Live. Check now shows whether it is live; Check every hour alerts you when it goes live.`}>
+            <textarea
+              rows={2}
+              value={text}
+              maxLength={MAX_CHANNEL_INPUT * MAX_CHANNELS_PER_ADD}
+              placeholder={'@channel or https://www.youtube.com/@channel\nOne per line to follow several'}
+              onChange={(e) => setText(e.target.value)}
+              disabled={busy === 'add'}
+            />
+          </Field>
+          <div className="actions">
+            <button type="submit" className={buttonClass('secondary')} disabled={!!addReason}
+              aria-describedby={addReasonShown ? 'live-follow-add-reason' : undefined}
+              title={addReasonShown ? undefined : addReason ?? 'Follow these channels for live streams, with the Live form’s current settings.'}>
+              {busy === 'add' ? 'Following…' : 'Follow'}
+            </button>
+          </div>
+          {addReasonShown && <p className="muted" id="live-follow-add-reason">{addReason}</p>}
+        </form>
+        </Section>}
       </div>
-    </Section>
+    </section>
   )
 }
 

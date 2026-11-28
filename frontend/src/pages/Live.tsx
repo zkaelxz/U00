@@ -190,10 +190,12 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
   }
 
   return (
-    <PageShell width="standard" title="Live" label="Live" className={active ? (focus ? 'live-page live-wide live-focus' : 'live-page live-wide') : 'live-page'}>
+    <PageShell width="standard" title="Live" label="Live" className={active ? (focus ? 'live-page live-wide live-focus' : 'live-page live-wide') : 'live-page'}
+      actions={!active && <CheckAllChannels follows={follows} />}>
       <div className="panel">
-        {!active && <CheckAllChannels follows={follows} />}
         {!active && <LiveNowCards items={follows.list?.items ?? []} picked={pickedFollow} />}
+        <div className={active ? undefined : 'live-columns'}>
+        <div className="live-start">
         {/* noValidate: buildStartBody clamps the numbers, as the service does. */}
         <form onSubmit={start} className={active ? 'live-form watching' : 'live-form'} noValidate>
           <StreamLinkField value={url} maxLength={opts.max_url_len} disabled={active || busy} onChange={setUrl} />
@@ -308,10 +310,9 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
               const reason = whisperExclusionReason(opts.whisper_exclusions, w, form.source_language) ?? liveWhisperSize(readiness, w, pc !== 'remote').reason
               return reason ? <p key={w} className="muted" data-testid="live-whisper-reason">{w}: {reason}</p> : null
             })}
-            <label className="live-check">
-              <input type="checkbox" checked={useGpu} disabled={active || busy || !!gpuReason} onChange={(e) => setOpt('use_gpu', e.target.checked)} />
-              Use GPU for Whisper
-            </label>
+            <Field label="Use GPU for Whisper">
+              <Toggle checked={useGpu} disabled={active || busy || !!gpuReason} onChange={(v) => setOpt('use_gpu', v)} />
+            </Field>
             {gpuReason && <p className="muted" data-testid="live-gpu-note">{gpuReason}</p>}
             {pc !== 'remote' && !twitchLink && (
               <Field label="Delayed player"
@@ -341,13 +342,13 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
           </Section>}
           </Section>}
           {!active && (
-            <div className="actions">
+            <div className="actions live-start-row">
               <button type="submit" className={buttonClass('primary')} disabled={!!blocker || busy}>
                 {busy ? 'Starting…' : 'Start'}
               </button>
+              {blocker && <p className="muted"><SettingsMentions text={blocker} /></p>}
             </div>
           )}
-          {!active && blocker && <p className="muted"><SettingsMentions text={blocker} /></p>}
           {!active && needList.length > 0 && <div className="stack">{needList.map((n) => <NeedsInstall key={n.id} need={n} />)}</div>}
           {pc === 'remote' && !active && !holdsImport && (
             <p className="muted">From this device, starting needs the owner to allow importing from links.</p>
@@ -359,7 +360,9 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
             {error}
           </p>
         )}
+        </div>
         {!active && <FollowedChannels follows={follows} picked={pickedFollow} liveOptions={followOptions(buildStartBody(startForm, opts))} formOptions={opts} engines={engines && usable.map((e) => liveEngineView(e) ?? e)} gpuReason={gpuReason} />}
+        </div>
 
         {session && (
           <LiveWatch session={session} stopping={stopping} joined={joined} onStop={() => void stop()} onClear={clearLines}
