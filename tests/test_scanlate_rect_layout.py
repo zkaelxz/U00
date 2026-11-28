@@ -114,7 +114,7 @@ def test_balloon_lines_are_balanced_at_the_same_size_and_line_count():
     width = lambda t: scanlate_text_layout._ink_width(draw, t, font)  # noqa: E731
     span = width("I can't believe you actually") + 2
     mask[:, span:] = False
-    laid = scanlate_text_layout._layout_at_size(draw, STUB_TEXT.split(), mask, 120, font, False)
+    laid = scanlate_text_layout._layout_in_mask(draw, STUB_TEXT, mask, 20, lambda size: font)
     assert laid is not None
     got_font, placed = laid
     assert got_font is font

@@ -1,5 +1,7 @@
 """Fitting translated text into a box or a balloon's outline (sizes, wrapping, hyphenation) and drawing it."""
 
+import weakref
+
 import numpy as np
 from PIL import ImageDraw, ImageFont
 
@@ -126,7 +128,7 @@ def _inner_symmetric(mask):
     return inner if inner.any() else None
 
 
-def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
+def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLAIN, balance=True):
     """Shape-aware counterpart to render_text_in_box()'s rectangle layout
     tries the largest font first, and for each size the
     fewest lines first, centring the block vertically and giving each line
@@ -136,7 +138,8 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLA
     hyphenated rather than shrunk below the comfortable size, because a
     narrow vertical balloon otherwise forces tiny letters. Returns (font,
     [(line, left, right, top)]) or None if nothing fits even at the minimum
-    size, in which case the caller falls back to the plain rectangle layout."""
+    size, in which case the caller falls back to the plain rectangle layout. With `balance`,
+    the lines of the size that fits are balanced (_balanced)."""
     words = text.split()
     if not words:
         return None
@@ -158,7 +161,7 @@ def _layout_in_mask(draw, text: str, mask, font_size: int, load_font, style=_PLA
             laid_out = _layout_at_size(draw, words, mask, mh, load_font(size), hyphenate, pad_em)
             if laid_out is not None and (split_twice_ok
                                          or not _split_twice([ln[0] for ln in laid_out[1]])):
-                return laid_out
+                return _balanced(draw, words, laid_out) if balance else laid_out
     return None
 
 
@@ -206,7 +209,8 @@ def _roomiest_rectangle(mask):
     return best
 
 
-def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style=_PLAIN):
+def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style=_PLAIN,
+                         balance=True):
     """_layout_in_mask() inside the roomiest rectangle of the balloon: even lines instead of
     ones that follow the outline. Returns the same (font, lines) with the lines placed in the
     mask's coordinates, or None when the rectangle is too small a part of the balloon or the
@@ -218,7 +222,7 @@ def _layout_in_rectangle(draw, text: str, mask, font_size: int, load_font, style
     if (bottom - top) * (right - left) < _MIN_RECT_SHARE * int(mask.sum()):
         return None
     laid_out = _layout_in_mask(draw, text, np.ones((bottom - top, right - left), dtype=bool),
-                               font_size, load_font, style)
+                               font_size, load_font, style, balance)
     if laid_out is None:
         return None
     font, placed = laid_out
@@ -254,10 +258,10 @@ def _fill_spans(words, spans, limits, width_of, hyphenate, top0, line_height):
 _BALANCE_STEPS = 100
 
 
-def _narrowest(fits, hi: int):
-    """The smallest value in 1..hi for which fits(value) is not None, and its result: a
+def _narrowest(fits, hi: int, lo: int = 1):
+    """The smallest value in lo..hi for which fits(value) is not None, and its result: a
     binary search, since a narrower limit never fits words a wider one could not."""
-    best, lo = None, 1
+    best = None
     while lo <= hi:
         mid = (lo + hi) // 2
         got = fits(mid)
@@ -270,13 +274,9 @@ def _narrowest(fits, hi: int):
 
 def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
     line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
-    widths = {}
 
     def width_of(t):
-        if t not in widths:
-            bb = draw.textbbox((0, 0), t, font=font)
-            widths[t] = bb[2] - bb[0]
-        return widths[t]
+        return _ink_width(draw, t, font)
 
     pad = int(pad_em * (line_height - scanlate_tuning.TYPESET_LINE_GAP_PX))
     for n_lines in range(1, max(mh // line_height, 0) + 1):
@@ -287,54 +287,89 @@ def _layout_at_size(draw, words, mask, mh, font, hyphenate, pad_em=0.0):
                  if right - left > 2 * pad]
         if len(spans) != len(found):
             continue
-        full = [right - left for left, right in spans]
-        placed, queue, split_any = _fill_spans(words, spans, full, width_of, hyphenate,
-                                               top0, line_height)
-        if queue:
-            continue
-        if len(placed) > 1 and not split_any:
-            # First-fit leaves all the slack in the last line ("did that to / me"). Narrow every
-            # line by the same share until one more step would need another line: same size,
-            # same line count, only the breaks move.
-            def fits(pct):
-                got, left_over, _ = _fill_spans(words, spans, [w * pct // _BALANCE_STEPS for w in full],
-                                                width_of, False, top0, line_height)
-                return got if not left_over and len(got) == len(placed) else None
-            placed = _narrowest(fits, _BALANCE_STEPS) or placed
-        return font, placed
+        placed, queue, _ = _fill_spans(words, spans, [right - left for left, right in spans],
+                                       width_of, hyphenate, top0, line_height)
+        if not queue:
+            return font, placed
     return None
 
 
+def _balanced(draw, words, laid_out):
+    """`laid_out` (font, lines) with its breaks balanced. First-fit leaves all the slack in the
+    last line ("did that to / me"); every line is narrowed by the same share until one more step
+    would need another line: same size, same line count, only the breaks move. A layout with a
+    hyphenated word, or of one line, is returned as it is."""
+    font, placed = laid_out
+    if len(placed) < 2 or " ".join(line for line, *_ in placed).split() != words:
+        return laid_out
+
+    def width_of(t):
+        return _ink_width(draw, t, font)
+
+    spans = [(left, right) for _, left, right, _ in placed]
+    full = [right - left for left, right in spans]
+    top0, line_height = placed[0][3], placed[1][3] - placed[0][3]
+
+    def fits(pct):
+        got, left_over, _ = _fill_spans(words, spans, [w * pct // _BALANCE_STEPS for w in full],
+                                        width_of, False, top0, line_height)
+        return got if not left_over and len(got) == len(placed) else None
+
+    # The first-fit lines already fit at the share their widest line needs, so the search starts
+    # there rather than at 100%.
+    hi = max(-(-_BALANCE_STEPS * width_of(line) // w) for (line, *_), w in zip(placed, full))
+    return font, _narrowest(fits, min(hi, _BALANCE_STEPS)) or placed
+
+
+# Per font, the ink width of each text measured with it. Fitting measures the same line prefixes
+# again for every size, every centring candidate and every balancing step, and measuring is most
+# of the time lettering takes. Fonts are made per page (render_text_in_box's `fonts`), so their
+# widths go with them.
+_INK_WIDTHS: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
+
 def _ink_width(draw, text: str, font) -> int:
-    bbox = draw.textbbox((0, 0), text, font=font)
-    return bbox[2] - bbox[0]
+    widths = _INK_WIDTHS.setdefault(font, {})
+    key = (draw.fontmode, text)
+    if key not in widths:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        widths[key] = bbox[2] - bbox[0]
+    return widths[key]
 
 
-def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
+def _wrap_words(draw, text: str, font, avail: int, hyphenate: bool, balance: bool = True) -> list:
     """`text` wrapped into lines no wider than `avail`; with `hyphenate`, a word
-    wider than a line is split with a hyphen instead of overflowing. Lines of whole words
-    are balanced: the narrowest width that keeps the same number of lines, so the last
-    line is not a stub."""
-    lines = _first_fit_words(draw, text, font, avail, hyphenate)
-    if len(lines) < 2 or " ".join(lines).split() != text.split() \
-            or any(_ink_width(draw, line, font) > avail for line in lines):
+    wider than a line is split with a hyphen instead of overflowing. With `balance`, lines of
+    whole words are balanced: the narrowest width that keeps the same number of lines, so the
+    last line is not a stub."""
+    def width_of(t):
+        return _ink_width(draw, t, font)
+
+    lines = _first_fit_words(text, avail, hyphenate, width_of)
+    words = text.split()
+    if not balance or len(lines) < 2 or " ".join(lines).split() != words \
+            or any(width_of(line) > avail for line in lines):
         return lines
-    return _narrowest(lambda w: (got if len(got := _first_fit_words(draw, text, font, w, False))
-                                 == len(lines) and all(_ink_width(draw, ln, font) <= w for ln in got)
-                                 else None), avail) or lines
+    # The first-fit lines fit at the width of their widest line, and nothing fits narrower than
+    # the widest word, so the search needs only the widths in between.
+    widest_line = max(map(width_of, lines))
+    return _narrowest(lambda w: (got if len(got := _first_fit_words(text, w, False, width_of))
+                                 == len(lines) and all(width_of(ln) <= w for ln in got)
+                                 else None), widest_line,
+                      lo=min(max(map(width_of, words)), widest_line)) or lines
 
 
-def _first_fit_words(draw, text: str, font, avail: int, hyphenate: bool) -> list:
+def _first_fit_words(text: str, avail: int, hyphenate: bool, width_of) -> list:
     words = text.split()
     lines, cur = [], ""
     while words:
         word = words.pop(0)
         trial = f"{cur} {word}".strip()
-        if _ink_width(draw, trial, font) <= avail or not cur and not hyphenate:
+        if width_of(trial) <= avail or not cur and not hyphenate:
             cur = trial
             continue
         if not cur:
-            split = _hyphen_split(word, lambda t: _ink_width(draw, t, font) <= avail)
+            split = _hyphen_split(word, lambda t: width_of(t) <= avail)
             if split:
                 lines.append(split[0])
                 words.insert(0, split[1])
@@ -350,14 +385,19 @@ def _first_fit_words(draw, text: str, font, avail: int, hyphenate: bool) -> list
 
 
 def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_layout: bool,
-                         style=_PLAIN, dark=None):
+                         style=_PLAIN, dark=None, balance=True):
     """The balloon's layout: the roomiest rectangle when asked and it fits, else the outline.
     `dark`: boolean array the size of `mask`, True where the page is dark ink, so that centring
-    may spread the text over hatching but not over art, a frame or the outline."""
+    may spread the text over hatching but not over art, a frame or the outline. `balance`:
+    balance the chosen layout's lines (_balanced); the size and line count are the same either way."""
+    words = text.split()
+
+    # Balancing is the costly part and changes neither size nor line count, so the candidates
+    # are laid out first-fit and only the one that is checked against the page or kept is balanced.
     def lay_out(m):
-        laid_out = (_layout_in_rectangle(draw, text, m, font_size, load_font, style)
+        laid_out = (_layout_in_rectangle(draw, text, m, font_size, load_font, style, balance=False)
                     if rect_layout else None)
-        return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style)
+        return laid_out or _layout_in_mask(draw, text, m, font_size, load_font, style, balance=False)
 
     free = lay_out(mask)
     joined = _symmetrised(mask)
@@ -367,10 +407,13 @@ def _layout_balloon_text(draw, text: str, mask, font_size: int, load_font, rect_
         # different number of lines.
         if centred is not None and (free is None or (
                 centred[0].size >= free[0].size and len(centred[1]) == len(free[1])
-                and not _recentred_too_far(free, centred, mask.shape[1]))) \
-                and not _on_dark_ink(draw, centred, mask, dark):
-            return centred
-    return free
+                and not _recentred_too_far(free, centred, mask.shape[1]))):
+            if balance or dark is not None:
+                # The page is checked under the lines as they are drawn.
+                centred = _balanced(draw, words, centred)
+            if not _on_dark_ink(draw, centred, mask, dark):
+                return centred
+    return _balanced(draw, words, free) if balance and free is not None else free
 
 
 # Light hatching is mostly paper, so a sliver of dark pixels is what it takes to tell it from
@@ -422,10 +465,15 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
                         font_path: str | None = None, font_category: str = "regular",
                         custom_fonts: dict | None = None, fill=(0, 0, 0), align="center",
                         mask=None, report: dict | None = None, rect_layout: bool = False,
-                        style: TypesetStyle = _PLAIN, dark=None):
+                        style: TypesetStyle = _PLAIN, dark=None, balance: bool = True,
+                        fonts: dict | None = None):
     """
     image: PIL Image (already inpainted/cleaned) -- mutated in place.
     report: when given, receives {"size": the font size that was drawn}.
+    balance: balance the wrapped lines so the last one is not a stub; a pass that only wants
+    the size can turn it off, since balancing never changes the size or the line count.
+    fonts: a dict the caller keeps over several calls for one page, so that they share the font
+    objects and with them the widths already measured (_INK_WIDTHS).
     Auto-shrinks font_size until the wrapped text fits the box (a single
     word wider than the box shrinks it too); word-wraps to fit box width.
     Horizontal text layout only -- no vertical CJK rendering (that's koharu's specialty, not replicated
@@ -455,25 +503,38 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
         else:
             text = " ".join(_CJK_CHARS.sub("", text).split())
 
+    fonts = {} if fonts is None else fonts
+
+    def load_font(sz):
+        # One font object per face and size, so the widths measured with it are reused.
+        key = (resolved_font_path, sz)
+        if key not in fonts:
+            fonts[key] = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
+                          else ImageFont.load_default(sz))
+        return fonts[key]
+
     if mask is not None:
-        load_font = (lambda sz: ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-                     else ImageFont.load_default(sz))
-        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style, dark)
+        laid_out = _layout_balloon_text(draw, text, mask, font_size, load_font, rect_layout, style, dark,
+                                        balance)
         if laid_out is not None:
             if report is not None:
                 report["size"] = laid_out[0].size
             _draw_laid_out(draw, box, laid_out, align, fill, style)
             return image
 
+    def wrap_lines(font, hyphenate, balance):
+        # A line break the translation carries (a table of contents, a list)
+        # stays one; only each line is wrapped to the box.
+        return [wrapped for part in text.split("\n")
+                for wrapped in _wrap_words(draw, part, font, box["w"] - 8, hyphenate, balance)]
+
     def wrap_and_measure(sz, hyphenate):
         # load_default() without a size is one fixed size, so the fit loop below
         # could never shrink the text when no system font is installed.
-        font = (ImageFont.truetype(resolved_font_path, sz) if resolved_font_path
-                else ImageFont.load_default(sz))
-        # A line break the translation carries (a table of contents, a list)
-        # stays one; only each line is wrapped to the box.
-        lines = [wrapped for part in text.split("\n")
-                 for wrapped in _wrap_words(draw, part, font, box["w"] - 8, hyphenate)]
+        font = load_font(sz)
+        # Balanced lines are as many and no wider, so the fit is tried on first-fit lines and
+        # only the size that is drawn is balanced.
+        lines = wrap_lines(font, hyphenate, False)
         line_height = draw.textbbox((0, 0), "Ag", font=font)[3] + scanlate_tuning.TYPESET_LINE_GAP_PX
         return font, lines, line_height
 
@@ -498,6 +559,9 @@ def render_text_in_box(image, box: dict, text: str, font_size: int = 18,
             continue
         break
     # Nothing fit: the smallest size is what is drawn.
+
+    if balance:
+        lines = wrap_lines(font, hyphenate, True)
 
     if report is not None:
         report["size"] = size
