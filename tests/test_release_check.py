@@ -339,3 +339,58 @@ def test_a_run_records_baselines_status_and_the_gate(tmp_path, monkeypatch):
     row = result["results"][0]
     assert row["baseline"] == 0.8 and row["status"] == "pass" and row["scores"] == [0.9] * 5
     assert result["passed"] is True
+
+
+def test_a_translation_clip_with_title_settings_runs_the_app_path_and_counts_blanks(tmp_path, monkeypatch, free_engine):
+    clip = {"id": "t", "kind": "translation", "source_srt": "r.srt", "reference_srt": "r.srt", "language": "zh",
+            "title_settings": {"content_mode": "novel", "batch_size": 90, "style_note": "Keep it plain.",
+                               "episode_brief": "They meet again."},
+            "glossary": [{"original": "world", "translation": "World"}]}
+    manifest = rc.load_manifest(_write(tmp_path, [clip]))
+    seen = {}
+
+    def fake_pipeline(lines, engine, **kw):
+        seen.update(kw, ids=[ln.id for ln in lines])
+        # The reply left the first line out: matched by id it is blank, the second still scores.
+        lines[1].en = "world"
+        return lines, []
+
+    from engine_backends import translate_pipeline
+    monkeypatch.setattr(translate_pipeline, "translate_lines_with_engine", fake_pipeline)
+    monkeypatch.setattr(rc.translate_service, "resolve_api_key", lambda name: "local")
+    monkeypatch.setattr(rc.engine_registry, "get_engine", lambda *a, **k: object())
+    opts = rc.argparse.Namespace(engine=free_engine, allow_paid=False, max_usd=1.0)
+    row = rc.run_translation(manifest["clips"][0], opts, rc.Spend(1.0))
+    assert seen["ids"] == [1, 2] and seen["batch_size"] == 90
+    assert seen["drama_meta"] == {"source_language": "zh", "content_mode": "novel", "episode_brief": "They meet again."}
+    assert seen["style_note"] == "Keep it plain." and "check_replies" in seen and "reasoning" in seen
+    assert seen["glossary_terms"] == [{"term_original": "world", "term_translation": "World"}]
+    assert "World" in seen["style_guidelines"]
+    assert row["blank_lines"] == 1 and "1 of 2 lines blank" in row["detail"] and "app path" in row["detail"]
+    assert 0 < row["score"] < 1
+
+
+def test_a_translation_title_setting_must_be_one_the_prompt_reads(tmp_path):
+    clip = {"id": "t", "kind": "translation", "source_srt": "r.srt", "reference_srt": "r.srt", "language": "zh",
+            "title_settings": {"whisper_size": "large"}}
+    with pytest.raises(rc.Refusal, match="title_settings"):
+        rc.load_manifest(_write(tmp_path, [clip]))
+    clip = {**clip, "title_settings": {}, "glossary": [{"original": "x"}]}
+    with pytest.raises(rc.Refusal, match="glossary"):
+        rc.load_manifest(_write(tmp_path, [clip]))
+
+
+def test_translation_runs_three_times_and_the_gate_needs_three(tmp_path, monkeypatch):
+    clip = {"id": "t", "kind": "translation", "source_srt": "r.srt", "reference_srt": "r.srt", "language": "zh",
+            "baseline": 0.5}
+    manifest = rc.load_manifest(_write(tmp_path, [clip]))
+    scores = iter([0.6, 0.4, 0.7])
+    monkeypatch.setattr(rc, "run_translation", lambda c, o, s: {"score": next(scores), "metric": "chrf",
+                                                                "blank_lines": 2})
+    monkeypatch.setattr(rc, "gpu_name", lambda: None)
+    opts = rc.argparse.Namespace(use_gpu=False, max_usd=1.0, whisper_model="large-v3", repeats=1)
+    row = rc.run_all(manifest, opts)["results"][0]
+    assert row["scores"] == [0.6, 0.4, 0.7] and row["score"] == 0.6 and row["blank_lines"] == 2
+    one = {"id": "t", "kind": "translation", "metric": "chrf", "score": 0.6, "baseline": 0.6}
+    assert not rc.gate_passed(_run([one]))
+    assert rc.gate_passed(_run([{**one, "scores": [0.59, 0.6, 0.61]}]))

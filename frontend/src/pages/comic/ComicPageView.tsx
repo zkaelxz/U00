@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, type CSSProperties, type Ref } from 'react
 
 import { probeImage, type ImageProblem } from '../../api/comic'
 import type { ComicPageInfo, ComicRegionsResponse } from '../../types/comic'
-import { orderedLines, regionBox, type ComicFit } from './comicLogic'
+import { orderedLines, pageAlt, regionBox, type ComicFit } from './comicLogic'
 import { PageActions } from './PageActions'
 import { longPress, MENU_AFTER_PEEK_MS } from './pageActionsLogic'
 
@@ -30,6 +30,8 @@ type Props = {
   mounted?: boolean
   // Text boxes to draw (null: text off, or not loaded yet).
   regions: ComicRegionsResponse | null
+  // The page's text for the picture's description, drawn or not (null: not loaded yet).
+  described?: { regions: ComicRegionsResponse['regions'] } | null
   // Phone: numbered boxes only (the lines are in the sheet). Desktop: the text too.
   boxText: boolean
   // Set when a tap on a text box should open it for editing.
@@ -44,7 +46,7 @@ type Props = {
   figureRef?: Ref<HTMLElement>
 }
 
-export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, boxText, onLineTap, flashBoxes, menu, peekSrc, onProblem, figureRef }: Props) {
+export function ComicPageView({ page, number, count, src, fit, eager, mounted = true, regions, described = null, boxText, onLineTap, flashBoxes, menu, peekSrc, onProblem, figureRef }: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [peeking, setPeeking] = useState(false)
   const [touched, setTouched] = useState(false)
@@ -133,7 +135,7 @@ export function ComicPageView({ page, number, count, src, fit, eager, mounted = 
         ) : mounted ? (
           <img
             src={shownSrc}
-            alt={`Page ${number}`}
+            alt={pageAlt(number, described)}
             width={w ?? undefined}
             height={h ?? undefined}
             loading={eager ? 'eager' : 'lazy'}
