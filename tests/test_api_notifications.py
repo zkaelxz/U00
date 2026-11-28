@@ -19,7 +19,8 @@ import env_reader
 import db
 from api.api_config import ApiSettings
 from api.server import create_app
-from services import auth_service, jobs_service, notification_service as ns, settings_service
+from services import auth_service, notification_service as ns, settings_service
+from jobs import job_results
 from engine_backends import paid_calls, run_limits
 from engine_backends.shared import redact_secrets
 from tests.api_helpers import session_headers
@@ -1461,23 +1462,23 @@ def test_a_job_stopped_at_a_spending_cap_is_waiting_not_finished(env, job_hook, 
 
 def test_waiting_note_reads_only_what_the_result_says():
     from engine_backends import paid_calls
-    from services import jobs_service
+    from jobs import job_results
     target = {"page": "glossary", "drama_id": 3}
-    assert jobs_service.waiting_note({"waiting": {"text": "1 glossary name to review",
+    assert job_results.waiting_note({"waiting": {"text": "1 glossary name to review",
                                                   "target": target}}) == \
         {"text": "1 glossary name to review", "target": target}
-    assert jobs_service.waiting_note({"cap_reached": 0}) == {"cap": True, "target": {"page": "jobs"}}
-    assert jobs_service.waiting_note({"cap_reached": True}) is None
-    assert jobs_service.waiting_note({"cap_reached": None}) is None
-    assert jobs_service.waiting_note({"stopped": paid_calls.CAP_STOP_REASON})["cap"] is True
-    assert jobs_service.waiting_note({"stopped": paid_calls.RATE_LIMIT_STOP_REASON})["reason"] == \
+    assert job_results.waiting_note({"cap_reached": 0}) == {"cap": True, "target": {"page": "jobs"}}
+    assert job_results.waiting_note({"cap_reached": True}) is None
+    assert job_results.waiting_note({"cap_reached": None}) is None
+    assert job_results.waiting_note({"stopped": paid_calls.CAP_STOP_REASON})["cap"] is True
+    assert job_results.waiting_note({"stopped": paid_calls.RATE_LIMIT_STOP_REASON})["reason"] == \
         "The provider keeps rate-limiting you; try later or switch engine"
-    assert jobs_service.waiting_note(
+    assert job_results.waiting_note(
         {"stopped": "Stopped checking: 3 status checks in a row failed. Press Check now to try again."}
     )["reason"].startswith("Stopped checking: 3 status checks")
     for nothing in (None, [], {}, {"stopped": "cancelled"}, {"stopped": "cap"},
                     {"waiting": {"text": "  "}}, {"waiting": "names"}):
-        assert jobs_service.waiting_note(nothing) is None
+        assert job_results.waiting_note(nothing) is None
 
 
 def test_notification_event_schema_takes_waiting_and_its_target_only():
@@ -1596,7 +1597,7 @@ def test_a_hold_entry_naming_a_deleted_title_is_hidden_and_a_bad_id_is_dropped(e
 def test_a_stopped_jobs_push_gives_only_baihes_own_stop_reasons(env, no_timer, stopped, push_tail):
     _write(env, discord=DISCORD)
     did = db.create_drama(title_en="Open Garden")
-    note = jobs_service.waiting_note({"stopped": stopped})
+    note = job_results.waiting_note({"stopped": stopped})
     assert note is not None
     ns.notify_job_finished(f"Translation (drama #{did})", "done", job_id=f"translate_{did}",
                            waiting=note)
@@ -1611,7 +1612,7 @@ def test_a_stopped_jobs_push_gives_only_baihes_own_stop_reasons(env, no_timer, s
 def test_waiting_note_marks_only_baihes_own_stop_sentences():
     for own in (paid_calls.failure_stop_reason(3), paid_calls.failure_stop_reason(12),
                 run_limits.RATE_LIMIT_STOP_REASON):
-        note = jobs_service.waiting_note({"stopped": own})
+        note = job_results.waiting_note({"stopped": own})
         assert note is not None and note["own_reason"] is True, own
     for other in ("Stopped: 3 titles in a row failed",
                   "Stopped: 3 batches in a row failed (timed out)",
@@ -1620,13 +1621,13 @@ def test_waiting_note_marks_only_baihes_own_stop_sentences():
                   paid_calls.failure_stop_reason(3) + " (at 192.168.1.20)",
                   "Stopped: 03 requests failed in a row",
                   "Stopped: " + run_limits.RATE_LIMIT_STOP_REASON):
-        note = jobs_service.waiting_note({"stopped": other})
+        note = job_results.waiting_note({"stopped": other})
         assert note is not None and not note.get("own_reason"), other
     # A result's own note is rebuilt from its text and target, so it cannot set the mark.
-    assert jobs_service.waiting_note({"waiting": {"text": "1 glossary name to review",
+    assert job_results.waiting_note({"waiting": {"text": "1 glossary name to review",
                                                   "own_reason": True, "reason": "x"}}) == \
         {"text": "1 glossary name to review", "target": None}
-    note = jobs_service.waiting_note(
+    note = job_results.waiting_note(
         {"stopped": "Stopped: Stopped: 3 batches in a row failed (timed out)"})
     assert note is not None and note["reason"] == "3 batches in a row failed (timed out)"
 
@@ -1640,7 +1641,7 @@ def test_a_done_job_with_errors_and_a_waiting_note_says_waiting(env, no_timer):
 
 
 def test_a_names_result_that_also_stopped_early_says_the_names_sentence():
-    note = jobs_service.waiting_note({"waiting": {"text": "4 glossary names to review"},
+    note = job_results.waiting_note({"waiting": {"text": "4 glossary names to review"},
                                       "stopped": paid_calls.CAP_STOP_REASON})
     assert note == {"text": "4 glossary names to review", "target": None}
 

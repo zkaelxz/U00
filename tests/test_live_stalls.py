@@ -747,6 +747,75 @@ class TestWarmStart:
         assert order[0] == ("warm", "small", True)
         assert any(n.startswith("Whisper small ready in") for n in notes)
 
+    def test_the_model_loads_while_the_stream_address_is_looked_up(self, job, monkeypatch):
+        stream, start, notes = job
+        loading, looking = threading.Event(), threading.Event()
+
+        def resolve(url, **kw):
+            looking.set()
+            if not loading.wait(PROMPT):
+                raise RuntimeError("the lookup ran before the load")
+            return "http://stream"
+
+        def warm(size, gpu, cb=None):
+            loading.set()
+            looking.wait(PROMPT)
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        monkeypatch.setattr(live_whisper, "warm_up", warm)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture",
+                            lambda *a, **k: captured.append(a[0]) or FakeProc())
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: [])
+        started = time.monotonic()
+        assert start("live_overlap_load", Engine())
+        assert _wait(lambda: captured)
+        assert captured == ["http://stream"] and time.monotonic() - started < PROMPT
+
+    def test_a_bad_link_fails_with_its_message_without_waiting_for_the_load(self, job, monkeypatch):
+        stream, start, notes = job
+        release = threading.Event()
+        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: release.wait(20))
+
+        def resolve(url, **kw):
+            raise lt.LiveCaptureError("Couldn't resolve that stream URL: private video")
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: captured.append(1))
+        assert start("live_bad_link_fast", Engine())
+        assert _wait(lambda: background_jobs.get_status("live_bad_link_fast")["status"] == "error", PROMPT)
+        assert "private video" in background_jobs.get_status("live_bad_link_fast")["error"]
+        # The load it gave up on is dropped like a stopped one.
+        assert live_whisper.outstanding_label() is None and live_service._previous_whisper_call() is None
+        assert captured == []
+        release.set()
+
+    def test_a_rejected_stream_address_fails_without_waiting_for_the_load(self, job, monkeypatch):
+        stream, start, notes = job
+        release = threading.Event()
+        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: release.wait(20))
+        monkeypatch.setattr(lt, "resolve_stream_url", lambda url, **kw: "http://10.0.0.1/stream")
+
+        def check(url):
+            raise ValueError("The stream address the site returned is not a public http(s) address")
+        assert start("live_bad_address", Engine(), stream_url_check=check)
+        assert _wait(lambda: background_jobs.get_status("live_bad_address")["status"] == "error", PROMPT)
+        assert "not a public" in background_jobs.get_status("live_bad_address")["error"]
+        release.set()
+
+    def test_a_bad_link_fails_with_its_message_after_a_quick_load(self, job, monkeypatch):
+        stream, start, notes = job
+        monkeypatch.setattr(live_whisper, "warm_up", lambda size, gpu, cb=None: None)
+
+        def resolve(url, **kw):
+            raise lt.LiveCaptureError("Couldn't resolve that stream URL: private video")
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture", lambda *a, **k: captured.append(1))
+        assert start("live_bad_link", Engine())
+        assert _wait(lambda: background_jobs.get_status("live_bad_link")["status"] == "error")
+        assert "private video" in background_jobs.get_status("live_bad_link")["error"]
+        assert captured == []
+
     def test_the_capture_is_settled_only_once_a_chunk_is_captioned(self, job, monkeypatch):
         stream, start, notes = job
         settled = []
@@ -809,8 +878,63 @@ class TestWarmStart:
         background_jobs.request_cancel("live_warmstop")
         assert _wait(lambda: background_jobs.get_status("live_warmstop")["status"] != "running", PROMPT)
         assert started == []
-        assert any("still finishing the model load" in n for n in notes)
+        # The load ends by itself, but it is no longer the stopped session's call.
+        assert live_whisper.outstanding_label() is None
+        assert not any("still finishing the model load" in n for n in notes)
         release.set()
+
+    def test_a_load_that_ends_after_stop_does_not_decode(self, job, monkeypatch):
+        stream, start, notes = job
+        release, steps = threading.Event(), []
+
+        def load(size, gpu, cb=None):
+            release.wait(20)
+            cb(0.0)
+            steps.append("decode")
+        monkeypatch.setattr(live_whisper, "warm_up", load)
+        assert start("live_warmstop_decode", Engine())
+        assert _wait(lambda: "Loading Whisper" in background_jobs.get_status("live_warmstop_decode")["message"])
+        background_jobs.request_cancel("live_warmstop_decode")
+        assert _wait(lambda: background_jobs.get_status("live_warmstop_decode")["status"] != "running", PROMPT)
+        release.set()
+        assert live_whisper.wait_for_outstanding(PROMPT)
+        assert steps == []
+
+    def test_a_load_stopped_during_the_lookup_is_not_left_outstanding(self, job, monkeypatch):
+        stream, start, notes = job
+        loading, release = threading.Event(), threading.Event()
+
+        def resolve(url, **kw):
+            release.wait(20)
+            return "http://stream"
+
+        def warm(size, gpu, cb=None):
+            loading.set()
+            release.wait(20)
+            if cb:
+                cb(0.0)
+        monkeypatch.setattr(lt, "resolve_stream_url", resolve)
+        monkeypatch.setattr(live_whisper, "warm_up", warm)
+        captured = []
+        monkeypatch.setattr(lt, "start_segment_capture",
+                            lambda *a, **k: captured.append(a[0]) or FakeProc())
+        monkeypatch.setattr(whisper_transcribe, "transcribe_for_timing", lambda p, **kw: [])
+        assert start("live_overlap_stop", Engine())
+        assert loading.wait(PROMPT)
+        stopped = time.monotonic()
+        background_jobs.request_cancel("live_overlap_stop")
+        assert _wait(lambda: background_jobs.get_status("live_overlap_stop")["status"] != "running"
+                     and live_whisper.outstanding_label() is None, 2.0)
+        assert time.monotonic() - stopped < 2.0
+        # The next Start is not refused for it, and its own load reuses the model once the old load ends.
+        assert live_service._previous_whisper_call() is None
+        assert start("live_overlap_next", Engine())
+        time.sleep(0.1)
+        assert captured == []
+        release.set()
+        assert _wait(lambda: captured == ["http://stream"])
+        assert any(n.startswith("Whisper small ready in") for n in notes), notes
+        assert not any("could not be warmed up" in n for n in notes), notes
 
     def test_the_real_warm_up_decodes_noise_with_the_vad_filter_off(self, monkeypatch):
         numpy = pytest.importorskip("numpy")
@@ -831,7 +955,8 @@ class TestWarmStart:
         ticks = []
         live_whisper.warm_up.real("small", True, ticks.append)
         audio = seen["audio"]
-        assert seen["vad_filter"] is False and seen["consumed"] and ticks == [0.0]
+        # One tick when the load is done, one per decoded segment.
+        assert seen["vad_filter"] is False and seen["consumed"] and ticks == [0.0, 0.0]
         assert audio.dtype == numpy.float32 and len(audio) >= 16000
         assert 0 < float(numpy.abs(audio).max()) < 0.2   # not silence, and not loud
 

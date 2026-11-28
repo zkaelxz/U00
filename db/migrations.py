@@ -13,7 +13,7 @@ def _migrate_job_records_columns(conn):
     jr_cols = {r[1] for r in conn.execute("PRAGMA table_info(job_records)").fetchall()}
     if "cancel_requested" not in jr_cols:
         db._safe_alter(conn, "ALTER TABLE job_records ADD COLUMN cancel_requested INTEGER DEFAULT 0")
-    # A job's redacted, allowlisted result (services/jobs_service.project_result),
+    # A job's redacted, allowlisted result (jobs/job_results.project_result),
     # JSON-encoded, so the API can tell a "done" job that failed from one that worked.
     if "result_json" not in jr_cols:
         db._safe_alter(conn, "ALTER TABLE job_records ADD COLUMN result_json TEXT")

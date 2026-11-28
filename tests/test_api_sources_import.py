@@ -190,7 +190,7 @@ def test_comic_import_reports_the_images_it_left_out(client, fakes):
 
 
 def test_failed_chapter_counts_and_projection(client, fakes):
-    from services import jobs_service
+    from jobs import job_results
     fakes["alpha"] = _make("alpha", fail={"c2": SourceUnavailable(f"down {SECRET} C:\\x\\y")})
     did = _novel()
     client.post("/api/sources/alpha/import",
@@ -200,7 +200,7 @@ def test_failed_chapter_counts_and_projection(client, fakes):
     assert [c["outcome"] for c in res["chapters"]] == ["imported", "failed"]
     assert res["failed_count"] == 1 and res["partial"] is True
     raw = background_jobs.get_status(f"sourceimport_{did}")["result"]
-    projected = jobs_service.project_result(raw)
+    projected = job_results.project_result(raw)
     assert projected == {"partial": True, "imported_count": 1, "skipped_count": 0,
                          "failed_count": 1}
     j = client.get(f"/api/jobs/sourceimport_{did}")

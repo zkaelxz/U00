@@ -88,7 +88,7 @@ export function BackupFileImport({ onDone, onCancel }: {
           ) : (
             <>
               <p className="muted">Tick the titles to import. Nothing changes until you confirm.</p>
-              <ul className="snapshot-dramas import-dramas" aria-label="Titles in the file">
+              <ul className="snapshot-dramas import-dramas scroll-box" tabIndex={0} aria-label="Titles in the file">
                 {list.dramas.map((d) => (
                   <li key={d.id}>
                     <label>

@@ -654,15 +654,15 @@ class TestBenchmarkStops:
 
 class TestStopReachesTheUser:
     def test_a_stopped_job_is_a_partial_outcome_with_its_reason(self):
-        from services import jobs_service
-        projected = jobs_service.project_result({"flagged_count": 2, "stopped": THREE_FAILED})
+        from jobs import job_results
+        projected = job_results.project_result({"flagged_count": 2, "stopped": THREE_FAILED})
         assert projected["stopped"] == THREE_FAILED
-        outcome, message = jobs_service.derive_outcome("done", None, projected)
+        outcome, message = job_results.derive_outcome("done", None, projected)
         assert outcome == "partial" and THREE_FAILED in message
 
     def test_a_job_that_was_not_stopped_still_reads_ok(self):
-        from services import jobs_service
-        assert jobs_service.derive_outcome("done", None, {"flagged_count": 2})[0] == "ok"
+        from jobs import job_results
+        assert job_results.derive_outcome("done", None, {"flagged_count": 2})[0] == "ok"
 
     def test_the_glossary_status_says_why_it_stopped(self, monkeypatch):
         from services import glossary_extract_service as gx

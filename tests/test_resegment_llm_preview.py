@@ -12,7 +12,8 @@ import db
 import resegment
 from engine_backends import engine_registry
 from core import Line
-from services import jobs_service, resegmentation_service, settings_service, translate_service
+from services import resegmentation_service, settings_service, translate_service
+from jobs import job_results
 from lib.errors import (ConflictError, NotFoundError,
                                       UnsupportedOperationError)
 from tests.job_helpers import wait_for_job
@@ -84,7 +85,7 @@ def test_job_result_never_carries_line_text(monkeypatch):
     did = _seed()
     _fake_llm_split(monkeypatch, [])
     job = wait_for_job(resegmentation_service.start_llm_resegment_preview(did, engine="claude")["job_id"])
-    assert LONG[:5] not in str(jobs_service.project_result(job.get("result")))
+    assert LONG[:5] not in str(job_results.project_result(job.get("result")))
 
 
 def test_no_preview_until_one_finishes():
@@ -132,8 +133,7 @@ def test_refusals(monkeypatch):
 
 
 def test_preview_job_is_a_drama_job():
-    from services import ownership_service
-    assert ownership_service.drama_id_of_job("resegpreview_12") == 12
+    assert background_jobs.drama_id_of_job("resegpreview_12") == 12
 
 
 def test_api_routes(monkeypatch):

@@ -68,7 +68,7 @@ def _log(level: str, text: str) -> None:
         pass
 
 
-# Same shape as services.jobs_service.URL_PATTERN: a stream URL can carry a
+# Same shape as jobs.job_results.URL_PATTERN: a stream URL can carry a
 # signed token, so a logged reason never keeps one.
 _URL_RE = re.compile(r"\b[a-z][a-z0-9+.-]*://\S+", re.IGNORECASE)
 
@@ -92,10 +92,30 @@ _outstanding = None
 _turn = threading.Lock()
 
 
+def _detached(entry: dict) -> bool:
+    """A model load stopped before it reached its decode. A load has no cancel
+    point, so the thread runs on until the model is in the cache, but it then
+    quits without decoding: it is no session's call, and the next call waits for
+    it (and reuses the model) instead of being refused. A load abandoned at the
+    time limit is not detached: it may be stuck, and stays its session's."""
+    return entry["detached"]
+
+
 def outstanding_label():
-    """Label of the Whisper call still alive in this process, else None. It
-    outlives an abandoned call's job, so admin "nothing running" checks use it:
-    the thread may still write the model cache or release its gpu_lock row."""
+    """Label of the Whisper call still alive in this process, else None; a
+    detached model load is not counted, so it does not block the next Start."""
+    with _outstanding_lock:
+        entry = _outstanding
+        if entry is not None and entry["worker"].is_alive() and not _detached(entry):
+            return entry["label"]
+    return None
+
+
+def thread_label():
+    """Label of any Whisper thread alive in this process, a detached load
+    included, else None. It outlives an abandoned call's job, so admin "nothing
+    running" checks use it: the thread may still write the model cache or
+    release its gpu_lock row."""
     with _outstanding_lock:
         entry = _outstanding
         if entry is not None and entry["worker"].is_alive():
@@ -132,7 +152,7 @@ def wait_for_outstanding(timeout: float) -> bool:
         entry = _outstanding
     if entry is not None and entry["worker"].is_alive():
         entry["worker"].join(max(0.0, timeout))
-    return outstanding_label() is None
+    return thread_label() is None
 
 
 def _claim_gpu(entry: dict) -> None:
@@ -199,7 +219,7 @@ class WhisperRunner:
         """Label of this runner's own call still running, else None: another
         session's decode is not this job's to report."""
         entry = self._entry
-        if entry is not None and entry["worker"].is_alive():
+        if entry is not None and entry["worker"].is_alive() and not _detached(entry):
             return entry["label"]
         return None
 
@@ -209,31 +229,41 @@ class WhisperRunner:
         self._closed = True
         return self.busy_with()
 
-    def run(self, call, timeout: float, label: str):
+    def run(self, call, timeout: float, label: str, give_up=None, loads_first: bool = False):
+        """give_up() is a second, per-call Stop. loads_first: `call` loads the
+        model before its first progress_cb, and is detached if given up on then."""
+        should_stop = self._should_stop if give_up is None else (
+            lambda: self._should_stop() or give_up())
         deadline = self._clock() + timeout
         while not _turn.acquire(timeout=self._poll):
-            if self._should_stop():
+            if should_stop():
                 raise background_jobs.JobCancelled("live whisper")
             if self._clock() >= deadline:
                 raise ChunkTimeout(timeout)
         try:
-            return self._run_in_turn(call, max(deadline - self._clock(), self._poll), label)
+            return self._run_in_turn(call, max(deadline - self._clock(), self._poll), label,
+                                     should_stop, loads_first)
         finally:
             _turn.release()
 
-    def _run_in_turn(self, call, timeout: float, label: str):
+    def _run_in_turn(self, call, timeout: float, label: str, should_stop, loads_first: bool):
         """call(progress_cb) -> result. progress_cb(fraction) must be called by
         `call` once per segment: it is where an abandoned worker ends. Raises
-        WhisperBusy when an earlier call is still alive, JobCancelled once Stop
+        WhisperBusy when an earlier call (not a detached load, which it waits
+        out) is still alive, JobCancelled once Stop
         is pressed and ChunkTimeout after `timeout` seconds; the worker is
         abandoned in the last two cases."""
         abandoned = threading.Event()
         box = {}
-        entry = {"worker": None, "label": label, "gpu": self._gpu, "claimed": False, "ended": False}
+        entry = {"worker": None, "label": label, "gpu": self._gpu, "claimed": False, "ended": False,
+                 "loading": bool(loads_first), "detached": False}
 
         def progress(_fraction):
-            if abandoned.is_set():
-                raise _Abandoned
+            # Under the lock, so a Stop sees the load and decode stages apart.
+            with _outstanding_lock:
+                if abandoned.is_set():
+                    raise _Abandoned
+                entry["loading"] = False
 
         def work():
             try:
@@ -258,19 +288,28 @@ class WhisperRunner:
         # Read before the worker starts: a call that finishes its first step
         # (or a test clock moved by it) must not push the limit further out.
         deadline = self._clock() + timeout
-        with _outstanding_lock:
-            current = _outstanding
-            if current is not None and current["worker"].is_alive():
-                raise WhisperBusy(current["label"])
-            worker.start()
-            # Only a started thread is outstanding: join() on an unstarted one raises.
-            _outstanding = entry
-            self._entry = entry
+        while True:
+            with _outstanding_lock:
+                current = _outstanding
+                if current is None or not current["worker"].is_alive():
+                    worker.start()
+                    # Only a started thread is outstanding: join() on an unstarted one raises.
+                    _outstanding = entry
+                    self._entry = entry
+                    break
+                if not _detached(current):
+                    raise WhisperBusy(current["label"])
+            # A detached load ends by itself with the model cached; this call then reuses it.
+            current["worker"].join(self._poll)
+            if should_stop():
+                raise background_jobs.JobCancelled("live whisper")
+            if self._clock() >= deadline:
+                raise ChunkTimeout(timeout)
         while True:
             worker.join(self._poll)
             if not worker.is_alive():
                 break
-            if self._should_stop():
+            if should_stop():
                 self._abandon(entry, abandoned, "stop")
                 raise background_jobs.JobCancelled("live whisper")
             if self._clock() >= deadline:
@@ -294,8 +333,12 @@ class WhisperRunner:
 
     def _abandon(self, entry: dict, abandoned: threading.Event, why: str) -> None:
         worker = entry["worker"]
-        abandoned.set()
-        worker.join(self.grace)
+        with _outstanding_lock:
+            entry["detached"] = entry["loading"] and why == "stop"
+            abandoned.set()
+        # A load has no segment to end at, so waiting the grace out only delays Stop.
+        if not entry["detached"]:
+            worker.join(self.grace)
         if not worker.is_alive():
             return
         _claim_gpu(entry)
@@ -363,6 +406,9 @@ def warm_up(whisper_size: str, use_gpu: bool, progress_cb=None) -> None:
     produces no speech, so the encoder never runs and nothing is initialised."""
     import numpy
     model = whisper_models.load_whisper_model(whisper_size, use_gpu=use_gpu)
+    # Ends the load stage: a load given up on stops here instead of decoding.
+    if progress_cb:
+        progress_cb(0.0)
     noise = numpy.random.default_rng(0).standard_normal(16000 * WARM_UP_SECONDS)
     audio = (noise * WARM_UP_NOISE_LEVEL).astype("float32")
     segments, _info = model.transcribe(audio, language="en", vad_filter=False, beam_size=1,
@@ -470,12 +516,12 @@ def prefetch_model_files(model_size: str, busy=lambda: False) -> bool:
     return True
 
 
-def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool) -> float:
+def warm_start(runner: "WhisperRunner", whisper_size: str, use_gpu: bool, give_up=None) -> float:
     """Seconds the model took to be ready; the load runs under the runner, so
-    Stop and the time limit apply and no other Whisper call starts beside it."""
+    Stop, give_up() and the time limit apply and no other Whisper call starts beside it."""
     started = time.monotonic()
     runner.run(lambda progress_cb: warm_up(whisper_size, use_gpu, progress_cb),
-               WARM_UP_TIMEOUT, "the model load")
+               WARM_UP_TIMEOUT, "the model load", give_up=give_up, loads_first=True)
     return time.monotonic() - started
 
 

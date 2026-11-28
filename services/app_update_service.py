@@ -701,6 +701,13 @@ def apply_busy() -> bool:
     return journal is not None and journal["state"] != app_swap.QUEUED
 
 
+def update_pending() -> bool:
+    """Whether an update is verified and waiting to go in, or going in now."""
+    with _lock:
+        waiting = _verified is not None
+    return waiting or apply_busy()
+
+
 def apply(quiet=False) -> dict:
     """Checks and unpacks the verified app zip beside the running app, then
     hands over to the swap helper, which restarts Baihe Studio. One at a

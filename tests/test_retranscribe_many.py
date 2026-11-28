@@ -22,7 +22,8 @@ from api import auth as api_auth
 from api.api_config import ApiSettings
 from api.server import create_app
 from core import Line
-from services import (auth_service, jobs_service, ownership_service, retranscribe_many_service as svc,
+from jobs import job_results
+from services import (auth_service, retranscribe_many_service as svc,
                       retranscribe_worker, retranscribe_line_service)
 from lib.errors import (ConflictError, InvalidInputError, NotFoundError,
                                      UnsupportedOperationError)
@@ -336,10 +337,10 @@ class TestJob:
         one = retranscribe_worker.apply_retranscribe_outcome(
             "j", {"failed_reason": "timeout", crash_retry.REASON_KEY: crash}, did, ids[0],
             "旧0", 0.0, 1.5)
-        from services import jobs_service
+        from jobs import job_results
         for result in (many, one):
             assert result["failed_reason"] == "timeout" and result["gpu_fallback"] == crash
-            outcome, message = jobs_service.derive_outcome("done", None, result)
+            outcome, message = job_results.derive_outcome("done", None, result)
             assert outcome == "failed" and f"Ran on CPU because the GPU wasn't available ({crash})." in message
 
     def test_proposes_and_writes_nothing(self, isolated_db, fake_asr):
@@ -362,7 +363,7 @@ class TestJob:
         fake_asr["heard"][2.0] = ""
         fake_asr["heard"][4.0] = "旧2"
         _out, job = _run(did, ids)
-        projected = jobs_service.project_result(job["result"])
+        projected = job_results.project_result(job["result"])
         assert projected == {"line_count": 4, "candidate_count": 2, "failed_count": 1,
                              "skipped_count": 1}
         text = str(projected)
@@ -378,7 +379,7 @@ class TestJob:
         for secret_text in ("新", "旧", "Old"):
             assert secret_text not in body.text
         assert isolated_db.drama_dir(did) not in body.text
-        assert ownership_service.drama_id_of_job(f"retranscribe_{did}") == did
+        assert background_jobs.drama_id_of_job(f"retranscribe_{did}") == did
 
     def test_unchanged_empty_and_unreadable_lines_have_no_proposal(self, isolated_db, fake_asr):
         did, ids = _drama(isolated_db)

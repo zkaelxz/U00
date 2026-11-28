@@ -53,7 +53,8 @@ import whisper_models
 from engine_backends import thinking
 from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
 from lib import url_guard
-from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
+from jobs import job_results
+from services import (egress_proxy, job_stage_service, language_pack_service,
                       live_spend_service, ownership_service, run_settings_service, settings_service,
                       translate_run_service, translate_service, vdb_names_service)
 from services import glossary_service
@@ -144,9 +145,9 @@ def clean_message(text) -> str:
     a client (a yt-dlp or proxy error can name the stream or proxy URL)."""
     if not text:
         return ""
-    # Not jobs_service.scrub_text: its username redaction rewrites ordinary
+    # Not job_results.scrub_text: its username redaction rewrites ordinary
     # words in transcripts and errors ("li" -> "[USER]kely").
-    text = jobs_service.URL_PATTERN.sub("[URL]", str(text))
+    text = job_results.URL_PATTERN.sub("[URL]", str(text))
     text = _PATH_RE.sub("<path>", shared.redact_secrets(text))
     return text.splitlines()[0][:500] if text.strip() else ""
 

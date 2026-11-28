@@ -180,9 +180,8 @@ def test_pending_bulk_of_same_kind_conflicts(monkeypatch):
 
 
 def test_bulk_job_visible_as_drama_job():
-    from services import ownership_service
-    assert ownership_service.drama_id_of_job("bulk_flag_7") == 7
-    assert ownership_service.drama_id_of_job("bulk_notes_7") == 7
+    assert background_jobs.drama_id_of_job("bulk_flag_7") == 7
+    assert background_jobs.drama_id_of_job("bulk_notes_7") == 7
 
 
 def test_submission_error_is_redacted(monkeypatch):

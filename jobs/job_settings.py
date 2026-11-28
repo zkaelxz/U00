@@ -112,7 +112,7 @@ def _notify_job_finished(description, status, job_id=None, owner_user_id=None,
     channel, independent of the desktop toggle). That call only queues --
     the send happens on a timer thread -- and never raises. It also keeps
     the event for the in-app list, shown by `job_id`/`owner_user_id`
-    visibility. `waiting`: the result's waiting note (jobs_service.waiting_note),
+    visibility. `waiting`: the result's waiting note (job_results.waiting_note),
     which turns the bell entry and the push into "Waiting for you"."""
     quiet = False
     try:
