@@ -30,7 +30,7 @@ export function ModelSummaryCard({ runs }: { runs: BenchmarkRun[] }) {
           {rows.map((r) => (
             <tr key={r.key}>
               <td>{r.name}</td>
-              <td>{stageLabel(r.stage)}</td>
+              <td className="bench-nowrap">{stageLabel(r.stage)}</td>
               <td className="num">{r.runs}</td>
               <td className="num">{cell(formatScore(r.score))}</td>
               <td className="num">{r.qualityRank ?? <span className="muted">—</span>}</td>

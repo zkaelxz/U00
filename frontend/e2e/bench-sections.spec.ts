@@ -30,9 +30,10 @@ test('header and defaults: the side list, the page help with the intro, one mute
   await expect(page.getByRole('tab', { selected: true })).toHaveText('Golden sets')
 })
 
-test('sections are plain headings with no fold; only the rarely used parts stay folded', async ({ page }) => {
+test('Add cases and Golden sets fold: the main part is open, the rest closed, and a choice is remembered', async ({ page }) => {
   await openBench(page)
-  await expect(page.locator('.bench-section-toggle')).toHaveCount(0)
+  await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('baihe.section.benchmark.')).forEach((k) => localStorage.removeItem(k)))
+  await page.reload()
   await expect(page.locator('.bench-page .card')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Golden sets', level: 2 })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Build a set from a reviewed title' })).toBeVisible()
@@ -41,6 +42,13 @@ test('sections are plain headings with no fold; only the rarely used parts stay 
   for (const name of ['Your own clips', "Add a title's corrections to a test set", 'Import golden set', 'Add one case']) {
     await expect(add.getByRole('heading', { name })).toBeVisible()
   }
+  const fold = (name: string) => add.locator('details.section', { has: page.getByRole('heading', { name, exact: true }) })
+  await expect(fold('Your own clips')).toHaveAttribute('open', '')
+  await expect(fold('Add one case')).not.toHaveAttribute('open', '')
+  await fold('Add one case').locator('summary').click()
+  await expect(fold('Add one case')).toHaveAttribute('open', '')
+  await page.reload()
+  await expect(fold('Add one case')).toHaveAttribute('open', '')
   await expect(add.locator('details.section > summary', { hasText: 'Hard-sub reading result' })).toBeVisible()
 })
 

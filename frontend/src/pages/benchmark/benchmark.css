@@ -252,3 +252,13 @@
 .quality-result { display: inline-flex; align-items: center; gap: 5px; }
 .quality-row-bad td { background: var(--bad-soft); }
 .quality-next { margin: 0; padding: var(--space-3); border-radius: var(--radius-md); background: var(--surface-2); }
+
+/* Recent runs: the best-first sort choice, and rows that no longer reflect the app's models. */
+.bench-sort { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }
+.bench-rank-note { margin: 0; font-size: var(--text-sm); }
+.bench-hand-test { display: grid; gap: var(--space-2); margin-top: var(--space-4); min-width: 0; }
+.bench-hand-test > p { margin: 0; font-size: var(--text-sm); }
+.bench-outdated td { color: var(--muted); }
+.bench-hand-test td:first-child { min-width: 10rem; }
+.bench-hand-test td:last-child { min-width: 16rem; }
+.bench-nowrap { white-space: nowrap; }

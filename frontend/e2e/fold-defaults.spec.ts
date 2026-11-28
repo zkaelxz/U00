@@ -44,15 +44,23 @@ test('Settings: an all-collapsed state saved by an earlier version does not beco
   expect(await openTitles(page, '.settings-panel')).toHaveLength(1)
 })
 
-test('Diagnostics has no folds: each pane shows its sections in full', async ({ page }) => {
+test('Diagnostics: only the long blocks (voice cloning engines, Packages, Models) fold, and they start closed on a fresh browser', async ({ page }) => {
   await guardWrites(page)
   await mockDiagnostics(page)
+  await page.addInitScript(() => {
+    for (const k of Object.keys(window.localStorage)) if (k.startsWith('baihe.section.diagnostics.')) window.localStorage.removeItem(k)
+  })
   await page.goto('/#/diagnostics')
   for (const name of ['Setup', 'Packages and installs', 'Model status', 'Resources and ports'] as const) {
     await diagTab(page, name).click()
     await expect(diagTab(page, name)).toHaveAttribute('aria-selected', 'true')
-    await expect(page.locator('.diag-panel:not([hidden]) .section-flat').first()).toBeVisible()
-    await expect(page.locator('.diag-panel:not([hidden]) > .diag-card > details.section')).toHaveCount(0)
+    await expect(page.locator('.diag-panel:not([hidden]) .section').first()).toBeVisible()
+    const folds = page.locator('.diag-panel:not([hidden]) details.section')
+    for (const fold of await folds.all()) {
+      const title = (await fold.locator('summary .section-title').textContent()) ?? ''
+      expect(['Packages', 'Models', 'Voice cloning: OmniVoice', 'Voice cloning: Qwen3-TTS', 'Voice cloning: Chatterbox', 'Installed packages', 'Output']).toContain(title)
+      await expect(fold).not.toHaveAttribute('open', '')
+    }
   }
 })
 

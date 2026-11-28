@@ -72,7 +72,7 @@ export function VoiceEngineInstall({ engine, pc, jobsActive, busy, onStarted, on
   }
 
   return (
-    <Section title={title} storageKey={`diagnostics.${card}`} summary={line ?? 'Not installed'} openSignal={openSignal}>
+    <Section title={title} storageKey={`diagnostics.${card}`} summary={line ?? 'Not installed'} openSignal={openSignal} keepFold>
     <div className="diag-subcard" data-testid={`${card}-install`} role="group" aria-label={title}>
       <p className="muted">{VOICE_ENGINE_INTRO}</p>
       {note && <p className="muted">{note}</p>}
