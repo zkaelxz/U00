@@ -44,7 +44,7 @@ describe('DramaCards', () => {
     expect(out).toContain('<span class="pill pill-accent">Translated</span>')
     expect(out).toContain('<span class="pill pill-neutral">Chinese</span>')
     expect(out).toContain('Audio drama')
-    expect(out).toContain('aria-hidden="true">月</div>')
+    expect(out).toContain('aria-hidden="true" lang="zh">月</div>')
     expect(out).not.toMatch(/audio_drama|>zh</)
   })
 

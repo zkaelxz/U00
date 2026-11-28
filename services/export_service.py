@@ -42,7 +42,9 @@ from services import (
 from lib.errors import (ConflictError, DependencyUnavailableError, InvalidInputError,
                                       UnsupportedOperationError)
 
-_EPUB_FIELDS = ("en", "zh")
+_EPUB_FIELDS = ("en", "zh", "bilingual")
+# Korean is written in Hangul, which already spells the sound.
+_READING_LANGUAGES = ("zh", "ja")
 
 _SUBTITLE_FORMATS = ("srt", "vtt", "lrc")
 _SUBTITLE_FIELDS = ("en", "zh", "bilingual")
@@ -813,7 +815,18 @@ def _log_epub_import_failure(exc: ImportError) -> None:
         pass
 
 
-def generate_epub(drama_id: int, field: str = "en") -> bytes:
+def _reading_script(drama: dict) -> str:
+    """Traditional text is cut into words through opencc, an optional extra
+    the reading packages don't need: pypinyin reads Traditional characters
+    itself, so without opencc the words are cut as Simplified instead."""
+    import importlib.util
+    script = drama.get("chinese_script") or "simplified"
+    if script == "traditional" and importlib.util.find_spec("opencc") is None:
+        return "simplified"
+    return script
+
+
+def generate_epub(drama_id: int, field: str = "en", readings: bool = False) -> bytes:
     """Exports one novel-narration drama's lines as an .epub
     (`epub_io.export_epub`). Read-only from the caller's point of view
     (returns bytes to serve as a download). Each call builds its own
@@ -822,7 +835,10 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
     book. [[IMG:...]] placeholders resolve against the drama's
     `epub_images` folder.
 
-    field: "en" for the translation, "zh" for the raw source text.
+    field: "en" for the translation, "zh" for the raw source text,
+    "bilingual" for each original paragraph followed by its English.
+    readings: pinyin or furigana over the original (Chinese and Japanese
+    only; ignored for English or another source language).
 
     Raises NotFoundError for an unknown drama id, UnsupportedOperationError
     if the drama isn't in novel-narration mode (this only makes sense for
@@ -840,6 +856,17 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
     # Otherwise an untranslated novel downloads as a book of empty chapters.
     _require_exportable_text(lines, field)
 
+    language = drama.get("source_language") or "zh"
+    readings = readings and field != "en" and language in _READING_LANGUAGES
+    if readings:
+        import segment
+        missing = segment.missing_reader_packages(language)
+        if missing:
+            raise DependencyUnavailableError(
+                f"Reading marks need the {', '.join(missing)} package, which isn't installed. "
+                "Install it in Diagnostics > Packages.",
+                details={"reason": "missing_package", "package": missing[0]})
+
     import epub_io
 
     ddir = db.drama_dir(drama_id)
@@ -849,7 +876,8 @@ def generate_epub(drama_id: int, field: str = "en") -> bytes:
     try:
         epub_io.export_epub(lines, title, drama.get("author", ""), out_path, field=field,
                             images_dir=os.path.join(ddir, "epub_images"),
-                            source_language=drama.get("source_language"))
+                            source_language=drama.get("source_language"), readings=readings,
+                            chinese_script=_reading_script(drama))
         with open(out_path, "rb") as f:
             return f.read()
     except ImportError as exc:

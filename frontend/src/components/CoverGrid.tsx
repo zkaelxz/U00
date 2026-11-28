@@ -1,4 +1,5 @@
 import type { DramaSummary } from '../api/types'
+import { nameLang } from '../hanScript'
 import { mediaTypeLabel } from '../labels'
 import { DramaTile } from './DramaCards'
 import { cardProgress, dramaName, readAction, workspaceHref } from './libraryView'
@@ -38,7 +39,7 @@ export function CoverGrid({ items, selectedId, onSelect, selectMode, checked, on
               <label className="card-check" onClick={(e) => e.stopPropagation()}>
                 <input type="checkbox" checked={on} onChange={() => onToggle(d.id)} aria-label={`Select ${title}`} />
               </label>
-              <span className="cover-title">{title}</span>
+              <span className="cover-title" lang={nameLang(title, d)}>{title}</span>
               {bar}
             </li>
           )
@@ -46,7 +47,7 @@ export function CoverGrid({ items, selectedId, onSelect, selectMode, checked, on
         return (
           <li key={d.id} className={d.id === selectedId ? 'cover-cell selected' : 'cover-cell'}>
             <a className="cover-link" href={workspaceHref(d.id)} tabIndex={-1} aria-hidden="true">{cover}</a>
-            <a className="cover-title" href={workspaceHref(d.id)} title={title}>{title}</a>
+            <a className="cover-title" href={workspaceHref(d.id)} title={title} lang={nameLang(title, d)}>{title}</a>
             {d.media_type && <span className="cover-sub">{mediaTypeLabel(d.media_type)}</span>}
             {bar}
             <span className="cover-actions">

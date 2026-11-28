@@ -1,4 +1,4 @@
-// The Assistant's tabs. Cards start open because each tab is already a split.
+// The Assistant's tabs. Each tab shows its sections in full, as plain headings.
 export type AssistantTab = 'ask' | 'work' | 'tools'
 
 export const ASSISTANT_TABS: { id: AssistantTab; label: string }[] = [

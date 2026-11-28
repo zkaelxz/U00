@@ -1,4 +1,4 @@
-import type { Locator, Page, Route } from '@playwright/test'
+import { expect, type Locator, type Page, type Route } from '@playwright/test'
 
 import { ME } from './authMocks'
 import { showTranslateCard } from './translateTabs'
@@ -222,12 +222,11 @@ export async function openTab(page: Page, label: string) {
   if ((await tab.getAttribute('aria-selected')) !== 'true') await tab.click()
 }
 
-// Open a fold by its region name, switching to its tab first.
+// Show a section by its region name: switch to its tab. Each tab shows its sections in full.
 export async function openSection(page: Page, region: string) {
   if (TAB_OF[region]) await openTab(page, TAB_OF[region])
   await showTranslateCard(page, region)
-  const fold = page.getByRole('region', { name: region }).locator('details.section').first()
-  if (!(await fold.evaluate((e) => (e as HTMLDetailsElement).open))) await fold.locator('summary').first().click()
+  await expect(page.getByRole('region', { name: region })).toBeVisible()
 }
 
 // The Engine fold inside the Ask card starts closed; its summary shows the current choice.

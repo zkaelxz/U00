@@ -4,6 +4,7 @@
 import { useEffect, useState, type RefObject } from 'react'
 
 import { readerApi } from '../../api/reader'
+import { chineseLang } from '../../hanScript'
 import { Field } from '../../components/Field'
 import { Toggle } from '../../components/Toggle'
 import { buttonClass } from '../../components/uiClasses'
@@ -130,7 +131,7 @@ export function OriginalLine({ dramaId, lineId, text, language, mediaRef }: {
     }
   }, [timed, words, mediaRef])
 
-  const lang = study?.language || language
+  const lang = chineseLang(study?.language || language, text, language)
   return (
     <div className="watch-now-original">
       <p className="watch-now-zh" lang={lang}>
