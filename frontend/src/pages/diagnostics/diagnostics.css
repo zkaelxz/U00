@@ -240,3 +240,11 @@
 }
 /* A small button in a field would otherwise stretch to the whole card width. */
 .diag-card .field-control > .btn-sm:first-child { flex: 0 0 auto; }
+
+/* Compact boxes: the page-wide card and section gaps are tuned for Settings and leave Diagnostics' header, refresh line and table far apart, most visibly in the Soft style. */
+.diag-page .card { padding: var(--space-3) var(--space-4); gap: var(--space-2); }
+.diag-page :is(.card-body, .section-body, .settings-form) { gap: var(--space-2); }
+.diag-page .section-body { margin-top: var(--space-2); }
+.diag-page .card-head { align-items: center; gap: var(--space-2); }
+.diag-page div.section-flat { margin-bottom: var(--space-3); }
+.diag-page .bench-sort { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; font-size: var(--text-sm); }

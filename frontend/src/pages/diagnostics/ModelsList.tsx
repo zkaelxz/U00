@@ -10,7 +10,12 @@ import type { PcMode } from '../../hooks/usePcOnly'
 import type { DiagnosticsHfCacheEntry, DiagnosticsModelCache, DiagnosticsModelDownload, ModelEngineVersion } from '../../types/diagnostics'
 import { formatDecimalBytes } from '../libraryAdmin/libraryAdmin'
 import { ModelDownload } from './ModelDownload'
+import { groupModels, sortModels, type ModelSort } from './modelGroups'
+import { usePersistedState } from '../../hooks/usePersistedState'
 import { MODEL_DOWNLOAD_IDS, MODEL_FOLDER_LABELS, engineRow, noDownloadButtonNote, hasModelCache, modelCacheSummary, reconcileModels } from './diagnosticsAdmin'
+
+// Above this many downloads an engine's list starts folded.
+const LONG_LIST = 3
 
 /**
  * "Models": each model engine with its status and the Hugging Face downloads
@@ -31,6 +36,8 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
   openSignal?: number
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [storedSort, setSort] = usePersistedState<string>('diagnostics.modelSort', 'size')
+  const sort: ModelSort = storedSort === 'name' ? 'name' : 'size'
   const [error, setError] = useState<unknown>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [downloads, setDownloads] = useState<DiagnosticsModelDownload[]>([])
@@ -88,8 +95,23 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
     )
 
   const { rows, other } = reconcileModels(engines, cache?.hf_cache ?? [])
+  const sortControl = (cache?.hf_cache.length ?? 0) > 1 && (
+    <div className="bench-sort">
+      <span className="muted" aria-hidden="true">Sort downloads by</span>
+      <fieldset className="segmented">
+        <legend className="visually-hidden">Sort downloaded models by</legend>
+        {(['size', 'name'] as const).map((k) => (
+          <label key={k}>
+            <input type="radio" name="model-sort" value={k} checked={sort === k} onChange={() => setSort(k)} />
+            <span>{k === 'size' ? 'Largest first' : 'Name'}</span>
+          </label>
+        ))}
+      </fieldset>
+    </div>
+  )
   return (
     <Section title="Models" storageKey="diagnostics.models" summary={cache && hasCache ? modelCacheSummary(cache) : 'No downloads yet'} openSignal={openSignal} keepFold>
+      {sortControl}
       {rows.length > 0 && (
         <>
           {cache && hasCache && <p className="muted">Downloaded: {modelCacheSummary(cache)}</p>}
@@ -122,7 +144,11 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
                   </ul>
                 )}
                 {cached.length > 0 && (
-                  <ul className="diag-rows diag-cache" aria-label={`${engine.name} downloads`}>{cached.map(hfRow)}</ul>
+                  // A long list starts folded; a short one stays open so a single download is visible at once.
+                  <Section title="Downloads" count={cached.length} summary={formatDecimalBytes(cached.reduce((n, e) => n + e.size_bytes, 0))}
+                    storageKey={`diagnostics.modelgroup.engine.${engine.name}`} defaultOpen={cached.length <= LONG_LIST} keepFold>
+                    <ul className="diag-rows diag-cache scroll-box" aria-label={`${engine.name} downloads`}>{sortModels(cached, sort).map(hfRow)}</ul>
+                  </Section>
                 )}
               </li>
               )
@@ -130,7 +156,17 @@ export function ModelsList({ engines, cache, pc, onChanged, onGoTo, openSignal }
           </ul>
         </>
       )}
-      {group('Other downloaded models', 'Downloaded models', other.map(hfRow))}
+      {other.length > 0 && (
+        <>
+          <h2 className="subhead">Other downloaded models</h2>
+          {groupModels(other, sort).map((g) => (
+            <Section key={g.id} title={g.label} count={g.items.length} summary={formatDecimalBytes(g.totalBytes)}
+              storageKey={`diagnostics.modelgroup.${g.id}`} keepFold>
+              <ul className="diag-rows diag-cache scroll-box" aria-label={`${g.label} downloaded models`}>{g.items.map(hfRow)}</ul>
+            </Section>
+          ))}
+        </>
+      )}
       {cache && group('Other model files', 'Model files', cache.model_files.map((m) => (
         <li key={`${m.folder}:${m.name}`}>
           <span>{m.name} ({MODEL_FOLDER_LABELS[m.folder]}) · {formatDecimalBytes(m.size_bytes)}</span>
