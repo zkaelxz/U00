@@ -235,3 +235,17 @@ test('PC alerts save on leaving a field, skip an unchanged one, and keep a bad v
   await expect(gpu).toHaveValue('5')
   await expect(card.getByRole('spinbutton', { name: 'RAM: after (minutes)' })).toHaveCount(0) // fields hide while a rule is off
 })
+
+test('stacked cards on every Settings tab are never touching', async ({ page }) => {
+  await page.goto('/#/settings')
+  for (const tab of ['Engines and keys', 'Costs', 'Transcription and jobs', 'Connections', 'Updates', 'My account and look', 'Advanced']) {
+    await page.getByRole('tab', { name: tab }).or(page.getByRole('button', { name: tab, exact: true })).first().click()
+    const gaps = await page.evaluate(() => {
+      const cards = [...document.querySelectorAll('.card-fold')].filter((e) => !e.parentElement?.closest('.card') && e.getBoundingClientRect().height > 0)
+      const rects = cards.map((e) => e.getBoundingClientRect()).sort((a, b) => a.top - b.top)
+      return rects.slice(1).map((r, i) => Math.round(r.top - rects[i].bottom))
+    })
+    // A note between two cards may widen a gap; none may be under the page gap.
+    expect(Math.min(...gaps, 99), `${tab}: gaps ${gaps}`).toBeGreaterThanOrEqual(24)
+  }
+})
