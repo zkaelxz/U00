@@ -631,6 +631,57 @@ class TestScatteredLinesGetTheirOwnNeighbours:
         assert ("l9", "E9") in call["recent_context"]
         assert call["upcoming_lines"] == ["l18", "l19"]
 
+    def test_a_line_the_reply_left_out_is_re_asked_with_its_own_neighbours(self):
+        class LeavesOut(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                out = super().translate_batch(zh_lines, context)
+                return ["" if len(zh_lines) > 1 and z in ("l7", "l15") else t
+                        for z, t in zip(zh_lines, out)]
+
+        engine = LeavesOut()
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", id=100 + i) for i in range(20)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=20, context_window=2, context_window_ahead=1)
+        assert [c["zh_lines"] for c in engine.calls[1:]] == [["l7"], ["l15"]]
+        # The batch began at l0, so its own context was empty; the retry sees the lines
+        # around each left-out line, with the English the first reply gave them.
+        assert engine.calls[0]["recent_context"] == []
+        assert engine.calls[2]["recent_context"] == [("l13", "EN:l13"), ("l14", "EN:l14")]
+        assert engine.calls[2]["upcoming_lines"] == ["l16"]
+        assert [ln.en for ln in lines] == [f"EN:l{i}" for i in range(20)]
+
+    def test_a_left_out_line_is_shown_its_neighbours_english_after_the_reply_guard(self):
+        class ShiftsThenLeavesOut(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                out = super().translate_batch(zh_lines, context)
+                if len(zh_lines) == 1:
+                    return out
+                # l14 keeps source script, which the guard re-asks; l15 is left out.
+                return ["" if z == "l15" else t + " 未译" if z == "l14" else t
+                        for z, t in zip(zh_lines, out)]
+
+        engine = ShiftsThenLeavesOut()
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", id=100 + i) for i in range(20)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, engine, {}, batch_size=20, context_window=2, context_window_ahead=1)
+        assert [c["zh_lines"] for c in engine.calls[1:]] == [["l14"], ["l15"]]
+        assert engine.calls[2]["recent_context"] == [("l13", "EN:l13"), ("l14", "EN:l14")]
+        assert lines[14].en == "EN:l14" and lines[15].en == "EN:l15"
+
+    def test_a_re_asked_line_loses_an_echoed_label_and_a_listed_alternative(self):
+        class LabelsTheRetry(ContextCapturingEngine):
+            def translate_batch(self, zh_lines, context):
+                super().translate_batch(zh_lines, context)
+                if len(zh_lines) > 1:
+                    return ["" if z == "l1" else "Fine." for z in zh_lines]
+                return ["[Xiaoling] Strange. Or: Weird."]
+
+        lines = [Line(idx=i, start=0, end=1, zh=f"l{i}", speaker="SPEAKER_00", id=100 + i)
+                 for i in range(3)]
+        translate_pipeline.translate_lines_with_engine(
+            lines, LabelsTheRetry(), {}, batch_size=3, character_names={"SPEAKER_00": "Xiaoling"})
+        assert lines[1].en == "Strange."
+
     def test_a_contiguous_batch_gets_the_same_context_as_before(self):
         engine = ContextCapturingEngine()
         translate_pipeline.translate_lines_with_engine(
@@ -904,11 +955,76 @@ class TestRequestTranslationsWithRetry:
         result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model, max_retries=1)
         assert result == ["First.", ""]  # only the genuinely-missing line is blank
 
+    @pytest.mark.parametrize("shifted", ['{"0": "A.", "1": "B.", "2": "C."}',
+                                         '{"2": "A.", "3": "B.", "4": "C."}'])
+    def test_a_reply_numbered_from_0_or_shifted_by_one_is_asked_again(self, shifted):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            return shifted if len(calls) == 1 else '{"1": "A.", "2": "B.", "3": "C."}'
+        result = engine_shared.request_translations_with_retry(["a", "b", "c"], None, call_model)
+        assert result == ["A.", "B.", "C."]
+        assert len(calls) == 2
+
+    def test_a_retry_renumbered_from_1_is_not_written_onto_the_neighbours(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "A."}'
+            return '{"1": "B.", "2": "C."}'   # asked "2. 乙\n3. 丙", renumbered from 1
+        result = engine_shared.request_translations_with_retry(["甲", "乙", "丙"], None, call_model)
+        assert calls[1] == "2. 乙\n3. 丙"
+        assert result == ["A.", "", ""]
+
+    def test_a_made_up_key_after_a_retrys_last_line_keeps_its_good_answers(self):
+        calls = []
+
+        def call_model(numbered):
+            calls.append(numbered)
+            if len(calls) == 1:
+                return '{"1": "A."}'
+            return '{"2": "B.", "3": "C.", "4": "X."}'
+        result = engine_shared.request_translations_with_retry(["甲", "乙", "丙"], None, call_model)
+        assert result == ["A.", "B.", "C."]
+
+    def test_a_reply_shifted_every_time_leaves_the_lines_blank(self):
+        def call_model(numbered):
+            return '{"0": "A.", "1": "B.", "2": "C."}'
+        result = engine_shared.request_translations_with_retry(["a", "b", "c"], None, call_model)
+        assert result == ["", "", ""]
+
     def test_extra_unexpected_ids_in_the_response_are_ignored(self):
         def call_model(numbered):
             return '{"1": "First.", "2": "Second.", "47": "bogus extra"}'
         result = engine_shared.request_translations_with_retry(["a", "b"], None, call_model)
         assert result == ["First.", "Second."]
+
+    def test_saved_lines_are_numbered_1_to_n_and_land_back_by_that_number(self):
+        """Long database ids are never shown: the model answers short keys,
+        each mapped back to its own line, a retry asking the same number."""
+        prompts = []
+
+        class Engine:
+            supports_reference = True
+
+            def translate_batch(self, zh_lines, context):
+                def call_model(numbered):
+                    prompts.append(numbered)
+                    if len(prompts) == 1:
+                        return '{"3": "Third.", "1": "First."}'
+                    return '{"2": "Second."}'
+                return engine_shared.request_translations_with_retry(zh_lines, None, call_model)
+
+        lines = [Line(idx=i, start=i, end=i + 1, zh=z, id=100530 + i) for i, z in enumerate("abc")]
+        translate_pipeline.translate_lines_with_engine(lines, Engine(), {}, context_window=0,
+                                                       context_window_ahead=0)
+        assert [ln.en for ln in lines] == ["First.", "Second.", "Third."]
+        assert prompts[0] == "1. a\n2. b\n3. c"
+        assert prompts[1] == "2. b"
+        assert not any("10053" in p for p in prompts)
 
     def test_speaker_names_reach_the_numbered_lines_sent_to_the_model(self):
         captured = {}
@@ -1232,18 +1348,19 @@ class TestReflectTranslateBatch:
         assert "EXPRESSIVENESS" in engine.prompts[2]
         assert "critique" in engine.prompts[2]  # the rewrite pass sees the critique
 
-    def test_permanent_line_ids_are_kept_through_every_pass(self):
+    def test_every_pass_numbers_lines_from_1_not_by_database_id(self):
         engine = _ScriptedReflectEngine([
-            '{"101": "Draft one.", "205": "Draft two."}',
-            '{"101": "a critique"}',
-            '{"101": "Final one.", "205": "Final two."}',
+            '{"2": "Draft two.", "1": "Draft one."}',
+            '{"1": "a critique"}',
+            '{"2": "Final two.", "1": "Final one."}',
         ])
         translations, critiques = reflect_pass.reflect_translate_batch(
-            engine, ["你好", "再见"], {"line_ids": [101, 205]})
+            engine, ["你好", "再见"], {"line_ids": [100530, 100531]})
         assert translations == ["Final one.", "Final two."]
         assert critiques == ["a critique", ""]
         for prompt in engine.prompts:
-            assert "101." in prompt and "205." in prompt  # ids, not 1-based positions
+            assert "100530" not in prompt and "100531" not in prompt
+        assert "1. 你好" in engine.prompts[0] and "2. 再见" in engine.prompts[0]
 
     def test_a_missing_id_in_one_pass_only_affects_that_lines_result(self):
         # Line 2's faithfulness draft never comes back (even after the
@@ -1297,9 +1414,9 @@ class TestReflectModeInTranslateLinesWithEngine:
 
     def test_reflect_mode_writes_translations_and_notes(self):
         engine = _ScriptedReflectEngine([
-            '{"11": "Draft one.", "22": "Draft two."}',
-            '{"11": "a bit stiff"}',
-            '{"11": "Final one.", "22": "Final two."}',
+            '{"1": "Draft one.", "2": "Draft two."}',
+            '{"1": "a bit stiff"}',
+            '{"1": "Final one.", "2": "Final two."}',
         ])
         lines = [Line(idx=0, start=0, end=1, zh="你好", id=11),
                  Line(idx=1, start=1, end=2, zh="再见", id=22)]
@@ -1357,7 +1474,7 @@ class TestEmptyTranslationsAreErrors:
         assert len(errors) == 1
         assert errors[0]["lines"] == [0, 1, 2]
         assert "3 of 3 lines got no translation" in errors[0]["error"]
-        assert "smaller batch size" in errors[0]["error"]
+        assert "left them out" in errors[0]["error"]
         assert [l.en for l in lines] == ["old"] * 3
 
     def test_partial_reply_keeps_good_lines(self):
