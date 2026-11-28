@@ -108,3 +108,24 @@ def test_rebuild_keeps_hand_written_entries_and_applies_overrides(tmp_path, monk
     # Another pack of the language already has 鈴鈴, so its entry stays the only one.
     assert "鈴鈴" not in by_source and "铃铃" in by_source
     assert "院長" in (tmp_path / "review.md").read_text(encoding="utf-8")
+
+
+def test_the_agency_spelling_wins_and_wikidata_adds_the_other_languages_names():
+    pytest.importorskip("opencc")
+    row = {**vnp.parse_profile("sample-rin", "jp", PROFILE), "original": "範例りん", "nicknames": []}
+    official = [{"native": "範例りん", "en": "Hanrei Rin", "link": "https://agency.example/rin/", "agency": "Agency"},
+                {"native": "別の人", "en": "Betsu", "link": "https://agency.example/betsu/", "agency": "Agency"}]
+    wikidata = [{"qid": "Q1", "gender": "Female", "labels": {"en": ["Rin Hanrei"], "ja": ["範例りん"], "zh": ["范例铃"]}},
+                {"qid": "Q2", "gender": "Male", "labels": {"en": ["Only Wiki"], "zh-hant": ["只在維基"]}},
+                {"qid": "Q3", "gender": "", "labels": {"ja": ["英語なし"]}}]
+    kept, _ = vnp.filter_candidates(vnp.candidates([row], official, wikidata), _Words(), {"zh": set(), "ja": set()})
+    ja = {e["source"]: e for e in kept["ja"]}
+    zh = {e["source"]: e for e in kept["zh"]}
+    assert ja["範例りん"]["en"] == "Hanrei Rin" and ja["範例りん"]["link"] == "https://hololist.net/sample-rin/"
+    assert ja["別の人"]["link"] == "https://agency.example/betsu/"
+    # Wikidata's Chinese name for a Japanese VTuber Hololist knows keeps Hololist's link and the agency spelling.
+    assert zh["范例铃"]["en"] == zh["範例鈴"]["en"] == "Hanrei Rin" and zh["范例铃"]["link"].startswith("https://hololist.net/")
+    assert zh["只在維基"]["en"] == "Only Wiki" and "he/him" in zh["只在維基"]["note"]
+    assert zh["只在維基"]["link"] == "https://www.wikidata.org/wiki/Q2"
+    # No English label means no rendering to give, so the item adds nothing.
+    assert "英語なし" not in ja

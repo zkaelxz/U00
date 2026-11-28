@@ -158,6 +158,18 @@ def test_default_packs_are_the_streams_language_vtuber_packs():
     assert live_service._default_packs("ko") == {}
 
 
+def test_the_downloaded_vtuber_list_hints_only_when_nothing_is_picked(isolated_db, monkeypatch):
+    from services import vdb_names_service
+    monkeypatch.setattr(vdb_names_service, "entries_for_text", lambda text: [n for n in ("嘉然", "某某") if n in text])
+    plain = live_service._hint_function(None, None, "zh", default_packs=live_service._default_packs("zh"))
+    rows = plain(["嘉然和某某"])
+    # 嘉然 already has the names pack's English, so the list adds only the name the pack lacks.
+    assert [r[0] for r in rows if r[1] == live_service.KNOWN_NAME_HINT] == ["某某"]
+    assert ("嘉然", "Diana") in [r[:2] for r in rows]
+    did, _ = _title("zh")
+    assert all(r[1] != live_service.KNOWN_NAME_HINT for r in _hints(did)(["嘉然和某某"]))
+
+
 def test_nothing_is_written_to_the_title(isolated_db, monkeypatch):
     did, sid = _title()
     packs.set_title_packs(did, {"packs": {"ja-address": None}})

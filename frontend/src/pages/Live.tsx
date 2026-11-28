@@ -199,7 +199,7 @@ export default function LivePage({ initialUrl = '' }: { initialUrl?: string }) {
           <StreamLinkField value={url} maxLength={opts.max_url_len} disabled={active || busy} onChange={setUrl} />
           <LanguagePicker value={form.source_language} options={opts.languages} disabled={active || busy} onChange={changeLanguage} />
           <Field label="Use glossary and packs from"
-            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. Nothing is written to the library.">
+            help="Optional. The glossary always comes from a series. Pick a series (uses the packs of its newest title that has a pack choice) or a title (uses its series' glossary and its own packs). Terms found in the stream are sent with each translation. With None, the built-in VTuber names and stream terms (and the VTuber names list, if downloaded) are used instead. Nothing is written to the library.">
             <select value={glossaryPick} disabled={active || busy} data-testid="live-glossary-title"
               onChange={(e) => setPrefs({ ...savedPrefs, ...glossaryIds(e.target.value) })}>
               <option value="">None</option>

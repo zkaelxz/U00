@@ -54,7 +54,7 @@ from core import LANGUAGE_NAMES, SOURCE_LANGUAGES
 from lib import url_guard
 from services import (egress_proxy, job_stage_service, jobs_service, language_pack_service,
                       live_spend_service, ownership_service, run_settings_service, settings_service,
-                      translate_run_service, translate_service)
+                      translate_run_service, translate_service, vdb_names_service)
 from lib.errors import (
     ConflictError,
     DependencyUnavailableError,
@@ -94,6 +94,8 @@ DEFAULT_MAX_MINUTES = 60
 LIVE_DEFAULT_ENGINE = "ollama"
 # A glossary note is advice for a translator, not text to repeat per chunk.
 HINT_NOTE_CHARS = 120
+# The downloaded list holds names only, with no English spelling to give.
+KNOWN_NAME_HINT = "a VTuber's name: romanise it, never translate its meaning"
 MAX_SESSIONS = 32
 # Two streams share the one loaded Whisper and take turns (live_whisper._turn); a third would only add lag.
 MAX_LIVE_SESSIONS = 2
@@ -565,7 +567,8 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
     """`pack_title`: the title whose packs apply, or None for glossary only.
     `glossary_title`: set when the hints are for one title, so its own terms count too.
     `own_terms`: a followed channel's word list, which wins over a glossary entry for the same source text.
-    `default_packs`: {pack id: style} used when there is no `pack_title`."""
+    `default_packs`: {pack id: style} for a stream with no title or series picked; such a stream
+    also gets the downloaded VTuber name list, when there is one."""
     terms = (db.list_run_glossary_terms(glossary_title) if glossary_title
              else db.list_effective_glossary_terms(series_id) if series_id else [])
     own = [{"term_original": t["original"], "term_translation": t["translation"], "notes": ""} for t in own_terms]
@@ -590,6 +593,10 @@ def _hint_function(series_id, pack_title, source_language, glossary_title=None, 
         for e in entries:
             found.append((e["source"], e["en"], "; ".join(
                 p for p in (e["context"], e["note"]) if p)[:HINT_NOTE_CHARS]))
+        if default_packs is not None:
+            covered = [row[0] for row in found]
+            found.extend((name, KNOWN_NAME_HINT, "") for name in vdb_names_service.entries_for_text(text)
+                         if not any(name in c or c in name for c in covered))
         # Same cap the packs have; a glossary term is listed first, so it is
         # the one kept when the cap cuts.
         return [tuple(re.sub(r"\s+", " ", v) for v in row) for row in found[:language_packs.MAX_PROMPT_ENTRIES]]

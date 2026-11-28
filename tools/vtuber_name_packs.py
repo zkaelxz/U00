@@ -1,6 +1,8 @@
-"""Builds the VTuber name entries of the built-in language packs from Hololist profiles.
+"""Builds the VTuber name entries of the built-in language packs from Hololist profiles,
+the hololive and NIJISANJI talent lists, and Wikidata.
 
     python tools/vtuber_name_packs.py fetch --cache DIR [--refresh-max N]
+    python tools/vtuber_name_packs.py reference --cache DIR
     python tools/vtuber_name_packs.py build --cache DIR [--review FILE]
 
 `fetch` keeps a resumable cache of the public profile fields a names glossary needs
@@ -9,6 +11,9 @@ A run fetches every profile it has not seen, then re-checks up to N of the oldes
 so a weekly run picks up new debuts and renames without re-reading the whole site.
 Hololist's robots.txt disallows URLs with a query string, so only plain paths are read,
 one request every few seconds.
+
+`reference` saves the agencies' own spellings (DIR/official.json), which win over Hololist's,
+and every VTuber on Wikidata with its Japanese and Chinese names (DIR/wikidata.json, CC0).
 
 `build` turns the cache into entries of language_pack_data/{ja,zh}-vtuber-names.json. Entries
 without a `link` are hand-written and kept as they are; the generated ones are replaced.
@@ -40,6 +45,9 @@ DELAY_SECONDS = 2.5
 REFRESH_AFTER_DAYS = 28
 # A Zipf frequency (log10 per billion words) at or above this marks an ordinary word.
 COMMON_WORD_ZIPF = 2.5
+# Longer names are counted in the word lists because the VTuber is famous (キズナアイ), not
+# because they are ordinary words.
+MAX_CHECKED_LEN = 4
 NAV_SLUGS = {"about", "affiliations", "anniversary", "announcement", "birthday", "category", "contact",
              "content", "cookie-policy", "debut", "feeds", "gender", "language", "latest", "live", "mbti",
              "membership", "model", "newest", "news", "privacy-policy", "random", "retirement", "tags",
@@ -161,6 +169,63 @@ def fetch(cache_dir: Path, refresh_max: int):
     _save_cache(cache_dir, rows)
 
 
+WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
+WIKIDATA_VTUBER = "Q55155641"
+WIKIDATA_LANGS = ("en", "ja", "zh", "zh-hans", "zh-hant", "zh-tw", "zh-cn", "zh-hk")
+WIKIDATA_GENDER = {"Q6581072": "Female", "Q6581097": "Male"}
+HOLOLIVE_TALENTS = "https://hololive.hololivepro.com/en/talents/"
+NIJISANJI_TALENTS = "https://www.nijisanji.jp/talents"
+
+
+def _official(session) -> list:
+    """[{native, en, link, agency}] from the agencies' own talent lists: the spelling of record."""
+    out = []
+    body = _get(session, HOLOLIVE_TALENTS) or ""
+    for link, en, native in re.findall(
+            r'<a href="(https://hololive\.hololivepro\.com/en/talents/[^"/]+/)">.*?<h3>\s*(.*?)<span>(.*?)</span>',
+            body, re.S):
+        out.append({"native": _text(native), "en": _text(en), "link": link, "agency": "hololive production"})
+    body = _get(session, NIJISANJI_TALENTS) or ""
+    m = re.search(r'id="__NEXT_DATA__"[^>]*>(.*?)</script>', body, re.S)
+    for liver in (json.loads(m.group(1))["props"]["pageProps"].get("allLivers", []) if m else []):
+        if liver.get("name") and liver.get("enName") and liver.get("slug"):
+            out.append({"native": liver["name"].strip(), "en": liver["enName"].strip(),
+                        "link": f"https://www.nijisanji.jp/talents/l/{liver['slug']}", "agency": "NIJISANJI"})
+    return out
+
+
+def _wikidata(session) -> list:
+    """[{qid, gender, labels: {language: [label]}}] for every VTuber on Wikidata (CC0). Labels
+    only: an item's aliases can hold the real name of the person behind the avatar."""
+    langs = ", ".join(f'"{lang}"' for lang in WIKIDATA_LANGS)
+    query = f"""SELECT ?i ?text ?g WHERE {{
+      {{ ?i wdt:P106 wd:{WIKIDATA_VTUBER} }} UNION {{ ?i wdt:P31 wd:{WIKIDATA_VTUBER} }}
+      ?i rdfs:label ?text FILTER(LANG(?text) IN ({langs}))
+      OPTIONAL {{ ?i wdt:P21 ?g }} }}"""
+    resp = session.get(WIKIDATA_SPARQL, params={"query": query, "format": "json"}, timeout=120)
+    time.sleep(DELAY_SECONDS)
+    resp.raise_for_status()
+    items = {}
+    for b in resp.json()["results"]["bindings"]:
+        qid = b["i"]["value"].rsplit("/", 1)[-1]
+        item = items.setdefault(qid, {"qid": qid, "gender": "", "labels": {}})
+        item["gender"] = item["gender"] or WIKIDATA_GENDER.get(b.get("g", {}).get("value", "").rsplit("/", 1)[-1], "")
+        lang, text = b["text"]["xml:lang"], b["text"]["value"].strip()
+        item["labels"][lang] = [text]
+    return sorted(items.values(), key=lambda i: int(i["qid"][1:]))
+
+
+def fetch_reference(cache_dir: Path):
+    """The agencies' talent lists and the Wikidata VTubers, refreshed whole each run (three requests)."""
+    import requests
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    session = requests.Session()
+    session.headers["User-Agent"] = "glossary-builder (low-rate; respects robots.txt)"
+    for name, rows in (("official.json", _official(session)), ("wikidata.json", _wikidata(session))):
+        (cache_dir / name).write_text(json.dumps(rows, ensure_ascii=False, indent=0), encoding="utf-8")
+        print(f"{name}: {len(rows)}", flush=True)
+
+
 # --- build -----------------------------------------------------------------
 
 def _split_nickname(nickname):
@@ -225,11 +290,26 @@ def _note(row, nickname: bool) -> str:
     return ("; ".join(facts) + ". Keep the name as written; never turn it into he/she.")[:300]
 
 
-def candidates(rows):
-    """[(language, source, en, note, link, kind, slug)] before filtering."""
+def _native_names(row) -> set:
+    names = {row["original"], re.sub(r"[\s·・]", "", row["original"])}
+    names.update(p[1] for p in map(_split_nickname, row["nicknames"]) if p)
+    return {n for n in names if n}
+
+
+def candidates(rows, official=(), wikidata=()):
+    """[(language, source, en, note, link, kind, owner)] before filtering. An agency's own
+    spelling replaces Hololist's for the same name; Wikidata adds the other-language names
+    (Chinese names of Japanese VTubers, for one) and VTubers Hololist lacks."""
     import opencc
     converters = (opencc.OpenCC("t2s"), opencc.OpenCC("s2t"))
+    spelled = {o["native"]: o for o in official}
+    spelled.update({re.sub(r"\s", "", o["native"]): o for o in official})
     out = []
+    by_native = {}
+    for row in rows:
+        if row.get("platforms"):
+            for native in _native_names(row):
+                by_native.setdefault(native, row)
     for row in rows:
         if not row.get("platforms"):
             continue
@@ -250,10 +330,38 @@ def candidates(rows):
             fan_en = re.split(r"\s*[&/,]\s*", row["fanbase"])[0]
             names.append((row["fanbase_native"], f"{fan_en} ({row['name']}'s fans)", "fans"))
         for native, en, kind in names:
+            if kind == "name" and native in spelled:
+                en = spelled[native]["en"]
             note = (f"The fans of {row['name']}, a {COUNTRY[row['category']]} VTuber." if kind == "fans"
                     else _note(row, kind == "nickname"))
             for source in _variants(native, language, converters):
                 out.append((language, source, en, note, link, kind, row["slug"]))
+    hololist_named = {n for n, r in by_native.items() if r["original"]}
+    for o in official:
+        if o["native"] not in hololist_named and CJK.search(o["native"]):
+            note = f"VTuber; {o['agency']}. Keep the name as written; never turn it into he/she."
+            for native in {o["native"], re.sub(r"\s", "", o["native"])}:
+                out.append(("ja", native, o["en"], note, o["link"], "name", o["link"]))
+    for item in wikidata:
+        labels = item["labels"]
+        natives = [(lang, t) for lang, texts in labels.items() if lang != "en" for t in texts if CJK.search(t)]
+        row = next((by_native[t] for _, t in natives if t in by_native), None)
+        official_hit = next((spelled[t] for _, t in natives if t in spelled), None)
+        en = (official_hit["en"] if official_hit else row["name"] if row
+              else (labels.get("en") or [""])[0])
+        if not en or CJK.search(en):
+            continue
+        if row:
+            note, link, owner = _note(row, False), f"{SITE}/{row['slug']}/", row["slug"]
+        else:
+            facts = ["VTuber"] + ([_pronoun(item["gender"])] if _pronoun(item["gender"]) else [])
+            note = "; ".join(facts) + ". Keep the name as written; never turn it into he/she."
+            link = f"https://www.wikidata.org/wiki/{item['qid']}"
+            owner = official_hit["link"] if official_hit else item["qid"]
+        for lang, text in natives:
+            language = "ja" if lang == "ja" else "zh"
+            for source in _variants(text, language, converters):
+                out.append((language, source, en, note, link, "name", owner))
     return out
 
 
@@ -275,7 +383,7 @@ def filter_candidates(cands, words, taken):
             reason = "too long"
         elif len(owners) > 1 and not (c[5] == "name" and sum(1 for g in group if g[5] == "name") == 1):
             reason = "used by " + ", ".join(sorted(owners))
-        elif words.is_common(source, language):
+        elif len(source) <= MAX_CHECKED_LEN and words.is_common(source, language):
             reason = f"ordinary word (frequency {words.zipf(source, language):.1f})"
         if reason:
             held.append((language, source, c[2], c[4], reason))
@@ -299,7 +407,10 @@ def build(cache_dir: Path, review: Path):
         for language in ([other["language"]] if other["language"] in taken else list(taken)
                          if other["language"] == "any" else []):
             taken[language].update(e["source"] for e in other["entries"] if not e.get("link"))
-    kept, held = filter_candidates(candidates(rows), _Words(), taken)
+    reference = {name: json.loads((cache_dir / f"{name}.json").read_text(encoding="utf-8"))
+                 if (cache_dir / f"{name}.json").exists() else [] for name in ("official", "wikidata")}
+    kept, held = filter_candidates(candidates(rows, reference["official"], reference["wikidata"]),
+                                   _Words(), taken)
     for language, pack in packs.items():
         fixes = overrides.get(language, {})
         generated = []
@@ -313,7 +424,7 @@ def build(cache_dir: Path, review: Path):
         pack["version"] = pack["version"] + 1
         (PACK_DIR / f"{language}-vtuber-names.json").write_text(
             json.dumps(pack, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        print(f"{language}: {len(hand[language])} hand-written + {len(generated)} from Hololist", flush=True)
+        print(f"{language}: {len(hand[language])} hand-written + {len(generated)} generated", flush=True)
     if review:
         lines = ["| language | source | English | reason | profile |", "|---|---|---|---|---|"]
         lines += [f"| {lang} | {src} | {en} | {why} | {link} |" for lang, src, en, link, why in sorted(held)]
@@ -327,12 +438,16 @@ def main(argv=None):
     f = sub.add_parser("fetch")
     f.add_argument("--cache", type=Path, required=True)
     f.add_argument("--refresh-max", type=int, default=800)
+    r = sub.add_parser("reference")
+    r.add_argument("--cache", type=Path, required=True)
     b = sub.add_parser("build")
     b.add_argument("--cache", type=Path, required=True)
     b.add_argument("--review", type=Path)
     args = parser.parse_args(argv)
     if args.command == "fetch":
         fetch(args.cache, args.refresh_max)
+    elif args.command == "reference":
+        fetch_reference(args.cache)
     else:
         build(args.cache, args.review)
 
