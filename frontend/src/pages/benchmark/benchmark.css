@@ -259,6 +259,8 @@
 .bench-hand-test { display: grid; gap: var(--space-2); margin-top: var(--space-4); min-width: 0; }
 .bench-hand-test > p { margin: 0; font-size: var(--text-sm); }
 .bench-outdated td { color: var(--muted); }
-.bench-hand-test td:first-child { min-width: 10rem; }
 .bench-hand-test td:last-child { min-width: 16rem; }
 .bench-nowrap { white-space: nowrap; }
+/* Many columns: keep each readable and let the table scroll sideways instead of squeezing the model name. */
+.table-scroll .bench-wide { min-width: 44rem; }
+.bench-wide td:first-child { min-width: 11rem; }

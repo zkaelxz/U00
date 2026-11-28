@@ -12,7 +12,7 @@ export function ModelSummaryCard({ runs }: { runs: BenchmarkRun[] }) {
   if (rows.length === 0) return null
   return (
     <div className="table-scroll">
-      <table className="bench-table" aria-label="Model summary">
+      <table className="bench-table bench-wide" aria-label="Model summary">
         <caption className="muted">Average per model over the finished runs shown below. Ranks are within each stage (1 = best).</caption>
         <thead>
           <tr>

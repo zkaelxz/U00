@@ -54,7 +54,7 @@ function HandRunTable({ test }: { test: HandRunTest }) {
         {quality.judged && <p className="muted">Quality rank: {JUDGED} (1 = best; equal readings share a rank).</p>}
         <SortBar name={test.id} value={key} onChange={setSort} hide={[...(hasTime ? [] : ['speed' as const]), ...(hasCost ? [] : ['cost' as const])]} />
         <div className="table-scroll">
-          <table className="bench-table" aria-label={`Hand-run results: ${test.title}`}>
+          <table className="bench-table bench-wide" aria-label={`Hand-run results: ${test.title}`}>
             <thead>
               <tr>
                 <th>Model and setting</th>
