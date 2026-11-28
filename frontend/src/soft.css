@@ -85,3 +85,10 @@ html[data-style='soft'] .diag-card > .card-fold { padding: var(--space-4) var(--
 @media (max-width: 640px) { html[data-style='soft'] .review-toolbox { padding: var(--space-4) var(--space-5); } }
 html[data-style='soft'] .check-queue-footer { padding: var(--space-4) var(--space-5); }
 html[data-style='soft'] .check-queue-footer { background: var(--surface); border: 0; border-radius: var(--radius-panel); box-shadow: var(--soft-lift); }
+
+/* Diagnostics and Admin panes are plain sections in Frost; Soft boxes each one like a Card, and what sits inside a
+   boxed section (a kept fold) stays flat so it is not a box in a box. */
+html[data-style='soft'] .diag-card:not(:has(> .card-fold)),
+html[data-style='soft'] .admin-card-slot { background: var(--surface); border-radius: var(--radius-panel); box-shadow: var(--soft-lift); padding: var(--space-4) var(--space-5); }
+html[data-style='soft'] .diag-card details.section,
+html[data-style='soft'] .admin-card-slot details.section { background: none; box-shadow: none; border-radius: 0; padding-inline: 0; }
