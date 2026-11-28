@@ -51,6 +51,12 @@ _MEMORY = "warm-memory"
 # A worker whose own GPU memory, idle, has grown this much past its first idle
 # reading is retired: a fresh one starts from its first reading again.
 GROWTH_LIMIT_MB = 1024.0
+# The worker's own memory grew about 210 MB with every job, outside torch, on the
+# V100 (2708, 2926, 3148, 3350 MB idle after jobs 1-4), and Windows' WDDM driver
+# gives nvidia-smi no per-process reading, so GROWTH_LIMIT_MB may never see the
+# growth there. A worker that has served this many jobs is retired, which holds
+# the growth within GROWTH_LIMIT_MB, the share card_budget gives it.
+MAX_JOBS_PER_WORKER = 5
 
 
 # The card's total memory, read once outside the job lock (transcription_key)
@@ -441,7 +447,9 @@ class _Worker:
             job_process_kill._kill_worker_group(self.proc)
         self.release()
         if self.started:
-            _log(f"warm worker pid {self.proc.pid} retired ({reason}){_vram_note()}")
+            own = f", own {self.held_mb:.0f} MB" if self.held_mb else ""
+            _log(f"warm worker pid {self.proc.pid} retired ({reason}), {self.jobs} jobs served{own}"
+                 f"{_vram_note()}")
 
 
 _lock = threading.Lock()
@@ -728,6 +736,8 @@ class WarmJob:
                 reason = "every GPU slot is taken"
             elif len(_workers) > budget:
                 reason = "the card can't carry this many warm workers"
+            elif worker.jobs >= MAX_JOBS_PER_WORKER:
+                reason = f"it has served {worker.jobs} jobs"
             else:
                 reason = grew
             if reason and worker in _workers:

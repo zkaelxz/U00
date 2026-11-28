@@ -845,3 +845,17 @@ def test_a_worker_the_budget_no_longer_allows_is_retired_when_it_goes_idle(monke
     assert _wait_end("warm_shrunk")["status"] == "done"
     assert _wait_gone(pid)
     assert _one() is None
+
+
+def test_a_worker_that_has_served_its_jobs_is_retired_and_says_so(monkeypatch):
+    # Windows reports no per-process memory, so the growth limit can't see what each job adds.
+    monkeypatch.setattr(warm_worker, "_process_used_mb", lambda pid: None)
+    logged = []
+    monkeypatch.setattr(warm_worker, "_log", logged.append)
+    n = warm_worker.MAX_JOBS_PER_WORKER
+    pids = [_run(f"warm_served_{i}", tagged_worker, (str(i), False))["result"]["pid"] for i in range(n)]
+    assert len(set(pids)) == 1
+    assert _wait_gone(pids[0]) and _one() is None
+    assert any(f"retired (it has served {n} jobs), {n} jobs served" in line for line in logged), logged
+    after = _run("warm_served_after", tagged_worker, ("after", False))
+    assert after["result"]["runs_here"] == 1
