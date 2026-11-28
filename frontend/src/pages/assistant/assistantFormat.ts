@@ -38,7 +38,7 @@ export function consentEngineOf(e: unknown): string | null {
 
 function consentNeededText(engine: string): string {
   const name = engine ? humanize('engine', engine) : 'that engine'
-  return `Sending this app's code and logs to ${name} isn't allowed yet. Allow it below (Engine), or use Ollama to keep everything on this PC.`
+  return `Sending this app's code and logs to ${name} isn't allowed yet. Allow it below (Engine).`
 }
 
 export function assistantErrorText(e: unknown): string {
