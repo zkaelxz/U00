@@ -369,7 +369,7 @@ def cmd_verify_seed(args) -> int:
     drama = db.get_drama(args.id)
     if drama is None or drama["title_en"] != SEED_TITLE:
         return _fail(f"title {args.id} is gone or changed: {drama and dict(drama)}")
-    got = [(line.zh, line.en) for line in db.load_lines(args.id)]
+    got = [(line["zh"], line["en"]) for line in db.load_lines(args.id)]
     if got != list(SEED_LINES):
         return _fail(f"title {args.id}'s lines changed: {got}")
     print(f"Title {args.id} and its {len(got)} lines survived.")
