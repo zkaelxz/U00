@@ -27,14 +27,17 @@ from lib.safe_paths import plain_file_in
 _HEADING_END = r"(?=\s|[:：.\-–—】\]］〕]|$)"
 _CJK_NUMBER = r"[0-9０-９零〇一二三四五六七八九十百千两兩]+"
 _CHAPTER_HEADING_RE = re.compile(
-    r"^\s*(?:[☆★◆◇●○■□※◎♦]+\s*)?(?:正文\s*)?[【\[［〔]?\s*"
+    r"^\s*(?:[☆★◆◇●○■□※◎♦]+\s*)?(?:正文\s*)?(?:卷\s*" + _CJK_NUMBER + r"\s+)?[【\[［〔]?\s*"
     r"(第\s*" + _CJK_NUMBER + r"\s*[章回节節卷]|"
     r"(?:第\s*" + _CJK_NUMBER + r"\s*[話话部篇集幕]|"
-    r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|卷\s*" + _CJK_NUMBER + r"|"
+    r"제\s*[0-9０-９]+\s*[장화권부]|[0-9０-９]+\s*화|"
     r"番外篇?\s*" + _CJK_NUMBER + r"|最[終终][話话章回]|"
     r"终章|終章|プロローグ|エピローグ|幕間|閑話|闲话|間章|间章|後日談|后日谈|"
-    r"프롤로그|에필로그|외전|서장|종장|후기|작가의\s*말|"
+    r"프롤로그|에필로그|외전|서장|종장|"
     r"序章|序言|楔子|引子|尾声|尾聲|后记|後記|番外篇?)" + _HEADING_END + "|"
+    # Afterword words open ordinary Korean sentences too ("후기 좋았어요"): only alone on the
+    # line, or before a separator or bracket.
+    r"(?:후기|작가의\s*말)(?=\s*(?:[:：.\-–—】\]］〕]|$))|"
     r"(?P<english>(chapter\s+\S+|episode\s+\S+|ep\.?\s*\d+|ch\.\s*\d+|prologue|epilogue)"
     r"\s*(?:[:：.\-–—\]]|$)))", re.IGNORECASE)
 _CHAPTER_HEADING_MAX_CHARS = 60
@@ -81,7 +84,8 @@ def is_heading_text(text: str) -> bool:
 # A volume heading groups chapters (第二卷, 제2권, "Volume 2: Title"); the same
 # length and punctuation limits keep an ordinary sentence from matching.
 _VOLUME_HEADING_RE = re.compile(
-    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|제\s*[0-9０-９]+\s*[권부]|"
+    r"^\s*(第\s*[0-9０-９零〇一二三四五六七八九十百千两兩]+\s*[卷部篇]|卷\s*" + _CJK_NUMBER + r"|"
+    r"제\s*[0-9０-９]+\s*[권부]|"
     r"(?:volume|vol\.?|book|part)\s+[0-9ivxIVX]+)" + _HEADING_END, re.IGNORECASE)
 
 
