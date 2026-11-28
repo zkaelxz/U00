@@ -15,7 +15,7 @@ from lib.errors import UnsupportedOperationError
 from tests.test_live_service import _start, _terminal, live  # noqa: F401  (the live fixture)
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
+pytestmark = pytest.mark.usefixtures("isolated_db")
 
 
 class _PaidEngine:
