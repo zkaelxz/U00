@@ -14,9 +14,6 @@ from lib.errors import (InvalidInputError, NotFoundError,
 from tests.saved_settings import patch_setting
 
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default")
-
-
 def _drama(**fields):
     return db.create_drama(title_zh="D", **fields)
 
@@ -320,7 +317,7 @@ def _started_run_sizes(monkeypatch, did, **sizes):
 def test_new_run_uses_the_defaults_and_explicit_sizes_are_kept(isolated_db, monkeypatch):
     did = _drama()
     _seed(did, [("你好", "")])
-    assert _started_run_sizes(monkeypatch, did) == (10, 6, 30)
+    assert _started_run_sizes(monkeypatch, did) == (10, 6, 90)
     assert _started_run_sizes(monkeypatch, did, context_window=6, context_window_ahead=3,
                               batch_size=20) == (6, 3, 20)
 

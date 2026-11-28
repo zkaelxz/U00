@@ -469,14 +469,6 @@ def _template_library(tmp_path_factory):
 
 
 @pytest.fixture
-def local_ollama_default(isolated_db):
-    """Makes Ollama's default a model on this PC (qwen3:4b), for a test that is
-    about the free, GPU-bound path; the built-in default is hosted and billed."""
-    from engine_backends import engine_registry
-    isolated_db.set_app_setting(engine_registry.MODEL_OVERRIDE_DEFAULTS_KEY, {"ollama": "qwen3:4b"})
-
-
-@pytest.fixture
 def isolated_db(_template_library):
     """Redirects db.py to a fresh temp directory for the duration of
     one test, then cleans up afterward. Use this fixture in any test

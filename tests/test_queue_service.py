@@ -16,7 +16,7 @@ from lib.errors import ConflictError, ForbiddenError, InvalidInputError, NotFoun
 from services import (auth_service, queue_service as q, settings_service, transcribe_service,
                       translate_run_service)
 
-pytestmark = pytest.mark.usefixtures("local_ollama_default", "free_engine")
+pytestmark = pytest.mark.usefixtures("free_engine")
 
 
 WAIT = 10
