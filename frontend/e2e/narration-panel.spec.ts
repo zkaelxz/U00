@@ -37,8 +37,8 @@ test('narration chunk-and-tag needs a confirmation before replacing lines', asyn
     await route.fulfill({ status: 409, json: { error: { code: 'conflict', message: 'Already running.' } } })
   })
   await page.goto('/#/drama/1/source')
-  await page.getByText('Chunk and tag speakers', { exact: true }).click()
-  const start = page.getByRole('button', { name: 'Chunk and tag' })
+  await page.getByText('Split into lines and name speakers', { exact: true }).click()
+  const start = page.getByRole('button', { name: 'Split and name speakers' })
   await expect(start).toBeDisabled()
   await page.getByLabel('Replace the 12 existing lines').check()
   await start.click()
@@ -71,9 +71,9 @@ test('narration Start over sends ?fresh=true only while it is on, and a resumed 
       },
     }))
   await page.goto('/#/drama/1/source')
-  await page.getByText('Chunk and tag speakers', { exact: true }).click()
+  await page.getByText('Split into lines and name speakers', { exact: true }).click()
   const startOver = page.getByRole('switch', { name: 'Start over' })
-  const start = page.getByRole('button', { name: 'Chunk and tag' })
+  const start = page.getByRole('button', { name: 'Split and name speakers' })
   await expect(startOver).toHaveAttribute('aria-checked', 'false')
 
   await start.click()
